@@ -14,15 +14,29 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 - `.github/ISSUE_TEMPLATE/*`: Epic、Task、Review finding。
 - `scripts/check-docs.mjs`: 文書チェック。
 - `package.json`: `npm run docs:check`。
+- `wrangler.jsonc`: Cloudflare Workerの最小デプロイ設定。
+- `apps/worker/src/index.ts`: 初回デプロイ確認用の健康チェックWorker。
 
 ## まだ必要な外部設定
 
 - GitHub Codespacesをリポジトリで有効化する。
 - Branch protectionを設定し、`Docs CI` を必須にする。
-- CloudflareアカウントとPages/Workersプロジェクトを作成する。
+- CloudflareアカウントとWorkersプロジェクトを作成する。
 - Supabase東京リージョンのプロジェクトを作成する。
 - Stripe test modeのPayment Link/Webhook設定を用意する。
 - GitHub SecretsまたはCloudflare Secretsへsecretを登録する。
+
+## Cloudflare Workers Git連携の初期設定
+
+Cloudflareの `Set up your application` 画面では次を使います。
+
+```text
+Project name: meccha-manual
+Build command: npm run docs:check
+Deploy command: npx wrangler deploy
+```
+
+この段階のWorkerは健康チェックのみを返します。Supabase、Browser Run、StripeはPhase 1以降でsecretとbindingを追加してから接続します。
 
 ## 推奨Branch運用
 
