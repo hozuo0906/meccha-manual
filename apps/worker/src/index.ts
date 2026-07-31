@@ -249,6 +249,8 @@ async function supabaseFetch(
 
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
+  } else {
+    headers.set("authorization", `Bearer ${config.anonKey}`);
   }
 
   if (init.body && !headers.has("content-type")) {
