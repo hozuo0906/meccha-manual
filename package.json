@@ -6,7 +6,8 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "docs:check": "node scripts/check-docs.mjs",
-    "check": "npm run docs:check"
+    "worker:check": "node scripts/check-worker.mjs",
+    "check": "npm run docs:check && npm run worker:check"
   },
   "devDependencies": {}
 }
