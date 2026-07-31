@@ -1,0 +1,63 @@
+name: Discord Notify Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Send Discord test notification
+    runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+    steps:
+      - name: Validate Discord webhook secret
+        shell: bash
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "::error title=Missing DISCORD_WEBHOOK_URL::GitHub Secret DISCORD_WEBHOOK_URL is not configured. Add it under repository secrets before running this workflow."
+            exit 1
+          fi
+
+      - name: Send Discord notification
+        shell: bash
+        env:
+          NOTIFY_REPOSITORY: ${{ github.repository }}
+          NOTIFY_BRANCH: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          content = "\n".join([
+              "めっちゃマニュアル 開発通知",
+              "- 種別: 通知テスト",
+              f"- リポジトリ: {os.environ['NOTIFY_REPOSITORY']}",
+              f"- ブランチ: {os.environ['NOTIFY_BRANCH']}",
+              "- 実行者: GitHub Actions",
+              "- 結果: OK",
+          ])
+
+          with open("discord-payload.json", "w", encoding="utf-8") as payload:
+              json.dump({"content": content}, payload, ensure_ascii=False)
+          PY
+
+          http_code="$(
+            curl --silent --show-error \
+              --output /tmp/discord-notify-response.txt \
+              --write-out "%{http_code}" \
+              --header "Content-Type: application/json" \
+              --request POST \
+              --data @discord-payload.json \
+              --url "$DISCORD_WEBHOOK_URL"
+          )"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error title=Discord notification failed::Discord webhook returned HTTP ${http_code}."
+            exit 1
+          fi
+
+          echo "Discord notification test completed."
