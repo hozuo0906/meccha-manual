@@ -7,6 +7,7 @@
     "deploy": "wrangler deploy",
     "docs:check": "node scripts/check-docs.mjs",
     "worker:check": "node scripts/check-worker.mjs",
+    "test:rls": "node scripts/rls-negative-test.mjs",
     "check": "npm run docs:check && npm run worker:check"
   },
   "devDependencies": {}
