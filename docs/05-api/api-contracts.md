@@ -14,6 +14,7 @@ Status: Proposed
 
 | API | 目的 | 認可 |
 |---|---|---|
+| `GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public, secret値は返さない |
 | `POST /v1/workspaces` | ワークスペース作成 | authenticated |
 | `GET /v1/workspaces/{id}` | ワークスペース取得 | member |
 | `POST /v1/workspaces/{id}/invitations` | 招待 | owner/admin |

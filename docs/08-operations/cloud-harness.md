@@ -38,6 +38,12 @@ Deploy command: npx wrangler deploy
 
 この段階のWorkerは健康チェックのみを返します。Supabase、Browser Run、StripeはPhase 1以降でsecretとbindingを追加してから接続します。
 
+Supabaseの初期環境変数を設定した後は、次のURLで設定有無だけ確認します。キーの値そのものは返しません。
+
+```text
+https://<worker-url>/health/config
+```
+
 ## 推奨Branch運用
 
 - `main`: 常に正本。
