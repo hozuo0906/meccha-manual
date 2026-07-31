@@ -44,6 +44,8 @@ Supabaseの初期環境変数を設定した後は、次のURLで設定有無だ
 https://<worker-url>/health/config
 ```
 
+`SUPABASE_URL` と `SUPABASE_ANON_KEY` は公開前提の値なので、初期段階では `wrangler.jsonc` の `vars` にも定義します。`SUPABASE_SERVICE_ROLE_KEY`、DBパスワード、JWT Secret、接続文字列は絶対に `vars` やGitへ入れず、Cloudflare Secretで管理します。
+
 ## 推奨Branch運用
 
 - `main`: 常に正本。
