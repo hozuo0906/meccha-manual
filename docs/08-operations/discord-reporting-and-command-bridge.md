@@ -34,6 +34,23 @@ staging/productionの承認ゲートでは、通知先の取り違えを防ぐ�
 
 productionで通知Secretが未設定の場合、deployment gateはfail closedにする。
 
+## Side task handoff
+
+Discord通知ハーネスのサイドタスク:
+
+- task id: `019fb8ec-ee4f-7370-ab5f-0b61fb09f931`
+- repo: `https://github.com/hozuo0906/meccha-manual.git`
+- branch: `feature/discord-notify-test`
+- scope: `.github/workflows` と `docs/08-operations`
+
+サイドタスクのルール:
+
+- mainへ直接pushしない。
+- `DISCORD_WEBHOOK_URL` の値を聞かない。
+- Webhook URL、token、secretをログやMarkdownに書かない。
+- サイド側の成果はPRで合流する。
+- メインセッションのADR、decision-log、運用docsを正本にする。
+
 ## Notification policy
 
 Discordへ送ってよいもの:
