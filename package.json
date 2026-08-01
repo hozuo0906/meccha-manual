@@ -8,6 +8,7 @@
     "docs:check": "node scripts/check-docs.mjs",
     "migrations:check": "node scripts/check-migrations.mjs",
     "worker:check": "node scripts/check-worker.mjs",
+    "workflows:check": "node scripts/check-workflows.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
     "test:phase2": "node scripts/phase2-smoke-test.mjs",
     "notify:discord": "node scripts/discord-notify.mjs",
@@ -17,7 +18,7 @@
     "discord:register-command:dry-run": "node scripts/register-discord-command.mjs --dry-run",
     "discord:register-command:check": "node --check scripts/register-discord-command.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

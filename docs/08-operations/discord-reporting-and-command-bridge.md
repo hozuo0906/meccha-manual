@@ -60,7 +60,9 @@ Discordへ送ってよいもの:
 - 対象branch
 - commit short SHA
 - GitHub Actions run URL
+- PR URL
 - 作業完了の要約
+- Codex所感
 - P0/P1レビュー結果の件数
 
 Discordへ送らないもの:
@@ -81,6 +83,28 @@ Discordへ送らないもの:
 - `Deployment Gates` workflowはstaging/production通知成功を必須にする。
 - 通知送信は10秒timeout、最大2回試行にする。
 - Discord APIのエラー本文はログへ出さない。
+
+## Japanese notification tone
+
+Discord通知は日本語を基本にする。
+
+- タイトルは「文書・品質チェック」「自動PR」「デプロイ承認ゲート」のように、日本人オフィスワーカーがすぐ判断できる文言にする。
+- embed field名は `Codex所感`、`環境`、`リポジトリ`、`ブランチ`、`実行者`、`イベント`、`コミット` を使う。
+- `Codex所感` には、成功/失敗だけでなく「次に何を見るべきか」を短く書く。
+- secret、token、個人情報、長いログ全文は所感にも含めない。
+
+## Discord reply intake
+
+既存のDiscord Webhook通知は送信用であり、ユーザーの通常返信をそのまま受信してCodexを動かす用途には使わない。
+Discordから稼働させる入口は次の優先順位にする。
+
+1. Slash Command / Interaction: 推奨。Cloudflare Worker endpointで署名検証し、GitHub Issueへ変換する。
+2. Button / Modal Interaction: 将来候補。PR通知に「レビュー依頼」「修正依頼」ボタンを付ける場合に使う。
+3. Bot Gateway: 通常メッセージ返信を拾う場合の候補。ただし常時WebSocket接続、Bot token、権限、message content intent、再接続運用が必要になるため初期方式にしない。
+
+つまり「Discordへの返信で動く」には、Webhookだけでは足りない。
+軽く安全に始めるなら `/meccha task` のSlash Commandを使う。
+自然文の通常返信を拾うBotは、必要性が固まってから別Phaseで設計する。
 
 ## Command intake
 

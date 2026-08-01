@@ -39,5 +39,6 @@ jobs:
           DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
           DISCORD_NOTIFY_ENV: development
           DISCORD_NOTIFY_STATUS: ${{ job.status }}
-          DISCORD_NOTIFY_TITLE: Docs CI / Validate docs
+          DISCORD_NOTIFY_TITLE: 文書・品質チェック
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'チェックは通っています。PR差分とレビュー観点を見て、問題なければmerge判断に進めます。' || 'チェックで失敗しています。Actionsログを確認して、原因を直してからmerge判断します。' }}
         run: npm run notify:discord

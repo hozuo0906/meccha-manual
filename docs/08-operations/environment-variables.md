@@ -50,6 +50,10 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `DISCORD_DEVELOPMENT_WEBHOOK_URL` | secret | 開発用Discord通知URL | harness | no |
 | `DISCORD_STAGING_WEBHOOK_URL` | secret | staging gate用Discord通知URL | harness | no |
 | `DISCORD_PRODUCTION_WEBHOOK_URL` | secret | production gate用Discord通知URL | harness | no |
+| `DISCORD_NOTIFY_TITLE` | server | Discord通知タイトル。日本語推奨 | harness | no |
+| `DISCORD_NOTIFY_DESCRIPTION` | server | Discord通知の説明文またはURL | harness | no |
+| `DISCORD_NOTIFY_URL` | server | Discord通知embedのリンク先 | harness | no |
+| `DISCORD_NOTIFY_IMPRESSION` | server | Discord通知へ載せるCodex所感 | harness | no |
 | `DISCORD_PUBLIC_KEY` | secret/server | Discord Interaction署名検証 | discord-bridge | no |
 | `DISCORD_ALLOWED_GUILD_IDS` | server | 許可Discord server IDのカンマ区切り | discord-bridge | no |
 | `DISCORD_ALLOWED_CHANNEL_IDS` | server | 許可Discord channel IDのカンマ区切り | discord-bridge | no |

@@ -33,16 +33,47 @@ function selectWebhook() {
 }
 
 function statusLabel(status) {
-  if (status === "success") return "success";
-  if (status === "failure") return "failure";
-  if (status === "cancelled") return "cancelled";
-  return status || "unknown";
+  if (status === "success") return "成功";
+  if (status === "failure") return "失敗";
+  if (status === "cancelled") return "キャンセル";
+  return status || "不明";
 }
 
 function statusColor(status) {
   if (status === "success") return 0x2da44e;
   if (status === "failure") return 0xcf222e;
   return 0x9a6700;
+}
+
+function environmentLabel(environment) {
+  if (environment === "development") return "開発";
+  if (environment === "staging") return "ステージング";
+  if (environment === "production") return "本番";
+  return environment || "不明";
+}
+
+function defaultImpression(status, title) {
+  if (process.env.DISCORD_NOTIFY_IMPRESSION) {
+    return process.env.DISCORD_NOTIFY_IMPRESSION;
+  }
+
+  if (status === "success" && title.includes("Auto PR")) {
+    return "PRの準備はできています。リンク先で差分とチェック結果を見て、問題なければmerge判断に進めます。";
+  }
+
+  if (status === "success") {
+    return "自動チェックは通っています。次はPR差分、権限、秘密情報混入がないかを確認します。";
+  }
+
+  if (status === "failure") {
+    return "対応が必要です。まずActionsログで失敗箇所を確認し、P0/P1ならmerge前に修正します。";
+  }
+
+  if (status === "cancelled") {
+    return "実行がキャンセルされました。新しいpushや手動再実行があれば、そちらを優先して確認します。";
+  }
+
+  return "状態が不明です。GitHub Actionsの実行詳細を確認します。";
 }
 
 function buildPayload() {
@@ -57,13 +88,14 @@ function buildPayload() {
   const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
   const explicitUrl = process.env.DISCORD_NOTIFY_URL || "";
   const description = process.env.DISCORD_NOTIFY_DESCRIPTION || "";
+  const impression = defaultImpression(status, title);
   const runUrl = runId && process.env.GITHUB_REPOSITORY
     ? `${serverUrl}/${repository}/actions/runs/${runId}`
     : undefined;
   const targetUrl = explicitUrl || runUrl;
 
   return {
-    username: "meccha-manual Dev Bot",
+    username: "めっちゃマニュアル 開発Bot",
     allowed_mentions: {
       parse: []
     },
@@ -74,12 +106,13 @@ function buildPayload() {
         ...(description ? { description } : {}),
         color: statusColor(status),
         fields: [
-          { name: "Environment", value: notifyEnv, inline: true },
-          { name: "Repository", value: repository, inline: true },
-          { name: "Ref", value: refName, inline: true },
-          { name: "Actor", value: actor, inline: true },
-          { name: "Event", value: eventName, inline: true },
-          { name: "Commit", value: sha ? sha.slice(0, 7) : "unknown", inline: true }
+          { name: "Codex所感", value: impression, inline: false },
+          { name: "環境", value: environmentLabel(notifyEnv), inline: true },
+          { name: "リポジトリ", value: repository, inline: true },
+          { name: "ブランチ", value: refName, inline: true },
+          { name: "実行者", value: actor, inline: true },
+          { name: "イベント", value: eventName, inline: true },
+          { name: "コミット", value: sha ? sha.slice(0, 7) : "不明", inline: true }
         ],
         timestamp: new Date().toISOString()
       }
