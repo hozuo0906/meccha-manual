@@ -43,5 +43,6 @@ jobs:
           DISCORD_NOTIFY_ENV: ${{ inputs.target_environment }}
           DISCORD_NOTIFY_REQUIRED: "true"
           DISCORD_NOTIFY_STATUS: success
-          DISCORD_NOTIFY_TITLE: Discord notification smoke test
+          DISCORD_NOTIFY_TITLE: Discord通知テスト
+          DISCORD_NOTIFY_IMPRESSION: Discord通知の疎通は取れています。このチャンネルで開発状況を追えます。
         run: npm run notify:discord

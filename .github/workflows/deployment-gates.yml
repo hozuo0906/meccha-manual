@@ -44,5 +44,6 @@ jobs:
           DISCORD_NOTIFY_ENV: ${{ inputs.target_environment }}
           DISCORD_NOTIFY_REQUIRED: "true"
           DISCORD_NOTIFY_STATUS: ${{ job.status }}
-          DISCORD_NOTIFY_TITLE: Deployment gate
+          DISCORD_NOTIFY_TITLE: デプロイ承認ゲート
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && '承認ゲートのチェックは通っています。本番反映はユーザーの明示承認を確認してから進めます。' || '承認ゲートで失敗しています。staging/productionの設定とActionsログを確認します。' }}
         run: npm run notify:discord
