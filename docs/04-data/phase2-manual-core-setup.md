@@ -14,6 +14,7 @@ Phase 2では、手順書サービスとして成立するためのDB土台を�
 
 ```text
 supabase/migrations/202608020001_phase2_manual_core.sql
+supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
 ```
 
 前提migration:

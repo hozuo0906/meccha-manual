@@ -659,6 +659,8 @@ begin
   )
   returning id into new_revision_id;
 
+  perform set_config('app.manual_publish_context', 'on', true);
+
   update public.manuals
   set current_draft_revision_id = new_revision_id
   where id = new_manual_id;

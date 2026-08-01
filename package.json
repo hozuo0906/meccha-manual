@@ -9,6 +9,7 @@
     "migrations:check": "node scripts/check-migrations.mjs",
     "worker:check": "node scripts/check-worker.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
+    "test:phase2": "node scripts/phase2-smoke-test.mjs",
     "check": "npm run docs:check && npm run worker:check && npm run migrations:check"
   },
   "devDependencies": {}
