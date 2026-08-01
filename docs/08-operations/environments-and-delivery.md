@@ -45,6 +45,8 @@ productionのservice role key、DB password、JWT Secret、connection stringはM
 - `feature/*`: 機能単位。
 - `review/*`: 辛口レビュー、リファクタリング修正。
 
+PR運用の正本は `docs/09-delivery/pr-workflow.md` とする。
+
 推奨必須チェック:
 
 - `Validate docs`
