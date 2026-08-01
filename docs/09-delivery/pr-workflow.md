@@ -13,7 +13,7 @@ Status: Accepted
 2. 変更を実装する。
 3. ローカルで `npm run check` を通す。
 4. branchをGitHubへpushする。
-5. Pull Requestを作る。
+5. `.github/workflows/auto-pr.yml` がPull Requestを自動作成または更新する。
 6. GitHub Actionsの必須チェックを通す。
 7. 辛口レビュー、リファクタリングレビュー、テストレビューの指摘を潰す。
 8. ユーザー承認後にmergeする。
@@ -51,6 +51,18 @@ Status: Accepted
 サイドタスクはmainへ直接pushしない。
 サイドタスクがbranchを持つ場合はPRを作る。
 メインセッションはPR差分をレビューし、採用、修正、却下を判断する。
+
+## Auto PR
+
+AI駆動開発でユーザーにPR作成作業を毎回戻さないため、`feature/*`、`fix/*`、`review/*`、`chore/*`、`phase/*` のpush時にPRを自動作成する。
+
+- workflow: `.github/workflows/auto-pr.yml`
+- base branch: `main`
+- 新規PRを作成した場合も、既存open PRを検出した場合もDiscordへPR URLを通知する。
+- 既存open PRがある場合はPR本文を上書きしない。
+- mainへの直接pushは対象外。
+- production deploy、DB migration、課金、AI API有効化、共有リンク公開はauto PRだけでは承認済みにしない。
+- GitHub Actions側でPR作成に失敗する場合は、repository settingsでActionsのworkflow permissionsがread/writeか確認する。
 
 Discord通知サイドタスク:
 

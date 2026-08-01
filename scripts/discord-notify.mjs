@@ -55,9 +55,12 @@ function buildPayload() {
   const eventName = process.env.GITHUB_EVENT_NAME || "unknown";
   const runId = process.env.GITHUB_RUN_ID || "";
   const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
+  const explicitUrl = process.env.DISCORD_NOTIFY_URL || "";
+  const description = process.env.DISCORD_NOTIFY_DESCRIPTION || "";
   const runUrl = runId && process.env.GITHUB_REPOSITORY
     ? `${serverUrl}/${repository}/actions/runs/${runId}`
     : undefined;
+  const targetUrl = explicitUrl || runUrl;
 
   return {
     username: "meccha-manual Dev Bot",
@@ -67,7 +70,8 @@ function buildPayload() {
     embeds: [
       {
         title: `${title}: ${statusLabel(status)}`,
-        url: runUrl,
+        url: targetUrl,
+        ...(description ? { description } : {}),
         color: statusColor(status),
         fields: [
           { name: "Environment", value: notifyEnv, inline: true },

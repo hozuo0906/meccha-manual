@@ -16,6 +16,7 @@ GitHub ActionsからDiscord WebhookへCI結果を通知する。
 - `npm run notify:discord`
 - `npm run notify:discord:dry-run`
 - `.github/workflows/docs-ci.yml` の完了通知
+- `.github/workflows/auto-pr.yml` のPR自動作成/検出通知
 - `.github/workflows/discord-notify-test.yml` の手動疎通確認
 - `.github/workflows/deployment-gates.yml` のstaging/production承認ゲート入口
 
@@ -84,22 +85,77 @@ Discordへ送らないもの:
 ## Command intake
 
 Discord Webhookは片方向のため、DiscordからCodexへ直接指示を送る用途には使えない。
-指示受付は次のどちらかで実装する。
+指示受付は `Discord Slash Command -> Cloudflare Worker -> GitHub Issue -> Codex` にする。
 
-Recommended:
+対応endpoint:
 
-1. Discord BotまたはInteraction endpointをCloudflare Workerに作る。
-2. Discord署名検証とtimestamp検証でリプレイを防ぐ。
-3. 許可Discord server、channel、role、userを検証する。
-4. `/meccha task ...` のようなslash commandを受ける。
-5. WorkerがGitHub Issueを作成、または既存Issueへコメントする。
-6. `from-discord`、`needs-triage`、`user-request` のようなIssue labelを付ける。
-7. CodexはGitHub Issue/PRコメントを正として作業する。
+```text
+POST /v1/integrations/discord/interactions
+```
 
-Alternative:
+対応command:
 
-1. Discordの投稿を外部自動化でGitHub Issueへ転記する。
-2. CodexはGitHub Issueだけを見る。
+```text
+/meccha task title:<title> body:<body> priority:<P0|P1|P2|P3>
+```
+
+Workerの処理:
+
+1. `x-signature-ed25519` と `x-signature-timestamp` を検証する。
+2. timestampが許容時間外なら拒否する。
+3. `DISCORD_ALLOWED_GUILD_IDS`、`DISCORD_ALLOWED_CHANNEL_IDS`、`DISCORD_ALLOWED_USER_IDS`、`DISCORD_ALLOWED_ROLE_IDS` を確認する。
+4. `DISCORD_INTERACTION_STORE` でinteraction IDを短期保存し、同じDiscord requestから重複Issueを作らない。
+5. command内容を検証する。
+6. Discordへ3秒以内にdeferred ephemeral responseを返す。
+7. `GITHUB_ISSUE_TOKEN` でGitHub Issueを作成する。
+8. Discord original responseをIssue URLで更新する。
+9. CodexはGitHub Issueを正としてtriageする。
+
+危険操作検知:
+
+- `production`、`deploy`、`migration`、`Stripe`、`billing`、`secret`、`AI API`、本番、課金、決済、共有リンクなどを含む依頼は危険操作候補として扱う。
+- 危険操作候補のIssueには `approval-required` と `blocked-from-discord` を付ける。
+- GitHub label作成に失敗した場合、labelなしIssueへfallbackしない。
+
+Slash Command登録:
+
+```bash
+npm run discord:register-command
+```
+
+dry-run:
+
+```bash
+npm run discord:register-command:dry-run
+```
+
+登録に必要な環境変数:
+
+- `DISCORD_APPLICATION_ID`
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_GUILD_ID` 開発中は必須。指定するとguild command。
+- `DISCORD_REGISTER_GLOBAL` 任意。`true` の場合だけglobal command登録を許可する。
+
+Workerに必要なsecret:
+
+- `DISCORD_PUBLIC_KEY`
+- `GITHUB_ISSUE_TOKEN`
+
+Workerに必要なbinding:
+
+- `DISCORD_INTERACTION_STORE`
+
+この2つはCloudflare Worker runtimeで使うため、GitHub SecretsだけではなくCloudflare Secretにも登録する。
+値はチャット、Markdown、ログへ貼らない。
+
+Workerに設定できる制限:
+
+- `DISCORD_ALLOWED_GUILD_IDS`
+- `DISCORD_ALLOWED_CHANNEL_IDS`
+- `DISCORD_ALLOWED_USER_IDS`
+- `DISCORD_ALLOWED_ROLE_IDS`
+- `DISCORD_ALLOW_UNSCOPED_COMMANDS`
+- `GITHUB_ISSUE_REPOSITORY`
 
 ## Non-approvable from Discord only
 
