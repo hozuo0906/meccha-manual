@@ -10,7 +10,11 @@
     "worker:check": "node scripts/check-worker.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
     "test:phase2": "node scripts/phase2-smoke-test.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run migrations:check"
+    "notify:discord": "node scripts/discord-notify.mjs",
+    "notify:discord:dry-run": "node scripts/discord-notify.mjs --dry-run",
+    "notify:discord:check": "node --check scripts/discord-notify.mjs",
+    "encoding:check": "node scripts/check-encoding.mjs",
+    "check": "npm run docs:check && npm run worker:check && npm run migrations:check && npm run notify:discord:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

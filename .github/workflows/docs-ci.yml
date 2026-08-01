@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   docs:
@@ -23,5 +27,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check Markdown
-        run: npm run docs:check
+      - name: Run project checks
+        run: npm run check
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Docs CI / Validate docs
+        run: npm run notify:discord

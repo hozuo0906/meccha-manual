@@ -1,0 +1,48 @@
+name: Deployment Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Deployment gate target
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Validate deployment gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run project checks
+        run: npm run check
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_STAGING_WEBHOOK_URL: ${{ secrets.DISCORD_STAGING_WEBHOOK_URL }}
+          DISCORD_PRODUCTION_WEBHOOK_URL: ${{ secrets.DISCORD_PRODUCTION_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: ${{ inputs.target_environment }}
+          DISCORD_NOTIFY_REQUIRED: "true"
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Deployment gate
+        run: npm run notify:discord
