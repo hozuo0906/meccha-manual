@@ -16,6 +16,7 @@ GitHub ActionsからDiscord WebhookへCI結果を通知する。
 - `npm run notify:discord`
 - `npm run notify:discord:dry-run`
 - `.github/workflows/docs-ci.yml` の完了通知
+- `.github/workflows/auto-pr.yml` のPR自動作成/検出通知
 - `.github/workflows/discord-notify-test.yml` の手動疎通確認
 - `.github/workflows/deployment-gates.yml` のstaging/production承認ゲート入口
 

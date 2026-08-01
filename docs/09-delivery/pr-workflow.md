@@ -58,7 +58,8 @@ AI駆動開発でユーザーにPR作成作業を毎回戻さないため、`fea
 
 - workflow: `.github/workflows/auto-pr.yml`
 - base branch: `main`
-- 既存open PRがある場合は本文とtitleを更新する。
+- 新規PRを作成した場合も、既存open PRを検出した場合もDiscordへPR URLを通知する。
+- 既存open PRがある場合はPR本文を上書きしない。
 - mainへの直接pushは対象外。
 - production deploy、DB migration、課金、AI API有効化、共有リンク公開はauto PRだけでは承認済みにしない。
 - GitHub Actions側でPR作成に失敗する場合は、repository settingsでActionsのworkflow permissionsがread/writeか確認する。

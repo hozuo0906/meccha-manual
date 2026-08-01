@@ -31,7 +31,16 @@ jobs:
       startsWith(github.ref_name, 'chore/') ||
       startsWith(github.ref_name, 'phase/')
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Create or update PR
+        id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -83,17 +92,32 @@ BODY
 )"
 
           if [[ -n "$EXISTING_PR" ]]; then
-            gh pr edit "$EXISTING_PR" \
-              --repo "$REPO" \
-              --title "$TITLE" \
-              --body "$BODY"
+            PR_URL="$(gh pr view "$EXISTING_PR" --repo "$REPO" --json url --jq '.url')"
             echo "Updated PR #$EXISTING_PR"
+            echo "action=updated" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           else
-            gh pr create \
+            PR_URL="$(gh pr create \
               --repo "$REPO" \
               --base main \
               --head "$BRANCH" \
               --title "$TITLE" \
-              --body "$BODY"
+              --body "$BODY")"
             echo "Created PR for $BRANCH at $SHA"
+            echo "action=created" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Auto PR / ${{ steps.pr.outputs.action || 'unknown' }}
+          DISCORD_NOTIFY_URL: ${{ steps.pr.outputs.pr_url }}
+          DISCORD_NOTIFY_DESCRIPTION: ${{ steps.pr.outputs.pr_url }}
+        run: node scripts/discord-notify.mjs
