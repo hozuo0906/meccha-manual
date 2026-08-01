@@ -50,6 +50,19 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `DISCORD_DEVELOPMENT_WEBHOOK_URL` | secret | 開発用Discord通知URL | harness | no |
 | `DISCORD_STAGING_WEBHOOK_URL` | secret | staging gate用Discord通知URL | harness | no |
 | `DISCORD_PRODUCTION_WEBHOOK_URL` | secret | production gate用Discord通知URL | harness | no |
+| `DISCORD_PUBLIC_KEY` | secret/server | Discord Interaction署名検証 | discord-bridge | no |
+| `DISCORD_ALLOWED_GUILD_IDS` | server | 許可Discord server IDのカンマ区切り | discord-bridge | no |
+| `DISCORD_ALLOWED_CHANNEL_IDS` | server | 許可Discord channel IDのカンマ区切り | discord-bridge | no |
+| `DISCORD_ALLOWED_USER_IDS` | server | 許可Discord user IDのカンマ区切り | discord-bridge | no |
+| `DISCORD_ALLOWED_ROLE_IDS` | server | 許可Discord role IDのカンマ区切り。user allowlistと併用時はuserまたはrole一致で許可 | discord-bridge | no |
+| `DISCORD_ALLOW_UNSCOPED_COMMANDS` | server | `true` の場合のみguild/channel allowlist未設定を許可。既定は禁止 | discord-bridge | no |
+| `DISCORD_INTERACTION_STORE` | binding | Discord interaction IDの短期replay防止KV binding | discord-bridge | no |
+| `DISCORD_APPLICATION_ID` | secret/server | Slash Command登録 | discord-bridge | no |
+| `DISCORD_BOT_TOKEN` | secret | Slash Command登録用Bot token | discord-bridge | no |
+| `DISCORD_GUILD_ID` | server | 開発用guild command登録 | discord-bridge | no |
+| `DISCORD_REGISTER_GLOBAL` | server | `true` の場合のみglobal command登録を許可。既定は禁止 | discord-bridge | no |
+| `GITHUB_ISSUE_TOKEN` | secret | Discord指示からGitHub Issueを作成 | discord-bridge | no |
+| `GITHUB_ISSUE_REPOSITORY` | server | Issue作成先 `owner/repo` | discord-bridge | no |
 
 ## R2 binding方針
 
@@ -69,4 +82,11 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - `SUPABASE_ANON_KEY` は公開前提だが、service role keyと混同しない。
 - GitHub Actionsで使うsecretはworkflow logへ出さない。
 - Discord通知にはsecret値、実ユーザー情報、長いログ全文を含めない。
+- DiscordからのIssue作成tokenはIssues writeだけに絞る。
+- Discord Interaction endpointでは `DISCORD_PUBLIC_KEY` による署名検証を必須にする。
+- Worker runtimeで使うDiscord/GitHub bridge secretはCloudflare Secretにも登録する。
+- Discord command受付は `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする。未設定運用は `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示した検証環境だけに限定する。
+- `DISCORD_INTERACTION_STORE` KV bindingを設定し、同じDiscord interaction IDから重複Issueを作らない。
+- `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。
+- `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。

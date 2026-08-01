@@ -13,8 +13,11 @@
     "notify:discord": "node scripts/discord-notify.mjs",
     "notify:discord:dry-run": "node scripts/discord-notify.mjs --dry-run",
     "notify:discord:check": "node --check scripts/discord-notify.mjs",
+    "discord:register-command": "node scripts/register-discord-command.mjs",
+    "discord:register-command:dry-run": "node scripts/register-discord-command.mjs --dry-run",
+    "discord:register-command:check": "node --check scripts/register-discord-command.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run migrations:check && npm run notify:discord:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

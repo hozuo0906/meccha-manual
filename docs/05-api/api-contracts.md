@@ -33,6 +33,22 @@ Status: Proposed
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
 | `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 |
 | `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
+| `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
+
+## Discord Interaction contract
+
+`POST /v1/integrations/discord/interactions` は通常の同一オリジンCSRF検証を通さず、Discord公式のEd25519署名検証を正とする。
+
+- 必須header: `x-signature-ed25519`, `x-signature-timestamp`
+- timestamp許容: 5分以内
+- body上限: 64KB
+- replay防止: `DISCORD_INTERACTION_STORE` KVにinteraction IDを10分保存する
+- 許可範囲: `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする
+- 応答: slash commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する
+- GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`
+- 危険操作候補labels: `approval-required`, `blocked-from-discord`
+- label作成失敗時はlabelなしIssueへfallbackしない
+- DiscordへGitHub APIの詳細エラー本文を返さない
 
 ## エラー形式
 
