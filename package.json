@@ -6,9 +6,10 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "docs:check": "node scripts/check-docs.mjs",
+    "migrations:check": "node scripts/check-migrations.mjs",
     "worker:check": "node scripts/check-worker.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
-    "check": "npm run docs:check && npm run worker:check"
+    "check": "npm run docs:check && npm run worker:check && npm run migrations:check"
   },
   "devDependencies": {}
 }
