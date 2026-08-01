@@ -77,19 +77,19 @@ jobs:
           TITLE="$(python -c 'import sys; print(sys.argv[1].title())' "$TITLE_BASE")"
 
           BODY="$(cat <<'BODY'
-## Summary
-This pull request was opened automatically after a branch push.
+          ## Summary
+          This pull request was opened automatically after a branch push.
 
-## Required Checks
-- [ ] Related docs, ADR, API contract, data contract, and tests were checked.
-- [ ] `npm run check` passes.
-- [ ] No secrets, shared tokens, personal data, or raw user operation data are included.
-- [ ] P0/P1 review risks are resolved before merge.
+          ## Required Checks
+          - [ ] Related docs, ADR, API contract, data contract, and tests were checked.
+          - [ ] `npm run check` passes.
+          - [ ] No secrets, shared tokens, personal data, or raw user operation data are included.
+          - [ ] P0/P1 review risks are resolved before merge.
 
-## Merge Rule
-Do not merge production deploys, DB migrations, billing changes, AI API enablement, or shared-link publication from automation alone. Owner approval is still required.
-BODY
-)"
+          ## Merge Rule
+          Do not merge production deploys, DB migrations, billing changes, AI API enablement, or shared-link publication from automation alone. Owner approval is still required.
+          BODY
+          )"
 
           if [[ -n "$EXISTING_PR" ]]; then
             PR_URL="$(gh pr view "$EXISTING_PR" --repo "$REPO" --json url --jq '.url')"
