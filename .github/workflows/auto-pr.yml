@@ -1,0 +1,99 @@
+name: Auto PR
+
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to open as a pull request
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: auto-pr-${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  create-or-update:
+    name: Create or update pull request
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref_name, 'feature/') ||
+      startsWith(github.ref_name, 'fix/') ||
+      startsWith(github.ref_name, 'review/') ||
+      startsWith(github.ref_name, 'chore/') ||
+      startsWith(github.ref_name, 'phase/')
+    steps:
+      - name: Create or update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PUSH_BRANCH: ${{ github.ref_name }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH="${INPUT_BRANCH:-$PUSH_BRANCH}"
+          if [[ -z "$BRANCH" || "$BRANCH" == "main" ]]; then
+            echo "No pull request branch selected."
+            exit 0
+          fi
+
+          case "$BRANCH" in
+            feature/*|fix/*|review/*|chore/*|phase/*) ;;
+            *)
+              echo "Branch '$BRANCH' is outside the auto-PR scope."
+              exit 0
+              ;;
+          esac
+
+          EXISTING_PR="$(gh pr list \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          TITLE_BASE="$(printf '%s' "$BRANCH" | sed -E 's#^(feature|fix|review|chore|phase)/##; s#[-_]# #g')"
+          TITLE="$(python -c 'import sys; print(sys.argv[1].title())' "$TITLE_BASE")"
+
+          BODY="$(cat <<'BODY'
+## Summary
+This pull request was opened automatically after a branch push.
+
+## Required Checks
+- [ ] Related docs, ADR, API contract, data contract, and tests were checked.
+- [ ] `npm run check` passes.
+- [ ] No secrets, shared tokens, personal data, or raw user operation data are included.
+- [ ] P0/P1 review risks are resolved before merge.
+
+## Merge Rule
+Do not merge production deploys, DB migrations, billing changes, AI API enablement, or shared-link publication from automation alone. Owner approval is still required.
+BODY
+)"
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            gh pr edit "$EXISTING_PR" \
+              --repo "$REPO" \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Updated PR #$EXISTING_PR"
+          else
+            gh pr create \
+              --repo "$REPO" \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Created PR for $BRANCH at $SHA"
+          fi

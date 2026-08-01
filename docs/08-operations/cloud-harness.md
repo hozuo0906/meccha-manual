@@ -10,6 +10,7 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 
 - `.devcontainer/devcontainer.json`: Codespaces起動設定。
 - `.github/workflows/docs-ci.yml`: Markdown正本の最低限チェック。
+- `.github/workflows/auto-pr.yml`: feature/fix/review/chore/phase branch push時のPull Request自動作成。
 - `.github/pull_request_template.md`: PRごとの品質確認。
 - `.github/ISSUE_TEMPLATE/*`: Epic、Task、Review finding。
 - `scripts/check-docs.mjs`: 文書チェック。
