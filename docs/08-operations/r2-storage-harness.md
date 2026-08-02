@@ -10,6 +10,8 @@ R2 bucket作成前に、bucket名、binding名、公開禁止、配信経路、P
 
 R2 bucketはまだ作成しない。
 
+サーバー側のStorage port、Cloudflare固有処理を隔離するR2 adapter、実R2へ接続しないメモリstubを実装済み。`wrangler.jsonc` にはR2 bindingを追加していないため、既存deployは実bucketを要求しない。
+
 理由:
 
 - Phase 1/2の基盤開発ではファイル本体保存がまだ必須ではない。
@@ -38,6 +40,10 @@ R2 bucketはまだ作成しない。
 5. production bucket作成の承認をユーザーに取る。
 6. production bucketをCloudflareで作成する。
 7. production環境にR2 bindingを追加する。
+
+各外部操作の前にユーザー承認を得る。特にstaging/production bucket作成、binding追加、保持期間決定後のlifecycle rule有効化は、このハーネス実装には含めない。
+
+bucket作成後は、対象環境の4 bucketがprivateであることを確認し、同じbinding名を環境別 `r2_buckets` に設定する。その後、stagingで保存・取得・削除・workspace越境拒否を確認し、production bucketとbindingは別の明示承認後に有効化する。公開カスタムドメインや公開bucketは設定しない。
 
 ## 運用ルール
 
@@ -72,3 +78,7 @@ R2 bucketはまだ作成しない。
 - bucket公開禁止、Worker経由、Postgresメタデータ、短期署名URL方針が文書化されている。
 - 削除順序、保持期間未決時の扱い、PII/機密情報禁止が文書化されている。
 - `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
+- domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。
+- Storage実装にログ出力を追加していない。
+
+`npm run test:r2-storage` はローカルstubだけを使い、保存・取得・削除、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。

@@ -5,6 +5,12 @@ const docs = [
   "docs/04-data/storage-object-contract.md",
   "docs/08-operations/r2-storage-harness.md"
 ];
+const implementationFiles = [
+  "apps/worker/src/domain/storage/object-storage.mjs",
+  "apps/worker/src/infra/storage/memory-object-storage.mjs",
+  "apps/worker/src/infra/storage/r2-object-storage.mjs",
+  "scripts/test-r2-storage-stub.mjs"
+];
 
 const requiredBindings = [
   "CAPTURE_ASSETS",
@@ -43,6 +49,14 @@ for (const path of docs) {
     contents[path] = await readFile(path, "utf8");
   } catch {
     errors.push(`Missing R2 storage policy doc: ${path}`);
+  }
+}
+
+for (const path of implementationFiles) {
+  try {
+    contents[path] = await readFile(path, "utf8");
+  } catch {
+    errors.push(`Missing R2 storage implementation file: ${path}`);
   }
 }
 
@@ -88,6 +102,18 @@ for (const bucket of r2Buckets) {
 
 if (r2Buckets.length > 0 && wrangler.keep_vars !== true) {
   errors.push("wrangler.jsonc must keep keep_vars=true when R2 bindings are added.");
+}
+
+const domainStorage = contents[implementationFiles[0]] || "";
+if (/cloudflare|R2Bucket|R2Object/i.test(domainStorage)) {
+  errors.push("Domain storage port must not reference Cloudflare or R2 SDK types.");
+}
+for (const snippet of ["createObjectKey", "contentType", "sizeBytes", "checksumSha256", "manualId", "stepId", "put", "get", "delete"]) {
+  if (!domainStorage.includes(snippet)) errors.push(`Missing storage port contract: ${snippet}`);
+}
+const storageImplementation = implementationFiles.slice(0, 3).map((path) => contents[path] || "").join("\n");
+if (/console\.|logger\.|\.log\(/.test(storageImplementation)) {
+  errors.push("Storage implementations must not log object data, identifiers, URLs, or secrets.");
 }
 
 if (errors.length > 0) {
