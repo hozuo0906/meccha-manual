@@ -603,26 +603,41 @@ async function createGitHubIssue(env: Env, command: DiscordTaskCommand): Promise
     throw new AppError(500, "GITHUB_ISSUE_REPOSITORY_INVALID", "GITHUB_ISSUE_REPOSITORY must be owner/repo.");
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GITHUB_FETCH_TIMEOUT_MS);
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
-    method: "POST",
-    headers: {
-      "accept": "application/vnd.github+json",
-      "authorization": `Bearer ${token}`,
-      "content-type": "application/json",
-      "user-agent": "meccha-manual-worker",
-      "x-github-api-version": "2022-11-28"
-    },
-    body: JSON.stringify({
+  const createIssue = async (labels: string[]) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GITHUB_FETCH_TIMEOUT_MS);
+    const body: { title: string; body: string; labels?: string[] } = {
       title: `[Discord][${command.priority}] ${command.title}`,
-      body: githubIssueBody(command),
-      labels: githubIssueLabels(command)
-    }),
-    signal: controller.signal
-  }).finally(() => clearTimeout(timeout));
+      body: githubIssueBody(command)
+    };
 
-  const payload = await response.json().catch(() => null) as { html_url?: string; message?: string } | null;
+    if (labels.length > 0) {
+      body.labels = labels;
+    }
+
+    return fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+      method: "POST",
+      headers: {
+        "accept": "application/vnd.github+json",
+        "authorization": `Bearer ${token}`,
+        "content-type": "application/json",
+        "user-agent": "meccha-manual-worker",
+        "x-github-api-version": "2022-11-28"
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout));
+  };
+
+  const labels = githubIssueLabels(command);
+  let response = await createIssue(labels);
+  let payload = await response.json().catch(() => null) as { html_url?: string; message?: string } | null;
+
+  if (!response.ok && response.status === 422 && labels.length > 0) {
+    response = await createIssue([]);
+    payload = await response.json().catch(() => null) as { html_url?: string; message?: string } | null;
+  }
+
   if (!response.ok || !payload?.html_url) {
     throw new AppError(response.status, "GITHUB_ISSUE_CREATE_FAILED", "GitHub issue creation failed.");
   }
@@ -699,6 +714,39 @@ async function processDiscordTask(env: Env, interaction: DiscordInteraction, com
   }
 }
 
+async function updateDiscordOriginalResponseSafe(interaction: DiscordInteraction, content: string): Promise<void> {
+  try {
+    await updateDiscordOriginalResponse(interaction, content);
+  } catch {
+    // Discord followup failures should not make the initial interaction timeout.
+  }
+}
+
+async function processDiscordInteraction(env: Env, interaction: DiscordInteraction): Promise<void> {
+  try {
+    assertDiscordAllowed(interaction, env);
+    const command = parseDiscordTaskCommand(interaction);
+    const existing = await reserveDiscordInteraction(env, command.interactionId);
+
+    if (existing === "pending") {
+      await updateDiscordOriginalResponseSafe(interaction, "This Discord request is already being processed.");
+      return;
+    }
+
+    if (existing && existing !== "failed") {
+      await updateDiscordOriginalResponseSafe(interaction, `GitHub Issue already exists: ${existing}`);
+      return;
+    }
+
+    await processDiscordTask(env, interaction, command);
+  } catch (error) {
+    const message = error instanceof AppError && error.status < 500
+      ? error.message
+      : "Failed to process Discord request. Check Worker logs.";
+    await updateDiscordOriginalResponseSafe(interaction, message);
+  }
+}
+
 async function discordInteractions(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse({ code: "METHOD_NOT_ALLOWED" }, { status: 405 });
@@ -721,33 +769,13 @@ async function discordInteractions(request: Request, env: Env, ctx?: ExecutionCo
     return discordResponse("Unsupported Discord interaction type.", 400);
   }
 
-  try {
-    assertDiscordAllowed(interaction, env);
-    const command = parseDiscordTaskCommand(interaction);
-    const existing = await reserveDiscordInteraction(env, command.interactionId);
-
-    if (existing === "pending") {
-      return discordResponse("This Discord request is already being processed.");
-    }
-
-    if (existing && existing !== "failed") {
-      return discordResponse(`GitHub Issue already exists: ${existing}`);
-    }
-
-    if (!ctx) {
-      await processDiscordTask(env, interaction, command);
-      return discordResponse("GitHub Issue processing finished.");
-    }
-
-    ctx.waitUntil(processDiscordTask(env, interaction, command));
-    return discordDeferredResponse();
-  } catch (error) {
-    if (error instanceof AppError && error.status < 500) {
-      return discordResponse(error.message);
-    }
-
-    throw error;
+  if (!ctx) {
+    await processDiscordInteraction(env, interaction);
+    return discordResponse("Discord request processing finished.");
   }
+
+  ctx.waitUntil(processDiscordInteraction(env, interaction));
+  return discordDeferredResponse();
 }
 
 async function readSupabaseJson(response: Response): Promise<unknown> {
