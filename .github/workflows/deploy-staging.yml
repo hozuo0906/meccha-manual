@@ -1,0 +1,43 @@
+name: Staging Deployment Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Stagingで検証する40桁commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-staging-candidate:
+    name: Validate staging candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency: staging-candidate-${{ github.sha }}
+    environment: staging
+    steps:
+      - name: Checkout selected commit
+        uses: actions/checkout@v4
+
+      - name: Verify immutable candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: test "$CANDIDATE_SHA" = "$WORKFLOW_SHA" && test "${#CANDIDATE_SHA}" -eq 40
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run staging candidate checks
+        run: npm run check
+
+      # R2、Supabase、Workerのstaging資源を作成し、別途ユーザー承認を得るまでdeploy stepは追加しない。

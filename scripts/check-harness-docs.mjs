@@ -16,7 +16,7 @@ const requiredDocs = {
     "Supabase project",
     "Stripe",
     "`main` マージ後の扱い",
-    "production deploy jobは現段階では作成・有効化しない"
+    "現段階のproduction workflowはcheckで停止する"
   ],
   "docs/08-operations/stripe-billing-harness.md": [
     "`BILLING_FEATURE_ENABLED=false`",
