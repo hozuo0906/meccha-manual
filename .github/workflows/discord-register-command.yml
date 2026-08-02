@@ -1,0 +1,63 @@
+name: Discord Register Command
+
+on:
+  workflow_dispatch:
+    inputs:
+      command_scope:
+        description: Discord command scope
+        required: true
+        default: guild
+        type: choice
+        options:
+          - guild
+          - global
+      dry_run:
+        description: Validate inputs without registering
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    name: Register Discord slash command
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate command script
+        run: npm run discord:register-command:check
+
+      - name: Register command
+        env:
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_REGISTER_GLOBAL: ${{ inputs.command_scope == 'global' && 'true' || 'false' }}
+          DISCORD_REGISTER_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: npm run discord:register-command
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Discordコマンド登録
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'Discord Slash Commandの登録ワークフローは通っています。dry_run=falseで実行した場合はDiscord側で /meccha task を確認できます。' || 'Discord Slash Command登録に失敗しています。Application ID、Bot Token、Guild ID、Botの権限を確認します。' }}
+        run: npm run notify:discord
