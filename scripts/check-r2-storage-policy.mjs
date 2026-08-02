@@ -14,14 +14,14 @@ const requiredBindings = [
 ];
 
 const requiredBucketNames = [
-  "meccha-manual-staging-capture-assets",
-  "meccha-manual-staging-manual-assets",
-  "meccha-manual-staging-exports",
-  "meccha-manual-staging-avatars",
-  "meccha-manual-production-capture-assets",
-  "meccha-manual-production-manual-assets",
-  "meccha-manual-production-exports",
-  "meccha-manual-production-avatars"
+  "meccha-manual-capture-assets-staging",
+  "meccha-manual-manual-assets-staging",
+  "meccha-manual-exports-staging",
+  "meccha-manual-avatars-staging",
+  "meccha-manual-capture-assets-prod",
+  "meccha-manual-manual-assets-prod",
+  "meccha-manual-exports-prod",
+  "meccha-manual-avatars-prod"
 ];
 
 const requiredTerms = [

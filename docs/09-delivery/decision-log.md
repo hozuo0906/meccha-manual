@@ -31,3 +31,8 @@ Status: Accepted
 | DEC-025 | 2026-08-02 | PCの電源に依存しない作業はCodex Cloud、Codex web、GitHub Codespacesで行う | ローカルCodex DesktopだけではPC電源OFF中に新しいコード編集を継続できないため |
 | DEC-026 | 2026-08-02 | ワークスペースとメンバーの識別子・作成監査項目を更新不可とし、認証用RPCの実行権限を`authenticated`へ限定する | owner/admin更新権限を利用したテナント境界やowner対象の差し替えと、匿名ロールへの不要な関数公開を防ぐため |
 | DEC-027 | 2026-08-02 | Issue作成時はGitHub Actionsで即時トリアージし、`approved-for-codex` ラベル付きIssueだけ `CODEX_ACCESS_TOKEN` でCodex自動実装する | 15分ポーリングの無駄を減らし、OpenAI API従量課金ではなくCodex/ChatGPT利用枠でクラウド実装を進めるため |
+| DEC-028 | 2026-08-02 | R2 bucket名を用途の後ろに環境suffixを置く8名称へ固定し、同じ論理bindingで環境を分離する（[ADR-0018](../03-architecture/adrs/ADR-0018-r2-bucket-binding-contract.md)） | bucket名の二重管理を避け、staging/prodの誤接続を静的検査するため |
+| DEC-029 | 2026-08-02 | 初期課金flagを `BILLING_FEATURE_ENABLED=false` とし、署名検証済みStripe Webhookだけがworkspace entitlementを更新する（[ADR-0022](../03-architecture/adrs/ADR-0022-stripe-billing-harness.md)） | 初期無料を維持し、redirect、重複、順不同、他workspace反映による誤課金を防ぐため |
+| DEC-030 | 2026-08-02 | `main` mergeをproduction反映承認とせず、GitHub `production` Environmentの手動gateを必須にする | コード確定と外部リソース・DB・課金の危険操作を分離するため |
+| DEC-031 | 2026-08-02 | Browser RunをDurable Object管理の期限付きjobとし、入力値非保存、全redirectのSSRF再検査、終了時resource破棄を必須にする（[ADR-0003](../03-architecture/adrs/ADR-0003-durable-object-session-state.md)） | セッション漏えい、内部network到達、機密入力保存を防ぐため |
+| DEC-032 | 2026-08-02 | DB migrationの既存静的checkを維持し、外部DB適用はstaging証跡とproduction個別承認で補完する | checkの重複実装を避けながら、RLS・破壊的変更・実DB操作をgateするため |

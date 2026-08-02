@@ -1,65 +1,63 @@
-# R2 storage harness
+# R2 Storageハーネス
 
 Status: Accepted
 
-## 目的
+## 目的と責務分離
 
-R2 bucket作成前に、bucket名、binding名、公開禁止、配信経路、Postgresメタデータ方針を固定する。
+操作記録スクリーンショット、手順書画像、出力、アバターのファイル本体をprivateなCloudflare R2に保存するため、実リソース作成前に契約と安全ゲートを固定する。SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本、R2はファイル本体、Workerは認可と配信の境界とする。
 
-## 現在の状態
+Supabase StorageではなくR2を第一候補にする理由は、増加しやすい操作記録画像をCloudflare Worker / Browser Runと近い境界で扱え、転送コストを抑えやすいためである。R2はSupabase RLSを直接適用できないため、Postgres行を経由しないR2アクセスは禁止する。設計判断は [ADR-0011](../03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md) と [ADR-0018](../03-architecture/adrs/ADR-0018-r2-bucket-binding-contract.md) を正本とする。
+
+## 作るもの
+
+| 環境 | bucket | Wrangler binding |
+|---|---|---|
+| staging | `meccha-manual-capture-assets-staging` | `CAPTURE_ASSETS` |
+| staging | `meccha-manual-manual-assets-staging` | `MANUAL_ASSETS` |
+| staging | `meccha-manual-exports-staging` | `EXPORTS` |
+| staging | `meccha-manual-avatars-staging` | `AVATARS` |
+| production | `meccha-manual-capture-assets-prod` | `CAPTURE_ASSETS` |
+| production | `meccha-manual-manual-assets-prod` | `MANUAL_ASSETS` |
+| production | `meccha-manual-exports-prod` | `EXPORTS` |
+| production | `meccha-manual-avatars-prod` | `AVATARS` |
+
+`wrangler.jsonc` にはbucket作成後、staging/production環境ごとの `r2_buckets` として追加する。同じ論理bindingを用い、bucket名を環境変数やsecretとして持たない。現時点では存在しないbindingを追加しない。
 
 R2 bucketはまだ作成しない。
 
-理由:
+## アクセス制御とURL
 
-- Phase 1/2の基盤開発ではファイル本体保存がまだ必須ではない。
-- 存在しないbucketを `wrangler.jsonc` に書くとdeploy失敗の原因になる。
-- staging/productionの分離と作成順序を先に固定する必要がある。
+1. WorkerがSupabase sessionを検証する。
+2. `workspace_id` をクライアント入力だけで信用せず、assetのPostgresメタデータを取得してmembershipと権限を確認する。
+3. 認可後にWorker proxy、または用途別の上限を持つ短期署名URLを発行する。URLの正確なTTLは `OQ-013` とする。
+4. URL発行と削除を監査ログへ残す。署名、token、object内容は残さない。
+5. bucketをpublicにせず、公開手順書や共有リンクも同じ認可境界を通す。共有リンクはデフォルトOFFとする。
 
-## 作成するbucket
+object keyは `{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}` とする。推測可能な原本ファイル名、メールアドレス、入力値、顧客名を含めない。content type、byte size、checksum、作成者、削除状態はPostgresメタデータへ保存する。
 
-| 環境 | bucket | binding |
-|---|---|---|
-| staging | `meccha-manual-staging-capture-assets` | `CAPTURE_ASSETS` |
-| staging | `meccha-manual-staging-manual-assets` | `MANUAL_ASSETS` |
-| staging | `meccha-manual-staging-exports` | `EXPORTS` |
-| staging | `meccha-manual-staging-avatars` | `AVATARS` |
-| production | `meccha-manual-production-capture-assets` | `CAPTURE_ASSETS` |
-| production | `meccha-manual-production-manual-assets` | `MANUAL_ASSETS` |
-| production | `meccha-manual-production-exports` | `EXPORTS` |
-| production | `meccha-manual-production-avatars` | `AVATARS` |
+## PII・機密情報、削除、保持
 
-## 作成順序
+- スクリーンショットはPII・社内機密を含み得るものとしてprivate扱いし、公開前確認とマスキングを必須にする。
+- R2 custom metadata、ログ、監査ログへ入力値、Cookie、Authorization header、secret、個人情報を保存しない。
+- 削除要求はPostgresをsoft deleteして新規URL発行を止め、非同期ジョブで原本と派生物を削除し、成功または再試行結果を監査する。
+- 保持期間は `OQ-011` の解決前に推測で固定せず、自動ライフサイクル削除を有効化しない。法務上の保持と利用者削除要求を決定後、stagingで検証する。
 
-1. staging bucketをCloudflareで作成する。
-2. `wrangler.jsonc` のstaging環境にR2 bindingを追加する。
-3. staging deployを通す。
-4. upload、read、delete、権限拒否のテストを通す。
-5. production bucket作成の承認をユーザーに取る。
-6. production bucketをCloudflareで作成する。
-7. production環境にR2 bindingを追加する。
+## 必要な外部設定と承認
 
-## 運用ルール
+必要な外部設定は、環境別Cloudflare account/Worker、8 bucket、環境別binding、最小権限のdeploy credentialである。以下はすべて明示承認を要する。
 
-- bucket自体はpublicにしない。
-- R2 objectはWorker経由、またはWorkerが発行する短期署名URLで配信する。
-- 権限の正本はSupabase Auth、RLS、Postgresメタデータに置く。
-- `R2_CAPTURE_ASSETS_BUCKET` などの名前は環境変数ではなく、文書上の分類名として扱う。
-- Cloudflare R2 binding名は `CAPTURE_ASSETS`、`MANUAL_ASSETS`、`EXPORTS`、`AVATARS` に固定する。
-- secret、共有トークン、個人情報、入力値、実ユーザーの操作内容をR2 metadataへ入れない。
+- stagingまたはproduction bucketの実作成・削除
+- Wrangler binding追加後の外部環境deploy
+- productionの保持・削除rule変更
+- public access、custom domain、共有配信の有効化（本方針では原則不採用）
 
-## object key
+## まだやらないこと
 
-```text
-{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
-```
+R2 bucket作成、binding追加、外部deploy、実ファイルupload、public access、署名secret登録、Supabase Storage bucket作成は行わない。
 
-## 検証
+## 完了条件
 
-`npm run r2-storage:check` は次を確認する。
-
-- R2方針docsが存在する。
-- binding名が固定されている。
-- staging/production bucket名が固定されている。
-- bucket公開禁止、Worker経由、Postgresメタデータ、短期署名URL方針が文書化されている。
-- `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
+- bucket/binding/object keyがADR、データ契約、環境台帳と一致する。
+- private、Postgres認可、短期URL、PII、削除・保持の方針がレビュー済みである。
+- `npm run r2-storage:check` と `npm run harness:check` が成功する。
+- bucket作成後はstagingでupload/read/delete、別workspace拒否、期限切れURL拒否、派生物削除を確認してからproduction承認へ進む。

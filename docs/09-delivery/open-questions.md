@@ -18,3 +18,5 @@ Status: Accepted
 | OQ-010 | AI機能 | 初期OFF、将来管理者ON | AI拡張 |
 | OQ-011 | データ保持期間 | ワークスペース設定、監査ログは長期 | データライフサイクル |
 | OQ-012 | 日本国外処理 | Supabase東京、Cloudflare Browser Runはグローバル可能性を明記 | 法務 |
+| OQ-013 | R2短期署名URLの用途別TTL | 認可後に短命発行し、正確な秒数は脅威分析とUX検証後に決定 | R2配信実装 |
+| OQ-014 | Stripe未払い猶予、即時解約、返金時のentitlement | データを暗黙削除せず、stagingの状態遷移検証と運用判断後に決定 | 課金有効化 |

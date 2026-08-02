@@ -24,3 +24,8 @@ Status: Proposed
 - 重複、遅延、順不同を前提にする。
 - Payment Linkの `client_reference_id` は推測不能なcheckout intentにする。
 - 課金確定はWebhookのみ。画面リダイレクトは補助表示。
+- `BILLING_FEATURE_ENABLED=false` の間はendpointを課金反映に使用せず、Stripe APIも呼ばない。
+- Stripe customer/subscriptionとworkspaceの対応をサーバー側で検証し、受信payloadのworkspace指定だけでentitlementを変更しない。
+- eventの受信、署名検証、処理状態、試行回数、発生/受信/処理日時、payload digestを保持し、生payloadやsecretを通常ログへ残さない。
+- event ID重複は再適用せず安全に成功応答し、古いeventで新しいsubscription状態を巻き戻さない。
+- 未知eventはentitlementを変更せず記録し、再送に耐える応答と監視対象を定義する。

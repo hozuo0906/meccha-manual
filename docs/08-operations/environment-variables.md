@@ -37,13 +37,16 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `SUPABASE_JWT_SECRET` | secret | JWT関連の高度な検証、管理作業 | 未定 | no |
 | `CLOUDFLARE_ACCOUNT_ID` | secret/server | Cloudflare API、Browser Run、deploy | harness | no |
 | `CLOUDFLARE_API_TOKEN` | secret | Cloudflare deploy、Workers設定 | harness | no |
-| `BROWSER_RUN_BINDING` | binding | Browser Run binding | phase3 | no |
-| `R2_CAPTURE_ASSETS_BUCKET` | binding | 操作記録スクリーンショット | phase3 | no |
-| `R2_MANUAL_ASSETS_BUCKET` | binding | 手順書画像、注釈済み画像 | phase2/3 | no |
-| `R2_EXPORTS_BUCKET` | binding | PDF、HTML、Markdown出力 | phase4 | no |
-| `R2_AVATARS_BUCKET` | binding | avatar画像 | phase1/2任意 | no |
+| `BROWSER_RUN_BINDING` | binding | Browser Run binding（実binding名確定前の台帳上の分類名） | phase3 | no |
+| `CAPTURE_ASSETS` | binding | 環境別R2の操作記録スクリーンショット | phase3 | no |
+| `MANUAL_ASSETS` | binding | 環境別R2の手順書画像、注釈済み画像 | phase2/3 | no |
+| `EXPORTS` | binding | 環境別R2のPDF、HTML、Markdown出力 | phase4 | no |
+| `AVATARS` | binding | 環境別R2のavatar画像 | phase1/2任意 | no |
 | `STRIPE_SECRET_KEY` | secret | Stripe API | phase8 | no |
 | `STRIPE_WEBHOOK_SECRET` | secret | Stripe webhook署名検証 | phase8 | no |
+| `STRIPE_PRICE_PRO_MONTHLY` | server identifier | Pro月額Price ID | phase8 | no |
+| `STRIPE_PAYMENT_LINK_PRO_MONTHLY` | server identifier | Pro月額Payment Link ID | phase8 | no |
+| `BILLING_FEATURE_ENABLED` | server flag | 課金導線とStripe APIを有効化。既定 `false` | phase8 | no |
 | `AI_PROVIDER_API_KEY` | secret | 将来AI API | phase9 | no |
 | `DISCORD_WEBHOOK_URL` | secret | 通常CIからDiscordへ開発報告を通知 | harness | no |
 | `MECCHA_DISCORD_WEBHOOK_URL` | secret | 通常CI用Discord通知URLの代替名 | harness | no |
@@ -85,6 +88,14 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - `MANUAL_ASSETS`
 - `EXPORTS`
 - `AVATARS`
+
+同じbinding名をstaging/productionで使い、物理bucket名だけを環境別 `r2_buckets` で切り替える。bucket名は環境変数やsecretとして二重管理しない。
+
+## Stripe設定方針
+
+- 初期値は `BILLING_FEATURE_ENABLED=false` とし、falseではStripe APIを呼ばない。
+- Stripe関連5項目はまだ登録しない。test/liveで値を共有せず、GitHub EnvironmentとCloudflare Secret/環境別server variableへ分離する。
+- identifierもクライアントへ公開せず、値をMarkdown、ログ、PR本文へ出さない。
 
 ## ルール
 

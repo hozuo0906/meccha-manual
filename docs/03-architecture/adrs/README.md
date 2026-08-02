@@ -18,4 +18,5 @@ Status: Accepted
 | ADR-0018 | Accepted | R2 bucketとbinding契約 |
 | ADR-0019 | Accepted | Phase 1本番開発の着手前ゲート |
 | ADR-0020 | Accepted | Codexクラウド作業環境 |
+| ADR-0022 | Accepted | 初期無料を維持し、Stripe Webhookを課金境界にする |
 | ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
