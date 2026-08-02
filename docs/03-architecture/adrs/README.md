@@ -16,4 +16,5 @@ Status: Accepted
 | ADR-0010 | Accepted | Worker cookie auth harnessを採用する |
 | ADR-0011 | Accepted | ファイル本体はCloudflare R2を第一候補にする |
 | ADR-0018 | Accepted | R2 bucketとbinding契約 |
+| ADR-0019 | Accepted | Phase 1本番開発の着手前ゲート |
 | ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
