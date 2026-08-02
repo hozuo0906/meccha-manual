@@ -120,10 +120,15 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
           DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_NOTIFY_CHANNEL_ID: ${{ secrets.DISCORD_NOTIFY_CHANNEL_ID }}
+          DISCORD_DEVELOPMENT_CHANNEL_ID: ${{ secrets.DISCORD_DEVELOPMENT_CHANNEL_ID }}
           DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_COMPONENTS: pr
           DISCORD_NOTIFY_STATUS: ${{ job.status }}
           DISCORD_NOTIFY_TITLE: 自動PR / ${{ steps.pr.outputs.action_label || '状態不明' }}
           DISCORD_NOTIFY_URL: ${{ steps.pr.outputs.pr_url }}
+          DISCORD_NOTIFY_PR_URL: ${{ steps.pr.outputs.pr_url }}
           DISCORD_NOTIFY_DESCRIPTION: ${{ steps.pr.outputs.pr_url }}
           DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'PRの準備はできています。リンク先で差分、チェック、レビュー内容を見て、問題なければmerge判断に進めます。' || '自動PR処理で失敗しています。GitHub Actionsの権限またはbranch設定を確認します。' }}
         run: node scripts/discord-notify.mjs

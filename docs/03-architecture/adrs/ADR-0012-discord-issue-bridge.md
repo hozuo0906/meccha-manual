@@ -18,13 +18,16 @@ CodexはGitHub Issueを正としてtriageし、PR運用で作業する。
 
 - Worker endpoint: `POST /v1/integrations/discord/interactions`
 - Command: `/meccha task`
+- Message Component: PR通知buttonの `状態確認` と `マージ依頼`
 - GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`
 - 危険操作候補labels: `approval-required`, `blocked-from-discord`
+- PRマージ依頼label: `merge-requested`
 - GitHub tokenはIssues writeに限定する。
 - Discordの許可guild、channel、user、roleを環境変数で制限する。
 - guild/channel allowlist未設定は既定拒否にする。検証環境でだけ `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示できる。
 - Discord interaction IDはCloudflare KV `DISCORD_INTERACTION_STORE` に短期保存し、同一requestからの重複Issue作成を抑止する。
 - Slash Commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する。
+- PR通知buttonも3秒以内にdeferred ephemeral responseを返し、状態確認またはマージ依頼記録後にoriginal responseを更新する。
 - label付与に失敗した場合は、labelなしIssueへfallbackしない。
 - DiscordへGitHub APIの詳細エラー本文を返さない。
 
@@ -33,3 +36,4 @@ CodexはGitHub Issueを正としてtriageし、PR運用で作業する。
 - DiscordからCodexを直接実行すること。
 - Discordの通常Webhookで指示を受けること。
 - Discordだけで本番反映やsecret変更を承認すること。
+- Discord buttonからGitHub PRを直接mergeすること。

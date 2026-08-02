@@ -198,13 +198,26 @@ GitHub PR、Cloudflare、Supabase側の承認ゲートを正本にする。
 
 ## Discord PR review buttons
 
-DiscordのPR通知には、将来的に次のbuttonを付ける。
+DiscordのPR通知には、次のbuttonを付ける。
 
-- `PRを開く`: GitHub PRを開く。最初に実装する。
-- `レビュー依頼`: GitHub PRへreview request相当のコメントまたはIssueを残す。
-- `修正依頼`: GitHub IssueまたはPRコメントとして修正内容を残す。
-- `マージ依頼`: `merge-requested` labelまたはPRコメントを残す。
+- `PRを開く`: GitHub PRを開く。
+- `状態確認`: GitHub APIでPRの `state`、`draft`、`merged`、`mergeable`、combined statusを確認し、Discordへephemeral responseで返す。
+- `マージ依頼`: `merge-requested` labelとPRコメントを残す。
 
 `マージ依頼` は実際のmerge実行ではない。
 実mergeはGitHub上で必須check、P0/P1、owner承認、危険操作有無を確認してから行う。
 Discord buttonから直接mergeする方式は、監査、誤操作、権限漏れ、branch protection迂回のリスクがあるため、別ADRで安全条件が固まるまで採用しない。
+
+PR通知buttonは `scripts/discord-notify.mjs` で `DISCORD_NOTIFY_COMPONENTS=pr` を指定した場合だけ付与する。
+`DISCORD_BOT_TOKEN` と通知先channel IDが設定されている場合はBot送信を優先し、`状態確認` と `マージ依頼` のinteractive buttonを有効にする。
+Bot送信に必要なchannel IDが未設定の場合は既存Webhook通知へfallbackし、`PRを開く` のlink buttonだけを付ける。
+
+対応するDiscord component custom ID:
+
+```text
+meccha:pr:status:<owner>/<repo>:<number>
+meccha:pr:merge_request:<owner>/<repo>:<number>
+```
+
+Workerは `DISCORD_ALLOWED_GUILD_IDS`、`DISCORD_ALLOWED_CHANNEL_IDS`、`DISCORD_ALLOWED_USER_IDS`、`DISCORD_ALLOWED_ROLE_IDS` をSlash Commandと同じように確認する。
+対象repositoryは `GITHUB_ISSUE_REPOSITORY` または既定の `hozuo0906/meccha-manual` に限定する。

@@ -53,7 +53,13 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `DISCORD_NOTIFY_TITLE` | server | Discord通知タイトル。日本語推奨 | harness | no |
 | `DISCORD_NOTIFY_DESCRIPTION` | server | Discord通知の説明文またはURL | harness | no |
 | `DISCORD_NOTIFY_URL` | server | Discord通知embedのリンク先 | harness | no |
+| `DISCORD_NOTIFY_PR_URL` | server | PR通知buttonの対象Pull Request URL | harness | no |
+| `DISCORD_NOTIFY_COMPONENTS` | server | `pr` の場合、PR通知buttonを付ける | harness | no |
 | `DISCORD_NOTIFY_IMPRESSION` | server | Discord通知へ載せるCodex所感 | harness | no |
+| `DISCORD_NOTIFY_CHANNEL_ID` | server | Bot送信用の既定Discord channel ID。設定時はWebhookではなくBot送信を優先 | harness | no |
+| `DISCORD_DEVELOPMENT_CHANNEL_ID` | server | development通知のBot送信先Discord channel ID | harness | no |
+| `DISCORD_STAGING_CHANNEL_ID` | server | staging通知のBot送信先Discord channel ID | harness | no |
+| `DISCORD_PRODUCTION_CHANNEL_ID` | server | production通知のBot送信先Discord channel ID | harness | no |
 | `DISCORD_PUBLIC_KEY` | secret/server | Discord Interaction署名検証 | discord-bridge | no |
 | `DISCORD_ALLOWED_GUILD_IDS` | server | 許可Discord server IDのカンマ区切り | discord-bridge | no |
 | `DISCORD_ALLOWED_CHANNEL_IDS` | server | 許可Discord channel IDのカンマ区切り | discord-bridge | no |
@@ -91,6 +97,6 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - Worker runtimeで使うDiscord/GitHub bridge secretはCloudflare Secretにも登録する。
 - Discord command受付は `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする。未設定運用は `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示した検証環境だけに限定する。
 - `DISCORD_INTERACTION_STORE` KV bindingを設定し、同じDiscord interaction IDから重複Issueを作らない。
-- `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。
+- `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。PR buttonのマージ依頼もPRのIssue comment/label記録までに限定する。
 - `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。
