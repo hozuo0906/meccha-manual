@@ -192,5 +192,19 @@ Workerに設定できる制限:
 - 共有リンク公開
 - 実ユーザーデータの閲覧
 - AI API有効化
+- PR merge
 
 GitHub PR、Cloudflare、Supabase側の承認ゲートを正本にする。
+
+## Discord PR review buttons
+
+DiscordのPR通知には、将来的に次のbuttonを付ける。
+
+- `PRを開く`: GitHub PRを開く。最初に実装する。
+- `レビュー依頼`: GitHub PRへreview request相当のコメントまたはIssueを残す。
+- `修正依頼`: GitHub IssueまたはPRコメントとして修正内容を残す。
+- `マージ依頼`: `merge-requested` labelまたはPRコメントを残す。
+
+`マージ依頼` は実際のmerge実行ではない。
+実mergeはGitHub上で必須check、P0/P1、owner承認、危険操作有無を確認してから行う。
+Discord buttonから直接mergeする方式は、監査、誤操作、権限漏れ、branch protection迂回のリスクがあるため、別ADRで安全条件が固まるまで採用しない。
