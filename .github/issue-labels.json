@@ -1,0 +1,137 @@
+[
+  {
+    "name": "from-discord",
+    "color": "0E8A16",
+    "description": "Discord Slash Commandから作成されたIssue"
+  },
+  {
+    "name": "user-request",
+    "color": "1D76DB",
+    "description": "ユーザー依頼を正として扱うIssue"
+  },
+  {
+    "name": "needs-triage",
+    "color": "FBCA04",
+    "description": "親セッションの整理待ち"
+  },
+  {
+    "name": "status/triage",
+    "color": "FBCA04",
+    "description": "受付済み、優先度と担当範囲の確認中"
+  },
+  {
+    "name": "status/ready",
+    "color": "C2E0C6",
+    "description": "実装に着手できる状態"
+  },
+  {
+    "name": "status/in-progress",
+    "color": "1D76DB",
+    "description": "実装または検証中"
+  },
+  {
+    "name": "status/review",
+    "color": "5319E7",
+    "description": "レビュー、辛口レビュー、修正待ち"
+  },
+  {
+    "name": "status/blocked",
+    "color": "D93F0B",
+    "description": "外部設定またはユーザー判断待ち"
+  },
+  {
+    "name": "status/done",
+    "color": "0E8A16",
+    "description": "対応完了、追跡終了"
+  },
+  {
+    "name": "priority/P0",
+    "color": "B60205",
+    "description": "即時対応が必要な重大リスク"
+  },
+  {
+    "name": "priority/P1",
+    "color": "D93F0B",
+    "description": "次フェーズへ進む前に解消するリスク"
+  },
+  {
+    "name": "priority/P2",
+    "color": "FBCA04",
+    "description": "通常優先度"
+  },
+  {
+    "name": "priority/P3",
+    "color": "C5DEF5",
+    "description": "後回し可能な改善"
+  },
+  {
+    "name": "type/harness",
+    "color": "0052CC",
+    "description": "開発運用、CI、外部連携ハーネス"
+  },
+  {
+    "name": "type/docs",
+    "color": "0075CA",
+    "description": "文書、ADR、設計、運用メモ"
+  },
+  {
+    "name": "type/feature",
+    "color": "A2EEEF",
+    "description": "プロダクト機能追加"
+  },
+  {
+    "name": "type/bug",
+    "color": "D73A4A",
+    "description": "不具合修正"
+  },
+  {
+    "name": "type/security",
+    "color": "B60205",
+    "description": "セキュリティ、権限、秘密情報"
+  },
+  {
+    "name": "type/test",
+    "color": "7057FF",
+    "description": "テスト、検証、再現確認"
+  },
+  {
+    "name": "type/refactor",
+    "color": "D4C5F9",
+    "description": "責務整理、命名、再利用性改善"
+  },
+  {
+    "name": "type/uiux",
+    "color": "BFDADC",
+    "description": "UIUX、文言、アクセシビリティ"
+  },
+  {
+    "name": "approval-required",
+    "color": "B60205",
+    "description": "ユーザー承認なしに進めない操作を含む"
+  },
+  {
+    "name": "blocked-from-discord",
+    "color": "D93F0B",
+    "description": "Discord指示だけでは実行禁止"
+  },
+  {
+    "name": "merge-requested",
+    "color": "0E8A16",
+    "description": "ユーザーがマージ確認を依頼"
+  },
+  {
+    "name": "subagent/review",
+    "color": "5319E7",
+    "description": "辛口レビュー担当の確認対象"
+  },
+  {
+    "name": "subagent/test",
+    "color": "7057FF",
+    "description": "テスト担当の確認対象"
+  },
+  {
+    "name": "subagent/refactor",
+    "color": "D4C5F9",
+    "description": "リファクタリング担当の確認対象"
+  }
+]
