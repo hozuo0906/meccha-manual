@@ -1,0 +1,44 @@
+name: Production Deployment Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Production候補の40桁commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-production-candidate:
+    name: Validate production candidate after approval
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency: production-candidate-${{ github.sha }}
+    environment: production
+    steps:
+      - name: Checkout selected commit
+        uses: actions/checkout@v4
+
+      - name: Verify immutable candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: test "$CANDIDATE_SHA" = "$WORKFLOW_SHA" && test "${#CANDIDATE_SHA}" -eq 40
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production candidate checks
+        run: npm run check
+
+      # GitHub Environment required reviewers設定と別途ユーザー承認を確認するまでdeploy stepは追加しない。

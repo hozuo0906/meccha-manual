@@ -24,3 +24,6 @@ Status: Accepted
 | OQ-016 | 未払い猶予期間とread-only移行 | 即時削除・即時締め出しはせず、顧客通知と復旧手順を含めて決定 | 課金強制 |
 | OQ-017 | 全額・一部返金時のentitlement | 返金とデータ削除を分離し、返金対象期間と利用権を運用設計後に決定 | 返金自動化 |
 | OQ-018 | Browser Run最大実行時間、idle timeout、同時実行数 | Cloudflare契約・費用・UX検証後に環境別上限を決定 | Browser Run外部設定 |
+| OQ-019 | production GitHub Environmentのrequired reviewerを誰にするか | deploy step追加前にリポジトリownerが指名し、自己承認可否と代替承認者を決定 | production workflow有効化 |
+| OQ-020 | production独自ドメイン、DNS、切替日、rollback条件 | `workers.dev`を当面の技術URLとし、公開計画とドメイン所有確認後に決定 | production route切替 |
+| OQ-021 | production Supabase projectの名称、region、作成時期、backup/restore条件 | 現projectを暫定dev/stagingとし、データ所在地・費用・復旧要件の承認後に作成 | production DB作成・migration |
