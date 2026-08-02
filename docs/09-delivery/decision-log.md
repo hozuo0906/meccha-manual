@@ -36,3 +36,4 @@ Status: Accepted
 | DEC-030 | 2026-08-02 | 初期課金は無料、`BILLING_FEATURE_ENABLED=false` とし、Pro候補は月額3,300円税込みにする（[ADR-0022](../03-architecture/adrs/ADR-0022-free-first-stripe-billing.md)） | 外部課金設定より先にWebhook、entitlement、席数の安全境界を整えるため |
 | DEC-031 | 2026-08-02 | migrationのPhase固有静的検査と共通安全検査を分け、production適用を別承認にする | 既存検査との重複を避けながら、破壊的構文と誤適用を早期に止めるため |
 | DEC-032 | 2026-08-02 | Browser Run sessionはDurable Objectが直列管理し、Live View短命化、全redirect SSRF再検査、入力値非保存、終了時破棄を必須にする | セッション残留、内部ネットワーク到達、機密入力保存をP0として防ぐため |
+| DEC-033 | 2026-08-02 | R2 Storageはdomain portとinfra adapterを分離し、manual/step識別子はサーバー側metadataに限定してR2 custom metadataへ複製しない | Cloudflare SDK型の侵入と、R2 metadataへの不要な識別情報・任意入力の保存を防ぐため |

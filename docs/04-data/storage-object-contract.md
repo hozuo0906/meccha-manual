@@ -64,6 +64,14 @@ R2 object metadataに保存してよいもの:
 
 secret、共有トークン、個人情報、入力値、実ユーザーの操作内容はR2 metadataへ保存しない。
 
+## サーバー側Storage契約
+
+- domain側のportはR2 SDK型を参照せず、`put`、`get`、`delete` を定義する。
+- 保存要求は用途、object key、kind、content type、byte size、SHA-256 checksum、許可済みmetadataだけを受け付ける。
+- `manual_id` と `step_id` は認可・DB連携に使うサーバー側metadataとして扱えるが、R2 custom metadataには複製しない。
+- metadataは `workspace_id`、`asset_id`、任意の `manual_id`、`step_id` だけを受け付け、任意キーによるsecret、入力値、個人情報の混入を拒否する。
+- object keyの各要素は元ファイル名や表示名ではなく、不透明な小文字識別子に限定する。
+
 ## 参照
 
 - 認可はWorker経由で行う。

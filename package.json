@@ -26,10 +26,11 @@
     "issue-codex:check": "node scripts/check-issue-codex-automation.mjs",
     "quality-loop:check": "node scripts/check-quality-loop.mjs",
     "r2-storage:check": "node scripts/check-r2-storage-policy.mjs",
+    "test:r2-storage": "node scripts/test-r2-storage-stub.mjs",
     "phase1-readiness:check": "node scripts/check-phase1-readiness.mjs",
     "codex-cloud:check": "node scripts/check-cloud-codex-environment.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run phase1-readiness:check && npm run codex-cloud:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run encoding:check"
   },
   "devDependencies": {}
 }
