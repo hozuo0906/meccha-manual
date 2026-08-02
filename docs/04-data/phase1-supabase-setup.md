@@ -14,7 +14,10 @@ Phase 1では、認証済みユーザーがワークスペースを作成し、�
 
 ```text
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
+supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql
 ```
+
+ファイル名順に実行する。hardening migrationは、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにし、認証用RPCの実行権限を`authenticated`へ限定する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
 
 作成される主な要素:
 
@@ -36,6 +39,8 @@ supabase/migrations/202608010001_phase1_identity_workspaces.sql
 - `workspace_members` は同じワークスペースのメンバーだけが閲覧できる。
 - `owner` と `admin` だけがワークスペースとメンバーを更新できる。
 - `owner` の直接昇格、直接降格、最後のowner削除は専用フローまで禁止する。
+- ワークスペースとメンバーのID、所属先、対象ユーザー、作成監査項目は更新を禁止する。
+- 認証用RPCは匿名ユーザーに実行権限を与えない。
 - ワークスペース作成は直接INSERTではなく `create_workspace` RPCを使う。
 
 ## Manual setup steps
@@ -45,6 +50,9 @@ supabase/migrations/202608010001_phase1_identity_workspaces.sql
 3. `New query` を押す。
 4. `supabase/migrations/202608010001_phase1_identity_workspaces.sql` の全文を貼る。
 5. `Run` を押す。
+6. `New query` を押す。
+7. `supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql` の全文を貼る。
+8. `Run` を押す。
 
 ## Expected result
 
@@ -55,6 +63,8 @@ supabase/migrations/202608010001_phase1_identity_workspaces.sql
 - `workspace_members`
 
 Authenticationで新規ユーザーを作成すると、`profiles` に同じユーザーIDの行が自動作成される。
+
+両migrationの適用後は、`workspaces_protect_identity` triggerが存在し、認証済みユーザーがメンバー判定RPCで照会できる対象ユーザーは自分自身に限定される。実環境への適用と確認はユーザー承認後に行う。
 
 ## Do not paste
 

@@ -55,9 +55,13 @@ MECCHA_SUPABASE_ANON_KEY
 12. ユーザーBのSupabase REST tokenではワークスペースAを直接読めない。
 13. ユーザーA/BのSupabase REST tokenでは相手の `workspace_members` を直接読めない。
 
+別ゲートの `npm run migrations:check` では、これらに加えてワークスペースとメンバーの識別子・作成監査項目を更新不能にするtrigger、認証用RPCから匿名実行権限を剥奪するstatement、メンバー判定RPCの対象を`auth.uid()`へ限定する条件が存在することを静的に確認する。実環境でのロール別更新拒否は、検証環境へのmigration適用承認後に実施する。
+
 ## Pass condition
 
 スクリプトが `status: ok` を出して終了コード0で終わる。
+
+静的migration検査は `npm run migrations:check` が終了コード0になれば合格とする。`npm run check` からも同じ検査を実行する。
 
 ## Fail condition
 
@@ -92,4 +96,4 @@ npm run test:rls
 
 ## Remaining risk
 
-このテストは `workspaces` と `workspace_members` の読み取り分離を確認する。将来はロール別更新拒否テスト、最後のowner保護テスト、Storage private bucket testも追加する。
+このテストは `workspaces` と `workspace_members` の読み取り分離を確認する。ロール別更新拒否、最後のowner保護、識別子・作成監査項目の更新拒否はmigrationの静的検査までであり、検証環境での動的テストが残る。将来はStorage private bucket testも追加する。
