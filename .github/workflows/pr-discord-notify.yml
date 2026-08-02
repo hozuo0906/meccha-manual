@@ -1,0 +1,45 @@
+name: PR Discord Notify
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Notify pull request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Notify Discord
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_NOTIFY_CHANNEL_ID: ${{ secrets.DISCORD_NOTIFY_CHANNEL_ID }}
+          DISCORD_DEVELOPMENT_CHANNEL_ID: ${{ secrets.DISCORD_DEVELOPMENT_CHANNEL_ID }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_COMPONENTS: pr
+          DISCORD_NOTIFY_STATUS: success
+          DISCORD_NOTIFY_TITLE: PR通知 / ${{ github.event.action }}
+          DISCORD_NOTIFY_URL: ${{ github.event.pull_request.html_url }}
+          DISCORD_NOTIFY_PR_URL: ${{ github.event.pull_request.html_url }}
+          DISCORD_NOTIFY_DESCRIPTION: ${{ github.event.pull_request.title }}
+          DISCORD_NOTIFY_IMPRESSION: PRが作成または再オープンされました。ボタンから差分を開き、必要なら状態確認やマージ依頼を残せます。
+        run: node scripts/discord-notify.mjs

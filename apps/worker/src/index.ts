@@ -67,6 +67,7 @@ const MAX_DISCORD_BODY_BYTES = 64 * 1024;
 const DISCORD_SIGNATURE_TOLERANCE_SECONDS = 60 * 5;
 const DISCORD_INTERACTION_TYPE_PING = 1;
 const DISCORD_INTERACTION_TYPE_APPLICATION_COMMAND = 2;
+const DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT = 3;
 const DISCORD_RESPONSE_TYPE_PONG = 1;
 const DISCORD_RESPONSE_TYPE_CHANNEL_MESSAGE = 4;
 const DISCORD_RESPONSE_TYPE_DEFERRED_CHANNEL_MESSAGE = 5;
@@ -77,6 +78,7 @@ const DISCORD_COMMAND_MECCHA = "meccha";
 const DISCORD_COMMAND_MECCHA_TASK = "meccha-task";
 const DISCORD_SUBCOMMAND_TASK = "task";
 const GITHUB_DEFAULT_REPOSITORY = "hozuo0906/meccha-manual";
+const GITHUB_MERGE_REQUEST_LABEL = "merge-requested";
 const DISCORD_BASE_ISSUE_LABELS = ["from-discord", "needs-triage", "user-request"];
 const DISCORD_DANGEROUS_ISSUE_LABELS = ["approval-required", "blocked-from-discord"];
 const DANGEROUS_DISCORD_TASK_KEYWORDS = [
@@ -427,6 +429,7 @@ interface DiscordInteraction {
   };
   data?: {
     name?: string;
+    custom_id?: string;
     options?: DiscordCommandOption[];
   };
 }
@@ -450,6 +453,37 @@ interface DiscordTaskCommand {
   channelId: string | null;
   interactionId: string | null;
   dangerous: boolean;
+}
+
+interface GitHubPrAction {
+  kind: "status" | "merge_request";
+  repository: string;
+  number: number;
+}
+
+interface GitHubPullRequestResponse {
+  number: number;
+  title?: string;
+  html_url?: string;
+  state?: string;
+  draft?: boolean;
+  merged?: boolean;
+  mergeable?: boolean | null;
+  base?: {
+    ref?: string;
+  };
+  head?: {
+    ref?: string;
+    sha?: string;
+  };
+  user?: {
+    login?: string;
+  };
+}
+
+interface GitHubCombinedStatusResponse {
+  state?: string;
+  total_count?: number;
 }
 
 function discordResponse(content: string, status = 200): Response {
@@ -645,6 +679,230 @@ async function createGitHubIssue(env: Env, command: DiscordTaskCommand): Promise
   return payload.html_url;
 }
 
+function githubRepository(env: Env): { repository: string; owner: string; repo: string } {
+  const repository = env.GITHUB_ISSUE_REPOSITORY || GITHUB_DEFAULT_REPOSITORY;
+  const [owner, repo] = repository.split("/");
+
+  if (!owner || !repo) {
+    throw new AppError(500, "GITHUB_ISSUE_REPOSITORY_INVALID", "GITHUB_ISSUE_REPOSITORY must be owner/repo.");
+  }
+
+  return { repository, owner, repo };
+}
+
+function githubHeaders(env: Env, requiresWrite = false): HeadersInit {
+  const token = requiresWrite
+    ? requireEnvValue(env.GITHUB_ISSUE_TOKEN, "GITHUB_ISSUE_TOKEN")
+    : env.GITHUB_ISSUE_TOKEN;
+  const headers: Record<string, string> = {
+    "accept": "application/vnd.github+json",
+    "content-type": "application/json",
+    "user-agent": "meccha-manual-worker",
+    "x-github-api-version": "2022-11-28"
+  };
+
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
+async function githubApi<T>(env: Env, path: string, init: RequestInit = {}, requiresWrite = false): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GITHUB_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: githubHeaders(env, requiresWrite),
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => null) as T | { message?: string } | null;
+
+    if (!response.ok) {
+      throw new AppError(response.status, "GITHUB_API_FAILED", "GitHub API request failed.");
+    }
+
+    return payload as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseGitHubPrAction(customId: string | undefined): GitHubPrAction {
+  const match = customId?.match(/^meccha:pr:(status|merge_request):([^/]+\/[^:]+):(\d+)$/);
+  if (!match) {
+    throw new AppError(400, "DISCORD_COMPONENT_UNSUPPORTED", "Unsupported Discord button.");
+  }
+
+  const number = Number(match[3]);
+  if (!Number.isSafeInteger(number) || number < 1) {
+    throw new AppError(400, "DISCORD_COMPONENT_PR_INVALID", "Pull request number is invalid.");
+  }
+
+  return {
+    kind: match[1] === "status" ? "status" : "merge_request",
+    repository: match[2],
+    number
+  };
+}
+
+function assertPrRepositoryAllowed(env: Env, action: GitHubPrAction): { owner: string; repo: string } {
+  const expected = githubRepository(env);
+  if (action.repository !== expected.repository) {
+    throw new AppError(403, "GITHUB_PR_REPOSITORY_NOT_ALLOWED", "This pull request repository is not allowed.");
+  }
+
+  return {
+    owner: expected.owner,
+    repo: expected.repo
+  };
+}
+
+async function fetchGitHubPullRequest(env: Env, action: GitHubPrAction): Promise<GitHubPullRequestResponse> {
+  const { owner, repo } = assertPrRepositoryAllowed(env, action);
+  return githubApi<GitHubPullRequestResponse>(env, `/repos/${owner}/${repo}/pulls/${action.number}`);
+}
+
+async function fetchGitHubCombinedStatus(env: Env, owner: string, repo: string, sha: string | undefined): Promise<GitHubCombinedStatusResponse | null> {
+  if (!sha) return null;
+
+  try {
+    return await githubApi<GitHubCombinedStatusResponse>(env, `/repos/${owner}/${repo}/commits/${sha}/status`);
+  } catch {
+    return null;
+  }
+}
+
+function githubPrStatusText(pr: GitHubPullRequestResponse, status: GitHubCombinedStatusResponse | null): string {
+  const mergeableLabel = pr.mergeable === null || pr.mergeable === undefined
+    ? "計算中"
+    : pr.mergeable ? "可能" : "不可";
+  const checkState = status?.state || "未取得";
+  const totalChecks = typeof status?.total_count === "number" ? `${status.total_count}件` : "不明";
+
+  return [
+    `PR #${pr.number}: ${pr.title || "無題"}`,
+    pr.html_url || "",
+    "",
+    `- 状態: ${pr.state || "不明"}${pr.draft ? " / draft" : ""}${pr.merged ? " / merged" : ""}`,
+    `- base: ${pr.base?.ref || "不明"}`,
+    `- head: ${pr.head?.ref || "不明"}`,
+    `- mergeable: ${mergeableLabel}`,
+    `- checks: ${checkState} (${totalChecks})`,
+    "",
+    pr.merged
+      ? "このPRはすでにmerge済みです。"
+      : "実mergeはGitHub上の必須check、レビュー、owner承認を確認してから行います。"
+  ].filter(Boolean).join("\n");
+}
+
+function discordRequester(interaction: DiscordInteraction): { id: string; name: string } {
+  const user = interaction.member?.user ?? interaction.user;
+  return {
+    id: user?.id || "unknown",
+    name: user?.global_name || user?.username || "unknown"
+  };
+}
+
+async function addGitHubPrLabels(env: Env, owner: string, repo: string, number: number, labels: string[]): Promise<boolean> {
+  try {
+    await githubApi<{ labels?: unknown[] }>(
+      env,
+      `/repos/${owner}/${repo}/issues/${number}/labels`,
+      {
+        method: "POST",
+        body: JSON.stringify({ labels })
+      },
+      true
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createGitHubPrComment(env: Env, owner: string, repo: string, number: number, body: string): Promise<void> {
+  await githubApi<{ html_url?: string }>(
+    env,
+    `/repos/${owner}/${repo}/issues/${number}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ body })
+    },
+    true
+  );
+}
+
+async function requestGitHubPrMerge(env: Env, interaction: DiscordInteraction, action: GitHubPrAction, pr: GitHubPullRequestResponse): Promise<string> {
+  const { owner, repo } = assertPrRepositoryAllowed(env, action);
+  const requester = discordRequester(interaction);
+  const labelApplied = await addGitHubPrLabels(env, owner, repo, action.number, [GITHUB_MERGE_REQUEST_LABEL]);
+  const commentBody = [
+    "Discordからマージ依頼が記録されました。",
+    "",
+    "## Requester",
+    "",
+    `- discord_user: ${requester.name}`,
+    `- discord_user_id: ${requester.id}`,
+    `- guild_id: ${interaction.guild_id ?? "unknown"}`,
+    `- channel_id: ${interaction.channel_id ?? "unknown"}`,
+    `- interaction_id: ${interaction.id ?? "unknown"}`,
+    "",
+    "## Rules",
+    "",
+    "- このコメントはmerge依頼の記録であり、Discordボタンだけではmergeしません。",
+    "- GitHub上で必須check、conflict、draft、レビュー、owner承認を確認してからmergeします。"
+  ].join("\n");
+
+  await createGitHubPrComment(env, owner, repo, action.number, commentBody);
+
+  return [
+    `PR #${pr.number} にマージ依頼を記録しました。`,
+    pr.html_url || "",
+    labelApplied
+      ? `\`${GITHUB_MERGE_REQUEST_LABEL}\` labelを付けました。`
+      : `\`${GITHUB_MERGE_REQUEST_LABEL}\` label付与は失敗しましたが、PRコメントは残しました。`,
+    "実mergeはGitHub上で確認してから行います。"
+  ].filter(Boolean).join("\n");
+}
+
+async function processDiscordPrComponent(env: Env, interaction: DiscordInteraction): Promise<void> {
+  const action = parseGitHubPrAction(interaction.data?.custom_id);
+  const existing = await reserveDiscordInteraction(env, interaction.id ?? null);
+
+  if (existing === "pending") {
+    await updateDiscordOriginalResponseSafe(interaction, "This Discord request is already being processed.");
+    return;
+  }
+
+  if (existing && existing !== "failed") {
+    await updateDiscordOriginalResponseSafe(interaction, existing);
+    return;
+  }
+
+  try {
+    const pr = await fetchGitHubPullRequest(env, action);
+
+    if (action.kind === "status") {
+      const { owner, repo } = assertPrRepositoryAllowed(env, action);
+      const status = await fetchGitHubCombinedStatus(env, owner, repo, pr.head?.sha);
+      const message = githubPrStatusText(pr, status);
+      await completeDiscordInteraction(env, interaction.id ?? null, message);
+      await updateDiscordOriginalResponse(interaction, message);
+      return;
+    }
+
+    const message = await requestGitHubPrMerge(env, interaction, action, pr);
+    await completeDiscordInteraction(env, interaction.id ?? null, message);
+    await updateDiscordOriginalResponse(interaction, message);
+  } catch (error) {
+    await completeDiscordInteraction(env, interaction.id ?? null, "failed");
+    throw error;
+  }
+}
+
 async function readDiscordBody(request: Request): Promise<string> {
   const contentLength = request.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_DISCORD_BODY_BYTES) {
@@ -725,6 +983,12 @@ async function updateDiscordOriginalResponseSafe(interaction: DiscordInteraction
 async function processDiscordInteraction(env: Env, interaction: DiscordInteraction): Promise<void> {
   try {
     assertDiscordAllowed(interaction, env);
+
+    if (interaction.type === DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT) {
+      await processDiscordPrComponent(env, interaction);
+      return;
+    }
+
     const command = parseDiscordTaskCommand(interaction);
     const existing = await reserveDiscordInteraction(env, command.interactionId);
 
@@ -765,7 +1029,10 @@ async function discordInteractions(request: Request, env: Env, ctx?: ExecutionCo
     return jsonResponse({ type: DISCORD_RESPONSE_TYPE_PONG });
   }
 
-  if (interaction.type !== DISCORD_INTERACTION_TYPE_APPLICATION_COMMAND) {
+  if (
+    interaction.type !== DISCORD_INTERACTION_TYPE_APPLICATION_COMMAND &&
+    interaction.type !== DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT
+  ) {
     return discordResponse("Unsupported Discord interaction type.", 400);
   }
 

@@ -4,6 +4,7 @@ const MAX_ATTEMPTS = 2;
 const notifyEnv = process.env.DISCORD_NOTIFY_ENV || "development";
 const required = process.env.DISCORD_NOTIFY_REQUIRED === "true";
 const dryRun = process.env.DISCORD_NOTIFY_DRY_RUN === "true" || process.argv.includes("--dry-run");
+const componentMode = process.env.DISCORD_NOTIFY_COMPONENTS || "";
 
 const webhookCandidatesByEnv = {
   development: [
@@ -19,8 +20,34 @@ const webhookCandidatesByEnv = {
   ]
 };
 
+const channelCandidatesByEnv = {
+  development: [
+    "DISCORD_NOTIFY_CHANNEL_ID",
+    "DISCORD_DEVELOPMENT_CHANNEL_ID"
+  ],
+  staging: [
+    "DISCORD_STAGING_CHANNEL_ID"
+  ],
+  production: [
+    "DISCORD_PRODUCTION_CHANNEL_ID"
+  ]
+};
+
 function selectWebhook() {
   const candidateNames = webhookCandidatesByEnv[notifyEnv] || webhookCandidatesByEnv.development;
+
+  for (const name of candidateNames) {
+    const value = process.env[name];
+    if (value) {
+      return { name, value };
+    }
+  }
+
+  return { name: null, value: null };
+}
+
+function selectBotChannel() {
+  const candidateNames = channelCandidatesByEnv[notifyEnv] || channelCandidatesByEnv.development;
 
   for (const name of candidateNames) {
     const value = process.env[name];
@@ -76,7 +103,64 @@ function defaultImpression(status, title) {
   return "状態が不明です。GitHub Actionsの実行詳細を確認します。";
 }
 
-function buildPayload() {
+function parseGitHubPullRequestUrl(value) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/);
+    if (url.hostname !== "github.com" || !match) return null;
+
+    return {
+      owner: match[1],
+      repo: match[2],
+      number: Number(match[3]),
+      url: `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildPrComponents(pr, interactive) {
+  if (!pr) return undefined;
+
+  const buttons = [
+    {
+      type: 2,
+      style: 5,
+      label: "PRを開く",
+      url: pr.url
+    }
+  ];
+
+  if (interactive) {
+    const ref = `${pr.owner}/${pr.repo}:${pr.number}`;
+    buttons.push(
+      {
+        type: 2,
+        style: 2,
+        label: "状態確認",
+        custom_id: `meccha:pr:status:${ref}`
+      },
+      {
+        type: 2,
+        style: 1,
+        label: "マージ依頼",
+        custom_id: `meccha:pr:merge_request:${ref}`
+      }
+    );
+  }
+
+  return [
+    {
+      type: 1,
+      components: buttons
+    }
+  ];
+}
+
+function buildPayload({ interactivePrButtons = false } = {}) {
   const status = process.env.DISCORD_NOTIFY_STATUS || "unknown";
   const title = process.env.DISCORD_NOTIFY_TITLE || process.env.GITHUB_WORKFLOW || "meccha-manual CI";
   const repository = process.env.GITHUB_REPOSITORY || "unknown repository";
@@ -93,8 +177,12 @@ function buildPayload() {
     ? `${serverUrl}/${repository}/actions/runs/${runId}`
     : undefined;
   const targetUrl = explicitUrl || runUrl;
+  const pr = parseGitHubPullRequestUrl(process.env.DISCORD_NOTIFY_PR_URL || explicitUrl || description);
+  const components = componentMode === "pr"
+    ? buildPrComponents(pr, interactivePrButtons)
+    : undefined;
 
-  return {
+  const payload = {
     username: "めっちゃマニュアル 開発Bot",
     allowed_mentions: {
       parse: []
@@ -118,6 +206,12 @@ function buildPayload() {
       }
     ]
   };
+
+  if (components) {
+    payload.components = components;
+  }
+
+  return payload;
 }
 
 async function postWithTimeout(webhookUrl, payload) {
@@ -155,18 +249,71 @@ async function sendDiscordNotification(webhookUrl, payload) {
   throw lastError || new Error("Discord notification failed.");
 }
 
+async function sendDiscordBotMessage(botToken, channelId, payload) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: "POST",
+        headers: {
+          "authorization": `Bot ${botToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      if (response.ok) return;
+      lastError = new Error(`Discord bot notification failed: HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw lastError || new Error("Discord bot notification failed.");
+}
+
 const selectedWebhook = selectWebhook();
-const payload = buildPayload();
+const selectedBotChannel = selectBotChannel();
+const botToken = process.env.DISCORD_BOT_TOKEN || "";
+const useBotDelivery = Boolean(botToken && selectedBotChannel.value);
+const payload = buildPayload({ interactivePrButtons: useBotDelivery });
 
 if (dryRun) {
   console.log(JSON.stringify({
     status: "dry-run",
     notifyEnv,
     required,
+    componentMode,
+    delivery: useBotDelivery ? "bot" : "webhook",
     webhookSecretName: selectedWebhook.name,
+    botChannelName: selectedBotChannel.name,
+    botTokenPresent: Boolean(botToken),
     payload
   }, null, 2));
   process.exit(0);
+}
+
+if (useBotDelivery) {
+  try {
+    await sendDiscordBotMessage(botToken, selectedBotChannel.value, payload);
+    console.log(`Discord bot notification sent for ${notifyEnv}.`);
+    process.exit(0);
+  } catch (error) {
+    if (!selectedWebhook.value) {
+      throw error;
+    }
+
+    await sendDiscordNotification(selectedWebhook.value, buildPayload({ interactivePrButtons: false }));
+    console.log(`Discord bot notification failed; webhook fallback sent for ${notifyEnv}.`);
+    process.exit(0);
+  }
 }
 
 if (!selectedWebhook.value) {
