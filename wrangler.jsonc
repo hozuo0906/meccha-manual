@@ -7,8 +7,15 @@
   "keep_vars": true,
   "vars": {
     "SUPABASE_URL": "https://spjowmulvoyxxkfeyjkr.supabase.co",
-    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwam93bXVsdm95eHhrZmV5amtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDc4ODUsImV4cCI6MjEwMTA4Mzg4NX0.9bSXUX2HPdjeo55tNkJksWd9kW0CVRWdwYhBQWFW_gg"
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwam93bXVsdm95eHhrZmV5amtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDc4ODUsImV4cCI6MjEwMTA4Mzg4NX0.9bSXUX2HPdjeo55tNkJksWd9kW0CVRWdwYhBQWFW_gg",
+    "GITHUB_ISSUE_REPOSITORY": "hozuo0906/meccha-manual"
   },
+  "kv_namespaces": [
+    {
+      "binding": "DISCORD_INTERACTION_STORE",
+      "id": "cce0d3a23f034c6b9a83d86422c73863"
+    }
+  ],
   "secrets": {
     "required": [
       "DISCORD_PUBLIC_KEY",

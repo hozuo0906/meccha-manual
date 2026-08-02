@@ -58,6 +58,23 @@ GitHub Actionsで `Cloudflare Config Audit` を手動実行する。
 - Worker secrets、KV namespace、Discord allowlist、GitHub Secretsのどれが不足しているかをActions Summaryで確認する。
 - Cloudflare Dashboardまたは `wrangler.jsonc` を修正してから再監査する。
 
+## 2026-08-02監査結果から固定した設定
+
+`Cloudflare Config Audit` で次のKV namespaceを確認した。
+
+- Title: `meccha-manual-discord-interactions`
+- ID: `cce0d3a23f034c6b9a83d86422c73863`
+
+このIDはsecretではないため、`wrangler.jsonc` の `DISCORD_INTERACTION_STORE` bindingへ固定する。
+`GITHUB_ISSUE_REPOSITORY=hozuo0906/meccha-manual` もsecretではないため、`wrangler.jsonc` のvarsへ固定する。
+
+引き続きCloudflare Worker runtimeへ入れる必要があるもの:
+
+- `DISCORD_PUBLIC_KEY`
+- `GITHUB_ISSUE_TOKEN`
+- `DISCORD_ALLOWED_GUILD_IDS`
+- `DISCORD_ALLOWED_CHANNEL_IDS`
+
 ## PR mergeとの関係
 
 DiscordからPR内容確認やレビュー依頼はできるようにする。
