@@ -32,6 +32,23 @@ const requiredPhase2Snippets = [
   "and created_by = auth.uid()"
 ];
 
+const phase1HardeningFile = "202608020003_phase1_workspace_membership_hardening.sql";
+const requiredPhase1HardeningSnippets = [
+  "create or replace function public.protect_workspace_identity()",
+  "select target_user_id = auth.uid()",
+  "new.id is distinct from old.id",
+  "new.workspace_id is distinct from old.workspace_id",
+  "new.user_id is distinct from old.user_id",
+  "new.created_by is distinct from old.created_by",
+  "new.created_at is distinct from old.created_at",
+  "revoke execute on function public.create_workspace(text, text) from public, anon",
+  "revoke execute on function public.is_workspace_member(uuid, uuid) from public, anon",
+  "revoke execute on function public.has_workspace_role(uuid, uuid, public.workspace_role[]) from public, anon",
+  "create trigger workspaces_protect_identity",
+  "execute function public.protect_workspace_identity()",
+  "grant execute on function public.create_workspace(text, text) to authenticated"
+];
+
 const entries = await readdir(migrationsDir, { withFileTypes: true });
 const migrationFiles = entries
   .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
@@ -73,6 +90,17 @@ if (!migrationFiles.includes(phase2File)) {
   for (const snippet of requiredPhase2Snippets) {
     if (!phase2.includes(snippet)) {
       errors.push(`Missing Phase 2 migration snippet: ${snippet}`);
+    }
+  }
+}
+
+if (!migrationFiles.includes(phase1HardeningFile)) {
+  errors.push(`Missing required migration: ${phase1HardeningFile}`);
+} else {
+  const phase1Hardening = await readFile(path.join(migrationsDir, phase1HardeningFile), "utf8");
+  for (const snippet of requiredPhase1HardeningSnippets) {
+    if (!phase1Hardening.includes(snippet)) {
+      errors.push(`Missing Phase 1 hardening migration snippet: ${snippet}`);
     }
   }
 }
