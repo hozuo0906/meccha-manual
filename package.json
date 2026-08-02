@@ -7,6 +7,8 @@
     "deploy": "wrangler deploy",
     "docs:check": "node scripts/check-docs.mjs",
     "migrations:check": "node scripts/check-migrations.mjs",
+    "migration:safety:check": "node scripts/check-migration-safety.mjs",
+    "harness:check": "node scripts/check-harness-docs.mjs",
     "worker:check": "node scripts/check-worker.mjs",
     "workflows:check": "node scripts/check-workflows.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
@@ -27,7 +29,7 @@
     "phase1-readiness:check": "node scripts/check-phase1-readiness.mjs",
     "codex-cloud:check": "node scripts/check-cloud-codex-environment.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run phase1-readiness:check && npm run codex-cloud:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run phase1-readiness:check && npm run codex-cloud:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

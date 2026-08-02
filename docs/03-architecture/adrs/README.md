@@ -15,7 +15,14 @@ Status: Accepted
 | ADR-0009 | Accepted | AI APIは初期OFFにする |
 | ADR-0010 | Accepted | Worker cookie auth harnessを採用する |
 | ADR-0011 | Accepted | ファイル本体はCloudflare R2を第一候補にする |
+| ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
+| ADR-0013 | Accepted | Cloudflare設定監査を導入する |
+| ADR-0014 | Accepted | Discord runtime bindingの正本を固定する |
+| ADR-0015 | Accepted | Issue label状態機械を採用する |
+| ADR-0016 | Accepted | IssueからPRへの自動化境界を固定する |
+| ADR-0017 | Accepted | サブエージェント品質loopを採用する |
 | ADR-0018 | Accepted | R2 bucketとbinding契約 |
 | ADR-0019 | Accepted | Phase 1本番開発の着手前ゲート |
 | ADR-0020 | Accepted | Codexクラウド作業環境 |
-| ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
+| ADR-0021 | Accepted | Issueイベント駆動Codex自動実装 |
+| ADR-0022 | Accepted | 無料開始とStripe課金境界を固定する |

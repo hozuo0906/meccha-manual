@@ -20,6 +20,8 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 - `wrangler.jsonc`: Cloudflare Workerの最小デプロイ設定。
 - `apps/worker/src/index.ts`: 初回デプロイ確認用の健康チェックWorker。
 - `scripts/check-cloud-codex-environment.mjs`: クラウド作業環境のrepo側チェック。
+- `docs/08-operations/remaining-harness-plan.md`: 本番開発前に残る外部連携ハーネスの境界と完了条件。
+- `scripts/check-harness-docs.mjs`: R2、環境分離、Stripe、migration、Browser Session文書の整合性検査。
 
 ## まだ必要な外部設定
 

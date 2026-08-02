@@ -14,3 +14,7 @@ Status: Accepted
 | RISK-008 | 定数/設定が散らばる | 保守不能 | coding-guidelines、リファクタリングレビュー |
 | RISK-009 | PDF/HTML出力でぼかしが外れる | 情報漏えい | golden test、目視確認 |
 | RISK-010 | Stripe webhook重複反映 | 誤課金/誤権限 | idempotency、一意制約 |
+| RISK-011 | stagingとproductionの外部設定取り違え | 本番データ変更/誤課金 | GitHub Environment対応表、target/commit再確認、production手動承認 |
+| RISK-012 | R2削除失敗でobjectが残留する | 機密情報残留/費用増加 | URL即時停止、非同期削除再試行、asset単位の監査 |
+| RISK-013 | Stripe webhookの順不同・遅延で古い状態へ戻る | 誤ったentitlement | object単位reconciliation、冪等処理、状態遷移テスト |
+| RISK-014 | Browser session終了失敗でcredentialやCookieが残る | P0情報漏えい | Live View失効、close再試行、期限切れ、監査alarm |

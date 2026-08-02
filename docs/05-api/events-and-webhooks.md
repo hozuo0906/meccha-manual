@@ -24,3 +24,6 @@ Status: Proposed
 - 重複、遅延、順不同を前提にする。
 - Payment Linkの `client_reference_id` は推測不能なcheckout intentにする。
 - 課金確定はWebhookのみ。画面リダイレクトは補助表示。
+- 署名検証前に状態変更やpayload永続化を行わない。
+- eventはsubscription/customer単位のreconciliationへ渡し、到着順だけでentitlementを上書きしない。
+- `BILLING_FEATURE_ENABLED=false` の間は課金導線とStripe外部通信を無効にする。

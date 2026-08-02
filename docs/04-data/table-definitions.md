@@ -40,6 +40,7 @@ Status: Accepted
 | `notifications` | `workspace_id`, `user_id`, `type`, `payload`, `read_at` | 本人のみ閲覧・既読更新 |
 | `billing_customers` | `workspace_id`, `stripe_customer_id`, `billing_email` | owner/admin閲覧、更新はStripe同期処理 |
 | `subscriptions` | `workspace_id`, `stripe_subscription_id`, `plan_code`, `status`, `quantity`, `current_period_end`, `cancel_at` | owner/admin閲覧、Webhookのみ更新 |
+| `entitlements` | `workspace_id`, `plan_code`, `state`, `seat_limit`, `effective_at`, `expires_at`, `source_subscription_id` | owner/admin閲覧、課金同期処理のみ更新 |
 | `payment_events` | `stripe_event_id`, `type`, `payload_digest`, `status`, `attempts`, `processed_at`, `error` | service role専用、`stripe_event_id` unique |
 | `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | Workerのみ追加、owner/admin閲覧、更新削除禁止 |
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
@@ -53,3 +54,4 @@ Status: Accepted
 - `capture_state`: `created`, `starting`, `ready`, `recording`, `paused`, `reconnecting`, `stopping`, `completed`, `failed`, `expired`
 - `asset_kind`: `screenshot`, `thumbnail`, `export_pdf`, `export_html`, `avatar`
 - `share_permission`: `public_link`, `workspace_only`, `invited_only`
+- `entitlement_state`: `free`, `pro_active`, `pro_grace`, `read_only`

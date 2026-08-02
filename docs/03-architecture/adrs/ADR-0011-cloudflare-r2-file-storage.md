@@ -19,16 +19,17 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 - `avatars`
 
 ただし、操作記録スクリーンショットは増えやすく、保存容量と転送量がコスト要因になる。
-比較上、Cloudflare R2は無料枠が大きく、egress無料で、Cloudflare Workerと近く扱える。
+Cloudflare R2はCloudflare Worker、Browser Runと同じ実行基盤側で扱え、ファイル本体の保存・配信責務をSupabase Auth/Postgres/RLSから分離できる。操作記録スクリーンショットのように増加しやすいオブジェクトを、DB行と分けて管理できる点も採用理由とする。料金条件は変更され得るため、このADRでは特定の無料枠を採用根拠にしない。
 
 ## 影響
 
 - Supabase Storage bucketは初期作成しない。
-- R2 bucketはstaging/production分離後に作成する。
+- R2 bucketはstaging/production分離後、外部設定の承認を得て作成する。
 - PostgresにはR2 object key、content type、byte size、checksum、作成者、workspace_id、削除状態を保存する。
 - ファイル配信はWorker経由で権限確認する。
 - bucket自体はpublicにしない。
 - `wrangler.jsonc` のR2 bindingはbucket作成後に追加する。
+- bucket名とbinding契約はADR-0018を正本にする。
 
 ## リスク
 

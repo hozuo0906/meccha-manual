@@ -7,21 +7,11 @@ Status: Accepted
 環境変数は用途と公開範囲を分類し、secretはCloudflare SecretまたはGitHub Secretsで管理する。
 secretをクライアント、Markdown、ログ、エラー詳細、ソースマップへ出さない。
 
-## GitHub Secrets登録状況
+## 設定状態の扱い
 
-登録済み:
+この台帳は名前、分類、用途だけを正本にし、どの環境へ何が登録済みかは記録しない。実際の登録状況、値、token権限はGitHub/Cloudflare/Supabase/Stripe側で権限のある担当者が確認する。
 
-- `DISCORD_WEBHOOK_URL`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-
-まだ登録しない:
-
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_DB_PASSWORD`
-- `SUPABASE_JWT_SECRET`
+`SUPABASE_SERVICE_ROLE_KEY`、`SUPABASE_DB_PASSWORD`、`SUPABASE_JWT_SECRET` は現Phaseでは登録しない。
 
 ## 台帳
 
@@ -37,13 +27,17 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `SUPABASE_JWT_SECRET` | secret | JWT関連の高度な検証、管理作業 | 未定 | no |
 | `CLOUDFLARE_ACCOUNT_ID` | secret/server | Cloudflare API、Browser Run、deploy | harness | no |
 | `CLOUDFLARE_API_TOKEN` | secret | Cloudflare deploy、Workers設定 | harness | no |
-| `BROWSER_RUN_BINDING` | binding | Browser Run binding | phase3 | no |
-| `R2_CAPTURE_ASSETS_BUCKET` | binding | 操作記録スクリーンショット | phase3 | no |
-| `R2_MANUAL_ASSETS_BUCKET` | binding | 手順書画像、注釈済み画像 | phase2/3 | no |
-| `R2_EXPORTS_BUCKET` | binding | PDF、HTML、Markdown出力 | phase4 | no |
-| `R2_AVATARS_BUCKET` | binding | avatar画像 | phase1/2任意 | no |
+| `BROWSER_RUN` | binding | Cloudflare Browser Run | phase3 | no |
+| `CAPTURE_SESSION` | binding | 操作記録sessionのDurable Object | phase3 | no |
+| `CAPTURE_ASSETS` | binding | R2操作記録スクリーンショット | phase3 | no |
+| `MANUAL_ASSETS` | binding | R2手順書画像、注釈済み画像 | phase2/3 | no |
+| `EXPORTS` | binding | R2 PDF、HTML、Markdown出力 | phase4 | no |
+| `AVATARS` | binding | R2 avatar画像 | phase1/2任意 | no |
 | `STRIPE_SECRET_KEY` | secret | Stripe API | phase8 | no |
 | `STRIPE_WEBHOOK_SECRET` | secret | Stripe webhook署名検証 | phase8 | no |
+| `STRIPE_PRICE_PRO_MONTHLY` | server | Pro月額Price ID | phase8 | no |
+| `STRIPE_PAYMENT_LINK_PRO_MONTHLY` | server | Pro月額Payment Link ID | phase8 | no |
+| `BILLING_FEATURE_ENABLED` | server | 課金導線とStripe外部通信の機能フラグ | yes | no |
 | `AI_PROVIDER_API_KEY` | secret | 将来AI API | phase9 | no |
 | `DISCORD_WEBHOOK_URL` | secret | 通常CIからDiscordへ開発報告を通知 | harness | no |
 | `MECCHA_DISCORD_WEBHOOK_URL` | secret | 通常CI用Discord通知URLの代替名 | harness | no |
@@ -85,6 +79,22 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - `MANUAL_ASSETS`
 - `EXPORTS`
 - `AVATARS`
+
+stagingとproductionで同じbinding名を使い、参照bucketだけを環境別に分ける。bucket名を別の環境変数へ重複保持しない。現在はbucket未作成のためbindingも追加しない。
+
+## Browser Run / Durable Object binding方針
+
+- Browser Runは `BROWSER_RUN`、操作記録Durable Objectは `CAPTURE_SESSION` に固定する。
+- bindingとDurable Object migrationは外部設定の承認後に追加する。
+- Browser session ID、Live View URL、Cookie、入力値を環境変数へ保存しない。
+
+## Stripe方針
+
+- `BILLING_FEATURE_ENABLED` の既定は `false` とする。
+- `false` の間はPayment Linkを表示せず、Stripe APIへ外部通信しない。
+- test/liveでStripe関連値を共有しない。
+- Price IDとPayment Link IDはSecretではない場合でもサーバー設定とし、クライアントへ直接渡さない。
+- Secret、Product、Price、Payment Link、Webhook endpointはまだ登録・作成しない。
 
 ## ルール
 

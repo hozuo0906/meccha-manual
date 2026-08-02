@@ -7,7 +7,7 @@ Status: Proposed
 | `ai.assistiveGeneration.enabled` | false | product | 将来AI手順文生成を有効化 | AI課金/監査/マスキングが完了 |
 | `capture.liveView.iframeEmbedding.enabled` | false | architecture | Live Viewアプリ内iframe表示検証 | P0検証で安全性確認 |
 | `mobilePreview.multiDevice.enabled` | false | product | 複数端末同時表示 | Browser Run費用/UX検証完了 |
-| `billing.enforcement.enabled` | false | billing | 有料プラン制限の強制 | Phase8完了 |
+| `billing.enforcement.enabled` | false | billing | 有料プラン制限の強制。サーバー境界は `BILLING_FEATURE_ENABLED=false` を優先 | Phase8完了 |
 | `sessionRecording.debug.enabled` | false | operations | 障害解析用録画 | 保存/権限/同意設計完了 |
 
 ## ルール
