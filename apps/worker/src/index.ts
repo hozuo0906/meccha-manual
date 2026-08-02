@@ -3,6 +3,15 @@ import { APP_CSS, APP_HTML, APP_JS } from "./app-assets";
 interface Env {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  DISCORD_INTERACTION_STORE?: KVNamespace;
+  DISCORD_PUBLIC_KEY?: string;
+  DISCORD_ALLOWED_GUILD_IDS?: string;
+  DISCORD_ALLOWED_CHANNEL_IDS?: string;
+  DISCORD_ALLOWED_USER_IDS?: string;
+  DISCORD_ALLOWED_ROLE_IDS?: string;
+  DISCORD_ALLOW_UNSCOPED_COMMANDS?: string;
+  GITHUB_ISSUE_TOKEN?: string;
+  GITHUB_ISSUE_REPOSITORY?: string;
 }
 
 interface HealthResponse {
@@ -19,6 +28,16 @@ interface ConfigHealthResponse extends HealthResponse {
       hasUrl: boolean;
       hasAnonKey: boolean;
       projectRef: string | null;
+    };
+    discord: {
+      issueBridgeConfigured: boolean;
+      hasPublicKey: boolean;
+      hasIssueToken: boolean;
+      hasIssueRepository: boolean;
+      hasInteractionStore: boolean;
+      hasAllowedGuildIds: boolean;
+      hasAllowedChannelIds: boolean;
+      allowUnscopedCommands: boolean;
     };
   };
 }
@@ -44,6 +63,44 @@ interface SessionResult {
 const COOKIE_ACCESS_TOKEN = "__Host-mm_access";
 const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_DISCORD_BODY_BYTES = 64 * 1024;
+const DISCORD_SIGNATURE_TOLERANCE_SECONDS = 60 * 5;
+const DISCORD_INTERACTION_TYPE_PING = 1;
+const DISCORD_INTERACTION_TYPE_APPLICATION_COMMAND = 2;
+const DISCORD_RESPONSE_TYPE_PONG = 1;
+const DISCORD_RESPONSE_TYPE_CHANNEL_MESSAGE = 4;
+const DISCORD_RESPONSE_TYPE_DEFERRED_CHANNEL_MESSAGE = 5;
+const DISCORD_EPHEMERAL_FLAG = 1 << 6;
+const DISCORD_REPLAY_TTL_SECONDS = 60 * 10;
+const GITHUB_FETCH_TIMEOUT_MS = 2500;
+const DISCORD_COMMAND_MECCHA = "meccha";
+const DISCORD_COMMAND_MECCHA_TASK = "meccha-task";
+const DISCORD_SUBCOMMAND_TASK = "task";
+const GITHUB_DEFAULT_REPOSITORY = "hozuo0906/meccha-manual";
+const DISCORD_BASE_ISSUE_LABELS = ["from-discord", "needs-triage", "user-request"];
+const DISCORD_DANGEROUS_ISSUE_LABELS = ["approval-required", "blocked-from-discord"];
+const DANGEROUS_DISCORD_TASK_KEYWORDS = [
+  "production",
+  "prod",
+  "deploy",
+  "migration",
+  "db migration",
+  "stripe",
+  "billing",
+  "payment",
+  "secret",
+  "service" + "_role",
+  "jwt secret",
+  "ai api",
+  "\u672c\u756a",
+  "\u53cd\u6620",
+  "\u30c7\u30d7\u30ed\u30a4",
+  "\u30de\u30a4\u30b0\u30ec\u30fc\u30b7\u30e7\u30f3",
+  "\u8ab2\u91d1",
+  "\u6c7a\u6e08",
+  "\u79d8\u5bc6",
+  "\u5171\u6709\u30ea\u30f3\u30af"
+];
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store"
@@ -249,6 +306,8 @@ async function supabaseFetch(
 
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
+  } else {
+    headers.set("authorization", `Bearer ${config.anonKey}`);
   }
 
   if (init.body && !headers.has("content-type")) {
@@ -259,6 +318,464 @@ async function supabaseFetch(
     ...init,
     headers
   });
+}
+
+function requireEnvValue(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new AppError(500, `${name}_NOT_CONFIGURED`, `${name} is not configured.`);
+  }
+
+  return value;
+}
+
+function splitCsv(value: string | undefined): Set<string> {
+  return new Set(
+    (value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+function isAllowedId(value: string | undefined, allowedValues: Set<string>): boolean {
+  return Boolean(value && allowedValues.has(value));
+}
+
+function allowUnscopedDiscordCommands(env: Env): boolean {
+  return env.DISCORD_ALLOW_UNSCOPED_COMMANDS === "true";
+}
+
+function requireDiscordInteractionStore(env: Env): KVNamespace {
+  if (!env.DISCORD_INTERACTION_STORE) {
+    throw new AppError(500, "DISCORD_INTERACTION_STORE_NOT_CONFIGURED", "Discord interaction replay store is not configured.");
+  }
+
+  return env.DISCORD_INTERACTION_STORE;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  if (!/^[a-f0-9]+$/i.test(hex) || hex.length % 2 !== 0) {
+    throw new AppError(401, "DISCORD_SIGNATURE_INVALID", "Discord signature is invalid.");
+  }
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < hex.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16);
+  }
+
+  return bytes;
+}
+
+async function verifyDiscordSignature(request: Request, env: Env, bodyText: string): Promise<void> {
+  const publicKey = requireEnvValue(env.DISCORD_PUBLIC_KEY, "DISCORD_PUBLIC_KEY");
+  const signature = request.headers.get("x-signature-ed25519");
+  const timestamp = request.headers.get("x-signature-timestamp");
+
+  if (!signature || !timestamp) {
+    throw new AppError(401, "DISCORD_SIGNATURE_REQUIRED", "Discord signature headers are required.");
+  }
+
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds)) {
+    throw new AppError(401, "DISCORD_TIMESTAMP_INVALID", "Discord timestamp is invalid.");
+  }
+
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds);
+  if (ageSeconds > DISCORD_SIGNATURE_TOLERANCE_SECONDS) {
+    throw new AppError(401, "DISCORD_TIMESTAMP_EXPIRED", "Discord timestamp is outside the allowed window.");
+  }
+
+  const encodedMessage = new TextEncoder().encode(`${timestamp}${bodyText}`);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    hexToBytes(publicKey),
+    "Ed25519",
+    false,
+    ["verify"]
+  );
+  const verified = await crypto.subtle.verify(
+    "Ed25519",
+    cryptoKey,
+    hexToBytes(signature),
+    encodedMessage
+  );
+
+  if (!verified) {
+    throw new AppError(401, "DISCORD_SIGNATURE_INVALID", "Discord signature is invalid.");
+  }
+}
+
+interface DiscordInteraction {
+  id?: string;
+  application_id?: string;
+  token?: string;
+  type?: number;
+  guild_id?: string;
+  channel_id?: string;
+  member?: {
+    roles?: string[];
+    user?: {
+      id?: string;
+      username?: string;
+      global_name?: string | null;
+    };
+  };
+  user?: {
+    id?: string;
+    username?: string;
+    global_name?: string | null;
+  };
+  data?: {
+    name?: string;
+    options?: DiscordCommandOption[];
+  };
+}
+
+interface DiscordCommandOption {
+  name?: string;
+  type?: number;
+  value?: string | number | boolean;
+  options?: DiscordCommandOption[];
+}
+
+interface DiscordTaskCommand {
+  title: string;
+  body: string;
+  priority: string;
+  requester: {
+    id: string | null;
+    name: string;
+  };
+  guildId: string | null;
+  channelId: string | null;
+  interactionId: string | null;
+  dangerous: boolean;
+}
+
+function discordResponse(content: string, status = 200): Response {
+  return jsonResponse({
+    type: DISCORD_RESPONSE_TYPE_CHANNEL_MESSAGE,
+    data: {
+      content,
+      flags: DISCORD_EPHEMERAL_FLAG
+    }
+  }, { status });
+}
+
+function discordDeferredResponse(): Response {
+  return jsonResponse({
+    type: DISCORD_RESPONSE_TYPE_DEFERRED_CHANNEL_MESSAGE,
+    data: {
+      flags: DISCORD_EPHEMERAL_FLAG
+    }
+  });
+}
+
+function assertDiscordAllowed(interaction: DiscordInteraction, env: Env): void {
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const roleIds = interaction.member?.roles ?? [];
+  const allowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS);
+  const allowedChannelIds = splitCsv(env.DISCORD_ALLOWED_CHANNEL_IDS);
+  const allowedUserIds = splitCsv(env.DISCORD_ALLOWED_USER_IDS);
+  const allowedRoleIds = splitCsv(env.DISCORD_ALLOWED_ROLE_IDS);
+  const unscopedAllowed = allowUnscopedDiscordCommands(env);
+
+  if (!unscopedAllowed && allowedGuildIds.size === 0) {
+    throw new AppError(500, "DISCORD_ALLOWED_GUILD_IDS_REQUIRED", "DISCORD_ALLOWED_GUILD_IDS is required.");
+  }
+
+  if (!unscopedAllowed && allowedChannelIds.size === 0) {
+    throw new AppError(500, "DISCORD_ALLOWED_CHANNEL_IDS_REQUIRED", "DISCORD_ALLOWED_CHANNEL_IDS is required.");
+  }
+
+  if (allowedGuildIds.size > 0 && !isAllowedId(interaction.guild_id, allowedGuildIds)) {
+    throw new AppError(403, "DISCORD_GUILD_NOT_ALLOWED", "This Discord server is not allowed.");
+  }
+
+  if (allowedChannelIds.size > 0 && !isAllowedId(interaction.channel_id, allowedChannelIds)) {
+    throw new AppError(403, "DISCORD_CHANNEL_NOT_ALLOWED", "This Discord channel is not allowed.");
+  }
+
+  if (allowedUserIds.size > 0 || allowedRoleIds.size > 0) {
+    const userAllowed = allowedUserIds.size > 0 && isAllowedId(userId, allowedUserIds);
+    const roleAllowed = allowedRoleIds.size > 0 && roleIds.some((roleId) => allowedRoleIds.has(roleId));
+    if (!userAllowed && !roleAllowed) {
+      throw new AppError(403, "DISCORD_ACTOR_NOT_ALLOWED", "This Discord user or role is not allowed.");
+    }
+  }
+}
+
+function optionText(options: DiscordCommandOption[], name: string): string {
+  const option = options.find((item) => item.name === name);
+  return typeof option?.value === "string" ? option.value.trim() : "";
+}
+
+function taskOptions(interaction: DiscordInteraction): DiscordCommandOption[] {
+  const options = interaction.data?.options ?? [];
+  const subcommand = options.find((option) => option.name === DISCORD_SUBCOMMAND_TASK);
+  return subcommand?.options ?? options;
+}
+
+function parseDiscordTaskCommand(interaction: DiscordInteraction): DiscordTaskCommand {
+  const commandName = interaction.data?.name;
+  if (commandName !== DISCORD_COMMAND_MECCHA && commandName !== DISCORD_COMMAND_MECCHA_TASK) {
+    throw new AppError(400, "DISCORD_COMMAND_UNSUPPORTED", "Unsupported Discord command.");
+  }
+
+  const options = taskOptions(interaction);
+  const title = optionText(options, "title");
+  const body = optionText(options, "body") || optionText(options, "request");
+  const priority = optionText(options, "priority") || "P2";
+  const requesterUser = interaction.member?.user ?? interaction.user;
+  const requesterName = requesterUser?.global_name || requesterUser?.username || "unknown";
+  const dangerous = hasDangerousDiscordTaskContent(title, body);
+
+  if (!title || title.length > 120) {
+    throw new AppError(400, "DISCORD_TASK_TITLE_INVALID", "Task title must be 1-120 characters.");
+  }
+
+  if (body.length > 4000) {
+    throw new AppError(400, "DISCORD_TASK_BODY_TOO_LONG", "Task body must be 4000 characters or fewer.");
+  }
+
+  if (!["P0", "P1", "P2", "P3"].includes(priority)) {
+    throw new AppError(400, "DISCORD_TASK_PRIORITY_INVALID", "Priority must be P0, P1, P2, or P3.");
+  }
+
+  return {
+    title,
+    body,
+    priority,
+    requester: {
+      id: requesterUser?.id ?? null,
+      name: requesterName
+    },
+    guildId: interaction.guild_id ?? null,
+    channelId: interaction.channel_id ?? null,
+    interactionId: interaction.id ?? null,
+    dangerous
+  };
+}
+
+function hasDangerousDiscordTaskContent(title: string, body: string): boolean {
+  const normalized = `${title}\n${body}`.toLowerCase();
+  return DANGEROUS_DISCORD_TASK_KEYWORDS.some((keyword) => normalized.includes(keyword.toLowerCase()));
+}
+
+function githubIssueLabels(command: DiscordTaskCommand): string[] {
+  return command.dangerous
+    ? [...DISCORD_BASE_ISSUE_LABELS, ...DISCORD_DANGEROUS_ISSUE_LABELS]
+    : DISCORD_BASE_ISSUE_LABELS;
+}
+
+function githubIssueBody(command: DiscordTaskCommand): string {
+  return [
+    "This issue was created from a Discord slash command.",
+    "",
+    "## Request",
+    "",
+    command.body || "_No body provided._",
+    "",
+    "## Metadata",
+    "",
+    `- priority: ${command.priority}`,
+    `- requester: ${command.requester.name}`,
+    `- requester_id: ${command.requester.id ?? "unknown"}`,
+    `- guild_id: ${command.guildId ?? "unknown"}`,
+    `- channel_id: ${command.channelId ?? "unknown"}`,
+    `- interaction_id: ${command.interactionId ?? "unknown"}`,
+    `- dangerous_operation_detected: ${command.dangerous ? "yes" : "no"}`,
+    "",
+    "## Rules",
+    "",
+    "- Do not paste secrets, tokens, credentials, personal data, or raw customer data into this issue.",
+    "- Production deploys, DB migrations, billing, Stripe, AI API, and shared-link changes require explicit owner approval.",
+    "- Codex must triage this issue before implementation."
+  ].join("\n");
+}
+
+async function createGitHubIssue(env: Env, command: DiscordTaskCommand): Promise<string> {
+  const token = requireEnvValue(env.GITHUB_ISSUE_TOKEN, "GITHUB_ISSUE_TOKEN");
+  const repository = env.GITHUB_ISSUE_REPOSITORY || GITHUB_DEFAULT_REPOSITORY;
+  const [owner, repo] = repository.split("/");
+
+  if (!owner || !repo) {
+    throw new AppError(500, "GITHUB_ISSUE_REPOSITORY_INVALID", "GITHUB_ISSUE_REPOSITORY must be owner/repo.");
+  }
+
+  const createIssue = async (labels: string[]) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GITHUB_FETCH_TIMEOUT_MS);
+    const body: { title: string; body: string; labels?: string[] } = {
+      title: `[Discord][${command.priority}] ${command.title}`,
+      body: githubIssueBody(command)
+    };
+
+    if (labels.length > 0) {
+      body.labels = labels;
+    }
+
+    return fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+      method: "POST",
+      headers: {
+        "accept": "application/vnd.github+json",
+        "authorization": `Bearer ${token}`,
+        "content-type": "application/json",
+        "user-agent": "meccha-manual-worker",
+        "x-github-api-version": "2022-11-28"
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout));
+  };
+
+  const labels = githubIssueLabels(command);
+  let response = await createIssue(labels);
+  let payload = await response.json().catch(() => null) as { html_url?: string; message?: string } | null;
+
+  if (!response.ok && response.status === 422 && labels.length > 0) {
+    response = await createIssue([]);
+    payload = await response.json().catch(() => null) as { html_url?: string; message?: string } | null;
+  }
+
+  if (!response.ok || !payload?.html_url) {
+    throw new AppError(response.status, "GITHUB_ISSUE_CREATE_FAILED", "GitHub issue creation failed.");
+  }
+
+  return payload.html_url;
+}
+
+async function readDiscordBody(request: Request): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_DISCORD_BODY_BYTES) {
+    throw new AppError(413, "DISCORD_BODY_TOO_LARGE", "Discord request body is too large.");
+  }
+
+  const text = await request.text();
+  if (new TextEncoder().encode(text).byteLength > MAX_DISCORD_BODY_BYTES) {
+    throw new AppError(413, "DISCORD_BODY_TOO_LARGE", "Discord request body is too large.");
+  }
+
+  return text;
+}
+
+function interactionReplayKey(interactionId: string): string {
+  return `discord-interaction:${interactionId}`;
+}
+
+async function reserveDiscordInteraction(env: Env, interactionId: string | null): Promise<string | null> {
+  if (!interactionId) return null;
+
+  const store = requireDiscordInteractionStore(env);
+  const key = interactionReplayKey(interactionId);
+  const existing = await store.get(key);
+  if (existing) return existing;
+
+  await store.put(key, "pending", { expirationTtl: DISCORD_REPLAY_TTL_SECONDS });
+  return null;
+}
+
+async function completeDiscordInteraction(env: Env, interactionId: string | null, value: string): Promise<void> {
+  if (!interactionId) return;
+
+  const store = requireDiscordInteractionStore(env);
+  await store.put(interactionReplayKey(interactionId), value, { expirationTtl: DISCORD_REPLAY_TTL_SECONDS });
+}
+
+async function updateDiscordOriginalResponse(interaction: DiscordInteraction, content: string): Promise<void> {
+  if (!interaction.application_id || !interaction.token) {
+    throw new AppError(500, "DISCORD_FOLLOWUP_CONTEXT_MISSING", "Discord followup context is missing.");
+  }
+
+  const response = await fetch(
+    `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ content })
+    }
+  );
+
+  if (!response.ok) {
+    throw new AppError(response.status, "DISCORD_FOLLOWUP_FAILED", "Discord followup failed.");
+  }
+}
+
+async function processDiscordTask(env: Env, interaction: DiscordInteraction, command: DiscordTaskCommand): Promise<void> {
+  try {
+    const issueUrl = await createGitHubIssue(env, command);
+    await completeDiscordInteraction(env, command.interactionId, issueUrl);
+    await updateDiscordOriginalResponse(interaction, `GitHub Issue created: ${issueUrl}`);
+  } catch {
+    await completeDiscordInteraction(env, command.interactionId, "failed");
+    await updateDiscordOriginalResponse(interaction, "Failed to create GitHub Issue. Check Worker logs.");
+  }
+}
+
+async function updateDiscordOriginalResponseSafe(interaction: DiscordInteraction, content: string): Promise<void> {
+  try {
+    await updateDiscordOriginalResponse(interaction, content);
+  } catch {
+    // Discord followup failures should not make the initial interaction timeout.
+  }
+}
+
+async function processDiscordInteraction(env: Env, interaction: DiscordInteraction): Promise<void> {
+  try {
+    assertDiscordAllowed(interaction, env);
+    const command = parseDiscordTaskCommand(interaction);
+    const existing = await reserveDiscordInteraction(env, command.interactionId);
+
+    if (existing === "pending") {
+      await updateDiscordOriginalResponseSafe(interaction, "This Discord request is already being processed.");
+      return;
+    }
+
+    if (existing && existing !== "failed") {
+      await updateDiscordOriginalResponseSafe(interaction, `GitHub Issue already exists: ${existing}`);
+      return;
+    }
+
+    await processDiscordTask(env, interaction, command);
+  } catch (error) {
+    const message = error instanceof AppError && error.status < 500
+      ? error.message
+      : "Failed to process Discord request. Check Worker logs.";
+    await updateDiscordOriginalResponseSafe(interaction, message);
+  }
+}
+
+async function discordInteractions(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  if (request.method !== "POST") {
+    return jsonResponse({ code: "METHOD_NOT_ALLOWED" }, { status: 405 });
+  }
+
+  const bodyText = await readDiscordBody(request);
+  await verifyDiscordSignature(request, env, bodyText);
+
+  let interaction: DiscordInteraction;
+  try {
+    interaction = JSON.parse(bodyText) as DiscordInteraction;
+  } catch {
+    return discordResponse("Invalid Discord request body.", 400);
+  }
+  if (interaction.type === DISCORD_INTERACTION_TYPE_PING) {
+    return jsonResponse({ type: DISCORD_RESPONSE_TYPE_PONG });
+  }
+
+  if (interaction.type !== DISCORD_INTERACTION_TYPE_APPLICATION_COMMAND) {
+    return discordResponse("Unsupported Discord interaction type.", 400);
+  }
+
+  if (!ctx) {
+    await processDiscordInteraction(env, interaction);
+    return discordResponse("Discord request processing finished.");
+  }
+
+  ctx.waitUntil(processDiscordInteraction(env, interaction));
+  return discordDeferredResponse();
 }
 
 async function readSupabaseJson(response: Response): Promise<unknown> {
@@ -431,6 +948,15 @@ function logout(): Response {
 function configHealth(env: Env): Response {
   const hasUrl = Boolean(env.SUPABASE_URL);
   const hasAnonKey = Boolean(env.SUPABASE_ANON_KEY);
+  const hasAllowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS).size > 0;
+  const hasAllowedChannelIds = splitCsv(env.DISCORD_ALLOWED_CHANNEL_IDS).size > 0;
+  const allowUnscopedCommands = allowUnscopedDiscordCommands(env);
+  const discordIssueBridgeConfigured = Boolean(
+    env.DISCORD_PUBLIC_KEY &&
+    env.GITHUB_ISSUE_TOKEN &&
+    env.DISCORD_INTERACTION_STORE &&
+    (allowUnscopedCommands || (hasAllowedGuildIds && hasAllowedChannelIds))
+  );
 
   return jsonResponse({
     service: "meccha-manual",
@@ -443,6 +969,16 @@ function configHealth(env: Env): Response {
         hasUrl,
         hasAnonKey,
         projectRef: getSupabaseProjectRef(env.SUPABASE_URL)
+      },
+      discord: {
+        issueBridgeConfigured: discordIssueBridgeConfigured,
+        hasPublicKey: Boolean(env.DISCORD_PUBLIC_KEY),
+        hasIssueToken: Boolean(env.GITHUB_ISSUE_TOKEN),
+        hasIssueRepository: Boolean(env.GITHUB_ISSUE_REPOSITORY),
+        hasInteractionStore: Boolean(env.DISCORD_INTERACTION_STORE),
+        hasAllowedGuildIds,
+        hasAllowedChannelIds,
+        allowUnscopedCommands
       }
     }
   } satisfies ConfigHealthResponse);
@@ -457,8 +993,12 @@ function basicHealth(): Response {
   } satisfies HealthResponse);
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+
+  if (url.pathname === "/v1/integrations/discord/interactions") {
+    return discordInteractions(request, env, ctx);
+  }
 
   verifySameOriginWrite(request);
 
@@ -483,9 +1023,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      return await route(request, env);
+      return await route(request, env, ctx);
     } catch (error) {
       return errorResponse(error);
     }

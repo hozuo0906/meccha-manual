@@ -16,7 +16,16 @@ const requiredWorkerSnippets = [
   "MAX_JSON_BODY_BYTES",
   "verifySameOriginWrite(request)",
   "ORIGIN_MISMATCH",
-  "decodeURIComponent"
+  "decodeURIComponent",
+  "/v1/integrations/discord/interactions",
+  "verifyDiscordSignature",
+  "GITHUB_ISSUE_TOKEN",
+  "DISCORD_PUBLIC_KEY",
+  "DISCORD_INTERACTION_STORE",
+  "DISCORD_RESPONSE_TYPE_DEFERRED_CHANNEL_MESSAGE",
+  "DISCORD_ALLOWED_GUILD_IDS_REQUIRED",
+  "DISCORD_ALLOWED_CHANNEL_IDS_REQUIRED",
+  "blocked-from-discord"
 ];
 
 const forbiddenSnippets = [

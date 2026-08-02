@@ -1,0 +1,129 @@
+name: Auto PR
+
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to open as a pull request
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: auto-pr-${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  create-or-update:
+    name: Create or update pull request
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref_name, 'feature/') ||
+      startsWith(github.ref_name, 'fix/') ||
+      startsWith(github.ref_name, 'review/') ||
+      startsWith(github.ref_name, 'chore/') ||
+      startsWith(github.ref_name, 'phase/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Create or update PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PUSH_BRANCH: ${{ github.ref_name }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH="${INPUT_BRANCH:-$PUSH_BRANCH}"
+          if [[ -z "$BRANCH" || "$BRANCH" == "main" ]]; then
+            echo "No pull request branch selected."
+            exit 0
+          fi
+
+          case "$BRANCH" in
+            feature/*|fix/*|review/*|chore/*|phase/*) ;;
+            *)
+              echo "Branch '$BRANCH' is outside the auto-PR scope."
+              exit 0
+              ;;
+          esac
+
+          EXISTING_PR="$(gh pr list \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          TITLE_BASE="$(printf '%s' "$BRANCH" | sed -E 's#^(feature|fix|review|chore|phase)/##; s#[-_]# #g')"
+          TITLE_BODY="$(python -c 'import sys; print(sys.argv[1].title())' "$TITLE_BASE")"
+          TITLE="自動PR: $TITLE_BODY"
+
+          BODY="$(cat <<'BODY'
+          ## 概要
+          このPull Requestはbranch push後に自動作成されました。
+          Codexは差分、テスト、レビュー観点を確認し、必要な修正を行ってからmerge判断へ進みます。
+
+          ## 必須チェック
+          - [ ] 関連docs、ADR、API契約、データ契約、テスト条件を確認した。
+          - [ ] `npm run check` が成功している。
+          - [ ] secret、共有token、個人情報、実ユーザーの操作内容を含めていない。
+          - [ ] P0/P1レビューリスクが残っていない。
+
+          ## マージルール
+          production反映、DB migration、課金変更、AI API有効化、共有リンク公開は自動化だけでmergeしない。
+          ownerの明示承認とGitHub上の監査可能な記録を正本にする。
+          BODY
+          )"
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            PR_URL="$(gh pr view "$EXISTING_PR" --repo "$REPO" --json url --jq '.url')"
+            echo "Updated PR #$EXISTING_PR"
+            echo "action=updated" >> "$GITHUB_OUTPUT"
+            echo "action_label=既存PRを検出" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          else
+            PR_URL="$(gh pr create \
+              --repo "$REPO" \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY")"
+            echo "Created PR for $BRANCH at $SHA"
+            echo "action=created" >> "$GITHUB_OUTPUT"
+            echo "action_label=PRを自動作成" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: 自動PR / ${{ steps.pr.outputs.action_label || '状態不明' }}
+          DISCORD_NOTIFY_URL: ${{ steps.pr.outputs.pr_url }}
+          DISCORD_NOTIFY_DESCRIPTION: ${{ steps.pr.outputs.pr_url }}
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'PRの準備はできています。リンク先で差分、チェック、レビュー内容を見て、問題なければmerge判断に進めます。' || '自動PR処理で失敗しています。GitHub Actionsの権限またはbranch設定を確認します。' }}
+        run: node scripts/discord-notify.mjs

@@ -4,9 +4,16 @@
   "main": "apps/worker/src/index.ts",
   "compatibility_date": "2026-07-31",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
   "vars": {
     "SUPABASE_URL": "https://spjowmulvoyxxkfeyjkr.supabase.co",
     "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwam93bXVsdm95eHhrZmV5amtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDc4ODUsImV4cCI6MjEwMTA4Mzg4NX0.9bSXUX2HPdjeo55tNkJksWd9kW0CVRWdwYhBQWFW_gg"
+  },
+  "secrets": {
+    "required": [
+      "DISCORD_PUBLIC_KEY",
+      "GITHUB_ISSUE_TOKEN"
+    ]
   },
   "observability": {
     "enabled": true
