@@ -15,4 +15,5 @@ Status: Accepted
 | ADR-0009 | Accepted | AI APIは初期OFFにする |
 | ADR-0010 | Accepted | Worker cookie auth harnessを採用する |
 | ADR-0011 | Accepted | ファイル本体はCloudflare R2を第一候補にする |
+| ADR-0018 | Accepted | R2 bucketとbinding契約 |
 | ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
