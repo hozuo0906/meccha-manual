@@ -120,6 +120,11 @@
     "description": "ユーザーがマージ確認を依頼"
   },
   {
+    "name": "approved-for-codex",
+    "color": "0E8A16",
+    "description": "Codex利用枠で自動実装してよいIssue"
+  },
+  {
     "name": "subagent/review",
     "color": "5319E7",
     "description": "辛口レビュー担当の確認対象"

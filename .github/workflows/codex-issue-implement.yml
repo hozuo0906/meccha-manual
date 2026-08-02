@@ -1,0 +1,159 @@
+name: Codex Issue Implement
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: codex-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Implement approved issue
+    runs-on: ubuntu-latest
+    if: ${{ github.event.label.name == 'approved-for-codex' && !github.event.issue.pull_request }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Codex issue harness
+        run: npm run issue-codex:check
+
+      - name: Build Codex prompt
+        id: prompt
+        env:
+          CODEX_ISSUE_PROMPT_PATH: ${{ runner.temp }}/codex-issue-prompt.md
+        run: node scripts/build-codex-issue-prompt.mjs --output "$CODEX_ISSUE_PROMPT_PATH"
+
+      - name: Stop blocked issue
+        if: ${{ steps.prompt.outputs.blocked == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "このIssueは approval-required / blocked-from-discord が残っているため、自動実装を開始しませんでした。危険操作の承認条件を整理してから再実行してください。"
+          gh issue edit "$ISSUE_NUMBER" --add-label "status/blocked"
+
+      - name: Ensure Codex access token
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        env:
+          CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -z "$CODEX_ACCESS_TOKEN" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "CODEX_ACCESS_TOKEN が GitHub Secrets に未設定のため、自動実装を開始できませんでした。OpenAI APIキーではなくCodex利用枠で動かすため、このsecretが必要です。"
+            exit 1
+          fi
+
+      - name: Prepare work branch
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        env:
+          BRANCH_NAME: ${{ steps.prompt.outputs.branch_name }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH_NAME"
+          gh issue edit "$ISSUE_NUMBER" --add-label "status/in-progress"
+
+      - name: Install Codex CLI
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        run: npm install -g @openai/codex
+
+      - name: Run Codex
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        env:
+          CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+          PROMPT_PATH: ${{ steps.prompt.outputs.prompt_path }}
+        run: |
+          codex --version
+          codex exec --sandbox workspace-write --ask-for-approval never --model gpt-5.6-terra - < "$PROMPT_PATH" | tee "$RUNNER_TEMP/codex-final.md"
+
+      - name: Run repository checks
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        run: npm run check
+
+      - name: Commit and push changes
+        if: ${{ steps.prompt.outputs.blocked != 'true' }}
+        id: changes
+        env:
+          BRANCH_NAME: ${{ steps.prompt.outputs.branch_name }}
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add -A
+          git commit -m "Implement issue #${{ github.event.issue.number }} via Codex"
+          git push --set-upstream origin "$BRANCH_NAME"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        if: ${{ steps.prompt.outputs.blocked != 'true' && steps.changes.outputs.has_changes == 'true' }}
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ steps.prompt.outputs.branch_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          PR_URL="$(gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Codex自動実装: #$ISSUE_NUMBER $ISSUE_TITLE" \
+            --body "## 概要
+          Discord/GitHub Issueで承認された #$ISSUE_NUMBER をCodex利用枠で自動実装しました。
+
+          Closes #$ISSUE_NUMBER
+
+          ## 確認
+          - npm run check
+          - 自動実装は approved-for-codex ラベルが付いたIssueのみ対象
+          - production反映、DB migration、課金、AI API、共有リンク公開は未実行")"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          gh issue comment "$ISSUE_NUMBER" --body "Codex自動実装のPRを作成しました: $PR_URL"
+          gh issue edit "$ISSUE_NUMBER" --add-label "status/review"
+
+      - name: Comment when no changes
+        if: ${{ steps.prompt.outputs.blocked != 'true' && steps.changes.outputs.has_changes == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue comment "$ISSUE_NUMBER" --body "CodexはこのIssueを確認しましたが、コミット対象の変更はありませんでした。Issue本文が疎通確認または調査依頼の場合は正常です。"
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_REQUIRED: "false"
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Codex自動実装 / #${{ github.event.issue.number }}
+          DISCORD_NOTIFY_URL: ${{ steps.pr.outputs.pr_url || github.event.issue.html_url }}
+          DISCORD_NOTIFY_DESCRIPTION: ${{ github.event.issue.title }}
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'approved-for-codex ラベル付きIssueの処理が完了しました。PRが作成されている場合は内容とchecksを確認してください。' || 'Codex自動実装で失敗しました。CODEX_ACCESS_TOKEN、Issueラベル、Actionsログを確認してください。' }}
+        run: npm run notify:discord

@@ -100,3 +100,11 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。PR buttonのマージ依頼もPRのIssue comment/label記録までに限定する。
 - `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。
+## Issueイベント駆動Codex自動実装
+
+| 名前 | 分類 | 用途 | 必須 | クライアント公開 |
+|---|---|---|---|---|
+| `CODEX_ACCESS_TOKEN` | secret | `approved-for-codex` ラベル付きIssueをGitHub Actions上の `codex exec` で自動実装する | yes | no |
+
+`CODEX_ACCESS_TOKEN` はOpenAI APIキーではなく、Codex CLIをChatGPT/Codex側の利用枠で動かすためのAccess Tokenとして扱う。
+値はGitHub Actionsログ、Issueコメント、PR本文、Markdownへ記録しない。
