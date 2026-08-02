@@ -1,0 +1,102 @@
+import { readFile } from "node:fs/promises";
+
+const requiredFiles = [
+  "docs/08-operations/phase1-app-harness.md",
+  "docs/04-data/phase1-supabase-setup.md",
+  "docs/07-quality/rls-negative-test.md",
+  "docs/03-architecture/auth-and-tenancy.md",
+  "docs/03-architecture/adrs/ADR-0010-worker-cookie-auth-harness.md",
+  "docs/03-architecture/adrs/ADR-0019-phase1-development-entry-gate.md",
+  "docs/09-delivery/phase1-entry-gate.md",
+  "supabase/migrations/202608010001_phase1_identity_workspaces.sql",
+  "scripts/rls-negative-test.mjs"
+];
+
+const requiredTerms = [
+  "Supabase Auth",
+  "ワークスペース",
+  "HttpOnly",
+  "SameSite=Lax",
+  "create_workspace",
+  "RLS negative test",
+  "owner/admin/editor/viewer",
+  "ユーザー承認",
+  "本番開発"
+];
+
+const forbiddenRuntimeSnippets = [
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_DB_PASSWORD",
+  "SUPABASE_JWT_SECRET",
+  "service_role"
+];
+
+const requiredWorkerSnippets = [
+  "POST\" && url.pathname === \"/api/auth/login\"",
+  "POST\" && url.pathname === \"/api/auth/logout\"",
+  "GET\" && url.pathname === \"/api/session\"",
+  "GET\" && url.pathname === \"/api/workspaces\"",
+  "POST\" && url.pathname === \"/api/workspaces\"",
+  "/rest/v1/rpc/create_workspace",
+  "HttpOnly",
+  "SameSite=Lax",
+  "verifySameOriginWrite(request)"
+];
+
+const errors = [];
+const contents = {};
+
+for (const file of requiredFiles) {
+  try {
+    contents[file] = await readFile(file, "utf8");
+  } catch {
+    errors.push(`Missing Phase 1 readiness file: ${file}`);
+  }
+}
+
+const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+const worker = await readFile("apps/worker/src/index.ts", "utf8");
+const appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
+const wrangler = await readFile("wrangler.jsonc", "utf8");
+const combined = Object.values(contents).join("\n");
+
+for (const term of requiredTerms) {
+  if (!combined.includes(term)) {
+    errors.push(`Missing Phase 1 readiness term: ${term}`);
+  }
+}
+
+for (const snippet of requiredWorkerSnippets) {
+  if (!worker.includes(snippet)) {
+    errors.push(`Missing Phase 1 worker snippet: ${snippet}`);
+  }
+}
+
+for (const snippet of forbiddenRuntimeSnippets) {
+  if (worker.includes(snippet) || appAssets.includes(snippet) || wrangler.includes(snippet)) {
+    errors.push(`Forbidden privileged runtime snippet found: ${snippet}`);
+  }
+}
+
+if (!packageJson.scripts?.["test:rls"]) {
+  errors.push("package.json must define test:rls.");
+}
+
+if (!packageJson.scripts?.["phase1-readiness:check"]) {
+  errors.push("package.json must define phase1-readiness:check.");
+}
+
+if (!packageJson.scripts?.check?.includes("phase1-readiness:check")) {
+  errors.push("npm run check must include phase1-readiness:check.");
+}
+
+if (!contents["docs/09-delivery/phase1-entry-gate.md"]?.includes("Status: Ready for owner approval")) {
+  errors.push("Phase 1 entry gate must be ready for owner approval, not approved implicitly.");
+}
+
+if (errors.length > 0) {
+  console.error(errors.join("\n"));
+  process.exit(1);
+}
+
+console.log("Phase 1 readiness gate OK.");
