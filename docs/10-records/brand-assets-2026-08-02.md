@@ -5,13 +5,14 @@ Status: Accepted
 ## Adopted Direction
 
 - Logo mark: `docs/02-ux/assets/brand/meccha-manual-logo-mark.png`
-- Mascot: `docs/02-ux/assets/brand/meccha-manual-mascot-me-refined.png`
+- Mascot: `docs/02-ux/assets/brand/meccha-manual-mascot-me-clear-eyes.png`
+- Previous mascot candidate: `docs/02-ux/assets/brand/meccha-manual-mascot-me-refined.png`
 
 ## Notes
 
-- The logo mark uses the hiragana `め`, a manual page, and numbered steps.
-- The mascot is a cute personified `め` monster, not a human character.
-- The mascot keeps the earlier big-eye, friendly expression direction while using a cleaner, production-ready rendering.
+- The logo mark uses the hiragana `me`, a manual page, and numbered steps.
+- The mascot is a cute personified `me` monster, not a human character.
+- The latest mascot keeps the earlier big-eye, friendly expression direction while moving the dark stroke away from the eyes.
 - Final project assets must be stored in the GitHub repository, not only under generated-image cache paths.
 
 ## Usage Intent
