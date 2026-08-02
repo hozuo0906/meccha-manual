@@ -28,6 +28,8 @@ const requiredWorkerSnippets = [
   "GITHUB_MERGE_REQUEST_LABEL",
   "DISCORD_ALLOWED_GUILD_IDS_REQUIRED",
   "DISCORD_ALLOWED_CHANNEL_IDS_REQUIRED",
+  "status/triage",
+  "priority/",
   "blocked-from-discord"
 ];
 

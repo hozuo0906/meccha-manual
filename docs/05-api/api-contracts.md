@@ -45,7 +45,7 @@ Status: Proposed
 - replay防止: `DISCORD_INTERACTION_STORE` KVにinteraction IDを10分保存する
 - 許可範囲: `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする
 - 応答: slash commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する
-- GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`
+- GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`, `status/triage`, `priority/P0|P1|P2|P3`
 - 危険操作候補labels: `approval-required`, `blocked-from-discord`
 - label作成失敗時はlabelなしIssueへfallbackしない
 - DiscordへGitHub APIの詳細エラー本文を返さない

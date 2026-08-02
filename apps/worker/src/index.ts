@@ -79,7 +79,7 @@ const DISCORD_COMMAND_MECCHA_TASK = "meccha-task";
 const DISCORD_SUBCOMMAND_TASK = "task";
 const GITHUB_DEFAULT_REPOSITORY = "hozuo0906/meccha-manual";
 const GITHUB_MERGE_REQUEST_LABEL = "merge-requested";
-const DISCORD_BASE_ISSUE_LABELS = ["from-discord", "needs-triage", "user-request"];
+const DISCORD_BASE_ISSUE_LABELS = ["from-discord", "needs-triage", "user-request", "status/triage"];
 const DISCORD_DANGEROUS_ISSUE_LABELS = ["approval-required", "blocked-from-discord"];
 const DANGEROUS_DISCORD_TASK_KEYWORDS = [
   "production",
@@ -597,9 +597,10 @@ function hasDangerousDiscordTaskContent(title: string, body: string): boolean {
 }
 
 function githubIssueLabels(command: DiscordTaskCommand): string[] {
+  const labels = [...DISCORD_BASE_ISSUE_LABELS, `priority/${command.priority}`];
   return command.dangerous
-    ? [...DISCORD_BASE_ISSUE_LABELS, ...DISCORD_DANGEROUS_ISSUE_LABELS]
-    : DISCORD_BASE_ISSUE_LABELS;
+    ? [...labels, ...DISCORD_DANGEROUS_ISSUE_LABELS]
+    : labels;
 }
 
 function githubIssueBody(command: DiscordTaskCommand): string {
