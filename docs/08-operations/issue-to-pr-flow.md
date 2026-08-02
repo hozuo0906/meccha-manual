@@ -63,3 +63,15 @@ GitHub Actionsの `Issue Intake Report` を手動実行すると、open Issueか
 Codex側の `Issue intake monitor` は15分ごとにIssueを確認する。常時人間がIssue一覧を監視する必要はない。
 
 このworkflowは、必要なタイミングでGitHub側にも証跡を残したいときに使う。
+
+## Issueイベント駆動の自動実装
+
+15分ごとのIssue確認は保険として使い、通常はGitHub Issueイベントで即時に処理する。
+
+- `issues.opened`、`issues.reopened`、`issues.edited` で `.github/workflows/issue-event-triage.yml` を起動する。
+- 自動トリアージは `scripts/issue-event-triage.mjs` で行い、Codex利用枠を消費しない。
+- 実装に進めるIssueにはownerが `approved-for-codex` ラベルを付ける。
+- `issues.labeled` で `approved-for-codex` が付いた時だけ `.github/workflows/codex-issue-implement.yml` を起動する。
+- 自動実装は `CODEX_ACCESS_TOKEN` を使い、OpenAI API従量課金ではなくChatGPT/Codex側の利用枠で `codex exec` を動かす。
+- `approval-required` または `blocked-from-discord` が残るIssueは、自動実装を開始しない。
+- 自動実装はbranch作成、検査、PR作成まで。mergeはownerがGitHub上で行う。
