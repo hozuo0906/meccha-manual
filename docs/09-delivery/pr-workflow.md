@@ -42,6 +42,7 @@ Status: Accepted
 - `npm run check` 成功
 - 変更範囲に対応するsmoke test成功
 - P0/P1レビュー指摘0件
+- サブエージェント品質loopのコーディング、UIUX、テスト、辛口レビュー、リファクタリング/コードレビュー、ドキュメント記録の要約確認済み
 - docs、ADR、decision-logの整合
 - secretを含まない
 - ユーザー承認済み
