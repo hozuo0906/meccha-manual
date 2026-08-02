@@ -74,20 +74,23 @@ jobs:
             --jq '.[0].number // empty')"
 
           TITLE_BASE="$(printf '%s' "$BRANCH" | sed -E 's#^(feature|fix|review|chore|phase)/##; s#[-_]# #g')"
-          TITLE="$(python -c 'import sys; print(sys.argv[1].title())' "$TITLE_BASE")"
+          TITLE_BODY="$(python -c 'import sys; print(sys.argv[1].title())' "$TITLE_BASE")"
+          TITLE="自動PR: $TITLE_BODY"
 
           BODY="$(cat <<'BODY'
-          ## Summary
-          This pull request was opened automatically after a branch push.
+          ## 概要
+          このPull Requestはbranch push後に自動作成されました。
+          Codexは差分、テスト、レビュー観点を確認し、必要な修正を行ってからmerge判断へ進みます。
 
-          ## Required Checks
-          - [ ] Related docs, ADR, API contract, data contract, and tests were checked.
-          - [ ] `npm run check` passes.
-          - [ ] No secrets, shared tokens, personal data, or raw user operation data are included.
-          - [ ] P0/P1 review risks are resolved before merge.
+          ## 必須チェック
+          - [ ] 関連docs、ADR、API契約、データ契約、テスト条件を確認した。
+          - [ ] `npm run check` が成功している。
+          - [ ] secret、共有token、個人情報、実ユーザーの操作内容を含めていない。
+          - [ ] P0/P1レビューリスクが残っていない。
 
-          ## Merge Rule
-          Do not merge production deploys, DB migrations, billing changes, AI API enablement, or shared-link publication from automation alone. Owner approval is still required.
+          ## マージルール
+          production反映、DB migration、課金変更、AI API有効化、共有リンク公開は自動化だけでmergeしない。
+          ownerの明示承認とGitHub上の監査可能な記録を正本にする。
           BODY
           )"
 

@@ -17,8 +17,9 @@
     "discord:register-command": "node scripts/register-discord-command.mjs",
     "discord:register-command:dry-run": "node scripts/register-discord-command.mjs --dry-run",
     "discord:register-command:check": "node --check scripts/register-discord-command.mjs",
+    "cloudflare:audit:check": "node --check scripts/cloudflare-config-audit.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run encoding:check"
   },
   "devDependencies": {}
 }
