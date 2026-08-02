@@ -15,7 +15,7 @@
       }
     }
   },
-  "postCreateCommand": "npm install",
+  "postCreateCommand": "npm ci && npm run codex-cloud:check",
   "forwardPorts": [5173, 8787],
   "portsAttributes": {
     "5173": {

@@ -1,0 +1,42 @@
+name: Cloud Codex Readiness
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-codex-readiness:
+    name: Validate cloud Codex environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate cloud Codex environment
+        run: npm run codex-cloud:check
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: Codexクラウド作業環境
+          DISCORD_NOTIFY_DESCRIPTION: Codex Cloud、Codex web、GitHub Codespacesで作業するためのrepo側設定を確認しました。
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'Codexクラウド作業環境のrepo側準備は通っています。PCの電源に依存しない作業は、Codex CloudまたはCodespaces側でGitHub repoを開いて実行します。' || 'Codexクラウド作業環境の確認に失敗しています。devcontainer、運用docs、task template、secret混入を確認します。' }}
+        run: npm run notify:discord
