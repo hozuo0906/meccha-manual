@@ -9,6 +9,8 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 ## 現在追加済み
 
 - `.devcontainer/devcontainer.json`: Codespaces起動設定。
+- `docs/08-operations/codex-cloud-environment.md`: Codex Cloud / Codex web / Codespaces作業環境。
+- `docs/09-delivery/codex-cloud-task-template.md`: クラウドtask開始テンプレート。
 - `.github/workflows/docs-ci.yml`: Markdown正本の最低限チェック。
 - `.github/workflows/auto-pr.yml`: feature/fix/review/chore/phase branch push時のPull Request自動作成。
 - `.github/pull_request_template.md`: PRごとの品質確認。
@@ -17,10 +19,12 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 - `package.json`: `npm run docs:check`。
 - `wrangler.jsonc`: Cloudflare Workerの最小デプロイ設定。
 - `apps/worker/src/index.ts`: 初回デプロイ確認用の健康チェックWorker。
+- `scripts/check-cloud-codex-environment.mjs`: クラウド作業環境のrepo側チェック。
 
 ## まだ必要な外部設定
 
 - GitHub Codespacesをリポジトリで有効化する。
+- Codex CloudまたはCodex webでGitHub repository `hozuo0906/meccha-manual` を接続する。
 - Branch protectionを設定し、`Docs CI` を必須にする。
 - CloudflareアカウントとWorkersプロジェクトを作成する。
 - Supabase東京リージョンのプロジェクトを作成する。
