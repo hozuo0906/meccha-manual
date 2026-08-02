@@ -31,29 +31,16 @@ Status: Accepted
 - Browser Run: システム内ブラウザ
 - R2: スクリーンショット、手順書画像、出力ファイル、avatar
 
-GitHub Secrets登録済み:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-
-Cloudflare API Tokenの権限:
-
-- `Account / Account Settings / Read`
-- `Account / Workers Builds Configuration / Edit`
-- `Account / Workers Scripts / Edit`
+Cloudflareのaccount ID、API token、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
 
 R2 bucketはまだ作成しない。
-staging/production分離後にbucket名とbinding名を確定する。
+bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実bucket作成とbinding追加は承認後に行う。
 
 ## Discord
 
 役割:
 
 - GitHub Actionsから開発報告を通知する。
-
-登録済みGitHub Secret:
-
-- `DISCORD_WEBHOOK_URL`
 
 運用:
 
@@ -81,7 +68,13 @@ staging/production分離後にbucket名とbinding名を確定する。
 - Price: `3,300 JPY / monthly / tax included`
 - Payment Link
 
-今は後回しにする。
+初期状態:
+
+- `BILLING_FEATURE_ENABLED=false`
+- Stripe関連Secret、Price ID、Payment Link IDは未登録
+- Stripe外部API呼び出しなし
+
+課金のアプリ境界だけを先に固定し、外部設定は後回しにする。
 アプリ側の `/v1/webhooks/stripe` が未実装のため、Stripe webhook endpointはまだ作らない。
 
 ## AI

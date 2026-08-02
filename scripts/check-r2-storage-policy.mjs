@@ -14,14 +14,14 @@ const requiredBindings = [
 ];
 
 const requiredBucketNames = [
-  "meccha-manual-staging-capture-assets",
-  "meccha-manual-staging-manual-assets",
-  "meccha-manual-staging-exports",
-  "meccha-manual-staging-avatars",
-  "meccha-manual-production-capture-assets",
-  "meccha-manual-production-manual-assets",
-  "meccha-manual-production-exports",
-  "meccha-manual-production-avatars"
+  "meccha-manual-capture-assets-staging",
+  "meccha-manual-capture-assets-prod",
+  "meccha-manual-manual-assets-staging",
+  "meccha-manual-manual-assets-prod",
+  "meccha-manual-exports-staging",
+  "meccha-manual-exports-prod",
+  "meccha-manual-avatars-staging",
+  "meccha-manual-avatars-prod"
 ];
 
 const requiredTerms = [
@@ -30,6 +30,8 @@ const requiredTerms = [
   "Worker経由",
   "Postgresメタデータ",
   "短期署名URL",
+  "保持期間",
+  "PII",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
 ];
 
@@ -65,7 +67,10 @@ for (const term of requiredTerms) {
 }
 
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
-const r2Buckets = wrangler.r2_buckets || [];
+const r2Buckets = [
+  ...(wrangler.r2_buckets || []),
+  ...Object.values(wrangler.env || {}).flatMap((environment) => environment.r2_buckets || [])
+];
 
 if (!Array.isArray(r2Buckets)) {
   errors.push("wrangler.jsonc r2_buckets must be an array when present.");

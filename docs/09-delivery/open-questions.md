@@ -18,3 +18,9 @@ Status: Accepted
 | OQ-010 | AI機能 | 初期OFF、将来管理者ON | AI拡張 |
 | OQ-011 | データ保持期間 | ワークスペース設定、監査ログは長期 | データライフサイクル |
 | OQ-012 | 日本国外処理 | Supabase東京、Cloudflare Browser Runはグローバル可能性を明記 | 法務 |
+| OQ-013 | R2のデータ種別ごとの保持期間 | lifecycle ruleは作らず、契約・復旧・法務要件を確認後に決定 | R2自動削除 |
+| OQ-014 | 短命R2 URLとLive View URLの具体的TTL | 用途別の最短時間を採用し、実装前の脅威分析で決定 | URL発行実装 |
+| OQ-015 | 無料枠とPro席数の数え方 | 購入席数と有効member数を照合し、超過時は新規招待を止める案 | Stripe/招待 |
+| OQ-016 | 未払い猶予期間とread-only移行 | 即時削除・即時締め出しはせず、顧客通知と復旧手順を含めて決定 | 課金強制 |
+| OQ-017 | 全額・一部返金時のentitlement | 返金とデータ削除を分離し、返金対象期間と利用権を運用設計後に決定 | 返金自動化 |
+| OQ-018 | Browser Run最大実行時間、idle timeout、同時実行数 | Cloudflare契約・費用・UX検証後に環境別上限を決定 | Browser Run外部設定 |

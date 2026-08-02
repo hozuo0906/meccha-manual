@@ -1,4 +1,4 @@
-# ADR-0018 R2 bucketとbinding契約
+# ADR-0018: R2 bucketとbinding契約
 
 Status: Accepted
 
@@ -28,14 +28,31 @@ Status: Accepted
 
 | 環境 | bucket |
 |---|---|
-| staging | `meccha-manual-staging-capture-assets` |
-| staging | `meccha-manual-staging-manual-assets` |
-| staging | `meccha-manual-staging-exports` |
-| staging | `meccha-manual-staging-avatars` |
-| production | `meccha-manual-production-capture-assets` |
-| production | `meccha-manual-production-manual-assets` |
-| production | `meccha-manual-production-exports` |
-| production | `meccha-manual-production-avatars` |
+| staging | `meccha-manual-capture-assets-staging` |
+| staging | `meccha-manual-manual-assets-staging` |
+| staging | `meccha-manual-exports-staging` |
+| staging | `meccha-manual-avatars-staging` |
+| production | `meccha-manual-capture-assets-prod` |
+| production | `meccha-manual-manual-assets-prod` |
+| production | `meccha-manual-exports-prod` |
+| production | `meccha-manual-avatars-prod` |
+
+`wrangler.jsonc` では環境ごとの `r2_buckets` に同じbinding名を置き、参照先bucketだけを分ける。bucket未作成の現段階ではbindingを追加しない。bucket名を環境変数へ重複保持しない。
+
+## アクセスとURL
+
+- bucketはprivateとし、公開カスタムドメインを直接割り当てない。
+- WorkerはSupabase Auth sessionとPostgresメタデータの `workspace_id`、削除状態、利用者権限を検証する。
+- 検証後にWorker proxyまたは短命URLを発行する。URLの有効期限、対象object、用途を限定し、URLそのものをDB・監査ログへ保存しない。
+- 共有リンクが将来有効でも、共有トークンの検証と失効確認をWorkerで行い、R2 objectを直接公開しない。
+
+## 削除・保持・機密情報
+
+- 削除はPostgresメタデータをsoft deleteし、URL発行を即時停止してから非同期削除jobでR2 objectと派生物を削除する。
+- 削除失敗は再試行対象とし、object keyではなくasset IDを監査ログへ残す。
+- 保持期間はデータ種別ごとに決定し、未決期間は `open-questions.md` で管理する。期間未決のまま自動削除を有効にしない。
+- スクリーンショットはPII・社内機密を含み得る。入力値、Cookie、Authorization、共有生トークン、Live View URLをobject metadataやobject keyへ入れない。
+- object keyは `workspace_id` を含む推測困難なIDで構成し、元ファイル名や画面タイトルを含めない。
 
 ## 影響
 

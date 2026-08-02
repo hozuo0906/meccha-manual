@@ -56,3 +56,5 @@ Cloudflare Browser Runを使い、利用者が対象サイトをクラウドブ�
 - localhost、private IP、link-local、metadata endpointを拒否。
 - DNS rebindingを想定し、リダイレクト後も再検査する。
 - `file:`, `data:`, `javascript:` を拒否する。
+
+起動順序、DNS/redirect再検査、入力値非保存、スクリーンショット、セッション破棄、監査ログの運用正本は `docs/08-operations/browser-run-session-harness.md` とする。

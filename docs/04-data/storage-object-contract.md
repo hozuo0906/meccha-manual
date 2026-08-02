@@ -10,10 +10,10 @@ R2 objectとPostgresメタデータの対応を固定し、ワークスペース
 
 | binding | bucket | kind |
 |---|---|---|
-| `CAPTURE_ASSETS` | `meccha-manual-staging-capture-assets` / `meccha-manual-production-capture-assets` | `capture_screenshot` |
-| `MANUAL_ASSETS` | `meccha-manual-staging-manual-assets` / `meccha-manual-production-manual-assets` | `manual_image` |
-| `EXPORTS` | `meccha-manual-staging-exports` / `meccha-manual-production-exports` | `pdf_export`, `html_export`, `markdown_export` |
-| `AVATARS` | `meccha-manual-staging-avatars` / `meccha-manual-production-avatars` | `user_avatar`, `workspace_avatar` |
+| `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` / `meccha-manual-capture-assets-prod` | `capture_screenshot` |
+| `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` / `meccha-manual-manual-assets-prod` | `manual_image` |
+| `EXPORTS` | `meccha-manual-exports-staging` / `meccha-manual-exports-prod` | `pdf_export`, `html_export`, `markdown_export` |
+| `AVATARS` | `meccha-manual-avatars-staging` / `meccha-manual-avatars-prod` | `user_avatar`, `workspace_avatar` |
 
 R2 bucketはまだ作成しない。
 

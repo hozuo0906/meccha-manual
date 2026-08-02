@@ -10,7 +10,7 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 理由:
 
 - 操作記録スクリーンショットは増えやすい。
-- Cloudflare R2は無料枠が大きく、egress無料のため画像配信と出力ファイルに向く。
+- Cloudflare R2はWorker、Browser Runと同じCloudflare側でファイル本体を扱え、DB行と増加しやすいオブジェクトの責務を分離できる。
 - Worker、Browser Run、R2をCloudflare側で近く扱える。
 - Supabase RLSはDB行の権限判定に集中させる。
 
