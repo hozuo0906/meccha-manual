@@ -12,7 +12,8 @@ flowchart LR
   D --> B["Cloudflare Browser Run\nPlaywright / CDP"]
   U --> L["Live View\nクラウドブラウザ操作"]
   L --> B
-  D --> S["Supabase\nPostgres / Storage"]
+  D --> S["Supabase\nPostgres / metadata"]
+  D --> R["Cloudflare R2\nprivate object storage"]
   T["Stripe Payment Links"] --> W["Webhook Worker"]
   W --> S
 ```
@@ -31,7 +32,7 @@ flowchart LR
 - ブラウザクライアントは信用しない。
 - API Workerで業務認可を行う。
 - RLSを最終防衛線にする。
-- Storage objectはprivate bucketに保存し、Worker検証後に短期署名URLを発行する。
+- Storage objectはCloudflare R2のprivate bucketに保存し、Worker検証後に短期署名URLを発行する。
 - Live View URL、共有生トークン、secretはDBやログへ保存しない。
 
 ## 主要リスク

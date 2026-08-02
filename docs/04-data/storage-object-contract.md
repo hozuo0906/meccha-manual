@@ -1,0 +1,80 @@
+# Storage object contract
+
+Status: Accepted
+
+## 目的
+
+R2 objectとPostgresメタデータの対応を固定し、ワークスペース越境、公開URL漏れ、削除漏れを防ぐ。
+
+## 保存先
+
+| binding | bucket | kind |
+|---|---|---|
+| `CAPTURE_ASSETS` | `meccha-manual-staging-capture-assets` / `meccha-manual-production-capture-assets` | `capture_screenshot` |
+| `MANUAL_ASSETS` | `meccha-manual-staging-manual-assets` / `meccha-manual-production-manual-assets` | `manual_image` |
+| `EXPORTS` | `meccha-manual-staging-exports` / `meccha-manual-production-exports` | `pdf_export`, `html_export`, `markdown_export` |
+| `AVATARS` | `meccha-manual-staging-avatars` / `meccha-manual-production-avatars` | `user_avatar`, `workspace_avatar` |
+
+R2 bucketはまだ作成しない。
+
+## object key
+
+```text
+{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
+```
+
+例:
+
+```text
+workspace-id/manuals/manual-id/asset-id.png
+workspace-id/captures/capture-session-id/asset-id.webp
+workspace-id/exports/manual-id/export-id.pdf
+workspace-id/avatars/user-id/asset-id.webp
+```
+
+## Postgresメタデータ
+
+Postgresメタデータに保存するもの:
+
+- `workspace_id`
+- `asset_id`
+- `bucket`
+- `object_key`
+- `kind`
+- `content_type`
+- `byte_size`
+- `checksum_sha256`
+- `width`
+- `height`
+- `created_by`
+- `created_at`
+- `deleted_at`
+- `status`
+- `masking_status`
+
+## R2 object metadata
+
+R2 object metadataに保存してよいもの:
+
+- `workspace_id`
+- `asset_id`
+- `kind`
+- `content_type`
+- `checksum_sha256`
+
+secret、共有トークン、個人情報、入力値、実ユーザーの操作内容はR2 metadataへ保存しない。
+
+## 参照
+
+- 認可はWorker経由で行う。
+- WorkerはSupabase sessionとworkspace権限を確認する。
+- 権限確認後、Worker proxyまたは短期署名URLで配信する。
+- bucket自体はpublicにしない。
+- 共有リンクが有効でも、R2 objectを直接公開しない。
+
+## 削除
+
+- DBメタデータを先にsoft deleteする。
+- 非同期でR2 objectを削除する。
+- 削除失敗は監査ログと再試行jobへ残す。
+- `deleted_at` 済みassetのURL発行は禁止する。

@@ -1,0 +1,42 @@
+name: R2 Storage Policy
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r2-storage-policy:
+    name: Validate R2 storage policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate R2 storage policy
+        run: npm run r2-storage:check
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MECCHA_DISCORD_WEBHOOK_URL: ${{ secrets.MECCHA_DISCORD_WEBHOOK_URL }}
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          DISCORD_NOTIFY_ENV: development
+          DISCORD_NOTIFY_STATUS: ${{ job.status }}
+          DISCORD_NOTIFY_TITLE: R2保存方針チェック
+          DISCORD_NOTIFY_DESCRIPTION: R2 bucket名、binding名、object key、公開禁止方針を確認しました。
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'R2保存方針は通っています。bucket未作成の間はwranglerへR2 bindingを書かず、作成後にstaging/production別bucketを固定します。' || 'R2保存方針で失敗しています。bucket名、binding名、公開禁止、Worker経由配信、Postgresメタデータ方針を確認します。' }}
+        run: npm run notify:discord
