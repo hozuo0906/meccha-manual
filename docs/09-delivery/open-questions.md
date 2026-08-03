@@ -27,3 +27,4 @@ Status: Accepted
 | OQ-019 | production GitHub Environmentのrequired reviewerを誰にするか | deploy step追加前にリポジトリownerが指名し、自己承認可否と代替承認者を決定 | production workflow有効化 |
 | OQ-020 | production独自ドメイン、DNS、切替日、rollback条件 | `workers.dev`を当面の技術URLとし、公開計画とドメイン所有確認後に決定 | production route切替 |
 | OQ-021 | production Supabase projectの名称、region、作成時期、backup/restore条件 | 現projectを暫定dev/stagingとし、データ所在地・費用・復旧要件の承認後に作成 | production DB作成・migration |
+| OQ-022 | 未使用・重複・孤立した画像の判定条件と物理削除時期 | 公開版、下書き、過去revisionから参照中のassetは削除しない。未参照assetは削除候補にし、猶予期間と復元条件を決定してから物理削除する | R2画像削除job |
