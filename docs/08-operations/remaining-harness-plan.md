@@ -26,12 +26,12 @@ Status: Accepted
 
 ## Stripe課金ハーネス
 
-- 目的: 無料開始を維持しつつ、誤課金・誤権限なしで将来Proへ移行できる境界を作る。
-- 作るもの: ADR-0007/0022、課金運用手順、環境変数台帳、Webhook/entitlementテスト方針。
-- 必要な外部設定: test/live別Product、Price、Payment Link、Webhook endpoint、Secret。
-- まだやらないこと: Stripe商品・Price・Payment Link・Webhook endpoint作成、Secret登録、課金機能ON。
-- 承認が必要な操作: test mode外部設定、課金機能ON、live mode設定、価格・税設定変更。
-- 完了条件: 署名検証、冪等性、順不同、席数、未払い、解約、返金の扱いと未決点が分離される。
+- 目的: `BILLING_FEATURE_ENABLED=false` を維持しつつ、都度払い、パーソナル、チームを誤課金・誤権限なしで将来有効化できる境界を作る。
+- 作るもの: ADR-0007/0022/0023、料金プラン、課金運用手順、環境変数台帳、checkout intent、Webhook/entitlement/利用上限テスト方針。
+- 必要な外部設定: test/live別の3 Product、3 Price、3 Payment Link、Stripe Link設定、Webhook endpoint、Secret。
+- まだやらないこと: Stripe商品・Price・Payment Link・Webhook endpoint作成、Link有効化、Secret登録、課金機能ON。
+- 承認が必要な操作: test mode外部設定、Link有効化、課金機能ON、live mode設定、価格・税設定変更。
+- 完了条件: 署名検証、冪等性、順不同、manual scope、席数、Browser Run/Storage上限、未払い、解約、返金の扱いと未決点が分離される。
 
 ## DB migration安全ハーネス
 

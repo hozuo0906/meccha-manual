@@ -35,8 +35,12 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `AVATARS` | binding | R2 avatar画像 | phase1/2任意 | no |
 | `STRIPE_SECRET_KEY` | secret | Stripe API | phase8 | no |
 | `STRIPE_WEBHOOK_SECRET` | secret | Stripe webhook署名検証 | phase8 | no |
-| `STRIPE_PRICE_PRO_MONTHLY` | server | Pro月額Price ID | phase8 | no |
-| `STRIPE_PAYMENT_LINK_PRO_MONTHLY` | server | Pro月額Payment Link ID | phase8 | no |
+| `STRIPE_PRICE_SINGLE_EXPORT` | server | 都度払い550円のPrice ID | phase8 | no |
+| `STRIPE_PAYMENT_LINK_SINGLE_EXPORT` | server | 都度払い550円のPayment Link IDまたはserver-side参照 | phase8 | no |
+| `STRIPE_PRICE_PERSONAL_MONTHLY` | server | パーソナル月額3,300円のPrice ID | phase8 | no |
+| `STRIPE_PAYMENT_LINK_PERSONAL_MONTHLY` | server | パーソナルのPayment Link IDまたはserver-side参照 | phase8 | no |
+| `STRIPE_PRICE_TEAM_MONTHLY` | server | チーム月額9,900円のPrice ID | phase8 | no |
+| `STRIPE_PAYMENT_LINK_TEAM_MONTHLY` | server | チームのPayment Link IDまたはserver-side参照 | phase8 | no |
 | `BILLING_FEATURE_ENABLED` | server | 課金導線とStripe外部通信の機能フラグ | yes | no |
 | `AI_PROVIDER_API_KEY` | secret | 将来AI API | phase9 | no |
 | `DISCORD_WEBHOOK_URL` | secret | 通常CIからDiscordへ開発報告を通知 | harness | no |
@@ -93,7 +97,10 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 - `BILLING_FEATURE_ENABLED` の既定は `false` とする。
 - `false` の間はPayment Linkを表示せず、Stripe APIへ外部通信しない。
 - test/liveでStripe関連値を共有しない。
-- Price IDとPayment Link IDはSecretではない場合でもサーバー設定とし、クライアントへ直接渡さない。
+- Price IDとPayment Link参照はSecretではない場合でもサーバー設定とし、クライアントへ直接渡さない。
+- `single_export`、`personal_monthly`、`team_monthly` のPrice/Payment Linkを固定のallowlistで対応付ける。
+- Stripe LinkはPayment Link側の決済補助機能として扱い、Linkの利用者情報をアプリ認証へ使わない。
+- 旧 `STRIPE_PRICE_PRO_MONTHLY` と `STRIPE_PAYMENT_LINK_PRO_MONTHLY` は新規実装で使用しない。
 - Secret、Product、Price、Payment Link、Webhook endpointはまだ登録・作成しない。
 
 ## ルール
@@ -110,6 +117,7 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 - `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。PR buttonのマージ依頼もPRのIssue comment/label記録までに限定する。
 - `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。
+
 ## Issueイベント駆動Codex自動実装
 
 | 名前 | 分類 | 用途 | 必須 | クライアント公開 |

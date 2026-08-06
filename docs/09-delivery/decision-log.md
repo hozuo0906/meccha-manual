@@ -40,3 +40,6 @@ Status: Accepted
 | DEC-034 | 2026-08-02 | staging/productionでGitHub Environment、Worker、Supabase、R2、Stripe、Discord設定を分離し、現在のSupabase projectは暫定dev/stagingとして扱う | production資源を作成する前に接続先とデータ境界を固定し、環境取り違えを防ぐため |
 | DEC-035 | 2026-08-02 | staging/production workflowは現段階では候補SHAの静的checkだけを行い、productionは手動dispatchとGitHub Environment `production` required reviewersを必須にする | `main`マージをproduction候補確定に限定し、無承認deployと未作成資源への接続を防ぐため |
 | DEC-036 | 2026-08-02 | 既存accountの`tattoo-studio-crm.workers.dev`配下は当面の技術的サブドメインとし、独自ドメイン切替は別承認にする | 技術URLを恒久的な公開URLと誤認せず、route変更をproduction deployから分離するため |
+| DEC-037 | 2026-08-07 | 料金体系を都度払い550円、パーソナル月額3,300円、チーム月額9,900円とし、Payment Links上でStripe Linkを利用する（[ADR-0023](../03-architecture/adrs/ADR-0023-pricing-and-stripe-link.md)） | 単発利用、個人継続利用、チーム利用を分け、Browser Run・Storage・席数の原価を上限で制御しつつ、次回決済の入力負担を下げるため |
+
+DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。

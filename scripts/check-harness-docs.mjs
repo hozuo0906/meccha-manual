@@ -1,6 +1,17 @@
 import { readFile } from "node:fs/promises";
 
 const requiredDocs = {
+  "docs/01-product/pricing-and-plans.md": [
+    "550円 / 1マニュアル",
+    "3,300円 / 月",
+    "9,900円 / 月",
+    "`single_export`",
+    "`personal_monthly`",
+    "`team_monthly`",
+    "Stripe Link",
+    "購入日から30日間",
+    "上限超過による自動課金は行わず"
+  ],
   "docs/08-operations/remaining-harness-plan.md": [
     "R2 Storageハーネス",
     "Staging/Production分離ハーネス",
@@ -20,7 +31,11 @@ const requiredDocs = {
   ],
   "docs/08-operations/stripe-billing-harness.md": [
     "`BILLING_FEATURE_ENABLED=false`",
+    "550 JPY / one manual / tax included",
     "3,300 JPY / monthly / tax included",
+    "9,900 JPY / monthly / tax included",
+    "Stripe Link",
+    "client_reference_id",
     "raw body",
     "stripe_event_id",
     "順不同",
@@ -47,8 +62,12 @@ const requiredDocs = {
   "docs/08-operations/environment-variables.md": [
     "`STRIPE_SECRET_KEY`",
     "`STRIPE_WEBHOOK_SECRET`",
-    "`STRIPE_PRICE_PRO_MONTHLY`",
-    "`STRIPE_PAYMENT_LINK_PRO_MONTHLY`",
+    "`STRIPE_PRICE_SINGLE_EXPORT`",
+    "`STRIPE_PAYMENT_LINK_SINGLE_EXPORT`",
+    "`STRIPE_PRICE_PERSONAL_MONTHLY`",
+    "`STRIPE_PAYMENT_LINK_PERSONAL_MONTHLY`",
+    "`STRIPE_PRICE_TEAM_MONTHLY`",
+    "`STRIPE_PAYMENT_LINK_TEAM_MONTHLY`",
     "`BILLING_FEATURE_ENABLED`"
   ]
 };

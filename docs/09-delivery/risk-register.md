@@ -18,3 +18,6 @@ Status: Accepted
 | RISK-012 | R2削除失敗でobjectが残留する | 機密情報残留/費用増加 | URL即時停止、非同期削除再試行、asset単位の監査 |
 | RISK-013 | Stripe webhookの順不同・遅延で古い状態へ戻る | 誤ったentitlement | object単位reconciliation、冪等処理、状態遷移テスト |
 | RISK-014 | Browser session終了失敗でcredentialやCookieが残る | P0情報漏えい | Live View失効、close再試行、期限切れ、監査alarm |
+| RISK-015 | 都度払いの権利を別workspaceまたは別manualへ付与する | P0越境/誤権限 | checkout intentへworkspace/manualを固定し、PriceとWebhookを照合する |
+| RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、Supabase sessionとcheckout intentを正本にする |
+| RISK-017 | Browser RunやStorageの計測誤差で追加請求する | 誤課金/信用失墜 | 初期は自動従量課金せず、上限停止と再集計フローを採用する |
