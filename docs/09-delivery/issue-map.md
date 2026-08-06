@@ -91,11 +91,16 @@ Status: Accepted
 
 ## EPIC-10: 課金
 
-- Stripe Payment Links
-- Webhook
-- entitlement
-- 無料枠
-- 請求画面
+- 料金画面: 都度払い550円、パーソナル3,300円/月、チーム9,900円/月
+- Stripe Payment LinksとStripe Link
+- checkout intentと `client_reference_id`
+- Webhook署名検証、重複・遅延・順不同
+- 都度払いのmanual scope entitlementと30日再出力
+- パーソナル/チームのworkspace entitlement
+- 作成者席、viewer、Browser Run、R2、同時記録のusage counter
+- 80%警告、100%停止、自動従量課金なし
+- 未払い、解約、返金、chargeback
+- 請求・利用量画面
 
 ## EPIC-11: 分析
 

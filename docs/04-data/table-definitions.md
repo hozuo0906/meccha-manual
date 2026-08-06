@@ -39,12 +39,24 @@ Status: Accepted
 | `step_view_events` | `workspace_id`, `manual_view_id`, `step_id`, `event_type`, `occurred_at` | Worker追加。生データはadmin限定 |
 | `notifications` | `workspace_id`, `user_id`, `type`, `payload`, `read_at` | 本人のみ閲覧・既読更新 |
 | `billing_customers` | `workspace_id`, `stripe_customer_id`, `billing_email` | owner/admin閲覧、更新はStripe同期処理 |
+| `checkout_intents` | `id`, `workspace_id`, `manual_id`, `offer_code`, `status`, `expires_at`, `consumed_at`, `created_by` | workspace境界。作成者閲覧、状態更新は課金処理。`manual_id`は`single_export`だけ必須 |
+| `billing_purchases` | `id`, `workspace_id`, `checkout_intent_id`, `stripe_payment_intent_id`, `offer_code`, `amount_jpy`, `currency`, `status`, `purchased_at`, `refunded_at` | owner/admin閲覧、Webhook/reconciliationのみ更新。Stripe IDはunique |
 | `subscriptions` | `workspace_id`, `stripe_subscription_id`, `plan_code`, `status`, `quantity`, `current_period_end`, `cancel_at` | owner/admin閲覧、Webhookのみ更新 |
-| `entitlements` | `workspace_id`, `plan_code`, `state`, `seat_limit`, `effective_at`, `expires_at`, `source_subscription_id` | owner/admin閲覧、課金同期処理のみ更新 |
+| `entitlements` | `workspace_id`, `scope_type`, `scope_id`, `feature_code`, `plan_code`, `state`, `seat_limit`, `viewer_limit`, `browser_run_seconds_limit`, `storage_bytes_limit`, `concurrent_session_limit`, `effective_at`, `expires_at`, `source_subscription_id`, `source_purchase_id` | owner/admin閲覧、課金同期処理のみ更新。manual scopeは同一workspaceのmanualだけを許可 |
+| `usage_counters` | `workspace_id`, `period_start`, `period_end`, `browser_run_seconds`, `storage_bytes`, `active_creator_count`, `active_viewer_count`, `concurrent_session_peak`, `updated_at` | メンバーは自workspace集計を閲覧、更新は計測処理のみ。請求根拠と監査用集計を分離 |
 | `payment_events` | `stripe_event_id`, `type`, `payload_digest`, `status`, `attempts`, `processed_at`, `error` | service role専用、`stripe_event_id` unique |
 | `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | Workerのみ追加、owner/admin閲覧、更新削除禁止 |
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
 | `idempotency_keys` | `scope`, `key_hash`, `request_hash`, `response_ref`, `expires_at` | service role専用 |
+
+## 課金データの制約
+
+- `checkout_intents.id` をPayment Linkの `client_reference_id` に使い、メールアドレス、workspace名、manual名を渡さない。
+- `single_export` のcheckout intentは同一workspace内の `manual_id` に固定する。
+- Webhook受信時にPrice IDからoffer codeをサーバー側で決定し、クライアント入力のoffer codeだけを信頼しない。
+- 同じ `stripe_event_id`、`stripe_payment_intent_id`、`checkout_intent_id` から二重購入・二重entitlementを作らない。
+- Stripe Linkの利用者情報は認証・RLS判定に使わない。
+- 利用量上限超過時に自動請求レコードを作らない。
 
 ## Enum候補
 
@@ -54,4 +66,6 @@ Status: Accepted
 - `capture_state`: `created`, `starting`, `ready`, `recording`, `paused`, `reconnecting`, `stopping`, `completed`, `failed`, `expired`
 - `asset_kind`: `screenshot`, `thumbnail`, `export_pdf`, `export_html`, `avatar`
 - `share_permission`: `public_link`, `workspace_only`, `invited_only`
-- `entitlement_state`: `free`, `pro_active`, `pro_grace`, `read_only`
+- `billing_offer_code`: `single_export`, `personal_monthly`, `team_monthly`
+- `entitlement_scope_type`: `workspace`, `manual`
+- `entitlement_state`: `active`, `grace`, `read_only`, `expired`, `refunded`

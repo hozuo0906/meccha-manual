@@ -24,8 +24,22 @@ P0/P1が残る状態では次Phaseへ進みません。
 - SSRF、危険URL拒否。
 - 共有リンクの期限、失効、パスコード。
 - PDF/Markdown/HTMLで日本語とぼかし維持。
-- Stripe webhookの重複、遅延、順不同。
+- Stripe webhookの署名、重複、遅延、順不同。
+- `single_export` が購入対象manualだけに30日間付与されること。
+- `personal_monthly` と `team_monthly` のPrice写像、席数、Browser Run時間、保存容量、同時記録数。
+- Stripe Linkの利用者情報をアプリ認証やworkspace認可に使わないこと。
+- 利用上限到達時に自動課金せず、新規利用だけを安全に停止すること。
+- 返金、chargeback、解約、未払いでデータを即時削除しないこと。
+- `BILLING_FEATURE_ENABLED=false` でPayment Link表示とStripe外部通信が0件になること。
 - AI初期OFFで外部APIを呼ばない。
+
+## 課金テストデータ
+
+- test modeのPriceとPayment Linkだけを使い、liveの識別子やSecretをfixtureへ入れない。
+- checkout intentには推測不能なIDを使い、メール、workspace名、manual名を含めない。
+- 同じStripe event、PaymentIntent、checkout intentを複数回送信する。
+- Price違い、workspace違い、manual違い、期限切れintent、返金後再出力をnegative caseに含める。
+- 月次利用量の境界値として79%、80%、99%、100%、100%超過を検証する。
 
 ## 完成扱い禁止条件
 
@@ -36,4 +50,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - スマホ表示確認がviewport変更だけ。
 - 分析値を原イベントから照合できない。
 - PDF/HTML/Markdownの日本語、マスキング、改ページを目視していない。
+- 課金完了リダイレクトだけでentitlementを付与している。
+- Linkのメールアドレスだけでユーザーやworkspaceを紐付けている。
+- 利用量計測の不整合時に自動で追加請求する。
 - flaky testを再実行して緑にしている。

@@ -17,13 +17,14 @@ Status: Proposed
 | `GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public, secret値は返さない |
 | `POST /v1/workspaces` | ワークスペース作成 | authenticated |
 | `GET /v1/workspaces/{id}` | ワークスペース取得 | member |
-| `POST /v1/workspaces/{id}/invitations` | 招待 | owner/admin |
+| `POST /v1/workspaces/{id}/invitations` | 招待 | owner/admin + plan limit |
 | `GET /v1/manuals` | 手順書一覧 | member |
-| `POST /v1/manuals` | 手順書作成 | editor以上 |
+| `POST /v1/manuals` | 手順書作成 | editor以上 + draft limit |
 | `GET /v1/manuals/{id}` | 手順書取得 | can_view_manual |
 | `PATCH /v1/manuals/{id}` | 手順書更新 | can_edit_manual |
 | `POST /v1/manuals/{id}/publish` | 公開版作成 | can_edit_manual |
-| `POST /v1/capture-sessions` | 操作記録開始 | editor以上 |
+| `POST /v1/manuals/{id}/exports` | PDF/HTML/Markdown出力を要求 | can_view_manual + active export entitlement |
+| `POST /v1/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 |
 | `POST /v1/capture-sessions/{id}/live-url` | Live View URL発行 | session owner |
 | `POST /v1/capture-sessions/{id}/commands` | navigate/reload等 | session owner |
 | `GET /v1/capture-sessions/{id}/events` | 再接続差分 | session owner |
@@ -32,8 +33,34 @@ Status: Proposed
 | `GET /s/{token}` | 共有閲覧 | token検証 |
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
 | `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 |
+| `GET /v1/billing/summary` | 現在プラン、利用量、上限、購入済みmanualを取得 | member。請求詳細はowner/admin |
+| `POST /v1/billing/checkout-intents` | Payment Link遷移前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
+| `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |
 | `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
 | `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
+
+## 課金API contract
+
+`POST /v1/billing/checkout-intents` は次のofferだけを受け付ける。
+
+- `single_export`: `manualId` 必須。対象manualのworkspace所属と編集権限を確認する。
+- `personal_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
+- `team_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
+
+成功時は推測不能なcheckout intent IDと、サーバーで選んだPayment Linkへの短命な遷移情報だけを返す。Price ID、Stripe Secret、Webhook Secret、他workspaceの識別子を返さない。
+
+- `BILLING_FEATURE_ENABLED=false` の場合は `BILLING_DISABLED` を返し、Stripe APIへ通信しない。
+- `client_reference_id` にはcheckout intent IDだけを使う。
+- クライアントが送った価格、金額、Price ID、Payment Linkを信頼しない。
+- Stripe Linkのメールアドレスや認証状態をアプリ認証へ流用しない。
+- 決済完了リダイレクト後も `processing` と表示でき、Webhook確認前に権利を付与しない。
+
+`POST /v1/manuals/{id}/exports` は、次のいずれかをサーバー側で確認する。
+
+1. 対象manualに有効な `single_export` entitlementがあり、30日以内である。
+2. workspaceに有効な `personal_monthly` または `team_monthly` entitlementがある。
+
+上限や権利がない場合は、既存データを削除せず、日本語の料金案内と次の操作を返す。
 
 ## Discord Interaction contract
 
