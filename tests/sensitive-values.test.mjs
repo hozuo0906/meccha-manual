@@ -29,7 +29,11 @@ test("引用符付きの既知secretキーへ代入されたリテラルを値�
 
   const result = spawnSync(process.execPath, [scannerPath], {
     cwd: repository,
-    encoding: "utf8"
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
   });
 
   assert.equal(result.status, 1);
