@@ -58,6 +58,7 @@ Postgresメタデータに保存するもの:
 R2 object metadataに保存してよいもの:
 
 - `workspace_id`
+- `resource_id`
 - `asset_id`
 - `kind`
 - `content_type`
