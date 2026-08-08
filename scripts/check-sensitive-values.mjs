@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
 const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
@@ -51,7 +51,16 @@ if (/^[a-f0-9]{40}$/.test(baseSha) && !/^0+$/.test(baseSha)) {
   for (const objectLine of objects) {
     const [sha, ...pathParts] = objectLine.split(" ");
     if (execFileSync("git", ["cat-file", "-t", sha], { encoding: "utf8" }).trim() !== "blob") continue;
-    const buffer = execFileSync("git", ["cat-file", "blob", sha], { encoding: null, maxBuffer: 20 * 1024 * 1024 });
+    const blobResult = spawnSync("git", ["cat-file", "blob", sha], {
+      encoding: null,
+      maxBuffer: 20 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    if (blobResult.error || blobResult.status !== 0 || !Buffer.isBuffer(blobResult.stdout)) {
+      findings.push(`PR履歴blob ${sha.slice(0, 12)}: 内容を表示せず検査失敗`);
+      continue;
+    }
+    const buffer = blobResult.stdout;
     if (buffer.includes(0)) continue;
     inspectContent(buffer.toString("utf8"), `PR履歴blob ${sha.slice(0, 12)} ${pathParts.join(" ") || "(pathなし)"}`);
   }
