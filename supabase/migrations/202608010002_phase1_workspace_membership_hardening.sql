@@ -1,4 +1,5 @@
 -- Phase 1 hardening: keep tenant identity and audit ownership immutable.
+-- This timestamp deliberately precedes every Phase 2 migration.
 
 create or replace function public.is_workspace_member(
   target_workspace_id uuid,

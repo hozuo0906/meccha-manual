@@ -244,11 +244,13 @@ async function assertAnonymousRpcRejected(supabase, rpc, body) {
     body: JSON.stringify(body)
   });
 
-  await response.arrayBuffer();
+  const payload = await readJson(response);
   if (response.ok) {
     throw new Error(`anonymous RPC ${rpc} unexpectedly succeeded with HTTP ${response.status}.`);
   }
-  if (![401, 403].includes(response.status)) {
+  const code = typeof payload === "object" && payload !== null ? String(payload.code || "") : "";
+  const message = typeof payload === "object" && payload !== null ? String(payload.message || "") : "";
+  if (code !== "42501" || !message.includes(`permission denied for function ${rpc}`)) {
     throw new Error(`anonymous RPC ${rpc} was rejected for an unexpected reason with HTTP ${response.status}.`);
   }
 }

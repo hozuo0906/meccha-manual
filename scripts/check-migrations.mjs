@@ -32,7 +32,7 @@ const requiredPhase2Snippets = [
   "and created_by = auth.uid()"
 ];
 
-const phase1HardeningFile = "202608020003_phase1_workspace_membership_hardening.sql";
+const phase1HardeningFile = "202608010002_phase1_workspace_membership_hardening.sql";
 const phase2SetupFile = "docs/04-data/phase2-manual-core-setup.md";
 const requiredPhase1HardeningSnippets = [
   "create or replace function public.protect_workspace_identity()",
@@ -95,6 +95,10 @@ if (!migrationFiles.includes(phase2File)) {
   }
 }
 
+if (migrationFiles.indexOf(phase1HardeningFile) >= migrationFiles.indexOf(phase2File)) {
+  errors.push("Phase 1 hardening migration must sort before every Phase 2 migration.");
+}
+
 if (!migrationFiles.includes(phase1HardeningFile)) {
   errors.push(`Missing required migration: ${phase1HardeningFile}`);
 } else {
@@ -119,6 +123,8 @@ for (const prerequisite of [
 const rlsNegativeTest = await readFile("scripts/rls-negative-test.mjs", "utf8");
 for (const executableCheck of [
   "assertAnonymousRpcRejected",
+  "code !== \"42501\"",
+  "permission denied for function",
   "assertIdentityFieldsImmutable",
   "ownerCannotMutateIdentityFields",
   "adminCannotMutateIdentityFields"
