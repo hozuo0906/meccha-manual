@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 現在の状態
 
-`BILLING_FEATURE_ENABLED=false` を既定とし、Stripe API呼び出し、Payment Link表示、Webhookによる権限変更を有効化しない。Stripe商品、Price、Payment Link、Webhook endpoint、Secretはまだ作成・登録しない。
+`BILLING_FEATURE_ENABLED=false` を既定とし、新しいCheckout Session作成、購入導線、プラン制限強制を有効化しない。署名済みWebhookと既存課金objectのreconciliationはflagに関係なく継続する。Stripe商品、Price、Webhook endpoint、Secretはまだ作成・登録しない。
 
 本書は将来のtest mode実装に必要な境界を固定するものであり、外部課金設定を実行する手順ではない。
 
@@ -20,12 +20,12 @@ Status: Accepted
 
 Stripe側では税込みとして扱う設定を確認してからtest modeへ作成する。文書上の価格だけでStripe設定済みとは扱わない。
 
-## Stripe Payment LinksとLink
+## Stripe Checkout SessionsとLink
 
-- offerごとにPayment Linkを1本作る。
+- 購入試行ごとにサーバーがCheckout Sessionを1件作り、30分で失効させる。固定のPayment Link URLをentitlement付与に使わない。
 - Stripe LinkをCheckout上の高速決済手段として利用できるようにする。
 - Linkのメールアドレス、電話番号、保存済み決済情報をアプリの認証、workspace所属、role判定に使わない。
-- アプリ側でcheckout intentを作成し、推測不能なIDだけをPayment Linkの `client_reference_id` として渡す。
+- アプリ側でcheckout intentを作成し、推測不能なIDだけをCheckout Sessionの `client_reference_id` として渡す。
 - checkout intentにはworkspace、offer、必要な場合はmanualをサーバー側で保存し、URLへPIIやmanual名を含めない。
 - 決済完了画面は処理中表示に利用できるが、entitlement確定には使わない。
 
@@ -36,14 +36,11 @@ Stripe側では税込みとして扱う設定を確認してからtest modeへ�
 | `STRIPE_SECRET_KEY` | server secret | 未登録 |
 | `STRIPE_WEBHOOK_SECRET` | server secret | 未登録 |
 | `STRIPE_PRICE_SINGLE_EXPORT` | server config | 未登録 |
-| `STRIPE_PAYMENT_LINK_SINGLE_EXPORT` | server config | 未登録 |
 | `STRIPE_PRICE_PERSONAL_MONTHLY` | server config | 未登録 |
-| `STRIPE_PAYMENT_LINK_PERSONAL_MONTHLY` | server config | 未登録 |
 | `STRIPE_PRICE_TEAM_MONTHLY` | server config | 未登録 |
-| `STRIPE_PAYMENT_LINK_TEAM_MONTHLY` | server config | 未登録 |
 | `BILLING_FEATURE_ENABLED` | server flag | `false` |
 
-testとliveで値を共有しない。値をMarkdown、PR本文、ログ、クライアントbundleへ出さない。旧 `STRIPE_PRICE_PRO_MONTHLY` と `STRIPE_PAYMENT_LINK_PRO_MONTHLY` は使用しない。
+testとliveで値を共有しない。値をMarkdown、PR本文、ログ、クライアントbundleへ出さない。旧 `STRIPE_PRICE_PRO_MONTHLY`、`STRIPE_PAYMENT_LINK_PRO_MONTHLY`、3プラン用の固定Payment Link IDは使用しない。
 
 ## checkout intent
 
@@ -51,8 +48,9 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 2. offer codeをallowlistで検証し、金額やPrice IDをクライアントから受け取らない。
 3. `single_export` はmanualを必須、subscriptionはmanualを禁止する。
 4. 推測不能なID、有効期限、未消費状態でcheckout intentを保存する。
-5. サーバー設定から対応Payment Linkを選び、`client_reference_id`だけを付加する。
-6. Webhook成功後に一度だけ消費済みにする。
+5. サーバー設定から対応Priceを選び、intent専用のCheckout Sessionを作成する。Session IDをuniqueで保存し、`client_reference_id`へintent IDだけを付加する。
+6. Checkout Sessionとintentを30分で失効させ、Webhook成功後に一度だけ消費済みにする。
+7. `personal_monthly` は有効メンバーが1人の場合だけ作成する。2人以上ではOQ-027が決まるまで課金前に停止する。
 
 ## Webhook処理
 
@@ -65,6 +63,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 7. イベント到着順を信用せず、payment/subscription/customer単位のreconciliation jobへ渡す。
 8. 状態遷移とentitlement更新を同一transactionまたは再実行可能な処理にまとめる。
 9. 失敗は再試行可能にし、重複再送でも二重付与しない。
+10. flagがfalseでも既存課金objectの署名済みeventを受け付ける。未知・期限切れ・別Session・消費済みintentへの支払いは放置せず、自動返金queueと運用アラートへ送る。
 
 ## entitlement
 
@@ -76,9 +75,9 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 
 - 都度払いは対象manualだけに適用し、別manualへ移さない。
 - パーソナルは有効メンバー1人、チームはowner/admin/editor合計5人とviewer 50人を上限候補とする。
-- 席数超過時は新規招待と権限昇格を止め、ownerを自動で締め出さない。
+- 席数超過時は新規招待と権限昇格を止め、ownerを自動で締め出さない。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで自動化しない。
 - Browser Run、R2、同時記録の上限はサーバー側entitlementと月次usage counterで判定する。
-- 80%で警告、100%で新規利用を停止し、自動従量課金しない。
+- 80%で警告、100%で新しい操作記録、保存、エクスポート生成を停止し、自動従量課金しない。生成済み成果物の期限内ダウンロードは継続する。
 
 ## 課金状態の扱い
 
@@ -88,7 +87,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 | 都度払い期限切れ | 新しいエクスポートを停止し `expired`。manualや画像は削除しない |
 | 未払い | 直ちに削除せず `grace`。猶予期間はOQ-016 |
 | 解約予約 | 支払済み期間終了までsubscriptionを維持 |
-| 解約成立 | Webhook確認後に無料枠へ戻す。データは削除しない |
+| 解約成立 | Webhookのreconciliation後にentitlementを `expired` へ移す。未契約作成枠は有料entitlement不在から導出し、データは削除しない |
 | 返金 | entitlementと分離して記録し、自動削除しない。都度払いは新規再出力を停止 |
 | chargeback | 監査対象として `refunded` 相当へ移し、手動確認導線を用意する |
 | 順不同・遅延 | event時刻だけで上書きせず、対象objectの現在状態を照合 |
@@ -105,11 +104,13 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 - Linkのメール一致だけではユーザー、workspace、manualを紐付けない。
 - 3プランの席数、Browser Run、Storage、同時実行上限の境界値を検証する。
 - 80%、100%到達時に追加請求がなく、期待する警告・停止になる。
-- `BILLING_FEATURE_ENABLED=false` ではStripe APIへの外部通信が0件になる。
+- `BILLING_FEATURE_ENABLED=false` では新規Checkout Session作成が0件になる一方、既存課金objectの署名済みWebhook、解約、返金、reconciliationが継続する。
+- 期限切れ・別Session・消費済みintentの支払いを二重付与せず、自動返金queueへ送る。
+- R2 100%では新規エクスポート生成を拒否し、生成済み成果物のダウンロードだけを許可する。
 
 ## 外部設定と承認
 
-test modeのProduct、Price、Payment Link、Link有効化、Webhook endpoint作成も外部リソース変更として承認後に行う。live mode、価格・税設定、production Secret、課金機能ONはそれぞれproduction承認ゲートを通す。
+test modeのProduct、Price、Link有効化、Webhook endpoint作成も外部リソース変更として承認後に行う。live mode、価格・税設定、production Secret、課金機能ONはそれぞれproduction承認ゲートを通す。
 
 ## 完了条件
 

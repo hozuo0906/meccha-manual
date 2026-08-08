@@ -26,19 +26,20 @@ Status: Proposed
 - raw bodyで署名検証する。
 - `stripe_event_id` をuniqueにする。
 - 重複、遅延、順不同を前提にする。
-- Payment Linkの `client_reference_id` は推測不能なcheckout intent IDにする。
+- Checkout Sessionの `client_reference_id` は推測不能なcheckout intent IDにする。
 - 課金確定はWebhookのみ。画面リダイレクトは補助表示。
 - 署名検証前に状態変更やpayload永続化を行わない。
 - eventはpayment/subscription/customer単位のreconciliationへ渡し、到着順だけでentitlementを上書きしない。
-- `BILLING_FEATURE_ENABLED=false` の間は課金導線とStripe外部通信を無効にする。
+- `BILLING_FEATURE_ENABLED=false` の間は新しい課金導線とCheckout Session作成を無効にする。署名済みWebhookの受信、既存課金objectの永続化・reconciliation・返金/解約反映はflagに関係なく継続する。
 
 ## 都度払いの照合
 
-- checkout intentが未期限切れ、未消費であることを確認する。
+- checkout intentと1対1のStripe Checkout Session IDを照合し、Session自体が未期限切れ・未失効・支払い済みであることを確認する。
 - Stripe上のPriceを `single_export` の環境別Price IDと照合する。
 - checkout intentに保存したworkspaceとmanualを使用し、Webhook payloadのメールアドレスから対象を決めない。
 - 支払い成功後、対象manualへ30日間のexport entitlementを一度だけ付与する。
 - 同じevent、PaymentIntent、checkout intentの再送で有効期限を不正に延長しない。
+- Session完了とintent消費を同一の再実行可能なtransactionで確定する。未知、期限切れ、別Session、すでに別支払いへ消費済みのintentに対する支払いは権利なしで放置せず、重複付与を止めたうえで自動返金queueと運用アラートへ送る。
 - 全額返金またはchargeback確認後はentitlementを `refunded` にするが、manualやR2 objectを自動削除しない。
 
 ## サブスクリプションの照合
@@ -47,6 +48,7 @@ Status: Proposed
 - subscription/customerが同じworkspaceのbilling customerへ紐付くことを確認する。
 - 解約予約中は支払済み期間終了まで `active` を維持する。
 - 未払いは即時削除へ進めず `grace` とし、猶予条件はOQ-016に従う。
+- 契約期間終了はentitlementを `expired` へ遷移させる。未契約作成枠は有料entitlement不在から導出し、`free` 状態を保存しない。
 
 ## Stripe Link
 

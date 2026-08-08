@@ -59,23 +59,25 @@ bucket名とbinding名はADR-0018で確定済みとし、staging/productionの�
 
 役割:
 
-- Payment Links: 有料プラン申込
+- Checkout Sessions: 認証済みユーザーの購入試行ごとに作成する短命な申込画面
+- Stripe Link: Checkout上の決済情報入力支援
 - Webhook: 課金状態とentitlementの正本
 
 将来想定:
 
-- Product: `めっちゃマニュアル Pro`
-- Price: `3,300 JPY / monthly / tax included`
-- Payment Link
+- `single_export`: 550 JPY / one manual / tax included
+- `personal_monthly`: 3,300 JPY / monthly / tax included
+- `team_monthly`: 9,900 JPY / monthly / tax included
+- Priceは環境別allowlistへ登録し、固定Payment Link URLはentitlement付与に使わない
 
 初期状態:
 
 - `BILLING_FEATURE_ENABLED=false`
-- Stripe関連Secret、Price ID、Payment Link IDは未登録
+- Stripe関連Secret、Price IDは未登録
 - Stripe外部API呼び出しなし
 
 課金のアプリ境界だけを先に固定し、外部設定は後回しにする。
-アプリ側の `/v1/webhooks/stripe` が未実装のため、Stripe webhook endpointはまだ作らない。
+アプリ側の `/v1/webhooks/stripe` とCheckout Session作成処理が未実装のため、Stripe webhook endpointや商品をまだ作らない。
 
 ## AI
 

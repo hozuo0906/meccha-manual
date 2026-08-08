@@ -32,7 +32,7 @@ Status: Accepted
 | FR-016 | スマホ表示確認ができる | UA、viewport、DPR、touch、colorSchemeを設定できる |
 | FR-017 | 閲覧分析を記録できる | 閲覧数、完了率、離脱ステップを原イベントから集計できる |
 | FR-018 | コメントと古い情報の報告ができる | 手順単位で管理者に通知される |
-| FR-019 | Stripe Payment LinksとStripe Linkで購入できる | 課金確定は署名検証済みWebhookのみで、Linkの利用者情報をアプリ認証に使わない |
+| FR-019 | 短命なStripe Checkout SessionとStripe Linkで購入できる | 課金確定は署名検証済みWebhookのみで、Linkの利用者情報をアプリ認証に使わない |
 | FR-020 | AI拡張口を持つ | 初期OFFで、外部AI APIを呼ばない |
 | FR-021 | 都度払い、パーソナル、チームの利用権と上限を適用できる | 対象マニュアル、席数、Browser Run時間、保存容量、同時記録数がサーバー側で検証される |
 

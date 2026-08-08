@@ -22,12 +22,14 @@ Status: Accepted
 - 上限超過による自動従量課金は行わない。新規利用を停止し、料金案内を表示する。
 - 追加席、追加容量、年額、先行割引は初期提供に含めない。
 
-## Stripe Payment LinksとLink
+## Stripe Checkout SessionsとLink
 
-- offerごとにStripe Payment Linkを1本用意する。
-- Payment LinkのCheckoutでStripe Linkを利用可能にし、保存済み支払い情報による再決済を支援する。
+- entitlementを付与する購入では、再利用可能なPayment Link URLを返さない。サーバーが購入試行ごとにStripe Checkout Sessionを1件作成する。
+- Checkout Sessionはサーバー設定のPriceだけを使い、30分で失効させる。StripeはCheckout Sessionを支払い試行ごとに新規作成することを推奨しており、Sessionの`expires_at`は作成後30分から24時間の範囲で指定できる。
+- CheckoutでStripe Linkを利用可能にし、保存済み支払い情報による再決済を支援する。
 - Linkを `めっちゃマニュアル` のログイン、本人確認、ワークスペース認可には使わない。
-- サーバーがcheckout intentを作成し、推測不能なIDを `client_reference_id` としてPayment Linkへ渡す。
+- サーバーがcheckout intentを作成し、推測不能なIDをCheckout Sessionの `client_reference_id` とmetadataへ渡す。
+- checkout intentとStripe Checkout Session IDを1対1で固定し、Session IDのunique制約と支払いobjectのunique制約で再利用・二重付与を拒否する。
 - Webhookでcheckout intent、Price、支払状態、workspace、必要な場合はmanualを照合してから権利を付与する。
 - Linkのメールアドレスとアプリのログインメールが一致するだけでは権利を付与しない。
 
@@ -45,17 +47,15 @@ Status: Accepted
 - `subscriptions.quantity` だけを信頼せず、内部プランの席数上限と有効メンバー数を照合する。
 - 解約予約中は支払済み期間終了まで利用可能とする。
 - 未払い、返金、順不同、遅延はADR-0007とADR-0022のreconciliation方針に従う。
+- `personal_monthly` は有効メンバーが1人のworkspaceだけCheckout Sessionを作成できる。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで自動化せず、2人以上のworkspaceでは課金前に `PLAN_MEMBER_LIMIT_UNRESOLVED` として停止する。
 
 ## 環境変数
 
 - `STRIPE_PRICE_SINGLE_EXPORT`
-- `STRIPE_PAYMENT_LINK_SINGLE_EXPORT`
 - `STRIPE_PRICE_PERSONAL_MONTHLY`
-- `STRIPE_PAYMENT_LINK_PERSONAL_MONTHLY`
 - `STRIPE_PRICE_TEAM_MONTHLY`
-- `STRIPE_PAYMENT_LINK_TEAM_MONTHLY`
 
-Secret、Price、Payment Link、Webhook endpointはまだ作成・登録しない。`BILLING_FEATURE_ENABLED=false` を維持する。
+Secret、Price、Webhook endpointはまだ作成・登録しない。`BILLING_FEATURE_ENABLED=false` を維持する。
 
 ## 却下した案
 
@@ -66,6 +66,11 @@ Secret、Price、Payment Link、Webhook endpointはまだ作成・登録しな�
 
 ## 影響
 
-- 課金実装にはmanual scopeのentitlement、checkout intent、利用量集計、3つのPrice/Payment Link設定が必要になる。
-- 旧 `STRIPE_PRICE_PRO_MONTHLY` と `STRIPE_PAYMENT_LINK_PRO_MONTHLY` は新規実装で使用しない。
+- 課金実装にはmanual scopeのentitlement、checkout intent、利用量集計、3つのPrice設定とCheckout Session作成処理が必要になる。
+- 旧 `STRIPE_PRICE_PRO_MONTHLY`、`STRIPE_PAYMENT_LINK_PRO_MONTHLY`、3プラン用の固定Payment Link IDは新規実装で使用しない。
+
+## 参考
+
+- Stripe公式: `https://docs.stripe.com/api/checkout/sessions`（支払い試行ごとに新しいSessionを作成）
+- Stripe公式: `https://docs.stripe.com/api/checkout/sessions/create`（`expires_at`は作成後30分から24時間）
 - 料金・上限を変更する場合は `docs/01-product/pricing-and-plans.md` と関連するデータ、API、テスト文書を同時更新する。

@@ -15,7 +15,7 @@ Status: Accepted
 - Guide Me風の操作案内
 - スマホ表示確認
 - 分析、コメント、通知、監査ログ
-- Stripe Payment Linksによる課金拡張
+- Stripe Checkout SessionsとLinkによる課金拡張
 - AI拡張口
 - 品質ゲート、レビューloop、Runbook
 

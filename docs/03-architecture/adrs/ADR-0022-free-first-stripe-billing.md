@@ -10,10 +10,11 @@ Status: Accepted
 
 ## 決定
 
-- `BILLING_FEATURE_ENABLED=false` を既定にする。
-- falseの間はPayment Linkを表示せず、Stripe APIへ外部通信せず、Webhookによる権限変更も行わない。
-- Stripe Product、Price、Payment Link、Webhook endpoint、Secretは実装とtest modeの承認前に作成・登録しない。
-- Payment Linkは申込入口に限定し、課金状態とentitlementの正本は署名検証済みWebhookとする。
+- `BILLING_FEATURE_ENABLED=false` を既定にする。このflagは新しいCheckout Session作成、購入導線、プラン制限の強制だけを停止する。
+- 署名検証済みWebhookの受信、永続化、既存payment/subscription/refund/chargebackのreconciliationはflagに関係なく継続する。一度でも課金objectを作成した環境では、flagをfalseへ戻しても既存契約の後処理を停止しない。
+- 課金objectが一度も存在しない初期環境ではStripe APIへ通信しない。既存課金objectがある環境でreconciliationにStripe API照会が必要な場合は、flagがfalseでも照会を許可し、失敗時はeventを再試行待ちへ残す。
+- Stripe Product、Price、Webhook endpoint、Secretは実装とtest modeの承認前に作成・登録しない。
+- Checkout Sessionは短命な申込入口に限定し、課金状態とentitlementの正本は署名検証済みWebhookとする。
 - Webhookはraw bodyで署名検証してから永続化し、`stripe_event_id` の一意制約で重複を拒否する。
 - イベントの到着順を信用せず、対象payment、subscription、customerのStripe上の現在状態を使うreconciliation処理へ集約する。
 - Stripe SDK型やstatusをドメインへ直接漏らさず、内部のoffer、purchase、subscription、entitlement状態へ変換する。
@@ -29,10 +30,10 @@ Status: Accepted
 | `expired` | 期限付き権利が終了 | 都度払い再出力期間終了、契約終了 |
 | `refunded` | 返金済みとして新規利用を停止 | 返金・chargebackの確認後 |
 
-解約予約中は支払済み期間終了まで `active` を維持し、期間終了を示すWebhook処理後に無料状態へ戻す。返金はデータ削除と直結させず、返金対象と利用権を監査可能な処理へ分離する。
+解約予約中は支払済み期間終了まで `active` を維持し、期間終了を示すWebhookのreconciliation後にentitlementを `expired` へ遷移させる。未契約作成枠はentitlementへ `free` を保存せず、有効な有料entitlementが存在しないことからサーバー側で導出する。返金はデータ削除と直結させず、返金対象と利用権を監査可能な処理へ分離する。
 
 ## 影響
 
 - 課金機能を有効化するには、Webhook negative test、test mode E2E、都度払いのマニュアル境界テスト、利用上限テスト、運用Runbook、ユーザー承認が必要になる。
-- testとliveのSecret、Price、Payment Linkを共有しない。
+- testとliveのSecret、Price、Webhook endpointを共有しない。
 - productionのStripe live mode設定はstagingのtest mode合格後も自動化せず、別の明示承認を必須にする。
