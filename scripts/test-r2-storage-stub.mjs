@@ -23,6 +23,9 @@ const object = await createStorageObject({
   checksumSha256,
   metadata: { workspaceId: "workspace-001", resourceId: "manual-001", manualId: "manual-001", stepId: "step-001", assetId: "asset-001" }
 });
+body.fill(0);
+assert.notEqual(object.body[0], 0, "validated object must not retain the caller-owned byte buffer");
+assert.equal(createHash("sha256").update(object.body).digest("hex"), checksumSha256);
 const storage = createMemoryObjectStorage();
 const expectedRead = {
   area: object.area,

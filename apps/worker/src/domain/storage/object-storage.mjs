@@ -68,14 +68,15 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
   if (!Object.values(STORAGE_AREAS).includes(area)) throw new TypeError("Unknown storage area.");
   if (!KINDS_BY_AREA[area].includes(kind)) throw new TypeError("Storage kind does not match its area.");
   if (!(body instanceof Uint8Array)) throw new TypeError("body must be a Uint8Array.");
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || body.byteLength !== sizeBytes) {
+  const bodySnapshot = body.slice();
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || bodySnapshot.byteLength !== sizeBytes) {
     throw new TypeError("sizeBytes must match the body length.");
   }
   if (typeof contentType !== "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(contentType)) {
     throw new TypeError("Invalid content type.");
   }
   if (!SHA256.test(checksumSha256 ?? "")) throw new TypeError("Invalid SHA-256 checksum.");
-  if (await sha256Hex(body) !== checksumSha256) {
+  if (await sha256Hex(bodySnapshot) !== checksumSha256) {
     throw new TypeError("SHA-256 checksum does not match the body.");
   }
 
@@ -110,7 +111,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     throw new TypeError("Object key does not match its storage metadata.");
   }
 
-  return Object.freeze({ area, key, kind, body, contentType, sizeBytes, checksumSha256, metadata: Object.freeze(safeMetadata) });
+  return Object.freeze({ area, key, kind, body: bodySnapshot, contentType, sizeBytes, checksumSha256, metadata: Object.freeze(safeMetadata) });
 }
 
 export function createStorageReadResult(object) {
