@@ -31,7 +31,7 @@ const requiredBucketNames = [
 ];
 
 const requiredTerms = [
-  "R2 bucketはまだ作成しない",
+  "production 4 bucketはまだ作成しない",
   "bucket自体はpublicにしない",
   "Worker経由",
   "Postgresメタデータ",

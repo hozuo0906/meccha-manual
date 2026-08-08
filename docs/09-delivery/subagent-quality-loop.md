@@ -30,6 +30,8 @@ Status: Accepted
 9. Regression
 10. Release Gate
 
+Codex Reviewは手順8へ戻るための指摘工程であり、レビュー実行だけで完了にしない。最新head SHAを明記してレビューを依頼し、有効な指摘を修正して回帰確認し、変更後の最新SHAへ再レビューする。
+
 ## PRへ残す内容
 
 - 変更の目的
@@ -41,6 +43,9 @@ Status: Accepted
 - 実行したテスト
 - 未実施の確認と理由
 - ロールバック方法
+- `npm ci`、`npm run check`、個別テスト、`git diff --check`の結果
+- Codex Review対象SHAとPR head SHA
+- P0/P1/P2の件数、未解決review thread数
 
 ## 記録禁止
 
@@ -55,12 +60,16 @@ Status: Accepted
 
 - P0/P1が1件以上残っている。
 - `npm run check` が失敗している。
+- 最新head SHAに対するCodex Reviewがない、レビュー対象SHAとhead SHAが違う、または未解決review threadがある。
+- 必須CIが未実行または失敗している。CI成功だけでレビュー完了とは扱わない。
 - docs、ADR、Issue、テスト条件、実装の整合が取れていない。
 - production反映、DB migration、課金変更、AI API有効化、共有リンク公開に明示承認がない。
 - secret、個人情報、実ユーザー操作内容がPR、docs、ログに含まれている。
 
 ## Codex automationとの関係
 
-Issue intake monitorはIssueを拾う。Quality Loop GateはPRが品質loopの入口を満たすか確認する。
+Issue intake monitorはIssueを拾う。Quality Loop GateはPRが品質loopの入口を満たすか確認する。PR Latest Review GateはGitHub APIをページネーションして最新SHAのCodex Reviewと未解決thread 0件を確認し、API失敗や権限不足ではfail closedにする。
+
+Codexが指摘なしで👍だけを返した場合は、最新SHAを本文に含む `@codex review` 依頼へのCodex bot反応を確認する。反応後に `/quality-gate` とPRへコメントして再確認workflowを起動する。
 
 実際の品質判断は、親セッションが各担当の要約を確認して行う。

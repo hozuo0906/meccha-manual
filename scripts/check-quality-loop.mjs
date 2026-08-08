@@ -6,7 +6,9 @@ const files = {
   autoPrWorkflow: ".github/workflows/auto-pr.yml",
   operation: "docs/09-delivery/subagent-quality-loop.md",
   reportTemplate: "docs/09-delivery/subagent-report-template.md",
-  adr: "docs/03-architecture/adrs/ADR-0017-subagent-quality-loop.md"
+  adr: "docs/03-architecture/adrs/ADR-0017-subagent-quality-loop.md",
+  prGateWorkflow: ".github/workflows/pr-quality-gate.yml",
+  prGateScript: "scripts/check-pr-quality-gate.mjs"
 };
 
 const requiredTerms = [
@@ -18,7 +20,10 @@ const requiredTerms = [
   "リファクタリング/コードレビュー",
   "ドキュメント記録",
   "P0/P1",
-  "生思考"
+  "生思考",
+  "最新コミットに対してCodex Review",
+  "未解決review threadが0件",
+  "マージ対象SHAとレビュー対象SHA"
 ];
 
 const roleSections = [
@@ -70,6 +75,13 @@ if (Object.keys(contents).length === Object.keys(files).length) {
 
   if (!contents.autoPrWorkflow.includes("サブエージェント品質loop")) {
     errors.push("Auto PR workflow must include the quality loop checklist.");
+  }
+
+  if (!contents.prGateWorkflow.includes("node scripts/check-pr-quality-gate.mjs")) {
+    errors.push("PR quality workflow must execute the runtime review gate.");
+  }
+  for (const snippet of ["reviewThreads(first:100", "hasNextPage", "review.commit_id === pr.head.sha", "apiPages"] ) {
+    if (!contents.prGateScript.includes(snippet)) errors.push(`PR quality gate is missing: ${snippet}`);
   }
 }
 

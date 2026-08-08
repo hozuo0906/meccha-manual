@@ -13,6 +13,7 @@ Status: Accepted
 - `Quality Loop Gate` workflowで、品質loopのdocs、ADR、報告テンプレート、PRテンプレートが存在することを検証する。
 - サブエージェントの生思考や会話全文は記録しない。結論、根拠、採否、リスク、未決だけを要約する。
 - P0/P1が残る場合はmergeせず、修正loopへ戻す。
+- Codex Reviewは最新head SHAを対象にし、指摘後は修正・テスト・再レビューを必須とする。未解決thread、古いSHAのレビュー、API確認失敗がある場合はfail closedでmergeを止める。
 
 ## 理由
 

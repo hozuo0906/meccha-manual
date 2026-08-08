@@ -7,9 +7,14 @@ on:
         description: Production候補の40桁commit SHA
         required: true
         type: string
+      staging_run_id:
+        description: 同じ候補SHAを検証したstaging workflow run ID
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   validate-production-candidate:
@@ -17,17 +22,19 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    concurrency: production-candidate-${{ github.sha }}
+    concurrency: production-candidate-${{ inputs.candidate_sha }}
     environment: production
     steps:
       - name: Checkout selected commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
 
       - name: Verify immutable candidate SHA
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          WORKFLOW_SHA: ${{ github.sha }}
-        run: test "$CANDIDATE_SHA" = "$WORKFLOW_SHA" && test "${#CANDIDATE_SHA}" -eq 40
+        run: node scripts/deployment-candidate-evidence.mjs verify-candidate
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -40,5 +47,20 @@ jobs:
 
       - name: Run production candidate checks
         run: npm run check
+
+      - name: Download matching staging evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-evidence-${{ inputs.candidate_sha }}
+          path: staging-evidence
+          run-id: ${{ inputs.staging_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify staging workflow and candidate evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deployment-candidate-evidence.mjs verify-staging-evidence
 
       # GitHub Environment required reviewers設定と別途ユーザー承認を確認するまでdeploy stepは追加しない。

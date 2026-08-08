@@ -84,7 +84,7 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 - `EXPORTS`
 - `AVATARS`
 
-stagingとproductionで同じbinding名を使い、参照bucketだけを環境別に分ける。bucket名を別の環境変数へ重複保持しない。現在はbucket未作成のためbindingも追加しない。
+stagingとproductionで同じbinding名を使い、参照bucketだけを環境別に分ける。bucket名を別の環境変数へ重複保持しない。staging bucketは作成済み申告があるが接続確認PRまでbindingを追加せず、production bucket/bindingも未作成のままにする。
 
 ## Browser Run / Durable Object binding方針
 

@@ -8,7 +8,7 @@ R2 bucket作成前に、bucket名、binding名、公開禁止、配信経路、P
 
 ## 現在の状態
 
-R2 bucketはまだ作成しない。
+staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。作成済みbucketへのbinding、upload/read/delete確認は未実施。
 
 サーバー側のStorage port、Cloudflare固有処理を隔離するR2 adapter、実R2へ接続しないメモリstubを実装済み。`wrangler.jsonc` にはR2 bindingを追加していないため、既存deployは実bucketを要求しない。
 

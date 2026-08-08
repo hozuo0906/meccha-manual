@@ -33,7 +33,7 @@ Status: Accepted
 
 Cloudflareのaccount ID、API token、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
 
-R2 bucketはまだ作成しない。
+staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production bucketはまだ作成しない。
 bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実bucket作成とbinding追加は承認後に行う。
 
 ## Discord

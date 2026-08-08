@@ -6,7 +6,9 @@ Status: Accepted
 
 `めっちゃマニュアル` の検証資源と本番資源を混在させず、`main` へのマージとproduction反映を別の判断にする。本書はIssue #21と、R2契約を固定したIssue #23を前提とする静的ハーネスであり、外部リソースの作成・変更・deployは行わない。
 
-現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。production Supabase project、R2 bucket、Stripe設定、独自ドメインは未作成であり、`wrangler.jsonc` に環境別bindingやDurable Object migrationをまだ追加しない。
+現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインは未作成である。`wrangler.jsonc` に環境別bindingやDurable Object migrationをまだ追加しない。
+
+外部ユーザーと実業務データがないprelaunch期間だけは、ownerの明示判断によりCloudflare Git連携の`main`自動deployと非production branch buildを暫定許可している。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
 
 ## 環境対応表
 
@@ -28,7 +30,7 @@ Status: Accepted
 
 ## `main` マージ後の扱い
 
-`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認でも開始トリガーでもない。CloudflareのGit連携やActionsで、`main` pushからproduction deployを自動実行する設定は禁止する。
+原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在はprelaunch例外として`main`マージ後に暫定WorkerへCloudflare Git連携deployが動くため、PR・必須check・最新SHAレビューを通過しない変更を`main`へ入れない。外部ユーザー登録前に自動deployを解除し、以下の正式フローへ戻す。
 
 1. PR checksを通過したcommitを`main`へマージし、production候補SHAを固定する。
 2. staging workflowを40桁の候補SHA付きで明示的に起動し、workflow実行SHAとの一致を確認してcheckを再実行する。将来deploy stepを有効化した後はstagingへだけ反映する。
@@ -43,7 +45,7 @@ Status: Accepted
 |---|---|---|
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
-| `main`マージからproduction deploy | **実行しない** | 自動トリガーを禁止 |
+| `main`マージから暫定Worker deploy | prelaunch期間のみ自動 | 外部ユーザー/実データなし、PR必須、公開前チェックリストで解除 |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
@@ -64,7 +66,7 @@ Status: Accepted
 
 ## Cloudflare Worker / Wrangler
 
-- 現在の`wrangler.jsonc`を壊さず、bucket未作成の間は`r2_buckets`を追加しない。
+- 現在の`wrangler.jsonc`を壊さず、作成済み申告のstaging bucketも接続確認PRまで`r2_buckets`を追加しない。production bindingはproduction bucket作成・承認前に追加しない。
 - Browser Run binding、Durable Object binding/migrationも、外部資源と料金・上限の承認前に有効化しない。
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
@@ -80,9 +82,9 @@ Status: Accepted
 
 ## R2
 
-bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding名から環境別private bucketを参照する。実bucket作成とbinding追加は行わない。
+bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding名から環境別private bucketを参照する。staging bucketは作成済み申告のみで、本監査では確認・変更せずbindingも追加しない。production bucket作成とbinding追加は行わない。
 
-有効化順序は、(1) staging bucket作成承認、(2) private設定確認、(3) staging `r2_buckets`追加、(4) staging deploy承認、(5) upload/read/delete/workspace越境拒否、(6) production bucket作成承認、(7) production binding追加承認、(8) production deploy承認とする。公開bucketやR2公開カスタムドメインは設定しない。
+有効化順序は、(1) staging bucket作成済み状態のread-only確認、(2) private設定確認、(3) staging `r2_buckets`追加PR、(4) staging接続確認承認、(5) upload/read/delete/workspace越境拒否、(6) production bucket作成承認、(7) production binding追加承認、(8) production deploy承認とする。公開bucketやR2公開カスタムドメインは設定しない。
 
 ## Stripe
 

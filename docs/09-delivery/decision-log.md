@@ -32,13 +32,13 @@ Status: Accepted
 | DEC-026 | 2026-08-02 | ワークスペースとメンバーの識別子・作成監査項目を更新不可とし、認証用RPCの実行権限を`authenticated`へ限定する | owner/admin更新権限を利用したテナント境界やowner対象の差し替えと、匿名ロールへの不要な関数公開を防ぐため |
 | DEC-027 | 2026-08-02 | Issue作成時はGitHub Actionsで即時トリアージし、`approved-for-codex` ラベル付きIssueだけ `CODEX_ACCESS_TOKEN` でCodex自動実装する | 15分ポーリングの無駄を減らし、OpenAI API従量課金ではなくCodex/ChatGPT利用枠でクラウド実装を進めるため |
 | DEC-028 | 2026-08-02 | R2 bucket名を用途ごとの `meccha-manual-*-staging` / `meccha-manual-*-prod` に固定し、同じbinding名で環境を分離する（[ADR-0018](../03-architecture/adrs/ADR-0018-r2-bucket-binding-contract.md)） | Workerコードを環境共通にしつつ、誤った環境のobjectを参照しないため |
-| DEC-029 | 2026-08-02 | `main` マージをproduction候補の確定とし、production deployは自動開始しない | マージと本番反映の承認を分離し、環境取り違えを防ぐため |
+| DEC-029 | 2026-08-02 | 正式運用では`main`マージをproduction候補の確定とし、production deployは自動開始しない。prelaunch暫定例外はDEC-035を正とする | マージと本番反映の承認を分離し、環境取り違えを防ぐため |
 | DEC-030 | 2026-08-02 | 初期課金は無料、`BILLING_FEATURE_ENABLED=false` とし、Pro候補は月額3,300円税込みにする（[ADR-0022](../03-architecture/adrs/ADR-0022-free-first-stripe-billing.md)） | 外部課金設定より先にWebhook、entitlement、席数の安全境界を整えるため |
 | DEC-031 | 2026-08-02 | migrationのPhase固有静的検査と共通安全検査を分け、production適用を別承認にする | 既存検査との重複を避けながら、破壊的構文と誤適用を早期に止めるため |
 | DEC-032 | 2026-08-02 | Browser Run sessionはDurable Objectが直列管理し、Live View短命化、全redirect SSRF再検査、入力値非保存、終了時破棄を必須にする | セッション残留、内部ネットワーク到達、機密入力保存をP0として防ぐため |
 | DEC-033 | 2026-08-02 | R2 Storageはdomain portとinfra adapterを分離し、manual/step識別子はサーバー側metadataに限定してR2 custom metadataへ複製しない | Cloudflare SDK型の侵入と、R2 metadataへの不要な識別情報・任意入力の保存を防ぐため |
 | DEC-034 | 2026-08-02 | staging/productionでGitHub Environment、Worker、Supabase、R2、Stripe、Discord設定を分離し、現在のSupabase projectは暫定dev/stagingとして扱う | production資源を作成する前に接続先とデータ境界を固定し、環境取り違えを防ぐため |
-| DEC-035 | 2026-08-02 | staging/production workflowは現段階では候補SHAの静的checkだけを行い、productionは手動dispatchとGitHub Environment `production` required reviewersを必須にする | `main`マージをproduction候補確定に限定し、無承認deployと未作成資源への接続を防ぐため |
+| DEC-035 | 2026-08-02 | 正式運用ではstaging/production候補SHAを証跡で結び、productionは手動dispatchとGitHub Environment `production` required reviewersを必須にする。外部ユーザー/実データがないprelaunch期間だけはowner判断で`main`の暫定Worker自動deployを許可し、最初の登録・本番公開前に必ず解除する | 開発初期の速度と、公開後の無承認deploy防止を段階で両立するため |
 | DEC-036 | 2026-08-02 | 既存accountの`tattoo-studio-crm.workers.dev`配下は当面の技術的サブドメインとし、独自ドメイン切替は別承認にする | 技術URLを恒久的な公開URLと誤認せず、route変更をproduction deployから分離するため |
 | DEC-037 | 2026-08-07 | 料金体系を都度払い550円、パーソナル月額3,300円、チーム月額9,900円とし、Payment Links上でStripe Linkを利用する（[ADR-0023](../03-architecture/adrs/ADR-0023-pricing-and-stripe-link.md)） | 単発利用、個人継続利用、チーム利用を分け、Browser Run・Storage・席数の原価を上限で制御しつつ、次回決済の入力負担を下げるため |
 

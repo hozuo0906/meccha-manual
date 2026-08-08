@@ -42,7 +42,7 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 | `exports` | PDF、HTML、Markdown出力 | private | Phase 4 |
 | `avatars` | ユーザー、ワークスペース画像 | private | Phase 1/2任意 |
 
-R2 bucketはまだ作成しない。
+staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production bucketはまだ作成しない。
 外部設定前にCloudflare環境分離、binding名、staging/production bucket名を確定する。
 
 ## Path規則

@@ -28,7 +28,7 @@ Status: Accepted
 - `07-quality`: テスト戦略、受入条件、レビュー基準
 - `08-operations`: 環境、デリバリー、監視、Runbook
 - `09-delivery`: Issue分解、決定ログ、未決事項、リスク
-- `10-records`: サブエージェント成果記録
+- `10-records`: サブエージェント成果とクラウドタスク品質監査の時点記録
 
 ## ID規則
 
