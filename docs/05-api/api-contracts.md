@@ -32,14 +32,14 @@ Status: Proposed
 | `POST /v1/share-links` | 共有リンク作成 | can_edit_manual |
 | `GET /s/{token}` | 共有閲覧 | token検証 |
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
-| `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 |
+| `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 + egress P0検証済みflag |
 | `GET /v1/billing/summary` | 現在プラン、利用量、上限、購入済みmanualを取得 | member。請求詳細はowner/admin |
 | `POST /v1/billing/checkout-intents` | Payment Link遷移前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
 | `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |
 | `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
 | `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
 
-`capture.browserRun.egressVerified.enabled=false` の場合、capture session作成とnavigate/reload commandはBrowser Runへ通信する前に `503 BROWSER_EGRESS_NOT_VERIFIED` で拒否する。hostnameのallowlistや運営承認はこの拒否を迂回できない。
+`capture.browserRun.egressVerified.enabled=false` の場合、capture session、mobile preview sessionの作成とnavigate/reload commandはBrowser Runへ通信する前に `503 BROWSER_EGRESS_NOT_VERIFIED` で拒否する。hostnameのallowlistや運営承認はこの拒否を迂回できず、Browser Runを起動する新しいAPIにも同じgateを必須にする。
 
 ## 課金API contract
 

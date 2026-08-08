@@ -72,10 +72,21 @@ const requiredDocs = {
   ],
   "docs/05-api/api-contracts.md": [
     "503 BROWSER_EGRESS_NOT_VERIFIED",
-    "hostnameのallowlistや運営承認はこの拒否を迂回できない"
+    "mobile preview session",
+    "hostnameのallowlistや運営承認はこの拒否を迂回できず"
   ],
   "docs/01-product/requirements-traceability.md": [
     "| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023 |"
+  ],
+  "docs/07-quality/acceptance-catalog.md": [
+    "| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み |",
+    "| AC-023 |",
+    "BROWSER_EGRESS_NOT_VERIFIED",
+    "application bytes送信前"
+  ],
+  "docs/09-delivery/decision-log.md": [
+    "DEC-032",
+    "任意URL・承認済みhost・mobile previewを含む全Browser Run起動"
   ],
   "docs/08-operations/environment-variables.md": [
     "`STRIPE_SECRET_KEY`",
