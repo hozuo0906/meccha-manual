@@ -16,17 +16,19 @@ jobs:
     name: Validate staging candidate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    concurrency: staging-candidate-${{ github.sha }}
+    concurrency: staging-candidate-${{ inputs.candidate_sha }}
     environment: staging
     steps:
       - name: Checkout selected commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
 
       - name: Verify immutable candidate SHA
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          WORKFLOW_SHA: ${{ github.sha }}
-        run: test "$CANDIDATE_SHA" = "$WORKFLOW_SHA" && test "${#CANDIDATE_SHA}" -eq 40
+        run: node scripts/deployment-candidate-evidence.mjs verify-candidate
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -39,5 +41,17 @@ jobs:
 
       - name: Run staging candidate checks
         run: npm run check
+
+      - name: Write immutable staging evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: node scripts/deployment-candidate-evidence.mjs write-staging-evidence
+
+      - name: Upload staging evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-evidence-${{ inputs.candidate_sha }}
+          path: staging-evidence/evidence.json
+          retention-days: 30
 
       # R2、Supabase、Workerのstaging資源を作成し、別途ユーザー承認を得るまでdeploy stepは追加しない。

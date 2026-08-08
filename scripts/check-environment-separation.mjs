@@ -3,7 +3,8 @@ import { readdir, readFile } from "node:fs/promises";
 const paths = {
   docs: "docs/08-operations/environments-and-delivery.md",
   staging: ".github/workflows/deploy-staging.yml",
-  production: ".github/workflows/deploy-production.yml"
+  production: ".github/workflows/deploy-production.yml",
+  evidence: "scripts/deployment-candidate-evidence.mjs"
 };
 const errors = [];
 
@@ -19,6 +20,7 @@ async function read(path) {
 const docs = await read(paths.docs);
 const staging = await read(paths.staging);
 const production = await read(paths.production);
+const evidence = await read(paths.evidence);
 
 for (const term of [
   "GitHub Environment",
@@ -32,7 +34,8 @@ for (const term of [
   "required reviewers",
   "tattoo-studio-crm.workers.dev",
   "`BILLING_FEATURE_ENABLED=false`",
-  "RLS negative test"
+  "RLS negative test",
+  "prelaunch"
 ]) {
   if (!docs.includes(term)) errors.push(`Missing environment separation term: ${term}`);
 }
@@ -53,15 +56,56 @@ if (!/^\s*if:\s*github\.ref\s*==\s*['\"]refs\/heads\/main['\"]\s*$/m.test(produc
   errors.push("Production workflow must reject candidates outside the main branch.");
 }
 for (const [name, workflow] of [["Staging", staging], ["Production", production]]) {
-  if (!/^\s*candidate_sha:\s*$/m.test(workflow) || !/CANDIDATE_SHA.*inputs\.candidate_sha/s.test(workflow) || !/WORKFLOW_SHA.*github\.sha/s.test(workflow)) {
-    errors.push(`${name} workflow must bind the requested immutable SHA to the workflow SHA.`);
+  if (!/^\s*candidate_sha:\s*$/m.test(workflow) || !/CANDIDATE_SHA.*inputs\.candidate_sha/s.test(workflow)
+    || !/^\s*ref:\s*\$\{\{ inputs\.candidate_sha \}\}\s*$/m.test(workflow)
+    || !/^\s*fetch-depth:\s*0\s*$/m.test(workflow)) {
+    errors.push(`${name} workflow must checkout and verify the requested immutable SHA.`);
   }
 }
 
-const deployPattern = /\b(?:wrangler\s+deploy|npm\s+run\s+deploy|supabase\s+db\s+push)\b/i;
-if (deployPattern.test(staging) || deployPattern.test(production)) {
-  errors.push("Candidate workflows must not enable external deploy or migration steps yet.");
+const allowedUses = new Set([
+  "actions/checkout@v4", "actions/setup-node@v4",
+  "actions/upload-artifact@v4", "actions/download-artifact@v4"
+]);
+const allowedRuns = new Set([
+  "node scripts/deployment-candidate-evidence.mjs verify-candidate",
+  "node scripts/deployment-candidate-evidence.mjs write-staging-evidence",
+  "node scripts/deployment-candidate-evidence.mjs verify-staging-evidence",
+  "npm ci", "npm run check"
+]);
+for (const [name, workflow] of [["Staging", staging], ["Production", production]]) {
+  for (const match of workflow.matchAll(/^\s*uses:\s*(\S+)\s*$/gm)) {
+    if (!allowedUses.has(match[1])) errors.push(`${name} candidate workflow uses a non-allowlisted action: ${match[1]}`);
+  }
+  for (const match of workflow.matchAll(/^\s*run:\s*(.+)\s*$/gm)) {
+    if (!allowedRuns.has(match[1])) errors.push(`${name} candidate workflow runs a non-allowlisted command: ${match[1]}`);
+  }
+  if (/^\s*run:\s*[|>]\s*$/m.test(workflow)) errors.push(`${name} candidate workflow must not use unparsed multiline run blocks.`);
 }
+
+for (const snippet of ["merge-base", "origin/main", "evidence.candidateSha", "deploy-staging.yml", "run.conclusion !== \"success\""]) {
+  if (!evidence.includes(snippet)) errors.push(`Deployment evidence verifier is missing: ${snippet}`);
+}
+if (!/staging_run_id:/m.test(production) || !/actions\/download-artifact@v4/.test(production)) {
+  errors.push("Production candidate workflow must require and download matching staging evidence.");
+}
+for (const snippet of [
+  "name: staging-evidence-${{ inputs.candidate_sha }}",
+  "path: staging-evidence/evidence.json",
+  "retention-days: 30"
+]) {
+  if (!staging.includes(snippet)) errors.push(`Staging evidence upload is missing: ${snippet}`);
+}
+for (const snippet of [
+  "name: staging-evidence-${{ inputs.candidate_sha }}",
+  "path: staging-evidence",
+  "run-id: ${{ inputs.staging_run_id }}",
+  "github-token: ${{ github.token }}"
+]) {
+  if (!production.includes(snippet)) errors.push(`Production evidence download is missing: ${snippet}`);
+}
+
+const deployPattern = /\b(?:wrangler\s+deploy|npm\s+run\s+deploy|supabase\s+db\s+push)\b/i;
 
 const workflowFiles = (await readdir(".github/workflows"))
   .filter((file) => /\.ya?ml$/.test(file));
@@ -82,6 +126,8 @@ const secretValuePatterns = [
   /\bsk_(?:live|test)_[A-Za-z0-9]{12,}\b/,
   /\bwhsec_[A-Za-z0-9]{12,}\b/,
   /\bgh[opusr]_[A-Za-z0-9]{20,}\b/,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+  /https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9._-]+/i,
   /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
   /\b(?:postgres|postgresql):\/\/[^\s]+/i,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
@@ -95,4 +141,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Environment separation harness OK: production uses explicit dispatch, main-only SHA binding, and the production Environment reference; required reviewers remain an external setting.");
+console.log("Environment separation harness OK: candidate SHA, staging evidence, command allowlists, and production Environment are statically verified; required reviewers remain an external setting.");

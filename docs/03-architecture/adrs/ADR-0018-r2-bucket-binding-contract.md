@@ -8,7 +8,7 @@ Status: Accepted
 
 ## 決定
 
-- R2 bucketはまだ作成しない。
+- staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。
 - bucket作成までは `wrangler.jsonc` に `r2_buckets` を追加しない。
 - bucket自体はpublicにしない。
 - ファイル配信はWorker経由、またはWorkerが発行する短期署名URL経由にする。
@@ -37,7 +37,7 @@ Status: Accepted
 | production | `meccha-manual-exports-prod` |
 | production | `meccha-manual-avatars-prod` |
 
-`wrangler.jsonc` では環境ごとの `r2_buckets` に同じbinding名を置き、参照先bucketだけを分ける。bucket未作成の現段階ではbindingを追加しない。bucket名を環境変数へ重複保持しない。
+`wrangler.jsonc` では環境ごとの `r2_buckets` に同じbinding名を置き、参照先bucketだけを分ける。staging bucketは作成済み申告があるが、接続確認と変更PRを分離するため現段階ではbindingを追加しない。production bucket/bindingも追加しない。bucket名を環境変数へ重複保持しない。
 
 ## アクセスとURL
 

@@ -15,7 +15,7 @@ R2 objectとPostgresメタデータの対応を固定し、ワークスペース
 | `EXPORTS` | `meccha-manual-exports-staging` / `meccha-manual-exports-prod` | `pdf_export`, `html_export`, `markdown_export` |
 | `AVATARS` | `meccha-manual-avatars-staging` / `meccha-manual-avatars-prod` | `user_avatar`, `workspace_avatar` |
 
-R2 bucketはまだ作成しない。
+staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。bindingと実接続確認は未実施。
 
 ## object key
 

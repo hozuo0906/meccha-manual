@@ -30,8 +30,10 @@
     "phase1-readiness:check": "node scripts/check-phase1-readiness.mjs",
     "codex-cloud:check": "node scripts/check-cloud-codex-environment.mjs",
     "environment-separation:check": "node scripts/check-environment-separation.mjs",
+    "pr-quality:check": "node scripts/check-pr-quality-gate.mjs --check",
+    "secrets:check": "node scripts/check-sensitive-values.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:check && npm run encoding:check"
   },
   "devDependencies": {}
 }
