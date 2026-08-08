@@ -52,9 +52,12 @@ Cloudflare Browser Runを使い、利用者が対象サイトをクラウドブ�
 
 ## SSRF対策
 
-- `http` と `https` のみ許可。
+- `https` を既定許可し、`http` は明示した検証条件だけに限定する。
 - localhost、private IP、link-local、metadata endpointを拒否。
-- DNS rebindingを想定し、リダイレクト後も再検査する。
+- DNS rebindingを想定し、初回とリダイレクト後に全A/AAAAを検査する。
+- DNS検査後の実接続先を検査済みIPへ拘束する。再解決だけをSSRF境界にしない。
+- navigation、subresource、WebSocket、Service Worker、downloadを同じ検証済みegress境界へ通す。
+- actual peerを照合または拘束できない通信種別はfail closedとし、P0検証完了まで任意URLを許可しない。
 - `file:`, `data:`, `javascript:` を拒否する。
 
-起動順序、DNS/redirect再検査、入力値非保存、スクリーンショット、セッション破棄、監査ログの運用正本は `docs/08-operations/browser-run-session-harness.md` とする。
+起動順序、DNS/redirect検査、actual peer拘束、入力値非保存、スクリーンショット、セッション破棄、監査ログの運用正本は `docs/08-operations/browser-run-session-harness.md` とする。

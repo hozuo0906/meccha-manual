@@ -10,9 +10,10 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 | 構成 | 責務 | 正本にしないもの |
 |---|---|---|
-| API Worker | 認証、workspace認可、URL一次検査、job受付 | Browser session状態 |
+| API Worker | 認証、workspace認可、URL一次検査、job受付 | Browser session状態、接続先IPの保証 |
 | Capture Session Durable Object | 状態遷移、command直列化、期限、再接続、破棄 | 業務データの永続正本 |
 | Browser Run | 対象ページ実行、Live View、スクリーンショット取得 | 認可、長期状態 |
+| 検証済みegress境界 | DNS解決結果と実接続先の拘束、全通信種別の危険IP拒否 | workspace認可、セッション状態 |
 | Supabase Postgres/RLS | session・event・asset metadata、監査 | Cookie、Live View URL、入力値 |
 | Cloudflare R2 | 許可済みスクリーンショット本体 | 権限判断、入力値、共有token |
 
@@ -22,7 +23,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 2. 入力URLを正規化し、スキーム、host、port、資格情報、DNS結果を検査する。
 3. Postgresへ期限付きjobを作成し、session IDに対応するDurable Objectへ開始commandを送る。
 4. Durable Objectが `created -> starting` を直列遷移し、Browser Run sessionを1件だけ起動する。
-5. navigation直前と全redirectでSSRF検査を再実行する。
+5. navigation直前と全redirectでSSRF検査を再実行し、検査済みIPへ接続を拘束できるegress経路だけを許可する。
 6. ready後、認可済みsession ownerへ用途限定・短命のLive View URLを発行する。
 7. Live View URL、Browser session credential、CookieをDB・R2・ログへ保存しない。
 
@@ -31,9 +32,19 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 - `https` を既定許可し、`http` は明示した検証条件だけに限定する。
 - `file:`, `data:`, `javascript:`, `blob:`, `ftp:`、URL内資格情報を拒否する。
 - localhost、loopback、private、link-local、multicast、予約済みIP、cloud metadata endpointをIPv4/IPv6とも拒否する。
-- DNSの全A/AAAA結果を検査し、接続直前にも再解決する。許可IPから拒否IPへ変化した場合は停止する。
-- redirectごとに回数上限と同じ検査を適用し、許可URLから内部URLへの遷移を拒否する。
+- DNSの全A/AAAA結果を検査する。ただし、事前解決と接続直前の再解決だけではDNS rebindingを防いだことにしない。
+- 実接続は、検査済みIPへのDNS pinning、接続先IPを検証できるegress proxy、または同等にactual peerを照合できる境界を必須とする。検査後にBrowser Runが独自に再解決して直接接続する経路は禁止する。
+- top-level navigation、redirect、iframe、画像・script・fetch等のsubresource、WebSocket、Service Worker、downloadを同じegress境界へ通す。種類ごとに迂回経路がないことを確認する。
+- redirectごとに回数上限と同じ検査・接続拘束を適用し、許可URLから内部URLへの遷移を拒否する。
 - workspace allowlist/blocklistは危険IP拒否を緩和できない。
+- Cloudflare Browser Runでactual peerの確認または接続先拘束を実現できない通信種別はfail closedとする。安全なegress方式をP0検証で確認するまでは、任意URLを許可せず、運営が事前承認した公開HTTPS destinationだけに限定する。
+
+## 実装前P0検証
+
+- Cloudflare Browser Runが、navigation以外を含む全通信を検証済みegressへ固定できるかをstagingで確認する。
+- 同じhostnameが検査時にpublic IP、接続時にprivate/link-local/metadata IPを返すDNS rebinding fixtureで、実接続前に拒否されることを確認する。
+- redirect、iframe、subresource、WebSocket、Service Worker、downloadそれぞれでprivate IPへの迂回をnegative testする。
+- actual peerを取得できない、または1種類でもegressを迂回できる場合は任意URL機能を有効化しない。機能フラグをOFFのままにし、事前承認destination方式を採用する。
 
 ## 入力値と操作イベント
 
@@ -67,5 +78,5 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 ## 完了条件
 
 - `browser-runtime.md`、ADR-0002/0003、API、security、R2 contractと責務が一致する。
-- SSRF、入力値非保存、Live View漏えい、session残留のnegative test項目を実装できる。
+- DNS検査と実接続先拘束を分け、全通信種別のSSRF、入力値非保存、Live View漏えい、session残留のnegative test項目を実装できる。
 - 外部binding、Durable Object migration、Browser Run実起動を行っていない。
