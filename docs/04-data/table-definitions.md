@@ -56,7 +56,8 @@ Status: Accepted
 - Webhook受信時にPrice IDからoffer codeをサーバー側で決定し、クライアント入力のoffer codeだけを信頼しない。
 - 同じ `stripe_event_id`、`stripe_payment_intent_id`、`checkout_intent_id` から二重購入・二重entitlementを作らない。
 - `stripe_checkout_session_id` はuniqueとし、1つのcheckout intentを複数Sessionや複数支払いへ再利用しない。
-- 同じAPI `Idempotency-Key` とrequest hashは同じcheckout intentを返し、key再利用でrequestが異なる場合は拒否する。同じscope/offer/manualの未期限切れintentは1件だけにする。
+- 同じAPI `Idempotency-Key` とrequest hashは同じcheckout intentを返し、key再利用でrequestが異なる場合は拒否する。都度払いは同じworkspace/manual、subscriptionはofferをまたいで同じworkspaceの未期限切れintentを1件だけにする。この排他制約はpartial unique indexまたは同等のtransaction lockで実装する。
+- subscription modeの照合不能・競合処理は、subscription cancel、invoice void/refundの各Stripe object IDと処理状態を冪等なreconciliation記録へ残す。返金queueへの登録だけで完了扱いにしない。
 - Stripe Checkout Session作成ではcheckout intent IDから導出した決定的idempotency keyを使い、API成功後の応答消失や並行実行でも同じStripe Sessionを再取得する。
 - Stripe Linkの利用者情報は認証・RLS判定に使わない。
 - 利用量上限超過時に自動請求レコードを作らない。

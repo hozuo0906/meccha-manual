@@ -30,7 +30,7 @@ Status: Accepted
 - Linkを `めっちゃマニュアル` のログイン、本人確認、ワークスペース認可には使わない。
 - サーバーがcheckout intentを作成し、推測不能なIDをCheckout Sessionの `client_reference_id` とmetadataへ渡す。
 - checkout intentとStripe Checkout Session IDを1対1で固定する。Stripe APIにはintent IDから決定的に導出したidempotency keyを必ず渡し、タイムアウト・応答保存失敗・並行再送でもStripe上の同じSessionを返させる。
-- アプリAPIも購入操作ごとの `Idempotency-Key` を必須にし、同じkey・同じrequestは保存済みintent/Sessionを返す。同じkey・異なるrequestは409、同じscope/offer/manualに未期限切れintentがあれば新規作成せず既存試行を返す。
+- アプリAPIも購入操作ごとの `Idempotency-Key` を必須にし、同じkey・同じrequestは保存済みintent/Sessionを返す。同じkey・異なるrequestは409にする。都度払いは同じworkspace/manual、subscriptionはofferをまたいで同じworkspaceに未期限切れintentを1件だけ許し、既存試行を返す。
 - Session ID、PaymentIntent、Subscriptionのunique制約はWebhook二重付与の防御として併用するが、Stripe API呼び出し前の二重Session防止をunique制約だけに依存しない。
 - Webhookでcheckout intent、Price、支払状態、workspace、必要な場合はmanualを照合してから権利を付与する。
 - Linkのメールアドレスとアプリのログインメールが一致するだけでは権利を付与しない。
@@ -50,6 +50,8 @@ Status: Accepted
 - 解約予約中は支払済み期間終了まで利用可能とする。
 - 未払い、返金、順不同、遅延はADR-0007とADR-0022のreconciliation方針に従う。
 - `personal_monthly` は有効メンバーが1人のworkspaceだけCheckout Sessionを作成できる。ただしactive/grace/read_onlyのTeam契約が存在するworkspaceは人数に関係なく、契約置換とメンバー処理をOQ-027で決めるまで `PLAN_CHANGE_UNRESOLVED` としてStripe API呼び出し前に停止する。
+- subscription用intentの作成時とWebhook reconciliation時の両方で、同じworkspaceのactive/grace/read_only subscriptionと、別subscription offerの未期限切れintentがないことを検査する。競合時はentitlementを付与せず、後述の孤立subscription停止処理へ送る。
+- DBへ照合可能なsubscriptionを保存できない、または期限切れ・別Session・競合契約で拒否したsubscription modeの決済は、初回請求の返金だけで終えない。Stripe subscriptionを冪等にcancelし、未確定invoiceをvoidし、確定済みinvoiceはrefund queueへ一度だけ登録する。cancel/refund/voidがすべて確認できるまで運用アラートとreconciliationを継続し、権利なしの継続請求を残さない。
 
 ## 環境変数
 
