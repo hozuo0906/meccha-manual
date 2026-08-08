@@ -62,6 +62,35 @@ test("壊れたCookieでもログアウト時に端末Cookieを削除する", as
   assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
 });
 
+test("refresh Cookieだけ壊れていても正常なaccess tokenでセッションを失効する", async () => {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "00000000-0000-4000-8000-000000000001" });
+    }
+    if (String(url).endsWith("/auth/v1/logout?scope=local")) {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/logout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": "__Host-mm_access=access-token; __Host-mm_refresh=%E0%A4%A"
+    },
+    body: "{}"
+  }), env, ctx);
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /\/auth\/v1\/logout\?scope=local$/);
+  assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
+});
+
 test("認証サービスの詳細エラーをログイン画面へ露出しない", async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({
     message: "User with supplied email does not exist"
@@ -136,6 +165,31 @@ test("認証サーバーのログアウト失敗時も端末Cookieを削除し�
   assert.equal(response.status, 502);
   assert.equal(payload.code, "LOGOUT_REVOKE_FAILED");
   assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
+});
+
+test("認証サーバーへのログアウト通信が失敗しても端末Cookieを削除して警告する", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "00000000-0000-4000-8000-000000000001" });
+    }
+    throw new Error("network unavailable");
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/logout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "LOGOUT_REVOKE_FAILED");
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_access=.*Max-Age=0/);
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
 });
 
 test("更新トークン拒否は期限切れ401として扱う", async () => {

@@ -261,7 +261,7 @@ function verifySameOriginWrite(request: Request): void {
   }
 }
 
-function parseCookies(request: Request): Map<string, string> {
+function parseCookies(request: Request, tolerateInvalidSessionCookies = false): Map<string, string> {
   const header = request.headers.get("cookie") ?? "";
   const cookies = new Map<string, string>();
 
@@ -272,6 +272,7 @@ function parseCookies(request: Request): Map<string, string> {
       cookies.set(rawName, decodeURIComponent(rawValue.join("=")));
     } catch {
       if ([COOKIE_ACCESS_TOKEN, COOKIE_REFRESH_TOKEN].includes(rawName)) {
+        if (tolerateInvalidSessionCookies) continue;
         throw new AppError(401, "SESSION_INVALID", "ログイン状態を確認できません。もう一度ログインしてください。");
       }
       continue;
@@ -1126,8 +1127,11 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
   };
 }
 
-async function requireSession(request: Request, env: Env): Promise<SessionResult> {
-  const cookies = parseCookies(request);
+async function requireSession(
+  request: Request,
+  env: Env,
+  cookies = parseCookies(request)
+): Promise<SessionResult> {
   const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
   const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
 
@@ -1220,23 +1224,14 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {
-  let cookies: Map<string, string>;
-  try {
-    cookies = parseCookies(request);
-  } catch (error) {
-    if (error instanceof AppError && error.status === 401) {
-      return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
-    }
-    throw error;
-  }
-
+  const cookies = parseCookies(request, true);
   if (!cookies.has(COOKIE_ACCESS_TOKEN) && !cookies.has(COOKIE_REFRESH_TOKEN)) {
     return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
   }
 
   let session: SessionResult;
   try {
-    session = await requireSession(request, env);
+    session = await requireSession(request, env, cookies);
   } catch (error) {
     if (error instanceof AppError && error.status === 401) {
       return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
@@ -1244,9 +1239,14 @@ async function logout(request: Request, env: Env): Promise<Response> {
     return logoutRevokeFailureResponse();
   }
 
-  const response = await supabaseFetch(env, "/auth/v1/logout?scope=local", {
-    method: "POST"
-  }, session.accessToken);
+  let response: Response;
+  try {
+    response = await supabaseFetch(env, "/auth/v1/logout?scope=local", {
+      method: "POST"
+    }, session.accessToken);
+  } catch {
+    return logoutRevokeFailureResponse();
+  }
 
   if (!response.ok) {
     await readSupabaseJson(response);
