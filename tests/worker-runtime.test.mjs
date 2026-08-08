@@ -167,6 +167,35 @@ test("認証サーバーのログアウト失敗時も端末Cookieを削除し�
   assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
 });
 
+test("ログアウト失敗レスポンスの本文が壊れていても端末Cookieを削除して警告する", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "00000000-0000-4000-8000-000000000001" });
+    }
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.error(new Error("response body aborted"));
+      }
+    }), { status: 503 });
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/logout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "LOGOUT_REVOKE_FAILED");
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_access=.*Max-Age=0/);
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
+});
+
 test("認証サーバーへのログアウト通信が失敗しても端末Cookieを削除して警告する", async () => {
   globalThis.fetch = async (url) => {
     if (String(url).endsWith("/auth/v1/user")) {

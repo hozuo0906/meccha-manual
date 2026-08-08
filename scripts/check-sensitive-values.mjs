@@ -49,7 +49,7 @@ const knownSecretNames = [
   "CODEX_ACCESS_TOKEN"
 ];
 const knownSecretAssignmentPattern = new RegExp(
-  `\\b(?:${knownSecretNames.join("|")})\\s*[:=]\\s*([^\\r\\n]+)`,
+  `(?:^|[^A-Za-z0-9_])["']?(?:${knownSecretNames.join("|")})["']?\\s*[:=]\\s*([^\\r\\n]+)`,
   "g"
 );
 const findings = new Set();

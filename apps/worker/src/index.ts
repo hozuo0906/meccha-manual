@@ -1249,7 +1249,6 @@ async function logout(request: Request, env: Env): Promise<Response> {
   }
 
   if (!response.ok) {
-    await readSupabaseJson(response);
     return logoutRevokeFailureResponse();
   }
 
