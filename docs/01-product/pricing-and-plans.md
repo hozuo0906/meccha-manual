@@ -39,7 +39,7 @@ Status: Accepted
 - チームはviewerを50人まで含める。viewerは作成者席へ数えない。
 - 招待中、停止中、猶予期間中のメンバーを席数へ含める条件はOQ-015で確定する。
 - 席数超過時に既存ownerを自動で締め出さず、新規招待と新しい権限昇格を停止する。
-- TeamからPersonalへ移行する際の既存メンバー処理はOQ-027が決まるまで自動化しない。有効メンバーが2人以上ならCheckout Sessionを作成せず、課金前に移行を停止する。
+- TeamからPersonalへの契約置換と既存メンバー処理はOQ-027が決まるまで自動化しない。active/grace/read_onlyのTeam契約があれば人数に関係なくPersonalのCheckout Sessionを作成せず、課金前に移行を停止する。
 
 ## エクスポート権
 
@@ -71,6 +71,7 @@ Status: Accepted
 - Stripe LinkをCheckoutの高速決済手段として有効化し、利用者が保存済みの支払い情報を呼び出せるようにする。
 - Linkのメールアドレスやログイン状態を、`めっちゃマニュアル` の認証、ワークスペース所属、権限付与の根拠にしない。
 - アプリで推測不能なcheckout intentを発行し、そのIDだけをCheckout Sessionの `client_reference_id` として渡す。
+- アプリの購入操作とStripeのSession作成の両方へintent由来のidempotency keyを使い、並行送信や応答消失時は同じintent/Sessionを返す。
 - Checkout Sessionはcheckout intentと1対1に固定し、30分で失効させる。期限切れSessionはStripe側でも支払い不能にする。
 - Webhookではcheckout intent、Stripe上のPrice、支払状態、対象ワークスペースとマニュアルを照合する。
 - 決済完了画面へのリダイレクトだけでentitlementを付与しない。

@@ -32,7 +32,8 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 返金、chargeback、解約、未払いでデータを即時削除しないこと。
 - `BILLING_FEATURE_ENABLED=false` で新規Checkout Session作成が0件になり、既存課金objectの署名済みWebhook、解約、返金、reconciliationは継続すること。
 - checkout intentとCheckout Sessionが1対1で、期限切れ・別Session・消費済みintentの支払いを二重付与せず自動返金queueへ送ること。
-- TeamからPersonalへの移行はOQ-027が決まるまで、複数メンバーworkspaceを課金前に拒否すること。
+- Checkout Session作成の応答消失、API再送、並行送信で、intent由来のStripe idempotency keyにより同じSessionだけが返ること。
+- TeamからPersonalへの移行はOQ-027が決まるまで、active/grace/read_onlyのTeam契約があれば人数に関係なく課金前に拒否すること。
 - AI初期OFFで外部APIを呼ばない。
 
 ## 課金テストデータ

@@ -47,12 +47,14 @@ Status: Proposed
 - `personal_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
 - `team_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
 
-`personal_monthly` は有効メンバーが1人の場合だけ作成できる。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで、有効メンバーが2人以上なら `PLAN_MEMBER_LIMIT_UNRESOLVED` を返し、Stripe APIへ通信しない。
+`personal_monthly` は有効メンバーが1人の場合だけ作成できる。active/grace/read_onlyのTeam契約が存在する場合は人数に関係なく、契約置換と既存メンバー処理をOQ-027で決めるまで `PLAN_CHANGE_UNRESOLVED` を返し、Stripe APIへ通信しない。
 
 成功時は推測不能なcheckout intent IDと、そのintent専用に作成した30分有効のCheckout Session URLだけを返す。Price ID、Stripe Secret、Webhook Secret、他workspaceの識別子を返さない。
 
 - `BILLING_FEATURE_ENABLED=false` の場合は新規intentへ `BILLING_DISABLED` を返す。ただし既存課金objectの署名済みWebhookとreconciliationは停止しない。
 - `client_reference_id` にはcheckout intent IDだけを使う。
+- `Idempotency-Key` headerを必須とし、key hashとrequest hashを保存する。同じkey・同じrequestは同じintent/Sessionを返し、同じkey・異なるrequestは409を返す。
+- 同じscope/offer/manualに未期限切れintentがある場合は新規intentを作らない。Stripe Session作成にはintent ID由来の決定的idempotency keyを渡し、タイムアウトや並行再送でも同じSessionを取得する。
 - クライアントが送った価格、金額、Price ID、Payment Linkを信頼しない。
 - Stripe Linkのメールアドレスや認証状態をアプリ認証へ流用しない。
 - 決済完了リダイレクト後も `processing` と表示でき、Webhook確認前に権利を付与しない。

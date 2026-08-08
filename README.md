@@ -10,8 +10,9 @@
 - 開発場所: GitHub Codespacesとクラウド環境を主戦場にする
 - デプロイ: Cloudflare Pages / Workers
 - ブラウザ実行: Cloudflare Browser Run + Live View
-- 認証/DB/Storage: Supabase Auth / Postgres / Storage
-- 課金拡張: Stripe Payment Links + Webhook
+- 認証/DB: Supabase Auth / Postgres / RLS
+- ファイル保存: Cloudflare R2を第一候補（Supabase Storageは第一保存先にしない）
+- 課金拡張: Stripe Checkout Sessions / Link / Webhook
 - AI API: 初期OFF。将来ONにできる設計のみ用意する
 - Chrome拡張: 第一方式にしない
 - 共有リンク: デフォルトOFF

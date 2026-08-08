@@ -29,7 +29,9 @@ Status: Accepted
 - CheckoutでStripe Linkを利用可能にし、保存済み支払い情報による再決済を支援する。
 - Linkを `めっちゃマニュアル` のログイン、本人確認、ワークスペース認可には使わない。
 - サーバーがcheckout intentを作成し、推測不能なIDをCheckout Sessionの `client_reference_id` とmetadataへ渡す。
-- checkout intentとStripe Checkout Session IDを1対1で固定し、Session IDのunique制約と支払いobjectのunique制約で再利用・二重付与を拒否する。
+- checkout intentとStripe Checkout Session IDを1対1で固定する。Stripe APIにはintent IDから決定的に導出したidempotency keyを必ず渡し、タイムアウト・応答保存失敗・並行再送でもStripe上の同じSessionを返させる。
+- アプリAPIも購入操作ごとの `Idempotency-Key` を必須にし、同じkey・同じrequestは保存済みintent/Sessionを返す。同じkey・異なるrequestは409、同じscope/offer/manualに未期限切れintentがあれば新規作成せず既存試行を返す。
+- Session ID、PaymentIntent、Subscriptionのunique制約はWebhook二重付与の防御として併用するが、Stripe API呼び出し前の二重Session防止をunique制約だけに依存しない。
 - Webhookでcheckout intent、Price、支払状態、workspace、必要な場合はmanualを照合してから権利を付与する。
 - Linkのメールアドレスとアプリのログインメールが一致するだけでは権利を付与しない。
 
@@ -47,7 +49,7 @@ Status: Accepted
 - `subscriptions.quantity` だけを信頼せず、内部プランの席数上限と有効メンバー数を照合する。
 - 解約予約中は支払済み期間終了まで利用可能とする。
 - 未払い、返金、順不同、遅延はADR-0007とADR-0022のreconciliation方針に従う。
-- `personal_monthly` は有効メンバーが1人のworkspaceだけCheckout Sessionを作成できる。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで自動化せず、2人以上のworkspaceでは課金前に `PLAN_MEMBER_LIMIT_UNRESOLVED` として停止する。
+- `personal_monthly` は有効メンバーが1人のworkspaceだけCheckout Sessionを作成できる。ただしactive/grace/read_onlyのTeam契約が存在するworkspaceは人数に関係なく、契約置換とメンバー処理をOQ-027で決めるまで `PLAN_CHANGE_UNRESOLVED` としてStripe API呼び出し前に停止する。
 
 ## 環境変数
 
