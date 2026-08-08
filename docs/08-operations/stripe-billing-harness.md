@@ -48,11 +48,12 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 1. ログイン中のユーザー、workspace、role、対象manualを検証する。
 2. offer codeをallowlistで検証し、金額やPrice IDをクライアントから受け取らない。
 3. `single_export` はmanualを必須、subscriptionはmanualを禁止する。
-4. APIの `Idempotency-Key` hashとrequest hashを照合し、同一操作または同一scope/offer/manualの未期限切れintentを再利用する。keyが同じでrequestが違う場合は409にする。
-5. 推測不能なID、有効期限、未消費状態でcheckout intentを保存する。同一scope/offer/manualの未期限切れintentは1件に制約する。
+4. APIの `Idempotency-Key` hashとrequest hashを照合し、同一操作の未期限切れintentを再利用する。keyが同じでrequestが違う場合は409にする。
+5. 推測不能なID、有効期限、未消費状態でcheckout intentを保存する。都度払いは同じworkspace/manual、subscriptionはofferをまたいで同じworkspaceに未期限切れintentを1件だけ許可する。
 6. サーバー設定から対応Priceを選び、intent ID由来の決定的idempotency keyをStripe APIへ渡してCheckout Sessionを作成する。応答保存前に失敗しても同じkeyで同じSessionを再取得し、Session IDをuniqueで保存する。`client_reference_id`へintent IDだけを付加する。
 7. Checkout Sessionとintentを30分で失効させ、Webhook成功後に一度だけ消費済みにする。
 8. `personal_monthly` は有効メンバーが1人の場合だけ作成する。active/grace/read_onlyのTeam契約がある場合は人数に関係なく、OQ-027が決まるまで課金前に `PLAN_CHANGE_UNRESOLVED` で停止する。
+9. subscriptionはCheckout Session作成時にもWebhook時にも同じworkspaceの競合契約・別subscription intentを検査する。PersonalとTeamの支払い可能Sessionを同時に残さない。
 
 ## Webhook処理
 
@@ -66,6 +67,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 8. 状態遷移とentitlement更新を同一transactionまたは再実行可能な処理にまとめる。
 9. 失敗は再試行可能にし、重複再送でも二重付与しない。
 10. flagがfalseでも既存課金objectの署名済みeventを受け付ける。未知・期限切れ・別Session・消費済みintentへの支払いは放置せず、自動返金queueと運用アラートへ送る。
+11. subscription modeで照合不能または競合した場合はentitlementを拒否し、subscriptionを冪等にcancel、未確定invoiceをvoid、確定済みinvoiceをrefund queueへ登録する。全処理の確認までreconciliationを再試行し、権利なしの継続請求を残さない。
 
 ## entitlement
 
@@ -108,6 +110,8 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 - 80%、100%到達時に追加請求がなく、期待する警告・停止になる。
 - `BILLING_FEATURE_ENABLED=false` では新規Checkout Session作成が0件になる一方、既存課金objectの署名済みWebhook、解約、返金、reconciliationが継続する。
 - 期限切れ・別Session・消費済みintentの支払いを二重付与せず、自動返金queueへ送る。
+- PersonalとTeamの購入を並行開始してもsubscription用の支払い可能Sessionがworkspaceごとに1件だけになる。Webhook到着前後に競合契約が生じても二重entitlementを付与しない。
+- 照合不能なsubscription mode決済では、cancel、invoice void/refundがそれぞれ冪等に完了し、再送後も権利なしの継続請求が残らない。
 - R2 100%では新規エクスポート生成を拒否し、生成済み成果物のダウンロードだけを許可する。
 
 ## 外部設定と承認
