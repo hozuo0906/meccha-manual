@@ -17,8 +17,26 @@ permissions:
   actions: read
 
 jobs:
+  verify-production-candidate:
+    name: Verify production candidate from trusted main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted verifier
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify candidate is reachable from main
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: node scripts/deployment-candidate-evidence.mjs verify-candidate-ref
+
   validate-production-candidate:
     name: Validate production candidate after approval
+    needs: verify-production-candidate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -31,10 +49,10 @@ jobs:
           ref: ${{ inputs.candidate_sha }}
           fetch-depth: 0
 
-      - name: Verify immutable candidate SHA
+      - name: Verify checked out candidate SHA
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-        run: node scripts/deployment-candidate-evidence.mjs verify-candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
       - name: Setup Node
         uses: actions/setup-node@v4

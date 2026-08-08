@@ -68,7 +68,8 @@ const allowedUses = new Set([
   "actions/upload-artifact@v4", "actions/download-artifact@v4"
 ]);
 const allowedRuns = new Set([
-  "node scripts/deployment-candidate-evidence.mjs verify-candidate",
+  "node scripts/deployment-candidate-evidence.mjs verify-candidate-ref",
+  "test \"$(git rev-parse HEAD)\" = \"$CANDIDATE_SHA\"",
   "node scripts/deployment-candidate-evidence.mjs write-staging-evidence",
   "node scripts/deployment-candidate-evidence.mjs verify-staging-evidence",
   "npm ci", "npm run check"
@@ -83,8 +84,16 @@ for (const [name, workflow] of [["Staging", staging], ["Production", production]
   if (/^\s*run:\s*[|>]\s*$/m.test(workflow)) errors.push(`${name} candidate workflow must not use unparsed multiline run blocks.`);
 }
 
-for (const snippet of ["merge-base", "origin/main", "evidence.candidateSha", "deploy-staging.yml", "run.conclusion !== \"success\""]) {
+for (const snippet of ["merge-base", "origin/main", "evidence.candidateSha", "deploy-staging.yml", "run.conclusion !== \"success\"", "run.head_branch !== \"main\"", "evidence.workflowRef !== \"refs/heads/main\""]) {
   if (!evidence.includes(snippet)) errors.push(`Deployment evidence verifier is missing: ${snippet}`);
+}
+for (const [name, workflow, trustedJob] of [
+  ["Staging", staging, "verify-staging-candidate"],
+  ["Production", production, "verify-production-candidate"]
+]) {
+  if (!workflow.includes(`${trustedJob}:`) || !workflow.includes("ref: main") || !workflow.includes(`needs: ${trustedJob}`)) {
+    errors.push(`${name} workflow must verify candidate ancestry from trusted main before its Environment job.`);
+  }
 }
 if (!/staging_run_id:/m.test(production) || !/actions\/download-artifact@v4/.test(production)) {
   errors.push("Production candidate workflow must require and download matching staging evidence.");
