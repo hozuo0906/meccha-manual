@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 
 const requiredDocs = {
+  "README.md": [
+    "Cloudflare R2を第一候補",
+    "Stripe Checkout Sessions / Link / Webhook"
+  ],
   "docs/01-product/pricing-and-plans.md": [
     "550円 / 1マニュアル",
     "3,300円 / 月",
@@ -44,7 +48,9 @@ const requiredDocs = {
     "返金",
     "席数",
     "flagに関係なく継続",
-    "自動返金queue"
+    "自動返金queue",
+    "idempotency key",
+    "PLAN_CHANGE_UNRESOLVED"
   ],
   "docs/08-operations/db-migration-safety-harness.md": [
     "適用前チェック",
@@ -74,6 +80,10 @@ const requiredDocs = {
     "`personal_monthly`: 3,300 JPY",
     "`team_monthly`: 9,900 JPY",
     "固定Payment Link URLはentitlement付与に使わない"
+  ],
+  "docs/01-product/requirements-traceability.md": [
+    "AC-056, AC-057, AC-059",
+    "AC-055, AC-058"
   ]
 };
 
@@ -116,7 +126,8 @@ for (const legacyTerm of [
   "`STRIPE_PAYMENT_LINK_SINGLE_EXPORT`",
   "`STRIPE_PAYMENT_LINK_PERSONAL_MONTHLY`",
   "`STRIPE_PAYMENT_LINK_TEAM_MONTHLY`",
-  "Product: `めっちゃマニュアル Pro`"
+  "Product: `めっちゃマニュアル Pro`",
+  "Stripe Payment Links + Webhook"
 ]) {
   if (combined.includes(legacyTerm)) {
     errors.push(`Legacy Stripe contract remains in harness docs: ${legacyTerm}`);

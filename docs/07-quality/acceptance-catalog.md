@@ -21,6 +21,7 @@ Status: Proposed
 | AC-054 | Stripe Linkのメールがアプリのログインメールと一致する | workspaceに属さないユーザーが決済する | メール一致だけではworkspace権限を付与しない |
 | AC-055 | `BILLING_FEATURE_ENABLED=false` | 新規購入と既存課金objectのWebhookを処理する | 新規Checkout Sessionは作らず、署名済みWebhookと既存契約の解約・返金・reconciliationは継続する |
 | AC-056 | 期限切れ・別Session・消費済みcheckout intentへの支払いevent | Webhookを再送する | entitlementを二重付与せず、自動返金queueと運用アラートへ一度だけ登録する |
-| AC-057 | Team workspaceに有効メンバーが2人以上いる | Personalへの変更を開始する | Stripe APIへ通信せず `PLAN_MEMBER_LIMIT_UNRESOLVED` で停止する |
+| AC-057 | active/grace/read_onlyのTeam契約がある | メンバー1人または複数人でPersonalへの変更を開始する | Stripe APIへ通信せず `PLAN_CHANGE_UNRESOLVED` で停止する |
 | AC-058 | R2使用量が100%で生成済みexportがある | 新規生成と既存成果物downloadを行う | 新規生成は拒否し、期限内の既存成果物downloadは成功する |
+| AC-059 | 同じ購入操作のCheckout Session作成が並行実行または応答消失後に再送される | APIとStripeへ再試行する | 同じcheckout intentとStripe Sessionだけを返し、二重の支払い可能Sessionを作らない |
 | AC-060 | AI feature flagがOFF | 手順書を作る | 外部AI APIが呼ばれない |

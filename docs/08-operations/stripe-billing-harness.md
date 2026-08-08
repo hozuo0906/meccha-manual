@@ -26,6 +26,7 @@ Stripe側では税込みとして扱う設定を確認してからtest modeへ�
 - Stripe LinkをCheckout上の高速決済手段として利用できるようにする。
 - Linkのメールアドレス、電話番号、保存済み決済情報をアプリの認証、workspace所属、role判定に使わない。
 - アプリ側でcheckout intentを作成し、推測不能なIDだけをCheckout Sessionの `client_reference_id` として渡す。
+- APIの購入操作keyとStripe APIのintent由来idempotency keyを分けて保存し、応答消失・再送・並行実行でも同じintentとSessionを返す。
 - checkout intentにはworkspace、offer、必要な場合はmanualをサーバー側で保存し、URLへPIIやmanual名を含めない。
 - 決済完了画面は処理中表示に利用できるが、entitlement確定には使わない。
 
@@ -47,10 +48,11 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 1. ログイン中のユーザー、workspace、role、対象manualを検証する。
 2. offer codeをallowlistで検証し、金額やPrice IDをクライアントから受け取らない。
 3. `single_export` はmanualを必須、subscriptionはmanualを禁止する。
-4. 推測不能なID、有効期限、未消費状態でcheckout intentを保存する。
-5. サーバー設定から対応Priceを選び、intent専用のCheckout Sessionを作成する。Session IDをuniqueで保存し、`client_reference_id`へintent IDだけを付加する。
-6. Checkout Sessionとintentを30分で失効させ、Webhook成功後に一度だけ消費済みにする。
-7. `personal_monthly` は有効メンバーが1人の場合だけ作成する。2人以上ではOQ-027が決まるまで課金前に停止する。
+4. APIの `Idempotency-Key` hashとrequest hashを照合し、同一操作または同一scope/offer/manualの未期限切れintentを再利用する。keyが同じでrequestが違う場合は409にする。
+5. 推測不能なID、有効期限、未消費状態でcheckout intentを保存する。同一scope/offer/manualの未期限切れintentは1件に制約する。
+6. サーバー設定から対応Priceを選び、intent ID由来の決定的idempotency keyをStripe APIへ渡してCheckout Sessionを作成する。応答保存前に失敗しても同じkeyで同じSessionを再取得し、Session IDをuniqueで保存する。`client_reference_id`へintent IDだけを付加する。
+7. Checkout Sessionとintentを30分で失効させ、Webhook成功後に一度だけ消費済みにする。
+8. `personal_monthly` は有効メンバーが1人の場合だけ作成する。active/grace/read_onlyのTeam契約がある場合は人数に関係なく、OQ-027が決まるまで課金前に `PLAN_CHANGE_UNRESOLVED` で停止する。
 
 ## Webhook処理
 
@@ -75,7 +77,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 
 - 都度払いは対象manualだけに適用し、別manualへ移さない。
 - パーソナルは有効メンバー1人、チームはowner/admin/editor合計5人とviewer 50人を上限候補とする。
-- 席数超過時は新規招待と権限昇格を止め、ownerを自動で締め出さない。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで自動化しない。
+- 席数超過時は新規招待と権限昇格を止め、ownerを自動で締め出さない。TeamからPersonalへの契約置換と既存メンバー処理はOQ-027が決まるまで自動化せず、active/grace/read_onlyのTeam契約中はPersonal購入を全面拒否する。
 - Browser Run、R2、同時記録の上限はサーバー側entitlementと月次usage counterで判定する。
 - 80%で警告、100%で新しい操作記録、保存、エクスポート生成を停止し、自動従量課金しない。生成済み成果物の期限内ダウンロードは継続する。
 
