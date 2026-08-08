@@ -46,6 +46,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 - redirect、iframe、subresource、WebSocket、Service Worker、download、WebTransport/QUIC、WebRTC ICE/STUN/TURNそれぞれでprivate IPへの迂回をnegative testする。
 - HTTP/TLS/application bytesがpeer検証より前に1 byteも送信されないことをfixtureで確認する。
 - actual peerを取得できない、または1種類でもegressを迂回できる場合は機能フラグをOFFのままにし、Browser Runの起動とnavigateを全面拒否する。
+- 稼働後に迂回を発見してflagをfalseへ戻す場合は、egress kill switchで既存セッションの通信を即時遮断してから、Live View失効・再発行拒否、全Durable Objectへの終了command、Browser close再試行、監査ログ記録を行う。新規起動だけ止めて既存通信を残さない。
 
 ## 入力値と操作イベント
 

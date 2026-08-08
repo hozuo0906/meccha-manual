@@ -84,13 +84,13 @@ const requiredDocs = {
     "hostnameのallowlistや運営承認はこの拒否を迂回できず"
   ],
   "docs/01-product/requirements-traceability.md": [
-    "| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023 |"
+    "| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 |",
+    "| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024 |"
   ],
   "docs/07-quality/acceptance-catalog.md": [
     "| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み |",
-    "| AC-023 |",
-    "BROWSER_EGRESS_NOT_VERIFIED",
-    "application bytes送信前"
+    "| AC-024 | editorユーザーかつegress P0検証未完了 |",
+    "| AC-025 | Browser Runセッション稼働中 |"
   ],
   "docs/09-delivery/decision-log.md": [
     "DEC-032",
@@ -145,6 +145,11 @@ for (const [file, terms] of Object.entries(requiredDocs)) {
 }
 
 const combined = Object.values(contents).join("\n");
+const acceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
+const ac023 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
+for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {
+  if (!ac023.includes(term)) errors.push(`AC-023 is missing fail-closed term: ${term}`);
+}
 for (const legacyName of forbiddenLegacyR2Names) {
   if (combined.includes(legacyName)) {
     errors.push(`Legacy R2 bucket name remains in harness docs: ${legacyName}`);
