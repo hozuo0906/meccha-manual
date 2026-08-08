@@ -1220,7 +1220,16 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {
-  const cookies = parseCookies(request);
+  let cookies: Map<string, string>;
+  try {
+    cookies = parseCookies(request);
+  } catch (error) {
+    if (error instanceof AppError && error.status === 401) {
+      return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
+    }
+    throw error;
+  }
+
   if (!cookies.has(COOKIE_ACCESS_TOKEN) && !cookies.has(COOKIE_REFRESH_TOKEN)) {
     return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
   }

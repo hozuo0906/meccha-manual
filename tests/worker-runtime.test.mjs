@@ -45,6 +45,23 @@ test("壊れたCookieは500にせず再ログインを求める", async () => {
   assert.equal((await response.json()).code, "SESSION_INVALID");
 });
 
+test("壊れたCookieでもログアウト時に端末Cookieを削除する", async () => {
+  const response = await worker.fetch(appRequest("/api/auth/logout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": "__Host-mm_access=%E0%A4%A"
+    },
+    body: "{}"
+  }), env, ctx);
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, "ok");
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_access=.*Max-Age=0/);
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
+});
+
 test("認証サービスの詳細エラーをログイン画面へ露出しない", async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({
     message: "User with supplied email does not exist"
