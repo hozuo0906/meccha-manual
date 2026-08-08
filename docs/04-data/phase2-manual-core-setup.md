@@ -21,10 +21,10 @@ supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
 
 ```text
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
-supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql
+supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 ```
 
-`202608020003_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
+`202608010002_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。migrationのファイル名順でもPhase 2より先に並ぶことを静的検査する。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
 
 ## Scope
 
@@ -68,7 +68,7 @@ supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql
 1. Supabase Dashboardを開く。
 2. 左メニューの `SQL Editor` を開く。
 3. `New query` を押す。
-4. migration履歴で `202608020003_phase1_workspace_membership_hardening.sql` の適用済みを確認する。未適用なら、ユーザー承認を得て先に同migrationを適用し、RLS negative testを実行する。
+4. migration履歴で `202608010002_phase1_workspace_membership_hardening.sql` の適用済みを確認する。未適用なら、ユーザー承認を得て先に同migrationを適用し、RLS negative testを実行する。旧名 `202608020003_phase1_workspace_membership_hardening.sql` が履歴にある場合は再適用せず、履歴整合を別途確認する。
 5. `supabase/migrations/202608020001_phase2_manual_core.sql` の全文を貼る。
 6. `Run` を押す。
 
