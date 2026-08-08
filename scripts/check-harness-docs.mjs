@@ -57,10 +57,25 @@ const requiredDocs = {
     "actual peer",
     "fail closed",
     "WebSocket",
+    "WebTransport/QUIC",
+    "WebRTC",
+    "application bytes",
+    "capture.browserRun.egressVerified.enabled=false",
     "入力値",
     "スクリーンショット",
     "終了・失敗・期限切れ",
     "監査ログ"
+  ],
+  "docs/08-operations/feature-flags.md": [
+    "`capture.browserRun.egressVerified.enabled`",
+    "AC-023"
+  ],
+  "docs/05-api/api-contracts.md": [
+    "503 BROWSER_EGRESS_NOT_VERIFIED",
+    "hostnameのallowlistや運営承認はこの拒否を迂回できない"
+  ],
+  "docs/01-product/requirements-traceability.md": [
+    "| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023 |"
   ],
   "docs/08-operations/environment-variables.md": [
     "`STRIPE_SECRET_KEY`",

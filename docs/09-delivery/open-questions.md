@@ -11,7 +11,7 @@ Status: Accepted
 | OQ-003 | viewerのコメント権限 | viewerは許可された手順書にコメント可 | コメント詳細 |
 | OQ-004 | 管理者による全セッション閲覧 | Live View覗き見は禁止、監査/メタデータ閲覧のみ | 管理画面 |
 | OQ-005 | Browser Run同時実行上限 | 未契約/パーソナルは1、チームは2。実測後の変更はADR更新を必須にする | 課金実装 |
-| OQ-006 | 許可/禁止ドメインと検証済みegress方式 | 危険URL拒否を常に優先する。Cloudflare Browser Runで全通信のactual peerを拘束できるとP0検証できるまでは任意URLを許可せず、運営が事前承認した公開HTTPS destinationに限定する | Browser Run任意URL |
+| OQ-006 | 許可/禁止ドメインと検証済みegress方式 | 危険URL拒否を常に優先する。全通信を送信前peer検証済みegressへ拘束できるとP0検証できるまでは、運営承認済みdestinationを含めBrowser Run起動・navigateを全面拒否する | Browser Run全通信 |
 | OQ-007 | 自動マスキング範囲 | password、カード、トークン、個人番号、メール候補 | 操作記録 |
 | OQ-008 | 共有リンク既定 | デフォルトOFF、期限付き/パスコード推奨 | 共有 |
 | OQ-009 | 料金体系 | 解決済み。都度払い550円、パーソナル3,300円/月、チーム9,900円/月。詳細はADR-0023 | なし |

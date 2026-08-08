@@ -11,7 +11,7 @@ Status: Proposed
 | AC-020 | editorユーザー | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |
 | AC-022 | 記録中 | 危険URLへ遷移しようとする | SSRF防止で拒否される |
-| AC-023 | DNS検査ではpublic IPを返す対象host | 実接続時またはsubresourceでprivate IPへrebindする | actual peerへの接続前に拒否され、任意URL機能がfail closedになる |
+| AC-023 | DNS検査ではpublic IPを返す対象host、またはegressを迂回するWebRTC/WebTransport fixture | 承認済みhostへの実接続、subresource、直接通信を開始する | HTTP/TLS/application bytes送信前にactual peerで拒否され、1経路でも拘束不能ならBrowser Run起動・navigateが `BROWSER_EGRESS_NOT_VERIFIED` でfail closedになる |
 | AC-030 | 共有リンクが期限切れ | 閲覧する | 閲覧できない |
 | AC-031 | 共有リンクを失効する | 直後に閲覧する | 閲覧できない |
 | AC-040 | Guide Me風再生中 | 対象DOMが見つからない | 勝手に進まず停止し理由を表示する |

@@ -24,9 +24,9 @@ Status: Proposed
 | `PATCH /v1/manuals/{id}` | 手順書更新 | can_edit_manual |
 | `POST /v1/manuals/{id}/publish` | 公開版作成 | can_edit_manual |
 | `POST /v1/manuals/{id}/exports` | PDF/HTML/Markdown出力を要求 | can_view_manual + active export entitlement |
-| `POST /v1/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 |
+| `POST /v1/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 + egress P0検証済みflag |
 | `POST /v1/capture-sessions/{id}/live-url` | Live View URL発行 | session owner |
-| `POST /v1/capture-sessions/{id}/commands` | navigate/reload等 | session owner |
+| `POST /v1/capture-sessions/{id}/commands` | navigate/reload等 | session owner + egress P0検証済みflag |
 | `GET /v1/capture-sessions/{id}/events` | 再接続差分 | session owner |
 | `DELETE /v1/capture-sessions/{id}` | セッション終了 | session owner |
 | `POST /v1/share-links` | 共有リンク作成 | can_edit_manual |
@@ -38,6 +38,8 @@ Status: Proposed
 | `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |
 | `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
 | `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
+
+`capture.browserRun.egressVerified.enabled=false` の場合、capture session作成とnavigate/reload commandはBrowser Runへ通信する前に `503 BROWSER_EGRESS_NOT_VERIFIED` で拒否する。hostnameのallowlistや運営承認はこの拒否を迂回できない。
 
 ## 課金API contract
 
