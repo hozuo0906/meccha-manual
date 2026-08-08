@@ -33,6 +33,7 @@ Status: Accepted
 - アプリAPIも購入操作ごとの `Idempotency-Key` を必須にし、同じkey・同じrequestは保存済みintent/Sessionを返す。同じkey・異なるrequestは409にする。都度払いは同じworkspace/manual、subscriptionはofferをまたいで同じworkspaceに未期限切れintentを1件だけ許し、既存試行を返す。
 - Session ID、PaymentIntent、Subscriptionのunique制約はWebhook二重付与の防御として併用するが、Stripe API呼び出し前の二重Session防止をunique制約だけに依存しない。
 - Webhookでcheckout intent、Price、支払状態、workspace、必要な場合はmanualを照合してから権利を付与する。
+- intent期限はWebhookの受信・処理時刻では判定しない。署名済み `checkout.session.completed` のevent時刻とStripe Sessionの完了状態から `stripe_completed_at` を一度だけ保存し、`stripe_completed_at <= expires_at` の正規決済は配信遅延後も受理する。期限後も未完了だったSessionだけを期限切れ扱いにする。
 - Linkのメールアドレスとアプリのログインメールが一致するだけでは権利を付与しない。
 
 ## 都度払いの境界
