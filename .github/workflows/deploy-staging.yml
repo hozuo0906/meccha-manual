@@ -12,8 +12,27 @@ permissions:
   contents: read
 
 jobs:
+  verify-staging-candidate:
+    name: Verify staging candidate from trusted main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted verifier
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify candidate is reachable from main
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: node scripts/deployment-candidate-evidence.mjs verify-candidate-ref
+
   validate-staging-candidate:
     name: Validate staging candidate
+    needs: verify-staging-candidate
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency: staging-candidate-${{ inputs.candidate_sha }}
@@ -25,10 +44,10 @@ jobs:
           ref: ${{ inputs.candidate_sha }}
           fetch-depth: 0
 
-      - name: Verify immutable candidate SHA
+      - name: Verify checked out candidate SHA
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-        run: node scripts/deployment-candidate-evidence.mjs verify-candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
       - name: Setup Node
         uses: actions/setup-node@v4

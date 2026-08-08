@@ -10,10 +10,19 @@ const patterns = [
   ["OpenAI API key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/],
   ["GitHub token", /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[opusr]_[A-Za-z0-9]{20,})\b/],
   ["Discord webhook URL", /https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9._-]+/i],
+  ["Discord bot token", /\b(?:mfa\.[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,8}\.[A-Za-z0-9_-]{25,})\b/],
+  ["Discord bot token assignment", /\bDISCORD_BOT_TOKEN\s*[:=]\s*["']?[A-Za-z0-9_.-]{20,}/],
   ["database URL", /\b(?:postgres|postgresql):\/\/[^\s"'`]+/i],
   ["private key", /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/]
 ];
 const findings = [];
+
+function inspectContent(content, source) {
+  for (const [label, pattern] of patterns) {
+    if (pattern.test(content)) findings.push(`${source}: ${label}`);
+  }
+  if (hasServiceRoleJwt(content)) findings.push(`${source}: Supabase service_role JWT`);
+}
 
 function hasServiceRoleJwt(content) {
   for (const match of content.matchAll(/\beyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+\b/g)) {
@@ -31,10 +40,21 @@ for (const file of files) {
   const buffer = await readFile(file);
   if (buffer.includes(0)) continue;
   const content = buffer.toString("utf8");
-  for (const [label, pattern] of patterns) {
-    if (pattern.test(content)) findings.push(`${file}: ${label}`);
+  inspectContent(content, file);
+}
+
+const baseSha = process.env.SECRET_SCAN_BASE_SHA || "";
+if (/^[a-f0-9]{40}$/.test(baseSha) && !/^0+$/.test(baseSha)) {
+  const objects = execFileSync("git", ["rev-list", "--objects", `${baseSha}..HEAD`], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  for (const objectLine of objects) {
+    const [sha, ...pathParts] = objectLine.split(" ");
+    if (execFileSync("git", ["cat-file", "-t", sha], { encoding: "utf8" }).trim() !== "blob") continue;
+    const buffer = execFileSync("git", ["cat-file", "blob", sha], { encoding: null, maxBuffer: 20 * 1024 * 1024 });
+    if (buffer.includes(0)) continue;
+    inspectContent(buffer.toString("utf8"), `PR履歴blob ${sha.slice(0, 12)} ${pathParts.join(" ") || "(pathなし)"}`);
   }
-  if (hasServiceRoleJwt(content)) findings.push(`${file}: Supabase service_role JWT`);
 }
 
 if (findings.length > 0) {

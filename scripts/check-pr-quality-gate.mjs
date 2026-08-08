@@ -54,8 +54,12 @@ const reviewRequest = [...comments].reverse().find((comment) =>
 if (!reviewRequest) throw new Error("Latest head SHA is not named in an @codex review request.");
 
 const reviews = await apiPages(`/pulls/${prNumber}/reviews`);
+const CODEX_BOT_LOGINS = new Set(["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"]);
+const isCodexBot = (user) => CODEX_BOT_LOGINS.has(user?.login || "") && user?.type === "Bot";
 const codexReview = reviews.some((review) =>
-  /codex/i.test(review.user?.login || "") && review.commit_id === pr.head.sha
+  isCodexBot(review.user)
+    && ["COMMENTED", "APPROVED", "CHANGES_REQUESTED"].includes(review.state)
+    && review.commit_id === pr.head.sha
 );
 let codexApprovalReaction = false;
 if (!codexReview) {
@@ -64,7 +68,7 @@ if (!codexReview) {
     apiPages(`/issues/${prNumber}/reactions`)
   ]);
   codexApprovalReaction = [...commentReactions, ...prReactions].some((reaction) =>
-    /codex/i.test(reaction.user?.login || "") && reaction.content === "+1"
+    isCodexBot(reaction.user) && reaction.content === "+1"
       && new Date(reaction.created_at) >= new Date(reviewRequest.created_at)
   );
 }
