@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Purpose
 
-Phase 1の品質ゲートとして、別ユーザーが他ワークスペースのデータを読めないことを確認する。
+Phase 1の品質ゲートとして、別ユーザーが他ワークスペースのデータを読めないことに加え、匿名RPCとowner/adminによる所有境界フィールドの改変が拒否されることを確認する。
 
 このテストはアプリ公開URLとSupabase REST APIの両方を使って実行する。Supabase `service_role key` は使わない。
 
@@ -54,8 +54,11 @@ MECCHA_SUPABASE_ANON_KEY
 11. ユーザーAのSupabase REST tokenではワークスペースBを直接読めない。
 12. ユーザーBのSupabase REST tokenではワークスペースAを直接読めない。
 13. ユーザーA/BのSupabase REST tokenでは相手の `workspace_members` を直接読めない。
+14. anonymousロールでは `create_workspace` と `is_workspace_member` RPCを実行できない。
+15. ownerが `workspaces` と `workspace_members` の識別子・作成監査項目を変更できない。
+16. ownerが追加したadminも同じ所有境界フィールドを変更できない。
 
-別ゲートの `npm run migrations:check` では、これらに加えてワークスペースとメンバーの識別子・作成監査項目を更新不能にするtrigger、認証用RPCから匿名実行権限を剥奪するstatement、メンバー判定RPCの対象を`auth.uid()`へ限定する条件が存在することを静的に確認する。実環境でのロール別更新拒否は、検証環境へのmigration適用承認後に実施する。
+別ゲートの `npm run migrations:check` では、ワークスペースとメンバーの識別子・作成監査項目を更新不能にするtrigger、認証用RPCから匿名実行権限を剥奪するstatement、メンバー判定RPCの対象を`auth.uid()`へ限定する条件が存在することを静的に確認する。動的テストは検証環境へのmigration適用承認後にだけ実行する。
 
 ## Pass condition
 
@@ -73,6 +76,8 @@ MECCHA_SUPABASE_ANON_KEY
 - どちらかのユーザーが相手のワークスペースをアプリAPI経由で読める。
 - どちらかのユーザーが相手のワークスペースをSupabase REST経由で読める。
 - どちらかのユーザーが相手の `workspace_members` をSupabase REST経由で読める。
+- anonymousロールでワークスペースRPCを実行できる。
+- ownerまたはadminがワークスペースやメンバーの識別子・作成監査項目を変更できる。
 
 ## Command
 
@@ -92,8 +97,8 @@ npm run test:rls
 - テストユーザーのメールアドレスとパスワードはGitに保存しない。
 - `service_role key`、DBパスワード、JWT Secretは使わない。
 - リモートURLで実行する場合は明示ガードを必須にする。
-- テストはワークスペースを2件作成する。現時点では削除APIがないため、作成済みの検証ワークスペースは残る。
+- テストはワークスペースを2件作成し、片方へ検証用admin membershipを1件追加する。現時点では削除APIがないため、作成済みデータは残る。
 
 ## Remaining risk
 
-このテストは `workspaces` と `workspace_members` の読み取り分離を確認する。ロール別更新拒否、最後のowner保護、識別子・作成監査項目の更新拒否はmigrationの静的検査までであり、検証環境での動的テストが残る。将来はStorage private bucket testも追加する。
+このテストは `workspaces` と `workspace_members` の読み取り分離、匿名RPC拒否、owner/adminによる識別子・作成監査項目の更新拒否を確認する。最後のowner保護とowner移譲専用フローは引き続き別の動的テストが必要。将来はStorage private bucket testも追加する。

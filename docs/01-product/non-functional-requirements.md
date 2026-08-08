@@ -6,7 +6,7 @@ Status: Accepted
 |---|---|---|
 | NFR-001 | セキュリティ | 全テナントデータはRLSで分離する |
 | NFR-002 | セキュリティ | Supabase service role、Stripe secret、Browser権限情報をクライアントに渡さない |
-| NFR-003 | セキュリティ | SSRF対策としてprivate IP、localhost、metadata endpoint、危険スキームを拒否する |
+| NFR-003 | セキュリティ | private IP、localhost、metadata endpoint、危険スキームを拒否し、検査済みIPへの実接続拘束を全Browser通信へ適用する |
 | NFR-004 | プライバシー | 入力値、Cookie、Authorization、カード情報、個人番号を保存しない |
 | NFR-005 | 可用性 | 記録中に切断しても保存済み地点を表示し、再接続できる |
 | NFR-006 | 性能 | 手順100件の手順書でも閲覧とPDF出力が破綻しない |

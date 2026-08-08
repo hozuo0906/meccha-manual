@@ -81,4 +81,4 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。
 - Storage実装にログ出力を追加していない。
 
-`npm run test:r2-storage` はローカルstubだけを使い、保存・取得・削除、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。
+`npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。

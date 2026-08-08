@@ -19,7 +19,8 @@ Status: Accepted
 - セッション終了時に破棄する。
 - Live View URLを保存しない。
 - Session Recordingは初期OFF。障害解析用途の任意機能に限定する。
-- SSRF検査は初回URLだけでなく、DNS再解決、接続直前、全redirectで繰り返す。
+- SSRF検査は初回URLだけでなく、全redirectと全通信種別で繰り返す。DNS再解決だけでは合格にせず、検査済みIPへの接続拘束またはactual peer照合を必須にする。
+- navigation、subresource、WebSocket、Service Worker、download、WebTransport/QUIC、WebRTC ICE/STUN/TURNのいずれかで検証済みegressを迂回できる場合、承認済みhostnameも含めBrowser Runをfail closedで無効にする。actual peer検証はapplication bytes送信前に完了させる。
 - Browser close失敗時はLive View再発行を止め、破棄再試行と監査を行う。
 
 ## 共有リンク

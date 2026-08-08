@@ -14,7 +14,7 @@ Phase 1では、認証済みユーザーがワークスペースを作成し、�
 
 ```text
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
-supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql
+supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 ```
 
 ファイル名順に実行する。hardening migrationは、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにし、認証用RPCの実行権限を`authenticated`へ限定する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
@@ -51,8 +51,10 @@ supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql
 4. `supabase/migrations/202608010001_phase1_identity_workspaces.sql` の全文を貼る。
 5. `Run` を押す。
 6. `New query` を押す。
-7. `supabase/migrations/202608020003_phase1_workspace_membership_hardening.sql` の全文を貼る。
+7. `supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql` の全文を貼る。
 8. `Run` を押す。
+
+旧名 `202608020003_phase1_workspace_membership_hardening.sql` はPhase 2より後へ並ぶため使用しない。外部DBで旧名が適用済みかは未検証であり、該当する場合は新名を再適用せず、ユーザー承認のもとmigration履歴との整合を確認する。
 
 ## Expected result
 

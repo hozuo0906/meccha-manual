@@ -21,7 +21,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 手順書の下書きと公開版の分離。
 - 操作記録セッションの起動、切断、再接続、終了。
 - 入力値非保存。
-- SSRF、危険URL拒否。
+- SSRF、危険URL拒否。DNS検査時はpublic、実接続時はprivateを返すrebindingと、redirect/subresource/WebSocket/Service Worker/download/WebTransport/QUIC/WebRTC ICE・STUN・TURNのegress迂回を含む。application bytes送信前にpeer拒否が完了することも検証する。
 - 共有リンクの期限、失効、パスコード。
 - PDF/Markdown/HTMLで日本語とぼかし維持。
 - Stripe webhookの署名、重複、遅延、順不同。
@@ -30,22 +30,27 @@ P0/P1が残る状態では次Phaseへ進みません。
 - Stripe Linkの利用者情報をアプリ認証やworkspace認可に使わないこと。
 - 利用上限到達時に自動課金せず、新規利用だけを安全に停止すること。
 - 返金、chargeback、解約、未払いでデータを即時削除しないこと。
-- `BILLING_FEATURE_ENABLED=false` でPayment Link表示とStripe外部通信が0件になること。
+- `BILLING_FEATURE_ENABLED=false` で新規Checkout Session作成が0件になり、既存課金objectの署名済みWebhook、解約、返金、reconciliationは継続すること。
+- checkout intentとCheckout Sessionが1対1で、期限切れ・別Session・消費済みintentの支払いを二重付与せず自動返金queueへ送ること。
+- Checkout Session作成の応答消失、API再送、並行送信で、intent由来のStripe idempotency keyにより同じSessionだけが返ること。
+- TeamからPersonalへの移行はOQ-027が決まるまで、active/grace/read_onlyのTeam契約があれば人数に関係なく課金前に拒否すること。
 - AI初期OFFで外部APIを呼ばない。
 
 ## 課金テストデータ
 
-- test modeのPriceとPayment Linkだけを使い、liveの識別子やSecretをfixtureへ入れない。
+- test modeのPriceと短命Checkout Sessionだけを使い、liveの識別子やSecretをfixtureへ入れない。
 - checkout intentには推測不能なIDを使い、メール、workspace名、manual名を含めない。
 - 同じStripe event、PaymentIntent、checkout intentを複数回送信する。
 - Price違い、workspace違い、manual違い、期限切れintent、返金後再出力をnegative caseに含める。
 - 月次利用量の境界値として79%、80%、99%、100%、100%超過を検証する。
+- R2 100%では新規エクスポート生成を拒否し、生成済み成果物の期限内ダウンロードだけを許可する。
 
 ## 完成扱い禁止条件
 
 - happy pathだけで主要機能を説明している。
 - 共有URL、RLS、削除、復旧のnegative testがない。
 - クラウドブラウザでCookieや入力値の保存範囲が不明。
+- DNS再解決だけでSSRF対策完了とし、actual peerの照合または検査済みIPへの接続拘束を確認していない。
 - Guide Me風機能が静的デモページでしか動かない。
 - スマホ表示確認がviewport変更だけ。
 - 分析値を原イベントから照合できない。

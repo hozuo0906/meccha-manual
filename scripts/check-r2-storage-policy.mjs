@@ -5,6 +5,7 @@ const docs = [
   "docs/04-data/storage-object-contract.md",
   "docs/08-operations/r2-storage-harness.md"
 ];
+const tableDefinitionsPath = "docs/04-data/table-definitions.md";
 const implementationFiles = [
   "apps/worker/src/domain/storage/object-storage.mjs",
   "apps/worker/src/infra/storage/memory-object-storage.mjs",
@@ -38,6 +39,10 @@ const requiredTerms = [
   "短期署名URL",
   "保持期間",
   "PII",
+  "resource_id",
+  "bodyから再計算",
+  "完全一致",
+  "同じdomain shape",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
 ];
 
@@ -60,6 +65,12 @@ for (const path of implementationFiles) {
   }
 }
 
+try {
+  contents[tableDefinitionsPath] = await readFile(tableDefinitionsPath, "utf8");
+} catch {
+  errors.push(`Missing table definitions: ${tableDefinitionsPath}`);
+}
+
 const combined = Object.values(contents).join("\n");
 
 for (const binding of requiredBindings) {
@@ -77,6 +88,41 @@ for (const bucketName of requiredBucketNames) {
 for (const term of requiredTerms) {
   if (!combined.includes(term)) {
     errors.push(`Missing R2 policy term: ${term}`);
+  }
+}
+
+function sortedUnique(values) {
+  return [...new Set(values)].sort();
+}
+
+function domainKinds(content) {
+  const block = content.match(/export const STORAGE_KINDS = Object\.freeze\(\{([\s\S]*?)\}\);/)?.[1] ?? "";
+  return sortedUnique([...block.matchAll(/:\s*"([a-z][a-z0-9_]*)"/g)].map((match) => match[1]));
+}
+
+function contractKinds(content) {
+  const rows = [...content.matchAll(/^\| `(?:CAPTURE_ASSETS|MANUAL_ASSETS|EXPORTS|AVATARS)` \|[^\n]*\| ([^|]+) \|$/gm)];
+  return sortedUnique(rows.flatMap((row) => [...row[1].matchAll(/`([a-z][a-z0-9_]*)`/g)].map((match) => match[1])));
+}
+
+function tableKinds(content) {
+  const line = content.match(/^- `asset_kind`: ([^\n]+)$/m)?.[1] ?? "";
+  return sortedUnique([...line.matchAll(/`([a-z][a-z0-9_]*)`/g)].map((match) => match[1]));
+}
+
+const vocabularies = {
+  domain: domainKinds(contents[implementationFiles[0]] || ""),
+  contract: contractKinds(contents[docs[1]] || ""),
+  table: tableKinds(contents[tableDefinitionsPath] || "")
+};
+if (vocabularies.domain.length === 0 || vocabularies.contract.length === 0 || vocabularies.table.length === 0) {
+  errors.push("Asset kind vocabulary could not be parsed from domain, storage contract, or table definitions.");
+} else {
+  const canonical = JSON.stringify(vocabularies.domain);
+  for (const [source, values] of Object.entries(vocabularies)) {
+    if (JSON.stringify(values) !== canonical) {
+      errors.push(`Asset kind vocabulary differs between domain and ${source}.`);
+    }
   }
 }
 
@@ -108,7 +154,7 @@ const domainStorage = contents[implementationFiles[0]] || "";
 if (/cloudflare|R2Bucket|R2Object/i.test(domainStorage)) {
   errors.push("Domain storage port must not reference Cloudflare or R2 SDK types.");
 }
-for (const snippet of ["createObjectKey", "contentType", "sizeBytes", "checksumSha256", "manualId", "stepId", "put", "get", "delete"]) {
+for (const snippet of ["createObjectKey", "createStorageReadResult", "contentType", "sizeBytes", "checksumSha256", "resourceId", "manualId", "stepId", "put", "get", "delete"]) {
   if (!domainStorage.includes(snippet)) errors.push(`Missing storage port contract: ${snippet}`);
 }
 const storageImplementation = implementationFiles.slice(0, 3).map((path) => contents[path] || "").join("\n");
