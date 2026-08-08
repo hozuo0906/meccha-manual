@@ -36,8 +36,6 @@ export function createR2ObjectStorage(bindings) {
       const body = new Uint8Array(await result.arrayBuffer());
       const metadata = result.customMetadata ?? {};
       const keySegments = key.split("/");
-      const assetSegment = keySegments[3] ?? "";
-      const assetId = assetSegment.slice(0, assetSegment.lastIndexOf("."));
       const object = await createStorageObject({
         area,
         key,
@@ -49,7 +47,7 @@ export function createR2ObjectStorage(bindings) {
         metadata: {
           workspaceId: metadata.workspace_id,
           resourceId: keySegments[2],
-          assetId
+          assetId: metadata.asset_id
         }
       });
       return createStorageReadResult(object);

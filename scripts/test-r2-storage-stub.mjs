@@ -114,6 +114,9 @@ const r2Storage = createR2ObjectStorage({ MANUAL_ASSETS: manualBucket });
 assert.deepEqual(await r2Storage.put(object), { status: "stored" });
 assert.deepEqual(await r2Storage.get({ area: object.area, key: object.key }), expectedRead);
 assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefined);
+manualBucket.inspect(object.key).customMetadata.asset_id = "asset-999";
+await assert.rejects(r2Storage.get({ area: object.area, key: object.key }), /key does not match/i);
+manualBucket.inspect(object.key).customMetadata.asset_id = "asset-001";
 
 const mutatedAfterValidation = await createStorageObject({ ...object, body: object.body.slice() });
 mutatedAfterValidation.body[0] ^= 0xff;
