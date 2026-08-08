@@ -7,7 +7,7 @@ export const APP_HTML = `<!doctype html>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-  <main id="app" class="app" aria-live="polite">
+  <main id="app" class="app">
     <section class="boot">
       <div class="logo-mark" aria-hidden="true"><span>め</span></div>
       <p>読み込み中</p>
@@ -304,7 +304,7 @@ h1 {
 }
 
 .nav-item {
-  min-height: 40px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -383,6 +383,7 @@ h1 {
 .table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 14px;
 }
 
 .table th,
@@ -395,7 +396,7 @@ h1 {
 
 .table th {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -481,9 +482,19 @@ export const APP_JS = `
 const app = document.getElementById("app");
 let currentSession = null;
 
-const workspaceTemplate = {
-  name: "めっちゃマニュアル開発",
-  slug: "meccha-manual-dev"
+class AppRequestError extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.name = "AppRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const workspaceStatusLabels = {
+  active: "利用中",
+  suspended: "停止中",
+  deleted: "削除済み"
 };
 
 function escapeHtml(value) {
@@ -500,6 +511,7 @@ function setBox(id, message, kind) {
   if (!box) return;
   box.textContent = message || "";
   box.className = kind === "notice" ? "notice-box show" : "error-box show";
+  if (kind !== "notice") box.focus();
 }
 
 function clearBox(id) {
@@ -510,22 +522,45 @@ function clearBox(id) {
 }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      ...(options.headers || {})
-    }
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        ...(options.headers || {})
+      }
+    });
+  } catch {
+    throw new AppRequestError(
+      "サーバーに接続できませんでした。通信環境を確認して、もう一度お試しください。",
+      0,
+      "NETWORK_ERROR"
+    );
+  }
+
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    throw new AppRequestError(
+      "サーバーから正しい応答を受け取れませんでした。時間をおいて、もう一度お試しください。",
+      response.status,
+      "INVALID_RESPONSE"
+    );
+  }
   if (!response.ok) {
-    throw new Error(payload.message || "処理に失敗しました。");
+    throw new AppRequestError(
+      payload.message || "処理に失敗しました。",
+      response.status,
+      payload.code || "REQUEST_FAILED"
+    );
   }
   return payload;
 }
 
-function renderLogin() {
+function renderLogin(message = "") {
   app.innerHTML =
     '<section class="login-screen">' +
       '<div class="login-intro">' +
@@ -533,16 +568,16 @@ function renderLogin() {
           '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
           '<p class="eyebrow">日本のオフィスワーカー専用</p>' +
           '<h1>めっちゃマニュアル</h1>' +
-          '<p>手順書を作り、共有し、あとで操作記録へ広げていくための開発ハーネスです。</p>' +
+          '<p>業務の手順をわかりやすく整理し、チームで共有するためのサービスです。</p>' +
         '</div>' +
       '</div>' +
       '<div class="login-panel">' +
         '<div class="panel-heading">' +
           '<h2>ログイン</h2>' +
-          '<p>Supabase AuthとWorkerセッションの接続を確認します。</p>' +
+          '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
         '</div>' +
         '<form id="login-form" class="form">' +
-          '<div id="login-message" class="error-box"></div>' +
+          '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
             '<input id="email" name="email" type="email" autocomplete="email" required>' +
@@ -577,14 +612,27 @@ function renderLogin() {
       button.disabled = false;
     }
   });
+  if (message) document.getElementById("login-message").focus();
 }
 
-function renderShell(session) {
+function renderLoadFailure(title, message) {
+  app.innerHTML =
+    '<section class="boot" role="alert" aria-live="assertive">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<h1>' + escapeHtml(title) + '</h1>' +
+      '<p>' + escapeHtml(message) + '</p>' +
+      '<button id="retry-button" class="primary-button" type="button">もう一度読み込む</button>' +
+    '</section>';
+  document.getElementById("retry-button").addEventListener("click", loadSession);
+  document.getElementById("retry-button").focus();
+}
+
+function renderShell(session, notice = "") {
   const workspaces = session.workspaces || [];
   const rows = workspaces.map((workspace) =>
     '<tr>' +
       '<td><div class="workspace-name">' + escapeHtml(workspace.name) + '</div><div class="muted">' + escapeHtml(workspace.slug) + '</div></td>' +
-      '<td><span class="badge">' + escapeHtml(workspace.status) + '</span></td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceStatusLabels[workspace.status] || "状態不明") + '</span></td>' +
       '<td>' + escapeHtml(workspace.created_at ? workspace.created_at.slice(0, 10) : "") + '</td>' +
     '</tr>'
   ).join("");
@@ -594,9 +642,9 @@ function renderShell(session) {
       '<aside class="sidebar">' +
         '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
         '<nav class="nav" aria-label="主要メニュー">' +
-          '<div class="nav-item active">□ ワークスペース</div>' +
-          '<div class="nav-item">□ 手順書</div>' +
-          '<div class="nav-item">□ 操作を記録</div>' +
+          '<div class="nav-item active" aria-current="page">ワークスペース</div>' +
+          '<div class="nav-item" aria-disabled="true">手順書（準備中）</div>' +
+          '<div class="nav-item" aria-disabled="true">操作を記録（準備中）</div>' +
         '</nav>' +
         '<div class="user-box">' +
           '<span>' + escapeHtml(session.user.email || "ログイン中") + '</span>' +
@@ -606,8 +654,9 @@ function renderShell(session) {
       '<div class="main">' +
         '<header class="topbar">' +
           '<div><h2>ワークスペース</h2><p>所属しているワークスペースだけが表示されます。</p></div>' +
-          '<button id="reload-button" class="secondary-button" type="button">更新</button>' +
+          '<button id="reload-button" class="secondary-button" type="button">一覧を更新</button>' +
         '</header>' +
+        '<div id="shell-message" class="' + (notice ? 'notice-box show' : 'error-box') + '" role="status" aria-live="polite" tabindex="-1">' + escapeHtml(notice) + '</div>' +
         '<div class="dashboard-grid">' +
           '<section class="section">' +
             '<div class="section-header"><h3>一覧</h3><span class="badge">' + workspaces.length + '件</span></div>' +
@@ -617,17 +666,18 @@ function renderShell(session) {
           '</section>' +
           '<form id="workspace-form" class="workspace-form">' +
             '<h3>ワークスペース作成</h3>' +
-            '<p>作成したユーザーがownerになります。</p>' +
-            '<div id="workspace-message" class="error-box"></div>' +
+            '<p>作成したユーザーが管理責任者になります。</p>' +
+            '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
             '<div class="field">' +
               '<label for="workspace-name">名前</label>' +
-              '<input id="workspace-name" name="name" required maxlength="64" value="' + workspaceTemplate.name + '">' +
+              '<input id="workspace-name" name="name" required maxlength="64" placeholder="例：営業部">' +
             '</div>' +
             '<div class="field">' +
               '<label for="workspace-slug">URL用ID</label>' +
-              '<input id="workspace-slug" name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" value="' + workspaceTemplate.slug + '">' +
+              '<input id="workspace-slug" name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
+              '<span id="workspace-slug-help" class="muted">半角英数字とハイフンを使い、3〜63文字で入力してください。</span>' +
             '</div>' +
-            '<button class="primary-button" type="submit">作成</button>' +
+            '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
           '</form>' +
         '</div>' +
       '</div>' +
@@ -636,15 +686,30 @@ function renderShell(session) {
   document.getElementById("logout-button").addEventListener("click", logout);
   document.getElementById("reload-button").addEventListener("click", loadSession);
   document.getElementById("workspace-form").addEventListener("submit", createWorkspace);
+  if (notice) document.getElementById("shell-message").focus();
 }
 
 async function loadSession() {
   try {
     currentSession = await requestJson("/api/session");
     renderShell(currentSession);
-  } catch {
+  } catch (error) {
     currentSession = null;
-    renderLogin();
+    if (error.status === 401) {
+      let message = "";
+      if (error.code === "SESSION_INVALID") {
+        message = "ログイン状態を確認できません。もう一度ログインしてください。";
+      } else if (error.code !== "SESSION_REQUIRED") {
+        message = "セッションの有効期限が切れました。もう一度ログインしてください。";
+      }
+      renderLogin(message);
+      return;
+    }
+    if (error.status === 0) {
+      renderLoadFailure("サーバーに接続できません", error.message);
+      return;
+    }
+    renderLoadFailure("サービスを読み込めません", error.message);
   }
 }
 
@@ -655,15 +720,15 @@ async function createWorkspace(event) {
   button.disabled = true;
   try {
     const form = new FormData(event.currentTarget);
-    await requestJson("/api/workspaces", {
+    const result = await requestJson("/api/workspaces", {
       method: "POST",
       body: JSON.stringify({
         name: form.get("name"),
         slug: form.get("slug")
       })
     });
-    setBox("workspace-message", "作成しました。", "notice");
-    await loadSession();
+    currentSession = { ...currentSession, workspaces: result.workspaces || [] };
+    renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
     setBox("workspace-message", error.message, "error");
   } finally {
@@ -672,8 +737,17 @@ async function createWorkspace(event) {
 }
 
 async function logout() {
-  await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
-  renderLogin();
+  clearBox("shell-message");
+  const button = document.getElementById("logout-button");
+  button.disabled = true;
+  try {
+    await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
+    currentSession = null;
+    renderLogin();
+  } catch (error) {
+    currentSession = null;
+    renderLogin(error.message);
+  }
 }
 
 loadSession();

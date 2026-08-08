@@ -12,6 +12,20 @@ Status: Proposed
 
 ## API一覧
 
+### Phase 1ハーネス
+
+この表はADR-0010に基づくAccepted契約である。後段の将来API一覧は、各PhaseのScope CheckでAcceptedへ移すまでProposedとして扱う。
+
+| API | 目的 | 認可・失敗境界 |
+|---|---|---|
+| `POST /api/auth/login` | Supabase AuthログインとHttpOnly Cookie発行 | public。同一origin + JSON必須。認証サービスの内部エラー本文は返さない |
+| `POST /api/auth/logout` | 現在のSupabase session失効とCookie削除 | session。失効確認失敗時もCookieを削除し、`502 LOGOUT_REVOKE_FAILED`で再試行を案内 |
+| `GET /api/session` | 現在ユーザー、profile、所属workspaceを取得 | session。未認証・期限切れは401、接続・上流失敗と区別 |
+| `GET /api/workspaces` | 所属workspace一覧 | session + RLS |
+| `POST /api/workspaces` | `create_workspace` RPCによるworkspace作成 | session。同一origin + JSON必須 |
+
+### 将来の正式API
+
 | API | 目的 | 認可 |
 |---|---|---|
 | `GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public, secret値は返さない |

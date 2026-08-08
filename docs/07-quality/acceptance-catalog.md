@@ -1,13 +1,23 @@
 # 受入条件カタログ
 
-Status: Proposed
+Status: Accepted
 
 | ID | Given | When | Then |
 |---|---|---|---|
 | AC-001 | ログイン済みユーザー | ログアウトする | 保護画面にアクセスできない |
-| AC-002 | A社ユーザー | B社のmanual IDを指定する | APIとDBで拒否される |
+| AC-002 | A社ユーザー | B社のworkspace IDを一覧API、取得API、Supabase RESTへ指定する | APIとDBで拒否され、B社の存在を推測できる情報を返さない |
+| AC-003 | 有効な認証情報を持つユーザー | SCR-LOGINからログインする | tokenをブラウザJavaScriptへ返さずSCR-SHELLと所属ワークスペースを表示する |
+| AC-004 | 未入力または無効な認証情報 | SCR-LOGINからログインする | ログインせず、何が起きたかと次の操作を日本語で表示し、エラーへフォーカスを移す |
+| AC-005 | access tokenとrefresh tokenが失効または破損している | 保護画面または保護APIへアクセスし、その後再ログインする | 接続障害と区別した期限切れ案内を表示し、保護データを残さず、再ログイン後に利用を再開できる |
+| AC-006 | 認証済みユーザー | `create_workspace`でワークスペースを作成する | 作成者をactiveなownerとして同じtransactionで登録し、ワークスペースに属さない業務データを作らない |
+| AC-007 | A社メンバー | B社のworkspace memberを一覧、追加、更新しようとする | APIとRLSの両方で拒否され、B社のメンバー情報を返さない |
+| AC-008 | owner、admin、editor、viewerが存在する | メンバーの一覧、追加、ロール変更、停止を行う | owner/adminの許可操作だけが成功し、editor/viewerの変更操作はAPIとRLSで拒否され、ownerロールの付与・移管は専用の決定済みフローがない限り拒否される |
+| AC-009 | activeなownerが1人だけ存在する | そのownerを停止、削除、またはowner以外へ変更する | APIとDBで拒否し、ワークスペースにactiveなownerを1人以上維持する |
 | AC-010 | editorユーザー | 手動で手順書を作成して公開する | 公開URLで公開版を閲覧できる |
 | AC-011 | 公開版が存在する | 下書きを編集する | 公開版の内容は変わらない |
+| AC-012 | SCR-LOGIN、SCR-WORKSPACE、SCR-MEMBERS、SCR-SHELLを利用する | 読込、保存、失敗、権限不足、接続切断、期限切れが発生する | 該当する状態を区別して表示し、完了済み範囲と次の操作を日本語で案内する |
+| AC-013 | キーボード、200%ズーム、スクリーンリーダー相当の検査環境 | Phase 1の主要操作を完了する | WCAG 2.2 AAを目標とする自動検査に重大違反がなく、フォーカス順、可視フォーカス、ラベル、エラー関連付け、状態通知、44px操作領域を手動確認できる |
+| AC-014 | owner、admin、editor、viewerの各ユーザー | SCR-SHELLとSCR-MEMBERSを表示し、URLまたはAPIを直接指定する | UIはロールで許可された操作だけを有効表示し、非表示や無効表示に関係なくAPIとRLSが不許可操作を拒否する |
 | AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |
 | AC-022 | 記録中 | 危険URLへ遷移しようとする | SSRF防止で拒否される |

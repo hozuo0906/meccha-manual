@@ -8,7 +8,7 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 
 ## Scope
 
-この段階で提供するもの:
+リポジトリに実装済みのハーネス:
 
 - 日本語ログイン画面
 - Worker経由のSupabase Authログイン
@@ -18,6 +18,18 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - 所属ワークスペース一覧
 - `create_workspace` RPCによるワークスペース作成
 - CSPなどの最低限のセキュリティヘッダー
+- 401、接続失敗、サーバー失敗を区別する認証画面状態
+- Supabase現在セッションの失効を伴うログアウト
+- 異origin、壊れたCookie、認証エラー非露出、ログアウト失効、refresh失敗のWorker runtime test
+
+Phase 1で追加するもの:
+
+- SCR-WORKSPACEの画面状態とワークスペース選択
+- SCR-MEMBERSのメンバー一覧とowner/admin/editor/viewer管理
+- last-owner保護を含むメンバーAPI
+- SCR-SHELLの日本語ナビと権限別UI
+- 画面別の空、読込、保存、失敗、権限不足、接続切断、期限切れ状態
+- WCAG 2.2 AAを目標とするアクセシビリティ検査
 
 この段階で提供しないもの:
 
@@ -47,7 +59,7 @@ Cookie属性:
 
 ## API
 
-Phase 1で実装するAPI:
+ハーネスに実装済みのAPI:
 
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
@@ -57,9 +69,19 @@ Phase 1で実装するAPI:
 
 `POST /api/workspaces` はSupabase RPC `create_workspace(workspace_name, workspace_slug)` を呼ぶ。直接 `workspaces` へINSERTしない。
 
+`POST /api/auth/logout` は現在セッションをSupabase Authで失効してからCookieを削除する。認証サーバーの失効確認に失敗した場合も端末Cookieは削除し、成功扱いにせず日本語の再試行案内を返す。
+
+Phase 1ではメンバー一覧、追加、ロール変更、停止用APIを小分けIssueで追加する。APIはowner/admin/editor/viewerの認可を行い、RLSを最終防衛線とする。最後のactive ownerの停止、削除、降格を拒否する。owner移管は専用フローの設計がAcceptedになるまで提供しない。
+
 ## Verification
 
-最低限の確認:
+リポジトリ内の静的検査で確認するもの:
+
+- 必須API、Cookie属性、同一origin検査が実装から失われていない。
+- Phase 1 migrationとhardening migrationが順序どおり存在する。
+- RLS negative testの手順と必要環境変数が文書化されている。
+
+外部dev/staging環境で実行が必要な確認:
 
 - `/health/config` が `configured: true` を返す。
 - Supabaseで作成したテストユーザーでログインできる。
@@ -68,7 +90,14 @@ Phase 1で実装するAPI:
 - ログアウト後に `/api/session` が401を返す。
 - 異なるoriginからの状態変更APIが403になる。
 - 壊れたCookieが来ても500にならない。
+- token期限切れ後に再ログインできる。
+- A社ユーザーがB社のworkspaceとworkspace_membersをAPIとDBから読めず、変更できない。
+- owner/admin/editor/viewerの許可・拒否がAPIとRLSで一致する。
+- 最後のactive ownerを停止、削除、降格できない。
+- AC-012、AC-013、AC-014のUI状態、アクセシビリティ、権限別UIを確認できる。
 
-## Known limitation
+## 未完了と外部環境の境界
 
-Phase 1では本格的なE2EとRLS negative testはまだ自動化していない。ログインとワークスペース作成の画面確認後、Phase 1品質ゲートとして別ユーザー分離テストを追加する。
+RLS negative testスクリプトはリポジトリに存在するが、外部Supabase環境、検証用ユーザー、対象migrationの適用が必要である。リポジトリにmigrationがあることを、dev、staging、productionのいずれかへ適用済みという根拠にしてはならない。外部環境へデータを作成する動的テストと新規migration適用は、対象環境と承認を確認してから実行する。
+
+メンバー管理API/UI、本格E2E、画面状態とアクセシビリティの自動検査は未実装であり、P1-01からP1-10のIssueで完了させる。

@@ -42,9 +42,20 @@ const requiredChecks = [
   "マージ対象SHAとレビュー対象SHAが一致している", "未実行テストと理由を記載した",
   "秘密値・個人情報・本番設定を含んでいない", "production変更を含んでいない"
 ];
+const requiredQualityLoopChecks = [
+  "コーディング担当の結論、リスク、未決を確認した",
+  "UIUX担当の日本語UI、状態、アクセシビリティ観点を確認した",
+  "テスト担当の自動テスト、手動確認、未実施理由を確認した",
+  "辛口レビュー担当のP0/P1指摘が0件である",
+  "リファクタリング/コードレビュー担当の命名、定数、責務、再利用性、依存方向を確認した",
+  "ドキュメント記録担当がADR、decision-log、Issue、テスト条件の整合を確認した",
+  "サブエージェントの生思考や会話全文をPR、docs、ログへ記録していない"
+];
 const pr = await api(`/pulls/${prNumber}`);
 const body = pr.body || "";
-const missing = requiredChecks.filter((label) => !new RegExp(`^- \\[x\\] ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "mi").test(body));
+const missing = [...requiredChecks, ...requiredQualityLoopChecks].filter((label) =>
+  !new RegExp(`^- \\[x\\] ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}。?$`, "mi").test(body)
+);
 if (missing.length) throw new Error(`PR checklist is incomplete: ${missing.join(", ")}`);
 
 const comments = await apiPages(`/issues/${prNumber}/comments`);

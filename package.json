@@ -2,14 +2,18 @@
   "name": "meccha-manual",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "日本人オフィスワーカー向け業務手順書作成サービス",
   "scripts": {
     "deploy": "wrangler deploy",
     "docs:check": "node scripts/check-docs.mjs",
     "migrations:check": "node scripts/check-migrations.mjs",
     "migration:safety:check": "node scripts/check-migration-safety.mjs",
+    "phase1-migration:bundle": "node scripts/phase1-migration-bundle.mjs",
+    "test:phase1-migration-bundle": "node scripts/test-phase1-migration-bundle.mjs",
     "harness:check": "node scripts/check-harness-docs.mjs",
     "worker:check": "node scripts/check-worker.mjs",
+    "worker:runtime:test": "node --experimental-strip-types --test tests/worker-runtime.test.mjs",
     "workflows:check": "node scripts/check-workflows.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
     "test:phase2": "node scripts/phase2-smoke-test.mjs",
@@ -33,7 +37,7 @@
     "pr-quality:check": "node scripts/check-pr-quality-gate.mjs --check",
     "secrets:check": "node scripts/check-sensitive-values.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run worker:check && npm run worker:runtime:test && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

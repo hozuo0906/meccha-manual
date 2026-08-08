@@ -27,6 +27,10 @@ Cookieは `Secure`、`SameSite=Lax`、`Path=/` を必須にする。
 - `Content-Type` が `application/json` であること。
 - JSON bodyが小さい上限内であること。
 
+ログアウトはブラウザCookieの削除だけで完了扱いにせず、現在のaccess tokenでSupabase Authのlocal sign-outを実行して現在セッションのrefresh tokenを失効する。認証サーバー側の失効確認に失敗した場合も端末Cookieは削除するが、成功レスポンスにはせず再ログイン後の再試行を案内する。
+
+`/api/session` の失敗は、未認証・期限切れの401と、接続失敗・サーバー失敗をUIで区別する。Supabase Authの内部エラー本文は利用者へそのまま返さない。
+
 ## Consequences
 
 - クライアントへSupabase tokenを返さない。
@@ -34,3 +38,4 @@ Cookieは `Secure`、`SameSite=Lax`、`Path=/` を必須にする。
 - Phase 1ではOrigin検証、SameSite Cookie、JSON API強制をCSRFの最低対策とする。
 - 将来、重要な状態変更APIにはCSRF tokenまたは二重送信Cookieも追加する。
 - Supabase service role keyは使わない。
+- Supabase Authでsign-outしたセッションの既発行access tokenは有効期限まで署名上有効になり得るため、Workerは保護APIごとにAuth serverへユーザーとセッションの有効性を確認する。

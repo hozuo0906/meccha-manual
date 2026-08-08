@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
   .split("\0")
@@ -15,13 +16,75 @@ const patterns = [
   ["database URL", /\b(?:postgres|postgresql):\/\/[^\s"'`]+/i],
   ["private key", /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/]
 ];
-const findings = [];
+const forbiddenTrackedBasenames = new Set([
+  ".env",
+  ".dev.vars",
+  ".npmrc",
+  ".netrc"
+]);
+const forbiddenTrackedSuffixes = [
+  ".pem",
+  ".key",
+  ".p12",
+  ".pfx",
+  ".jks",
+  ".keystore",
+  ".der"
+];
+const knownSecretNames = [
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_DB_PASSWORD",
+  "SUPABASE_JWT_SECRET",
+  "CLOUDFLARE_API_TOKEN",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "AI_PROVIDER_API_KEY",
+  "DISCORD_WEBHOOK_URL",
+  "MECCHA_DISCORD_WEBHOOK_URL",
+  "DISCORD_DEVELOPMENT_WEBHOOK_URL",
+  "DISCORD_STAGING_WEBHOOK_URL",
+  "DISCORD_PRODUCTION_WEBHOOK_URL",
+  "DISCORD_BOT_TOKEN",
+  "GITHUB_ISSUE_TOKEN",
+  "CODEX_ACCESS_TOKEN"
+];
+const knownSecretAssignmentPattern = new RegExp(
+  `\\b(?:${knownSecretNames.join("|")})\\s*[:=]\\s*([^\\r\\n]+)`,
+  "g"
+);
+const findings = new Set();
+
+function inspectPath(file, source) {
+  const normalized = file.replaceAll("\\\\", "/");
+  const basename = path.posix.basename(normalized);
+  const lower = normalized.toLowerCase();
+
+  if (
+    forbiddenTrackedBasenames.has(basename) ||
+    basename.startsWith(".env.") && basename !== ".env.example" ||
+    basename.startsWith(".dev.vars.")
+  ) {
+    findings.add(`${source}: local environment file must not be tracked`);
+  }
+
+  if (forbiddenTrackedSuffixes.some((suffix) => lower.endsWith(suffix))) {
+    findings.add(`${source}: private key or credential container must not be tracked`);
+  }
+}
 
 function inspectContent(content, source) {
   for (const [label, pattern] of patterns) {
-    if (pattern.test(content)) findings.push(`${source}: ${label}`);
+    if (pattern.test(content)) findings.add(`${source}: ${label}`);
   }
-  if (hasServiceRoleJwt(content)) findings.push(`${source}: Supabase service_role JWT`);
+  if (hasServiceRoleJwt(content)) findings.add(`${source}: Supabase service_role JWT`);
+  for (const match of content.matchAll(knownSecretAssignmentPattern)) {
+    const assigned = match[1].trim().replace(/^['"]|['"],?$/g, "");
+    const isReference = /^(?:\$\{\{|\$[A-Za-z_(]|process\.env\.|env\.|secrets\.|<|\[)/.test(assigned);
+    const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-]|EXAMPLE[_-])/i.test(assigned);
+    if (!isReference && !isPlaceholder && assigned.length >= 8) {
+      findings.add(`${source}: known secret name has a literal-looking assigned value`);
+    }
+  }
 }
 
 function hasServiceRoleJwt(content) {
@@ -37,6 +100,7 @@ function hasServiceRoleJwt(content) {
 }
 
 for (const file of files) {
+  inspectPath(file, file);
   const buffer = await readFile(file);
   if (buffer.includes(0)) continue;
   const content = buffer.toString("utf8");
@@ -50,6 +114,8 @@ if (/^[a-f0-9]{40}$/.test(baseSha) && !/^0+$/.test(baseSha)) {
     .filter(Boolean);
   for (const objectLine of objects) {
     const [sha, ...pathParts] = objectLine.split(" ");
+    const objectPath = pathParts.join(" ");
+    if (objectPath) inspectPath(objectPath, `PR履歴blob ${sha.slice(0, 12)} ${objectPath}`);
     if (execFileSync("git", ["cat-file", "-t", sha], { encoding: "utf8" }).trim() !== "blob") continue;
     const blobResult = spawnSync("git", ["cat-file", "blob", sha], {
       encoding: null,
@@ -57,7 +123,7 @@ if (/^[a-f0-9]{40}$/.test(baseSha) && !/^0+$/.test(baseSha)) {
       stdio: ["ignore", "pipe", "ignore"]
     });
     if (blobResult.error || blobResult.status !== 0 || !Buffer.isBuffer(blobResult.stdout)) {
-      findings.push(`PR履歴blob ${sha.slice(0, 12)}: 内容を表示せず検査失敗`);
+      findings.add(`PR履歴blob ${sha.slice(0, 12)}: 内容を表示せず検査失敗`);
       continue;
     }
     const buffer = blobResult.stdout;
@@ -66,8 +132,8 @@ if (/^[a-f0-9]{40}$/.test(baseSha) && !/^0+$/.test(baseSha)) {
   }
 }
 
-if (findings.length > 0) {
-  console.error(`秘密値候補を検出しました（値は表示しません）:\n${findings.join("\n")}`);
+if (findings.size > 0) {
+  console.error(`秘密値候補を検出しました（値は表示しません）:\n${[...findings].join("\n")}`);
   process.exit(1);
 }
 
