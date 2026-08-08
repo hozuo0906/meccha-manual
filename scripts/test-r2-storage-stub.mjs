@@ -115,7 +115,8 @@ assert.deepEqual(await r2Storage.put(object), { status: "stored" });
 assert.deepEqual(await r2Storage.get({ area: object.area, key: object.key }), expectedRead);
 assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefined);
 assert.equal(manualBucket.inspect(object.key).customMetadata.step_id, undefined);
-assert.equal(manualBucket.inspect(object.key).customMetadata.resource_id, "manual-001");
+assert.equal(manualBucket.inspect(object.key).customMetadata.resource_id, undefined);
+assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefined);
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 

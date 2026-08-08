@@ -21,7 +21,6 @@ export function createR2ObjectStorage(bindings) {
         httpMetadata: { contentType: object.contentType },
         customMetadata: {
           workspace_id: object.metadata.workspaceId,
-          resource_id: object.metadata.resourceId,
           asset_id: object.metadata.assetId,
           kind: object.kind,
           content_type: object.contentType,
@@ -35,6 +34,9 @@ export function createR2ObjectStorage(bindings) {
       if (!result) return null;
       const body = new Uint8Array(await result.arrayBuffer());
       const metadata = result.customMetadata ?? {};
+      const keySegments = key.split("/");
+      const assetSegment = keySegments[3] ?? "";
+      const assetId = assetSegment.slice(0, assetSegment.lastIndexOf("."));
       const object = await createStorageObject({
         area,
         key,
@@ -45,8 +47,8 @@ export function createR2ObjectStorage(bindings) {
         checksumSha256: metadata.checksum_sha256,
         metadata: {
           workspaceId: metadata.workspace_id,
-          resourceId: metadata.resource_id,
-          assetId: metadata.asset_id
+          resourceId: keySegments[2],
+          assetId
         }
       });
       return createStorageReadResult(object);

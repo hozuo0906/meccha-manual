@@ -58,7 +58,6 @@ Postgresメタデータに保存するもの:
 R2 object metadataに保存してよいもの:
 
 - `workspace_id`
-- `resource_id`
 - `asset_id`
 - `kind`
 - `content_type`
@@ -71,7 +70,7 @@ secret、共有トークン、個人情報、入力値、実ユーザーの操�
 - domain側のportはR2 SDK型を参照せず、`put`、`get`、`delete` を定義する。
 - 保存要求は用途、object key、kind、content type、byte size、SHA-256 checksum、許可済みmetadataだけを受け付ける。checksumは形式だけでなく受信bodyから再計算して一致を確認する。
 - `manual_id` と `step_id` は認可・DB連携に使うサーバー側metadataとして扱えるが、R2 custom metadataには複製しない。
-- metadataは `workspace_id`、object keyの第3要素と一致する `resource_id`、`asset_id`、任意の `manual_id`、`step_id` だけを受け付け、任意キーによるsecret、入力値、個人情報の混入を拒否する。
+- サーバー内部のmetadataは `workspace_id`、object keyの第3要素と一致する `resource_id`、`asset_id`、任意の `manual_id`、`step_id` だけを受け付ける。R2 custom metadataへは `resource_id`、`manual_id`、`step_id` を複製せず、read時のresourceは検証済みobject keyから導出する。
 - object keyの各要素は元ファイル名や表示名ではなく、不透明な小文字識別子に限定する。
 - key全体をmetadataから再構築して完全一致を確認する。workspace、resource、assetのいずれかが異なるkeyや、余分・空のpath segmentを拒否する。
 - Storage portの`get`はmemory stubとR2 adapterで同じdomain shapeを返す。R2に複製しない`manual_id`と`step_id`はread結果へ含めず、認可時はPostgres正本から取得する。
