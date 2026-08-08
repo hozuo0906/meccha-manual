@@ -39,7 +39,7 @@ Status: Accepted
 | `step_view_events` | `workspace_id`, `manual_view_id`, `step_id`, `event_type`, `occurred_at` | Worker追加。生データはadmin限定 |
 | `notifications` | `workspace_id`, `user_id`, `type`, `payload`, `read_at` | 本人のみ閲覧・既読更新 |
 | `billing_customers` | `workspace_id`, `stripe_customer_id`, `billing_email` | owner/admin閲覧、更新はStripe同期処理 |
-| `checkout_intents` | `id`, `workspace_id`, `manual_id`, `offer_code`, `status`, `expires_at`, `consumed_at`, `created_by` | workspace境界。作成者閲覧、状態更新は課金処理。`manual_id`は`single_export`だけ必須 |
+| `checkout_intents` | `id`, `workspace_id`, `manual_id`, `offer_code`, `request_key_hash`, `request_hash`, `status`, `expires_at`, `stripe_completed_at`, `consumed_at`, `stripe_checkout_session_id`, `created_by` | workspace境界。作成者閲覧、状態更新は課金処理。`manual_id`は`single_export`だけ必須。購入操作keyとStripe Session IDはunique。完了時刻は署名済みevent/Stripe Sessionから一度だけ確定 |
 | `billing_purchases` | `id`, `workspace_id`, `checkout_intent_id`, `stripe_payment_intent_id`, `offer_code`, `amount_jpy`, `currency`, `status`, `purchased_at`, `refunded_at` | owner/admin閲覧、Webhook/reconciliationのみ更新。Stripe IDはunique |
 | `subscriptions` | `workspace_id`, `stripe_subscription_id`, `plan_code`, `status`, `quantity`, `current_period_end`, `cancel_at` | owner/admin閲覧、Webhookのみ更新 |
 | `entitlements` | `workspace_id`, `scope_type`, `scope_id`, `feature_code`, `plan_code`, `state`, `seat_limit`, `viewer_limit`, `browser_run_seconds_limit`, `storage_bytes_limit`, `concurrent_session_limit`, `effective_at`, `expires_at`, `source_subscription_id`, `source_purchase_id` | owner/admin閲覧、課金同期処理のみ更新。manual scopeは同一workspaceのmanualだけを許可 |
@@ -51,10 +51,14 @@ Status: Accepted
 
 ## 課金データの制約
 
-- `checkout_intents.id` をPayment Linkの `client_reference_id` に使い、メールアドレス、workspace名、manual名を渡さない。
+- `checkout_intents.id` をCheckout Sessionの `client_reference_id` に使い、メールアドレス、workspace名、manual名を渡さない。
 - `single_export` のcheckout intentは同一workspace内の `manual_id` に固定する。
 - Webhook受信時にPrice IDからoffer codeをサーバー側で決定し、クライアント入力のoffer codeだけを信頼しない。
 - 同じ `stripe_event_id`、`stripe_payment_intent_id`、`checkout_intent_id` から二重購入・二重entitlementを作らない。
+- `stripe_checkout_session_id` はuniqueとし、1つのcheckout intentを複数Sessionや複数支払いへ再利用しない。
+- 同じAPI `Idempotency-Key` とrequest hashは同じcheckout intentを返し、key再利用でrequestが異なる場合は拒否する。都度払いは同じworkspace/manual、subscriptionはofferをまたいで同じworkspaceの未期限切れintentを1件だけにする。この排他制約はpartial unique indexまたは同等のtransaction lockで実装する。
+- subscription modeの照合不能・競合処理は、subscription cancel、invoiceのdraft delete/open void/paid PaymentIntentまたはCharge refundの各Stripe object IDと処理状態を冪等なreconciliation記録へ残す。対象自身のsubscription IDは競合から除外し、返金queueへの登録だけで完了扱いにしない。
+- Stripe Checkout Session作成ではcheckout intent IDから導出した決定的idempotency keyを使い、API成功後の応答消失や並行実行でも同じStripe Sessionを再取得する。
 - Stripe Linkの利用者情報は認証・RLS判定に使わない。
 - 利用量上限超過時に自動請求レコードを作らない。
 

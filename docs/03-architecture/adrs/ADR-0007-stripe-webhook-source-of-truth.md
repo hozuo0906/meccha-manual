@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 決定
 
-課金状態とentitlementの確定は、署名検証済みStripe webhookのみを正本にする。Payment Link後の画面リダイレクトは補助表示に限定する。
+課金状態とentitlementの確定は、署名検証済みStripe webhookのみを正本にする。Checkout Session後の画面リダイレクトは補助表示に限定する。
 
 ## 理由
 
