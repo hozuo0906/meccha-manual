@@ -14,7 +14,7 @@ flowchart LR
   L --> B
   D --> S["Supabase\nPostgres / metadata"]
   D --> R["Cloudflare R2\nprivate object storage"]
-  T["Stripe Payment Links"] --> W["Webhook Worker"]
+  T["Stripe Checkout / Link"] --> W["Webhook Worker"]
   W --> S
 ```
 

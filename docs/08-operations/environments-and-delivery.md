@@ -22,7 +22,7 @@ Status: Accepted
 | R2 manual / `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` | `meccha-manual-manual-assets-prod` | 同上 |
 | R2 exports / `EXPORTS` | `meccha-manual-exports-staging` | `meccha-manual-exports-prod` | 同上 |
 | R2 avatars / `AVATARS` | `meccha-manual-avatars-staging` | `meccha-manual-avatars-prod` | 同上 |
-| Stripe | test mode。初期は未設定 | live mode。初期は未設定 | Product、Price、Payment Link、Webhook endpoint、Secretを共有しない |
+| Stripe | test mode。初期は未設定 | live mode。初期は未設定 | Product、Price、Webhook endpoint、Secretを共有しない。Checkout Sessionは購入試行ごとに作る |
 | Discord通知 | staging専用Webhookまたはchannel | production専用Webhookまたはchannel | 通知は承認の正本ではなく、値・個人情報・操作内容を載せない |
 | 公開先 | 当面はaccountの`tattoo-studio-crm.workers.dev`配下の技術的URL | 将来は承認済み独自ドメイン | `workers.dev`は恒久ブランドURLではなく、独自ドメインへの切替を別承認にする |
 
@@ -86,9 +86,9 @@ bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding�
 
 ## Stripe
 
-- 初期はStripe設定なし、`BILLING_FEATURE_ENABLED=false`とする。falseの間はPayment Linkを表示せずStripe APIへ通信しない。
-- stagingはtest mode、productionはlive modeとし、Secret、Product、Price、Payment Link、Webhook endpointを共有しない。
-- live Secret登録、Payment Link作成、Webhook endpoint作成はまだ行わない。test modeの外部設定も別承認とする。
+- 初期はStripe設定なし、`BILLING_FEATURE_ENABLED=false`とする。falseの間は新規Checkout Sessionを作成しないが、既存課金objectがある環境では署名済みWebhookとreconciliationを停止しない。
+- stagingはtest mode、productionはlive modeとし、Secret、Product、Price、Webhook endpointを共有しない。
+- live Secret登録、Webhook endpoint作成はまだ行わない。test modeの外部設定も別承認とする。
 - production live有効化は署名検証、冪等性、順不同、entitlement、negative test、運用Runbookのstaging合格後に別承認する。
 
 ## Release gate

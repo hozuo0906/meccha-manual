@@ -52,34 +52,83 @@ export function createObjectKey({ area, workspaceId, resourceId, assetId, extens
   ].join("/");
 }
 
-export function createStorageObject({ area, key, kind, body, contentType, sizeBytes, checksumSha256, metadata }) {
+async function sha256Hex(body) {
+  const digest = await crypto.subtle.digest("SHA-256", body);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function fileExtension(key) {
+  const match = typeof key === "string" ? key.match(/\.([a-z0-9]{1,10})$/) : null;
+  return match?.[1] ?? "";
+}
+
+export async function createStorageObject({ area, key, kind, body, contentType, sizeBytes, checksumSha256, metadata }) {
   if (!Object.values(STORAGE_AREAS).includes(area)) throw new TypeError("Unknown storage area.");
   if (!KINDS_BY_AREA[area].includes(kind)) throw new TypeError("Storage kind does not match its area.");
   if (!(body instanceof Uint8Array)) throw new TypeError("body must be a Uint8Array.");
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || body.byteLength !== sizeBytes) {
+  const bodySnapshot = body.slice();
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || bodySnapshot.byteLength !== sizeBytes) {
     throw new TypeError("sizeBytes must match the body length.");
   }
   if (typeof contentType !== "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(contentType)) {
     throw new TypeError("Invalid content type.");
   }
   if (!SHA256.test(checksumSha256 ?? "")) throw new TypeError("Invalid SHA-256 checksum.");
+  if (await sha256Hex(bodySnapshot) !== checksumSha256) {
+    throw new TypeError("SHA-256 checksum does not match the body.");
+  }
 
-  const allowedMetadata = new Set(["workspaceId", "assetId", "manualId", "stepId"]);
+  const allowedMetadata = new Set(["workspaceId", "resourceId", "assetId", "manualId", "stepId"]);
   if (!metadata || Object.keys(metadata).some((name) => !allowedMetadata.has(name))) {
     throw new TypeError("Metadata contains a prohibited field.");
   }
   const safeMetadata = {
     workspaceId: requireSafeIdentifier("workspaceId", metadata?.workspaceId),
+    resourceId: requireSafeIdentifier("resourceId", metadata?.resourceId),
     assetId: requireSafeIdentifier("assetId", metadata?.assetId)
   };
   if (metadata?.manualId !== undefined) safeMetadata.manualId = requireSafeIdentifier("manualId", metadata.manualId);
   if (metadata?.stepId !== undefined) safeMetadata.stepId = requireSafeIdentifier("stepId", metadata.stepId);
-  const expectedPrefix = `${safeMetadata.workspaceId}/${RESOURCE_TYPE_BY_AREA[area]}/`;
-  if (typeof key !== "string" || !key.startsWith(expectedPrefix) || !/^[a-z0-9/-]+\.[a-z0-9]{1,10}$/.test(key)) {
+  if (
+    safeMetadata.manualId !== undefined
+    && [STORAGE_AREAS.MANUAL_ASSETS, STORAGE_AREAS.EXPORTS].includes(area)
+    && safeMetadata.manualId !== safeMetadata.resourceId
+  ) {
+    throw new TypeError("manualId must match the object key resource for this area.");
+  }
+
+  const extension = fileExtension(key);
+  const expectedKey = createObjectKey({
+    area,
+    workspaceId: safeMetadata.workspaceId,
+    resourceId: safeMetadata.resourceId,
+    assetId: safeMetadata.assetId,
+    extension
+  });
+  if (key !== expectedKey) {
     throw new TypeError("Object key does not match its storage metadata.");
   }
 
-  return Object.freeze({ area, key, kind, body, contentType, sizeBytes, checksumSha256, metadata: Object.freeze(safeMetadata) });
+  return Object.freeze({ area, key, kind, body: bodySnapshot, contentType, sizeBytes, checksumSha256, metadata: Object.freeze(safeMetadata) });
+}
+
+export function createStorageReadResult(object) {
+  return {
+    area: object.area,
+    key: object.key,
+    kind: object.kind,
+    body: object.body.slice(),
+    contentType: object.contentType,
+    sizeBytes: object.sizeBytes,
+    checksumSha256: object.checksumSha256,
+    metadata: {
+      workspaceId: object.metadata.workspaceId,
+      resourceId: object.metadata.resourceId,
+      assetId: object.metadata.assetId
+    }
+  };
 }
 
 /**

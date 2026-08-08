@@ -32,7 +32,8 @@ const requiredPhase2Snippets = [
   "and created_by = auth.uid()"
 ];
 
-const phase1HardeningFile = "202608020003_phase1_workspace_membership_hardening.sql";
+const phase1HardeningFile = "202608010002_phase1_workspace_membership_hardening.sql";
+const phase2SetupFile = "docs/04-data/phase2-manual-core-setup.md";
 const requiredPhase1HardeningSnippets = [
   "create or replace function public.protect_workspace_identity()",
   "select target_user_id = auth.uid()",
@@ -94,6 +95,10 @@ if (!migrationFiles.includes(phase2File)) {
   }
 }
 
+if (migrationFiles.indexOf(phase1HardeningFile) >= migrationFiles.indexOf(phase2File)) {
+  errors.push("Phase 1 hardening migration must sort before every Phase 2 migration.");
+}
+
 if (!migrationFiles.includes(phase1HardeningFile)) {
   errors.push(`Missing required migration: ${phase1HardeningFile}`);
 } else {
@@ -102,6 +107,30 @@ if (!migrationFiles.includes(phase1HardeningFile)) {
     if (!phase1Hardening.includes(snippet)) {
       errors.push(`Missing Phase 1 hardening migration snippet: ${snippet}`);
     }
+  }
+}
+
+const phase2Setup = await readFile(phase2SetupFile, "utf8");
+for (const prerequisite of [
+  "202608010001_phase1_identity_workspaces.sql",
+  phase1HardeningFile
+]) {
+  if (!phase2Setup.includes(prerequisite)) {
+    errors.push(`Phase 2 setup must list prerequisite migration: ${prerequisite}`);
+  }
+}
+
+const rlsNegativeTest = await readFile("scripts/rls-negative-test.mjs", "utf8");
+for (const executableCheck of [
+  "assertAnonymousRpcRejected",
+  "code !== \"42501\"",
+  "permission denied for function",
+  "assertIdentityFieldsImmutable",
+  "ownerCannotMutateIdentityFields",
+  "adminCannotMutateIdentityFields"
+]) {
+  if (!rlsNegativeTest.includes(executableCheck)) {
+    errors.push(`RLS negative test is missing executable hardening check: ${executableCheck}`);
   }
 }
 

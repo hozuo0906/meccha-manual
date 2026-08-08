@@ -30,7 +30,7 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 - Branch protectionを設定し、`Docs CI` を必須にする。
 - CloudflareアカウントとWorkersプロジェクトを作成する。
 - Supabase東京リージョンのプロジェクトを作成する。
-- Stripe test modeのPayment Link/Webhook設定を用意する。
+- Stripe test modeのPrice、Checkout Session、Webhook設定を用意する。
 - GitHub SecretsまたはCloudflare Secretsへsecretを登録する。
 
 ## Cloudflare Workers Git連携の初期設定
