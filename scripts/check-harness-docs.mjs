@@ -152,16 +152,16 @@ for (const [file, terms] of Object.entries(requiredDocs)) {
 }
 
 const combined = Object.values(contents).join("\n");
-const acceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
-const ac023 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
+const browserAcceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
+const ac023 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
 for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {
   if (!ac023.includes(term)) errors.push(`AC-023 is missing fail-closed term: ${term}`);
 }
-const ac024 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-024 |")) ?? "";
+const ac024 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-024 |")) ?? "";
 for (const term of ["mobile previewを開始", "Browser Runへ通信せず", "BROWSER_EGRESS_NOT_VERIFIED", "拒否される"]) {
   if (!ac024.includes(term)) errors.push(`AC-024 is missing preflight rejection term: ${term}`);
 }
-const ac025 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-025 |")) ?? "";
+const ac025 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-025 |")) ?? "";
 for (const term of ["flagをfalseへ戻す", "既存egressを即時遮断", "Live View失効", "再発行拒否", "全session終了"]) {
   if (!ac025.includes(term)) errors.push(`AC-025 is missing emergency shutdown term: ${term}`);
 }
