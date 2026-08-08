@@ -1,4 +1,4 @@
-import { assertObjectStorage } from "../../domain/storage/object-storage.mjs";
+import { assertObjectStorage, createStorageObject, createStorageReadResult } from "../../domain/storage/object-storage.mjs";
 
 const BINDING_BY_AREA = Object.freeze({
   "capture-assets": "CAPTURE_ASSETS",
@@ -17,14 +17,15 @@ export function createR2ObjectStorage(bindings) {
 
   return assertObjectStorage({
     async put(object) {
-      await bucket(object.area).put(object.key, object.body, {
-        httpMetadata: { contentType: object.contentType },
+      const verified = await createStorageObject(object);
+      await bucket(verified.area).put(verified.key, verified.body, {
+        httpMetadata: { contentType: verified.contentType },
         customMetadata: {
-          workspace_id: object.metadata.workspaceId,
-          asset_id: object.metadata.assetId,
-          kind: object.kind,
-          content_type: object.contentType,
-          checksum_sha256: object.checksumSha256
+          workspace_id: verified.metadata.workspaceId,
+          asset_id: verified.metadata.assetId,
+          kind: verified.kind,
+          content_type: verified.contentType,
+          checksum_sha256: verified.checksumSha256
         }
       });
       return { status: "stored" };
@@ -32,7 +33,24 @@ export function createR2ObjectStorage(bindings) {
     async get({ area, key }) {
       const result = await bucket(area).get(key);
       if (!result) return null;
-      return result;
+      const body = new Uint8Array(await result.arrayBuffer());
+      const metadata = result.customMetadata ?? {};
+      const keySegments = key.split("/");
+      const object = await createStorageObject({
+        area,
+        key,
+        kind: metadata.kind,
+        body,
+        contentType: result.httpMetadata?.contentType ?? metadata.content_type,
+        sizeBytes: result.size ?? body.byteLength,
+        checksumSha256: metadata.checksum_sha256,
+        metadata: {
+          workspaceId: metadata.workspace_id,
+          resourceId: keySegments[2],
+          assetId: metadata.asset_id
+        }
+      });
+      return createStorageReadResult(object);
     },
     async delete({ area, key }) {
       await bucket(area).delete(key);
