@@ -21,7 +21,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 手順書の下書きと公開版の分離。
 - 操作記録セッションの起動、切断、再接続、終了。
 - 入力値非保存。
-- SSRF、危険URL拒否。
+- SSRF、危険URL拒否。DNS検査時はpublic、実接続時はprivateを返すrebindingと、redirect/subresource/WebSocket/Service Worker/downloadのegress迂回を含む。
 - 共有リンクの期限、失効、パスコード。
 - PDF/Markdown/HTMLで日本語とぼかし維持。
 - Stripe webhookの署名、重複、遅延、順不同。
@@ -46,6 +46,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - happy pathだけで主要機能を説明している。
 - 共有URL、RLS、削除、復旧のnegative testがない。
 - クラウドブラウザでCookieや入力値の保存範囲が不明。
+- DNS再解決だけでSSRF対策完了とし、actual peerの照合または検査済みIPへの接続拘束を確認していない。
 - Guide Me風機能が静的デモページでしか動かない。
 - スマホ表示確認がviewport変更だけ。
 - 分析値を原イベントから照合できない。
