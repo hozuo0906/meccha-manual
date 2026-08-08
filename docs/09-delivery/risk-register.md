@@ -21,4 +21,4 @@ Status: Accepted
 | RISK-015 | 都度払いの権利を別workspaceまたは別manualへ付与する | P0越境/誤権限 | checkout intentへworkspace/manualを固定し、PriceとWebhookを照合する |
 | RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、Supabase sessionとcheckout intentを正本にする |
 | RISK-017 | Browser RunやStorageの計測誤差で追加請求する | 誤課金/信用失墜 | 初期は自動従量課金せず、上限停止と再集計フローを採用する |
-| RISK-018 | DNS検査後にBrowser Runが再解決しprivate IPへ接続する | P0内部ネットワーク到達 | 検査済みIPへの実接続拘束、全通信種別のegress negative test、実現不能時は任意URLをfail closed |
+| RISK-018 | DNS検査後にBrowser Runが再解決しprivate IPへ接続する | P0内部ネットワーク到達 | 検査済みIPへの実接続拘束、全通信種別のegress negative test、実現不能時は任意URL・承認済みhost・mobile previewを含む全Browser Runをfail closed |

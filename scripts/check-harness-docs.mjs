@@ -85,7 +85,7 @@ const requiredDocs = {
   ],
   "docs/01-product/requirements-traceability.md": [
     "| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 |",
-    "| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024 |"
+    "| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024, AC-025 |"
   ],
   "docs/07-quality/acceptance-catalog.md": [
     "| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み |",
@@ -94,7 +94,14 @@ const requiredDocs = {
   ],
   "docs/09-delivery/decision-log.md": [
     "DEC-032",
-    "任意URL・承認済みhost・mobile previewを含む全Browser Run起動"
+    "任意URL・承認済みhost・mobile previewを含む全Browser Run起動",
+    "egress kill switchで既存Browserの全通信を即時遮断",
+    "Live Viewを失効して再発行を拒否",
+    "全sessionのclose完了まで再試行・監査"
+  ],
+  "docs/09-delivery/risk-register.md": [
+    "RISK-018",
+    "任意URL・承認済みhost・mobile previewを含む全Browser Runをfail closed"
   ],
   "docs/08-operations/environment-variables.md": [
     "`STRIPE_SECRET_KEY`",
@@ -149,6 +156,14 @@ const acceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "
 const ac023 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
 for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {
   if (!ac023.includes(term)) errors.push(`AC-023 is missing fail-closed term: ${term}`);
+}
+const ac024 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-024 |")) ?? "";
+for (const term of ["mobile previewを開始", "Browser Runへ通信せず", "BROWSER_EGRESS_NOT_VERIFIED", "拒否される"]) {
+  if (!ac024.includes(term)) errors.push(`AC-024 is missing preflight rejection term: ${term}`);
+}
+const ac025 = acceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-025 |")) ?? "";
+for (const term of ["flagをfalseへ戻す", "既存egressを即時遮断", "Live View失効", "再発行拒否", "全session終了"]) {
+  if (!ac025.includes(term)) errors.push(`AC-025 is missing emergency shutdown term: ${term}`);
 }
 for (const legacyName of forbiddenLegacyR2Names) {
   if (combined.includes(legacyName)) {
