@@ -25,7 +25,7 @@ Status: Proposed
 | `POST /v1/manuals/{id}/publish` | 公開版作成 | can_edit_manual |
 | `POST /v1/manuals/{id}/exports` | PDF/HTML/Markdown出力を要求 | can_view_manual + active export entitlement |
 | `POST /v1/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 + egress P0検証済みflag |
-| `POST /v1/capture-sessions/{id}/live-url` | Live View URL発行 | session owner |
+| `POST /v1/capture-sessions/{id}/live-url` | Live View URL発行 | session owner + egress P0検証済みflag |
 | `POST /v1/capture-sessions/{id}/commands` | navigate/reload等 | session owner + egress P0検証済みflag |
 | `GET /v1/capture-sessions/{id}/events` | 再接続差分 | session owner |
 | `DELETE /v1/capture-sessions/{id}` | セッション終了 | session owner |
@@ -40,6 +40,8 @@ Status: Proposed
 | `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
 
 `capture.browserRun.egressVerified.enabled=false` の場合、capture session、mobile preview sessionの作成とnavigate/reload commandはBrowser Runへ通信する前に `503 BROWSER_EGRESS_NOT_VERIFIED` で拒否する。hostnameのallowlistや運営承認はこの拒否を迂回できず、Browser Runを起動する新しいAPIにも同じgateを必須にする。
+
+flagをtrueからfalseへ戻した場合は新規処理の拒否だけで終えない。egress kill switchで既存Browserの全通信を先に遮断し、全Durable Objectへ終了commandを送信し、Live View URLを即時失効して再発行を拒否し、Browser sessionのclose完了まで監査・再試行する。
 
 ## 課金API contract
 
