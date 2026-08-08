@@ -184,6 +184,143 @@ async function supabaseSelect(supabase, actor, table, query) {
   return payload;
 }
 
+async function supabaseWrite(supabase, actor, table, method, query, body) {
+  const response = await fetch(`${supabase.url}/rest/v1/${table}?${query}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "apikey": supabase.anonKey,
+      "authorization": `Bearer ${actor.accessToken}`,
+      "prefer": "return=minimal"
+    },
+    body: JSON.stringify(body)
+  });
+
+  return assertOk(response, `supabase ${method.toLowerCase()} ${table} ${actor.email}`);
+}
+
+async function assertSupabaseWriteRejected(
+  supabase,
+  actor,
+  table,
+  method,
+  query,
+  body,
+  expectedMessage,
+  label
+) {
+  const response = await fetch(`${supabase.url}/rest/v1/${table}?${query}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "apikey": supabase.anonKey,
+      "authorization": `Bearer ${actor.accessToken}`,
+      "prefer": "return=minimal"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const payload = await readJson(response);
+  if (response.ok) {
+    throw new Error(`${label} unexpectedly succeeded with HTTP ${response.status}.`);
+  }
+
+  const message = typeof payload === "object" && payload !== null
+    ? String(payload.message || "")
+    : String(payload || "");
+  if (!message.includes(expectedMessage)) {
+    throw new Error(`${label} failed for an unexpected reason with HTTP ${response.status}.`);
+  }
+}
+
+async function assertAnonymousRpcRejected(supabase, rpc, body) {
+  const response = await fetch(`${supabase.url}/rest/v1/rpc/${rpc}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "apikey": supabase.anonKey,
+      "authorization": `Bearer ${supabase.anonKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  await response.arrayBuffer();
+  if (response.ok) {
+    throw new Error(`anonymous RPC ${rpc} unexpectedly succeeded with HTTP ${response.status}.`);
+  }
+  if (![401, 403].includes(response.status)) {
+    throw new Error(`anonymous RPC ${rpc} was rejected for an unexpected reason with HTTP ${response.status}.`);
+  }
+}
+
+async function addWorkspaceAdmin(supabase, owner, workspace, admin) {
+  await supabaseWrite(supabase, owner, "workspace_members", "POST", "", {
+    workspace_id: workspace.id,
+    user_id: admin.userId,
+    role: "admin",
+    status: "active",
+    created_by: owner.userId
+  });
+}
+
+async function assertIdentityFieldsImmutable(supabase, owner, admin, workspace) {
+  const workspaceQuery = `id=eq.${encodeURIComponent(workspace.id)}`;
+  const ownerMembershipQuery = [
+    `workspace_id=eq.${encodeURIComponent(workspace.id)}`,
+    `user_id=eq.${encodeURIComponent(owner.userId)}`
+  ].join("&");
+  const adminMembershipQuery = [
+    `workspace_id=eq.${encodeURIComponent(workspace.id)}`,
+    `user_id=eq.${encodeURIComponent(admin.userId)}`
+  ].join("&");
+
+  await addWorkspaceAdmin(supabase, owner, workspace, admin);
+
+  const workspaceMutations = [
+    { field: "id", value: crypto.randomUUID() },
+    { field: "created_by", value: admin.userId },
+    { field: "created_at", value: "2000-01-01T00:00:00.000Z" }
+  ];
+  const membershipMutations = [
+    { field: "workspace_id", value: crypto.randomUUID() },
+    { field: "user_id", value: crypto.randomUUID() },
+    { field: "created_by", value: admin.userId },
+    { field: "created_at", value: "2000-01-01T00:00:00.000Z" }
+  ];
+  const actors = [
+    { actor: owner, membershipQuery: ownerMembershipQuery, label: "owner" },
+    { actor: admin, membershipQuery: adminMembershipQuery, label: "admin" }
+  ];
+
+  for (const { actor, membershipQuery, label } of actors) {
+    for (const mutation of workspaceMutations) {
+      await assertSupabaseWriteRejected(
+        supabase,
+        actor,
+        "workspaces",
+        "PATCH",
+        workspaceQuery,
+        { [mutation.field]: mutation.value },
+        "workspace identity and creation audit fields are immutable",
+        `${label} workspace ${mutation.field} mutation`
+      );
+    }
+
+    for (const mutation of membershipMutations) {
+      await assertSupabaseWriteRejected(
+        supabase,
+        actor,
+        "workspace_members",
+        "PATCH",
+        membershipQuery,
+        { [mutation.field]: mutation.value },
+        "workspace membership identity and creation audit fields are immutable",
+        `${label} membership ${mutation.field} mutation`
+      );
+    }
+  }
+}
+
 function workspaceList(payload) {
   return Array.isArray(payload.workspaces) ? payload.workspaces : [];
 }
@@ -274,6 +411,17 @@ async function main() {
     assertDirectCannotReadWorkspace(supabase, directUserB, workspaceA, "User B")
   ]);
 
+  await Promise.all([
+    assertAnonymousRpcRejected(supabase, "create_workspace", {
+      workspace_name: "anonymous must fail",
+      workspace_slug: uniqueSlug("anonymous")
+    }),
+    assertAnonymousRpcRejected(supabase, "is_workspace_member", {
+      target_workspace_id: workspaceA.id
+    })
+  ]);
+  await assertIdentityFieldsImmutable(supabase, directUserA, directUserB, workspaceA);
+
   console.log(JSON.stringify({
     status: "ok",
     appOrigin,
@@ -285,7 +433,10 @@ async function main() {
       userACannotSeeUserBWorkspaceViaApp: true,
       userBCannotSeeUserAWorkspaceViaApp: true,
       userACannotReadUserBWorkspaceViaSupabaseRest: true,
-      userBCannotReadUserAWorkspaceViaSupabaseRest: true
+      userBCannotReadUserAWorkspaceViaSupabaseRest: true,
+      anonymousCannotExecuteWorkspaceRpcs: true,
+      ownerCannotMutateIdentityFields: true,
+      adminCannotMutateIdentityFields: true
     },
     createdWorkspaces: {
       userA: { slug: slugA, idPresent: Boolean(workspaceA.id) },
