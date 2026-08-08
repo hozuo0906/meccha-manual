@@ -49,8 +49,8 @@ Status: Proposed
 - 解約予約中は支払済み期間終了まで `active` を維持する。
 - 未払いは即時削除へ進めず `grace` とし、猶予条件はOQ-016に従う。
 - 契約期間終了はentitlementを `expired` へ遷移させる。未契約作成枠は有料entitlement不在から導出し、`free` 状態を保存しない。
-- 同一workspaceのsubscription offer間で未期限切れintentとactive/grace/read_only契約を排他にし、Webhook時にも再検査する。競合した決済へentitlementを付与しない。
-- DBへ照合できない、期限切れSession、または競合契約に対応するsubscriptionは、冪等なcancel、未確定invoiceのvoid、確定済みinvoiceのrefund queue登録を完了するまでreconciliationを継続する。返金だけでsubscriptionを残さない。
+- 同一workspaceのsubscription offer間で未期限切れintentとactive/grace/read_only契約を排他にし、Webhook時にも再検査する。reconciliation対象と同じ `stripe_subscription_id` は競合から除外し、別subscriptionと競合した決済へentitlementを付与しない。
+- DBへ照合できない、期限切れSession、または競合契約に対応するsubscriptionは、冪等なcancelとinvoice状態別処理を完了するまでreconciliationを継続する。`draft`は削除、`open`はvoid、`paid`は実PaymentIntent/Chargeだけをrefundし、返金だけでsubscriptionを残さない。
 
 ## Stripe Link
 

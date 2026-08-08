@@ -82,7 +82,7 @@ const requiredDocs = {
     "固定Payment Link URLはentitlement付与に使わない"
   ],
   "docs/01-product/requirements-traceability.md": [
-    "AC-056, AC-057, AC-059, AC-060, AC-061",
+    "AC-056, AC-057, AC-059, AC-062, AC-063",
     "AC-055, AC-058"
   ]
 };
@@ -136,7 +136,7 @@ for (const legacyTerm of [
 
 const traceability = contents["docs/01-product/requirements-traceability.md"] ?? "";
 const requiredAcceptanceByRequirement = {
-  "FR-019": ["AC-050", "AC-052", "AC-054", "AC-055", "AC-056", "AC-057", "AC-059", "AC-060", "AC-061"],
+  "FR-019": ["AC-050", "AC-052", "AC-054", "AC-055", "AC-056", "AC-057", "AC-059", "AC-062", "AC-063"],
   "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058"]
 };
 for (const [requirement, acceptanceIds] of Object.entries(requiredAcceptanceByRequirement)) {
@@ -151,6 +151,13 @@ for (const [requirement, acceptanceIds] of Object.entries(requiredAcceptanceByRe
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     errors.push(`Acceptance criteria mismatch in ${requirement}: expected ${expected.join(", ")}`);
   }
+}
+
+const acceptanceCatalog = await readFile("docs/07-quality/acceptance-catalog.md", "utf8");
+const acceptanceIds = [...acceptanceCatalog.matchAll(/^\| (AC-\d{3}) \|/gm)].map(([, id]) => id);
+const duplicateAcceptanceIds = acceptanceIds.filter((id, index) => acceptanceIds.indexOf(id) !== index);
+if (duplicateAcceptanceIds.length > 0) {
+  errors.push(`Duplicate acceptance criteria IDs: ${[...new Set(duplicateAcceptanceIds)].join(", ")}`);
 }
 
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
