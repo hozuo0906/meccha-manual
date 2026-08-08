@@ -23,7 +23,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 2. 入力URLを正規化し、スキーム、host、port、資格情報、DNS結果を検査する。
 3. Postgresへ期限付きjobを作成し、session IDに対応するDurable Objectへ開始commandを送る。
 4. Durable Objectが `created -> starting` を直列遷移し、Browser Run sessionを1件だけ起動する。
-5. navigation直前と全redirectでSSRF検査を再実行し、検査済みIPへ接続を拘束できるegress経路だけを許可する。
+5. navigation直前と全redirectでSSRF検査を再実行し、upstream socketのactual peerを危険IP検査して検査済みIPへ拘束した後にだけHTTP/TLS/application bytesを送信するegress経路を許可する。
 6. ready後、認可済みsession ownerへ用途限定・短命のLive View URLを発行する。
 7. Live View URL、Browser session credential、CookieをDB・R2・ログへ保存しない。
 
@@ -34,17 +34,18 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 - localhost、loopback、private、link-local、multicast、予約済みIP、cloud metadata endpointをIPv4/IPv6とも拒否する。
 - DNSの全A/AAAA結果を検査する。ただし、事前解決と接続直前の再解決だけではDNS rebindingを防いだことにしない。
 - 実接続は、検査済みIPへのDNS pinning、接続先IPを検証できるegress proxy、または同等にactual peerを照合できる境界を必須とする。検査後にBrowser Runが独自に再解決して直接接続する経路は禁止する。
-- top-level navigation、redirect、iframe、画像・script・fetch等のsubresource、WebSocket、Service Worker、downloadを同じegress境界へ通す。種類ごとに迂回経路がないことを確認する。
+- top-level navigation、redirect、iframe、画像・script・fetch等のsubresource、WebSocket、Service Worker、download、WebTransport/QUICを同じegress境界へ通す。WebRTCのICE/STUN/TURNを含め、同境界へ拘束できない直接通信APIはBrowser起動時のpolicyで無効化する。
 - redirectごとに回数上限と同じ検査・接続拘束を適用し、許可URLから内部URLへの遷移を拒否する。
-- workspace allowlist/blocklistは危険IP拒否を緩和できない。
-- Cloudflare Browser Runでactual peerの確認または接続先拘束を実現できない通信種別はfail closedとする。安全なegress方式をP0検証で確認するまでは、任意URLを許可せず、運営が事前承認した公開HTTPS destinationだけに限定する。
+- workspace allowlist/blocklistや運営によるhostname承認は危険IP拒否を緩和できない。承認済みdestinationも同じ送信前peer検証と接続拘束を通す。
+- Cloudflare Browser Runでactual peerの送信前確認または接続先拘束を実現できない通信種別が1つでもあれば、fail closed（安全側で全面拒否）とし、`capture.browserRun.egressVerified.enabled=false` のままBrowser Runの起動・navigateを拒否する。任意URLだけでなく承認済みhostnameも例外にしない。
 
 ## 実装前P0検証
 
 - Cloudflare Browser Runが、navigation以外を含む全通信を検証済みegressへ固定できるかをstagingで確認する。
 - 同じhostnameが検査時にpublic IP、接続時にprivate/link-local/metadata IPを返すDNS rebinding fixtureで、実接続前に拒否されることを確認する。
-- redirect、iframe、subresource、WebSocket、Service Worker、downloadそれぞれでprivate IPへの迂回をnegative testする。
-- actual peerを取得できない、または1種類でもegressを迂回できる場合は任意URL機能を有効化しない。機能フラグをOFFのままにし、事前承認destination方式を採用する。
+- redirect、iframe、subresource、WebSocket、Service Worker、download、WebTransport/QUIC、WebRTC ICE/STUN/TURNそれぞれでprivate IPへの迂回をnegative testする。
+- HTTP/TLS/application bytesがpeer検証より前に1 byteも送信されないことをfixtureで確認する。
+- actual peerを取得できない、または1種類でもegressを迂回できる場合は機能フラグをOFFのままにし、Browser Runの起動とnavigateを全面拒否する。
 
 ## 入力値と操作イベント
 
