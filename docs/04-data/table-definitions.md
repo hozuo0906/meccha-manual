@@ -39,7 +39,7 @@ Status: Accepted
 | `step_view_events` | `workspace_id`, `manual_view_id`, `step_id`, `event_type`, `occurred_at` | Worker追加。生データはadmin限定 |
 | `notifications` | `workspace_id`, `user_id`, `type`, `payload`, `read_at` | 本人のみ閲覧・既読更新 |
 | `billing_customers` | `workspace_id`, `stripe_customer_id`, `billing_email` | owner/admin閲覧、更新はStripe同期処理 |
-| `checkout_intents` | `id`, `workspace_id`, `manual_id`, `offer_code`, `request_key_hash`, `request_hash`, `status`, `expires_at`, `consumed_at`, `stripe_checkout_session_id`, `created_by` | workspace境界。作成者閲覧、状態更新は課金処理。`manual_id`は`single_export`だけ必須。購入操作keyとStripe Session IDはunique |
+| `checkout_intents` | `id`, `workspace_id`, `manual_id`, `offer_code`, `request_key_hash`, `request_hash`, `status`, `expires_at`, `stripe_completed_at`, `consumed_at`, `stripe_checkout_session_id`, `created_by` | workspace境界。作成者閲覧、状態更新は課金処理。`manual_id`は`single_export`だけ必須。購入操作keyとStripe Session IDはunique。完了時刻は署名済みevent/Stripe Sessionから一度だけ確定 |
 | `billing_purchases` | `id`, `workspace_id`, `checkout_intent_id`, `stripe_payment_intent_id`, `offer_code`, `amount_jpy`, `currency`, `status`, `purchased_at`, `refunded_at` | owner/admin閲覧、Webhook/reconciliationのみ更新。Stripe IDはunique |
 | `subscriptions` | `workspace_id`, `stripe_subscription_id`, `plan_code`, `status`, `quantity`, `current_period_end`, `cancel_at` | owner/admin閲覧、Webhookのみ更新 |
 | `entitlements` | `workspace_id`, `scope_type`, `scope_id`, `feature_code`, `plan_code`, `state`, `seat_limit`, `viewer_limit`, `browser_run_seconds_limit`, `storage_bytes_limit`, `concurrent_session_limit`, `effective_at`, `expires_at`, `source_subscription_id`, `source_purchase_id` | owner/admin閲覧、課金同期処理のみ更新。manual scopeは同一workspaceのmanualだけを許可 |

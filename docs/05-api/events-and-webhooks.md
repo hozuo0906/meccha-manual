@@ -34,12 +34,12 @@ Status: Proposed
 
 ## 都度払いの照合
 
-- checkout intentと1対1のStripe Checkout Session IDを照合し、Session自体が未期限切れ・未失効・支払い済みであることを確認する。
+- checkout intentと1対1のStripe Checkout Session IDを照合し、Sessionが失効前にcompleteとなり支払い済みであることを確認する。Webhook処理時の現在時刻ではなく、署名済みcompleted eventとStripe Sessionから保存した `stripe_completed_at` をintentの `expires_at` と比較する。
 - Stripe上のPriceを `single_export` の環境別Price IDと照合する。
 - checkout intentに保存したworkspaceとmanualを使用し、Webhook payloadのメールアドレスから対象を決めない。
 - 支払い成功後、対象manualへ30日間のexport entitlementを一度だけ付与する。
 - 同じevent、PaymentIntent、checkout intentの再送で有効期限を不正に延長しない。
-- Session完了とintent消費を同一の再実行可能なtransactionで確定する。未知、期限切れ、別Session、すでに別支払いへ消費済みのintentに対する支払いは権利なしで放置せず、重複付与を止めたうえで自動返金queueと運用アラートへ送る。
+- Session完了とintent消費を同一の再実行可能なtransactionで確定する。未知、期限後まで未完了、別Session、すでに別支払いへ消費済みのintentに対する支払いは権利なしで放置せず、重複付与を止めたうえで自動返金queueと運用アラートへ送る。期限内完了後の遅延・再送は返金せず冪等に正規処理する。
 - 全額返金またはchargeback確認後はentitlementを `refunded` にするが、manualやR2 objectを自動削除しない。
 
 ## サブスクリプションの照合
