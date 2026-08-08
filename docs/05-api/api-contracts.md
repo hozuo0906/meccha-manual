@@ -54,7 +54,7 @@ Status: Proposed
 - `BILLING_FEATURE_ENABLED=false` の場合は新規intentへ `BILLING_DISABLED` を返す。ただし既存課金objectの署名済みWebhookとreconciliationは停止しない。
 - `client_reference_id` にはcheckout intent IDだけを使う。
 - `Idempotency-Key` headerを必須とし、key hashとrequest hashを保存する。同じkey・同じrequestは同じintent/Sessionを返し、同じkey・異なるrequestは409を返す。
-- 同じscope/offer/manualに未期限切れintentがある場合は新規intentを作らない。Stripe Session作成にはintent ID由来の決定的idempotency keyを渡し、タイムアウトや並行再送でも同じSessionを取得する。
+- 都度払いは同じworkspace/manual、subscriptionはofferを問わず同じworkspaceに未期限切れintentがある場合は新規intentを作らない。Stripe Session作成にはintent ID由来の決定的idempotency keyを渡し、タイムアウトや並行再送でも同じSessionを取得する。
 - クライアントが送った価格、金額、Price ID、Payment Linkを信頼しない。
 - Stripe Linkのメールアドレスや認証状態をアプリ認証へ流用しない。
 - 決済完了リダイレクト後も `processing` と表示でき、Webhook確認前に権利を付与しない。

@@ -50,8 +50,8 @@ Status: Accepted
 - 解約予約中は支払済み期間終了まで利用可能とする。
 - 未払い、返金、順不同、遅延はADR-0007とADR-0022のreconciliation方針に従う。
 - `personal_monthly` は有効メンバーが1人のworkspaceだけCheckout Sessionを作成できる。ただしactive/grace/read_onlyのTeam契約が存在するworkspaceは人数に関係なく、契約置換とメンバー処理をOQ-027で決めるまで `PLAN_CHANGE_UNRESOLVED` としてStripe API呼び出し前に停止する。
-- subscription用intentの作成時とWebhook reconciliation時の両方で、同じworkspaceのactive/grace/read_only subscriptionと、別subscription offerの未期限切れintentがないことを検査する。競合時はentitlementを付与せず、後述の孤立subscription停止処理へ送る。
-- DBへ照合可能なsubscriptionを保存できない、または期限切れ・別Session・競合契約で拒否したsubscription modeの決済は、初回請求の返金だけで終えない。Stripe subscriptionを冪等にcancelし、未確定invoiceをvoidし、確定済みinvoiceはrefund queueへ一度だけ登録する。cancel/refund/voidがすべて確認できるまで運用アラートとreconciliationを継続し、権利なしの継続請求を残さない。
+- subscription用intentの作成時とWebhook reconciliation時の両方で、同じworkspaceのactive/grace/read_only subscriptionと、別subscription offerの未期限切れintentがないことを検査する。Webhookではreconciliation対象と同じ `stripe_subscription_id` を競合集合から除外し、別subscriptionだけを競合とする。競合時はentitlementを付与せず、後述の孤立subscription停止処理へ送る。
+- DBへ照合可能なsubscriptionを保存できない、または期限切れ・別Session・競合契約で拒否したsubscription modeの決済は、初回請求の返金だけで終えない。Stripe subscriptionを冪等にcancelし、invoiceは状態別に処理する。`draft`は削除、`open`はvoid、`paid`は実際のPaymentIntent/Chargeをrefund queueへ一度だけ登録し、`void`/`uncollectible`は支払済みでないことを確認して終了する。cancelとinvoice処理がすべて確認できるまで運用アラートとreconciliationを継続し、権利なしの継続請求を残さない。
 
 ## 環境変数
 

@@ -53,7 +53,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 6. サーバー設定から対応Priceを選び、intent ID由来の決定的idempotency keyをStripe APIへ渡してCheckout Sessionを作成する。応答保存前に失敗しても同じkeyで同じSessionを再取得し、Session IDをuniqueで保存する。`client_reference_id`へintent IDだけを付加する。
 7. Checkout Sessionとintentを30分で失効させ、Webhook成功後に一度だけ消費済みにする。
 8. `personal_monthly` は有効メンバーが1人の場合だけ作成する。active/grace/read_onlyのTeam契約がある場合は人数に関係なく、OQ-027が決まるまで課金前に `PLAN_CHANGE_UNRESOLVED` で停止する。
-9. subscriptionはCheckout Session作成時にもWebhook時にも同じworkspaceの競合契約・別subscription intentを検査する。PersonalとTeamの支払い可能Sessionを同時に残さない。
+9. subscriptionはCheckout Session作成時にもWebhook時にも同じworkspaceの競合契約・別subscription intentを検査する。Webhookの競合契約判定からreconciliation対象自身の `stripe_subscription_id` を除外する。PersonalとTeamの支払い可能Sessionを同時に残さない。
 
 ## Webhook処理
 
@@ -67,7 +67,7 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 8. 状態遷移とentitlement更新を同一transactionまたは再実行可能な処理にまとめる。
 9. 失敗は再試行可能にし、重複再送でも二重付与しない。
 10. flagがfalseでも既存課金objectの署名済みeventを受け付ける。未知・期限切れ・別Session・消費済みintentへの支払いは放置せず、自動返金queueと運用アラートへ送る。
-11. subscription modeで照合不能または競合した場合はentitlementを拒否し、subscriptionを冪等にcancel、未確定invoiceをvoid、確定済みinvoiceをrefund queueへ登録する。全処理の確認までreconciliationを再試行し、権利なしの継続請求を残さない。
+11. subscription modeで照合不能または競合した場合はentitlementを拒否し、subscriptionを冪等にcancelする。invoiceは `draft` を削除、`open` をvoid、`paid` の実PaymentIntent/Chargeだけをrefund queueへ登録し、`void`/`uncollectible` は未払いを確認する。全処理の確認までreconciliationを再試行し、権利なしの継続請求を残さない。
 
 ## entitlement
 
