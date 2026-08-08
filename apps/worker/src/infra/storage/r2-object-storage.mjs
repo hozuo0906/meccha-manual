@@ -17,14 +17,15 @@ export function createR2ObjectStorage(bindings) {
 
   return assertObjectStorage({
     async put(object) {
-      await bucket(object.area).put(object.key, object.body, {
-        httpMetadata: { contentType: object.contentType },
+      const verified = await createStorageObject(object);
+      await bucket(verified.area).put(verified.key, verified.body, {
+        httpMetadata: { contentType: verified.contentType },
         customMetadata: {
-          workspace_id: object.metadata.workspaceId,
-          asset_id: object.metadata.assetId,
-          kind: object.kind,
-          content_type: object.contentType,
-          checksum_sha256: object.checksumSha256
+          workspace_id: verified.metadata.workspaceId,
+          asset_id: verified.metadata.assetId,
+          kind: verified.kind,
+          content_type: verified.contentType,
+          checksum_sha256: verified.checksumSha256
         }
       });
       return { status: "stored" };
