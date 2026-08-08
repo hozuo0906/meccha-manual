@@ -1,4 +1,4 @@
-import { assertObjectStorage } from "../../domain/storage/object-storage.mjs";
+import { assertObjectStorage, createStorageReadResult } from "../../domain/storage/object-storage.mjs";
 
 function storageId(area, key) {
   return `${area}\u0000${key}`;
@@ -22,7 +22,7 @@ export function createMemoryObjectStorage() {
     },
     async get({ area, key }) {
       const object = objects.get(storageId(area, key));
-      return object ? cloneObject(object) : null;
+      return object ? createStorageReadResult(object) : null;
     },
     async delete({ area, key }) {
       return { status: objects.delete(storageId(area, key)) ? "deleted" : "not_found" };

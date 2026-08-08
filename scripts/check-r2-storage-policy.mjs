@@ -5,6 +5,7 @@ const docs = [
   "docs/04-data/storage-object-contract.md",
   "docs/08-operations/r2-storage-harness.md"
 ];
+const tableDefinitionsPath = "docs/04-data/table-definitions.md";
 const implementationFiles = [
   "apps/worker/src/domain/storage/object-storage.mjs",
   "apps/worker/src/infra/storage/memory-object-storage.mjs",
@@ -38,6 +39,10 @@ const requiredTerms = [
   "短期署名URL",
   "保持期間",
   "PII",
+  "resource_id",
+  "bodyから再計算",
+  "完全一致",
+  "同じdomain shape",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
 ];
 
@@ -60,6 +65,12 @@ for (const path of implementationFiles) {
   }
 }
 
+try {
+  contents[tableDefinitionsPath] = await readFile(tableDefinitionsPath, "utf8");
+} catch {
+  errors.push(`Missing table definitions: ${tableDefinitionsPath}`);
+}
+
 const combined = Object.values(contents).join("\n");
 
 for (const binding of requiredBindings) {
@@ -77,6 +88,20 @@ for (const bucketName of requiredBucketNames) {
 for (const term of requiredTerms) {
   if (!combined.includes(term)) {
     errors.push(`Missing R2 policy term: ${term}`);
+  }
+}
+
+for (const kind of [
+  "capture_screenshot",
+  "manual_image",
+  "pdf_export",
+  "html_export",
+  "markdown_export",
+  "user_avatar",
+  "workspace_avatar"
+]) {
+  if (!(contents[tableDefinitionsPath] || "").includes(kind)) {
+    errors.push(`Asset kind is not aligned with storage contract: ${kind}`);
   }
 }
 
@@ -108,7 +133,7 @@ const domainStorage = contents[implementationFiles[0]] || "";
 if (/cloudflare|R2Bucket|R2Object/i.test(domainStorage)) {
   errors.push("Domain storage port must not reference Cloudflare or R2 SDK types.");
 }
-for (const snippet of ["createObjectKey", "contentType", "sizeBytes", "checksumSha256", "manualId", "stepId", "put", "get", "delete"]) {
+for (const snippet of ["createObjectKey", "createStorageReadResult", "contentType", "sizeBytes", "checksumSha256", "resourceId", "manualId", "stepId", "put", "get", "delete"]) {
   if (!domainStorage.includes(snippet)) errors.push(`Missing storage port contract: ${snippet}`);
 }
 const storageImplementation = implementationFiles.slice(0, 3).map((path) => contents[path] || "").join("\n");
