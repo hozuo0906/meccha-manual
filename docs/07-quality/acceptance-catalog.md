@@ -8,7 +8,7 @@ Status: Proposed
 | AC-002 | A社ユーザー | B社のmanual IDを指定する | APIとDBで拒否される |
 | AC-010 | editorユーザー | 手動で手順書を作成して公開する | 公開URLで公開版を閲覧できる |
 | AC-011 | 公開版が存在する | 下書きを編集する | 公開版の内容は変わらない |
-| AC-020 | editorユーザー | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
+| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |
 | AC-022 | 記録中 | 危険URLへ遷移しようとする | SSRF防止で拒否される |
 | AC-023 | DNS検査ではpublic IPを返す対象host、またはegressを迂回するWebRTC/WebTransport fixture | 承認済みhostへの実接続、subresource、直接通信を開始する | HTTP/TLS/application bytes送信前にactual peerで拒否され、1経路でも拘束不能ならBrowser Run起動・navigateが `BROWSER_EGRESS_NOT_VERIFIED` でfail closedになる |

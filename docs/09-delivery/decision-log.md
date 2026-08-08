@@ -35,7 +35,7 @@ Status: Accepted
 | DEC-029 | 2026-08-02 | `main` マージをproduction候補の確定とし、production deployは自動開始しない | マージと本番反映の承認を分離し、環境取り違えを防ぐため |
 | DEC-030 | 2026-08-02 | 初期課金は無料、`BILLING_FEATURE_ENABLED=false` とし、Pro候補は月額3,300円税込みにする（[ADR-0022](../03-architecture/adrs/ADR-0022-free-first-stripe-billing.md)） | 外部課金設定より先にWebhook、entitlement、席数の安全境界を整えるため |
 | DEC-031 | 2026-08-02 | migrationのPhase固有静的検査と共通安全検査を分け、production適用を別承認にする | 既存検査との重複を避けながら、破壊的構文と誤適用を早期に止めるため |
-| DEC-032 | 2026-08-02 | Browser Run sessionはDurable Objectが直列管理し、Live View短命化、全redirect SSRF再検査、入力値非保存、終了時破棄を必須にする。DNS再解決だけでは完了とせず、検査済みIPへの実接続拘束を全通信種別へ適用し、実現不能なら任意URLをfail closedにする | セッション残留、DNS rebindingによる内部ネットワーク到達、機密入力保存をP0として防ぐため |
+| DEC-032 | 2026-08-02 | Browser Run sessionはDurable Objectが直列管理し、Live View短命化、全redirect SSRF再検査、入力値非保存、終了時破棄を必須にする。DNS再解決だけでは完了とせず、application bytes送信前の実接続拘束をWebRTC/WebTransportを含む全通信種別へ適用する。1経路でも実現不能なら任意URL・承認済みhost・mobile previewを含む全Browser Run起動とnavigateをfail closedにする | セッション残留、DNS rebindingによる内部ネットワーク到達、機密入力保存をP0として防ぐため |
 | DEC-033 | 2026-08-02 | R2 Storageはdomain portとinfra adapterを分離し、manual/step識別子はサーバー側metadataに限定してR2 custom metadataへ複製しない | Cloudflare SDK型の侵入と、R2 metadataへの不要な識別情報・任意入力の保存を防ぐため |
 | DEC-034 | 2026-08-02 | staging/productionでGitHub Environment、Worker、Supabase、R2、Stripe、Discord設定を分離し、現在のSupabase projectは暫定dev/stagingとして扱う | production資源を作成する前に接続先とデータ境界を固定し、環境取り違えを防ぐため |
 | DEC-035 | 2026-08-02 | staging/production workflowは現段階では候補SHAの静的checkだけを行い、productionは手動dispatchとGitHub Environment `production` required reviewersを必須にする | `main`マージをproduction候補確定に限定し、無承認deployと未作成資源への接続を防ぐため |
