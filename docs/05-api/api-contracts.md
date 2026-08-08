@@ -34,7 +34,7 @@ Status: Proposed
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
 | `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 |
 | `GET /v1/billing/summary` | 現在プラン、利用量、上限、購入済みmanualを取得 | member。請求詳細はowner/admin |
-| `POST /v1/billing/checkout-intents` | Payment Link遷移前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
+| `POST /v1/billing/checkout-intents` | 短命Checkout Session作成前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
 | `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |
 | `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
 | `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
@@ -47,20 +47,23 @@ Status: Proposed
 - `personal_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
 - `team_monthly`: `manualId` 禁止。owner/adminだけが作成できる。
 
-成功時は推測不能なcheckout intent IDと、サーバーで選んだPayment Linkへの短命な遷移情報だけを返す。Price ID、Stripe Secret、Webhook Secret、他workspaceの識別子を返さない。
+`personal_monthly` は有効メンバーが1人の場合だけ作成できる。TeamからPersonalへの既存メンバー処理はOQ-027が決まるまで、有効メンバーが2人以上なら `PLAN_MEMBER_LIMIT_UNRESOLVED` を返し、Stripe APIへ通信しない。
 
-- `BILLING_FEATURE_ENABLED=false` の場合は `BILLING_DISABLED` を返し、Stripe APIへ通信しない。
+成功時は推測不能なcheckout intent IDと、そのintent専用に作成した30分有効のCheckout Session URLだけを返す。Price ID、Stripe Secret、Webhook Secret、他workspaceの識別子を返さない。
+
+- `BILLING_FEATURE_ENABLED=false` の場合は新規intentへ `BILLING_DISABLED` を返す。ただし既存課金objectの署名済みWebhookとreconciliationは停止しない。
 - `client_reference_id` にはcheckout intent IDだけを使う。
 - クライアントが送った価格、金額、Price ID、Payment Linkを信頼しない。
 - Stripe Linkのメールアドレスや認証状態をアプリ認証へ流用しない。
 - 決済完了リダイレクト後も `processing` と表示でき、Webhook確認前に権利を付与しない。
+- checkout intent、Checkout Session ID、PaymentIntentまたはSubscriptionを1対1で照合し、期限切れ・失効済みSessionからの新規決済を受け付けない。
 
 `POST /v1/manuals/{id}/exports` は、次のいずれかをサーバー側で確認する。
 
 1. 対象manualに有効な `single_export` entitlementがあり、30日以内である。
 2. workspaceに有効な `personal_monthly` または `team_monthly` entitlementがある。
 
-上限や権利がない場合は、既存データを削除せず、日本語の料金案内と次の操作を返す。
+上限や権利がない場合は、既存データを削除せず、日本語の料金案内と次の操作を返す。R2使用量が100%なら新規エクスポート生成を拒否するが、生成済み成果物の期限内ダウンロードは許可する。
 
 ## Discord Interaction contract
 

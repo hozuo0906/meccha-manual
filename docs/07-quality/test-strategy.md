@@ -30,16 +30,19 @@ P0/P1が残る状態では次Phaseへ進みません。
 - Stripe Linkの利用者情報をアプリ認証やworkspace認可に使わないこと。
 - 利用上限到達時に自動課金せず、新規利用だけを安全に停止すること。
 - 返金、chargeback、解約、未払いでデータを即時削除しないこと。
-- `BILLING_FEATURE_ENABLED=false` でPayment Link表示とStripe外部通信が0件になること。
+- `BILLING_FEATURE_ENABLED=false` で新規Checkout Session作成が0件になり、既存課金objectの署名済みWebhook、解約、返金、reconciliationは継続すること。
+- checkout intentとCheckout Sessionが1対1で、期限切れ・別Session・消費済みintentの支払いを二重付与せず自動返金queueへ送ること。
+- TeamからPersonalへの移行はOQ-027が決まるまで、複数メンバーworkspaceを課金前に拒否すること。
 - AI初期OFFで外部APIを呼ばない。
 
 ## 課金テストデータ
 
-- test modeのPriceとPayment Linkだけを使い、liveの識別子やSecretをfixtureへ入れない。
+- test modeのPriceと短命Checkout Sessionだけを使い、liveの識別子やSecretをfixtureへ入れない。
 - checkout intentには推測不能なIDを使い、メール、workspace名、manual名を含めない。
 - 同じStripe event、PaymentIntent、checkout intentを複数回送信する。
 - Price違い、workspace違い、manual違い、期限切れintent、返金後再出力をnegative caseに含める。
 - 月次利用量の境界値として79%、80%、99%、100%、100%超過を検証する。
+- R2 100%では新規エクスポート生成を拒否し、生成済み成果物の期限内ダウンロードだけを許可する。
 
 ## 完成扱い禁止条件
 
