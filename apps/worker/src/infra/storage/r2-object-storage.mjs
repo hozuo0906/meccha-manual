@@ -1,4 +1,4 @@
-import { assertObjectStorage } from "../../domain/storage/object-storage.mjs";
+import { assertObjectStorage, createStorageObject, createStorageReadResult } from "../../domain/storage/object-storage.mjs";
 
 const BINDING_BY_AREA = Object.freeze({
   "capture-assets": "CAPTURE_ASSETS",
@@ -21,6 +21,7 @@ export function createR2ObjectStorage(bindings) {
         httpMetadata: { contentType: object.contentType },
         customMetadata: {
           workspace_id: object.metadata.workspaceId,
+          resource_id: object.metadata.resourceId,
           asset_id: object.metadata.assetId,
           kind: object.kind,
           content_type: object.contentType,
@@ -32,7 +33,23 @@ export function createR2ObjectStorage(bindings) {
     async get({ area, key }) {
       const result = await bucket(area).get(key);
       if (!result) return null;
-      return result;
+      const body = new Uint8Array(await result.arrayBuffer());
+      const metadata = result.customMetadata ?? {};
+      const object = await createStorageObject({
+        area,
+        key,
+        kind: metadata.kind,
+        body,
+        contentType: result.httpMetadata?.contentType ?? metadata.content_type,
+        sizeBytes: result.size ?? body.byteLength,
+        checksumSha256: metadata.checksum_sha256,
+        metadata: {
+          workspaceId: metadata.workspace_id,
+          resourceId: metadata.resource_id,
+          assetId: metadata.asset_id
+        }
+      });
+      return createStorageReadResult(object);
     },
     async delete({ area, key }) {
       await bucket(area).delete(key);

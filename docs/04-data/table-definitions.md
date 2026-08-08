@@ -64,7 +64,7 @@ Status: Accepted
 - `manual_status`: `draft`, `reviewing`, `published`, `stale`, `archived`
 - `revision_state`: `draft`, `published`, `superseded`
 - `capture_state`: `created`, `starting`, `ready`, `recording`, `paused`, `reconnecting`, `stopping`, `completed`, `failed`, `expired`
-- `asset_kind`: `screenshot`, `thumbnail`, `export_pdf`, `export_html`, `avatar`
+- `asset_kind`: `capture_screenshot`, `manual_image`, `pdf_export`, `html_export`, `markdown_export`, `user_avatar`, `workspace_avatar`
 - `share_permission`: `public_link`, `workspace_only`, `invited_only`
 - `billing_offer_code`: `single_export`, `personal_monthly`, `team_monthly`
 - `entitlement_scope_type`: `workspace`, `manual`
