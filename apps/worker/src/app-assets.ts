@@ -482,6 +482,7 @@ export const APP_JS = `
 const app = document.getElementById("app");
 let currentSession = null;
 let sessionGeneration = 0;
+let sessionReloadSequence = 0;
 
 function replaceCurrentSession(nextSession) {
   currentSession = nextSession;
@@ -697,9 +698,10 @@ function renderShell(session, notice = "") {
 
 async function loadSession() {
   const requestSessionGeneration = sessionGeneration;
+  const requestReloadSequence = ++sessionReloadSequence;
   try {
     const session = await requestJson("/api/session");
-    if (requestSessionGeneration !== sessionGeneration) return;
+    if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     if (currentSession?.user?.id !== session.user?.id) {
       replaceCurrentSession(session);
     } else {
@@ -707,7 +709,7 @@ async function loadSession() {
     }
     renderShell(currentSession);
   } catch (error) {
-    if (requestSessionGeneration !== sessionGeneration) return;
+    if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     replaceCurrentSession(null);
     if (error.status === 401) {
       let message = "";

@@ -38,9 +38,12 @@ const requiredWorkerSnippets = [
 const requiredAppSnippets = [
   "class AppRequestError",
   "let sessionGeneration = 0",
+  "let sessionReloadSequence = 0",
   "function replaceCurrentSession(nextSession)",
   "const requestSessionGeneration = sessionGeneration",
   "const requestSessionGeneration = ++sessionGeneration",
+  "const requestReloadSequence = ++sessionReloadSequence",
+  "requestReloadSequence !== sessionReloadSequence",
   "currentSession?.user?.id !== session.user?.id",
   "currentSession = session",
   "if (requestSessionGeneration !== sessionGeneration) return",
