@@ -62,6 +62,7 @@ interface SessionResult {
 
 const COOKIE_ACCESS_TOKEN = "__Host-mm_access";
 const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
+const MAX_ACCESS_COOKIE_AGE_SECONDS = 60 * 60;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_DISCORD_BODY_BYTES = 64 * 1024;
 const DISCORD_SIGNATURE_TOLERANCE_SECONDS = 60 * 5;
@@ -150,11 +151,13 @@ function ensureSupabaseConfig(env: Env): { url: string; anonKey: string } {
 class AppError extends Error {
   status: number;
   code: string;
+  responseCookies: string[];
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, responseCookies: string[] = []) {
     super(message);
     this.status = status;
     this.code = code;
+    this.responseCookies = responseCookies;
   }
 }
 
@@ -206,7 +209,7 @@ function errorResponse(error: unknown): Response {
     return jsonResponse({
       code: error.code,
       message: error.message
-    }, { status: error.status });
+    }, { status: error.status }, error.responseCookies);
   }
 
   return jsonResponse({
@@ -217,7 +220,8 @@ function errorResponse(error: unknown): Response {
 
 async function readJsonBody<T>(request: Request): Promise<T> {
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
     throw new AppError(415, "JSON_CONTENT_TYPE_REQUIRED", "Content-Typeはapplication/jsonにしてください。");
   }
 
@@ -273,7 +277,12 @@ function parseCookies(request: Request, tolerateInvalidSessionCookies = false): 
     } catch {
       if ([COOKIE_ACCESS_TOKEN, COOKIE_REFRESH_TOKEN].includes(rawName)) {
         if (tolerateInvalidSessionCookies) continue;
-        throw new AppError(401, "SESSION_INVALID", "ログイン状態を確認できません。もう一度ログインしてください。");
+        throw new AppError(
+          401,
+          "SESSION_INVALID",
+          "ログイン状態を確認できません。もう一度ログインしてください。",
+          clearSessionCookies()
+        );
       }
       continue;
     }
@@ -1069,6 +1078,35 @@ async function assertSupabaseOk(response: Response, fallbackCode: string, fallba
   throw new AppError(response.status, fallbackCode, fallbackMessage);
 }
 
+function parseAuthTokenResponse(
+  payload: unknown,
+  invalidCode: string,
+  invalidMessage: string,
+  invalidStatus = 502
+): SupabaseAuthTokenResponse {
+  if (!payload || typeof payload !== "object") {
+    throw new AppError(invalidStatus, invalidCode, invalidMessage);
+  }
+
+  const auth = payload as Partial<SupabaseAuthTokenResponse>;
+  const expiresIn = auth.expires_in;
+  if (
+    typeof auth.access_token !== "string" || !auth.access_token ||
+    typeof auth.refresh_token !== "string" || !auth.refresh_token ||
+    !auth.user || typeof auth.user.id !== "string" || !auth.user.id ||
+    typeof expiresIn !== "number" || !Number.isSafeInteger(expiresIn) || expiresIn <= 0
+  ) {
+    throw new AppError(invalidStatus, invalidCode, invalidMessage);
+  }
+
+  return {
+    access_token: auth.access_token,
+    refresh_token: auth.refresh_token,
+    expires_in: Math.min(Math.floor(expiresIn), MAX_ACCESS_COOKIE_AGE_SECONDS),
+    user: auth.user
+  };
+}
+
 async function login(request: Request, env: Env): Promise<Response> {
   const body = await readJsonBody<{ email?: string; password?: string }>(request);
   const email = String(body.email ?? "").trim();
@@ -1078,20 +1116,47 @@ async function login(request: Request, env: Env): Promise<Response> {
     throw new AppError(400, "LOGIN_INPUT_REQUIRED", "メールアドレスとパスワードを入力してください。");
   }
 
-  const response = await supabaseFetch(env, "/auth/v1/token?grant_type=password", {
-    method: "POST",
-    body: JSON.stringify({ email, password })
-  });
-
-  const payload = await assertSupabaseOk(response, "LOGIN_FAILED", "ログインに失敗しました。");
-  const auth = payload as SupabaseAuthTokenResponse;
-
-  if (!auth.access_token || !auth.refresh_token || !auth.user?.id) {
-    throw new AppError(502, "LOGIN_RESPONSE_INVALID", "認証レスポンスを確認できませんでした。");
+  let response: Response;
+  try {
+    response = await supabaseFetch(env, "/auth/v1/token?grant_type=password", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+  } catch {
+    throw new AppError(
+      502,
+      "LOGIN_SERVICE_UNAVAILABLE",
+      "認証サービスに接続できませんでした。時間をおいて、もう一度お試しください。"
+    );
   }
 
+  if (!response.ok) {
+    await readSupabaseJson(response).catch(() => null);
+    if ([400, 401, 422].includes(response.status)) {
+      throw new AppError(
+        400,
+        "LOGIN_FAILED",
+        "メールアドレスまたはパスワードを確認して、もう一度ログインしてください。"
+      );
+    }
+    if (response.status === 429) {
+      throw new AppError(429, "LOGIN_RATE_LIMITED", "ログイン試行が多すぎます。時間をおいて、もう一度お試しください。");
+    }
+    throw new AppError(
+      502,
+      "LOGIN_SERVICE_UNAVAILABLE",
+      "認証サービスを利用できません。時間をおいて、もう一度お試しください。"
+    );
+  }
+
+  const auth = parseAuthTokenResponse(
+    await readSupabaseJson(response),
+    "LOGIN_RESPONSE_INVALID",
+    "認証レスポンスを確認できませんでした。時間をおいて、もう一度お試しください。"
+  );
+
   const cookies = [
-    sessionCookie(COOKIE_ACCESS_TOKEN, auth.access_token, auth.expires_in || 3600),
+    sessionCookie(COOKIE_ACCESS_TOKEN, auth.access_token, auth.expires_in),
     sessionCookie(COOKIE_REFRESH_TOKEN, auth.refresh_token, 60 * 60 * 24 * 30)
   ];
 
@@ -1099,28 +1164,46 @@ async function login(request: Request, env: Env): Promise<Response> {
 }
 
 async function refreshSession(env: Env, refreshToken: string): Promise<SessionResult> {
-  const response = await supabaseFetch(env, "/auth/v1/token?grant_type=refresh_token", {
-    method: "POST",
-    body: JSON.stringify({ refresh_token: refreshToken })
-  });
+  let response: Response;
+  try {
+    response = await supabaseFetch(env, "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+  } catch {
+    throw new AppError(502, "SESSION_REFRESH_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
   if (!response.ok) {
     if ([400, 401].includes(response.status)) {
-      throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。");
+      throw new AppError(
+        401,
+        "SESSION_EXPIRED",
+        "セッションの有効期限が切れました。もう一度ログインしてください。",
+        clearSessionCookies()
+      );
     }
     throw new AppError(502, "SESSION_REFRESH_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
-  const payload = await readSupabaseJson(response);
-  const auth = payload as SupabaseAuthTokenResponse;
-
-  if (!auth.access_token || !auth.refresh_token || !auth.user?.id) {
-    throw new AppError(401, "SESSION_REFRESH_INVALID", "もう一度ログインしてください。");
+  let auth: SupabaseAuthTokenResponse;
+  try {
+    auth = parseAuthTokenResponse(
+      await readSupabaseJson(response),
+      "SESSION_REFRESH_INVALID",
+      "セッションの有効期限が切れました。もう一度ログインしてください。",
+      401
+    );
+  } catch (error) {
+    if (error instanceof AppError && error.code === "SESSION_REFRESH_INVALID") {
+      error.responseCookies = clearSessionCookies();
+    }
+    throw error;
   }
 
   return {
     user: auth.user,
     accessToken: auth.access_token,
     responseCookies: [
-      sessionCookie(COOKIE_ACCESS_TOKEN, auth.access_token, auth.expires_in || 3600),
+      sessionCookie(COOKIE_ACCESS_TOKEN, auth.access_token, auth.expires_in),
       sessionCookie(COOKIE_REFRESH_TOKEN, auth.refresh_token, 60 * 60 * 24 * 30)
     ]
   };
@@ -1129,7 +1212,8 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
 async function requireSession(
   request: Request,
   env: Env,
-  cookies = parseCookies(request)
+  cookies = parseCookies(request),
+  allowRefresh = false
 ): Promise<SessionResult> {
   const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
   const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
@@ -1139,9 +1223,17 @@ async function requireSession(
   }
 
   if (accessToken) {
-    const response = await supabaseFetch(env, "/auth/v1/user", { method: "GET" }, accessToken);
+    let response: Response;
+    try {
+      response = await supabaseFetch(env, "/auth/v1/user", { method: "GET" }, accessToken);
+    } catch {
+      throw new AppError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
+    }
     if (response.ok) {
-      const user = await response.json() as SupabaseUser;
+      const user = await response.json().catch(() => null) as SupabaseUser | null;
+      if (!user || typeof user.id !== "string" || !user.id) {
+        throw new AppError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
+      }
       return { user, accessToken, responseCookies: [] };
     }
     if (response.status >= 500 || response.status === 429) {
@@ -1150,10 +1242,30 @@ async function requireSession(
   }
 
   if (refreshToken) {
+    if (!allowRefresh) {
+      throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+    }
     return refreshSession(env, refreshToken);
   }
 
-  throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。");
+  throw new AppError(
+    401,
+    "SESSION_EXPIRED",
+    "セッションの有効期限が切れました。",
+    clearSessionCookies()
+  );
+}
+
+async function refreshAuthentication(request: Request, env: Env): Promise<Response> {
+  await readJsonBody<Record<string, never>>(request);
+  const cookies = parseCookies(request);
+  const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
+  if (!refreshToken) {
+    throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。", clearSessionCookies());
+  }
+
+  const session = await refreshSession(env, refreshToken);
+  return jsonResponse({ status: "ok", user: sanitizeUser(session.user) }, undefined, session.responseCookies);
 }
 
 function sanitizeUser(user: SupabaseUser): SupabaseUser {
@@ -1222,6 +1334,7 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {
+  await readJsonBody<Record<string, never>>(request);
   const cookies = parseCookies(request, true);
   if (!cookies.has(COOKIE_ACCESS_TOKEN) && !cookies.has(COOKIE_REFRESH_TOKEN)) {
     return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
@@ -1229,7 +1342,7 @@ async function logout(request: Request, env: Env): Promise<Response> {
 
   let session: SessionResult;
   try {
-    session = await requireSession(request, env, cookies);
+    session = await requireSession(request, env, cookies, true);
   } catch (error) {
     if (error instanceof AppError && error.code === "SESSION_EXPIRED") {
       return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
@@ -1324,6 +1437,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(env);
   if (request.method === "GET" && url.pathname === "/api/session") return getSession(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
+  if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout(request, env);
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
     const session = await requireSession(request, env);

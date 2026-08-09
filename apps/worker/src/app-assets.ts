@@ -540,10 +540,46 @@ async function withAuthenticationLock(operation) {
 async function loginWithAuthenticationLock(options) {
   return withAuthenticationLock(async () => {
     readAuthenticationVersion();
-    const result = await requestJson("/api/auth/login", options);
+    const result = await requestJson("/api/auth/login", options, false);
     advanceAuthenticationVersion();
     announceAuthenticationChange();
     return result;
+  });
+}
+
+function isReadRequest(options) {
+  return !options.method || String(options.method).toUpperCase() === "GET";
+}
+
+function retryReadOrRejectAuthenticationChange(path, options) {
+  if (isReadRequest(options)) return requestJsonOnce(path, options);
+  throw new AppRequestError(
+    "ログイン状態が別のタブで変更されたため、この操作は実行しませんでした。画面を確認して、もう一度お試しください。",
+    409,
+    "AUTHENTICATION_CHANGED"
+  );
+}
+
+async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options) {
+  return withAuthenticationLock(async () => {
+    if (readAuthenticationVersion() !== expectedVersion) {
+      return retryReadOrRejectAuthenticationChange(path, options);
+    }
+
+    try {
+      return await requestJsonOnce(path, options);
+    } catch (error) {
+      if (error.code !== "SESSION_REFRESH_REQUIRED") throw error;
+    }
+
+    if (readAuthenticationVersion() !== expectedVersion) {
+      return retryReadOrRejectAuthenticationChange(path, options);
+    }
+    await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
+    if (readAuthenticationVersion() !== expectedVersion) {
+      return retryReadOrRejectAuthenticationChange(path, options);
+    }
+    return requestJsonOnce(path, options);
   });
 }
 
@@ -552,7 +588,7 @@ async function logoutWithAuthenticationLock(expectedVersion) {
     if (readAuthenticationVersion() !== expectedVersion) return false;
     advanceAuthenticationVersion();
     try {
-      await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
+      await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false);
       announceAuthenticationChange();
       return true;
     } catch (error) {
@@ -618,7 +654,7 @@ function clearBox(id) {
   box.className = box.className.includes("notice") ? "notice-box" : "error-box";
 }
 
-async function requestJson(path, options = {}) {
+async function requestJsonOnce(path, options = {}) {
   let response;
   try {
     response = await fetch(path, {
@@ -657,6 +693,48 @@ async function requestJson(path, options = {}) {
   return payload;
 }
 
+async function requestJson(path, options = {}, allowSessionRefresh = true) {
+  let expectedVersion = null;
+  let coordinationError = null;
+  if (allowSessionRefresh) {
+    try {
+      expectedVersion = readAuthenticationVersion();
+    } catch (error) {
+      coordinationError = error;
+    }
+  }
+
+  try {
+    return await requestJsonOnce(path, options);
+  } catch (error) {
+    if (!allowSessionRefresh || error.code !== "SESSION_REFRESH_REQUIRED") throw error;
+    if (coordinationError) throw coordinationError;
+    return retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options);
+  }
+}
+
+const terminalSessionCodes = new Set([
+  "SESSION_REQUIRED",
+  "SESSION_INVALID",
+  "SESSION_EXPIRED",
+  "SESSION_REFRESH_INVALID"
+]);
+
+function isTerminalSessionError(error) {
+  return error.status === 401 && terminalSessionCodes.has(error.code);
+}
+
+function validateLoginForm(form) {
+  const email = form.elements.email;
+  const password = form.elements.password;
+  if (!email.value.trim()) return "メールアドレスを入力してください。";
+  if (email.validity.typeMismatch) {
+    return "メールアドレスの形式を確認してください。";
+  }
+  if (!password.value) return "パスワードを入力してください。";
+  return "";
+}
+
 function renderLogin(message = "") {
   app.innerHTML =
     '<section class="login-screen">' +
@@ -673,7 +751,7 @@ function renderLogin(message = "") {
           '<h2>ログイン</h2>' +
           '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
         '</div>' +
-        '<form id="login-form" class="form">' +
+        '<form id="login-form" class="form" novalidate>' +
           '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
@@ -692,7 +770,14 @@ function renderLogin(message = "") {
     event.preventDefault();
     clearBox("login-message");
     const button = event.currentTarget.querySelector("button");
+    const validationMessage = validateLoginForm(event.currentTarget);
+    if (validationMessage) {
+      setBox("login-message", validationMessage, "error");
+      return;
+    }
     button.disabled = true;
+    button.textContent = "ログイン中";
+    event.currentTarget.setAttribute("aria-busy", "true");
     try {
       const form = new FormData(event.currentTarget);
       await loginWithAuthenticationLock({
@@ -707,9 +792,15 @@ function renderLogin(message = "") {
       setBox("login-message", error.message, "error");
     } finally {
       button.disabled = false;
+      button.textContent = "ログイン";
+      event.currentTarget.removeAttribute("aria-busy");
     }
   });
-  if (message) document.getElementById("login-message").focus();
+  if (message) {
+    document.getElementById("login-message").focus();
+  } else {
+    document.getElementById("email").focus();
+  }
 }
 
 function renderLoadFailure(title, message) {
@@ -801,7 +892,7 @@ async function loadSession() {
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     replaceCurrentSession(null);
-    if (error.status === 401) {
+    if (isTerminalSessionError(error)) {
       let message = "";
       if (error.code === "SESSION_INVALID") {
         message = "ログイン状態を確認できません。もう一度ログインしてください。";
@@ -812,6 +903,10 @@ async function loadSession() {
       return;
     }
     if (error.status === 0) {
+      if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
+        renderLoadFailure("このブラウザでは安全に続行できません", error.message);
+        return;
+      }
       renderLoadFailure("サーバーに接続できません", error.message);
       return;
     }
@@ -873,6 +968,8 @@ async function logout() {
   clearBox("shell-message");
   const button = document.getElementById("logout-button");
   button.disabled = true;
+  button.textContent = "ログアウト中";
+  button.setAttribute("aria-busy", "true");
   const requestSessionGeneration = ++sessionGeneration;
   try {
     const requestAuthenticationVersion = readAuthenticationVersion();
@@ -892,14 +989,21 @@ async function logout() {
       return;
     }
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
-      setBox("shell-message", "ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。", "error");
+      const message = error.code === "NETWORK_ERROR"
+        ? "サーバーに接続できず、ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。"
+        : "サーバーの応答を確認できず、ログアウトを完了できませんでした。時間をおいて、もう一度お試しください。";
+      setBox("shell-message", message, "error");
       return;
     }
     replaceCurrentSession(null);
     renderLogin(error.message);
   } finally {
     const activeButton = document.getElementById("logout-button");
-    if (activeButton) activeButton.disabled = false;
+    if (activeButton) {
+      activeButton.disabled = false;
+      activeButton.textContent = "ログアウト";
+      activeButton.removeAttribute("aria-busy");
+    }
   }
 }
 

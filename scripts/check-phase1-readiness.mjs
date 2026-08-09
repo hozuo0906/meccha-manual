@@ -39,6 +39,7 @@ const forbiddenRuntimeSnippets = [
 
 const requiredWorkerSnippets = [
   "POST\" && url.pathname === \"/api/auth/login\"",
+  "POST\" && url.pathname === \"/api/auth/refresh\"",
   "POST\" && url.pathname === \"/api/auth/logout\"",
   "GET\" && url.pathname === \"/api/session\"",
   "GET\" && url.pathname === \"/api/workspaces\"",
@@ -104,6 +105,10 @@ if (!packageJson.scripts?.["worker:runtime:test"]) {
   errors.push("package.json must define worker:runtime:test.");
 }
 
+if (!packageJson.scripts?.["app:auth:test"]) {
+  errors.push("package.json must define app:auth:test.");
+}
+
 if (!packageJson.scripts?.["phase1-migration:bundle"]) {
   errors.push("package.json must define phase1-migration:bundle.");
 }
@@ -156,6 +161,7 @@ for (const command of [
   "npm run secrets:check",
   "npm run worker:check",
   "npm run worker:runtime:test",
+  "npm run app:auth:test",
   "node --experimental-strip-types --check apps/worker/src/index.ts",
   "node --experimental-strip-types --check apps/worker/src/app-assets.ts",
   "npm run phase1-readiness:check"

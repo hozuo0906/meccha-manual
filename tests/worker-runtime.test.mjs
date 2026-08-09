@@ -108,7 +108,7 @@ test("認証サービスの詳細エラーをログイン画面へ露出しな�
 
   assert.equal(response.status, 400);
   assert.equal(payload.code, "LOGIN_FAILED");
-  assert.equal(payload.message, "ログインに失敗しました。");
+  assert.equal(payload.message, "メールアドレスまたはパスワードを確認して、もう一度ログインしてください。");
   assert.doesNotMatch(payload.message, /supplied email|does not exist/i);
 });
 
@@ -252,66 +252,108 @@ test("ログアウト時のrefresh成功レスポンスが不正なら失効未�
   assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
 });
 
-test("更新トークン拒否は期限切れ401として扱う", async () => {
+test("保護GETはCookieを更新せず専用POSTへrefreshを要求する", async () => {
+  const calls = [];
   globalThis.fetch = async (url) => {
+    calls.push(String(url));
     if (String(url).endsWith("/auth/v1/user")) {
       return Response.json({ message: "invalid JWT" }, { status: 401 });
     }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.code, "SESSION_REFRESH_REQUIRED");
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.equal(calls.length, 1);
+});
+
+test("専用refreshで更新トークンが拒否されたらCookieを削除する", async () => {
+  globalThis.fetch = async (url) => {
     if (String(url).includes("grant_type=refresh_token")) {
       return Response.json({ message: "refresh token not found" }, { status: 400 });
     }
     throw new Error(`unexpected fetch: ${url}`);
   };
 
-  const response = await worker.fetch(appRequest("/api/session", {
-    headers: { cookie: sessionCookie() }
+  const response = await worker.fetch(appRequest("/api/auth/refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
   }), env, ctx);
   const payload = await response.json();
 
   assert.equal(response.status, 401);
   assert.equal(payload.code, "SESSION_EXPIRED");
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_access=.*Max-Age=0/);
+  assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
 });
 
-test("更新トークン拒否の本文が壊れていても期限切れ401として扱う", async () => {
+test("専用refreshの認証サーバー障害を期限切れとして誤表示しない", async () => {
   globalThis.fetch = async (url) => {
-    if (String(url).endsWith("/auth/v1/user")) {
-      return Response.json({ message: "invalid JWT" }, { status: 401 });
-    }
-    if (String(url).includes("grant_type=refresh_token")) {
-      return new Response(new ReadableStream({
-        start(controller) {
-          controller.error(new Error("response body aborted"));
-        }
-      }), { status: 400 });
-    }
-    throw new Error(`unexpected fetch: ${url}`);
-  };
-
-  const response = await worker.fetch(appRequest("/api/session", {
-    headers: { cookie: sessionCookie() }
-  }), env, ctx);
-  const payload = await response.json();
-
-  assert.equal(response.status, 401);
-  assert.equal(payload.code, "SESSION_EXPIRED");
-});
-
-test("認証サーバー障害を期限切れとして誤表示しない", async () => {
-  globalThis.fetch = async (url) => {
-    if (String(url).endsWith("/auth/v1/user")) {
-      return Response.json({ message: "invalid JWT" }, { status: 401 });
-    }
     return Response.json({ message: "temporary failure" }, { status: 503 });
   };
 
-  const response = await worker.fetch(appRequest("/api/session", {
-    headers: { cookie: sessionCookie() }
+  const response = await worker.fetch(appRequest("/api/auth/refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
   }), env, ctx);
   const payload = await response.json();
 
   assert.equal(response.status, 502);
   assert.equal(payload.code, "SESSION_REFRESH_FAILED");
   assert.match(payload.message, /時間をおいて/);
+});
+
+test("専用refreshは回転済みCookieを先に返しtokenを本文へ露出しない", async () => {
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /grant_type=refresh_token/);
+    return Response.json({
+      access_token: "rotated-access",
+      refresh_token: "rotated-refresh",
+      expires_in: 7200,
+      user: { id: "00000000-0000-4000-8000-000000000001", email: "user@example.invalid" }
+    });
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+  const setCookie = response.headers.get("set-cookie") || "";
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.status, "ok");
+  assert.equal(payload.access_token, undefined);
+  assert.equal(payload.refresh_token, undefined);
+  assert.match(setCookie, /__Host-mm_access=rotated-access/);
+  assert.match(setCookie, /__Host-mm_refresh=rotated-refresh/);
+  assert.match(setCookie, /HttpOnly/);
+  assert.match(setCookie, /Secure/);
+  assert.match(setCookie, /SameSite=Lax/);
+  assert.match(setCookie, /Path=\//);
+  assert.doesNotMatch(setCookie, /Domain=/i);
+  assert.match(setCookie, /Max-Age=3600/);
 });
 
 test("セッション確認APIの障害も期限切れとして誤表示しない", async () => {
@@ -380,4 +422,180 @@ test("access Cookieだけの場合も認証サーバー障害をログアウト�
   assert.equal(response.status, 502);
   assert.equal(payload.code, "LOGOUT_REVOKE_FAILED");
   assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
+});
+
+test("ログイン成功は安全なCookieだけでtokenを本文へ返さない", async () => {
+  globalThis.fetch = async () => Response.json({
+    access_token: "login-access",
+    refresh_token: "login-refresh",
+    expires_in: 3600,
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "user@example.invalid" }
+  });
+
+  const response = await worker.fetch(appRequest("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example"
+    },
+    body: JSON.stringify({ email: "user@example.invalid", password: "not-a-real-secret" })
+  }), env, ctx);
+  const payload = await response.json();
+  const setCookie = response.headers.get("set-cookie") || "";
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload, {
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "user@example.invalid" }
+  });
+  assert.doesNotMatch(JSON.stringify(payload), /login-access|login-refresh/);
+  assert.match(setCookie, /__Host-mm_access=login-access/);
+  assert.match(setCookie, /__Host-mm_refresh=login-refresh/);
+  assert.match(setCookie, /HttpOnly/);
+  assert.match(setCookie, /Secure/);
+  assert.match(setCookie, /SameSite=Lax/);
+  assert.doesNotMatch(setCookie, /Domain=/i);
+});
+
+test("認証サービスへの接続失敗は再試行可能な502へ正規化する", async () => {
+  globalThis.fetch = async () => {
+    throw new Error("upstream connection reset");
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example"
+    },
+    body: JSON.stringify({ email: "user@example.invalid", password: "not-a-real-secret" })
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "LOGIN_SERVICE_UNAVAILABLE");
+  assert.match(payload.message, /時間をおいて/);
+  assert.doesNotMatch(JSON.stringify(payload), /connection reset|not-a-real-secret/);
+});
+
+test("認証サービスの5xxを資格情報エラーと誤表示しない", async () => {
+  globalThis.fetch = async () => Response.json({ message: "database unavailable" }, { status: 503 });
+
+  const response = await worker.fetch(appRequest("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example"
+    },
+    body: JSON.stringify({ email: "user@example.invalid", password: "not-a-real-secret" })
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "LOGIN_SERVICE_UNAVAILABLE");
+  assert.doesNotMatch(payload.message, /パスワードを確認/);
+  assert.doesNotMatch(JSON.stringify(payload), /database unavailable/);
+});
+
+test("全認証POSTは偽のJSON MIMEを拒否する", async () => {
+  const routes = [
+    ["/api/auth/login", JSON.stringify({ email: "user@example.invalid", password: "not-a-real-secret" })],
+    ["/api/auth/refresh", "{}"],
+    ["/api/auth/logout", "{}"]
+  ];
+  for (const [path, body] of routes) {
+    for (const contentType of ["application/jsonx", "text/application/json"]) {
+      const response = await worker.fetch(appRequest(path, {
+        method: "POST",
+        headers: {
+          "content-type": contentType,
+          "origin": "https://app.example",
+          "cookie": sessionCookie()
+        },
+        body
+      }), env, ctx);
+      assert.equal(response.status, 415, `${path} ${contentType}`);
+      assert.equal((await response.json()).code, "JSON_CONTENT_TYPE_REQUIRED", `${path} ${contentType}`);
+    }
+  }
+});
+
+test("全認証POSTはContent-Length上限超過を外部通信前に拒否する", async () => {
+  globalThis.fetch = async () => {
+    throw new Error("上限超過時に外部通信してはいけません");
+  };
+  for (const path of ["/api/auth/login", "/api/auth/refresh", "/api/auth/logout"]) {
+    const response = await worker.fetch(appRequest(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(16 * 1024 + 1),
+        "origin": "https://app.example",
+        "cookie": sessionCookie()
+      },
+      body: "{}"
+    }), env, ctx);
+    assert.equal(response.status, 413, path);
+    assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE", path);
+  }
+});
+
+test("不正な認証成功payloadではCookieを発行しない", async () => {
+  globalThis.fetch = async () => Response.json({
+    access_token: "access-token",
+    refresh_token: "refresh-token",
+    expires_in: "not-a-number",
+    user: { id: "00000000-0000-4000-8000-000000000001" }
+  });
+
+  const response = await worker.fetch(appRequest("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example"
+    },
+    body: JSON.stringify({ email: "user@example.invalid", password: "not-a-real-secret" })
+  }), env, ctx);
+
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, "LOGIN_RESPONSE_INVALID");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("認証ユーザー応答が不正なら再試行可能な502にする", async () => {
+  globalThis.fetch = async () => Response.json({ email: "missing-id@example.invalid" });
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "SESSION_VERIFY_FAILED");
+});
+
+test("refresh通信失敗はCookieを残した再試行可能な502にする", async () => {
+  globalThis.fetch = async () => {
+    throw new Error("temporary refresh outage");
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "SESSION_REFRESH_FAILED");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("ログアウト後のCookieなし保護APIは401になる", async () => {
+  const response = await worker.fetch(appRequest("/api/session"), env, ctx);
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "SESSION_REQUIRED");
 });

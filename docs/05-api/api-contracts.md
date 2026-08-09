@@ -19,8 +19,9 @@ Status: Proposed
 | API | 目的 | 認可・失敗境界 |
 |---|---|---|
 | `POST /api/auth/login` | Supabase AuthログインとHttpOnly Cookie発行 | public。同一origin + JSON必須。認証サービスの内部エラー本文は返さない |
+| `POST /api/auth/refresh` | refresh tokenを交換してHttpOnly Cookieを更新 | session。同一origin + JSON必須。login/logoutと同じWeb Lock内だけで呼び、通常GET・業務APIはCookieを更新しない |
 | `POST /api/auth/logout` | 現在のSupabase session失効とCookie削除 | session。失効確認失敗時もCookieを削除し、`502 LOGOUT_REVOKE_FAILED`で再試行を案内 |
-| `GET /api/session` | 現在ユーザー、profile、所属workspaceを取得 | session。未認証・期限切れは401、接続・上流失敗と区別 |
+| `GET /api/session` | 現在ユーザー、profile、所属workspaceを取得 | session。access token失効時はCookieを変えず`401 SESSION_REFRESH_REQUIRED`、未認証・期限切れ・接続・上流失敗を区別 |
 | `GET /api/workspaces` | 所属workspace一覧 | session + RLS |
 | `POST /api/workspaces` | `create_workspace` RPCによるworkspace作成 | session。同一origin + JSON必須 |
 
