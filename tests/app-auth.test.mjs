@@ -1343,6 +1343,50 @@ test("作成中の一覧更新と結果不明応答が競合してもロック�
   assert.match(app.innerHTML, /一覧で結果を確認してください/);
 });
 
+test("保留中POSTを一覧で確認できたら遅延した結果不明応答で再ロックしない", async () => {
+  const createResponse = deferred();
+  const createdSession = {
+    user: { id: "user-1" },
+    workspaces: [{
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "営業部",
+      slug: "sales-team",
+      status: "active",
+      created_at: "2026-08-10T00:00:00Z"
+    }]
+  };
+  const { api, element, app, sessionStorageValues } = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/workspaces") return createResponse.promise;
+      if (path === "/api/session") return Response.json(createdSession);
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  const createPending = form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+  await element("reload-button").listeners.get("click")({ currentTarget: element("reload-button") });
+
+  assert.match(app.innerHTML, /作成済みのワークスペースを一覧で確認できました/);
+  assert.doesNotMatch(app.innerHTML, /ワークスペースを作成中|作成結果を確認中/);
+  assert.equal(sessionStorageValues.has("meccha-manual-uncertain-workspace"), false);
+
+  createResponse.resolve(Response.json({
+    code: "WORKSPACE_CREATE_RESULT_UNKNOWN",
+    message: "遅延した結果不明"
+  }, { status: 502 }));
+  await createPending;
+
+  assert.equal(sessionStorageValues.has("meccha-manual-uncertain-workspace"), false);
+  assert.doesNotMatch(app.innerHTML, /重ねて作成せず|作成結果を確認中/);
+  assert.match(app.innerHTML, /sales-team/);
+});
+
 test("結果不明ロックはsessionStorageへ保存できなくてもページ内で再送を防ぐ", async () => {
   let postCalls = 0;
   const { api, element, app } = createHarness({
@@ -1468,10 +1512,11 @@ test("workspace主要操作はrenderShellが登録したlistener経路で動作�
   assert.deepEqual(calls, [["/api/session", "GET"]]);
 });
 
-test("workspace作成の403と429は確定失敗として再試行できる", async () => {
+test("workspace作成の権限・実行前拒否・サービス障害は結果不明ロックを解除する", async () => {
   for (const [label, status, code] of [
     ["forbidden", 403, "WORKSPACE_CREATE_FORBIDDEN"],
-    ["rate limited", 502, "WORKSPACE_CREATE_FAILED"]
+    ["rate limited", 502, "WORKSPACE_CREATE_FAILED"],
+    ["service unavailable", 502, "WORKSPACE_CREATE_SERVICE_UNAVAILABLE"]
   ]) {
     let postCalls = 0;
     const { api, element, sessionStorageValues } = createHarness({

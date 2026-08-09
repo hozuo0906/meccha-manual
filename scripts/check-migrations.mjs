@@ -53,6 +53,8 @@ const requiredPhase1HardeningSnippets = [
 const requiredPhase1InputHardeningSnippets = [
   "constraint workspaces_name_length",
   "create or replace function public.normalize_workspace_name(workspace_name text)",
+  "update public.workspaces",
+  "left(public.normalize_workspace_name(name), 64)",
   "name = public.normalize_workspace_name(name)",
   "char_length(name) between 1 and 64",
   "normalized_name text := public.normalize_workspace_name(workspace_name)",

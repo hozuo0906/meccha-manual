@@ -64,6 +64,7 @@ interface WorkspaceSummary {
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORKSPACE_INPUT_ERROR_CODES = new Set(["22023", "23505"]);
 
 interface SessionResult {
   user: SupabaseUser;
@@ -1532,14 +1533,22 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
     if (response.status >= 500) {
       throw new AppError(502, "WORKSPACE_CREATE_RESULT_UNKNOWN", "作成処理の結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。");
     }
-    const retryable = response.status === 429;
-    throw new AppError(
-      retryable ? 502 : 400,
-      "WORKSPACE_CREATE_FAILED",
-      retryable
-        ? "ワークスペースを作成できませんでした。時間をおいて、もう一度お試しください。"
-        : "ワークスペースを作成できませんでした。入力内容を確認して、もう一度お試しください。"
-    );
+    if (response.status === 429) {
+      throw new AppError(502, "WORKSPACE_CREATE_FAILED", "ワークスペースを作成できませんでした。時間をおいて、もう一度お試しください。");
+    }
+    let upstreamCode = "";
+    try {
+      const upstreamError = await readSupabaseJson(response);
+      if (upstreamError && typeof upstreamError === "object" && "code" in upstreamError) {
+        upstreamCode = String(upstreamError.code);
+      }
+    } catch {
+      // 不正な上流エラー本文は入力不正と決めつけず、サービス障害として扱う。
+    }
+    if ((response.status === 400 || response.status === 409) && WORKSPACE_INPUT_ERROR_CODES.has(upstreamCode)) {
+      throw new AppError(400, "WORKSPACE_CREATE_FAILED", "ワークスペースを作成できませんでした。入力内容を確認して、もう一度お試しください。");
+    }
+    throw new AppError(502, "WORKSPACE_CREATE_SERVICE_UNAVAILABLE", "ワークスペース作成サービスを利用できません。入力を変えず、管理者に確認してください。");
   }
 
   let workspaceId: unknown;

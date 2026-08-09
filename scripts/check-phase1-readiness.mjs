@@ -138,6 +138,8 @@ for (const snippet of [
 
 const inputHardening = contents["supabase/migrations/202608100001_phase1_workspace_input_hardening.sql"] || "";
 for (const snippet of [
+  "update public.workspaces",
+  "left(public.normalize_workspace_name(name), 64)",
   "name = public.normalize_workspace_name(name)",
   "char_length(name) between 1 and 64",
   "workspace name must be between 1 and 64 characters",

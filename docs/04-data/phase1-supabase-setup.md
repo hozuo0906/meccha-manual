@@ -18,7 +18,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 supabase/migrations/202608100001_phase1_workspace_input_hardening.sql
 ```
 
-bundle内では上記の順に実行する。membership hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。input hardening migrationはワークスペース名をtrim後1〜64文字へ固定し、slug形式をRPCとテーブル制約の両方で検証する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
+bundle内では上記の順に実行する。membership hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。input hardening migrationは、旧仕様で許容された既存名を制約検証前に正規化・64文字へ補正し、拡張空白だけの値を「名称未設定」へ置換したうえで、ワークスペース名をtrim後1〜64文字へ固定し、slug形式をRPCとテーブル制約の両方で検証する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
 
 bundleは次のコマンドで標準出力へ生成する。生成物には接続先やSecretを含めない。
 
@@ -26,9 +26,9 @@ bundleは次のコマンドで標準出力へ生成する。生成物には接�
 node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 ```
 
-生成後、最初の実行文が`begin;`、末尾が`commit;`であり、2つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
+生成後、最初の実行文が`begin;`、末尾が`commit;`であり、3つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
 
-`npm run test:phase1-migration-bundle`は、単一transaction、2ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
+`npm run test:phase1-migration-bundle`は、単一transaction、3ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
 
 作成される主な要素:
 

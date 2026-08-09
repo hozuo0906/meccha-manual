@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-d28f214afa1c8145";
+export const APP_ASSET_VERSION = "sha256-3993d5b29c2feecd";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1192,6 +1192,13 @@ async function loadSession(options = {}) {
         (workspace) => workspace.slug === uncertainWorkspaceCreation.slug
       );
       if (created) {
+        if (
+          workspaceCreationInFlight?.userId === session.user?.id &&
+          workspaceCreationInFlight.slug === created.slug
+        ) {
+          workspaceCreationInFlight.confirmed = true;
+          workspaceCreationInFlight = null;
+        }
         clearUncertainWorkspaceCreation();
         notice = "作成済みのワークスペースを一覧で確認できました。";
       } else {
@@ -1266,7 +1273,8 @@ async function createWorkspace(event) {
   const submittedWorkspace = {
     userId: requestUserId,
     name: event.currentTarget.elements.name.value.trim(),
-    slug: event.currentTarget.elements.slug.value.trim().toLowerCase()
+    slug: event.currentTarget.elements.slug.value.trim().toLowerCase(),
+    confirmed: false
   };
   workspaceCreationInFlight = submittedWorkspace;
   saveUncertainWorkspaceCreation(submittedWorkspace);
@@ -1317,11 +1325,18 @@ async function createWorkspace(event) {
       created ? "notice" : "warning"
     );
   } catch (error) {
+    if (submittedWorkspace.confirmed) {
+      clearUncertainWorkspaceCreation();
+      return;
+    }
     const resultUnknown = !workspaceCreated && (
       error.code === "WORKSPACE_CREATE_RESULT_UNKNOWN" ||
       error.code === "NETWORK_ERROR" ||
       error.code === "INVALID_RESPONSE" ||
-      (error.status >= 500 && error.code !== "WORKSPACE_CREATE_FAILED")
+      (error.status >= 500 && ![
+        "WORKSPACE_CREATE_FAILED",
+        "WORKSPACE_CREATE_SERVICE_UNAVAILABLE"
+      ].includes(error.code))
     );
     if (resultUnknown) {
       if (currentSession?.user?.id === requestUserId) {

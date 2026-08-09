@@ -931,15 +931,18 @@ test("RPC成功payloadが文字列IDでなければ作成済みIDとして受理
 });
 
 test("workspace上流の権限不足と障害を日本語の安定codeへ正規化する", async () => {
-  for (const [upstreamStatus, expectedStatus, expectedCode] of [
-    [403, 403, "WORKSPACE_CREATE_FORBIDDEN"],
-    [429, 502, "WORKSPACE_CREATE_FAILED"],
-    [503, 502, "WORKSPACE_CREATE_RESULT_UNKNOWN"]
+  for (const [upstreamStatus, upstreamCode, expectedStatus, expectedCode] of [
+    [400, "22023", 400, "WORKSPACE_CREATE_FAILED"],
+    [403, "42501", 403, "WORKSPACE_CREATE_FORBIDDEN"],
+    [404, "PGRST202", 502, "WORKSPACE_CREATE_SERVICE_UNAVAILABLE"],
+    [409, "23505", 400, "WORKSPACE_CREATE_FAILED"],
+    [429, "PGRST003", 502, "WORKSPACE_CREATE_FAILED"],
+    [503, "PGRST000", 502, "WORKSPACE_CREATE_RESULT_UNKNOWN"]
   ]) {
     globalThis.fetch = async (url) => {
       if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
       if (String(url).endsWith("/rest/v1/rpc/create_workspace")) {
-        return Response.json({ message: "internal tenant detail" }, { status: upstreamStatus });
+        return Response.json({ code: upstreamCode, message: "internal tenant detail" }, { status: upstreamStatus });
       }
       throw new Error(`unexpected fetch: ${url}`);
     };

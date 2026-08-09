@@ -21,6 +21,18 @@ $$;
 alter table public.workspaces
   drop constraint if exists workspaces_name_length;
 
+-- 旧制約で許容されていた前後空白・64文字超過を、新制約の検証前に補正する。
+-- 拡張空白だけの既存値は、空名を作らないため日本語の安全な既定名へ置き換える。
+update public.workspaces
+set name = coalesce(
+  nullif(left(public.normalize_workspace_name(name), 64), ''),
+  '名称未設定'
+)
+where name is distinct from coalesce(
+  nullif(left(public.normalize_workspace_name(name), 64), ''),
+  '名称未設定'
+);
+
 alter table public.workspaces
   add constraint workspaces_name_length
   check (
