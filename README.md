@@ -8,7 +8,7 @@
 - 対象ユーザー: 日本人オフィスワーカー
 - UI/文書/エラー文: 日本語専用
 - 開発場所: GitHub Codespacesとクラウド環境を主戦場にする
-- デプロイ: Cloudflare Pages / Workers
+- デプロイ: Cloudflare Workers（アプリWorker + ブランド用Static Assets Worker）
 - ブラウザ実行: Cloudflare Browser Run + Live View
 - 認証/DB: Supabase Auth / Postgres / RLS
 - ファイル保存: Cloudflare R2を第一候補（Supabase Storageは第一保存先にしない）
@@ -17,6 +17,7 @@
 - Chrome拡張: 第一方式にしない
 - 共有リンク: デフォルトOFF
 - ロゴ: ひらがなの「め」+ 折り返した紙 + 手順番号の方向で暫定制作
+- 正式URL: LPは`www.meccha-iiyatsu.com/app/meccha-manual`、アプリ本体は`meccha-manual.meccha-iiyatsu.com`
 
 ## 開発方針
 
@@ -34,7 +35,8 @@
 - [テーブル定義](docs/04-data/table-definitions.md)
 - [テスト戦略](docs/07-quality/test-strategy.md)
 - [Issue分解](docs/09-delivery/issue-map.md)
+- [ドメインと公開構成](docs/08-operations/domain-and-publication.md)
 
 ## 現在の状態
 
-Phase 0: 文書・土台を作成中です。実装、デプロイ、外部サービス接続はまだ開始していません。
+Phase 1の認証・ワークスペース基盤と、ブランドサイトの静的実装まで準備済みです。本番Custom Domain、production Supabase、DB migration、課金、外部ユーザー公開はまだ有効化していません。

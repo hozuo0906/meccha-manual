@@ -25,7 +25,7 @@ Status: Accepted
 | OQ-017 | 全額・一部返金時のentitlement | 返金とデータ削除を分離し、都度払いは新規再出力を停止。subscriptionの期間按分と一部返金は運用設計後に決定 | 返金自動化 |
 | OQ-018 | Browser Run最大実行時間、idle timeout、同時実行数 | 月次枠は決定済み。1セッション最大時間とidle timeoutはCloudflare費用・UX検証後に環境別決定 | Browser Run外部設定 |
 | OQ-019 | production GitHub Environmentのrequired reviewerを誰にするか | deploy step追加前にリポジトリownerが指名し、自己承認可否と代替承認者を決定 | production workflow有効化 |
-| OQ-020 | production独自ドメイン、DNS、切替日、rollback条件 | `workers.dev`を当面の技術URLとし、公開計画とドメイン所有確認後に決定 | production route切替 |
+| OQ-020 | production独自ドメイン、DNS、切替日、rollback条件 | URLとrollback方針はADR-0024で解決済み。Cloudflare zone確認、切替日、実行承認が揃うまで`workers.dev`を技術URLとして維持する | production Custom Domain切替 |
 | OQ-021 | production Supabase projectの名称、region、作成時期、backup/restore条件 | 現projectを暫定dev/stagingとし、データ所在地・費用・復旧要件の承認後に作成 | production DB作成・migration |
 | OQ-022 | 未使用・重複・孤立した画像の判定条件と物理削除時期 | 公開版、下書き、過去revisionから参照中のassetは削除しない。未参照assetは削除候補にし、猶予期間と復元条件を決定してから物理削除する | R2画像削除job |
 | OQ-023 | 未契約下書き、操作記録画像、都度払い購入後データを何日保持するか | 再出力権は30日。manual本体を自動削除せず、未決済下書きとcapture assetの保持期間は復旧・法務・費用を確認して決定 | データライフサイクル/課金公開 |
