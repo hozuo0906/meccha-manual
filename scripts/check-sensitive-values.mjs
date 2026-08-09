@@ -52,6 +52,10 @@ const knownSecretAssignmentPattern = new RegExp(
   `(?:^|[^A-Za-z0-9_])["']?(?:${knownSecretNames.join("|")})["']?\\s*[:=]\\s*([^\\r\\n]+)`,
   "g"
 );
+const knownSecretYamlBlockPattern = new RegExp(
+  `^(\\s*)["']?(?:${knownSecretNames.join("|")})["']?\\s*:\\s*[|>](?:[1-9][+-]?|[+-][1-9]?)?\\s*(?:#.*)?\\r?\\n((?:(?:\\1[ \\t]+)[^\\r\\n]*(?:\\r?\\n|$))+)`,
+  "gm"
+);
 const findings = new Set();
 
 function inspectPath(file, source) {
@@ -78,13 +82,27 @@ function inspectContent(content, source) {
   }
   if (hasServiceRoleJwt(content)) findings.add(`${source}: Supabase service_role JWT`);
   for (const match of content.matchAll(knownSecretAssignmentPattern)) {
-    const assigned = match[1].trim().replace(/^['"]|['"],?$/g, "");
-    const isReference = /^(?:\$\{\{|\$[A-Za-z_(]|process\.env\.|env\.|secrets\.|<|\[)/.test(assigned);
-    const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-]|EXAMPLE[_-])/i.test(assigned);
-    if (!isReference && !isPlaceholder && assigned.length >= 8) {
+    if (isLiteralSecretValue(match[1])) {
       findings.add(`${source}: known secret name has a literal-looking assigned value`);
     }
   }
+  for (const match of content.matchAll(knownSecretYamlBlockPattern)) {
+    if (isLiteralYamlSecretBlock(match[2])) {
+      findings.add(`${source}: known secret name has a literal-looking YAML block value`);
+    }
+  }
+}
+
+function isLiteralSecretValue(value) {
+  const assigned = value.trim().replace(/^['"]|['"],?$/g, "");
+  const isReference = /^(?:\$\{\{|\$[A-Za-z_(]|process\.env\.|env\.|secrets\.|<|\[)/.test(assigned);
+  const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-]|EXAMPLE[_-])/i.test(assigned);
+  return !isReference && !isPlaceholder && assigned.length >= 8;
+}
+
+function isLiteralYamlSecretBlock(value) {
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.some(isLiteralSecretValue) || isLiteralSecretValue(lines.join(""));
 }
 
 function hasServiceRoleJwt(content) {

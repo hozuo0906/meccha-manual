@@ -1145,7 +1145,6 @@ async function requireSession(
       return { user, accessToken, responseCookies: [] };
     }
     if (response.status >= 500 || response.status === 429) {
-      await readSupabaseJson(response);
       throw new AppError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
   }

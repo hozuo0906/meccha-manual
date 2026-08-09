@@ -745,8 +745,8 @@ async function logout() {
     currentSession = null;
     renderLogin();
   } catch (error) {
-    if (error.status === 0) {
-      setBox("shell-message", "ログアウトできませんでした。通信環境を確認して、もう一度お試しください。", "error");
+    if (error.code !== "LOGOUT_REVOKE_FAILED") {
+      setBox("shell-message", "ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。", "error");
       return;
     }
     currentSession = null;

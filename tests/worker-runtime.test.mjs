@@ -296,6 +296,23 @@ test("セッション確認APIの障害も期限切れとして誤表示しな�
   assert.match(payload.message, /時間をおいて/);
 });
 
+test("セッション確認APIの障害本文が壊れていても再試行可能な502として扱う", async () => {
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.error(new Error("response body aborted"));
+    }
+  }), { status: 503 });
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "SESSION_VERIFY_FAILED");
+  assert.match(payload.message, /時間をおいて/);
+});
+
 test("ログアウト前のセッション確認障害を成功扱いにしない", async () => {
   globalThis.fetch = async () => Response.json({ message: "temporary failure" }, { status: 503 });
 
