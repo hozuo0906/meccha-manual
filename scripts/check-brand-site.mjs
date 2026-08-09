@@ -1,5 +1,6 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { parse } from "parse5";
 
 const root = process.cwd();
 const siteRoot = path.join(root, "apps/brand-site/public");
@@ -18,20 +19,50 @@ const pages = [
 ];
 const errors = [];
 
-function appCtaTags(html, slug, placement) {
-  return [...html.matchAll(/<(?:a|span)\b[^>]*>/g)]
-    .map((match) => match[0])
-    .filter((tag) => tag.includes(`data-app-slug="${slug}"`) && tag.includes(`data-app-cta="${placement}"`));
+async function listHtmlFiles(directory, prefix = "") {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relative = path.join(prefix, entry.name);
+    if (entry.isDirectory()) files.push(...await listHtmlFiles(path.join(directory, entry.name), relative));
+    else if (entry.isFile() && entry.name.endsWith(".html")) files.push(relative);
+  }
+  return files;
+}
+
+function elements(html) {
+  const found = [];
+  const visit = (node) => {
+    if (node.tagName) found.push(node);
+    for (const child of node.childNodes ?? []) visit(child);
+    if (node.content) visit(node.content);
+  };
+  visit(parse(html));
+  return found;
+}
+
+function attribute(element, name) {
+  return element.attrs?.find((attr) => attr.name === name)?.value;
+}
+
+function appCtaElements(html, slug, placement) {
+  return elements(html).filter((element) =>
+    ["a", "span"].includes(element.tagName)
+    && attribute(element, "data-app-slug") === slug
+    && attribute(element, "data-app-cta") === placement
+  );
 }
 
 function linksToOrigin(html, origin) {
-  return [...html.matchAll(/href="([^"]+)"/g)]
-    .map((match) => match[1])
-    .filter((href) => {
-      try { return new URL(href, "https://www.meccha-iiyatsu.com").origin === origin; }
-      catch { return false; }
-    });
+  return elements(html).flatMap((element) => {
+    const href = attribute(element, "href");
+    if (href === undefined) return [];
+    try { return new URL(href, "https://www.meccha-iiyatsu.com").origin === origin ? [href] : []; }
+    catch { return []; }
+  });
 }
+
+const brandHtmlFiles = await listHtmlFiles(siteRoot);
+const brandHtml = (await Promise.all(brandHtmlFiles.map((file) => readFile(path.join(siteRoot, file), "utf8")))).join("\n");
 
 if (!Array.isArray(appRegistry)) errors.push("apps.json: array is required");
 const registrySlugs = Array.isArray(appRegistry) ? appRegistry.map((app) => app.slug).sort() : [];
@@ -71,19 +102,19 @@ for (const app of Array.isArray(appRegistry) ? appRegistry : []) {
   if (!appIndex.includes(`href="/app/${app.slug}"`)) errors.push(`App index: LP link is required for ${app.slug}`);
 
   const lp = await readFile(path.join(siteRoot, `app/${app.slug}/index.html`), "utf8");
-  const combinedHtml = `${appIndex}\n${lp}`;
-  const ctas = [
-    ...appCtaTags(appIndex, app.slug, "index"),
-    ...appCtaTags(lp, app.slug, "primary"),
-    ...appCtaTags(lp, app.slug, "final")
+  const ctaGroups = [
+    appCtaElements(appIndex, app.slug, "index"),
+    appCtaElements(lp, app.slug, "primary"),
+    appCtaElements(lp, app.slug, "final")
   ];
+  const ctas = ctaGroups.flat();
   const appOrigin = new URL(app.appUrl).origin;
   if (app.publicationStatus === "prelaunch") {
-    if (linksToOrigin(combinedHtml, appOrigin).length > 0) errors.push(`${app.slug}: prelaunch pages must not link anywhere on the unverified app origin`);
-    if (ctas.length !== 3 || ctas.some((tag) => !tag.startsWith("<span") || !tag.includes('aria-disabled="true"'))) {
+    if (linksToOrigin(brandHtml, appOrigin).length > 0) errors.push(`${app.slug}: brand site must not link anywhere on the unverified app origin`);
+    if (ctaGroups.some((group) => group.length !== 1) || ctas.some((element) => element.tagName !== "span" || attribute(element, "aria-disabled") !== "true")) {
       errors.push(`${app.slug}: index, primary and final prelaunch CTAs must each be a disabled span`);
     }
-  } else if (ctas.length !== 3 || ctas.some((tag) => !tag.startsWith("<a") || !tag.includes(`href="${app.appUrl}"`))) {
+  } else if (ctaGroups.some((group) => group.length !== 1) || ctas.some((element) => element.tagName !== "a" || attribute(element, "href") !== app.appUrl)) {
     errors.push(`${app.slug}: index, primary and final live CTAs must each link to the exact app URL`);
   }
 }
