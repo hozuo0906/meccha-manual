@@ -46,6 +46,9 @@ jobs:
       - name: Test Worker runtime
         run: npm run worker:runtime:test
 
+      - name: Test app authentication lifecycle
+        run: npm run app:auth:test
+
       - name: Validate Worker runtime syntax
         run: |
           node --experimental-strip-types --check apps/worker/src/index.ts

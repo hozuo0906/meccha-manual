@@ -14,7 +14,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 
 ## 必須テスト
 
-- 認証、ログアウト、期限切れ。
+- 認証、ログアウト、期限切れ。refreshは専用POSTと認証Web Lockで直列化し、古い応答、上流通信失敗、回転後の途中失敗、token非露出、Cookie削除/維持境界を確認する。
 - owner/admin/editor/viewerの権限。
 - RLS negative test。
 - ワークスペース越境のAPI/DB/Storageアクセス拒否。
