@@ -311,7 +311,11 @@ function verifySameOriginWrite(request: Request): void {
   }
 }
 
-function parseCookies(request: Request, tolerateInvalidSessionCookies = false): Map<string, string> {
+function parseCookies(
+  request: Request,
+  tolerateInvalidSessionCookies = false,
+  clearInvalidSessionCookies = false
+): Map<string, string> {
   const header = request.headers.get("cookie") ?? "";
   const cookies = new Map<string, string>();
 
@@ -327,7 +331,7 @@ function parseCookies(request: Request, tolerateInvalidSessionCookies = false): 
           401,
           "SESSION_INVALID",
           "ログイン状態を確認できません。もう一度ログインしてください。",
-          clearSessionCookies()
+          clearInvalidSessionCookies ? clearSessionCookies() : []
         );
       }
       continue;
@@ -1253,11 +1257,12 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
 async function requireSession(
   request: Request,
   env: Env,
-  cookies = parseCookies(request),
+  cookies?: Map<string, string>,
   allowRefresh = false
 ): Promise<SessionResult> {
-  const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
-  const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
+  const sessionCookies = cookies ?? parseCookies(request, false, allowRefresh);
+  const accessToken = sessionCookies.get(COOKIE_ACCESS_TOKEN);
+  const refreshToken = sessionCookies.get(COOKIE_REFRESH_TOKEN);
 
   if (!accessToken && !refreshToken) {
     throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
@@ -1293,13 +1298,13 @@ async function requireSession(
     401,
     "SESSION_EXPIRED",
     "セッションの有効期限が切れました。",
-    clearSessionCookies()
+    allowRefresh ? clearSessionCookies() : []
   );
 }
 
 async function refreshAuthentication(request: Request, env: Env): Promise<Response> {
   await readJsonBody<Record<string, never>>(request);
-  const cookies = parseCookies(request);
+  const cookies = parseCookies(request, false, true);
   const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
   if (!refreshToken) {
     throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。", clearSessionCookies());

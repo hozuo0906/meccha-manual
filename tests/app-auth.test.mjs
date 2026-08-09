@@ -5,9 +5,10 @@ import vm from "node:vm";
 
 import { APP_JS } from "../apps/worker/src/app-assets.ts";
 
-function createHarness({ fetch, beforeLock, disableLocks = false } = {}) {
+function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false } = {}) {
   const storage = new Map();
   const lockCalls = [];
+  const broadcastMessages = [];
   const elements = new Map();
   let focusedId = null;
   let insideLock = false;
@@ -66,8 +67,23 @@ function createHarness({ fetch, beforeLock, disableLocks = false } = {}) {
   }
 
   const app = element("app");
+  class HarnessBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      this.listeners = new Map();
+    }
+
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+    }
+
+    postMessage(message) {
+      broadcastMessages.push({ channel: this.name, message });
+    }
+  }
+
   const context = {
-    BroadcastChannel: undefined,
+    BroadcastChannel: enableBroadcast ? HarnessBroadcastChannel : undefined,
     FormData: HarnessFormData,
     Set,
     URL,
@@ -131,6 +147,7 @@ globalThis.__appAuthTest = {
     app,
     element,
     focusedId: () => focusedId,
+    broadcastMessages,
     lockCalls,
     storage
   };
@@ -236,6 +253,38 @@ test("同時2要求はFIFO Web Lockでrefreshを1回だけ実行する", async (
   assert.equal(calls.filter(({ path }) => path === "/api/auth/refresh").length, 1);
   assert.equal(lockCalls.length, 2);
   assert.equal(calls.filter(({ insideLock }) => insideLock).length, 4);
+});
+
+test("refreshが終端的に失敗したら認証世代を更新して他タブへ通知する", async () => {
+  for (const terminalCode of ["SESSION_EXPIRED", "SESSION_REFRESH_INVALID"]) {
+    const { api, broadcastMessages, storage } = createHarness({
+      enableBroadcast: true,
+      fetch: async (path) => {
+        if (path === "/api/auth/refresh") {
+          return Response.json({
+            code: terminalCode,
+            message: "セッションの有効期限が切れました。"
+          }, { status: 401 });
+        }
+        return Response.json({
+          code: "SESSION_REFRESH_REQUIRED",
+          message: "ログイン状態を更新してください。"
+        }, { status: 401 });
+      }
+    });
+    const versionKey = "meccha-manual-authentication-version";
+    storage.set(versionKey, `before-${terminalCode}`);
+
+    await assert.rejects(
+      api.requestJson("/api/session"),
+      (error) => error.code === terminalCode && error.status === 401
+    );
+
+    assert.notEqual(storage.get(versionKey), `before-${terminalCode}`, terminalCode);
+    assert.equal(broadcastMessages.length, 1, terminalCode);
+    assert.equal(broadcastMessages[0].channel, "meccha-manual-authentication", terminalCode);
+    assert.equal(broadcastMessages[0].message.type, "authentication-changed", terminalCode);
+  }
 });
 
 test("lock待機中に認証世代が変わったら古いrefreshを送信しない", async () => {

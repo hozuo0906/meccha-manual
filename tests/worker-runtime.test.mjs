@@ -89,6 +89,38 @@ test("壊れたCookieは500にせず再ログインを求める", async () => {
 
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, "SESSION_INVALID");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("遅着した壊れたCookieのGET応答は別タブの後発ログインCookieを削除しない", async () => {
+  const delayedGet = worker.fetch(appRequest("/api/session", {
+    headers: { cookie: "__Host-mm_access=%E0%A4%A" }
+  }), env, ctx);
+
+  const loginResponse = new Response(null, {
+    headers: { "set-cookie": "__Host-mm_access=new-login; Path=/; Secure; HttpOnly" }
+  });
+  assert.match(loginResponse.headers.get("set-cookie") || "", /new-login/);
+
+  const response = await delayedGet;
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "SESSION_INVALID");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("期限切れaccess Cookieだけの保護GETもCookieを変更しない", async () => {
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/auth\/v1\/user$/);
+    return Response.json({ message: "invalid JWT" }, { status: 401 });
+  };
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: "__Host-mm_access=expired-access" }
+  }), env, ctx);
+
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "SESSION_EXPIRED");
+  assert.equal(response.headers.get("set-cookie"), null);
 });
 
 test("壊れたCookieでもログアウト時に端末Cookieを削除する", async () => {

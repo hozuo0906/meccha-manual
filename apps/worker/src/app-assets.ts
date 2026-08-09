@@ -526,6 +526,14 @@ function advanceAuthenticationVersion() {
   }
 }
 
+function announceTerminalAuthenticationChange() {
+  try {
+    advanceAuthenticationVersion();
+  } finally {
+    announceAuthenticationChange();
+  }
+}
+
 async function withAuthenticationLock(operation) {
   if (!navigator.locks?.request) {
     throw new AppRequestError(
@@ -575,7 +583,12 @@ async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, op
     if (readAuthenticationVersion() !== expectedVersion) {
       return retryReadOrRejectAuthenticationChange(path, options);
     }
-    await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
+    try {
+      await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
+    } catch (error) {
+      if (isTerminalSessionError(error)) announceTerminalAuthenticationChange();
+      throw error;
+    }
     if (readAuthenticationVersion() !== expectedVersion) {
       return retryReadOrRejectAuthenticationChange(path, options);
     }

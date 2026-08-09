@@ -19,6 +19,7 @@ Issue #33の認証ライフサイクルについて、テスト、セキュリ�
 - 第1修正後の再レビューでは、refreshと元要求の再送が同じ排他区間になっておらず、別タブのログイン後に状態変更を別ユーザーとして再送し得るP1を確認した。
 - 第2修正後の再レビューでは、同時期限切れ時に待機要求も重複refreshするP2を確認した。
 - PR作成後の独立再監査では、Content-Lengthを省略した巨大bodyの全量読込、JSON応答MIME未検証、DOMイベント・並行Lock・入力エラー関連付けの回帰不足をP2として確認した。
+- Codex Reviewでは、遅着した保護GETが後発ログインCookieを削除し得る競合と、refresh確定失効を他タブへ通知しないP2を確認した。
 
 ## 採用
 
@@ -30,8 +31,10 @@ Issue #33の認証ライフサイクルについて、テスト、セキュリ�
 - request bodyをbyte上限まで逐次読み込み、認証JSONは16KB、Discord署名bodyは64KBを超えた時点で中止する。
 - 認証JSONの`null`、配列、primitiveを400で拒否し、クライアントも`application/json`以外の応答を受理しない。
 - 実イベント経路、FIFO Web Lock、同時refresh、ASCII/UTF-8境界、入力エラー関連付け、処理中表示の回帰テストを追加する。
+- 保護GETはCookieを変更せず、Cookie削除を認証Web Lock内の専用refreshとlogoutに限定する。
+- refresh確定失効時は同じWeb Lock内で認証世代を更新し、全タブへ通知して保護shellと進行中の旧応答を破棄する。一時的な502・通信障害では通知しない。
 - Worker runtime testと認証UIロジックtestを品質ゲートへ追加する。
-- 最終回帰ではWorker runtime 32件、認証UI 22件を含む`npm run check`が成功した。
+- 最終回帰ではWorker runtime 34件、認証UI 23件を含む`npm run check`が成功した。
 - 修正後のセキュリティ、テスト、UIUX再レビューはP0/P1/P2すべて0件だった。
 
 ## 却下
