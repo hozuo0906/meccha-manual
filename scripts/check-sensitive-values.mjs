@@ -53,7 +53,7 @@ const knownSecretAssignmentPattern = new RegExp(
   "g"
 );
 const knownSecretYamlBlockPattern = new RegExp(
-  `^(\\s*)["']?(?:${knownSecretNames.join("|")})["']?\\s*:\\s*[|>](?:[1-9][+-]?|[+-][1-9]?)?\\s*(?:#.*)?\\r?\\n((?:(?:\\1[ \\t]+)[^\\r\\n]*(?:\\r?\\n|$))+)`,
+  `^(\\s*)(?:-\\s+)?["']?(?:${knownSecretNames.join("|")})["']?\\s*:\\s*[|>](?:[1-9][+-]?|[+-][1-9]?)?\\s*(?:#.*)?\\r?\\n((?:(?:\\1[ \\t]+)[^\\r\\n]*(?:\\r?\\n|$))+)`,
   "gm"
 );
 const findings = new Set();
