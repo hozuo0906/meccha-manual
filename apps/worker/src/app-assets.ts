@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-8f2a73d498813ace";
+export const APP_ASSET_VERSION = "sha256-fc0a296f0b5afe27";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1316,7 +1316,13 @@ async function createWorkspace(event) {
     currentSession = session;
     if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
     const created = (session.workspaces || []).some((workspace) => workspace.slug === submittedWorkspace.slug);
-    if (created) clearUncertainWorkspaceCreation();
+    if (
+      created &&
+      uncertainWorkspaceCreation?.userId === submittedWorkspace.userId &&
+      uncertainWorkspaceCreation.slug === submittedWorkspace.slug
+    ) {
+      clearUncertainWorkspaceCreation();
+    }
     renderShell(
       currentSession,
       created

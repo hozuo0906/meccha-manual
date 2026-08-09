@@ -19,7 +19,7 @@
 | UI/UX | 選択、空状態、入力エラー関連付け、busy、更新失敗時の既存表示保持 | 日本語状態、`aria-busy`、`aria-invalid`、タブ内選択、stale一覧案内を追加 |
 | テスト | workspace API実動、上流401/body異常、storage破損、二重submitが未検証 | Worker/UIの決定的回帰テストを追加 |
 | 最終レビュー | 同一ユーザー通知で結果不明ロック消失、ブラウザ側応答消失、一覧更新競合、DB入力境界、無上限一覧 | user照合後破棄、曖昧応答の安全側ロック、競合順序修正、forward migration、上限付き取得を追加 |
-| 最新Codex Review | 旧データ未補正で制約検証失敗、一覧確認後の遅延POST再ロック、後続POSTロック誤消去、予期しない上流4xxの入力不正表示、正本テーブル定義不整合、slug空白正規化差 | 制約前backfill、操作単位の確認済み遷移、user ID＋slug一致解除、上流error code allowlist、正本同期、拡張空白正規化を追加 |
+| 最新Codex Review | 旧データ未補正で制約検証失敗、一覧確認後の遅延POST再ロック、遅延失敗／成功による後続POSTロック誤消去、予期しない上流4xxの入力不正表示、正本テーブル定義不整合、slug空白正規化差 | 制約前backfill、操作単位の確認済み遷移、全終端経路のuser ID＋slug一致解除、上流error code allowlist、正本同期、拡張空白正規化を追加 |
 
 ## 採用した境界
 
