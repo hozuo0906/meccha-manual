@@ -33,6 +33,7 @@ const requiredPhase2Snippets = [
 ];
 
 const phase1HardeningFile = "202608010002_phase1_workspace_membership_hardening.sql";
+const phase1InputHardeningFile = "202608100001_phase1_workspace_input_hardening.sql";
 const phase2SetupFile = "docs/04-data/phase2-manual-core-setup.md";
 const requiredPhase1HardeningSnippets = [
   "create or replace function public.protect_workspace_identity()",
@@ -47,6 +48,22 @@ const requiredPhase1HardeningSnippets = [
   "revoke execute on function public.has_workspace_role(uuid, uuid, public.workspace_role[]) from public, anon",
   "create trigger workspaces_protect_identity",
   "execute function public.protect_workspace_identity()",
+  "grant execute on function public.create_workspace(text, text) to authenticated"
+];
+const requiredPhase1InputHardeningSnippets = [
+  "constraint workspaces_name_length",
+  "create or replace function public.normalize_workspace_name(workspace_name text)",
+  "update public.workspaces",
+  "left(public.normalize_workspace_name(name), 64)",
+  "name = public.normalize_workspace_name(name)",
+  "char_length(name) between 1 and 64",
+  "normalized_name text := public.normalize_workspace_name(workspace_name)",
+  "normalized_slug text := lower(public.normalize_workspace_name(workspace_slug))",
+  "chr(160)",
+  "chr(12288)",
+  "workspace name must be between 1 and 64 characters",
+  "workspace slug format is invalid",
+  "revoke execute on function public.create_workspace(text, text) from public, anon",
   "grant execute on function public.create_workspace(text, text) to authenticated"
 ];
 
@@ -106,6 +123,17 @@ if (!migrationFiles.includes(phase1HardeningFile)) {
   for (const snippet of requiredPhase1HardeningSnippets) {
     if (!phase1Hardening.includes(snippet)) {
       errors.push(`Missing Phase 1 hardening migration snippet: ${snippet}`);
+    }
+  }
+}
+
+if (!migrationFiles.includes(phase1InputHardeningFile)) {
+  errors.push(`Missing required migration: ${phase1InputHardeningFile}`);
+} else {
+  const phase1InputHardening = await readFile(path.join(migrationsDir, phase1InputHardeningFile), "utf8");
+  for (const snippet of requiredPhase1InputHardeningSnippets) {
+    if (!phase1InputHardening.includes(snippet)) {
+      errors.push(`Missing Phase 1 input hardening migration snippet: ${snippet}`);
     }
   }
 }

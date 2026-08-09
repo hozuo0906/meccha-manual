@@ -798,3 +798,483 @@ test("ログアウト後のCookieなし保護APIは401になる", async () => {
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, "SESSION_REQUIRED");
 });
+
+test("所属ワークスペース一覧は認証済みtokenと固定fieldだけで取得する", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "user-1", email: "user@example.invalid" });
+    }
+    if (String(url).includes("/rest/v1/profiles?")) {
+      return Response.json([{ id: "user-1", display_name: "利用者", locale: "ja-JP", timezone: "Asia/Tokyo" }]);
+    }
+    if (String(url).includes("/rest/v1/workspaces?")) {
+      return Response.json([{
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "営業部",
+        slug: "sales-team",
+        status: "active",
+        created_at: "2026-08-10T00:00:00Z"
+      }], { headers: { "content-range": "0-0/1" } });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+  const workspaceCall = calls.find((call) => call.url.includes("/rest/v1/workspaces?"));
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.workspaces[0].id, "11111111-1111-4111-8111-111111111111");
+  assert.match(workspaceCall.url, /select=id,name,slug,status,created_at/);
+  assert.match(workspaceCall.url, /order=created_at.desc/);
+  assert.equal(workspaceCall.init.headers.get("authorization"), "Bearer access-token");
+  assert.equal(workspaceCall.init.headers.get("apikey"), "public-anon-key");
+});
+
+test("GET workspace routeは一覧wrapperだけを返しtokenを露出しない", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).includes("/rest/v1/workspaces?")) {
+      return Response.json([{
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "営業部",
+        slug: "sales-team",
+        status: "active",
+        created_at: "2026-08-10T00:00:00Z"
+      }], { headers: { "content-range": "0-0/1" } });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const response = await worker.fetch(appRequest("/api/workspaces", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(payload), ["workspaces"]);
+  assert.equal(payload.workspaces[0].slug, "sales-team");
+  assert.doesNotMatch(JSON.stringify(payload), /access-token|refresh-token/);
+});
+
+test("ワークスペース作成はRPCだけを呼びtokenや一覧を応答へ含めない", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "user-1", email: "user@example.invalid" });
+    }
+    if (String(url).endsWith("/rest/v1/rpc/create_workspace")) {
+      return Response.json("11111111-1111-4111-8111-111111111111");
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/workspaces", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: JSON.stringify({ name: "  営業部  ", slug: "SALES-TEAM" })
+  }), env, ctx);
+  const payload = await response.json();
+  const rpcCall = calls.at(-1);
+
+  assert.equal(response.status, 201);
+  assert.deepEqual(payload, { workspaceId: "11111111-1111-4111-8111-111111111111" });
+  assert.deepEqual(JSON.parse(rpcCall.init.body), {
+    workspace_name: "営業部",
+    workspace_slug: "sales-team"
+  });
+  assert.match(rpcCall.url, /\/rest\/v1\/rpc\/create_workspace$/);
+  assert.doesNotMatch(JSON.stringify(payload), /access-token|refresh-token/);
+  assert.equal(calls.some((call) => call.url.includes("/rest/v1/workspaces?")), false);
+});
+
+test("ワークスペース一覧の不正な2xx payloadは空一覧にせず502にする", async () => {
+  for (const invalidPayload of [null, {}, [{ id: "workspace-1", name: "営業部", slug: "sales", status: "unknown", created_at: "2026-08-10" }]]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).includes("/rest/v1/profiles?")) return Response.json([]);
+      if (String(url).includes("/rest/v1/workspaces?")) return Response.json(invalidPayload);
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest("/api/session", {
+      headers: { cookie: sessionCookie() }
+    }), env, ctx);
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, "WORKSPACES_RESPONSE_INVALID");
+  }
+});
+
+test("RPC成功payloadが文字列IDでなければ作成済みIDとして受理しない", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).endsWith("/rest/v1/rpc/create_workspace")) return Response.json({ id: "workspace-1" });
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const response = await worker.fetch(appRequest("/api/workspaces", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: JSON.stringify({ name: "営業部", slug: "sales-team" })
+  }), env, ctx);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, "WORKSPACE_CREATE_RESULT_UNKNOWN");
+});
+
+test("workspace上流の権限不足と障害を日本語の安定codeへ正規化する", async () => {
+  for (const [upstreamStatus, upstreamCode, expectedStatus, expectedCode] of [
+    [400, "22023", 400, "WORKSPACE_CREATE_FAILED"],
+    [403, "42501", 403, "WORKSPACE_CREATE_FORBIDDEN"],
+    [404, "PGRST202", 502, "WORKSPACE_CREATE_SERVICE_UNAVAILABLE"],
+    [409, "23505", 400, "WORKSPACE_CREATE_FAILED"],
+    [429, "PGRST003", 502, "WORKSPACE_CREATE_FAILED"],
+    [503, "PGRST000", 502, "WORKSPACE_CREATE_RESULT_UNKNOWN"]
+  ]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).endsWith("/rest/v1/rpc/create_workspace")) {
+        return Response.json({ code: upstreamCode, message: "internal tenant detail" }, { status: upstreamStatus });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": "https://app.example",
+        "cookie": sessionCookie()
+      },
+      body: JSON.stringify({ name: "営業部", slug: "sales-team" })
+    }), env, ctx);
+    const payload = await response.json();
+    assert.equal(response.status, expectedStatus);
+    assert.equal(payload.code, expectedCode);
+    assert.doesNotMatch(JSON.stringify(payload), /internal tenant detail/);
+  }
+});
+
+test("workspace上流401はCookieを変えず安全なrefresh経路へ戻す", async () => {
+  for (const [path, method, body] of [
+    ["/api/session", "GET", undefined],
+    ["/api/workspaces", "POST", JSON.stringify({ name: "営業部", slug: "sales-team" })]
+  ]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).includes("/rest/v1/profiles?")) return Response.json([]);
+      return Response.json({ message: "expired" }, { status: 401 });
+    };
+    const response = await worker.fetch(appRequest(path, {
+      method,
+      headers: {
+        ...(method === "POST" ? { "content-type": "application/json", "origin": "https://app.example" } : {}),
+        "cookie": sessionCookie()
+      },
+      body
+    }), env, ctx);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, "SESSION_REFRESH_REQUIRED");
+    assert.equal(response.headers.get("set-cookie"), null);
+  }
+});
+
+test("profileとworkspaceの両方が401でも必ずrefresh要求へ正規化する", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).includes("/rest/v1/profiles?") || String(url).includes("/rest/v1/workspaces?")) {
+      return Response.json({ message: "expired" }, { status: 401 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const response = await worker.fetch(appRequest("/api/session", { headers: { cookie: sessionCookie() } }), env, ctx);
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "SESSION_REFRESH_REQUIRED");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("RPC応答消失と不正成功bodyは作成失敗でなく結果不明として案内する", async () => {
+  for (const rpcResult of ["throw", "aborted"]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).endsWith("/rest/v1/rpc/create_workspace")) {
+        if (rpcResult === "throw") throw new Error("response lost after commit");
+        return new Response(new ReadableStream({
+          start(controller) { controller.error(new Error("body aborted")); }
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json", "origin": "https://app.example", "cookie": sessionCookie() },
+      body: JSON.stringify({ name: "営業部", slug: "sales-team" })
+    }), env, ctx);
+    const payload = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(payload.code, "WORKSPACE_CREATE_RESULT_UNKNOWN");
+    assert.match(payload.message, /重ねて作成せず/);
+  }
+});
+
+test("workspace一覧の成功body読取失敗は内部500にせず502へ正規化する", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).includes("/rest/v1/profiles?")) return Response.json([]);
+    if (String(url).includes("/rest/v1/workspaces?")) {
+      return new Response(new ReadableStream({
+        start(controller) { controller.error(new Error("body aborted")); }
+      }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const response = await worker.fetch(appRequest("/api/session", { headers: { cookie: sessionCookie() } }), env, ctx);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, "WORKSPACES_FETCH_FAILED");
+});
+
+test("workspace作成は配列・数値・object入力を文字列化して受理しない", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    throw new Error("RPCへ到達してはいけません");
+  };
+  for (const payload of [
+    { name: ["営業部"], slug: "sales-team" },
+    { name: "営業部", slug: ["sales-team"] },
+    { name: 123, slug: {} }
+  ]) {
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json", "origin": "https://app.example", "cookie": sessionCookie() },
+      body: JSON.stringify(payload)
+    }), env, ctx);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "WORKSPACE_INPUT_INVALID");
+  }
+});
+
+test("workspace名はUTF-16長ではなくUnicode code pointで1〜64文字を判定する", async () => {
+  let rpcCalls = 0;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (value.endsWith("/rest/v1/rpc/create_workspace")) {
+      rpcCalls += 1;
+      return Response.json("11111111-1111-4111-8111-111111111111");
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  for (const [count, expectedStatus] of [[64, 201], [65, 400]]) {
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: JSON.stringify({ name: "😀".repeat(count), slug: `emoji-${count}` })
+    }), env, ctx);
+    assert.equal(response.status, expectedStatus, String(count));
+  }
+  assert.equal(rpcCalls, 1);
+
+  for (const [count, expectedStatus] of [[64, 200], [65, 502]]) {
+    globalThis.fetch = async (url) => {
+      const value = String(url);
+      if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (value.includes("/rest/v1/workspaces?")) {
+        return Response.json([{
+          id: "11111111-1111-4111-8111-111111111111",
+          name: "😀".repeat(count),
+          slug: "emoji-team",
+          status: "active",
+          created_at: "2026-08-10T00:00:00Z"
+        }], { headers: { "content-range": "0-0/1" } });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      headers: { cookie: sessionCookie() }
+    }), env, ctx);
+    assert.equal(response.status, expectedStatus, `list ${count}`);
+  }
+});
+
+test("profileとworkspaceの混合失敗でも401を優先してrefresh要求にする", async () => {
+  for (const delayed401Target of ["profile", "workspaces"]) {
+    globalThis.fetch = async (url) => {
+      const value = String(url);
+      if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      const isProfile = value.includes("/rest/v1/profiles?");
+      const is401Target = delayed401Target === "profile" ? isProfile : !isProfile;
+      if (is401Target) {
+        await new Promise((resolve) => setImmediate(resolve));
+        return Response.json({ message: "expired" }, { status: 401 });
+      }
+      return new Response(new ReadableStream({
+        start(controller) { controller.error(new Error("body aborted first")); }
+      }), { status: 200 });
+    };
+
+    const response = await worker.fetch(appRequest("/api/session", {
+      headers: { cookie: sessionCookie() }
+    }), env, ctx);
+    assert.equal(response.status, 401, delayed401Target);
+    assert.equal((await response.json()).code, "SESSION_REFRESH_REQUIRED", delayed401Target);
+    assert.equal(response.headers.get("set-cookie"), null, delayed401Target);
+  }
+});
+
+test("Supabase読取がsignalを無視して停止しても5秒で打ち切り401を優先する", async () => {
+  const hangingSignals = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const value = String(url);
+    const authorization = init.headers.get("authorization");
+    if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (value.includes("/rest/v1/profiles?")) {
+      if (authorization === "Bearer mixed-access") {
+        return Response.json({ message: "expired" }, { status: 401 });
+      }
+      return Response.json([{ id: "user-1" }]);
+    }
+    if (value.includes("/rest/v1/workspaces?")) {
+      hangingSignals.push(init.signal);
+      return new Promise(() => {});
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const [mixedResponse, hangingResponse] = await Promise.all([
+    worker.fetch(appRequest("/api/session", {
+      headers: { cookie: sessionCookie("mixed-access") }
+    }), env, ctx),
+    worker.fetch(appRequest("/api/session", {
+      headers: { cookie: sessionCookie("hanging-access") }
+    }), env, ctx)
+  ]);
+
+  assert.equal(mixedResponse.status, 401);
+  assert.equal((await mixedResponse.json()).code, "SESSION_REFRESH_REQUIRED");
+  assert.equal(hangingResponse.status, 502);
+  assert.equal((await hangingResponse.json()).code, "WORKSPACES_FETCH_FAILED");
+  assert.equal(hangingSignals.length, 2);
+  assert.ok(hangingSignals.every((signal) => signal.aborted));
+});
+
+test("workspace一覧は1001件目で打ち切り、無上限bufferを拒否する", async () => {
+  const workspaces = Array.from({ length: 1001 }, (_, index) => ({
+    id: `11111111-1111-4111-8111-${index.toString(16).padStart(12, "0")}`,
+    name: `部署${index}`,
+    slug: `team-${index.toString().padStart(4, "0")}`,
+    status: "active",
+    created_at: "2026-08-10T00:00:00Z"
+  }));
+  for (const returnedCount of [1001, 1000, 500]) {
+    let workspaceUrl = "";
+    let workspacePrefer = "";
+    globalThis.fetch = async (url, init = {}) => {
+      const value = String(url);
+      if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (value.includes("/rest/v1/workspaces?")) {
+        workspaceUrl = value;
+        workspacePrefer = init.headers.get("prefer");
+        return Response.json(
+          workspaces.slice(0, returnedCount),
+          { headers: { "content-range": `0-${returnedCount - 1}/1001` } }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      headers: { cookie: sessionCookie() }
+    }), env, ctx);
+    assert.equal(response.status, 409, String(returnedCount));
+    assert.equal((await response.json()).code, "WORKSPACES_LIMIT_EXCEEDED", String(returnedCount));
+    assert.match(workspaceUrl, /limit=1001/);
+    assert.equal(workspacePrefer, "count=exact");
+  }
+
+  for (const contentRange of [null, "garbage/500", "499-0/500", "1-500/500"]) {
+    globalThis.fetch = async (url) => {
+      const value = String(url);
+      if (value.endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (value.includes("/rest/v1/workspaces?")) {
+        return Response.json(
+          workspaces.slice(0, 500),
+          contentRange ? { headers: { "content-range": contentRange } } : undefined
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const invalidRangeResponse = await worker.fetch(appRequest("/api/workspaces", {
+      headers: { cookie: sessionCookie() }
+    }), env, ctx);
+    assert.equal(invalidRangeResponse.status, 502, String(contentRange));
+    assert.equal((await invalidRangeResponse.json()).code, "WORKSPACES_RESPONSE_INVALID", String(contentRange));
+  }
+});
+
+test("workspace作成routeはOrigin・MIME・body上限・plain object契約を直接強制する", async () => {
+  let rpcCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).endsWith("/rest/v1/rpc/create_workspace")) {
+      rpcCalls += 1;
+      return Response.json("11111111-1111-4111-8111-111111111111");
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const cases = [
+    {
+      label: "origin mismatch",
+      status: 403,
+      code: "ORIGIN_MISMATCH",
+      headers: { "content-type": "application/json", origin: "https://evil.example", cookie: sessionCookie() },
+      body: JSON.stringify({ name: "営業部", slug: "sales-team" })
+    },
+    {
+      label: "fake json mime",
+      status: 415,
+      code: "JSON_CONTENT_TYPE_REQUIRED",
+      headers: { "content-type": "text/plain", origin: "https://app.example", cookie: sessionCookie() },
+      body: JSON.stringify({ name: "営業部", slug: "sales-team" })
+    },
+    {
+      label: "top-level null",
+      status: 400,
+      code: "JSON_OBJECT_REQUIRED",
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: "null"
+    },
+    {
+      label: "top-level array",
+      status: 400,
+      code: "JSON_OBJECT_REQUIRED",
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: "[]"
+    },
+    {
+      label: "body too large",
+      status: 413,
+      code: "JSON_BODY_TOO_LARGE",
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: JSON.stringify({ name: "a".repeat(17 * 1024), slug: "sales-team" })
+    }
+  ];
+
+  for (const testCase of cases) {
+    const response = await worker.fetch(appRequest("/api/workspaces", {
+      method: "POST",
+      headers: testCase.headers,
+      body: testCase.body
+    }), env, ctx);
+    assert.equal(response.status, testCase.status, testCase.label);
+    assert.equal((await response.json()).code, testCase.code, testCase.label);
+  }
+  assert.equal(rpcCalls, 0);
+});

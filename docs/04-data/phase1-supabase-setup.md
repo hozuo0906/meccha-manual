@@ -15,9 +15,10 @@ Phase 1では、認証済みユーザーがワークスペースを作成し、�
 ```text
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
 supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
+supabase/migrations/202608100001_phase1_workspace_input_hardening.sql
 ```
 
-bundle内ではファイル名順に実行する。hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
+bundle内では上記の順に実行する。membership hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。input hardening migrationは、旧仕様で許容された既存名を制約検証前に正規化・64文字へ補正し、拡張空白だけの値を「名称未設定」へ置換したうえで、ワークスペース名をtrim後1〜64文字へ固定し、slug形式をRPCとテーブル制約の両方で検証する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
 
 bundleは次のコマンドで標準出力へ生成する。生成物には接続先やSecretを含めない。
 
@@ -25,9 +26,9 @@ bundleは次のコマンドで標準出力へ生成する。生成物には接�
 node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 ```
 
-生成後、最初の実行文が`begin;`、末尾が`commit;`であり、2つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
+生成後、最初の実行文が`begin;`、末尾が`commit;`であり、3つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
 
-`npm run test:phase1-migration-bundle`は、単一transaction、2ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
+`npm run test:phase1-migration-bundle`は、単一transaction、3ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
 
 作成される主な要素:
 
@@ -65,7 +66,7 @@ node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 8. `Run`を1回だけ押し、途中で個別statementを再実行しない。
 9. エラー時はtransaction全体がrollbackされたことを確認し、原因確認前に再実行しない。
 
-旧名 `202608020003_phase1_workspace_membership_hardening.sql` はPhase 2より後へ並ぶため使用しない。外部DBでbaselineまたは旧名hardeningが適用済みかは未検証である。どちらか一方でも適用済みの場合はbundleを実行せず、ユーザー承認のもとmigration履歴、関数権限、trigger、既存データを確認してforward-fixを作成する。
+旧名 `202608020003_phase1_workspace_membership_hardening.sql` はPhase 2より後へ並ぶため使用しない。外部DBでPhase 1 migrationまたは旧名hardeningが適用済みかは未検証である。いずれかが適用済みの場合はbundleを実行せず、ユーザー承認のもとmigration履歴、関数権限、trigger、既存データを確認し、未適用のforward migrationだけを適用する。
 
 ## Expected result
 
@@ -77,7 +78,7 @@ node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 
 Authenticationで新規ユーザーを作成すると、`profiles` に同じユーザーIDの行が自動作成される。
 
-両migrationの適用後は、`workspaces_protect_identity` triggerが存在し、認証済みユーザーがメンバー判定RPCで照会できる対象ユーザーは自分自身に限定される。`workspace_members`の新規行は、入力値にかかわらず`created_by = auth.uid()`になる。実環境への適用と確認はユーザー承認後に行う。
+3 migrationの適用後は、`workspaces_protect_identity` triggerと`workspaces_name_length`制約が存在し、認証済みユーザーがメンバー判定RPCで照会できる対象ユーザーは自分自身に限定される。`workspace_members`の新規行は、入力値にかかわらず`created_by = auth.uid()`になる。`create_workspace`を直接呼んでも、名前とslugの入力契約を迂回できない。実環境への適用と確認はユーザー承認後に行う。
 
 ## Do not paste
 

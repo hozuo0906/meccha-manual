@@ -10,6 +10,7 @@ const requiredFiles = [
   "docs/09-delivery/phase1-entry-gate.md",
   "supabase/migrations/202608010001_phase1_identity_workspaces.sql",
   "supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql",
+  "supabase/migrations/202608100001_phase1_workspace_input_hardening.sql",
   "scripts/rls-negative-test.mjs",
   "scripts/phase1-migration-bundle.mjs",
   "scripts/test-phase1-migration-bundle.mjs",
@@ -135,6 +136,21 @@ for (const snippet of [
   }
 }
 
+const inputHardening = contents["supabase/migrations/202608100001_phase1_workspace_input_hardening.sql"] || "";
+for (const snippet of [
+  "update public.workspaces",
+  "left(public.normalize_workspace_name(name), 64)",
+  "name = public.normalize_workspace_name(name)",
+  "char_length(name) between 1 and 64",
+  "workspace name must be between 1 and 64 characters",
+  "workspace slug format is invalid",
+  "normalized_slug text := lower(public.normalize_workspace_name(workspace_slug))"
+]) {
+  if (!inputHardening.includes(snippet)) {
+    errors.push(`Missing Phase 1 input hardening snippet: ${snippet}`);
+  }
+}
+
 const rlsNegativeTest = contents["scripts/rls-negative-test.mjs"] || "";
 for (const snippet of [
   "assertEditorViewerRestrictions",
@@ -146,7 +162,8 @@ for (const snippet of [
   "adminCannotRemoveOrDowngradeLastOwner",
   "userACannotWriteUserBWorkspaceViaSupabaseRest",
   "userBCannotWriteUserAWorkspaceViaSupabaseRest",
-  "membershipCreatedByForcedToActor"
+  "membershipCreatedByForcedToActor",
+  "authenticatedCannotBypassWorkspaceInputContract"
 ]) {
   if (!rlsNegativeTest.includes(snippet)) {
     errors.push(`Missing executable Phase 1 RLS check: ${snippet}`);

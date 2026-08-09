@@ -291,6 +291,43 @@ async function assertAnonymousRpcRejected(supabase, rpc, body) {
   }
 }
 
+async function assertAuthenticatedWorkspaceInputRejected(supabase, actor, name, slug, label) {
+  const response = await fetch(`${supabase.url}/rest/v1/rpc/create_workspace`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "apikey": supabase.anonKey,
+      "authorization": `Bearer ${actor.accessToken}`
+    },
+    body: JSON.stringify({ workspace_name: name, workspace_slug: slug })
+  });
+  const payload = await readJson(response);
+  if (response.ok) {
+    throw new Error(`${label} unexpectedly created a workspace.`);
+  }
+  const code = typeof payload === "object" && payload !== null ? String(payload.code || "") : "";
+  if (code !== "22023") {
+    throw new Error(`${label} was rejected for an unexpected reason with HTTP ${response.status}.`);
+  }
+}
+
+async function assertAuthenticatedWorkspaceNameUpdateRejected(supabase, actor, workspace, name, expectedName, label) {
+  const response = await fetch(`${supabase.url}/rest/v1/workspaces?id=eq.${encodeURIComponent(workspace.id)}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      "apikey": supabase.anonKey,
+      "authorization": `Bearer ${actor.accessToken}`,
+      "prefer": "return=representation"
+    },
+    body: JSON.stringify({ name })
+  });
+  if (response.ok) {
+    throw new Error(`${label} unexpectedly stored a non-normalized workspace name.`);
+  }
+  await assertWorkspaceName(supabase, actor, workspace, expectedName, label);
+}
+
 async function addWorkspaceAdmin(supabase, owner, workspace, admin) {
   await supabaseWrite(supabase, owner, "workspace_members", "POST", "", {
     workspace_id: workspace.id,
@@ -654,6 +691,61 @@ async function main() {
     assertDirectCannotReadWorkspace(supabase, directUserA, workspaceB, "User A"),
     assertDirectCannotReadWorkspace(supabase, directUserB, workspaceA, "User B")
   ]);
+  await Promise.all([
+    assertAuthenticatedWorkspaceInputRejected(
+      supabase,
+      directUserA,
+      "a".repeat(65),
+      uniqueSlug("long-name"),
+      "authenticated 65-character workspace name"
+    ),
+    assertAuthenticatedWorkspaceInputRejected(
+      supabase,
+      directUserA,
+      "valid name",
+      "INVALID SLUG",
+      "authenticated invalid workspace slug"
+    ),
+    assertAuthenticatedWorkspaceInputRejected(
+      supabase,
+      directUserA,
+      "\t\n",
+      uniqueSlug("control-whitespace"),
+      "authenticated control-whitespace-only workspace name"
+    ),
+    assertAuthenticatedWorkspaceInputRejected(
+      supabase,
+      directUserA,
+      "\u00a0\u3000",
+      uniqueSlug("unicode-whitespace"),
+      "authenticated Unicode-whitespace-only workspace name"
+    ),
+    assertAuthenticatedWorkspaceInputRejected(
+      supabase,
+      directUserA,
+      "😀".repeat(65),
+      uniqueSlug("emoji-name"),
+      "authenticated 65-code-point workspace name"
+    )
+  ]);
+  await Promise.all([
+    assertAuthenticatedWorkspaceNameUpdateRejected(
+      supabase,
+      directUserA,
+      workspaceA,
+      ` ${"a".repeat(64)} `,
+      "RLS negative test A",
+      "authenticated space-padded workspace name"
+    ),
+    assertAuthenticatedWorkspaceNameUpdateRejected(
+      supabase,
+      directUserA,
+      workspaceA,
+      `\t${"a".repeat(64)}\u00a0`,
+      "RLS negative test A",
+      "authenticated control-and-Unicode-padded workspace name"
+    )
+  ]);
   await assertCrossWorkspaceWritesRejected(
     supabase,
     directUserA,
@@ -690,6 +782,7 @@ async function main() {
       userACannotWriteUserBWorkspaceViaSupabaseRest: true,
       userBCannotWriteUserAWorkspaceViaSupabaseRest: true,
       anonymousCannotExecuteWorkspaceRpcs: true,
+      authenticatedCannotBypassWorkspaceInputContract: true,
       ownerCannotMutateIdentityFields: true,
       adminCannotMutateIdentityFields: true,
       membershipCreatedByForcedToActor: true,
