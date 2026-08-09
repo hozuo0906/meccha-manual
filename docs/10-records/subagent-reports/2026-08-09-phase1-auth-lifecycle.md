@@ -20,6 +20,7 @@ Issue #33の認証ライフサイクルについて、テスト、セキュリ�
 - 第2修正後の再レビューでは、同時期限切れ時に待機要求も重複refreshするP2を確認した。
 - PR作成後の独立再監査では、Content-Lengthを省略した巨大bodyの全量読込、JSON応答MIME未検証、DOMイベント・並行Lock・入力エラー関連付けの回帰不足をP2として確認した。
 - Codex Reviewでは、遅着した保護GETが後発ログインCookieを削除し得る競合と、refresh確定失効を他タブへ通知しないP2を確認した。
+- 最新SHAの再レビューでは、旧client assetと新refresh契約の移行非互換、logout失敗後に待機GETがrefreshへ再調整されないP2を確認した。
 
 ## 採用
 
@@ -33,8 +34,10 @@ Issue #33の認証ライフサイクルについて、テスト、セキュリ�
 - 実イベント経路、FIFO Web Lock、同時refresh、ASCII/UTF-8境界、入力エラー関連付け、処理中表示の回帰テストを追加する。
 - 保護GETはCookieを変更せず、Cookie削除を認証Web Lock内の専用refreshとlogoutに限定する。
 - refresh確定失効時は同じWeb Lock内で認証世代を更新し、全タブへ通知して保護shellと進行中の旧応答を破棄する。一時的な502・通信障害では通知しない。
+- HTMLはno-storeとし、CSS/JS内容のSHA-256に一致するversion付きURLだけをimmutable cacheする。asset変更時のversion更新漏れはテストで拒否する。
+- logout失敗後に認証世代が変わった待機GETは、最新世代へ合わせて同じLock内でrefresh最大1回、GET再送最大1回に限定して復帰する。状態変更要求は再送しない。
 - Worker runtime testと認証UIロジックtestを品質ゲートへ追加する。
-- 最終回帰ではWorker runtime 34件、認証UI 23件を含む`npm run check`が成功した。
+- 最終回帰ではWorker runtime 37件、認証UI 24件を含む`npm run check`が成功した。
 - 修正後のセキュリティ、テスト、UIUX再レビューはP0/P1/P2すべて0件だった。
 
 ## 却下

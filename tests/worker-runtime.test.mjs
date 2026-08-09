@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { afterEach, test } from "node:test";
 
+import { APP_ASSET_VERSION, APP_CSS, APP_JS } from "../apps/worker/src/app-assets.ts";
 import worker from "../apps/worker/src/index.ts";
 
 const originalFetch = globalThis.fetch;
@@ -67,6 +69,48 @@ function streamRequest(path, body, headers = {}) {
     bytesRead: () => offset
   };
 }
+
+test("app HTMLはversion付きasset URLを参照してdeploy前cacheを再利用しない", async () => {
+  const response = await worker.fetch(appRequest("/"), env, ctx);
+  const html = await response.text();
+  const cssVersion = html.match(/href="\/assets\/app\.css\?v=([^"]+)"/)?.[1];
+  const jsVersion = html.match(/src="\/assets\/app\.js\?v=([^"]+)"/)?.[1];
+
+  assert.equal(response.status, 200);
+  assert.ok(cssVersion);
+  assert.equal(jsVersion, cssVersion);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("asset内容を変更したらversion更新が必須になる", () => {
+  const expectedVersion = `sha256-${createHash("sha256")
+    .update(APP_CSS)
+    .update("\0")
+    .update(APP_JS)
+    .digest("hex")
+    .slice(0, 16)}`;
+
+  assert.equal(APP_ASSET_VERSION, expectedVersion);
+});
+
+test("現行version assetだけをimmutable cacheし旧URLはno-storeにする", async () => {
+  const htmlResponse = await worker.fetch(appRequest("/"), env, ctx);
+  const html = await htmlResponse.text();
+  const version = html.match(/src="\/assets\/app\.js\?v=([^"]+)"/)?.[1];
+  assert.ok(version);
+
+  for (const path of ["/assets/app.js", "/assets/app.css?v=old-version"]) {
+    const response = await worker.fetch(appRequest(path), env, ctx);
+    assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get("cache-control"), "no-store", path);
+  }
+
+  for (const path of [`/assets/app.js?v=${version}`, `/assets/app.css?v=${version}`]) {
+    const response = await worker.fetch(appRequest(path), env, ctx);
+    assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get("cache-control"), "public, max-age=31536000, immutable", path);
+  }
+});
 
 test("状態変更APIは異なるoriginを拒否する", async () => {
   const response = await worker.fetch(appRequest("/api/auth/logout", {

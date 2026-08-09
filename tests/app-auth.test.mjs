@@ -308,6 +308,72 @@ test("lock待機中に認証世代が変わったら古いrefreshを送信しな
   assert.deepEqual(calls, ["/api/session", "/api/session"]);
 });
 
+test("失敗logout後の待機GETは新しい認証世代で1回だけrefreshを再調整する", async () => {
+  const firstSessionResponse = deferred();
+  const firstSessionStarted = deferred();
+  const logoutRelease = deferred();
+  const logoutStarted = deferred();
+  const calls = [];
+  let sessionCalls = 0;
+  let refreshCalls = 0;
+  const { api, lockCalls, storage } = createHarness({
+    fetch: async (path, options = {}, meta) => {
+      calls.push({ path, insideLock: meta.insideLock });
+      if (path === "/api/auth/logout") {
+        logoutStarted.resolve();
+        await logoutRelease.promise;
+        throw new Error("logout network failure");
+      }
+      if (path === "/api/auth/refresh") {
+        refreshCalls += 1;
+        return Response.json({ status: "ok" });
+      }
+      sessionCalls += 1;
+      if (sessionCalls === 1) {
+        firstSessionStarted.resolve();
+        await firstSessionResponse.promise;
+      }
+      if (sessionCalls <= 2) {
+        return Response.json({
+          code: "SESSION_REFRESH_REQUIRED",
+          message: "ログイン状態を更新してください。"
+        }, { status: 401 });
+      }
+      return Response.json({ user: { id: "user-1" }, workspaces: [] });
+    }
+  });
+  const versionKey = "meccha-manual-authentication-version";
+  storage.set(versionKey, "before-failed-logout");
+  const session = { user: { id: "user-1", email: "user@example.invalid" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  const readRequest = api.requestJson("/api/session");
+  await firstSessionStarted.promise;
+  const logoutRequest = api.logout();
+  await logoutStarted.promise;
+  firstSessionResponse.resolve();
+  for (let turn = 0; turn < 10 && lockCalls.length < 2; turn += 1) {
+    await Promise.resolve();
+  }
+  assert.equal(lockCalls.length, 2, "GETがlogoutの後ろでWeb Lockを待機する");
+  logoutRelease.resolve();
+
+  await logoutRequest;
+  const payload = await readRequest;
+
+  assert.equal(payload.user.id, "user-1");
+  assert.equal(refreshCalls, 1);
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/api/session",
+    "/api/auth/logout",
+    "/api/session",
+    "/api/auth/refresh",
+    "/api/session"
+  ]);
+  assert.notEqual(storage.get(versionKey), "before-failed-logout");
+});
+
 test("初回要求中に認証世代が変わった状態変更はrefreshも再送もしない", async () => {
   const calls = [];
   const { api } = createHarness({

@@ -1,10 +1,12 @@
+export const APP_ASSET_VERSION = "sha256-bb7bb09a4d7c5262";
+
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>めっちゃマニュアル</title>
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/app.css?v=${APP_ASSET_VERSION}">
 </head>
 <body>
   <main id="app" class="app">
@@ -13,7 +15,7 @@ export const APP_HTML = `<!doctype html>
       <p>読み込み中</p>
     </section>
   </main>
-  <script src="/assets/app.js" defer></script>
+  <script src="/assets/app.js?v=${APP_ASSET_VERSION}" defer></script>
 </body>
 </html>`;
 
@@ -559,8 +561,10 @@ function isReadRequest(options) {
   return !options.method || String(options.method).toUpperCase() === "GET";
 }
 
-function retryReadOrRejectAuthenticationChange(path, options) {
-  if (isReadRequest(options)) return requestJsonOnce(path, options);
+function reconcileAuthenticationVersion(expectedVersion, options) {
+  const currentVersion = readAuthenticationVersion();
+  if (currentVersion === expectedVersion) return expectedVersion;
+  if (isReadRequest(options)) return currentVersion;
   throw new AppRequestError(
     "ログイン状態が別のタブで変更されたため、この操作は実行しませんでした。画面を確認して、もう一度お試しください。",
     409,
@@ -570,9 +574,7 @@ function retryReadOrRejectAuthenticationChange(path, options) {
 
 async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options) {
   return withAuthenticationLock(async () => {
-    if (readAuthenticationVersion() !== expectedVersion) {
-      return retryReadOrRejectAuthenticationChange(path, options);
-    }
+    expectedVersion = reconcileAuthenticationVersion(expectedVersion, options);
 
     try {
       return await requestJsonOnce(path, options);
@@ -580,18 +582,14 @@ async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, op
       if (error.code !== "SESSION_REFRESH_REQUIRED") throw error;
     }
 
-    if (readAuthenticationVersion() !== expectedVersion) {
-      return retryReadOrRejectAuthenticationChange(path, options);
-    }
+    expectedVersion = reconcileAuthenticationVersion(expectedVersion, options);
     try {
       await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
     } catch (error) {
       if (isTerminalSessionError(error)) announceTerminalAuthenticationChange();
       throw error;
     }
-    if (readAuthenticationVersion() !== expectedVersion) {
-      return retryReadOrRejectAuthenticationChange(path, options);
-    }
+    reconcileAuthenticationVersion(expectedVersion, options);
     return requestJsonOnce(path, options);
   });
 }

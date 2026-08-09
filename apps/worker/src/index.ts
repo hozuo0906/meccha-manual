@@ -1,4 +1,5 @@
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
+import { APP_ASSET_VERSION } from "./app-assets.ts";
 
 interface Env {
   SUPABASE_URL?: string;
@@ -194,11 +195,13 @@ function htmlResponse(body: string): Response {
   });
 }
 
-function assetResponse(body: string, contentType: string): Response {
+function assetResponse(body: string, contentType: string, versioned: boolean): Response {
   return new Response(body, {
     headers: {
       "content-type": contentType,
-      "cache-control": "public, max-age=300",
+      "cache-control": versioned
+        ? "public, max-age=31536000, immutable"
+        : "no-store",
       ...SECURITY_HEADERS
     }
   });
@@ -1469,6 +1472,7 @@ function basicHealth(): Response {
 
 async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const hasCurrentAssetVersion = url.searchParams.get("v") === APP_ASSET_VERSION;
 
   if (url.pathname === "/v1/integrations/discord/interactions") {
     return discordInteractions(request, env, ctx);
@@ -1477,8 +1481,12 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   verifySameOriginWrite(request);
 
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
-  if (request.method === "GET" && url.pathname === "/assets/app.css") return assetResponse(APP_CSS, "text/css; charset=utf-8");
-  if (request.method === "GET" && url.pathname === "/assets/app.js") return assetResponse(APP_JS, "application/javascript; charset=utf-8");
+  if (request.method === "GET" && url.pathname === "/assets/app.css") {
+    return assetResponse(APP_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (request.method === "GET" && url.pathname === "/assets/app.js") {
+    return assetResponse(APP_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
+  }
   if (request.method === "GET" && url.pathname === "/health") return basicHealth();
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(env);
   if (request.method === "GET" && url.pathname === "/api/session") return getSession(request, env);
