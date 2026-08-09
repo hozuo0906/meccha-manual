@@ -19,7 +19,7 @@ Status: Accepted
 |---|---|---|
 | `profiles` | `id`, `display_name`, `avatar_path`, `locale`, `timezone` | 本人更新。所属メンバーの最小プロフィールのみ閲覧 |
 | `workspaces` | `id`, `name`, `slug`, `status`, `settings`, `created_by` | メンバー閲覧、owner/admin更新。`id`と作成監査項目は更新不可 |
-| `workspace_members` | `workspace_id`, `user_id`, `role`, `status`, `joined_at` | メンバー閲覧、owner/admin管理。所属先、対象ユーザー、作成監査項目は更新不可。owner変更は専用フローまで禁止 |
+| `workspace_members` | `workspace_id`, `user_id`, `role`, `status`, `joined_at`, `created_by` | メンバー閲覧、owner/admin管理。insert時の`created_by`はcaller入力を信頼せず`auth.uid()`へ強制する。所属先、対象ユーザー、作成監査項目は更新不可。owner変更は専用フローまで禁止 |
 | `workspace_invitations` | `email`, `role`, `token_hash`, `expires_at`, `accepted_at` | owner/admin管理。生トークン保存禁止 |
 | `folders` | `workspace_id`, `parent_id`, `name`, `position`, `created_by` | メンバー閲覧、editor以上で変更 |
 | `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧、editor以上で変更 |

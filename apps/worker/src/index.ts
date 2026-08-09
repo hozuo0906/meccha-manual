@@ -1,4 +1,4 @@
-import { APP_CSS, APP_HTML, APP_JS } from "./app-assets";
+import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 
 interface Env {
   SUPABASE_URL?: string;
@@ -261,7 +261,7 @@ function verifySameOriginWrite(request: Request): void {
   }
 }
 
-function parseCookies(request: Request): Map<string, string> {
+function parseCookies(request: Request, tolerateInvalidSessionCookies = false): Map<string, string> {
   const header = request.headers.get("cookie") ?? "";
   const cookies = new Map<string, string>();
 
@@ -271,6 +271,10 @@ function parseCookies(request: Request): Map<string, string> {
     try {
       cookies.set(rawName, decodeURIComponent(rawValue.join("=")));
     } catch {
+      if ([COOKIE_ACCESS_TOKEN, COOKIE_REFRESH_TOKEN].includes(rawName)) {
+        if (tolerateInvalidSessionCookies) continue;
+        throw new AppError(401, "SESSION_INVALID", "ログイン状態を確認できません。もう一度ログインしてください。");
+      }
       continue;
     }
   }
@@ -1062,11 +1066,7 @@ async function assertSupabaseOk(response: Response, fallbackCode: string, fallba
 
   if (response.ok) return payload;
 
-  const message = typeof payload === "object" && payload && "message" in payload
-    ? String((payload as { message?: unknown }).message)
-    : fallbackMessage;
-
-  throw new AppError(response.status, fallbackCode, message || fallbackMessage);
+  throw new AppError(response.status, fallbackCode, fallbackMessage);
 }
 
 async function login(request: Request, env: Env): Promise<Response> {
@@ -1103,7 +1103,13 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
     method: "POST",
     body: JSON.stringify({ refresh_token: refreshToken })
   });
-  const payload = await assertSupabaseOk(response, "SESSION_REFRESH_FAILED", "セッションを更新できませんでした。");
+  if (!response.ok) {
+    if ([400, 401].includes(response.status)) {
+      throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。");
+    }
+    throw new AppError(502, "SESSION_REFRESH_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const payload = await readSupabaseJson(response);
   const auth = payload as SupabaseAuthTokenResponse;
 
   if (!auth.access_token || !auth.refresh_token || !auth.user?.id) {
@@ -1120,8 +1126,11 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
   };
 }
 
-async function requireSession(request: Request, env: Env): Promise<SessionResult> {
-  const cookies = parseCookies(request);
+async function requireSession(
+  request: Request,
+  env: Env,
+  cookies = parseCookies(request)
+): Promise<SessionResult> {
   const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
   const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
 
@@ -1134,6 +1143,9 @@ async function requireSession(request: Request, env: Env): Promise<SessionResult
     if (response.ok) {
       const user = await response.json() as SupabaseUser;
       return { user, accessToken, responseCookies: [] };
+    }
+    if (response.status >= 500 || response.status === 429) {
+      throw new AppError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
   }
 
@@ -1209,8 +1221,43 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
   }, { status: 201 }, session.responseCookies);
 }
 
-function logout(): Response {
+async function logout(request: Request, env: Env): Promise<Response> {
+  const cookies = parseCookies(request, true);
+  if (!cookies.has(COOKIE_ACCESS_TOKEN) && !cookies.has(COOKIE_REFRESH_TOKEN)) {
+    return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
+  }
+
+  let session: SessionResult;
+  try {
+    session = await requireSession(request, env, cookies);
+  } catch (error) {
+    if (error instanceof AppError && error.code === "SESSION_EXPIRED") {
+      return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
+    }
+    return logoutRevokeFailureResponse();
+  }
+
+  let response: Response;
+  try {
+    response = await supabaseFetch(env, "/auth/v1/logout?scope=local", {
+      method: "POST"
+    }, session.accessToken);
+  } catch {
+    return logoutRevokeFailureResponse();
+  }
+
+  if (!response.ok) {
+    return logoutRevokeFailureResponse();
+  }
+
   return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
+}
+
+function logoutRevokeFailureResponse(): Response {
+  return jsonResponse({
+    code: "LOGOUT_REVOKE_FAILED",
+    message: "この端末のログイン情報は削除しましたが、認証サーバー側のログアウトを確認できませんでした。もう一度ログインしてからログアウトしてください。"
+  }, { status: 502 }, clearSessionCookies());
 }
 
 function configHealth(env: Env): Response {
@@ -1277,7 +1324,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(env);
   if (request.method === "GET" && url.pathname === "/api/session") return getSession(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
-  if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout();
+  if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout(request, env);
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
     const session = await requireSession(request, env);
     return jsonResponse({ workspaces: await fetchWorkspaces(env, session.accessToken) }, undefined, session.responseCookies);

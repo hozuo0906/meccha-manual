@@ -26,19 +26,27 @@ Status: Accepted
 
 ## EPIC-02: 認証とワークスペース
 
-- Supabase Auth
-- profiles
-- workspaces
-- workspace_members
-- invitations
-- RLS negative test
+Phase 1親Issue: GitHub Issue #32
+
+Phase 1実装Issue:
+
+- GitHub Issue #33 / P1-01 認証状態: SCR-LOGIN、HttpOnly Cookie、ログイン、ログアウト、期限切れ、再ログイン、401と接続障害の分離。対象ACはAC-001、AC-003、AC-004、AC-005。
+- GitHub Issue #34 / P1-02 ワークスペース: SCR-WORKSPACE、一覧、選択、`create_workspace`、空/読込/作成/失敗状態。対象ACはAC-002、AC-006、AC-012。
+- GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
+- GitHub Issue #38 / P1-05 RLS回帰: 匿名RPC拒否、workspace/member越境拒否、識別子と作成監査項目の不変条件、4ロールの動的negative test。外部migrationとテストデータ作成の承認待ち。
+
+リポジトリには認証、ワークスペース一覧・作成、Phase 1 migration、RLS negative testのハーネスがある。メンバー管理API/UI、owner移管、実環境でのmigration適用と動的RLS検証は完了済みとして扱わない。招待はメンバー追加方式とメール送信境界を別Issueで決定してから実装する。
 
 ## EPIC-03: アプリシェル
 
-- 日本語ナビ
-- 権限別UI
-- 共通エラー
-- 空/読込/保存状態
+Phase 1実装Issue:
+
+- GitHub Issue #36 / P1-06〜P1-09: 共通シェル、権限別UI、共通状態、日本語文言、アクセシビリティ。対象ACはAC-012、AC-013、AC-014。
+- GitHub Issue #37 / P1-10: Worker実行テスト、型検査、bundle dry-run、SCR-LOGINからSCR-WORKSPACE、SCR-MEMBERS、ログアウトまでの4ロールE2E。
+
+外部設定Issue:
+
+- GitHub Issue #39: GitHub保護、repository visibility、Cloudflare dev/staging境界。外部設定変更と公開範囲の承認待ち。
 
 ## EPIC-04: Browser Run
 

@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Purpose
 
-Phase 1の品質ゲートとして、別ユーザーが他ワークスペースのデータを読めないことに加え、匿名RPCとowner/adminによる所有境界フィールドの改変が拒否されることを確認する。
+Phase 1の品質ゲートとして、別ユーザーが他ワークスペースのデータを読めないことに加え、匿名RPC、owner/admin/editor/viewerの権限境界、所有境界フィールドの改変拒否、最後のowner保護を確認する。
 
 このテストはアプリ公開URLとSupabase REST APIの両方を使って実行する。Supabase `service_role key` は使わない。
 
@@ -54,9 +54,16 @@ MECCHA_SUPABASE_ANON_KEY
 11. ユーザーAのSupabase REST tokenではワークスペースBを直接読めない。
 12. ユーザーBのSupabase REST tokenではワークスペースAを直接読めない。
 13. ユーザーA/BのSupabase REST tokenでは相手の `workspace_members` を直接読めない。
-14. anonymousロールでは `create_workspace` と `is_workspace_member` RPCを実行できない。
-15. ownerが `workspaces` と `workspace_members` の識別子・作成監査項目を変更できない。
-16. ownerが追加したadminも同じ所有境界フィールドを変更できない。
+14. ユーザーA/BのSupabase REST tokenでは相手の `workspaces` と `workspace_members` を更新できず、相手側から読み直しても変更されていない。
+15. anonymousロールでは `create_workspace` と `is_workspace_member` RPCを実行できない。
+16. ownerが `workspaces` と `workspace_members` の識別子・作成監査項目を変更できない。
+17. ownerが追加したadminも同じ所有境界フィールドを変更できない。
+18. メンバー追加時に偽の`created_by`を送っても、認証済み実行者へ強制される。
+19. ownerとadminのどちらからも、最後のownerを降格または停止できない。
+20. editorは所属ワークスペースと自分のmembershipを読めるが、ワークスペース設定とメンバー権限を変更できない。
+21. viewerは所属ワークスペースと自分のmembershipを読めるが、ワークスペース設定とメンバー権限を変更できない。
+
+admin/editor/viewerの確認は、ユーザーBをワークスペースAへ追加し、同じmembershipを `admin -> editor -> viewer` の順に変更して行う。別ワークスペースの読み取り拒否は、ユーザーBをワークスペースAへ追加する前に確認する。
 
 別ゲートの `npm run migrations:check` では、ワークスペースとメンバーの識別子・作成監査項目を更新不能にするtrigger、認証用RPCから匿名実行権限を剥奪するstatement、メンバー判定RPCの対象を`auth.uid()`へ限定する条件が存在することを静的に確認する。動的テストは検証環境へのmigration適用承認後にだけ実行する。
 
@@ -76,8 +83,13 @@ MECCHA_SUPABASE_ANON_KEY
 - どちらかのユーザーが相手のワークスペースをアプリAPI経由で読める。
 - どちらかのユーザーが相手のワークスペースをSupabase REST経由で読める。
 - どちらかのユーザーが相手の `workspace_members` をSupabase REST経由で読める。
+- どちらかのユーザーが相手の `workspaces` または `workspace_members` を更新できる。
 - anonymousロールでワークスペースRPCを実行できる。
 - ownerまたはadminがワークスペースやメンバーの識別子・作成監査項目を変更できる。
+- メンバー追加時の`created_by`を認証済み実行者以外へ偽装できる。
+- ownerまたはadminが最後のownerを降格または停止できる。
+- editorまたはviewerがワークスペース設定やメンバー権限を変更できる。
+- editorまたはviewerが所属ワークスペースや自分のmembershipを読めない。
 
 ## Command
 
@@ -97,8 +109,8 @@ npm run test:rls
 - テストユーザーのメールアドレスとパスワードはGitに保存しない。
 - `service_role key`、DBパスワード、JWT Secretは使わない。
 - リモートURLで実行する場合は明示ガードを必須にする。
-- テストはワークスペースを2件作成し、片方へ検証用admin membershipを1件追加する。現時点では削除APIがないため、作成済みデータは残る。
+- テストはワークスペースを2件作成し、片方へ検証用membershipを1件追加する。検証用membershipは最終的にviewerとなる。現時点では削除APIがないため、作成済みデータは残る。
 
 ## Remaining risk
 
-このテストは `workspaces` と `workspace_members` の読み取り分離、匿名RPC拒否、owner/adminによる識別子・作成監査項目の更新拒否を確認する。最後のowner保護とowner移譲専用フローは引き続き別の動的テストが必要。将来はStorage private bucket testも追加する。
+このテストは `workspaces` と `workspace_members` の読み取り分離、匿名RPC拒否、owner/adminによる識別子・作成監査項目の更新拒否、editor/viewerの管理操作拒否、最後のowner保護を確認する。owner移譲専用フローは未実装のため、専用フロー実装時に成功側の動的テストを追加する。将来はStorage private bucket testも追加する。

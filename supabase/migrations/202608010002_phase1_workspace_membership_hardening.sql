@@ -75,6 +75,12 @@ set search_path = public
 as $$
 begin
   if tg_op = 'INSERT' then
+    if auth.uid() is null then
+      raise exception 'authentication required';
+    end if;
+
+    new.created_by := auth.uid();
+
     if new.role = 'owner'
       and exists (
         select 1

@@ -22,6 +22,7 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 - UIで隠すだけの権限制御は禁止。
 - API認可とRLSを両方テストする。
 - `workspaces` のID・作成者・作成日時と、`workspace_members` の所属先・対象ユーザー・作成者・作成日時はowner/adminでも更新できない。
+- `workspace_members` のinsertでは、`created_by`をcaller指定値に関係なく`auth.uid()`へ強制し、作成監査主体を偽装させない。
 - ownerの昇格・降格は専用フローを実装するまで許可しない。
 - 認証用RPCは匿名実行を許可せず、メンバー・ロール判定RPCが照会できる対象ユーザーを`auth.uid()`に限定する。
 - ファイル本体の直接公開は禁止し、DBメタデータと署名URL発行時に権限確認する。
