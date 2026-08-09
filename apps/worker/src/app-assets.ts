@@ -496,6 +496,17 @@ function announceAuthenticationChange() {
   authenticationChannel?.postMessage({ type: "authentication-changed" });
 }
 
+async function withAuthenticationLock(operation) {
+  if (!navigator.locks?.request) {
+    throw new AppRequestError(
+      "このブラウザでは安全にログイン状態を変更できません。最新版のChromeでお試しください。",
+      0,
+      "AUTH_LOCK_UNAVAILABLE"
+    );
+  }
+  return navigator.locks.request("meccha-manual-authentication", { mode: "exclusive" }, operation);
+}
+
 function renderAuthenticationReload() {
   app.innerHTML =
     '<section class="boot" role="status" aria-live="polite">' +
@@ -629,13 +640,13 @@ function renderLogin(message = "") {
     button.disabled = true;
     try {
       const form = new FormData(event.currentTarget);
-      await requestJson("/api/auth/login", {
+      await withAuthenticationLock(() => requestJson("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({
           email: form.get("email"),
           password: form.get("password")
         })
-      });
+      }));
       announceAuthenticationChange();
       await loadSession();
     } catch (error) {
@@ -810,7 +821,7 @@ async function logout() {
   button.disabled = true;
   const requestSessionGeneration = ++sessionGeneration;
   try {
-    await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
+    await withAuthenticationLock(() => requestJson("/api/auth/logout", { method: "POST", body: "{}" }));
     if (requestSessionGeneration !== sessionGeneration) return;
     replaceCurrentSession(null);
     renderLogin();
