@@ -107,7 +107,7 @@ function inspectContent(content, source) {
 function isLiteralSecretValue(value) {
   const assigned = value.trim().replace(/^['"]|['"],?$/g, "");
   if (/^\*[A-Za-z0-9_-]+(?:\s*(?:#.*)?)?$/.test(assigned)) return true;
-  const isReference = /^(?:\$\{\{[^}\r\n]+\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$\([^\r\n)]+\)|(?:process\.env|env|secrets)\.[A-Za-z_][A-Za-z0-9_]*|<[^>\r\n]+>|\[[^\]\r\n]+\]),?$/.test(assigned);
+  const isReference = /^(?:\$\{\{\s*(?:secrets|env)\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|(?:process\.env|env|secrets)\.[A-Za-z_][A-Za-z0-9_]*|<[A-Z0-9_-]+>|\[[A-Z0-9_-]+\]),?$/.test(assigned);
   const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-][A-Z0-9_-]*|EXAMPLE[_-][A-Z0-9_-]*),?$/i.test(assigned);
   return !isReference && !isPlaceholder && assigned.length > 0;
 }

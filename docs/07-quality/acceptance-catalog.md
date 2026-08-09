@@ -19,6 +19,7 @@ Status: Accepted
 | AC-013 | キーボード、200%ズーム、スクリーンリーダー相当の検査環境 | Phase 1の主要操作を完了する | WCAG 2.2 AAを目標とする自動検査に重大違反がなく、フォーカス順、可視フォーカス、ラベル、エラー関連付け、状態通知、44px操作領域を手動確認できる |
 | AC-014 | owner、admin、editor、viewerの各ユーザー | SCR-SHELLとSCR-MEMBERSを表示し、URLまたはAPIを直接指定する | UIはロールで許可された操作だけを有効表示し、非表示や無効表示に関係なくAPIとRLSが不許可操作を拒否する |
 | AC-015 | ログイン済みユーザー | ログアウト要求で通信切断または中継側の非JSONエラーとなり、WorkerのCookie削除レスポンスを確認できない | ログイン画面へ遷移せず現在のセッション表示を維持し、ログアウト未完了と再試行を日本語で案内する |
+| AC-016 | 同一ブラウザの複数タブでログイン主体の切替、workspace作成、一覧更新が並行する | 古いsession・作成・一覧応答が新しい応答より後に到着する | 現在Cookieのユーザーと最新一覧だけを表示し、別ユーザーのworkspace情報や作成前一覧で上書きしない |
 | AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |
 | AC-022 | 記録中 | 危険URLへ遷移しようとする | SSRF防止で拒否される |

@@ -483,11 +483,26 @@ const app = document.getElementById("app");
 let currentSession = null;
 let sessionGeneration = 0;
 let sessionReloadSequence = 0;
+const authenticationChannel = typeof BroadcastChannel === "function"
+  ? new BroadcastChannel("meccha-manual-authentication")
+  : null;
 
 function replaceCurrentSession(nextSession) {
   currentSession = nextSession;
   sessionGeneration += 1;
 }
+
+function announceAuthenticationChange() {
+  authenticationChannel?.postMessage({ type: "authentication-changed" });
+}
+
+authenticationChannel?.addEventListener("message", (event) => {
+  if (event.data?.type !== "authentication-changed") return;
+  currentSession = null;
+  sessionGeneration += 1;
+  sessionReloadSequence += 1;
+  loadSession();
+});
 
 class AppRequestError extends Error {
   constructor(message, status, code) {
@@ -612,6 +627,7 @@ function renderLogin(message = "") {
           password: form.get("password")
         })
       });
+      announceAuthenticationChange();
       await loadSession();
     } catch (error) {
       setBox("login-message", error.message, "error");
@@ -735,9 +751,11 @@ async function createWorkspace(event) {
   const button = event.currentTarget.querySelector("button");
   button.disabled = true;
   const requestSessionGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  sessionReloadSequence += 1;
   try {
     const form = new FormData(event.currentTarget);
-    const result = await requestJson("/api/workspaces", {
+    await requestJson("/api/workspaces", {
       method: "POST",
       body: JSON.stringify({
         name: form.get("name"),
@@ -745,10 +763,22 @@ async function createWorkspace(event) {
       })
     });
     if (requestSessionGeneration !== sessionGeneration) return;
-    currentSession = { ...currentSession, workspaces: result.workspaces || [] };
+    const requestWorkspaceSequence = ++sessionReloadSequence;
+    const session = await requestJson("/api/session");
+    if (requestSessionGeneration !== sessionGeneration || requestWorkspaceSequence !== sessionReloadSequence) return;
+    if (session.user?.id !== requestUserId) {
+      replaceCurrentSession(session);
+      renderShell(currentSession);
+      return;
+    }
+    currentSession = session;
     renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
+    if (error.status === 401) {
+      await loadSession();
+      return;
+    }
     setBox("workspace-message", error.message, "error");
   } finally {
     button.disabled = false;
@@ -765,6 +795,7 @@ async function logout() {
     if (requestSessionGeneration !== sessionGeneration) return;
     replaceCurrentSession(null);
     renderLogin();
+    announceAuthenticationChange();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
@@ -773,6 +804,7 @@ async function logout() {
     }
     replaceCurrentSession(null);
     renderLogin(error.message);
+    announceAuthenticationChange();
   } finally {
     const activeButton = document.getElementById("logout-button");
     if (activeButton) activeButton.disabled = false;

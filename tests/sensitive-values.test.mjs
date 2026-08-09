@@ -245,3 +245,50 @@ test("既知secret参照の後ろに平文fallbackがある場合は拒否する
   assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
   assert.doesNotMatch(result.stderr, new RegExp(literalValue));
 });
+
+test("GitHub Secrets式の内側に平文fallbackがある場合は拒否する", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "meccha-secret-scan-"));
+  temporaryDirectories.push(repository);
+  const secretName = ["SUPABASE", "DB", "PASSWORD"].join("_");
+  const literalValue = "literalvalue159";
+  const secretFile = path.join(repository, "workflow.yml");
+
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+  await writeFile(secretFile, `${secretName}: \${{ secrets.DB_PASSWORD || '${literalValue}' }}\n`);
+  assert.equal(spawnSync("git", ["add", "workflow.yml"], { cwd: repository }).status, 0);
+
+  const result = spawnSync(process.execPath, [scannerPath], {
+    cwd: repository,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
+  assert.doesNotMatch(result.stderr, new RegExp(literalValue));
+});
+
+test("単一のGitHub Secrets参照は許可する", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "meccha-secret-scan-"));
+  temporaryDirectories.push(repository);
+  const secretName = ["SUPABASE", "DB", "PASSWORD"].join("_");
+  const secretFile = path.join(repository, "workflow.yml");
+
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+  await writeFile(secretFile, `${secretName}: \${{ secrets.DB_PASSWORD }}\n`);
+  assert.equal(spawnSync("git", ["add", "workflow.yml"], { cwd: repository }).status, 0);
+
+  const result = spawnSync(process.execPath, [scannerPath], {
+    cwd: repository,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+});
