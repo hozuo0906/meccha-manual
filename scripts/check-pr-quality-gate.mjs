@@ -1,6 +1,28 @@
+const CODEX_BOT_LOGINS = new Set(["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"]);
+const isCodexBot = (user) => CODEX_BOT_LOGINS.has(user?.login || "") && user?.type === "Bot";
+
+function isCodexApprovalComment(comment, headSha, requestedAt) {
+  const body = comment.body || "";
+  const reviewedCommit = body.match(/\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i)?.[1];
+  return isCodexBot(comment.user)
+    && /Codex Review:\s*Didn't find any major issues\b/i.test(body)
+    && Boolean(reviewedCommit && headSha.startsWith(reviewedCommit))
+    && new Date(comment.created_at) >= new Date(requestedAt);
+}
+
 const checkOnly = process.argv.includes("--check");
 if (checkOnly) {
-  console.log("PR quality gate harness OK: runtime GitHub API access is not used by npm run check.");
+  const fixture = {
+    user: { login: "chatgpt-codex-connector[bot]", type: "Bot" },
+    body: "Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** `0123456789`",
+    created_at: "2026-08-09T00:01:00Z"
+  };
+  if (!isCodexApprovalComment(fixture, "0123456789abcdef", "2026-08-09T00:00:00Z")
+      || isCodexApprovalComment(fixture, "fedcba9876543210", "2026-08-09T00:00:00Z")
+      || isCodexApprovalComment(fixture, "0123456789abcdef", "2026-08-09T00:02:00Z")) {
+    throw new Error("Codex approval comment recognition regression.");
+  }
+  console.log("PR quality gate harness OK: Codex approval comment recognition checked without runtime GitHub API access.");
   process.exit(0);
 }
 
@@ -42,9 +64,20 @@ const requiredChecks = [
   "マージ対象SHAとレビュー対象SHAが一致している", "未実行テストと理由を記載した",
   "秘密値・個人情報・本番設定を含んでいない", "production変更を含んでいない"
 ];
+const requiredQualityLoopChecks = [
+  "コーディング担当の結論、リスク、未決を確認した",
+  "UIUX担当の日本語UI、状態、アクセシビリティ観点を確認した",
+  "テスト担当の自動テスト、手動確認、未実施理由を確認した",
+  "辛口レビュー担当のP0/P1指摘が0件である",
+  "リファクタリング/コードレビュー担当の命名、定数、責務、再利用性、依存方向を確認した",
+  "ドキュメント記録担当がADR、decision-log、Issue、テスト条件の整合を確認した",
+  "サブエージェントの生思考や会話全文をPR、docs、ログへ記録していない"
+];
 const pr = await api(`/pulls/${prNumber}`);
 const body = pr.body || "";
-const missing = requiredChecks.filter((label) => !new RegExp(`^- \\[x\\] ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "mi").test(body));
+const missing = [...requiredChecks, ...requiredQualityLoopChecks].filter((label) =>
+  !new RegExp(`^- \\[x\\] ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}。?$`, "mi").test(body)
+);
 if (missing.length) throw new Error(`PR checklist is incomplete: ${missing.join(", ")}`);
 
 const comments = await apiPages(`/issues/${prNumber}/comments`);
@@ -54,15 +87,16 @@ const reviewRequest = [...comments].reverse().find((comment) =>
 if (!reviewRequest) throw new Error("Latest head SHA is not named in an @codex review request.");
 
 const reviews = await apiPages(`/pulls/${prNumber}/reviews`);
-const CODEX_BOT_LOGINS = new Set(["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"]);
-const isCodexBot = (user) => CODEX_BOT_LOGINS.has(user?.login || "") && user?.type === "Bot";
 const codexReview = reviews.some((review) =>
   isCodexBot(review.user)
     && ["COMMENTED", "APPROVED", "CHANGES_REQUESTED"].includes(review.state)
     && review.commit_id === pr.head.sha
 );
+const codexApprovalComment = comments.some((comment) =>
+  isCodexApprovalComment(comment, pr.head.sha, reviewRequest.created_at)
+);
 let codexApprovalReaction = false;
-if (!codexReview) {
+if (!codexReview && !codexApprovalComment) {
   const [commentReactions, prReactions] = await Promise.all([
     apiPages(`/issues/comments/${reviewRequest.id}/reactions`),
     apiPages(`/issues/${prNumber}/reactions`)
@@ -72,8 +106,8 @@ if (!codexReview) {
       && new Date(reaction.created_at) >= new Date(reviewRequest.created_at)
   );
 }
-if (!codexReview && !codexApprovalReaction) {
-  throw new Error("Latest head has neither a Codex review nor a post-request Codex approval reaction.");
+if (!codexReview && !codexApprovalComment && !codexApprovalReaction) {
+  throw new Error("Latest head has neither a Codex review, approval comment, nor post-request approval reaction.");
 }
 
 const graphqlHeaders = { ...headers, "content-type": "application/json" };
