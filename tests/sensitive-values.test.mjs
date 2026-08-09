@@ -115,3 +115,28 @@ test("YAML tag付きblock scalar secret値を値を表示せず拒否する", as
   assert.match(result.stderr, /known secret name has a literal-looking YAML block value/);
   assert.doesNotMatch(result.stderr, new RegExp(literalValue));
 });
+
+test("YAML aliasを既知secretへ代入した場合は参照名が短くても拒否する", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "meccha-secret-scan-"));
+  temporaryDirectories.push(repository);
+  const secretName = ["SUPABASE", "DB", "PASSWORD"].join("_");
+  const literalValue = "literalvalue654";
+  const secretFile = path.join(repository, "settings.yml");
+
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+  await writeFile(secretFile, `credential: &dbpass ${literalValue}\n${secretName}: *dbpass\n`);
+  assert.equal(spawnSync("git", ["add", "settings.yml"], { cwd: repository }).status, 0);
+
+  const result = spawnSync(process.execPath, [scannerPath], {
+    cwd: repository,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
+  assert.doesNotMatch(result.stderr, new RegExp(literalValue));
+});

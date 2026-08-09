@@ -95,6 +95,7 @@ function inspectContent(content, source) {
 
 function isLiteralSecretValue(value) {
   const assigned = value.trim().replace(/^['"]|['"],?$/g, "");
+  if (/^\*[A-Za-z0-9_-]+(?:\s*(?:#.*)?)?$/.test(assigned)) return true;
   const isReference = /^(?:\$\{\{|\$[A-Za-z_(]|process\.env\.|env\.|secrets\.|<|\[)/.test(assigned);
   const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-]|EXAMPLE[_-])/i.test(assigned);
   return !isReference && !isPlaceholder && assigned.length >= 8;
