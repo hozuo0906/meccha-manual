@@ -1,14 +1,28 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
 const siteRoot = path.join(root, "apps/brand-site/public");
+const appDirectories = (await readdir(path.join(siteRoot, "app"), { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
+const appRegistry = JSON.parse(await readFile(path.join(root, "apps/brand-site/apps.json"), "utf8"));
 const pages = [
   { file: "index.html", canonical: "https://www.meccha-iiyatsu.com/" },
   { file: "app/index.html", canonical: "https://www.meccha-iiyatsu.com/app" },
-  { file: "app/meccha-manual/index.html", canonical: "https://www.meccha-iiyatsu.com/app/meccha-manual" }
+  ...appDirectories.map((slug) => ({
+    file: `app/${slug}/index.html`,
+    canonical: `https://www.meccha-iiyatsu.com/app/${slug}`
+  }))
 ];
 const errors = [];
+
+if (!Array.isArray(appRegistry)) errors.push("apps.json: array is required");
+const registrySlugs = Array.isArray(appRegistry) ? appRegistry.map((app) => app.slug).sort() : [];
+if (JSON.stringify(registrySlugs) !== JSON.stringify(appDirectories)) {
+  errors.push("apps.json: slugs must match every app LP directory exactly");
+}
 
 for (const page of pages) {
   const html = await readFile(path.join(siteRoot, page.file), "utf8");
@@ -34,17 +48,29 @@ for (const page of pages) {
   }
 }
 
-const lp = await readFile(path.join(siteRoot, "app/meccha-manual/index.html"), "utf8");
-const appUrl = "https://meccha-manual.meccha-iiyatsu.com";
-if ((lp.match(new RegExp(appUrl.replaceAll(".", "\\."), "g")) ?? []).length < 2) errors.push("LP: primary and final app CTA are required");
 const appIndex = await readFile(path.join(siteRoot, "app/index.html"), "utf8");
-if (!appIndex.includes(appUrl)) errors.push("App index: app subdomain link is required");
+for (const app of Array.isArray(appRegistry) ? appRegistry : []) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(app.slug ?? "")) errors.push(`apps.json: invalid slug ${app.slug ?? "(missing)"}`);
+  if (!["prelaunch", "live"].includes(app.publicationStatus)) errors.push(`apps.json: invalid publicationStatus for ${app.slug}`);
+  if (app.appUrl !== `https://${app.slug}.meccha-iiyatsu.com`) errors.push(`apps.json: invalid appUrl for ${app.slug}`);
+  if (!appIndex.includes(`href="/app/${app.slug}"`)) errors.push(`App index: LP link is required for ${app.slug}`);
+
+  const lp = await readFile(path.join(siteRoot, `app/${app.slug}/index.html`), "utf8");
+  const combinedHtml = `${appIndex}\n${lp}`;
+  const liveLink = `href="${app.appUrl}"`;
+  if (app.publicationStatus === "prelaunch") {
+    if (combinedHtml.includes(liveLink)) errors.push(`${app.slug}: prelaunch CTA must not link to an unverified Custom Domain`);
+    if ((combinedHtml.match(/アプリを開く（準備中）/g) ?? []).length < 3) errors.push(`${app.slug}: three disabled prelaunch CTAs are required`);
+  } else if ((combinedHtml.match(new RegExp(liveLink.replaceAll(".", "\\."), "g")) ?? []).length < 3) {
+    errors.push(`${app.slug}: live app URL is required on all app CTAs`);
+  }
+}
 
 const headers = await readFile(path.join(siteRoot, "_headers"), "utf8");
 for (const header of ["Content-Security-Policy:", "Permissions-Policy:", "Referrer-Policy:", "X-Content-Type-Options:"]) {
   if (!headers.includes(header)) errors.push(`_headers: missing ${header}`);
 }
-for (const route of ["/\n", "/app\n", "/app/meccha-manual\n", "/assets/*\n"]) {
+for (const route of ["/\n", "/app\n", ...appDirectories.map((slug) => `/app/${slug}\n`), "/assets/*\n"]) {
   if (!headers.includes(route)) errors.push(`_headers: missing cache rule for ${route.trim() || "/"}`);
 }
 

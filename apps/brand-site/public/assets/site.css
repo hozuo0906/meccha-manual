@@ -41,6 +41,9 @@ nav a { min-height: 44px; display: inline-flex; align-items: center; color: #344
 .button-primary:hover { background: var(--teal-dark); }
 .button-secondary { border-color: var(--line); background: #fff; }
 .button-light { background: #fff; color: var(--teal-dark); }
+.button-disabled { cursor: not-allowed; color: var(--muted); }
+.button-disabled { border-color: var(--line); background: var(--wash); }
+.button-disabled-light { cursor: not-allowed; opacity: .78; }
 .button:focus-visible, a:focus-visible { outline: 3px solid #f59e0b; outline-offset: 3px; }
 .brand-panel { min-height: 390px; display: grid; place-items: end start; padding: 42px; border-radius: var(--radius); background: linear-gradient(145deg, rgba(15,118,110,.96), rgba(19,78,74,.92)), repeating-linear-gradient(0deg, rgba(255,255,255,.18) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(255,255,255,.16) 0 1px, transparent 1px 28px); color: #fff; }
 .brand-panel p { margin: 0; font-size: clamp(24px, 4vw, 42px); line-height: 1.5; }
@@ -66,6 +69,7 @@ nav a { min-height: 44px; display: inline-flex; align-items: center; color: #344
 .app-card-body { display: grid; align-content: center; padding: clamp(30px, 6vw, 68px); }
 .app-card-body > p:not(.status) { color: var(--muted); }
 .text-link { min-height: 48px; display: inline-flex; align-items: center; color: var(--teal-dark); font-weight: 800; text-underline-offset: 5px; }
+.text-link.disabled-link { cursor: not-allowed; color: var(--muted); }
 
 .product-visual { display: grid; place-items: center; min-height: 430px; padding: 38px; border-radius: var(--radius); background: var(--wash); }
 .product-visual img { width: min(390px, 100%); border-radius: 24px; }
