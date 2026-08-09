@@ -739,7 +739,7 @@ async function createWorkspace(event) {
       })
     });
     if (requestSessionGeneration !== sessionGeneration) return;
-    replaceCurrentSession({ ...currentSession, workspaces: result.workspaces || [] });
+    currentSession = { ...currentSession, workspaces: result.workspaces || [] };
     renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
