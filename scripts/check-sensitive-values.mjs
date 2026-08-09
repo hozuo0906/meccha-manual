@@ -77,16 +77,19 @@ function inspectPath(file, source) {
 }
 
 function inspectContent(content, source) {
+  const normalizedContent = content.replace(/\\u([0-9a-fA-F]{4})/g, (_, codePoint) =>
+    String.fromCharCode(Number.parseInt(codePoint, 16))
+  );
   for (const [label, pattern] of patterns) {
-    if (pattern.test(content)) findings.add(`${source}: ${label}`);
+    if (pattern.test(normalizedContent)) findings.add(`${source}: ${label}`);
   }
-  if (hasServiceRoleJwt(content)) findings.add(`${source}: Supabase service_role JWT`);
-  for (const match of content.matchAll(knownSecretAssignmentPattern)) {
+  if (hasServiceRoleJwt(normalizedContent)) findings.add(`${source}: Supabase service_role JWT`);
+  for (const match of normalizedContent.matchAll(knownSecretAssignmentPattern)) {
     if (isLiteralSecretValue(match[1])) {
       findings.add(`${source}: known secret name has a literal-looking assigned value`);
     }
   }
-  for (const match of content.matchAll(knownSecretYamlBlockPattern)) {
+  for (const match of normalizedContent.matchAll(knownSecretYamlBlockPattern)) {
     if (isLiteralYamlSecretBlock(match[2])) {
       findings.add(`${source}: known secret name has a literal-looking YAML block value`);
     }

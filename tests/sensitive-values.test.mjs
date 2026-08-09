@@ -165,3 +165,28 @@ test("YAML multiline quoted secretの短い先頭断片も拒否する", async (
   assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
   assert.doesNotMatch(result.stderr, new RegExp(literalValue));
 });
+
+test("JSON Unicode escapeで分断された既知secretキーも拒否する", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "meccha-secret-scan-"));
+  temporaryDirectories.push(repository);
+  const escapedSecretName = "SUPABASE\\u005fDB_PASSWORD";
+  const literalValue = "literalvalue852";
+  const secretFile = path.join(repository, "settings.json");
+
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+  await writeFile(secretFile, `{\n  "${escapedSecretName}": "${literalValue}"\n}\n`);
+  assert.equal(spawnSync("git", ["add", "settings.json"], { cwd: repository }).status, 0);
+
+  const result = spawnSync(process.execPath, [scannerPath], {
+    cwd: repository,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
+  assert.doesNotMatch(result.stderr, new RegExp(literalValue));
+});
