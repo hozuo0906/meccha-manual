@@ -21,7 +21,7 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - 401、接続失敗、サーバー失敗を区別する認証画面状態
 - Supabase現在セッションの失効を伴うログアウト
 - WorkerのCookie削除レスポンスを確認できない通信切断・中継エラー時に、セッション表示を維持する再試行可能な失敗状態
-- 複数タブの認証変更通知と、workspace作成・一覧更新の古い応答を破棄する競合制御
+- 複数タブの認証変更時に旧shellを即時非表示にする通知と、workspace作成・一覧更新の古い応答・失敗を破棄する競合制御
 - 異origin、壊れたCookie、認証エラー非露出、ログアウト失効、refresh失敗のWorker runtime test
 
 Phase 1で追加するもの:

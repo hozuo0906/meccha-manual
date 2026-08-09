@@ -496,11 +496,20 @@ function announceAuthenticationChange() {
   authenticationChannel?.postMessage({ type: "authentication-changed" });
 }
 
+function renderAuthenticationReload() {
+  app.innerHTML =
+    '<section class="boot" role="status" aria-live="polite">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<p>ログイン状態を更新しています</p>' +
+    '</section>';
+}
+
 authenticationChannel?.addEventListener("message", (event) => {
   if (event.data?.type !== "authentication-changed") return;
   currentSession = null;
   sessionGeneration += 1;
   sessionReloadSequence += 1;
+  renderAuthenticationReload();
   loadSession();
 });
 
@@ -753,6 +762,8 @@ async function createWorkspace(event) {
   const requestSessionGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
   sessionReloadSequence += 1;
+  let workspaceCreated = false;
+  let requestWorkspaceSequence = null;
   try {
     const form = new FormData(event.currentTarget);
     await requestJson("/api/workspaces", {
@@ -762,8 +773,9 @@ async function createWorkspace(event) {
         slug: form.get("slug")
       })
     });
+    workspaceCreated = true;
     if (requestSessionGeneration !== sessionGeneration) return;
-    const requestWorkspaceSequence = ++sessionReloadSequence;
+    requestWorkspaceSequence = ++sessionReloadSequence;
     const session = await requestJson("/api/session");
     if (requestSessionGeneration !== sessionGeneration || requestWorkspaceSequence !== sessionReloadSequence) return;
     if (session.user?.id !== requestUserId) {
@@ -775,8 +787,16 @@ async function createWorkspace(event) {
     renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
+    if (requestWorkspaceSequence !== null && requestWorkspaceSequence !== sessionReloadSequence) return;
     if (error.status === 401) {
       await loadSession();
+      return;
+    }
+    if (workspaceCreated) {
+      renderShell(
+        currentSession,
+        "ワークスペースは作成されましたが、最新の一覧を取得できませんでした。「一覧を更新」をお試しください。"
+      );
       return;
     }
     setBox("workspace-message", error.message, "error");
