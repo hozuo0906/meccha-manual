@@ -18,6 +18,21 @@ const pages = [
 ];
 const errors = [];
 
+function appCtaTags(html, slug, placement) {
+  return [...html.matchAll(/<(?:a|span)\b[^>]*>/g)]
+    .map((match) => match[0])
+    .filter((tag) => tag.includes(`data-app-slug="${slug}"`) && tag.includes(`data-app-cta="${placement}"`));
+}
+
+function linksToOrigin(html, origin) {
+  return [...html.matchAll(/href="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter((href) => {
+      try { return new URL(href, "https://www.meccha-iiyatsu.com").origin === origin; }
+      catch { return false; }
+    });
+}
+
 if (!Array.isArray(appRegistry)) errors.push("apps.json: array is required");
 const registrySlugs = Array.isArray(appRegistry) ? appRegistry.map((app) => app.slug).sort() : [];
 if (JSON.stringify(registrySlugs) !== JSON.stringify(appDirectories)) {
@@ -57,12 +72,19 @@ for (const app of Array.isArray(appRegistry) ? appRegistry : []) {
 
   const lp = await readFile(path.join(siteRoot, `app/${app.slug}/index.html`), "utf8");
   const combinedHtml = `${appIndex}\n${lp}`;
-  const liveLink = `href="${app.appUrl}"`;
+  const ctas = [
+    ...appCtaTags(appIndex, app.slug, "index"),
+    ...appCtaTags(lp, app.slug, "primary"),
+    ...appCtaTags(lp, app.slug, "final")
+  ];
+  const appOrigin = new URL(app.appUrl).origin;
   if (app.publicationStatus === "prelaunch") {
-    if (combinedHtml.includes(liveLink)) errors.push(`${app.slug}: prelaunch CTA must not link to an unverified Custom Domain`);
-    if ((combinedHtml.match(/アプリを開く（準備中）/g) ?? []).length < 3) errors.push(`${app.slug}: three disabled prelaunch CTAs are required`);
-  } else if ((combinedHtml.match(new RegExp(liveLink.replaceAll(".", "\\."), "g")) ?? []).length < 3) {
-    errors.push(`${app.slug}: live app URL is required on all app CTAs`);
+    if (linksToOrigin(combinedHtml, appOrigin).length > 0) errors.push(`${app.slug}: prelaunch pages must not link anywhere on the unverified app origin`);
+    if (ctas.length !== 3 || ctas.some((tag) => !tag.startsWith("<span") || !tag.includes('aria-disabled="true"'))) {
+      errors.push(`${app.slug}: index, primary and final prelaunch CTAs must each be a disabled span`);
+    }
+  } else if (ctas.length !== 3 || ctas.some((tag) => !tag.startsWith("<a") || !tag.includes(`href="${app.appUrl}"`))) {
+    errors.push(`${app.slug}: index, primary and final live CTAs must each link to the exact app URL`);
   }
 }
 
