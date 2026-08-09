@@ -30,7 +30,7 @@ jobs:
       - name: Checkout gate implementation
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha || 'main' }}
 
       - name: Verify latest review and threads
         env:
