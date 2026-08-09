@@ -72,6 +72,6 @@ Issue intake monitorはIssueを拾う。Quality Loop GateはPRが品質loopの�
 
 Codexが指摘なしで👍だけを返した場合は、最新SHAを本文に含む `@codex review` 依頼へのCodex bot反応を確認する。反応後に `/quality-gate` とPRへコメントして再確認workflowを起動する。
 
-PR Latest Review Gate自身の変更を初めてmainへ導入する先行PRでは、`issue_comment`イベントがmain上の旧workflowを使うため、`/quality-gate`では新判定を検証できない。このブートストラップ時だけ、同一リポジトリのPR本文を編集してread-onlyの`pull_request edited`を起動し、PR headのゲート実装で再確認する。先行PRをmainへマージした後は、通常どおり`/quality-gate`を使う。fork由来のPR headはこの例外の対象にしない。
+PR Latest Review Gate自身の変更を初めてmainへ導入する先行PR #41では、`issue_comment`イベントがmain上の旧workflowを使うため、`/quality-gate`では新判定を検証できない。このブートストラップ時だけ、リポジトリ所有者がPR #41の本文を編集してread-onlyの`pull_request edited`を起動し、同一リポジトリにあるPR headのゲート実装で再確認する。例外条件はPR #41・所有者起動・同一リポジトリheadに限定し、#41をmainへマージした後は、すべてのPRで信頼済みmainを使って通常どおり`/quality-gate`を実行する。fork由来のPR headはこの例外の対象にしない。
 
 実際の品質判断は、親セッションが各担当の要約を確認して行う。
