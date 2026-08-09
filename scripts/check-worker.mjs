@@ -68,6 +68,7 @@ const requiredAppSnippets = [
   "renderLoadFailure",
   "error.status === 401",
   "error.code !== \"LOGOUT_REVOKE_FAILED\"",
+  "error.code === \"AUTH_LOCK_UNAVAILABLE\"",
   "ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。",
   "if (activeButton) activeButton.disabled = false",
   "SESSION_INVALID",

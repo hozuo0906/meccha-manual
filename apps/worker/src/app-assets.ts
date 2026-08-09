@@ -828,6 +828,10 @@ async function logout() {
     announceAuthenticationChange();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
+    if (error.code === "AUTH_LOCK_UNAVAILABLE") {
+      setBox("shell-message", error.message, "error");
+      return;
+    }
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
       setBox("shell-message", "ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。", "error");
       return;
