@@ -163,6 +163,14 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+async function waitForCondition(predicate, message) {
+  for (let turn = 0; turn < 100; turn += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(message);
+}
+
 test("refresh要求は認証Web Lock内で現Cookieを再確認してから専用POSTと再送を行う", async () => {
   const calls = [];
   const { api, lockCalls } = createHarness({
@@ -353,10 +361,10 @@ test("失敗logout後の待機GETは新しい認証世代で1回だけrefreshを
   const logoutRequest = api.logout();
   await logoutStarted.promise;
   firstSessionResponse.resolve();
-  for (let turn = 0; turn < 10 && lockCalls.length < 2; turn += 1) {
-    await Promise.resolve();
-  }
-  assert.equal(lockCalls.length, 2, "GETがlogoutの後ろでWeb Lockを待機する");
+  await waitForCondition(
+    () => lockCalls.length === 2,
+    "GETがlogoutの後ろでWeb Lockを待機する"
+  );
   logoutRelease.resolve();
 
   await logoutRequest;
