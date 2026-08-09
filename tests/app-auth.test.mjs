@@ -7,8 +7,10 @@ import { APP_JS } from "../apps/worker/src/app-assets.ts";
 
 function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false } = {}) {
   const storage = new Map();
+  const sessionStorageValues = new Map();
   const lockCalls = [];
   const broadcastMessages = [];
+  let broadcastChannelInstance = null;
   const elements = new Map();
   let focusedId = null;
   let insideLock = false;
@@ -71,6 +73,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
     constructor(name) {
       this.name = name;
       this.listeners = new Map();
+      broadcastChannelInstance = this;
     }
 
     addEventListener(type, listener) {
@@ -102,6 +105,17 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
         storage.set(key, String(value));
       }
     },
+    sessionStorage: {
+      getItem(key) {
+        return sessionStorageValues.get(key) ?? null;
+      },
+      setItem(key, value) {
+        sessionStorageValues.set(key, String(value));
+      },
+      removeItem(key) {
+        sessionStorageValues.delete(key);
+      }
+    },
     navigator: disableLocks ? {} : {
       locks: {
         async request(name, options, operation) {
@@ -130,6 +144,8 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
 globalThis.__appAuthTest = {
   requestJson,
   validateLoginForm,
+  validateWorkspaceForm,
+  updateWorkspaceFieldErrors,
   isTerminalSessionError,
   readAuthenticationVersion,
   loadSession,
@@ -137,6 +153,11 @@ globalThis.__appAuthTest = {
   renderLogin,
   renderLoadFailure,
   renderShell,
+  resolveCurrentWorkspace,
+  selectCurrentWorkspace,
+  restoreUncertainWorkspaceCreation,
+  createWorkspace,
+  reloadWorkspaces,
   replaceCurrentSession,
   setBox,
   getCurrentSession: () => currentSession
@@ -149,7 +170,12 @@ globalThis.__appAuthTest = {
     focusedId: () => focusedId,
     broadcastMessages,
     lockCalls,
-    storage
+    storage,
+    sessionStorageValues,
+    sessionStorage: context.sessionStorage,
+    emitBroadcast(data) {
+      return broadcastChannelInstance?.listeners.get("message")?.({ data });
+    }
   };
 }
 
@@ -728,4 +754,322 @@ test("refreshにWeb Lockを使えないブラウザはサーバー障害と誤�
   assert.match(app.innerHTML, /このブラウザでは安全に続行できません/);
   assert.doesNotMatch(app.innerHTML, /サーバーに接続できません/);
   assert.match(app.innerHTML, /最新版のChrome/);
+});
+
+test("現在workspaceは最新のactive所属一覧にあるIDだけを復元する", () => {
+  const { api, sessionStorageValues } = createHarness();
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [
+      { id: "workspace-1", name: "営業部", status: "active" },
+      { id: "workspace-2", name: "停止中", status: "suspended" }
+    ]
+  };
+
+  sessionStorageValues.set("meccha-manual-current-workspace", JSON.stringify({
+    userId: "user-1",
+    workspaceId: "other-tenant-workspace"
+  }));
+  const selected = api.resolveCurrentWorkspace(session);
+
+  assert.equal(selected.id, "workspace-1");
+  assert.deepEqual(JSON.parse(sessionStorageValues.get("meccha-manual-current-workspace")), {
+    userId: "user-1",
+    workspaceId: "workspace-1"
+  });
+});
+
+test("別ユーザーのworkspace選択は復元せず最新所属の先頭へ置き換える", () => {
+  const { api, sessionStorageValues } = createHarness();
+  sessionStorageValues.set("meccha-manual-current-workspace", JSON.stringify({
+    userId: "old-user",
+    workspaceId: "old-workspace"
+  }));
+  const selected = api.resolveCurrentWorkspace({
+    user: { id: "new-user" },
+    workspaces: [{ id: "new-workspace", name: "新しい所属", status: "active" }]
+  });
+
+  assert.equal(selected.id, "new-workspace");
+  assert.equal(JSON.parse(sessionStorageValues.get("meccha-manual-current-workspace")).userId, "new-user");
+});
+
+test("workspace選択操作はactive所属だけをタブ内へ保存する", () => {
+  const { api, sessionStorageValues } = createHarness();
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [
+      { id: "workspace-1", name: "営業部", status: "active" },
+      { id: "workspace-2", name: "開発部", status: "active" }
+    ]
+  };
+  api.replaceCurrentSession(session);
+  api.selectCurrentWorkspace({ currentTarget: { value: "workspace-2" } });
+
+  assert.deepEqual(JSON.parse(sessionStorageValues.get("meccha-manual-current-workspace")), {
+    userId: "user-1",
+    workspaceId: "workspace-2"
+  });
+});
+
+test("workspace作成中は多重送信を防ぎ成功後に現在sessionだけを再取得する", async () => {
+  const createResponse = deferred();
+  const calls = [];
+  const { api, element, app } = createHarness({
+    fetch: async (path, options = {}) => {
+      calls.push({ path, method: options.method ?? "GET" });
+      if (path === "/api/workspaces") return createResponse.promise;
+      if (path === "/api/session") {
+        return Response.json({
+          user: { id: "user-1", email: "user@example.invalid" },
+          workspaces: [{ id: "workspace-1", name: "営業部", slug: "sales", status: "active", created_at: "2026-08-10" }]
+        });
+      }
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1", email: "user@example.invalid" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+  const button = form.querySelector("button");
+
+  const pending = api.createWorkspace({ preventDefault() {}, currentTarget: form });
+  assert.equal(button.disabled, true);
+  assert.equal(button.textContent, "作成中");
+  assert.equal(form["aria-busy"], "true");
+  createResponse.resolve(Response.json({ workspaceId: "workspace-1" }, { status: 201 }));
+  await pending;
+
+  assert.deepEqual(calls, [
+    { path: "/api/workspaces", method: "POST" },
+    { path: "/api/session", method: "GET" }
+  ]);
+  assert.match(app.innerHTML, /ワークスペースを作成しました/);
+  assert.match(app.innerHTML, /営業部/);
+});
+
+test("workspace作成確定後の一覧再取得失敗は作成失敗と表示しない", async () => {
+  const { api, element, app } = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/workspaces") return Response.json({ workspaceId: "workspace-1" }, { status: 201 });
+      if (path === "/api/session") throw new Error("offline");
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1", email: "user@example.invalid" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  await api.createWorkspace({ preventDefault() {}, currentTarget: form });
+
+  assert.match(app.innerHTML, /ワークスペースは作成されました/);
+  assert.match(app.innerHTML, /一覧を更新/);
+  assert.doesNotMatch(app.innerHTML, /ワークスペースを作成できませんでした/);
+});
+
+test("workspace作成入力を日本語で検証し該当欄へ関連付ける", () => {
+  const { api, element } = createHarness();
+  const form = element("workspace-form");
+  form.elements.name = element("workspace-name");
+  form.elements.slug = element("workspace-slug");
+  form.elements.name.value = "";
+  form.elements.slug.value = "Invalid Slug";
+
+  let error = api.validateWorkspaceForm(form);
+  api.updateWorkspaceFieldErrors(form, error);
+  assert.match(error.message, /ワークスペース名/);
+  assert.equal(form.elements.name["aria-invalid"], "true");
+  assert.match(form.elements.name["aria-describedby"], /workspace-message/);
+
+  form.elements.name.value = "営業部";
+  error = api.validateWorkspaceForm(form);
+  api.updateWorkspaceFieldErrors(form, error);
+  assert.match(error.message, /URL用ID/);
+  assert.equal(form.elements.name["aria-invalid"], undefined);
+  assert.equal(form.elements.slug["aria-invalid"], "true");
+});
+
+test("sessionStorageが使えなくても選択したworkspaceを現在タブで維持する", () => {
+  const { api, sessionStorage } = createHarness();
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [
+      { id: "workspace-1", name: "営業部", status: "active" },
+      { id: "workspace-2", name: "開発部", status: "active" }
+    ]
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  sessionStorage.getItem = () => { throw new Error("blocked"); };
+  sessionStorage.setItem = () => { throw new Error("blocked"); };
+
+  api.selectCurrentWorkspace({ currentTarget: { value: "workspace-2" } });
+
+  assert.equal(api.resolveCurrentWorkspace(session).id, "workspace-2");
+});
+
+test("active所属がなくなったら保存済みworkspace選択を削除する", () => {
+  const { api, sessionStorageValues } = createHarness();
+  sessionStorageValues.set("meccha-manual-current-workspace", JSON.stringify({ userId: "user-1", workspaceId: "workspace-1" }));
+  const selected = api.resolveCurrentWorkspace({
+    user: { id: "user-1" },
+    workspaces: [{ id: "workspace-1", name: "停止中", status: "suspended" }]
+  });
+  assert.equal(selected, null);
+  assert.equal(sessionStorageValues.has("meccha-manual-current-workspace"), false);
+});
+
+test("一覧更新失敗では表示済み一覧・選択・入力内容を保持する", async () => {
+  const { api, element, app } = createHarness({
+    fetch: async () => { throw new Error("offline"); }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "営業部", slug: "sales", status: "active", created_at: "2026-08-10" }]
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "入力途中の名前" };
+  form.elements.slug = { value: "draft-slug" };
+
+  await api.reloadWorkspaces({ currentTarget: element("reload-button") });
+
+  assert.match(app.innerHTML, /営業部/);
+  assert.match(app.innerHTML, /表示中の一覧は更新前/);
+  assert.equal(form.elements.name.value, "入力途中の名前");
+  assert.equal(form.elements.slug.value, "draft-slug");
+});
+
+test("workspace作成結果不明は再作成させず一覧確認を案内する", async () => {
+  let postCalls = 0;
+  const { api, element, app } = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/workspaces") {
+        postCalls += 1;
+        return Response.json({
+          code: "WORKSPACE_CREATE_RESULT_UNKNOWN",
+          message: "作成処理の結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。"
+        }, { status: 502 });
+      }
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1", email: "user@example.invalid" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  await api.createWorkspace({ preventDefault() {}, currentTarget: form });
+
+  assert.match(app.innerHTML, /重ねて作成せず/);
+  assert.match(app.innerHTML, /一覧を更新/);
+  assert.match(app.innerHTML, /一覧で結果を確認してください/);
+  await api.createWorkspace({ preventDefault() {}, currentTarget: form });
+  assert.equal(postCalls, 1);
+});
+
+test("workspace作成中の再submitはRPCを重複送信しない", async () => {
+  const response = deferred();
+  let postCalls = 0;
+  const { api, element } = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/workspaces") {
+        postCalls += 1;
+        return response.promise;
+      }
+      if (path === "/api/session") return Response.json({ user: { id: "user-1" }, workspaces: [] });
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const form = element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  const first = api.createWorkspace({ preventDefault() {}, currentTarget: form });
+  await api.createWorkspace({ preventDefault() {}, currentTarget: form });
+  assert.equal(postCalls, 1);
+  response.resolve(Response.json({ workspaceId: "workspace-1" }, { status: 201 }));
+  await first;
+});
+
+test("一覧の権限不足は接続失敗と区別して案内する", async () => {
+  const { api, app } = createHarness({
+    fetch: async () => Response.json({
+      code: "WORKSPACES_ACCESS_DENIED",
+      message: "権限を確認できませんでした。"
+    }, { status: 403 })
+  });
+
+  await api.loadSession();
+
+  assert.match(app.innerHTML, /ワークスペースを表示できません/);
+  assert.match(app.innerHTML, /管理者に確認/);
+  assert.doesNotMatch(app.innerHTML, /サーバーに接続できません/);
+});
+
+test("結果不明ロックはページ再読込相当でもslugだけを復元する", () => {
+  const { api, app, sessionStorageValues } = createHarness();
+  sessionStorageValues.set("meccha-manual-uncertain-workspace", JSON.stringify({
+    userId: "user-1",
+    slug: "sales-team"
+  }));
+  const session = { user: { id: "user-1" }, workspaces: [] };
+
+  api.restoreUncertainWorkspaceCreation("user-1");
+  api.renderShell(session);
+
+  assert.match(app.innerHTML, /sales-team/);
+  assert.match(app.innerHTML, /一覧で結果を確認してください/);
+  assert.equal(sessionStorageValues.get("meccha-manual-uncertain-workspace").includes("営業部"), false);
+});
+
+test("認証変更通知で旧workspace選択と結果不明ロックを即時破棄する", async () => {
+  const { api, element, app, sessionStorageValues, emitBroadcast } = createHarness({
+    enableBroadcast: true,
+    fetch: async () => Response.json({ user: { id: "new-user" }, workspaces: [] })
+  });
+  const oldSession = { user: { id: "old-user" }, workspaces: [] };
+  api.replaceCurrentSession(oldSession);
+  api.renderShell(oldSession);
+  const form = element("workspace-form");
+  form.elements.name = { value: "旧ワークスペース" };
+  form.elements.slug = { value: "old-workspace" };
+  sessionStorageValues.set("meccha-manual-uncertain-workspace", JSON.stringify({ userId: "old-user", slug: "old-workspace" }));
+
+  emitBroadcast({ type: "authentication-changed" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(sessionStorageValues.has("meccha-manual-uncertain-workspace"), false);
+  assert.doesNotMatch(app.innerHTML, /旧ワークスペース|old-workspace/);
+});
+
+test("非所属または停止中workspaceの選択操作は保存値を変更しない", () => {
+  const { api, sessionStorageValues } = createHarness();
+  const session = {
+    user: { id: "user-1" },
+    workspaces: [
+      { id: "workspace-1", name: "営業部", status: "active" },
+      { id: "workspace-2", name: "停止中", status: "suspended" }
+    ]
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const before = sessionStorageValues.get("meccha-manual-current-workspace");
+
+  api.selectCurrentWorkspace({ currentTarget: { value: "workspace-2" } });
+  api.selectCurrentWorkspace({ currentTarget: { value: "other-tenant" } });
+
+  assert.equal(sessionStorageValues.get("meccha-manual-current-workspace"), before);
 });

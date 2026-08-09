@@ -25,6 +25,10 @@ Status: Proposed
 | `GET /api/workspaces` | 所属workspace一覧 | session + RLS |
 | `POST /api/workspaces` | `create_workspace` RPCによるworkspace作成 | session。同一origin + JSON必須 |
 
+`GET /api/session`と`GET /api/workspaces`のworkspace一覧は、現在ユーザーが所属する削除済み以外のworkspaceについて、`id`、`name`、`slug`、`status`、`created_at`だけを返す。上流401はCookieを変更せず`SESSION_REFRESH_REQUIRED`へ写像し、403と上流障害を区別する。不正な2xx本文は空一覧として扱わない。
+
+`POST /api/workspaces`は成功時に`{ "workspaceId": "<uuid>" }`だけを201で返し、tokenや一覧を含めない。RPC送信後の通信切断、上流5xx、または成功本文不正は`502 WORKSPACE_CREATE_RESULT_UNKNOWN`とし、作成済みの可能性を案内する。明示的な入力不正、権限不足、実行前に拒否された429と区別する。
+
 ### 将来の正式API
 
 | API | 目的 | 認可 |
