@@ -77,9 +77,17 @@ function inspectPath(file, source) {
 }
 
 function inspectContent(content, source) {
-  const normalizedContent = content.replace(/\\u([0-9a-fA-F]{4})/g, (_, codePoint) =>
-    String.fromCharCode(Number.parseInt(codePoint, 16))
-  );
+  const normalizedContent = content
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, codePoint) =>
+      String.fromCodePoint(Number.parseInt(codePoint, 16))
+    )
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, codePoint) =>
+      String.fromCodePoint(Number.parseInt(codePoint, 16))
+    )
+    .replace(/\\U([0-9a-fA-F]{8})/g, (escaped, codePoint) => {
+      const numericCodePoint = Number.parseInt(codePoint, 16);
+      return numericCodePoint <= 0x10FFFF ? String.fromCodePoint(numericCodePoint) : escaped;
+    });
   for (const [label, pattern] of patterns) {
     if (pattern.test(normalizedContent)) findings.add(`${source}: ${label}`);
   }
