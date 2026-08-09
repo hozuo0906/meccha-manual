@@ -56,7 +56,7 @@ as $$
 declare
   actor_id uuid := auth.uid();
   normalized_name text := public.normalize_workspace_name(workspace_name);
-  normalized_slug text := lower(trim(workspace_slug));
+  normalized_slug text := lower(public.normalize_workspace_name(workspace_slug));
   new_workspace_id uuid;
 begin
   if actor_id is null then

@@ -58,7 +58,7 @@ const requiredPhase1InputHardeningSnippets = [
   "name = public.normalize_workspace_name(name)",
   "char_length(name) between 1 and 64",
   "normalized_name text := public.normalize_workspace_name(workspace_name)",
-  "normalized_slug text := lower(trim(workspace_slug))",
+  "normalized_slug text := lower(public.normalize_workspace_name(workspace_slug))",
   "chr(160)",
   "chr(12288)",
   "workspace name must be between 1 and 64 characters",

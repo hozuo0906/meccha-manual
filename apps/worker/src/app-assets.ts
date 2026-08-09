@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-3993d5b29c2feecd";
+export const APP_ASSET_VERSION = "sha256-8f2a73d498813ace";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1326,7 +1326,12 @@ async function createWorkspace(event) {
     );
   } catch (error) {
     if (submittedWorkspace.confirmed) {
-      clearUncertainWorkspaceCreation();
+      if (
+        uncertainWorkspaceCreation?.userId === submittedWorkspace.userId &&
+        uncertainWorkspaceCreation.slug === submittedWorkspace.slug
+      ) {
+        clearUncertainWorkspaceCreation();
+      }
       return;
     }
     const resultUnknown = !workspaceCreated && (

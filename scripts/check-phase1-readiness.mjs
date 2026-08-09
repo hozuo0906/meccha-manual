@@ -143,7 +143,8 @@ for (const snippet of [
   "name = public.normalize_workspace_name(name)",
   "char_length(name) between 1 and 64",
   "workspace name must be between 1 and 64 characters",
-  "workspace slug format is invalid"
+  "workspace slug format is invalid",
+  "normalized_slug text := lower(public.normalize_workspace_name(workspace_slug))"
 ]) {
   if (!inputHardening.includes(snippet)) {
     errors.push(`Missing Phase 1 input hardening snippet: ${snippet}`);

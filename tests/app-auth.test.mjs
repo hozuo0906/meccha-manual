@@ -1387,6 +1387,57 @@ test("保留中POSTを一覧で確認できたら遅延した結果不明応答�
   assert.match(app.innerHTML, /sales-team/);
 });
 
+test("確認済みPOST Aの遅延失敗は後続POST Bの結果確認ロックを消さない", async () => {
+  const responseA = deferred();
+  const responseB = deferred();
+  let postCalls = 0;
+  const createdSession = {
+    user: { id: "user-1" },
+    workspaces: [{
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "営業部",
+      slug: "sales-team",
+      status: "active",
+      created_at: "2026-08-10T00:00:00Z"
+    }]
+  };
+  const { api, element, sessionStorageValues } = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/workspaces") {
+        postCalls += 1;
+        return postCalls === 1 ? responseA.promise : responseB.promise;
+      }
+      if (path === "/api/session") return Response.json(createdSession);
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const formA = element("workspace-form");
+  formA.elements.name = { value: "営業部" };
+  formA.elements.slug = { value: "sales-team" };
+
+  const pendingA = formA.listeners.get("submit")({ preventDefault() {}, currentTarget: formA });
+  await element("reload-button").listeners.get("click")({ currentTarget: element("reload-button") });
+
+  const formB = element("workspace-form");
+  formB.removeAttribute("aria-busy");
+  formB.elements.name = { value: "サポート部" };
+  formB.elements.slug = { value: "support-team" };
+  const pendingB = formB.listeners.get("submit")({ preventDefault() {}, currentTarget: formB });
+  assert.equal(JSON.parse(sessionStorageValues.get("meccha-manual-uncertain-workspace")).slug, "support-team");
+
+  responseA.resolve(Response.json({ code: "WORKSPACE_CREATE_RESULT_UNKNOWN", message: "Aの遅延失敗" }, { status: 502 }));
+  await pendingA;
+
+  assert.equal(JSON.parse(sessionStorageValues.get("meccha-manual-uncertain-workspace")).slug, "support-team");
+
+  responseB.resolve(Response.json({ code: "WORKSPACE_CREATE_RESULT_UNKNOWN", message: "Bは結果不明" }, { status: 502 }));
+  await pendingB;
+  assert.equal(JSON.parse(sessionStorageValues.get("meccha-manual-uncertain-workspace")).slug, "support-team");
+});
+
 test("結果不明ロックはsessionStorageへ保存できなくてもページ内で再送を防ぐ", async () => {
   let postCalls = 0;
   const { api, element, app } = createHarness({
