@@ -25,9 +25,9 @@ Status: Proposed
 | `GET /api/workspaces` | 所属workspace一覧 | session + RLS |
 | `POST /api/workspaces` | `create_workspace` RPCによるworkspace作成 | session。同一origin + JSON必須 |
 
-`GET /api/session`と`GET /api/workspaces`のworkspace一覧は、現在ユーザーが所属する削除済み以外のworkspaceについて、`id`、`name`、`slug`、`status`、`created_at`だけを返す。上流401はCookieを変更せず`SESSION_REFRESH_REQUIRED`へ写像し、403と上流障害を区別する。不正な2xx本文は空一覧として扱わない。
+`GET /api/session`と`GET /api/workspaces`のworkspace一覧は、現在ユーザーが所属する削除済み以外のworkspaceについて、`id`、`name`、`slug`、`status`、`created_at`だけを返す。PostgREST取得は`limit=1001`と`Prefer: count=exact`で打ち切り、`Content-Range`の範囲・返却件数・総数を完全照合する。1000件を超える場合は`409 WORKSPACES_LIMIT_EXCEEDED`として管理者による整理を案内し、件数にかかわらずheader欠落・形式不正・不整合は502とする。上流401はCookieを変更せず`SESSION_REFRESH_REQUIRED`へ写像し、profileとworkspaceの片方だけが401の場合も他方の失敗よりrefreshを優先する。両読取は5秒でtimeoutする。403と上流障害を区別し、不正・過大な2xx本文は空一覧として扱わない。
 
-`POST /api/workspaces`は成功時に`{ "workspaceId": "<uuid>" }`だけを201で返し、tokenや一覧を含めない。RPC送信後の通信切断、上流5xx、または成功本文不正は`502 WORKSPACE_CREATE_RESULT_UNKNOWN`とし、作成済みの可能性を案内する。明示的な入力不正、権限不足、実行前に拒否された429と区別する。
+`POST /api/workspaces`は成功時に`{ "workspaceId": "<uuid>" }`だけを201で返し、tokenや一覧を含めない。ブラウザは送信前にuser IDとslugのロックをタブ内へ保存し、確定失敗時だけ解除する。201本文を検証できても、最新一覧で同じslugを確認するまでは再送を許可しない。名前はECMAScript `trim()`相当の前後空白を除去した後、Unicode code pointで1〜64文字、slugは小文字化・trim後に半角英数字とハイフン3〜63文字とし、Worker・DB制約・RPCで同じ契約を強制する。RPC送信後の通信切断、上流5xx、成功本文不正、またはWorkerからブラウザまでの応答切断・本文破損・非JSON応答は`WORKSPACE_CREATE_RESULT_UNKNOWN`相当とし、作成済みの可能性を案内して再送を停止する。明示的な入力不正、権限不足、実行前に拒否された429と区別する。
 
 ### 将来の正式API
 

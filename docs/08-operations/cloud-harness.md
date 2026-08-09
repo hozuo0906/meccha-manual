@@ -20,7 +20,7 @@ GitHubを正本にし、Codespaces、GitHub Actions、Cloudflare、Supabase、St
 - `wrangler.jsonc`: Cloudflare Workerの最小デプロイ設定。
 - `apps/worker/src/index.ts`: 健康チェック、Phase 1認証・ワークスペースAPI、接続済みハーネス用endpointを持つWorker。
 - `apps/worker/src/app-assets.ts`: 日本語ログイン、ワークスペース一覧・作成のPhase 1 UIハーネス。
-- `supabase/migrations/202608010001_phase1_identity_workspaces.sql` と `202608010002_phase1_workspace_membership_hardening.sql`: Phase 1の認証・ワークスペース・RLS定義。リポジトリへの追加は外部環境への適用済みを意味しない。
+- `supabase/migrations/202608010001_phase1_identity_workspaces.sql`、`202608010002_phase1_workspace_membership_hardening.sql`、`202608100001_phase1_workspace_input_hardening.sql`: Phase 1の認証・ワークスペース・RLS・入力不変条件。リポジトリへの追加は外部環境への適用済みを意味しない。
 - `scripts/rls-negative-test.mjs`: dev/staging用の動的RLS negative test。外部環境と検証データを必要とする。
 - `scripts/check-cloud-codex-environment.mjs`: クラウド作業環境のrepo側チェック。
 - `docs/08-operations/remaining-harness-plan.md`: 本番開発前に残る外部連携ハーネスの境界と完了条件。

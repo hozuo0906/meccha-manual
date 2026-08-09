@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 
 const migrationFiles = [
   "supabase/migrations/202608010001_phase1_identity_workspaces.sql",
-  "supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql"
+  "supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql",
+  "supabase/migrations/202608100001_phase1_workspace_input_hardening.sql"
 ];
 
 const transactionPattern = /^\s*(?:begin|commit|rollback)\s*;/im;
@@ -26,7 +27,7 @@ for (const file of migrationFiles) {
 
 const bundle = [
   "-- Generated Phase 1 migration bundle. Do not edit this output.",
-  "-- Both migrations run in one transaction; any statement failure aborts the whole bundle.",
+  "-- All Phase 1 migrations run in one transaction; any statement failure aborts the whole bundle.",
   "begin;",
   "set local lock_timeout = '5s';",
   "set local statement_timeout = '60s';",

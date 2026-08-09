@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-2b5e5df70e227090";
+export const APP_ASSET_VERSION = "sha256-d28f214afa1c8145";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -466,7 +466,7 @@ h1 {
   padding: 20px;
 }
 
-.workspace-form h3 {
+.workspace-form h2 {
   margin-bottom: 8px;
 }
 
@@ -521,17 +521,20 @@ let sessionGeneration = 0;
 let sessionReloadSequence = 0;
 let currentWorkspaceSelection = null;
 let uncertainWorkspaceCreation = null;
+let workspaceCreationInFlight = null;
 const currentWorkspaceStorageKey = "meccha-manual-current-workspace";
 const uncertainWorkspaceStorageKey = "meccha-manual-uncertain-workspace";
 const authenticationChannel = typeof BroadcastChannel === "function"
   ? new BroadcastChannel("meccha-manual-authentication")
   : null;
 const authenticationVersionKey = "meccha-manual-authentication-version";
+const workspaceIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function replaceCurrentSession(nextSession) {
   if (currentSession?.user?.id && currentSession.user.id !== nextSession?.user?.id) {
     currentWorkspaceSelection = null;
     uncertainWorkspaceCreation = null;
+    workspaceCreationInFlight = null;
     try {
       sessionStorage.removeItem(currentWorkspaceStorageKey);
       sessionStorage.removeItem(uncertainWorkspaceStorageKey);
@@ -702,14 +705,9 @@ function renderAuthenticationReload() {
 
 authenticationChannel?.addEventListener("message", (event) => {
   if (event.data?.type !== "authentication-changed") return;
-  currentSession = null;
-  currentWorkspaceSelection = null;
-  clearUncertainWorkspaceCreation();
-  try {
-    sessionStorage.removeItem(currentWorkspaceStorageKey);
-  } catch {
-    // 新しいsessionの最新所属一覧から選択を再構築する。
-  }
+  // 次のsessionを取得するまでは同一ユーザーの再ログインか判定できない。
+  // 表示と進行中応答だけを無効化し、ユーザー固有の選択・結果不明ロックは
+  // replaceCurrentSessionで主体変更を確認できた場合にだけ破棄する。
   sessionGeneration += 1;
   sessionReloadSequence += 1;
   renderAuthenticationReload();
@@ -840,7 +838,16 @@ async function requestJsonOnce(path, options = {}) {
     );
   }
 
-  const text = await response.text();
+  let text;
+  try {
+    text = await response.text();
+  } catch {
+    throw new AppRequestError(
+      "サーバーから正しい応答を受け取れませんでした。時間をおいて、もう一度お試しください。",
+      response.status,
+      "INVALID_RESPONSE"
+    );
+  }
   let payload = {};
   try {
     payload = text ? JSON.parse(text) : {};
@@ -916,10 +923,14 @@ function clearWorkspaceFieldError(field) {
   else field?.removeAttribute?.("aria-describedby");
 }
 
+function workspaceNameLength(value) {
+  return Array.from(value).length;
+}
+
 function validateWorkspaceForm(form) {
   const name = String(form.elements.name?.value || "").trim();
   const slug = String(form.elements.slug?.value || "").trim().toLowerCase();
-  if (!name || name.length > 64) {
+  if (!name || workspaceNameLength(name) > 64) {
     return { field: form.elements.name, message: "ワークスペース名は1〜64文字で入力してください。" };
   }
   if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(slug)) {
@@ -1047,6 +1058,7 @@ function renderShell(session, notice = "", noticeKind = "notice") {
   restoreUncertainWorkspaceCreation(session.user?.id);
   const currentWorkspace = resolveCurrentWorkspace(session);
   const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
+  const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
   const rows = workspaces.map((workspace) =>
     '<tr>' +
       '<td><div class="workspace-name">' + escapeHtml(workspace.name) + '</div><div class="muted">' + escapeHtml(workspace.slug) + '</div></td>' +
@@ -1071,7 +1083,7 @@ function renderShell(session, notice = "", noticeKind = "notice") {
       '</aside>' +
       '<div class="main">' +
         '<header class="topbar">' +
-          '<div><h1>ワークスペース</h1><p>所属しているワークスペースだけが表示されます。</p></div>' +
+          '<div><h1 id="workspace-heading" tabindex="-1">ワークスペース</h1><p>所属しているワークスペースだけが表示されます。</p></div>' +
           '<button id="reload-button" class="secondary-button" type="button">一覧を更新</button>' +
         '</header>' +
         '<div id="shell-message" class="' + (notice ? ((creationUncertain || noticeKind === 'warning') ? 'warning-box show' : 'notice-box show') : 'error-box') + '" role="status" aria-live="polite" tabindex="-1">' + escapeHtml(notice) + '</div>' +
@@ -1086,7 +1098,7 @@ function renderShell(session, notice = "", noticeKind = "notice") {
                       '<option value="' + escapeHtml(workspace.id) + '"' +
                         (workspace.id === currentWorkspace?.id ? ' selected' : '') +
                         (workspace.status !== 'active' ? ' disabled' : '') + '>' +
-                        escapeHtml(workspace.name + (workspace.status === 'active' ? '' : '（停止中）')) +
+                        escapeHtml(workspace.name + '（' + workspace.slug + '）' + (workspace.status === 'active' ? '' : '（停止中）')) +
                       '</option>'
                     ).join('') +
                   '</select>' +
@@ -1099,33 +1111,46 @@ function renderShell(session, notice = "", noticeKind = "notice") {
                 '</div>'
               : '<div class="empty"><strong>まだ所属しているワークスペースはありません。</strong><br>最初のワークスペースを作成してください。手順書はワークスペース内に保存されます。</div>') +
           '</section>' +
-          '<form id="workspace-form" class="workspace-form" novalidate>' +
-            '<h2>ワークスペース作成</h2>' +
-            '<p>作成したユーザーが管理責任者になります。</p>' +
-            '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
-            '<div class="field">' +
-              '<label for="workspace-name">名前</label>' +
-              '<input id="workspace-name" name="name" required maxlength="64" placeholder="例：営業部" value="' + escapeHtml(creationUncertain ? uncertainWorkspaceCreation.name : '') + '"' + (creationUncertain ? ' disabled' : '') + '>' +
-            '</div>' +
-            '<div class="field">' +
-              '<label for="workspace-slug">URL用ID</label>' +
-              '<input id="workspace-slug" name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team" value="' + escapeHtml(creationUncertain ? uncertainWorkspaceCreation.slug : '') + '"' + (creationUncertain ? ' disabled' : '') + '>' +
-              '<span id="workspace-slug-help" class="muted">半角英数字とハイフンを使い、3〜63文字で入力してください。</span>' +
-            '</div>' +
-            '<button class="primary-button" type="submit"' + (creationUncertain ? ' disabled' : '') + '>' + (creationUncertain ? '一覧で結果を確認してください' : 'ワークスペースを作成') + '</button>' +
-          '</form>' +
+          (creationInFlight
+            ? '<section class="workspace-form" aria-labelledby="workspace-creating-title" aria-busy="true">' +
+                '<h2 id="workspace-creating-title">ワークスペースを作成中</h2>' +
+                '<p>URL用ID「' + escapeHtml(workspaceCreationInFlight.slug) + '」を作成しています。完了するまでお待ちください。</p>' +
+                '<p class="notice-box show" role="status" aria-live="polite">重複を防ぐため、新しい作成は一時停止しています。</p>' +
+              '</section>'
+            : creationUncertain
+              ? '<section class="workspace-form" aria-labelledby="workspace-uncertain-title">' +
+                '<h2 id="workspace-uncertain-title">作成結果を確認中</h2>' +
+                '<p>URL用ID「' + escapeHtml(uncertainWorkspaceCreation.slug) + '」の処理結果をまだ確認できません。</p>' +
+                '<p class="warning-box show">重複を防ぐため、新しい作成は停止しています。「一覧を更新」を押し、一覧で結果を確認してください。</p>' +
+              '</section>'
+            : '<form id="workspace-form" class="workspace-form" novalidate>' +
+                '<h2>ワークスペース作成</h2>' +
+                '<p>作成したユーザーが管理責任者になります。</p>' +
+                '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
+                '<div class="field">' +
+                  '<label for="workspace-name">名前</label>' +
+                  '<input id="workspace-name" name="name" required placeholder="例：営業部">' +
+                '</div>' +
+                '<div class="field">' +
+                  '<label for="workspace-slug">URL用ID</label>' +
+                  '<input id="workspace-slug" name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
+                  '<span id="workspace-slug-help" class="muted">半角英数字とハイフンを使い、3〜63文字で入力してください。</span>' +
+                '</div>' +
+                '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
+              '</form>') +
         '</div>' +
       '</div>' +
     '</section>';
 
   document.getElementById("logout-button").addEventListener("click", logout);
   document.getElementById("reload-button").addEventListener("click", reloadWorkspaces);
-  document.getElementById("workspace-form").addEventListener("submit", createWorkspace);
+  document.getElementById("workspace-form")?.addEventListener("submit", createWorkspace);
   for (const field of [document.getElementById("workspace-name"), document.getElementById("workspace-slug")]) {
     field?.addEventListener("input", () => clearWorkspaceFieldError(field));
   }
   document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
   if (notice) document.getElementById("shell-message").focus();
+  else document.getElementById("workspace-heading")?.focus();
 }
 
 async function reloadWorkspaces(event) {
@@ -1138,7 +1163,15 @@ async function reloadWorkspaces(event) {
   button.disabled = true;
   button.textContent = "更新中";
   button.setAttribute("aria-busy", "true");
-  await loadSession({ preserveShell: true, workspaceDraft });
+  try {
+    await loadSession({ preserveShell: true, workspaceDraft });
+  } finally {
+    if (document.getElementById("reload-button") === button) {
+      button.disabled = false;
+      button.textContent = "一覧を更新";
+      button.removeAttribute("aria-busy");
+    }
+  }
 }
 
 async function loadSession(options = {}) {
@@ -1165,23 +1198,27 @@ async function loadSession(options = {}) {
         notice = "作成結果をまだ一覧で確認できません。時間をおいて、もう一度一覧を更新してください。";
       }
     }
+    if (!notice && options.preserveShell) notice = "一覧を更新しました。";
     renderShell(currentSession, notice);
+    if (options.preserveShell) document.getElementById("reload-button")?.focus();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     if (options.preserveShell && currentSession && !isTerminalSessionError(error)) {
-      const message = error.status === 403
-        ? "一覧を更新する権限を確認できませんでした。表示中の一覧は更新前です。もう一度ログインするか、管理者に確認してください。"
-        : "一覧を更新できませんでした。表示中の一覧は更新前です。通信環境を確認して、もう一度お試しください。";
+      const message = error.code === "WORKSPACES_LIMIT_EXCEEDED"
+        ? "所属ワークスペースが多いため一覧を更新できませんでした。表示中の一覧は更新前です。管理者に整理を依頼してください。"
+        : error.status === 403
+          ? "一覧を更新する権限を確認できませんでした。表示中の一覧は更新前です。もう一度ログインするか、管理者に確認してください。"
+          : "一覧を更新できませんでした。表示中の一覧は更新前です。通信環境を確認して、もう一度お試しください。";
       renderShell(currentSession, message, "warning");
       const form = document.getElementById("workspace-form");
-      if (form && options.workspaceDraft) {
+      if (form?.elements?.name && form?.elements?.slug && options.workspaceDraft) {
         form.elements.name.value = options.workspaceDraft.name;
         form.elements.slug.value = options.workspaceDraft.slug;
       }
       return;
     }
-    replaceCurrentSession(null);
     if (isTerminalSessionError(error)) {
+      replaceCurrentSession(null);
       let message = "";
       if (error.code === "SESSION_INVALID") {
         message = "ログイン状態を確認できません。もう一度ログインしてください。";
@@ -1210,6 +1247,7 @@ async function loadSession(options = {}) {
 async function createWorkspace(event) {
   event.preventDefault();
   if (uncertainWorkspaceCreation?.userId === currentSession?.user?.id) return;
+  if (workspaceCreationInFlight?.userId === currentSession?.user?.id) return;
   if (event.currentTarget.getAttribute?.("aria-busy") === "true" || event.currentTarget["aria-busy"] === "true") return;
   clearBox("workspace-message");
   const validationError = validateWorkspaceForm(event.currentTarget);
@@ -1230,36 +1268,96 @@ async function createWorkspace(event) {
     name: event.currentTarget.elements.name.value.trim(),
     slug: event.currentTarget.elements.slug.value.trim().toLowerCase()
   };
+  workspaceCreationInFlight = submittedWorkspace;
+  saveUncertainWorkspaceCreation(submittedWorkspace);
   let workspaceCreated = false;
   let requestWorkspaceSequence = ++sessionReloadSequence;
   try {
-    await requestJson("/api/workspaces", {
+    const creationResult = await requestJson("/api/workspaces", {
       method: "POST",
       body: JSON.stringify({
         name: submittedWorkspace.name,
         slug: submittedWorkspace.slug
       })
     });
+    if (!creationResult || typeof creationResult.workspaceId !== "string" || !workspaceIdPattern.test(creationResult.workspaceId)) {
+      throw new AppRequestError(
+        "作成処理の結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。",
+        502,
+        "WORKSPACE_CREATE_RESULT_UNKNOWN"
+      );
+    }
     workspaceCreated = true;
-    if (requestSessionGeneration !== sessionGeneration) return;
+    if (requestSessionGeneration !== sessionGeneration) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) loadSession();
+      return;
+    }
     requestWorkspaceSequence = ++sessionReloadSequence;
     const session = await requestJson("/api/session");
-    if (requestSessionGeneration !== sessionGeneration || requestWorkspaceSequence !== sessionReloadSequence) return;
+    if (requestSessionGeneration !== sessionGeneration || requestWorkspaceSequence !== sessionReloadSequence) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) loadSession();
+      return;
+    }
     if (session.user?.id !== requestUserId) {
       replaceCurrentSession(session);
       renderShell(currentSession);
       return;
     }
     currentSession = session;
-    renderShell(currentSession, "ワークスペースを作成しました。");
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+    const created = (session.workspaces || []).some((workspace) => workspace.slug === submittedWorkspace.slug);
+    if (created) clearUncertainWorkspaceCreation();
+    renderShell(
+      currentSession,
+      created
+        ? "ワークスペースを作成しました。"
+        : "ワークスペースは作成されました。重ねて作成せず、一覧を更新して確認してください。",
+      created ? "notice" : "warning"
+    );
   } catch (error) {
-    if (requestSessionGeneration !== sessionGeneration) return;
-    if (requestWorkspaceSequence !== sessionReloadSequence) return;
+    const resultUnknown = !workspaceCreated && (
+      error.code === "WORKSPACE_CREATE_RESULT_UNKNOWN" ||
+      error.code === "NETWORK_ERROR" ||
+      error.code === "INVALID_RESPONSE" ||
+      (error.status >= 500 && error.code !== "WORKSPACE_CREATE_FAILED")
+    );
+    if (resultUnknown) {
+      if (currentSession?.user?.id === requestUserId) {
+        saveUncertainWorkspaceCreation(submittedWorkspace);
+        if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+        if (requestSessionGeneration !== sessionGeneration) {
+          loadSession();
+          return;
+        }
+        renderShell(
+          currentSession,
+          "作成処理の結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。"
+        );
+      }
+      return;
+    }
+    if (!workspaceCreated && uncertainWorkspaceCreation?.userId === requestUserId && uncertainWorkspaceCreation.slug === submittedWorkspace.slug) {
+      clearUncertainWorkspaceCreation();
+    }
     if (error.status === 401) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
       await loadSession();
       return;
     }
+    if (requestSessionGeneration !== sessionGeneration) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) renderShell(currentSession, error.message, "warning");
+      return;
+    }
+    if (requestWorkspaceSequence !== sessionReloadSequence) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) renderShell(currentSession, error.message, "warning");
+      return;
+    }
     if (workspaceCreated) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
       renderShell(
         currentSession,
         "ワークスペースは作成されましたが、最新の一覧を取得できませんでした。「一覧を更新」をお試しください。",
@@ -1267,13 +1365,10 @@ async function createWorkspace(event) {
       );
       return;
     }
-    if (error.code === "WORKSPACE_CREATE_RESULT_UNKNOWN") {
-      saveUncertainWorkspaceCreation(submittedWorkspace);
-      renderShell(currentSession, error.message);
-      return;
-    }
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
     setBox("workspace-message", error.message, "error");
   } finally {
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
     button.disabled = false;
     button.textContent = "ワークスペースを作成";
     event.currentTarget.removeAttribute?.("aria-busy");

@@ -75,6 +75,9 @@ const COOKIE_ACCESS_TOKEN = "__Host-mm_access";
 const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
 const MAX_ACCESS_COOKIE_AGE_SECONDS = 60 * 60;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
+const MAX_WORKSPACE_LIST_ITEMS = 1000;
+const SUPABASE_READ_TIMEOUT_MS = 5000;
 const MAX_DISCORD_BODY_BYTES = 64 * 1024;
 const DISCORD_SIGNATURE_TOLERANCE_SECONDS = 60 * 5;
 const DISCORD_INTERACTION_TYPE_PING = 1;
@@ -1117,8 +1120,38 @@ async function discordInteractions(request: Request, env: Env, ctx?: ExecutionCo
   return discordDeferredResponse();
 }
 
-async function readSupabaseJson(response: Response): Promise<unknown> {
-  const text = await response.text();
+async function readSupabaseJson(response: Response, maxBytes = MAX_SUPABASE_JSON_BYTES): Promise<unknown> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    throw new Error("Supabase response body is too large.");
+  }
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel("response body too large").catch(() => undefined);
+        throw new Error("Supabase response body is too large.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   if (!text) return null;
 
   try {
@@ -1336,71 +1369,116 @@ function sanitizeUser(user: SupabaseUser): SupabaseUser {
 
 async function getSession(request: Request, env: Env): Promise<Response> {
   const session = await requireSession(request, env);
-  const [profile, workspaces] = await Promise.all([
+  const [profileResult, workspacesResult] = await Promise.allSettled([
     fetchProfile(env, session.accessToken, session.user.id),
     fetchWorkspaces(env, session.accessToken)
   ]);
 
+  for (const result of [profileResult, workspacesResult]) {
+    if (result.status === "rejected" && result.reason instanceof AppError && result.reason.code === "SESSION_REFRESH_REQUIRED") {
+      throw result.reason;
+    }
+  }
+  if (profileResult.status === "rejected") throw profileResult.reason;
+  if (workspacesResult.status === "rejected") throw workspacesResult.reason;
+
   return jsonResponse({
     user: sanitizeUser(session.user),
-    profile,
-    workspaces
+    profile: profileResult.value,
+    workspaces: workspacesResult.value
   }, undefined, session.responseCookies);
+}
+
+async function withSupabaseReadTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  fallbackCode: string,
+  fallbackMessage: string
+): Promise<T> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new AppError(502, fallbackCode, fallbackMessage));
+    }, SUPABASE_READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation(controller.signal), timeout]);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError(502, fallbackCode, fallbackMessage);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function fetchProfile(env: Env, accessToken: string, userId: string): Promise<unknown> {
   const query = `/rest/v1/profiles?select=id,display_name,locale,timezone&id=eq.${encodeURIComponent(userId)}&limit=1`;
-  let response: Response;
-  try {
-    response = await supabaseFetch(env, query, { method: "GET" }, accessToken);
-  } catch {
-    throw new AppError(502, "PROFILE_FETCH_FAILED", "プロフィールを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  if (response.status === 401) {
-    throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  }
-  if (response.status === 403) {
-    throw new AppError(403, "PROFILE_ACCESS_DENIED", "プロフィールを表示する権限を確認できませんでした。もう一度ログインしてください。");
-  }
-  if (!response.ok) {
-    throw new AppError(502, "PROFILE_FETCH_FAILED", "プロフィールを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  let payload: unknown;
-  try {
-    payload = await readSupabaseJson(response);
-  } catch {
-    throw new AppError(502, "PROFILE_FETCH_FAILED", "プロフィールを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  return Array.isArray(payload) ? payload[0] ?? null : null;
+  const fallbackMessage = "プロフィールを取得できませんでした。時間をおいて、もう一度お試しください。";
+  return withSupabaseReadTimeout(async (signal) => {
+    const response = await supabaseFetch(env, query, { method: "GET", signal }, accessToken);
+    if (response.status === 401) {
+      throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+    }
+    if (response.status === 403) {
+      throw new AppError(403, "PROFILE_ACCESS_DENIED", "プロフィールを表示する権限を確認できませんでした。もう一度ログインしてください。");
+    }
+    if (!response.ok) throw new AppError(502, "PROFILE_FETCH_FAILED", fallbackMessage);
+    const payload = await readSupabaseJson(response);
+    return Array.isArray(payload) ? payload[0] ?? null : null;
+  }, "PROFILE_FETCH_FAILED", fallbackMessage);
 }
 
 async function fetchWorkspaces(env: Env, accessToken: string): Promise<WorkspaceSummary[]> {
-  const query = "/rest/v1/workspaces?select=id,name,slug,status,created_at&status=neq.deleted&order=created_at.desc";
-  let response: Response;
-  try {
-    response = await supabaseFetch(env, query, { method: "GET" }, accessToken);
-  } catch {
-    throw new AppError(502, "WORKSPACES_FETCH_FAILED", "ワークスペースを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  if (response.status === 401) {
-    throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  }
-  if (response.status === 403) {
-    throw new AppError(403, "WORKSPACES_ACCESS_DENIED", "ワークスペースを表示する権限を確認できませんでした。もう一度ログインしてください。");
-  }
-  if (!response.ok) {
-    throw new AppError(502, "WORKSPACES_FETCH_FAILED", "ワークスペースを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  let payload: unknown;
-  try {
-    payload = await readSupabaseJson(response);
-  } catch {
-    throw new AppError(502, "WORKSPACES_FETCH_FAILED", "ワークスペースを取得できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  if (!Array.isArray(payload) || !payload.every(isWorkspaceSummary) || new Set(payload.map((workspace) => workspace.id)).size !== payload.length) {
-    throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  return payload;
+  const query = `/rest/v1/workspaces?select=id,name,slug,status,created_at&status=neq.deleted&order=created_at.desc&limit=${MAX_WORKSPACE_LIST_ITEMS + 1}`;
+  const fallbackMessage = "ワークスペースを取得できませんでした。時間をおいて、もう一度お試しください。";
+  return withSupabaseReadTimeout(async (signal) => {
+    const response = await supabaseFetch(env, query, {
+      method: "GET",
+      headers: { prefer: "count=exact" },
+      signal
+    }, accessToken);
+    if (response.status === 401) {
+      throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+    }
+    if (response.status === 403) {
+      throw new AppError(403, "WORKSPACES_ACCESS_DENIED", "ワークスペースを表示する権限を確認できませんでした。もう一度ログインしてください。");
+    }
+    if (!response.ok) throw new AppError(502, "WORKSPACES_FETCH_FAILED", fallbackMessage);
+    const payload = await readSupabaseJson(response);
+    if (!Array.isArray(payload) || !payload.every(isWorkspaceSummary) || new Set(payload.map((workspace) => workspace.id)).size !== payload.length) {
+      throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+    }
+    const contentRange = response.headers.get("content-range") ?? "";
+    const populatedRange = contentRange.match(/^(\d+)-(\d+)\/(\d+)$/);
+    const emptyRange = contentRange.match(/^\*\/(\d+)$/);
+    const rangeStart = populatedRange ? Number(populatedRange[1]) : null;
+    const rangeEnd = populatedRange ? Number(populatedRange[2]) : null;
+    const exactTotal = populatedRange ? Number(populatedRange[3]) : emptyRange ? Number(emptyRange[1]) : null;
+    const rangeIsValid = payload.length === 0
+      ? emptyRange !== null && exactTotal === 0
+      : populatedRange !== null &&
+        typeof rangeStart === "number" &&
+        typeof rangeEnd === "number" &&
+        rangeStart === 0 &&
+        Number.isSafeInteger(rangeEnd) &&
+        rangeEnd - rangeStart + 1 === payload.length &&
+        Number.isSafeInteger(exactTotal) &&
+        exactTotal >= payload.length;
+    if (!rangeIsValid || exactTotal === null || !Number.isSafeInteger(exactTotal)) {
+      throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+    }
+    if (
+      payload.length > MAX_WORKSPACE_LIST_ITEMS ||
+      exactTotal > MAX_WORKSPACE_LIST_ITEMS
+    ) {
+      throw new AppError(409, "WORKSPACES_LIMIT_EXCEEDED", "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
+    }
+    if (exactTotal !== payload.length) {
+      throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+    }
+    return payload;
+  }, "WORKSPACES_FETCH_FAILED", fallbackMessage);
 }
 
 function isWorkspaceSummary(value: unknown): value is WorkspaceSummary {
@@ -1408,7 +1486,7 @@ function isWorkspaceSummary(value: unknown): value is WorkspaceSummary {
   const workspace = value as Partial<WorkspaceSummary>;
   return (
     typeof workspace.id === "string" && UUID_PATTERN.test(workspace.id) &&
-    typeof workspace.name === "string" && workspace.name.trim().length > 0 && workspace.name.length <= 64 &&
+    typeof workspace.name === "string" && workspace.name.trim().length > 0 && Array.from(workspace.name).length <= 64 &&
     typeof workspace.slug === "string" && /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(workspace.slug) &&
     (workspace.status === "active" || workspace.status === "suspended") &&
     typeof workspace.created_at === "string" && !Number.isNaN(Date.parse(workspace.created_at))
@@ -1424,7 +1502,7 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
   const name = body.name.trim();
   const slug = body.slug.trim().toLowerCase();
 
-  if (name.length < 1 || name.length > 64) {
+  if (Array.from(name).length < 1 || Array.from(name).length > 64) {
     throw new AppError(400, "WORKSPACE_NAME_INVALID", "ワークスペース名は1〜64文字で入力してください。");
   }
 
