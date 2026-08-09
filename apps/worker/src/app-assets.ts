@@ -761,9 +761,8 @@ async function createWorkspace(event) {
   button.disabled = true;
   const requestSessionGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
-  sessionReloadSequence += 1;
   let workspaceCreated = false;
-  let requestWorkspaceSequence = null;
+  let requestWorkspaceSequence = ++sessionReloadSequence;
   try {
     const form = new FormData(event.currentTarget);
     await requestJson("/api/workspaces", {
@@ -787,7 +786,7 @@ async function createWorkspace(event) {
     renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
-    if (requestWorkspaceSequence !== null && requestWorkspaceSequence !== sessionReloadSequence) return;
+    if (requestWorkspaceSequence !== sessionReloadSequence) return;
     if (error.status === 401) {
       await loadSession();
       return;

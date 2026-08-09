@@ -49,6 +49,7 @@ const requiredAppSnippets = [
   "const requestSessionGeneration = ++sessionGeneration",
   "const requestReloadSequence = ++sessionReloadSequence",
   "const requestUserId = currentSession?.user?.id",
+  "let requestWorkspaceSequence = ++sessionReloadSequence",
   "requestWorkspaceSequence = ++sessionReloadSequence",
   "requestWorkspaceSequence !== sessionReloadSequence",
   "let workspaceCreated = false",
