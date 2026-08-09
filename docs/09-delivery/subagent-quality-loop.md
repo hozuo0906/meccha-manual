@@ -70,7 +70,7 @@ Codex Reviewは手順8へ戻るための指摘工程であり、レビュー実�
 
 Issue intake monitorはIssueを拾う。Quality Loop GateはPRが品質loopの入口を満たすか確認する。PR Latest Review GateはGitHub APIをページネーションして最新SHAのCodex Reviewと未解決thread 0件を確認し、API失敗や権限不足ではfail closedにする。
 
-Codexが指摘なしで👍だけを返した場合は、最新SHAを本文に含む `@codex review` 依頼へのCodex bot反応を確認する。反応後に `/quality-gate` とPRへコメントして再確認workflowを起動する。
+Codexの合格証跡は、最新head SHAに対する正式なreview、最新SHAを明記した`@codex review`依頼後の👍、またはCodex botが投稿した`Codex Review: Didn't find any major issues`と`Reviewed commit`を含むコメントのいずれかとする。コメント形式の合格証跡を受け取った場合は、そのコメントだけではworkflowが再実行されないため、続けてPRへ`/quality-gate`とコメントして信頼済みmainの再確認workflowを起動する。
 
 PR Latest Review Gate自身の変更を初めてmainへ導入する先行PR #41では、`issue_comment`イベントがmain上の旧workflowを使うため、`/quality-gate`では新判定を検証できない。このブートストラップ時だけ、リポジトリ所有者がPR #41の本文を編集してread-onlyの`pull_request edited`を起動し、同一リポジトリにあるPR headのゲート実装で再確認する。例外条件はPR #41・所有者起動・同一リポジトリheadに限定し、#41をmainへマージした後は、すべてのPRで信頼済みmainを使って通常どおり`/quality-gate`を実行する。fork由来のPR headはこの例外の対象にしない。
 
