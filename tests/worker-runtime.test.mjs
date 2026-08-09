@@ -241,6 +241,30 @@ test("更新トークン拒否は期限切れ401として扱う", async () => {
   assert.equal(payload.code, "SESSION_EXPIRED");
 });
 
+test("更新トークン拒否の本文が壊れていても期限切れ401として扱う", async () => {
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ message: "invalid JWT" }, { status: 401 });
+    }
+    if (String(url).includes("grant_type=refresh_token")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.error(new Error("response body aborted"));
+        }
+      }), { status: 400 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/session", {
+    headers: { cookie: sessionCookie() }
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.code, "SESSION_EXPIRED");
+});
+
 test("認証サーバー障害を期限切れとして誤表示しない", async () => {
   globalThis.fetch = async (url) => {
     if (String(url).endsWith("/auth/v1/user")) {

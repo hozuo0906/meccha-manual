@@ -1104,7 +1104,6 @@ async function refreshSession(env: Env, refreshToken: string): Promise<SessionRe
     body: JSON.stringify({ refresh_token: refreshToken })
   });
   if (!response.ok) {
-    await readSupabaseJson(response);
     if ([400, 401].includes(response.status)) {
       throw new AppError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。");
     }

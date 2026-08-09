@@ -745,8 +745,15 @@ async function logout() {
     currentSession = null;
     renderLogin();
   } catch (error) {
+    if (error.status === 0) {
+      setBox("shell-message", "ログアウトできませんでした。通信環境を確認して、もう一度お試しください。", "error");
+      return;
+    }
     currentSession = null;
     renderLogin(error.message);
+  } finally {
+    const activeButton = document.getElementById("logout-button");
+    if (activeButton) activeButton.disabled = false;
   }
 }
 
