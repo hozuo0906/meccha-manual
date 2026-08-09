@@ -44,5 +44,6 @@ Status: Accepted
 | DEC-038 | 2026-08-08 | entitlement付与に固定Payment Linkを使わず、購入試行ごとの30分有効なCheckout SessionとStripe Linkを使う（[ADR-0023](../03-architecture/adrs/ADR-0023-pricing-and-stripe-link.md)） | 再利用可能URLとアプリ側intent期限のずれで、支払いだけ成立して権利が付かない状態を防ぐため |
 | DEC-039 | 2026-08-09 | 最新SHAのCodex合格証跡として正式review、依頼後の👍、bot・時刻・Reviewed commitを照合した重大問題なしコメントを受理し、コメント形式では`/quality-gate`を明示実行する | Codexの応答形式差で合格済みPRが停止することを防ぎつつ、古いSHAや第三者コメントの流用を防ぐため |
 | DEC-040 | 2026-08-08 | WorkerログアウトはCookie削除だけでなくSupabase Authの現在セッションを失効し、401と接続・上流障害をUIで区別する。複数タブの認証変更は通知して進行中応答を無効化し、workspace作成後は現在sessionを再取得して作成主体と照合する（[ADR-0010](../03-architecture/adrs/ADR-0010-worker-cookie-auth-harness.md)） | refresh tokenの残存、障害をログアウトと誤表示する不整合、別タブや応答順序による異なるユーザー・古いworkspace一覧の混入を防ぐため |
+| DEC-041 | 2026-08-09 | `www.meccha-iiyatsu.com`はブランド/LP専用Static Assets Worker、`meccha-manual.meccha-iiyatsu.com`は認証付きアプリWorkerとして分離し、Cookie・deploy・障害範囲を共有しない（[ADR-0024](../03-architecture/adrs/ADR-0024-domain-and-publication-boundary.md)） | 今後のアプリ追加を同じURL規則で拡張し、LPのサブパス要件が認証アプリのroutingとCookie境界へ影響しないようにするため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。

@@ -1,0 +1,78 @@
+# ドメインと公開構成
+
+Status: Accepted
+
+## 推奨URL一覧
+
+| URL | 役割 | 公開単位 |
+|---|---|---|
+| `https://www.meccha-iiyatsu.com/` | 「めっちゃいいやつ」公式HP | `meccha-iiyatsu-web` Static Assets Worker |
+| `https://www.meccha-iiyatsu.com/app` | アプリ/サービス一覧 | 同上 |
+| `https://www.meccha-iiyatsu.com/app/meccha-manual` | 「めっちゃマニュアル」紹介LP | 同上 |
+| `https://meccha-manual.meccha-iiyatsu.com` | ログイン後のアプリ本体 | `meccha-manual-prod` Worker |
+| `https://meccha-iiyatsu.com/*` | `www`への恒久redirect入口 | Cloudflare Bulk Redirect |
+
+## 実装済みの範囲
+
+- `apps/brand-site/public`へ公式HP、アプリ一覧、`めっちゃマニュアル` LP、404、共通CSSを追加した。
+- 各ページへtitle、description、canonical、OGP、Twitter Card、favicon、見出し構造、skip linkを設定した。
+- LPの主CTAと最終CTAを`https://meccha-manual.meccha-iiyatsu.com`へ固定した。
+- `_headers`へCSP、frame拒否、MIME sniffing拒否、Permissions Policy、Referrer Policy、cache方針を追加した。
+- `wrangler.brand.jsonc`はStatic Assetsと`workers.dev` previewだけを定義し、production Custom Domainを意図的に含めていない。
+- `npm run brand:check`でURL、canonical、OGP、内部リンク、CTA、security header、Wrangler設定を検査する。
+
+## Cloudflareで必要な作業
+
+以下はproduction反映であり、実施前に対象、影響、rollbackを再確認して承認を受ける。
+
+1. `meccha-iiyatsu.com`をCloudflareのactive zoneとして確認する。
+2. `meccha-iiyatsu-web` Workerを`wrangler.brand.jsonc`から作成し、まず`workers.dev` previewで3ページ、404、header、mobile表示を確認する。
+3. `meccha-manual-prod` Workerをproduction用Supabase/Secret/bindingで作成し、`workers.dev`で認証・RLS・メール導線を検証する。
+4. Custom Domain `www.meccha-iiyatsu.com`を`meccha-iiyatsu-web`へ追加する。既存CNAMEがある場合は追加前に競合を解消する。
+5. Custom Domain `meccha-manual.meccha-iiyatsu.com`を`meccha-manual-prod`へ追加する。
+6. apexにproxied DNSを用意し、Bulk Redirectで`https://meccha-iiyatsu.com/*`から`https://www.meccha-iiyatsu.com/${1}`相当へpath/queryを保持して301または308 redirectする。
+7. TLS、canonical、OGP、`/app`、`/app/meccha-manual`、アプリCTA、404、security headerを実URLで再検証する。
+8. Worker Buildsを2projectに分け、brandは`apps/brand-site/**`と`wrangler.brand.jsonc`、appはアプリ/Worker関連pathをbuild watch対象にする。
+
+Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する。既存originの前段でWorkerを動かすRoutesではなく、各Worker自身をoriginとするCustom Domainを使う。
+
+## 認証・Cookie・メールリンク
+
+- アプリCookieは`__Host-mm_access`と`__Host-mm_refresh`を維持し、`Domain`属性を付けない。これにより`www`や将来の別アプリへ送られない。
+- LPからアプリへは通常のtop-level GET遷移だけとし、LPからアプリAPIを呼ばない。アプリAPIのCORS許可を`www`へ広げない。
+- write APIは現在どおりアプリ自身のOriginだけを受け付ける。
+- パスワードリセット、メール確認、magic link、OAuthを有効化する場合は、Supabaseのproduction Site URLをアプリ本体URLにし、Redirect URLsへ必要なcallbackだけを完全一致で追加する。wildcardはpreview専用に限定する。
+- 旧`workers.dev` URLは移行期間だけ認証allowlistへ残し、本番callbackの検証後に削除する。
+
+## 環境変数方針
+
+| 項目 | staging | production | 変更 |
+|---|---|---|---|
+| `APP_BASE_URL` | staging Worker URL | `https://meccha-manual.meccha-iiyatsu.com` | production値の登録が必要 |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | staging project | production project | 物理分離が必要 |
+| ブランドサイト | runtime変数なし | runtime変数なし | URLは公開情報としてHTML/OGPへ固定 |
+| Secret / R2 / Discord | staging専用 | production専用 | 共有禁止 |
+
+ブランドサイトは静的であり、Secretもruntime環境変数も追加しない。新しいアプリのLP URLとアプリURLは、公開URL台帳と静的ページのcanonical/CTAを同じPRで更新する。
+
+## 新しいアプリの追加手順
+
+1. `app-slug`を小文字英数字とハイフンで確定する。
+2. `apps/brand-site/public/app/{app-slug}/index.html`へLPを追加する。
+3. `apps/brand-site/public/app/index.html`へ一覧導線を追加する。
+4. `{app-slug}-staging`と`{app-slug}-prod`を別Workerとして用意する。
+5. `{app-slug}.meccha-iiyatsu.com`をproduction WorkerのCustom Domainにする。
+6. アプリ固有のAuth、Cookie、callback、CSP、Webhook、Secretを別管理する。
+7. `npm run check`と実URLの公開前検査を通す。
+
+## 変更範囲・リスク・rollback
+
+今回のPRは静的ファイル、検査、Wranglerの未接続設定、設計文書だけを変更する。DNS、Custom Domain、Worker deploy、Supabase、DB、Secretは変更しない。
+
+| リスク | 対策 | rollback |
+|---|---|---|
+| `www`を誤ったWorkerへ割当 | Custom Domain追加前にWorker名とpreviewを照合 | Custom Domainを外し旧DNSへ戻す |
+| ログイン/メールリンク切断 | 旧URLを一時allowlistへ残しcallbackを実機確認 | app Custom Domainを外し旧技術URLを案内 |
+| apex redirect loop/path消失 | `www`をredirect対象から除外しpath/queryを検査 | Bulk Redirect ruleを無効化 |
+| LPだけ先に公開され未完成アプリへ誘導 | 「公開準備中」を表示し、同日切替またはCTA一時無効化を公開前に選ぶ | brand Workerを直前versionへrollback |
+| 2 Workerの誤deploy | build watch pathとGitHub Environmentを分離 | 直前の合格SHAを再deploy |

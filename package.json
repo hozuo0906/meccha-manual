@@ -6,6 +6,9 @@
   "description": "日本人オフィスワーカー向け業務手順書作成サービス",
   "scripts": {
     "deploy": "wrangler deploy",
+    "deploy:brand": "wrangler deploy --config wrangler.brand.jsonc",
+    "brand:preview": "wrangler dev --config wrangler.brand.jsonc",
+    "brand:check": "node scripts/check-brand-site.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "migrations:check": "node scripts/check-migrations.mjs",
     "migration:safety:check": "node scripts/check-migration-safety.mjs",
@@ -38,7 +41,7 @@
     "secrets:test": "node --test tests/sensitive-values.test.mjs",
     "secrets:check": "node scripts/check-sensitive-values.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run worker:check && npm run worker:runtime:test && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run brand:check && npm run worker:check && npm run worker:runtime:test && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check"
   },
   "devDependencies": {}
 }

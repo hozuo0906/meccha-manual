@@ -18,7 +18,7 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | 名前 | 分類 | 用途 | 必須 | クライアント公開 |
 |---|---|---|---|---|
 | `APP_ENV` | server/public | `local`、`preview`、`staging`、`production` の識別 | yes | public版のみ可 |
-| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成 | yes | public版のみ可 |
+| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成。productionは`https://meccha-manual.meccha-iiyatsu.com` | yes | public版のみ可 |
 | `SUPABASE_URL` | server/public | Supabase接続先 | yes | public版のみ可 |
 | `SUPABASE_ANON_KEY` | public | Supabase Auth/RESTの公開anon key | yes | yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | secret | 管理系ジョブ、将来のサーバー専用処理 | phase3以降 | no |

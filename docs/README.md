@@ -46,3 +46,7 @@ Status: Accepted
 - 関連テーブル/API/画面/テストの正本が存在する。
 - P0/P1扱いの未決事項がない。
 - `issue-map.md` に実装単位と完了条件がある。
+
+## 公開構成
+
+- [ドメインと公開構成](08-operations/domain-and-publication.md)

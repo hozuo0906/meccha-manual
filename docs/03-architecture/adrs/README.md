@@ -27,3 +27,4 @@ Status: Accepted
 | ADR-0021 | Accepted | Issueイベント駆動Codex自動実装 |
 | ADR-0022 | Accepted | 課金機能を初期OFFにしStripe課金境界を固定する |
 | ADR-0023 | Accepted | 都度払い・パーソナル・チーム課金とStripe Linkを採用する |
+| ADR-0024 | Accepted | ブランドサイトと認証付きアプリをサブドメインで分離する |

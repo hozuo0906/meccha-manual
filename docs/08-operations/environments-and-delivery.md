@@ -6,7 +6,7 @@ Status: Accepted
 
 `めっちゃマニュアル` の検証資源と本番資源を混在させず、`main` へのマージとproduction反映を別の判断にする。本書はIssue #21と、R2契約を固定したIssue #23を前提とする静的ハーネスであり、外部リソースの作成・変更・deployは行わない。
 
-現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインは未作成である。`wrangler.jsonc` に環境別bindingやDurable Object migrationをまだ追加しない。
+現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
 外部ユーザーと実業務データがないprelaunch期間だけは、ownerの明示判断によりCloudflare Git連携の`main`自動deployと非production branch buildを暫定許可している。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
 
@@ -26,7 +26,7 @@ Status: Accepted
 | R2 avatars / `AVATARS` | `meccha-manual-avatars-staging` | `meccha-manual-avatars-prod` | 同上 |
 | Stripe | test mode。初期は未設定 | live mode。初期は未設定 | Product、Price、Webhook endpoint、Secretを共有しない。Checkout Sessionは購入試行ごとに作る |
 | Discord通知 | staging専用Webhookまたはchannel | production専用Webhookまたはchannel | 通知は承認の正本ではなく、値・個人情報・操作内容を載せない |
-| 公開先 | 当面はaccountの`tattoo-studio-crm.workers.dev`配下の技術的URL | 将来は承認済み独自ドメイン | `workers.dev`は恒久ブランドURLではなく、独自ドメインへの切替を別承認にする |
+| 公開先 | 当面はaccountの`tattoo-studio-crm.workers.dev`配下の技術的URL | ブランドは`www.meccha-iiyatsu.com`、アプリは`meccha-manual.meccha-iiyatsu.com` | `workers.dev`は恒久ブランドURLではなく、Custom Domain切替を別承認にする |
 
 ## `main` マージ後の扱い
 
@@ -70,7 +70,7 @@ Status: Accepted
 - Browser Run binding、Durable Object binding/migrationも、外部資源と料金・上限の承認前に有効化しない。
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
-- `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。将来の独自ドメイン設定とroute切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
+- `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。ADR-0024のCustom Domain設定と切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
 
 ## Supabase
 
