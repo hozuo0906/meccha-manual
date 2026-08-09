@@ -486,6 +486,7 @@ let sessionReloadSequence = 0;
 const authenticationChannel = typeof BroadcastChannel === "function"
   ? new BroadcastChannel("meccha-manual-authentication")
   : null;
+const authenticationVersionKey = "meccha-manual-authentication-version";
 
 function replaceCurrentSession(nextSession) {
   currentSession = nextSession;
@@ -494,6 +495,35 @@ function replaceCurrentSession(nextSession) {
 
 function announceAuthenticationChange() {
   authenticationChannel?.postMessage({ type: "authentication-changed" });
+}
+
+function readAuthenticationVersion() {
+  try {
+    let version = localStorage.getItem(authenticationVersionKey);
+    if (!version) {
+      version = crypto.randomUUID();
+    }
+    localStorage.setItem(authenticationVersionKey, version);
+    return version;
+  } catch {
+    throw new AppRequestError(
+      "このブラウザでは安全にログイン状態を変更できません。最新版のChromeでお試しください。",
+      0,
+      "AUTH_COORDINATION_UNAVAILABLE"
+    );
+  }
+}
+
+function advanceAuthenticationVersion() {
+  try {
+    localStorage.setItem(authenticationVersionKey, crypto.randomUUID());
+  } catch {
+    throw new AppRequestError(
+      "このブラウザでは安全にログイン状態を変更できません。最新版のChromeでお試しください。",
+      0,
+      "AUTH_COORDINATION_UNAVAILABLE"
+    );
+  }
 }
 
 async function withAuthenticationLock(operation) {
@@ -505,6 +535,31 @@ async function withAuthenticationLock(operation) {
     );
   }
   return navigator.locks.request("meccha-manual-authentication", { mode: "exclusive" }, operation);
+}
+
+async function loginWithAuthenticationLock(options) {
+  return withAuthenticationLock(async () => {
+    readAuthenticationVersion();
+    const result = await requestJson("/api/auth/login", options);
+    advanceAuthenticationVersion();
+    announceAuthenticationChange();
+    return result;
+  });
+}
+
+async function logoutWithAuthenticationLock(expectedVersion) {
+  return withAuthenticationLock(async () => {
+    if (readAuthenticationVersion() !== expectedVersion) return false;
+    advanceAuthenticationVersion();
+    try {
+      await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
+      announceAuthenticationChange();
+      return true;
+    } catch (error) {
+      if (error.code === "LOGOUT_REVOKE_FAILED") announceAuthenticationChange();
+      throw error;
+    }
+  });
 }
 
 function renderAuthenticationReload() {
@@ -640,14 +695,13 @@ function renderLogin(message = "") {
     button.disabled = true;
     try {
       const form = new FormData(event.currentTarget);
-      await withAuthenticationLock(() => requestJson("/api/auth/login", {
+      await loginWithAuthenticationLock({
         method: "POST",
         body: JSON.stringify({
           email: form.get("email"),
           password: form.get("password")
         })
-      }));
-      announceAuthenticationChange();
+      });
       await loadSession();
     } catch (error) {
       setBox("login-message", error.message, "error");
@@ -821,14 +875,19 @@ async function logout() {
   button.disabled = true;
   const requestSessionGeneration = ++sessionGeneration;
   try {
-    await withAuthenticationLock(() => requestJson("/api/auth/logout", { method: "POST", body: "{}" }));
+    const requestAuthenticationVersion = readAuthenticationVersion();
+    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion);
+    if (!logoutSent) {
+      renderAuthenticationReload();
+      await loadSession();
+      return;
+    }
     if (requestSessionGeneration !== sessionGeneration) return;
     replaceCurrentSession(null);
     renderLogin();
-    announceAuthenticationChange();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
-    if (error.code === "AUTH_LOCK_UNAVAILABLE") {
+    if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
       setBox("shell-message", error.message, "error");
       return;
     }
@@ -838,7 +897,6 @@ async function logout() {
     }
     replaceCurrentSession(null);
     renderLogin(error.message);
-    announceAuthenticationChange();
   } finally {
     const activeButton = document.getElementById("logout-button");
     if (activeButton) activeButton.disabled = false;
