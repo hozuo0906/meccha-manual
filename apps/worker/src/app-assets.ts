@@ -700,7 +700,11 @@ async function loadSession() {
   try {
     const session = await requestJson("/api/session");
     if (requestSessionGeneration !== sessionGeneration) return;
-    replaceCurrentSession(session);
+    if (currentSession?.user?.id !== session.user?.id) {
+      replaceCurrentSession(session);
+    } else {
+      currentSession = session;
+    }
     renderShell(currentSession);
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration) return;
@@ -753,7 +757,7 @@ async function logout() {
   clearBox("shell-message");
   const button = document.getElementById("logout-button");
   button.disabled = true;
-  const requestSessionGeneration = sessionGeneration;
+  const requestSessionGeneration = ++sessionGeneration;
   try {
     await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
     if (requestSessionGeneration !== sessionGeneration) return;
