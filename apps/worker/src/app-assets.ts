@@ -481,6 +481,12 @@ h1 {
 export const APP_JS = `
 const app = document.getElementById("app");
 let currentSession = null;
+let sessionGeneration = 0;
+
+function replaceCurrentSession(nextSession) {
+  currentSession = nextSession;
+  sessionGeneration += 1;
+}
 
 class AppRequestError extends Error {
   constructor(message, status, code) {
@@ -690,11 +696,15 @@ function renderShell(session, notice = "") {
 }
 
 async function loadSession() {
+  const requestSessionGeneration = sessionGeneration;
   try {
-    currentSession = await requestJson("/api/session");
+    const session = await requestJson("/api/session");
+    if (requestSessionGeneration !== sessionGeneration) return;
+    replaceCurrentSession(session);
     renderShell(currentSession);
   } catch (error) {
-    currentSession = null;
+    if (requestSessionGeneration !== sessionGeneration) return;
+    replaceCurrentSession(null);
     if (error.status === 401) {
       let message = "";
       if (error.code === "SESSION_INVALID") {
@@ -718,6 +728,7 @@ async function createWorkspace(event) {
   clearBox("workspace-message");
   const button = event.currentTarget.querySelector("button");
   button.disabled = true;
+  const requestSessionGeneration = sessionGeneration;
   try {
     const form = new FormData(event.currentTarget);
     const result = await requestJson("/api/workspaces", {
@@ -727,9 +738,11 @@ async function createWorkspace(event) {
         slug: form.get("slug")
       })
     });
-    currentSession = { ...currentSession, workspaces: result.workspaces || [] };
+    if (requestSessionGeneration !== sessionGeneration) return;
+    replaceCurrentSession({ ...currentSession, workspaces: result.workspaces || [] });
     renderShell(currentSession, "ワークスペースを作成しました。");
   } catch (error) {
+    if (requestSessionGeneration !== sessionGeneration) return;
     setBox("workspace-message", error.message, "error");
   } finally {
     button.disabled = false;
@@ -740,16 +753,19 @@ async function logout() {
   clearBox("shell-message");
   const button = document.getElementById("logout-button");
   button.disabled = true;
+  const requestSessionGeneration = sessionGeneration;
   try {
     await requestJson("/api/auth/logout", { method: "POST", body: "{}" });
-    currentSession = null;
+    if (requestSessionGeneration !== sessionGeneration) return;
+    replaceCurrentSession(null);
     renderLogin();
   } catch (error) {
+    if (requestSessionGeneration !== sessionGeneration) return;
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
       setBox("shell-message", "ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。", "error");
       return;
     }
-    currentSession = null;
+    replaceCurrentSession(null);
     renderLogin(error.message);
   } finally {
     const activeButton = document.getElementById("logout-button");

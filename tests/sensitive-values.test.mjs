@@ -220,3 +220,28 @@ for (const [label, escapedSeparator] of [
     assert.doesNotMatch(result.stderr, new RegExp(literalValue));
   });
 }
+
+test("既知secret参照の後ろに平文fallbackがある場合は拒否する", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "meccha-secret-scan-"));
+  temporaryDirectories.push(repository);
+  const secretName = ["SUPABASE", "DB", "PASSWORD"].join("_");
+  const literalValue = "literalvalue741";
+  const secretFile = path.join(repository, "settings.md");
+
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+  await writeFile(secretFile, `${secretName} = process.env.SAFE_VALUE || "${literalValue}"\n`);
+  assert.equal(spawnSync("git", ["add", "settings.md"], { cwd: repository }).status, 0);
+
+  const result = spawnSync(process.execPath, [scannerPath], {
+    cwd: repository,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SECRET_SCAN_BASE_SHA: ""
+    }
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
+  assert.doesNotMatch(result.stderr, new RegExp(literalValue));
+});

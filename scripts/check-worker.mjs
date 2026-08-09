@@ -37,6 +37,10 @@ const requiredWorkerSnippets = [
 
 const requiredAppSnippets = [
   "class AppRequestError",
+  "let sessionGeneration = 0",
+  "function replaceCurrentSession(nextSession)",
+  "const requestSessionGeneration = sessionGeneration",
+  "if (requestSessionGeneration !== sessionGeneration) return",
   "renderLoadFailure",
   "error.status === 401",
   "error.code !== \"LOGOUT_REVOKE_FAILED\"",
