@@ -98,7 +98,7 @@ function isLiteralSecretValue(value) {
   if (/^\*[A-Za-z0-9_-]+(?:\s*(?:#.*)?)?$/.test(assigned)) return true;
   const isReference = /^(?:\$\{\{|\$[A-Za-z_(]|process\.env\.|env\.|secrets\.|<|\[)/.test(assigned);
   const isPlaceholder = /^(?:REDACTED|CHANGEME|YOUR[_-]|EXAMPLE[_-])/i.test(assigned);
-  return !isReference && !isPlaceholder && assigned.length >= 8;
+  return !isReference && !isPlaceholder && assigned.length > 0;
 }
 
 function isLiteralYamlSecretBlock(value) {
