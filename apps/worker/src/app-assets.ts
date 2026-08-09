@@ -672,6 +672,18 @@ async function requestJsonOnce(path, options = {}) {
     );
   }
 
+  const responseMediaType = (response.headers.get("content-type") || "")
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  if (responseMediaType !== "application/json") {
+    throw new AppRequestError(
+      "サーバーから正しい応答を受け取れませんでした。時間をおいて、もう一度お試しください。",
+      response.status,
+      "INVALID_RESPONSE"
+    );
+  }
+
   const text = await response.text();
   let payload = {};
   try {
@@ -735,6 +747,23 @@ function validateLoginForm(form) {
   return "";
 }
 
+function clearLoginFieldError(field) {
+  field.removeAttribute("aria-invalid");
+  field.removeAttribute("aria-describedby");
+}
+
+function updateLoginFieldErrors(form, validationMessage) {
+  const email = form.elements.email;
+  const password = form.elements.password;
+  clearLoginFieldError(email);
+  clearLoginFieldError(password);
+  if (!validationMessage) return;
+
+  const invalidField = validationMessage.includes("メールアドレス") ? email : password;
+  invalidField.setAttribute("aria-invalid", "true");
+  invalidField.setAttribute("aria-describedby", "login-message");
+}
+
 function renderLogin(message = "") {
   app.innerHTML =
     '<section class="login-screen">' +
@@ -771,6 +800,7 @@ function renderLogin(message = "") {
     clearBox("login-message");
     const button = event.currentTarget.querySelector("button");
     const validationMessage = validateLoginForm(event.currentTarget);
+    updateLoginFieldErrors(event.currentTarget, validationMessage);
     if (validationMessage) {
       setBox("login-message", validationMessage, "error");
       return;
@@ -796,6 +826,9 @@ function renderLogin(message = "") {
       event.currentTarget.removeAttribute("aria-busy");
     }
   });
+  for (const field of [document.getElementById("email"), document.getElementById("password")]) {
+    field.addEventListener("input", () => clearLoginFieldError(field));
+  }
   if (message) {
     document.getElementById("login-message").focus();
   } else {
@@ -811,8 +844,14 @@ function renderLoadFailure(title, message) {
       '<p>' + escapeHtml(message) + '</p>' +
       '<button id="retry-button" class="primary-button" type="button">もう一度読み込む</button>' +
     '</section>';
-  document.getElementById("retry-button").addEventListener("click", loadSession);
-  document.getElementById("retry-button").focus();
+  const retryButton = document.getElementById("retry-button");
+  retryButton.addEventListener("click", async () => {
+    retryButton.disabled = true;
+    retryButton.textContent = "読み込み中";
+    retryButton.setAttribute("aria-busy", "true");
+    await loadSession();
+  });
+  retryButton.focus();
 }
 
 function renderShell(session, notice = "") {

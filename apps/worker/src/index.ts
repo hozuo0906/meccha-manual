@@ -218,25 +218,71 @@ function errorResponse(error: unknown): Response {
   }, { status: 500 });
 }
 
-async function readJsonBody<T>(request: Request): Promise<T> {
+async function readBodyTextLimited(
+  request: Request,
+  maxBytes: number,
+  tooLargeCode: string,
+  tooLargeMessage: string
+): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    throw new AppError(413, tooLargeCode, tooLargeMessage);
+  }
+
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel("body too large").catch(() => undefined);
+        throw new AppError(413, tooLargeCode, tooLargeMessage);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function readJsonBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
   const contentType = request.headers.get("content-type") ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   if (mediaType !== "application/json") {
     throw new AppError(415, "JSON_CONTENT_TYPE_REQUIRED", "Content-Typeはapplication/jsonにしてください。");
   }
 
-  const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_JSON_BODY_BYTES) {
-    throw new AppError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
-  }
-
   try {
-    const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_JSON_BODY_BYTES) {
-      throw new AppError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
+    const text = await readBodyTextLimited(
+      request,
+      MAX_JSON_BODY_BYTES,
+      "JSON_BODY_TOO_LARGE",
+      "リクエストが大きすぎます。"
+    );
+    const body: unknown = JSON.parse(text);
+    if (!isPlainJsonObject(body)) {
+      throw new AppError(400, "JSON_OBJECT_REQUIRED", "JSONはオブジェクト形式にしてください。");
     }
-
-    return JSON.parse(text) as T;
+    return body as T;
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError(400, "INVALID_JSON", "JSONの形式が正しくありません。");
@@ -918,17 +964,12 @@ async function processDiscordPrComponent(env: Env, interaction: DiscordInteracti
 }
 
 async function readDiscordBody(request: Request): Promise<string> {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_DISCORD_BODY_BYTES) {
-    throw new AppError(413, "DISCORD_BODY_TOO_LARGE", "Discord request body is too large.");
-  }
-
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_DISCORD_BODY_BYTES) {
-    throw new AppError(413, "DISCORD_BODY_TOO_LARGE", "Discord request body is too large.");
-  }
-
-  return text;
+  return readBodyTextLimited(
+    request,
+    MAX_DISCORD_BODY_BYTES,
+    "DISCORD_BODY_TOO_LARGE",
+    "Discord request body is too large."
+  );
 }
 
 function interactionReplayKey(interactionId: string): string {

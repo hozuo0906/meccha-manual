@@ -22,6 +22,52 @@ function sessionCookie(access = "access-token", refresh = "refresh-token") {
   return `__Host-mm_access=${access}; __Host-mm_refresh=${refresh}`;
 }
 
+function byteLength(value) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function jsonObjectAtByteLength(targetBytes, fill = "a") {
+  const prefix = '{"padding":"';
+  const suffix = '"}';
+  const fillBytes = byteLength(fill);
+  const availableBytes = targetBytes - byteLength(prefix) - byteLength(suffix);
+  const fillCount = Math.floor(availableBytes / fillBytes);
+  const asciiRemainder = availableBytes - fillCount * fillBytes;
+  const value = `${prefix}${fill.repeat(fillCount)}${"a".repeat(asciiRemainder)}${suffix}`;
+  assert.equal(byteLength(value), targetBytes);
+  return value;
+}
+
+function streamRequest(path, body, headers = {}) {
+  const bytes = new TextEncoder().encode(body);
+  let offset = 0;
+  let cancelled = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (offset >= bytes.byteLength) {
+        controller.close();
+        return;
+      }
+      const end = Math.min(offset + 1024, bytes.byteLength);
+      controller.enqueue(bytes.slice(offset, end));
+      offset = end;
+    },
+    cancel() {
+      cancelled = true;
+    }
+  });
+  return {
+    request: appRequest(path, {
+      method: "POST",
+      headers,
+      body: stream,
+      duplex: "half"
+    }),
+    wasCancelled: () => cancelled,
+    bytesRead: () => offset
+  };
+}
+
 test("状態変更APIは異なるoriginを拒否する", async () => {
   const response = await worker.fetch(appRequest("/api/auth/logout", {
     method: "POST",
@@ -537,6 +583,83 @@ test("全認証POSTはContent-Length上限超過を外部通信前に拒否す�
     assert.equal(response.status, 413, path);
     assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE", path);
   }
+});
+
+test("認証JSONはContent-Lengthなしでも16KB超過をstream途中で拒否する", async () => {
+  const body = jsonObjectAtByteLength(16 * 1024 + 4096);
+  const streamed = streamRequest("/api/auth/login", body, {
+    "content-type": "application/json",
+    "origin": "https://app.example"
+  });
+
+  const response = await worker.fetch(streamed.request, env, ctx);
+
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE");
+  assert.equal(streamed.wasCancelled(), true);
+  assert.ok(streamed.bytesRead() < byteLength(body));
+});
+
+test("認証JSONはASCIIとUTF-8の16KB境界をbyte単位で受理する", async () => {
+  for (const fill of ["a", "あ"]) {
+    const body = jsonObjectAtByteLength(16 * 1024, fill);
+    const response = await worker.fetch(appRequest("/api/auth/logout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": "https://app.example"
+      },
+      body
+    }), env, ctx);
+
+    assert.equal(response.status, 200, fill);
+    assert.equal((await response.json()).status, "ok", fill);
+  }
+});
+
+test("認証JSONはASCIIとUTF-8の16KB超過をbyte単位で拒否する", async () => {
+  for (const fill of ["a", "あ"]) {
+    const body = jsonObjectAtByteLength(16 * 1024 + 1, fill);
+    const response = await worker.fetch(appRequest("/api/auth/logout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": "https://app.example"
+      },
+      body
+    }), env, ctx);
+
+    assert.equal(response.status, 413, fill);
+    assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE", fill);
+  }
+});
+
+test("認証JSONはnullと配列をplain objectではないとして400にする", async () => {
+  for (const body of ["null", "[]"]) {
+    const response = await worker.fetch(appRequest("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": "https://app.example"
+      },
+      body
+    }), env, ctx);
+
+    assert.equal(response.status, 400, body);
+    assert.equal((await response.json()).code, "JSON_OBJECT_REQUIRED", body);
+  }
+});
+
+test("Discord bodyはContent-Lengthなしでも64KB超過をstream途中で拒否する", async () => {
+  const body = jsonObjectAtByteLength(64 * 1024 + 4096);
+  const streamed = streamRequest("/v1/integrations/discord/interactions", body);
+
+  const response = await worker.fetch(streamed.request, env, ctx);
+
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, "DISCORD_BODY_TOO_LARGE");
+  assert.equal(streamed.wasCancelled(), true);
+  assert.ok(streamed.bytesRead() < byteLength(body));
 });
 
 test("不正な認証成功payloadではCookieを発行しない", async () => {
