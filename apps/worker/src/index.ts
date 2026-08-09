@@ -1231,7 +1231,7 @@ async function logout(request: Request, env: Env): Promise<Response> {
   try {
     session = await requireSession(request, env, cookies);
   } catch (error) {
-    if (error instanceof AppError && error.status === 401) {
+    if (error instanceof AppError && error.code === "SESSION_EXPIRED") {
       return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
     }
     return logoutRevokeFailureResponse();

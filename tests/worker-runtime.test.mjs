@@ -221,6 +221,37 @@ test("認証サーバーへのログアウト通信が失敗しても端末Cooki
   assert.match(response.headers.get("set-cookie") || "", /__Host-mm_refresh=.*Max-Age=0/);
 });
 
+test("ログアウト時のrefresh成功レスポンスが不正なら失効未確認として警告する", async () => {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ message: "invalid JWT" }, { status: 401 });
+    }
+    if (String(url).includes("grant_type=refresh_token")) {
+      return Response.json({ user: { id: "00000000-0000-4000-8000-000000000001" } });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest("/api/auth/logout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "origin": "https://app.example",
+      "cookie": sessionCookie()
+    },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.code, "LOGOUT_REVOKE_FAILED");
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(calls.join("\n"), /\/auth\/v1\/logout/);
+  assert.match(response.headers.get("set-cookie") || "", /Max-Age=0/);
+});
+
 test("更新トークン拒否は期限切れ401として扱う", async () => {
   globalThis.fetch = async (url) => {
     if (String(url).endsWith("/auth/v1/user")) {
