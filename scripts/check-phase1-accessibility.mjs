@@ -103,6 +103,7 @@ export function validatePhase1Accessibility({ html = APP_HTML, css = APP_CSS, js
     ['limitWorkspaceSlugLength(workspaceSlugField)', "URL用IDをtrim後の長さで制限してください。"],
     ['data-max-normalized-length="47" required value="', "参加コードの入力上限を正規化後の長さで強制してください。"],
     ['limitWorkspaceMemberJoinCodeLength(event.currentTarget);', "参加コードをtrim後の長さで制限してください。"],
+    ['id="member-join-code-error" class="field-error" role="alert" aria-live="assertive" aria-atomic="true"', "参加コードの入力エラーを支援技術へ通知してください。"],
     ['現在の権限：', "現在ユーザーの権限を画面で確認できるようにしてください。"]
   ];
   for (const [fragment, message] of jsContracts) {

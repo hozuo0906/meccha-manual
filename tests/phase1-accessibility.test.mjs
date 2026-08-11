@@ -37,6 +37,7 @@ const contractMutations = [
   ["slug trim後制限", "trim後", { js: APP_JS.replace('limitWorkspaceSlugLength(workspaceSlugField)', 'false') }],
   ["参加コード正規化後上限", "参加コードの入力上限", { js: APP_JS.replace('data-max-normalized-length="47" required value="', 'required value="') }],
   ["参加コードtrim後制限", "参加コードをtrim後", { js: APP_JS.replace('limitWorkspaceMemberJoinCodeLength(event.currentTarget);', '') }],
+  ["参加コードlive error", "参加コードの入力エラー", { js: APP_JS.replace('id="member-join-code-error" class="field-error" role="alert" aria-live="assertive" aria-atomic="true"', 'id="member-join-code-error" class="field-error"') }],
   ["権限表示", "現在ユーザーの権限", { js: APP_JS.replaceAll("現在の権限：", "権限表示なし：") }]
 ];
 

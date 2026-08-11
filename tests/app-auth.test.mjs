@@ -1044,6 +1044,36 @@ test("workspace slug入力欄はtrim後63文字を許可し64文字目だけを�
   assert.doesNotMatch(element("workspace-message").className, /show/);
 });
 
+test("workspace上限エラーは共有メッセージを現在の入力欄だけへ関連付ける", () => {
+  const { api, element } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const nameField = element("workspace-name");
+  const slugField = element("workspace-slug");
+  slugField.setAttribute("aria-describedby", "workspace-slug-help");
+
+  slugField.value = "a".repeat(64);
+  slugField.listeners.get("input")();
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help workspace-message");
+
+  nameField.value = "😀".repeat(65);
+  nameField.listeners.get("input")();
+  assert.equal(nameField["aria-invalid"], "true");
+  assert.equal(nameField["aria-describedby"], "workspace-message");
+  assert.equal(slugField["aria-invalid"], undefined);
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help");
+  assert.match(element("workspace-message").textContent, /ワークスペース名/);
+
+  slugField.value = "a".repeat(64);
+  slugField.listeners.get("input")();
+  assert.equal(nameField["aria-invalid"], undefined);
+  assert.equal(nameField["aria-describedby"], undefined);
+  assert.equal(slugField["aria-invalid"], "true");
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help workspace-message");
+  assert.match(element("workspace-message").textContent, /URL用ID/);
+});
+
 test("sessionStorageが使えなくても選択したworkspaceを現在タブで維持する", () => {
   const { api, sessionStorage } = createHarness();
   const session = {
@@ -2497,6 +2527,9 @@ test("参加コード入力欄はtrim後47文字を許可し48文字目だけを
   assert.equal(field["aria-describedby"], "member-join-code-error");
   assert.equal(harness.element("member-join-code-error").hidden, false);
   assert.match(harness.element("member-join-code-error").textContent, /47文字以内/);
+  assert.equal(harness.element("member-join-code-error").role, "alert");
+  assert.equal(harness.element("member-join-code-error")["aria-live"], "assertive");
+  assert.equal(harness.element("member-join-code-error")["aria-atomic"], "true");
   assert.equal(harness.focusedId(), "member-join-code");
 });
 

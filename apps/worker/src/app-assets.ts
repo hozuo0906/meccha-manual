@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-fa0f0b0616832342";
+export const APP_ASSET_VERSION = "sha256-7bcde4f31d9f2561";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1143,6 +1143,18 @@ function clearWorkspaceLimitMessage(message) {
   if (box?.textContent === message) clearBox("workspace-message");
 }
 
+function setWorkspaceLimitError(field, message) {
+  clearWorkspaceFieldError(document.getElementById("workspace-name"));
+  clearWorkspaceFieldError(document.getElementById("workspace-slug"));
+  field.setAttribute?.("aria-invalid", "true");
+  const describedBy = field.getAttribute?.("aria-describedby") || field["aria-describedby"] || "";
+  field.setAttribute?.(
+    "aria-describedby",
+    [describedBy, "workspace-message"].filter(Boolean).join(" ")
+  );
+  setBox("workspace-message", message, "error", false);
+}
+
 function workspaceNameLength(value) {
   return Array.from(value).length;
 }
@@ -1155,9 +1167,7 @@ function limitWorkspaceNameCodePoints(field) {
   const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
   const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
   field.value = leadingWhitespace + codePoints.slice(0, 64).join("") + trailingWhitespace;
-  field.setAttribute?.("aria-invalid", "true");
-  field.setAttribute?.("aria-describedby", "workspace-message");
-  setBox("workspace-message", "ワークスペース名は64文字以内で入力してください。", "error", false);
+  setWorkspaceLimitError(field, "ワークスペース名は64文字以内で入力してください。");
   return true;
 }
 
@@ -1168,13 +1178,7 @@ function limitWorkspaceSlugLength(field) {
   const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
   const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
   field.value = leadingWhitespace + normalizedValue.slice(0, 63) + trailingWhitespace;
-  field.setAttribute?.("aria-invalid", "true");
-  const describedBy = field.getAttribute?.("aria-describedby") || field["aria-describedby"] || "";
-  field.setAttribute?.(
-    "aria-describedby",
-    [describedBy, "workspace-message"].filter(Boolean).join(" ")
-  );
-  setBox("workspace-message", "URL用IDは63文字以内で入力してください。", "error", false);
+  setWorkspaceLimitError(field, "URL用IDは63文字以内で入力してください。");
   return true;
 }
 
@@ -1472,7 +1476,7 @@ function renderWorkspaceMembers(currentWorkspace) {
           '<h3>参加コードでメンバーを追加</h3>' +
           '<p class="muted">追加する本人が発行した10分間有効の参加コードを入力してください。コードは成功時に1回だけ使用されます。</p>' +
           '<div class="member-add-grid">' +
-            '<div class="field"><label for="member-join-code">参加コード</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" data-max-normalized-length="47" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
+            '<div class="field"><label for="member-join-code">参加コード</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" data-max-normalized-length="47" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error" role="alert" aria-live="assertive" aria-atomic="true"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
             '<div class="field"><label for="member-role">権限</label><select id="member-role" name="memberRole" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '><option value="editor">編集者</option><option value="viewer">閲覧者</option><option value="admin">管理者</option></select></div>' +
             '<button class="primary-button" type="submit"' + (saving ? ' disabled' : '') + '>' + (saving ? '保存中' : 'メンバーを追加') + '</button>' +
           '</div>' +
@@ -1607,6 +1611,9 @@ function limitWorkspaceMemberJoinCodeLength(field) {
   if (error) {
     error.textContent = "参加コードは47文字以内で入力してください。";
     error.hidden = false;
+    error.setAttribute?.("role", "alert");
+    error.setAttribute?.("aria-live", "assertive");
+    error.setAttribute?.("aria-atomic", "true");
   }
   return true;
 }
