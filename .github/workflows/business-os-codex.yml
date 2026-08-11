@@ -43,10 +43,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - run: git diff --check origin/main...HEAD
       - run: npm ci
       - run: npm run check
 
