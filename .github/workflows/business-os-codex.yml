@@ -1,0 +1,307 @@
+name: Business OS Codex Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Connection probe or approved job
+        type: choice
+        options: [probe, run]
+        default: run
+        required: true
+      target_id:
+        description: Business OS execution target UUID
+        type: string
+        required: true
+      job_id:
+        description: Approved Business OS job UUID (run only)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-os-codex-${{ inputs.target_id }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: inputs.mode == 'probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify Business OS runner connection
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          TARGET_ID: ${{ inputs.target_id }}
+          WORKFLOW_REF: business-os-codex.yml
+        run: node scripts/cloud-runner-client.mjs probe
+
+  agent:
+    if: inputs.mode == 'run' && inputs.job_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      operation: ${{ steps.claim.outputs.operation }}
+      branch_name: ${{ steps.claim.outputs.branch_name }}
+      base_branch: ${{ steps.claim.outputs.base_branch }}
+      model: ${{ steps.claim.outputs.model }}
+      effort: ${{ steps.claim.outputs.effort }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Claim approved job
+        id: claim
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          BUSINESS_OS_JOB_SIGNING_SECRET: ${{ secrets.CLOUD_RUNNER_JOB_SIGNING_SECRET }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          TARGET_ID: ${{ inputs.target_id }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: node "$RUNNER_TEMP/cloud-runner-client.mjs" claim
+      - name: Preserve claimed job state
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-os-state-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/business-os-job.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Record accepted job
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "0"
+          EVENT_TYPE: accepted
+          EVENT_SUMMARY: GitHub-hosted runnerが承認済みジョブを取得しました。
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+      - name: Install dependencies before sandboxed execution
+        if: steps.claim.outputs.operation == 'code_change'
+        run: npm ci
+      - name: Create isolated Codex user and branch
+        env:
+          BASE_BRANCH: ${{ steps.claim.outputs.base_branch }}
+          BRANCH_NAME: ${{ steps.claim.outputs.branch_name }}
+        run: |
+          git switch --force-create "$BRANCH_NAME" "origin/$BASE_BRANCH"
+          sudo useradd --create-home --shell /bin/bash codex-agent
+          sudo find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name .git -exec chown -R codex-agent:codex-agent {} +
+          sudo install -d -o codex-agent -g codex-agent "$RUNNER_TEMP/codex-agent"
+          sudo install -m 640 -o codex-agent -g codex-agent /dev/null "$GITHUB_WORKSPACE/.business-os-codex-result.txt"
+      - name: Record started job
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "1"
+          EVENT_TYPE: started
+          EVENT_SUMMARY: Codex実装を開始しました。
+        run: node "$RUNNER_TEMP/cloud-runner-client.mjs" event
+      - name: Run Codex without GitHub write credentials
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ steps.claim.outputs.prompt_path }}
+          sandbox: ${{ steps.claim.outputs.operation == 'code_change' && 'workspace-write' || 'read-only' }}
+          model: ${{ steps.claim.outputs.model }}
+          effort: ${{ steps.claim.outputs.effort }}
+          safety-strategy: unprivileged-user
+          codex-user: codex-agent
+          output-file: .business-os-codex-result.txt
+      - name: Isolate Codex result from the patch
+        if: success()
+        run: |
+          mv .business-os-codex-result.txt "$RUNNER_TEMP/codex-agent/codex-final-message.txt"
+          rm -f .business-os-codex-prompt.md
+      - name: Capture approved-path patch
+        if: success() && steps.claim.outputs.operation == 'code_change'
+        run: |
+          git add -N .
+          node "$RUNNER_TEMP/cloud-runner-client.mjs" validate-diff
+          git -c core.hooksPath=/dev/null diff --binary --no-ext-diff --no-textconv > "$RUNNER_TEMP/codex.patch"
+      - name: Upload isolated result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: |
+            ${{ runner.temp }}/business-os-job.json
+            ${{ runner.temp }}/codex.patch
+            ${{ runner.temp }}/codex-agent/codex-final-message.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  test:
+    if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'code_change'
+    needs: agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.agent.outputs.base_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Apply isolated patch
+        run: git -c core.hooksPath=/dev/null apply --check "$RUNNER_TEMP/result/codex.patch" && git -c core.hooksPath=/dev/null apply "$RUNNER_TEMP/result/codex.patch"
+      - name: Record test start
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "2"
+          EVENT_TYPE: test_started
+          EVENT_SUMMARY: 独立runnerで検証を開始しました。
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+      - run: npm ci
+      - run: npm run check
+
+  publish:
+    if: needs.test.result == 'success'
+    needs: [agent, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.agent.outputs.base_branch }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Apply patch without executing project code
+        env:
+          BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git switch --create "$BRANCH_NAME"
+          git -c core.hooksPath=/dev/null apply --check "$RUNNER_TEMP/result/codex.patch"
+          git -c core.hooksPath=/dev/null apply "$RUNNER_TEMP/result/codex.patch"
+          git config user.name "business-os[bot]"
+          git config user.email "business-os[bot]@users.noreply.github.com"
+          git add -A
+          git -c core.hooksPath=/dev/null commit -m "Implement approved Business OS job"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH_NAME"
+      - name: Create draft pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          BASE_BRANCH: ${{ needs.agent.outputs.base_branch }}
+        run: |
+          url="$(gh pr create --draft --base "$BASE_BRANCH" --head "$BRANCH_NAME" --title "Business OS approved change" --body "Business OSの承認済みジョブから作成しました。")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Record Owner review
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "3"
+          EVENT_TYPE: completed
+          EVENT_SUMMARY: テスト合格後にdraft PRを作成しました。stagingとproductionは未実行です。
+          EVENT_METADATA: '{"branchName":"${{ needs.agent.outputs.branch_name }}","pullRequestUrl":"${{ steps.pr.outputs.url }}"}'
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+
+  report_read_only:
+    if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'read_only'
+    needs: agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Record read-only result
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: |
+          summary="$(head -c 3900 "$RUNNER_TEMP/codex-final-message.txt")"
+          EVENT_SEQUENCE=2 EVENT_TYPE=completed EVENT_SUMMARY="$summary" node "${{ runner.temp }}/cloud-runner-client.mjs" event
+
+  report_failure:
+    if: always() && (needs.agent.result == 'failure' || needs.test.result == 'failure' || needs.publish.result == 'failure' || needs.report_read_only.result == 'failure')
+    needs: [agent, test, publish, report_read_only]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download claimed job state
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: business-os-state-${{ inputs.job_id }}
+          path: .runner-state
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Record failed workflow
+        if: hashFiles('.runner-state/business-os-job.json') != ''
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "0"
+          EVENT_TYPE: failed
+          EVENT_SUMMARY: GitHub-hosted runnerの実装、検証、または公開工程が失敗しました。Actionsログを確認してください。
+          EVENT_METADATA: '{"autoSequence":true}'
+          RUNNER_TEMP: ${{ github.workspace }}/.runner-state
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
