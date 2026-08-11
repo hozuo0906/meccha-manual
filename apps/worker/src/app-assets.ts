@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-f3cf3e6b1c7cc663";
+export const APP_ASSET_VERSION = "sha256-a8b42e97593ecd77";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1142,6 +1142,13 @@ function workspaceNameLength(value) {
   return Array.from(value).length;
 }
 
+function limitWorkspaceNameCodePoints(field) {
+  const codePoints = Array.from(String(field?.value || ""));
+  if (codePoints.length <= 64) return;
+  field.value = codePoints.slice(0, 64).join("");
+  setBox("workspace-message", "ワークスペース名は64文字以内で入力してください。", "error");
+}
+
 function validateWorkspaceForm(form) {
   const name = String(form.elements.name?.value || "").trim();
   const slug = String(form.elements.slug?.value || "").trim().toLowerCase();
@@ -1845,7 +1852,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
                 '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
                 '<div class="field">' +
                   '<label for="workspace-name">名前</label>' +
-                  '<input id="workspace-name" name="name" maxlength="64" required placeholder="例：営業部">' +
+                  '<input id="workspace-name" name="name" data-max-code-points="64" required placeholder="例：営業部">' +
                 '</div>' +
                 '<div class="field">' +
                   '<label for="workspace-slug">URL用ID</label>' +
@@ -1863,9 +1870,13 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
   document.getElementById("logout-button").addEventListener("click", logout);
   document.getElementById("reload-button").addEventListener("click", reloadWorkspaces);
   document.getElementById("workspace-form")?.addEventListener("submit", createWorkspace);
-  for (const field of [document.getElementById("workspace-name"), document.getElementById("workspace-slug")]) {
-    field?.addEventListener("input", () => clearWorkspaceFieldError(field));
-  }
+  const workspaceNameField = document.getElementById("workspace-name");
+  workspaceNameField?.addEventListener("input", () => {
+    limitWorkspaceNameCodePoints(workspaceNameField);
+    clearWorkspaceFieldError(workspaceNameField);
+  });
+  const workspaceSlugField = document.getElementById("workspace-slug");
+  workspaceSlugField?.addEventListener("input", () => clearWorkspaceFieldError(workspaceSlugField));
   document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
   document.getElementById("members-reload-button")?.addEventListener("click", () => {
     if (currentWorkspace?.id) loadWorkspaceMembers(currentWorkspace.id, { focusId: "members-reload-button" });
@@ -1966,7 +1977,22 @@ async function loadSession(options = {}) {
         : error.status === 403
           ? "一覧を更新する権限を確認できませんでした。表示中の一覧は更新前です。もう一度ログインするか、管理者に確認してください。"
           : "一覧を更新できませんでした。表示中の一覧は更新前です。通信環境を確認して、もう一度お試しください。";
-      renderShell(currentSession, message, "warning");
+      if (error.status === 403 && currentWorkspaceSelection?.workspaceId) {
+        workspaceMemberRequestSequence += 1;
+        pendingWorkspaceMemberMutation = null;
+        workspaceMembersState = {
+          userId: currentSession.user?.id,
+          workspaceId: currentWorkspaceSelection.workspaceId,
+          status: "error",
+          currentUserRole: null,
+          members: [],
+          message: "現在の権限を確認できませんでした。もう一度ログインするか、管理者に確認してください。",
+          messageKind: "error",
+          addDraftJoinCode: "",
+          addJoinCodeError: ""
+        };
+      }
+      renderShell(currentSession, message, error.status === 403 ? "error" : "warning");
       const form = document.getElementById("workspace-form");
       if (form?.elements?.name && form?.elements?.slug && options.workspaceDraft) {
         form.elements.name.value = options.workspaceDraft.name;

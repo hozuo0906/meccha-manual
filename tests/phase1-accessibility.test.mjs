@@ -31,7 +31,8 @@ const contractMutations = [
   ["読込フォーカス", "メンバー読込", { js: APP_JS.replace('id="members-loading-status"', 'id="removed-loading-status"') }],
   ["権限保存の対象者", "権限保存", { js: APP_JS.replace('さんの</span>権限を保存</button>', '権限を保存</button>') }],
   ["利用停止の対象者", "利用停止", { js: APP_JS.replace('さんの</span>利用を停止</button>', '利用を停止</button>') }],
-  ["workspace名上限", "ワークスペース名", { js: APP_JS.replace('maxlength="64" required placeholder="例：営業部"', 'required placeholder="例：営業部"') }],
+  ["workspace名上限", "ワークスペース名の入力上限", { js: APP_JS.replace('data-max-code-points="64" required placeholder="例：営業部"', 'required placeholder="例：営業部"') }],
+  ["workspace名code point制限", "Unicode code point", { js: APP_JS.replace('limitWorkspaceNameCodePoints(workspaceNameField);', '') }],
   ["参加コード上限", "参加コードの入力上限", { js: APP_JS.replace('maxlength="47" required value="', 'required value="') }],
   ["権限表示", "現在ユーザーの権限", { js: APP_JS.replaceAll("現在の権限：", "権限表示なし：") }]
 ];

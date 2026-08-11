@@ -97,7 +97,8 @@ export function validatePhase1Accessibility({ html = APP_HTML, css = APP_CSS, js
     ['id="members-loading-status"', "メンバー読込開始時のフォーカス先を維持してください。"],
     ['さんの</span>権限を保存</button>', "権限保存の読み上げ名に対象者を含めてください。"],
     ['さんの</span>利用を停止</button>', "利用停止の読み上げ名に対象者を含めてください。"],
-    ['maxlength="64" required placeholder="例：営業部"', "ワークスペース名の入力上限を画面でも強制してください。"],
+    ['data-max-code-points="64" required placeholder="例：営業部"', "ワークスペース名の入力上限を画面でも強制してください。"],
+    ['limitWorkspaceNameCodePoints(workspaceNameField);', "ワークスペース名をUnicode code point単位で制限してください。"],
     ['maxlength="47" required value="', "参加コードの入力上限を画面でも強制してください。"],
     ['現在の権限：', "現在ユーザーの権限を画面で確認できるようにしてください。"]
   ];
