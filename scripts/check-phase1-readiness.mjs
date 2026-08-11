@@ -173,7 +173,8 @@ for (const snippet of [
   "set search_path = extensions, public, pg_temp",
   "create unique index workspace_join_codes_one_per_user",
   "on conflict (user_id) do update",
-  "previous_status = 'removed' and target_status = 'active'",
+  "previous_status <> 'active' and target_status = 'active'",
+  "active_member_count >= 1000",
   "revoke insert, update, delete on table public.workspace_members from authenticated",
   "MM_MEMBER_MANAGE_FORBIDDEN",
   "MM_OWNER_TRANSFER_REQUIRED"

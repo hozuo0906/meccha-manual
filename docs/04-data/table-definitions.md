@@ -19,7 +19,7 @@ Status: Accepted
 |---|---|---|
 | `profiles` | `id`, `display_name`, `avatar_path`, `locale`, `timezone` | 本人更新。`display_name`はUnicode code pointで0〜64文字。所属メンバーの最小プロフィールのみ閲覧 |
 | `workspaces` | `id`, `name`, `slug`, `status`, `settings`, `created_by` | メンバー閲覧、owner/admin更新。`name`はECMAScript `trim()`相当の正規化後1〜64文字、`slug`は同じ前後空白除去・小文字化後に半角英数字とハイフン3〜63文字。`id`と作成監査項目は更新不可 |
-| `workspace_members` | `workspace_id`, `user_id`, `role`, `status`, `joined_at`, `created_by` | active所属者によるメンバー閲覧。client直接書込みは禁止し、owner/adminのSECURITY DEFINER RPCだけで管理する。insert時の`created_by`はcaller入力を信頼せず`auth.uid()`へ強制する。所属先、対象ユーザー、作成監査項目は更新不可。owner変更と最後のactive ownerの更新・削除は専用フローまで禁止 |
+| `workspace_members` | `workspace_id`, `user_id`, `role`, `status`, `joined_at`, `created_by` | active所属者によるメンバー閲覧。activeは1workspace最大1000人。client直接書込みは禁止し、owner/adminのSECURITY DEFINER RPCだけで管理する。insert時の`created_by`はcaller入力を信頼せず`auth.uid()`へ強制する。非activeからactiveへの変更は本人発行コード利用だけを許可する。所属先、対象ユーザー、作成監査項目は更新不可。owner変更と最後のactive ownerの更新・削除は専用フローまで禁止 |
 | `workspace_join_codes` | `id`, `user_id`, `token_hash`, `expires_at`, `consumed_at`, `consumed_workspace_id`, `consumed_by`, `revoked_at`, `created_at` | client table access禁止。本人だけがRPCで発行し、owner/adminがRPCで利用する。256 bitコードのSHA-256 digestだけを保存し、10分で失効、1回だけ利用可能 |
 | `workspace_invitations` | `email`, `role`, `token_hash`, `expires_at`, `accepted_at` | owner/admin管理。生トークン保存禁止 |
 | `folders` | `workspace_id`, `parent_id`, `name`, `position`, `created_by` | メンバー閲覧、editor以上で変更 |

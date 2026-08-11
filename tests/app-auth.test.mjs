@@ -1839,6 +1839,63 @@ test("参加コード追加はコードを画面から消して最新一覧を�
   assert.equal(harness.focusedId(), "members-message");
 });
 
+test("参加コード消費後に応答を読めなくても再送せず最新一覧で結果を確認する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = {
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    displayName: "管理責任者",
+    role: "owner",
+    status: "active",
+    joinedAt: "2026-08-10T00:00:00Z"
+  };
+  const added = {
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    displayName: "追加担当",
+    role: "viewer",
+    status: "active",
+    joinedAt: "2026-08-10T01:00:00Z"
+  };
+  const joinCode = `mmj_${"T".repeat(43)}`;
+  let committed = false;
+  let postCount = 0;
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }]
+  };
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      if (path.endsWith("/members") && options.method === "POST") {
+        postCount += 1;
+        committed = true;
+        return new Response("応答本文が壊れました", {
+          status: 201,
+          headers: { "content-type": "text/plain" }
+        });
+      }
+      return Response.json({
+        workspaceId,
+        currentUserRole: "owner",
+        members: committed ? [owner, added] : [owner]
+      });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  const form = harness.element("member-add-form");
+  form.elements.memberJoinCode = { value: joinCode };
+  form.elements.memberRole = { value: "viewer" };
+  await form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+
+  assert.equal(postCount, 1);
+  assert.equal(harness.api.getWorkspaceMembersState().members.length, 2);
+  assert.match(harness.api.getWorkspaceMembersState().message, /変更結果を一覧で確認/);
+  assert.equal(harness.api.getWorkspaceMembersState().messageKind, "warning");
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(joinCode));
+});
+
 test("ワークスペース切替後は旧メンバー一覧の遅延応答を採用しない", async () => {
   const delayedMembers = deferred();
   const workspaces = [

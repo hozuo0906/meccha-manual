@@ -1456,6 +1456,7 @@ test("メンバー変更APIは権限不足・owner変更・結果不明を区別
     [Response.json({ message: "MM_MEMBER_MANAGE_FORBIDDEN" }, { status: 400 }), 403, "MEMBER_MANAGE_FORBIDDEN"],
     [Response.json({ message: "MM_OWNER_TRANSFER_REQUIRED" }, { status: 400 }), 409, "OWNER_TRANSFER_REQUIRED"],
     [Response.json({ message: "MM_MEMBER_UPDATE_UNAVAILABLE" }, { status: 400 }), 409, "MEMBER_UPDATE_UNAVAILABLE"],
+    [Response.json({ message: "MM_WORKSPACE_MEMBERS_LIMIT_EXCEEDED" }, { status: 400 }), 409, "WORKSPACE_MEMBERS_LIMIT_EXCEEDED"],
     [Response.json({ message: "database detail" }, { status: 503 }), 502, "MEMBER_CHANGE_RESULT_UNKNOWN"]
   ]) {
     globalThis.fetch = async (url) => {

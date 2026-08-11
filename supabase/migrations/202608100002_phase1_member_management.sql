@@ -384,6 +384,7 @@ declare
   code_row public.workspace_join_codes%rowtype;
   previous_role public.workspace_role;
   previous_status public.workspace_member_status;
+  active_member_count bigint;
   audit_action text;
 begin
   -- Workspace is always the first lock for every membership mutation.
@@ -439,6 +440,23 @@ begin
     and wm.user_id = code_row.user_id
   for update;
 
+  if not (
+    previous_status is null
+    or (previous_status = 'removed' and previous_role <> 'owner')
+  ) then
+    raise exception 'MM_JOIN_CODE_UNAVAILABLE';
+  end if;
+
+  select count(*)
+  into active_member_count
+  from public.workspace_members wm
+  where wm.workspace_id = target_workspace_id
+    and wm.status = 'active';
+
+  if active_member_count >= 1000 then
+    raise exception 'MM_WORKSPACE_MEMBERS_LIMIT_EXCEEDED';
+  end if;
+
   if previous_status is null then
     insert into public.workspace_members (
       workspace_id,
@@ -457,7 +475,7 @@ begin
       actor_id
     );
     audit_action := 'workspace_member.added';
-  elsif previous_status = 'removed' and previous_role <> 'owner' then
+  else
     update public.workspace_members wm
     set role = target_role,
         status = 'active',
@@ -465,8 +483,6 @@ begin
     where wm.workspace_id = target_workspace_id
       and wm.user_id = code_row.user_id;
     audit_action := 'workspace_member.rejoined';
-  else
-    raise exception 'MM_JOIN_CODE_UNAVAILABLE';
   end if;
 
   update public.workspace_join_codes
@@ -579,7 +595,7 @@ begin
     raise exception 'MM_OWNER_TRANSFER_REQUIRED';
   end if;
 
-  if previous_status = 'removed' and target_status = 'active' then
+  if previous_status <> 'active' and target_status = 'active' then
     raise exception 'MM_MEMBER_UPDATE_UNAVAILABLE';
   end if;
 

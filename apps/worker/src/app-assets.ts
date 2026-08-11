@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-617aaa7404116498";
+export const APP_ASSET_VERSION = "sha256-fd7179cb3a29d655";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1597,7 +1597,11 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
       await loadSession();
       return;
     }
-    if (error.code === "MEMBER_CHANGE_RESULT_UNKNOWN") {
+    if (
+      error.code === "MEMBER_CHANGE_RESULT_UNKNOWN" ||
+      error.code === "NETWORK_ERROR" ||
+      error.code === "INVALID_RESPONSE"
+    ) {
       await loadWorkspaceMembers(workspaceId, {
         message: "変更結果を一覧で確認してください。",
         messageKind: "warning",
