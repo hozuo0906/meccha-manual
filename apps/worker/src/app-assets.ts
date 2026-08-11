@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-fc0a296f0b5afe27";
+export const APP_ASSET_VERSION = "sha256-617aaa7404116498";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -48,7 +48,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -216,7 +217,8 @@ h1 {
 }
 
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -240,6 +242,24 @@ h1 {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
+}
+
+.danger-button {
+  border: 1px solid #fda29b;
+  background: #fff;
+  color: var(--danger);
+}
+
+.compact-button {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .error-box,
@@ -479,6 +499,52 @@ h1 {
   color: var(--muted);
 }
 
+.members-section {
+  grid-column: 1 / -1;
+}
+
+.members-section > p,
+.members-section > button,
+.permission-note {
+  margin: 18px 20px;
+}
+
+.member-header-actions,
+.member-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inline-select {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.member-add-form {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.member-add-form h3,
+.member-add-form p {
+  margin-bottom: 0;
+}
+
+.member-add-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 220px) auto;
+  align-items: end;
+  gap: 12px;
+}
+
 @media (max-width: 900px) {
   .login-screen,
   .shell,
@@ -511,6 +577,10 @@ h1 {
   .topbar {
     display: grid;
   }
+
+  .member-add-grid {
+    grid-template-columns: 1fr;
+  }
 }
 `;
 
@@ -522,6 +592,12 @@ let sessionReloadSequence = 0;
 let currentWorkspaceSelection = null;
 let uncertainWorkspaceCreation = null;
 let workspaceCreationInFlight = null;
+let workspaceMembersState = null;
+let workspaceMemberRequestSequence = 0;
+let pendingWorkspaceMemberMutation = null;
+let workspaceJoinCodeState = { status: "idle", joinCode: "", expiresAt: "", message: "" };
+let pendingWorkspaceJoinCodeIssuance = null;
+let workspaceJoinCodeExpiryTimer = null;
 const currentWorkspaceStorageKey = "meccha-manual-current-workspace";
 const uncertainWorkspaceStorageKey = "meccha-manual-uncertain-workspace";
 const authenticationChannel = typeof BroadcastChannel === "function"
@@ -535,6 +611,13 @@ function replaceCurrentSession(nextSession) {
     currentWorkspaceSelection = null;
     uncertainWorkspaceCreation = null;
     workspaceCreationInFlight = null;
+    workspaceMembersState = null;
+    workspaceMemberRequestSequence += 1;
+    pendingWorkspaceMemberMutation = null;
+    pendingWorkspaceJoinCodeIssuance = null;
+    if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+    workspaceJoinCodeExpiryTimer = null;
+    workspaceJoinCodeState = { status: "idle", joinCode: "", expiresAt: "", message: "" };
     try {
       sessionStorage.removeItem(currentWorkspaceStorageKey);
       sessionStorage.removeItem(uncertainWorkspaceStorageKey);
@@ -710,6 +793,9 @@ authenticationChannel?.addEventListener("message", (event) => {
   // replaceCurrentSessionで主体変更を確認できた場合にだけ破棄する。
   sessionGeneration += 1;
   sessionReloadSequence += 1;
+  workspaceMemberRequestSequence += 1;
+  if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
+  if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
   renderAuthenticationReload();
   loadSession();
 });
@@ -727,6 +813,19 @@ const workspaceStatusLabels = {
   active: "利用中",
   suspended: "停止中",
   deleted: "削除済み"
+};
+
+const workspaceRoleLabels = {
+  owner: "管理責任者",
+  admin: "管理者",
+  editor: "編集者",
+  viewer: "閲覧者"
+};
+
+const workspaceMemberStatusLabels = {
+  active: "利用中",
+  invited: "招待中",
+  removed: "停止済み"
 };
 
 function resolveCurrentWorkspace(session) {
@@ -772,6 +871,8 @@ function selectCurrentWorkspace(event) {
   );
   if (!selected || !currentSession?.user?.id) return;
   currentWorkspaceSelection = { userId: currentSession.user.id, workspaceId: selected.id };
+  workspaceMembersState = null;
+  workspaceMemberRequestSequence += 1;
   try {
     sessionStorage.setItem(currentWorkspaceStorageKey, JSON.stringify({
       userId: currentSession.user.id,
@@ -1053,10 +1154,473 @@ function renderLoadFailure(title, message) {
   retryButton.focus();
 }
 
-function renderShell(session, notice = "", noticeKind = "notice") {
+function prepareWorkspaceMembersState(session, currentWorkspace) {
+  if (!session.user?.id || !currentWorkspace) {
+    workspaceMembersState = null;
+    return false;
+  }
+  if (
+    workspaceMembersState?.userId === session.user.id &&
+    workspaceMembersState.workspaceId === currentWorkspace.id
+  ) {
+    return false;
+  }
+  workspaceMembersState = {
+    userId: session.user.id,
+    workspaceId: currentWorkspace.id,
+    status: "idle",
+    currentUserRole: null,
+    members: [],
+    message: "",
+    addDraftJoinCode: "",
+    addJoinCodeError: ""
+  };
+  return true;
+}
+
+function validWorkspaceMembersPayload(payload, workspaceId) {
+  const validRoles = new Set(["owner", "admin", "editor", "viewer"]);
+  const validStatuses = new Set(["active", "invited", "removed"]);
+  return payload?.workspaceId === workspaceId &&
+    validRoles.has(payload.currentUserRole) &&
+    Array.isArray(payload.members) &&
+    payload.members.length <= 1000 &&
+    new Set(payload.members.map((member) => member?.userId)).size === payload.members.length &&
+    payload.members.every((member) =>
+      member && workspaceIdPattern.test(member.userId) &&
+      typeof member.displayName === "string" && member.displayName.trim() &&
+      validRoles.has(member.role) && validStatuses.has(member.status) &&
+      (member.joinedAt === null || (typeof member.joinedAt === "string" && !Number.isNaN(Date.parse(member.joinedAt))))
+    );
+}
+
+function memberMessageHtml(state) {
+  if (!state?.message) return '<div id="members-message" class="error-box" role="status" aria-live="polite" tabindex="-1"></div>';
+  const className = state.messageKind === "error" ? "error-box show" :
+    state.messageKind === "warning" ? "warning-box show" : "notice-box show";
+  const role = state.messageKind === "error" ? "alert" : "status";
+  return '<div id="members-message" class="' + className + '" role="' + role + '" aria-live="polite" tabindex="-1">' + escapeHtml(state.message) + '</div>';
+}
+
+function clearExpiredWorkspaceJoinCode() {
+  if (!workspaceJoinCodeState.joinCode || !workspaceJoinCodeState.expiresAt) return false;
+  if (Date.parse(workspaceJoinCodeState.expiresAt) > Date.now()) return false;
+  workspaceJoinCodeState = {
+    status: "expired",
+    joinCode: "",
+    expiresAt: "",
+    message: "参加コードの有効期限が切れました。新しいコードを発行してください。"
+  };
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  return true;
+}
+
+function scheduleWorkspaceJoinCodeExpiry() {
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  if (!workspaceJoinCodeState.joinCode || !workspaceJoinCodeState.expiresAt) return;
+  const delay = Math.max(0, Date.parse(workspaceJoinCodeState.expiresAt) - Date.now());
+  workspaceJoinCodeExpiryTimer = setTimeout(() => {
+    workspaceJoinCodeExpiryTimer = null;
+    if (clearExpiredWorkspaceJoinCode()) renderShell(currentSession, "", "notice", "join-code-message");
+  }, delay);
+}
+
+function renderWorkspaceJoinCodeIssuer() {
+  clearExpiredWorkspaceJoinCode();
+  const state = workspaceJoinCodeState;
+  const issuing = state.status === "issuing";
+  const code = state.joinCode
+    ? '<div class="notice-box show" role="status"><p><strong>参加コード</strong></p><p><code id="workspace-join-code">' + escapeHtml(state.joinCode) + '</code></p><p class="muted">有効期限：' + escapeHtml(new Date(state.expiresAt).toLocaleString("ja-JP")) + '</p><button id="copy-join-code-button" class="secondary-button compact-button" type="button">コードをコピー</button></div>'
+    : '';
+  const message = state.message
+    ? '<div id="join-code-message" class="' + (state.status === "error" ? 'error-box show' : 'notice-box show') + '" role="' + (state.status === "error" ? 'alert' : 'status') + '" tabindex="-1">' + escapeHtml(state.message) + '</div>'
+    : '<div id="join-code-message" class="notice-box" role="status" tabindex="-1"></div>';
+  return '<section class="section" aria-labelledby="join-code-heading"' + (issuing ? ' aria-busy="true"' : '') + '>' +
+    '<div class="section-header"><div><h2 id="join-code-heading">自分の参加コード</h2><p class="muted">ワークスペースへ参加するときに発行します。コードは10分間・1回だけ有効です。</p></div></div>' +
+    '<div class="warning-box show"><strong>参加コードは秘密情報です。</strong>コードを受け取った管理者は、その管理者が管理する任意のワークスペースへ、あなたを選択した権限で1回追加できます。参加先を確認し、信頼できる管理者1人へ安全な1対1の方法で渡してください。グループチャットや共有チャンネルには送らないでください。</div>' +
+    message + code +
+    '<button id="issue-join-code-button" class="secondary-button" type="button"' + (issuing ? ' disabled' : '') + '>' + (issuing ? '発行中' : state.joinCode ? '新しいコードを発行' : '参加コードを発行') + '</button>' +
+    (state.joinCode ? '<p class="muted">新しく発行すると、現在のコードは無効になります。</p>' : '') +
+  '</section>';
+}
+
+function workspaceMemberRows(state) {
+  const canManage = state.currentUserRole === "owner" || state.currentUserRole === "admin";
+  const saving = state.status === "saving";
+  return state.members.map((member) => {
+    const stopControl = member.userId === currentSession?.user?.id
+      ? '<span class="muted">自分自身の利用停止はできません</span>'
+      : '<button id="member-stop-' + escapeHtml(member.userId) + '" class="danger-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>利用を停止</button>';
+    const roleControl = canManage && member.role !== "owner" && member.status === "active"
+      ? '<div class="member-actions">' +
+          '<label class="visually-hidden" for="member-role-' + escapeHtml(member.userId) + '">' + escapeHtml(member.displayName) + 'さんの権限</label>' +
+          '<select id="member-role-' + escapeHtml(member.userId) + '" class="inline-select" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '>' +
+            ['admin', 'editor', 'viewer'].map((role) =>
+              '<option value="' + role + '"' + (member.role === role ? ' selected' : '') + '>' + escapeHtml(workspaceRoleLabels[role]) + '</option>'
+            ).join('') +
+          '</select>' +
+          '<button id="member-save-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>権限を保存</button>' +
+          stopControl +
+        '</div>'
+      : '<span class="muted">' + (member.role === "owner" ? '専用の移管手続きが必要です' : '変更できません') + '</span>';
+    return '<tr>' +
+      '<td><div class="workspace-name">' + escapeHtml(member.displayName) + '</div>' +
+        (member.userId === currentSession?.user?.id ? '<span class="muted">あなた</span>' : '') + '</td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceRoleLabels[member.role] || "権限不明") + '</span></td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceMemberStatusLabels[member.status] || "状態不明") + '</span></td>' +
+      '<td>' + roleControl + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function renderWorkspaceMembers(currentWorkspace) {
+  if (!currentWorkspace || !workspaceMembersState) {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      '<div class="empty">利用中のワークスペースを選択するとメンバーを確認できます。</div>' +
+    '</section>';
+  }
+  const state = workspaceMembersState;
+  if (state.status === "idle") {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><div><h2 id="members-heading">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div></div>' +
+      '<p>所属メンバーと権限を確認します。</p>' +
+      '<button id="members-reload-button" class="secondary-button" type="button">メンバー一覧を表示</button>' +
+    '</section>';
+  }
+  if (state.status === "loading") {
+    return '<section class="section members-section" aria-labelledby="members-heading" aria-busy="true">' +
+      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      '<div class="empty" role="status" aria-live="polite">メンバーを読み込んでいます。</div>' +
+    '</section>';
+  }
+  if (state.status === "error") {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      memberMessageHtml(state) +
+      '<button id="members-reload-button" class="secondary-button" type="button">もう一度読み込む</button>' +
+    '</section>';
+  }
+  const canManage = state.currentUserRole === "owner" || state.currentUserRole === "admin";
+  const saving = state.status === "saving";
+  const rows = workspaceMemberRows(state);
+  const addDraftJoinCode = escapeHtml(state.addDraftJoinCode || "");
+  const addJoinCodeError = state.addJoinCodeError || "";
+  const roleHelp = '<p id="member-role-help" class="muted permission-note">管理者：メンバー管理と設定ができます。編集者：手順書を作成・編集できます。閲覧者：手順書の閲覧だけができます。</p>';
+  return '<section class="section members-section" aria-labelledby="members-heading"' + (saving ? ' aria-busy="true"' : '') + '>' +
+    '<div class="section-header"><div><h2 id="members-heading">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div>' +
+      '<div class="member-header-actions"><span class="badge">' + state.members.length + '件</span><button id="members-reload-button" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>一覧を更新</button></div></div>' +
+    memberMessageHtml(state) +
+    (canManage ? roleHelp : '') +
+    (state.members.length
+      ? '<div class="table-scroll" tabindex="0" aria-label="ワークスペースメンバー一覧"><table class="table"><caption class="visually-hidden">ワークスペースメンバー一覧</caption><thead><tr><th scope="col">名前</th><th scope="col">権限</th><th scope="col">状態</th><th scope="col">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty">メンバーがいません。</div>') +
+    (canManage
+      ? '<form id="member-add-form" class="member-add-form" novalidate>' +
+          '<h3>参加コードでメンバーを追加</h3>' +
+          '<p class="muted">追加する本人が発行した10分間有効の参加コードを入力してください。コードは成功時に1回だけ使用されます。</p>' +
+          '<div class="member-add-grid">' +
+            '<div class="field"><label for="member-join-code">参加コード</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
+            '<div class="field"><label for="member-role">権限</label><select id="member-role" name="memberRole" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '><option value="editor">編集者</option><option value="viewer">閲覧者</option><option value="admin">管理者</option></select></div>' +
+            '<button class="primary-button" type="submit"' + (saving ? ' disabled' : '') + '>' + (saving ? '保存中' : 'メンバーを追加') + '</button>' +
+          '</div>' +
+        '</form>'
+      : '<p class="muted permission-note">現在の権限は「' + escapeHtml(workspaceRoleLabels[state.currentUserRole]) + '」です。メンバーの変更は管理責任者または管理者へ依頼してください。</p>') +
+  '</section>';
+}
+
+async function loadWorkspaceMembers(workspaceId, options = {}) {
+  const userId = currentSession?.user?.id;
+  if (!userId || currentWorkspaceSelection?.workspaceId !== workspaceId) return;
+  const requestGeneration = sessionGeneration;
+  const requestSequence = ++workspaceMemberRequestSequence;
+  const previousMembers = workspaceMembersState?.workspaceId === workspaceId ? workspaceMembersState.members : [];
+  workspaceMembersState = {
+    userId,
+    workspaceId,
+    status: "loading",
+    currentUserRole: workspaceMembersState?.currentUserRole || null,
+    members: previousMembers,
+    message: "",
+    addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+    addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+  };
+  if (!options.alreadyRendered) renderShell(currentSession, "", "notice", null);
+  try {
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/members");
+    if (
+      requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence ||
+      currentSession?.user?.id !== userId || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) return;
+    if (!validWorkspaceMembersPayload(payload, workspaceId)) {
+      throw new AppRequestError("メンバー一覧を確認できませんでした。時間をおいて、もう一度お試しください。", 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID");
+    }
+    workspaceMembersState = {
+      userId,
+      workspaceId,
+      status: "loaded",
+      currentUserRole: payload.currentUserRole,
+      members: payload.members,
+      message: options.message || "",
+      messageKind: options.messageKind || "notice",
+      addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+      addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+    };
+    if (
+      pendingWorkspaceMemberMutation?.userId === userId &&
+      pendingWorkspaceMemberMutation.workspaceId === workspaceId
+    ) {
+      pendingWorkspaceMemberMutation = null;
+    }
+    renderShell(currentSession, "", "notice", options.focusId || null);
+  } catch (error) {
+    if (requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence) return;
+    if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    workspaceMembersState = {
+      userId,
+      workspaceId,
+      status: "error",
+      currentUserRole: null,
+      members: [],
+      message: error.status === 404
+        ? "ワークスペースへの所属を確認できませんでした。一覧を更新してください。"
+        : error.message,
+      messageKind: "error",
+      addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+      addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+    };
+    renderShell(currentSession, "", "notice", "members-message");
+  }
+}
+
+async function addWorkspaceMember(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const workspaceId = workspaceMembersState?.workspaceId;
+  const joinCodeField = form.elements.memberJoinCode;
+  const roleField = form.elements.memberRole;
+  const joinCode = String(joinCodeField?.value || "").trim();
+  workspaceMembersState.addDraftJoinCode = String(joinCodeField?.value || "");
+  if (!/^mmj_[A-Za-z0-9_-]{43}$/.test(joinCode)) {
+    workspaceMembersState.addJoinCodeError = "参加コードの形式を確認してください。";
+    workspaceMembersState.message = "入力内容を確認してください。";
+    workspaceMembersState.messageKind = "error";
+    renderShell(currentSession, "", "notice", "member-join-code");
+    return;
+  }
+  workspaceMembersState.addJoinCodeError = "";
+  if (roleField.value === "admin" && !confirm("管理者はメンバーの追加・権限変更・利用停止を行えます。この権限で追加しますか？")) return;
+  // A join code is a bearer secret. Remove it from the DOM/state before any
+  // network result, including ambiguous or failed redemption.
+  workspaceMembersState.addDraftJoinCode = "";
+  await changeWorkspaceMember(
+    workspaceId,
+    "/api/workspaces/" + encodeURIComponent(workspaceId) + "/members",
+    { method: "POST", body: JSON.stringify({ joinCode, role: roleField.value }) },
+    "メンバーを追加しました。"
+  );
+}
+
+function clearWorkspaceMemberJoinCodeError(field) {
+  if (!workspaceMembersState) return;
+  workspaceMembersState.addDraftJoinCode = String(field?.value || "");
+  workspaceMembersState.addJoinCodeError = "";
+  field?.removeAttribute?.("aria-invalid");
+  field?.removeAttribute?.("aria-describedby");
+  const error = document.getElementById("member-join-code-error");
+  if (error) {
+    error.textContent = "";
+    error.hidden = true;
+  }
+}
+
+async function finalizeWorkspaceJoinCodeIssuance(issuance) {
+  if (
+    pendingWorkspaceJoinCodeIssuance !== issuance ||
+    issuance.authReconciled !== true ||
+    currentSession?.user?.id !== issuance.userId
+  ) {
+    if (pendingWorkspaceJoinCodeIssuance !== issuance) issuance.payload = null;
+    return;
+  }
+  pendingWorkspaceJoinCodeIssuance = null;
+  if (issuance.error) {
+    if (isTerminalSessionError(issuance.error)) {
+      workspaceJoinCodeState = { status: "idle", joinCode: "", expiresAt: "", message: "" };
+      await loadSession();
+      return;
+    }
+    workspaceJoinCodeState = { status: "error", joinCode: "", expiresAt: "", message: issuance.error.message };
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  const payload = issuance.payload;
+  issuance.payload = null;
+  if (
+    !payload || typeof payload.joinCode !== "string" || !/^mmj_[A-Za-z0-9_-]{43}$/.test(payload.joinCode) ||
+    typeof payload.expiresAt !== "string" || Number.isNaN(Date.parse(payload.expiresAt))
+  ) {
+    workspaceJoinCodeState = {
+      status: "error",
+      joinCode: "",
+      expiresAt: "",
+      message: "参加コードを確認できませんでした。もう一度発行すると、以前のコードは無効になります。"
+    };
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  workspaceJoinCodeState = {
+    status: "ready",
+    joinCode: payload.joinCode,
+    expiresAt: payload.expiresAt,
+    message: "参加コードを発行しました。参加したいワークスペースの信頼できる管理者へ、1対1で渡してください。"
+  };
+  scheduleWorkspaceJoinCodeExpiry();
+  renderShell(currentSession, "", "notice", "join-code-message");
+}
+
+async function issueWorkspaceJoinCode() {
+  if (workspaceJoinCodeState.status === "issuing") return;
+  if (
+    workspaceJoinCodeState.joinCode &&
+    !confirm("新しい参加コードを発行すると、現在のコードはすぐに無効になります。新しく発行しますか？")
+  ) return;
+  const userId = currentSession?.user?.id;
+  if (!userId) return;
+  const issuance = { userId, settled: false, authReconciled: true, payload: null, error: null };
+  pendingWorkspaceJoinCodeIssuance = issuance;
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  workspaceJoinCodeState = { status: "issuing", joinCode: "", expiresAt: "", message: "参加コードを発行しています。" };
+  renderShell(currentSession, "", "notice", null);
+  try {
+    issuance.payload = await requestJson("/api/member-join-code", { method: "POST", body: "{}" });
+  } catch (error) {
+    issuance.error = error;
+  }
+  issuance.settled = true;
+  await finalizeWorkspaceJoinCodeIssuance(issuance);
+}
+
+async function copyWorkspaceJoinCode() {
+  if (clearExpiredWorkspaceJoinCode()) {
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  const joinCode = workspaceJoinCodeState.joinCode;
+  if (!joinCode) return;
+  try {
+    await navigator.clipboard.writeText(joinCode);
+    workspaceJoinCodeState.message = "参加コードをコピーしました。";
+    renderShell(currentSession, "", "notice", "join-code-message");
+  } catch {
+    workspaceJoinCodeState.message = "コピーできませんでした。表示中のコードを選択してコピーしてください。";
+    workspaceJoinCodeState.status = "error";
+    renderShell(currentSession, "", "notice", "join-code-message");
+  }
+}
+
+async function updateWorkspaceMemberFromUi(userId, stop) {
+  const workspaceId = workspaceMembersState?.workspaceId;
+  const member = workspaceMembersState?.members.find((item) => item.userId === userId);
+  if (!workspaceId || !member || member.role === "owner" || member.status !== "active") return;
+  if (stop && member.userId === currentSession?.user?.id) {
+    workspaceMembersState.message = "自分自身の利用は停止できません。管理責任者または別の管理者へ依頼してください。";
+    workspaceMembersState.messageKind = "error";
+    renderShell(currentSession, "", "notice", "members-message");
+    return;
+  }
+  const roleField = document.getElementById("member-role-" + userId);
+  const role = stop ? member.role : roleField?.value;
+  if (stop && !confirm("「" + member.displayName + "」さんの利用を停止します。停止後は一覧から表示されなくなります。よろしいですか？")) return;
+  if (!stop && member.role !== "admin" && role === "admin" && !confirm("「" + member.displayName + "」さんを管理者に変更します。管理者はメンバーの追加・権限変更・利用停止を行えます。よろしいですか？")) return;
+  await changeWorkspaceMember(
+    workspaceId,
+    "/api/workspaces/" + encodeURIComponent(workspaceId) + "/members/" + encodeURIComponent(userId),
+    { method: "PATCH", body: JSON.stringify({ role, status: stop ? "removed" : "active" }) },
+    stop ? "メンバーの利用を停止しました。" : "メンバーの権限を変更しました。"
+  );
+}
+
+async function reconcilePendingWorkspaceMemberMutation(mutation) {
+  if (
+    pendingWorkspaceMemberMutation !== mutation ||
+    mutation.authReconciled !== true ||
+    mutation.reconciling === true ||
+    currentSession?.user?.id !== mutation.userId ||
+    !(currentSession.workspaces || []).some((workspace) =>
+      workspace.id === mutation.workspaceId && workspace.status === "active"
+    )
+  ) return;
+  mutation.reconciling = true;
+  currentWorkspaceSelection = { userId: mutation.userId, workspaceId: mutation.workspaceId };
+  try {
+    await loadWorkspaceMembers(mutation.workspaceId, {
+      message: "認証状態が更新されたため、変更結果を最新の一覧で確認しました。",
+      messageKind: "warning",
+      focusId: "members-message"
+    });
+  } finally {
+    mutation.reconciling = false;
+  }
+}
+
+async function changeWorkspaceMember(workspaceId, path, requestOptions, successMessage) {
+  const userId = currentSession?.user?.id;
+  const requestGeneration = sessionGeneration;
+  const previous = workspaceMembersState;
+  if (!workspaceId || !userId || previous?.status === "saving") return;
+  const mutation = { userId, workspaceId, settled: false, authReconciled: true, reconciling: false };
+  pendingWorkspaceMemberMutation = mutation;
+  workspaceMembersState = { ...previous, status: "saving", message: "保存しています。", messageKind: "notice" };
+  renderShell(currentSession, "", "notice", null);
+  try {
+    await requestJson(path, requestOptions);
+    mutation.settled = true;
+    if (requestGeneration !== sessionGeneration || currentSession?.user?.id !== userId) {
+      await reconcilePendingWorkspaceMemberMutation(mutation);
+      return;
+    }
+    await loadWorkspaceMembers(workspaceId, { message: successMessage, focusId: "members-message" });
+  } catch (error) {
+    mutation.settled = true;
+    if (requestGeneration !== sessionGeneration) {
+      await reconcilePendingWorkspaceMemberMutation(mutation);
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    if (error.code === "MEMBER_CHANGE_RESULT_UNKNOWN") {
+      await loadWorkspaceMembers(workspaceId, {
+        message: "変更結果を一覧で確認してください。",
+        messageKind: "warning",
+        focusId: "members-message"
+      });
+      return;
+    }
+    workspaceMembersState = {
+      ...previous,
+      status: "loaded",
+      message: error.message,
+      messageKind: "error"
+    };
+    pendingWorkspaceMemberMutation = null;
+    renderShell(currentSession, "", "notice", "members-message");
+  }
+}
+
+function renderShell(session, notice = "", noticeKind = "notice", focusId = "workspace-heading") {
   const workspaces = session.workspaces || [];
   restoreUncertainWorkspaceCreation(session.user?.id);
   const currentWorkspace = resolveCurrentWorkspace(session);
+  prepareWorkspaceMembersState(session, currentWorkspace);
   const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
   const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
   const rows = workspaces.map((workspace) =>
@@ -1138,6 +1702,8 @@ function renderShell(session, notice = "", noticeKind = "notice") {
                 '</div>' +
                 '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
               '</form>') +
+          renderWorkspaceJoinCodeIssuer() +
+          renderWorkspaceMembers(currentWorkspace) +
         '</div>' +
       '</div>' +
     '</section>';
@@ -1149,8 +1715,19 @@ function renderShell(session, notice = "", noticeKind = "notice") {
     field?.addEventListener("input", () => clearWorkspaceFieldError(field));
   }
   document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
+  document.getElementById("members-reload-button")?.addEventListener("click", () => {
+    if (currentWorkspace?.id) loadWorkspaceMembers(currentWorkspace.id, { focusId: "members-reload-button" });
+  });
+  document.getElementById("member-add-form")?.addEventListener("submit", addWorkspaceMember);
+  document.getElementById("member-join-code")?.addEventListener("input", (event) => clearWorkspaceMemberJoinCodeError(event.currentTarget));
+  document.getElementById("issue-join-code-button")?.addEventListener("click", issueWorkspaceJoinCode);
+  document.getElementById("copy-join-code-button")?.addEventListener("click", copyWorkspaceJoinCode);
+  for (const member of workspaceMembersState?.members || []) {
+    document.getElementById("member-save-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, false));
+    document.getElementById("member-stop-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, true));
+  }
   if (notice) document.getElementById("shell-message").focus();
-  else document.getElementById("workspace-heading")?.focus();
+  else if (focusId) document.getElementById(focusId)?.focus();
 }
 
 async function reloadWorkspaces(event) {
@@ -1185,6 +1762,25 @@ async function loadSession(options = {}) {
     } else {
       currentSession = session;
     }
+    const pendingJoinCodeIssuance = pendingWorkspaceJoinCodeIssuance?.userId === session.user?.id
+      ? pendingWorkspaceJoinCodeIssuance
+      : null;
+    if (pendingJoinCodeIssuance) pendingJoinCodeIssuance.authReconciled = true;
+    const pendingMemberReconciliation = pendingWorkspaceMemberMutation?.userId === session.user?.id &&
+      (session.workspaces || []).some((workspace) =>
+        workspace.id === pendingWorkspaceMemberMutation.workspaceId && workspace.status === "active"
+      )
+      ? pendingWorkspaceMemberMutation
+      : null;
+    if (pendingMemberReconciliation) {
+      pendingWorkspaceMemberMutation.authReconciled = true;
+      currentWorkspaceSelection = {
+        userId: session.user.id,
+        workspaceId: pendingMemberReconciliation.workspaceId
+      };
+    } else if (pendingWorkspaceMemberMutation?.userId === session.user?.id) {
+      pendingWorkspaceMemberMutation = null;
+    }
     restoreUncertainWorkspaceCreation(session.user?.id);
     let notice = "";
     if (uncertainWorkspaceCreation?.userId === session.user?.id) {
@@ -1207,6 +1803,8 @@ async function loadSession(options = {}) {
     }
     if (!notice && options.preserveShell) notice = "一覧を更新しました。";
     renderShell(currentSession, notice);
+    if (pendingJoinCodeIssuance?.settled) await finalizeWorkspaceJoinCodeIssuance(pendingJoinCodeIssuance);
+    if (pendingMemberReconciliation?.settled) await reconcilePendingWorkspaceMemberMutation(pendingMemberReconciliation);
     if (options.preserveShell) document.getElementById("reload-button")?.focus();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;

@@ -11,6 +11,7 @@ const requiredFiles = [
   "supabase/migrations/202608010001_phase1_identity_workspaces.sql",
   "supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql",
   "supabase/migrations/202608100001_phase1_workspace_input_hardening.sql",
+  "supabase/migrations/202608100002_phase1_member_management.sql",
   "scripts/rls-negative-test.mjs",
   "scripts/phase1-migration-bundle.mjs",
   "scripts/test-phase1-migration-bundle.mjs",
@@ -45,6 +46,11 @@ const requiredWorkerSnippets = [
   "GET\" && url.pathname === \"/api/session\"",
   "GET\" && url.pathname === \"/api/workspaces\"",
   "POST\" && url.pathname === \"/api/workspaces\"",
+  "list_workspace_members",
+  "create_workspace_join_code",
+  "redeem_workspace_join_code",
+  "POST\" && url.pathname === \"/api/member-join-code\"",
+  "update_workspace_member",
   "/rest/v1/rpc/create_workspace",
   "HttpOnly",
   "SameSite=Lax",
@@ -151,6 +157,32 @@ for (const snippet of [
   }
 }
 
+const memberManagement = contents["supabase/migrations/202608100002_phase1_member_management.sql"] || "";
+for (const snippet of [
+  "profiles_display_name_length",
+  "char_length(display_name) between 0 and 64",
+  "bounded_display_name text := left(public.normalize_workspace_name(requested_display_name), 64)",
+  "before insert or update or delete on public.workspace_members",
+  "new.role = 'owner' and old.role <> 'owner'",
+  "public.list_workspace_members",
+  "public.create_workspace_join_code",
+  "public.redeem_workspace_join_code",
+  "public.workspace_join_codes",
+  "public.audit_logs",
+  "public.update_workspace_member",
+  "set search_path = extensions, public, pg_temp",
+  "create unique index workspace_join_codes_one_per_user",
+  "on conflict (user_id) do update",
+  "previous_status = 'removed' and target_status = 'active'",
+  "revoke insert, update, delete on table public.workspace_members from authenticated",
+  "MM_MEMBER_MANAGE_FORBIDDEN",
+  "MM_OWNER_TRANSFER_REQUIRED"
+]) {
+  if (!memberManagement.includes(snippet)) {
+    errors.push(`Missing Phase 1 member management snippet: ${snippet}`);
+  }
+}
+
 const rlsNegativeTest = contents["scripts/rls-negative-test.mjs"] || "";
 for (const snippet of [
   "assertEditorViewerRestrictions",
@@ -163,7 +195,25 @@ for (const snippet of [
   "userACannotWriteUserBWorkspaceViaSupabaseRest",
   "userBCannotWriteUserAWorkspaceViaSupabaseRest",
   "membershipCreatedByForcedToActor",
-  "authenticatedCannotBypassWorkspaceInputContract"
+  "assertDisplayNameContract",
+  "displayNameUsesCodePointSafeBound",
+  "assertInitialAuditContract",
+  "auditActorActionResourceMetadataVerified",
+  "idempotentMemberUpdateDoesNotDuplicateAudit",
+  "auditWritesAreAppendOnlyForClients",
+  "editorViewerCannotReadAudit",
+  "assertMembershipTableWritesRevoked",
+  "directMembershipTableWritesRevoked",
+  "authenticatedCannotBypassWorkspaceInputContract",
+  "assertCrossWorkspaceMemberApisRejected",
+  "assertMemberManagementApis",
+  "assertMemberMutationApisRejected",
+  "adminCanUseMemberMutationApi",
+  "assertRemovedMemberRequiresFreshJoinCode",
+  "repeatedJoinCodeIssuanceReplacesPriorCode",
+  "removedMemberRequiresFreshJoinCode",
+  "assertMemberAuditSequence",
+  "memberApiRejectsLastOwnerRemoval"
 ]) {
   if (!rlsNegativeTest.includes(snippet)) {
     errors.push(`Missing executable Phase 1 RLS check: ${snippet}`);

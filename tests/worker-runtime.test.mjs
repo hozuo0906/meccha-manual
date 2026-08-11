@@ -1278,3 +1278,261 @@ test("workspace作成routeはOrigin・MIME・body上限・plain object契約を�
   }
   assert.equal(rpcCalls, 0);
 });
+
+test("メンバー一覧APIは専用RPCを使い現在ロールと固定項目だけを返す", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/auth/v1/user")) {
+      return Response.json({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "owner@example.invalid" });
+    }
+    if (String(url).endsWith("/rest/v1/rpc/list_workspace_members")) {
+      return Response.json([
+        {
+          user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          display_name: "管理責任者",
+          role: "owner",
+          status: "active",
+          joined_at: "2026-08-10T00:00:00Z",
+          actor_role: "owner",
+          total_count: 2
+        },
+        {
+          user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          display_name: "編集担当",
+          role: "editor",
+          status: "active",
+          joined_at: "2026-08-10T01:00:00Z",
+          actor_role: "owner",
+          total_count: 2
+        }
+      ]);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const response = await worker.fetch(appRequest(
+    "/api/workspaces/11111111-1111-4111-8111-111111111111/members",
+    { headers: { cookie: sessionCookie() } }
+  ), env, ctx);
+  const payload = await response.json();
+  const rpcCall = calls.at(-1);
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.currentUserRole, "owner");
+  assert.equal(payload.members.length, 2);
+  assert.deepEqual(Object.keys(payload.members[0]), ["userId", "displayName", "role", "status", "joinedAt"]);
+  assert.deepEqual(JSON.parse(rpcCall.init.body), {
+    target_workspace_id: "11111111-1111-4111-8111-111111111111"
+  });
+  assert.equal(rpcCall.init.method, "POST");
+  assert.doesNotMatch(JSON.stringify(payload), /access-token|refresh-token|owner@example/);
+});
+
+test("メンバー一覧APIは越境拒否と不正成功payloadを安全なcodeへ正規化する", async () => {
+  for (const [rpcResponse, expectedStatus, expectedCode] of [
+    [Response.json({ message: "MM_WORKSPACE_MEMBERS_NOT_FOUND" }, { status: 400 }), 404, "WORKSPACE_MEMBERS_NOT_FOUND"],
+    [Response.json([], { status: 200 }), 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID"],
+    [Response.json([{
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      display_name: "管理責任者",
+      role: "owner",
+      status: "active",
+      joined_at: "2026-08-10T00:00:00Z",
+      actor_role: "owner",
+      total_count: 2
+    }]), 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID"],
+    [Response.json([{
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      display_name: "😀".repeat(65),
+      role: "owner",
+      status: "active",
+      joined_at: "2026-08-10T00:00:00Z",
+      actor_role: "owner",
+      total_count: 1
+    }]), 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID"],
+    ...["invited", "removed"].map((status) => [Response.json([{
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      display_name: "管理責任者",
+      role: "owner",
+      status,
+      joined_at: "2026-08-10T00:00:00Z",
+      actor_role: "owner",
+      total_count: 1
+    }]), 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID"])
+  ]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).endsWith("/rest/v1/rpc/list_workspace_members")) return rpcResponse.clone();
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest(
+      "/api/workspaces/11111111-1111-4111-8111-111111111111/members",
+      { headers: { cookie: sessionCookie() } }
+    ), env, ctx);
+    assert.equal(response.status, expectedStatus);
+    assert.equal((await response.json()).code, expectedCode);
+  }
+});
+
+test("参加コード利用APIはコードをRPCへ渡しowner付与を拒否する", async () => {
+  const calls = [];
+  const joinCode = `mmj_${"A".repeat(43)}`;
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).endsWith("/rest/v1/rpc/redeem_workspace_join_code")) {
+      return Response.json([{
+        user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        display_name: "追加担当",
+        role: "editor",
+        status: "active",
+        joined_at: "2026-08-10T01:00:00Z"
+      }]);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const path = "/api/workspaces/11111111-1111-4111-8111-111111111111/members";
+  const response = await worker.fetch(appRequest(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+    body: JSON.stringify({ joinCode: `  ${joinCode}  `, role: "editor" })
+  }), env, ctx);
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).member.role, "editor");
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), {
+    target_workspace_id: "11111111-1111-4111-8111-111111111111",
+    join_code: joinCode,
+    target_role: "editor"
+  });
+
+  const callsBeforeOwner = calls.length;
+  const ownerResponse = await worker.fetch(appRequest(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+    body: JSON.stringify({ joinCode, role: "owner" })
+  }), env, ctx);
+  assert.equal(ownerResponse.status, 409);
+  assert.equal((await ownerResponse.json()).code, "OWNER_TRANSFER_REQUIRED");
+  assert.equal(calls.length, callsBeforeOwner + 1);
+});
+
+test("参加コード発行APIは平文を今回だけ返し不正応答を結果不明にする", async () => {
+  const joinCode = `mmj_${"B".repeat(43)}`;
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    if (String(url).endsWith("/rest/v1/rpc/create_workspace_join_code")) {
+      return Response.json([{ join_code: joinCode, expires_at: expiresAt }]);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const response = await worker.fetch(appRequest("/api/member-join-code", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+    body: "{}"
+  }), env, ctx);
+  const payload = await response.json();
+  assert.equal(response.status, 201);
+  assert.deepEqual(payload, { joinCode, expiresAt });
+  assert.doesNotMatch(response.headers.get("set-cookie") || "", /mmj_/);
+
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+    return Response.json([{ join_code: "bad", expires_at: expiresAt }]);
+  };
+  const invalid = await worker.fetch(appRequest("/api/member-join-code", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+    body: "{}"
+  }), env, ctx);
+  assert.equal(invalid.status, 502);
+  assert.equal((await invalid.json()).code, "JOIN_CODE_CREATE_RESULT_UNKNOWN");
+});
+
+test("メンバー変更APIは権限不足・owner変更・結果不明を区別する", async () => {
+  const path = "/api/workspaces/11111111-1111-4111-8111-111111111111/members/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  for (const [rpcResponse, expectedStatus, expectedCode] of [
+    [Response.json({ message: "MM_MEMBER_MANAGE_FORBIDDEN" }, { status: 400 }), 403, "MEMBER_MANAGE_FORBIDDEN"],
+    [Response.json({ message: "MM_OWNER_TRANSFER_REQUIRED" }, { status: 400 }), 409, "OWNER_TRANSFER_REQUIRED"],
+    [Response.json({ message: "MM_MEMBER_UPDATE_UNAVAILABLE" }, { status: 400 }), 409, "MEMBER_UPDATE_UNAVAILABLE"],
+    [Response.json({ message: "database detail" }, { status: 503 }), 502, "MEMBER_CHANGE_RESULT_UNKNOWN"]
+  ]) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).endsWith("/rest/v1/rpc/update_workspace_member")) return rpcResponse.clone();
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest(path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: JSON.stringify({ role: "viewer", status: "removed" })
+    }), env, ctx);
+    const payload = await response.json();
+    assert.equal(response.status, expectedStatus);
+    assert.equal(payload.code, expectedCode);
+    assert.doesNotMatch(JSON.stringify(payload), /database detail/);
+  }
+});
+
+test("メンバー変更APIは成功payloadが要求した対象・権限・状態と一致しなければ結果不明にする", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const targetUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const otherUserId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const baseMember = {
+    user_id: targetUserId,
+    display_name: "更新対象",
+    role: "viewer",
+    status: "removed",
+    joined_at: "2026-08-10T01:00:00Z"
+  };
+  const cases = [
+    {
+      label: "add role mismatch",
+      path: `/api/workspaces/${workspaceId}/members`,
+      method: "POST",
+      body: { joinCode: `mmj_${"C".repeat(43)}`, role: "viewer" },
+      rpc: "redeem_workspace_join_code",
+      result: [{ ...baseMember, role: "editor", status: "active" }]
+    },
+    {
+      label: "update user mismatch",
+      path: `/api/workspaces/${workspaceId}/members/${targetUserId}`,
+      method: "PATCH",
+      body: { role: "viewer", status: "removed" },
+      rpc: "update_workspace_member",
+      result: [{ ...baseMember, user_id: otherUserId }]
+    },
+    {
+      label: "update role mismatch",
+      path: `/api/workspaces/${workspaceId}/members/${targetUserId}`,
+      method: "PATCH",
+      body: { role: "viewer", status: "removed" },
+      rpc: "update_workspace_member",
+      result: [{ ...baseMember, role: "editor" }]
+    },
+    {
+      label: "update status mismatch",
+      path: `/api/workspaces/${workspaceId}/members/${targetUserId}`,
+      method: "PATCH",
+      body: { role: "viewer", status: "removed" },
+      rpc: "update_workspace_member",
+      result: [{ ...baseMember, status: "active" }]
+    }
+  ];
+
+  for (const testCase of cases) {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/auth/v1/user")) return Response.json({ id: "user-1" });
+      if (String(url).endsWith(`/rest/v1/rpc/${testCase.rpc}`)) return Response.json(testCase.result);
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const response = await worker.fetch(appRequest(testCase.path, {
+      method: testCase.method,
+      headers: { "content-type": "application/json", origin: "https://app.example", cookie: sessionCookie() },
+      body: JSON.stringify(testCase.body)
+    }), env, ctx);
+    assert.equal(response.status, 502, testCase.label);
+    assert.equal((await response.json()).code, "MEMBER_CHANGE_RESULT_UNKNOWN", testCase.label);
+  }
+});

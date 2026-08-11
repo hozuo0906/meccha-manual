@@ -6,7 +6,7 @@ Status: Accepted
 
 Phase 1では、認証済みユーザーがワークスペースを作成し、所属ワークスペースのデータだけを読める土台を作る。
 
-この手順はSupabase DashboardのSQL Editorで実行する。`service_role key`、DBパスワード、JWT Secretは使わない。baselineだけが適用された中間状態を作らないため、2ファイルを個別実行せず、必ず単一transaction bundleを使う。
+この手順はSupabase DashboardのSQL Editorで実行する。`service_role key`、DBパスワード、JWT Secretは使わない。baselineだけが適用された中間状態を作らないため、4ファイルを個別実行せず、必ず単一transaction bundleを使う。
 
 ## Migration
 
@@ -16,9 +16,10 @@ Phase 1では、認証済みユーザーがワークスペースを作成し、�
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
 supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 supabase/migrations/202608100001_phase1_workspace_input_hardening.sql
+supabase/migrations/202608100002_phase1_member_management.sql
 ```
 
-bundle内では上記の順に実行する。membership hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。input hardening migrationは、旧仕様で許容された既存名を制約検証前に正規化・64文字へ補正し、拡張空白だけの値を「名称未設定」へ置換したうえで、ワークスペース名をtrim後1〜64文字へ固定し、slug形式をRPCとテーブル制約の両方で検証する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
+bundle内では上記の順に実行する。membership hardening migrationは、メンバー追加時の`created_by`を`auth.uid()`へ強制し、owner/adminによる更新でもワークスペースID、メンバー対象ユーザー、作成者、作成日時を変更できないようにする。また、認証用RPCの実行権限を`authenticated`へ限定する。input hardening migrationは、旧仕様で許容された既存名を制約検証前に正規化・64文字へ補正し、拡張空白だけの値を「名称未設定」へ置換したうえで、ワークスペース名をtrim後1〜64文字へ固定し、slug形式をRPCとテーブル制約の両方で検証する。member management migrationは、一覧、本人同意型の短命参加コード発行・利用、role/status変更、append-only監査、DELETEを含むlast-owner保護を追加する。既存環境への適用はproduction反映と同様にユーザー承認後に行う。
 
 bundleは次のコマンドで標準出力へ生成する。生成物には接続先やSecretを含めない。
 
@@ -26,21 +27,27 @@ bundleは次のコマンドで標準出力へ生成する。生成物には接�
 node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 ```
 
-生成後、最初の実行文が`begin;`、末尾が`commit;`であり、3つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
+生成後、最初の実行文が`begin;`、末尾が`commit;`であり、4つのmigration名とSHA-256が表示されることを確認する。生成SQLをリポジトリへcommitしない。
 
-`npm run test:phase1-migration-bundle`は、単一transaction、3ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
+`npm run test:phase1-migration-bundle`は、単一transaction、4ファイルの順序、SHA-256マーカーを値非表示で自動検査する。`npm run check`とPhase 1 readiness workflowの両方から実行する。
 
 作成される主な要素:
 
 - `profiles`
 - `workspaces`
 - `workspace_members`
+- `workspace_join_codes`
+- `audit_logs`
 - `workspace_role`
 - `workspace_status`
 - `workspace_member_status`
 - `create_workspace(workspace_name text, workspace_slug text)`
 - `is_workspace_member(target_workspace_id uuid, target_user_id uuid)`
 - `has_workspace_role(target_workspace_id uuid, target_user_id uuid, allowed_roles workspace_role[])`
+- `list_workspace_members(target_workspace_id uuid)`
+- `create_workspace_join_code()`
+- `redeem_workspace_join_code(target_workspace_id uuid, join_code text, target_role workspace_role)`
+- `update_workspace_member(target_workspace_id uuid, target_user_id uuid, target_role workspace_role, target_status workspace_member_status)`
 
 ## RLS baseline
 
@@ -48,10 +55,10 @@ node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 - 未ログインユーザーにはテーブル権限を渡さない。
 - `workspaces` は所属メンバーだけが閲覧できる。
 - `workspace_members` は同じワークスペースのメンバーだけが閲覧できる。
-- `owner` と `admin` だけがワークスペースとメンバーを更新できる。
+- `owner` と `admin` だけがメンバー管理RPCを実行できる。`workspace_members`へのclient直接INSERT/UPDATE/DELETEは許可しない。
 - `owner` の直接昇格、直接降格、最後のowner削除は専用フローまで禁止する。
 - ワークスペースとメンバーのID、所属先、対象ユーザー、作成監査項目は更新を禁止する。
-- 認証用RPCは匿名ユーザーに実行権限を与えない。
+- 認証用RPC、参加コードRPC、メンバー管理RPCは匿名ユーザーに実行権限を与えない。
 - ワークスペース作成は直接INSERTではなく `create_workspace` RPCを使う。
 
 ## Manual setup steps
@@ -75,10 +82,12 @@ node scripts/phase1-migration-bundle.mjs > /tmp/meccha-manual-phase1.sql
 - `profiles`
 - `workspaces`
 - `workspace_members`
+- `workspace_join_codes`
+- `audit_logs`
 
 Authenticationで新規ユーザーを作成すると、`profiles` に同じユーザーIDの行が自動作成される。
 
-3 migrationの適用後は、`workspaces_protect_identity` triggerと`workspaces_name_length`制約が存在し、認証済みユーザーがメンバー判定RPCで照会できる対象ユーザーは自分自身に限定される。`workspace_members`の新規行は、入力値にかかわらず`created_by = auth.uid()`になる。`create_workspace`を直接呼んでも、名前とslugの入力契約を迂回できない。実環境への適用と確認はユーザー承認後に行う。
+4 migrationの適用後は、`workspaces_protect_identity` triggerと`workspaces_name_length`制約が存在し、認証済みユーザーがメンバー判定RPCで照会できる対象ユーザーは自分自身に限定される。`workspace_members`の新規行は、入力値にかかわらず`created_by = auth.uid()`になる。`create_workspace`を直接呼んでも、名前とslugの入力契約を迂回できない。メンバー追加は本人が発行した256 bit・10分有効・単回使用の参加コードだけを受け付け、DBにはSHA-256 digestだけを保存する。メンバー管理RPCはactive memberだけに一覧を返し、変更はowner/adminへ限定し、owner変更・最後のactive ownerの停止・削除を拒否する。所属追加・復帰・role/status変更は同一transactionの`audit_logs`へ追記される。実環境への適用と確認はユーザー承認後に行う。
 
 ## Do not paste
 
@@ -92,7 +101,7 @@ Authenticationで新規ユーザーを作成すると、`profiles` に同じユ�
 
 ## Next quality gate
 
-次はSupabase上でmigrationを実行したあと、アプリ側に認証画面とワークスペース作成導線を作る。
+次はユーザー承認後にstagingへmigrationを適用して動的RLS検証を行い、Issue #36の共通シェル・全画面状態・アクセシビリティを完成させる。
 
 その後に以下をテストする。
 
