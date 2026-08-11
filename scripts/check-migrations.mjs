@@ -34,6 +34,7 @@ const requiredPhase2Snippets = [
 
 const phase1HardeningFile = "202608010002_phase1_workspace_membership_hardening.sql";
 const phase1InputHardeningFile = "202608100001_phase1_workspace_input_hardening.sql";
+const phase1MemberManagementFile = "202608100002_phase1_member_management.sql";
 const phase2SetupFile = "docs/04-data/phase2-manual-core-setup.md";
 const requiredPhase1HardeningSnippets = [
   "create or replace function public.protect_workspace_identity()",
@@ -65,6 +66,41 @@ const requiredPhase1InputHardeningSnippets = [
   "workspace slug format is invalid",
   "revoke execute on function public.create_workspace(text, text) from public, anon",
   "grant execute on function public.create_workspace(text, text) to authenticated"
+];
+const requiredPhase1MemberManagementSnippets = [
+  "constraint profiles_display_name_length",
+  "left(public.normalize_workspace_name(display_name), 64)",
+  "char_length(display_name) between 0 and 64",
+  "bounded_display_name text := left(public.normalize_workspace_name(requested_display_name), 64)",
+  "before insert or update or delete on public.workspace_members",
+  "new.role = 'owner' and old.role <> 'owner'",
+  "create or replace function public.list_workspace_members(target_workspace_id uuid)",
+  "create table if not exists public.workspace_join_codes",
+  "create table if not exists public.audit_logs",
+  "create or replace function public.create_workspace_join_code()",
+  "create or replace function public.redeem_workspace_join_code(",
+  "create or replace function public.update_workspace_member(",
+  "MM_WORKSPACE_MEMBERS_NOT_FOUND",
+  "MM_MEMBER_MANAGE_FORBIDDEN",
+  "MM_OWNER_TRANSFER_REQUIRED",
+  "new.created_by := auth.uid()",
+  "gen_random_bytes(32)",
+  "set search_path = extensions, public, pg_temp",
+  "create unique index workspace_join_codes_one_per_user",
+  "on conflict (user_id) do update",
+  "consumed_workspace_id = null",
+  "previous_status <> 'active' and target_status = 'active'",
+  "previous_status in ('invited', 'removed') and previous_role <> 'owner'",
+  "active_member_count >= 1000",
+  "when wm.status = 'removed' then '利用停止済み'",
+  "left join public.profiles p on p.id = wm.user_id and wm.status <> 'removed'",
+  "interval '10 minutes'",
+  "revoke insert, update, delete on table public.workspace_members from authenticated",
+  "revoke all on table public.workspace_join_codes from public, anon, authenticated",
+  "grant execute on function public.list_workspace_members(uuid) to authenticated",
+  "grant execute on function public.create_workspace_join_code() to authenticated",
+  "grant execute on function public.redeem_workspace_join_code(uuid, text, public.workspace_role) to authenticated",
+  "grant execute on function public.update_workspace_member(uuid, uuid, public.workspace_role, public.workspace_member_status) to authenticated"
 ];
 
 const entries = await readdir(migrationsDir, { withFileTypes: true });
@@ -138,6 +174,22 @@ if (!migrationFiles.includes(phase1InputHardeningFile)) {
   }
 }
 
+if (!migrationFiles.includes(phase1MemberManagementFile)) {
+  errors.push(`Missing required migration: ${phase1MemberManagementFile}`);
+} else {
+  const phase1MemberManagement = await readFile(path.join(migrationsDir, phase1MemberManagementFile), "utf8");
+  for (const snippet of requiredPhase1MemberManagementSnippets) {
+    if (!phase1MemberManagement.includes(snippet)) {
+      errors.push(`Missing Phase 1 member management migration snippet: ${snippet}`);
+    }
+  }
+  for (const forbidden of ["add_workspace_member_by_email", "target_email"]) {
+    if (phase1MemberManagement.includes(forbidden)) {
+      errors.push(`Obsolete email member-add surface remains in Phase 1 migration: ${forbidden}`);
+    }
+  }
+}
+
 const phase2Setup = await readFile(phase2SetupFile, "utf8");
 for (const prerequisite of [
   "202608010001_phase1_identity_workspaces.sql",
@@ -154,8 +206,27 @@ for (const executableCheck of [
   "code !== \"42501\"",
   "permission denied for function",
   "assertIdentityFieldsImmutable",
+  "assertDisplayNameContract",
+  "displayNameUsesCodePointSafeBound",
+  "assertInitialAuditContract",
+  "auditActorActionResourceMetadataVerified",
+  "idempotentMemberUpdateDoesNotDuplicateAudit",
+  "auditWritesAreAppendOnlyForClients",
+  "editorViewerCannotReadAudit",
+  "assertMembershipTableWritesRevoked",
+  "directMembershipTableWritesRevoked",
   "ownerCannotMutateIdentityFields",
-  "adminCannotMutateIdentityFields"
+  "adminCannotMutateIdentityFields",
+  "assertCrossWorkspaceMemberApisRejected",
+  "assertMemberManagementApis",
+  "assertMemberMutationApisRejected",
+  "adminCanUseMemberMutationApi",
+  "assertRemovedMemberRequiresFreshJoinCode",
+  "repeatedJoinCodeIssuanceReplacesPriorCode",
+  "removedMemberRequiresFreshJoinCode",
+  "removedMemberMutationRedactsProfile",
+  "assertMemberAuditSequence",
+  "memberApiRejectsLastOwnerRemoval"
 ]) {
   if (!rlsNegativeTest.includes(executableCheck)) {
     errors.push(`RLS negative test is missing executable hardening check: ${executableCheck}`);

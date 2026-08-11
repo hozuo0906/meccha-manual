@@ -35,7 +35,7 @@ Phase 1実装Issue:
 - GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
 - GitHub Issue #38 / P1-05 RLS回帰: 匿名RPC拒否、workspace/member越境拒否、識別子と作成監査項目の不変条件、4ロールの動的negative test。外部migrationとテストデータ作成の承認待ち。
 
-リポジトリには認証、ワークスペース一覧・作成、Phase 1 migration、RLS negative testのハーネスがある。メンバー管理API/UI、owner移管、実環境でのmigration適用と動的RLS検証は完了済みとして扱わない。招待はメンバー追加方式とメール送信境界を別Issueで決定してから実装する。
+リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管、実環境でのmigration適用と動的RLS検証は完了済みとして扱わない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
 
 ## EPIC-03: アプリシェル
 

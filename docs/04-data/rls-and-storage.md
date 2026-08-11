@@ -22,8 +22,12 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 - UIで隠すだけの権限制御は禁止。
 - API認可とRLSを両方テストする。
 - `workspaces` のID・作成者・作成日時と、`workspace_members` の所属先・対象ユーザー・作成者・作成日時はowner/adminでも更新できない。
-- `workspace_members` のinsertでは、`created_by`をcaller指定値に関係なく`auth.uid()`へ強制し、作成監査主体を偽装させない。
+- `workspace_members` のclient直接INSERT/UPDATE/DELETEを禁止し、SECURITY DEFINER RPCだけを書込み窓口にする。insertでは`created_by`を`auth.uid()`へ強制し、作成監査主体を偽装させない。
 - ownerの昇格・降格は専用フローを実装するまで許可しない。
+- 最後のactive ownerはUPDATEだけでなくDELETEでもDB triggerが拒否する。
+- メンバー管理RPCはactive memberだけに一覧を返し、変更はowner/adminへ限定する。メールアドレスによる直接追加は行わず、本人発行の256 bit・10分有効・単回使用の参加コードだけを利用する。平文コードはDB、Storage、URL、ログ、監査ログへ保存しない。
+- membership作成・復帰、参加コード消費、監査追記を同一transactionで確定する。role/status変更も実変更がある場合だけappend-only監査へ追記する。
+- メンバー変更はworkspace行を最初にlockし、並行する管理操作のlock順序を統一する。
 - 認証用RPCは匿名実行を許可せず、メンバー・ロール判定RPCが照会できる対象ユーザーを`auth.uid()`に限定する。
 - ファイル本体の直接公開は禁止し、DBメタデータと署名URL発行時に権限確認する。
 

@@ -63,7 +63,29 @@ interface WorkspaceSummary {
   created_at: string;
 }
 
+type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
+type WorkspaceMemberStatus = "active" | "invited" | "removed";
+
+interface WorkspaceMemberSummary {
+  userId: string;
+  displayName: string;
+  role: WorkspaceRole;
+  status: WorkspaceMemberStatus;
+  joinedAt: string | null;
+}
+
+interface WorkspaceMemberRpcRow {
+  user_id: string;
+  display_name: string;
+  role: WorkspaceRole;
+  status: WorkspaceMemberStatus;
+  joined_at: string | null;
+  actor_role?: WorkspaceRole;
+  total_count?: number;
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const JOIN_CODE_PATTERN = /^mmj_[A-Za-z0-9_-]{43}$/;
 const WORKSPACE_INPUT_ERROR_CODES = new Set(["22023", "23505"]);
 
 interface SessionResult {
@@ -78,6 +100,7 @@ const MAX_ACCESS_COOKIE_AGE_SECONDS = 60 * 60;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
 const MAX_WORKSPACE_LIST_ITEMS = 1000;
+const MAX_WORKSPACE_MEMBER_LIST_ITEMS = 1000;
 const SUPABASE_READ_TIMEOUT_MS = 5000;
 const MAX_DISCORD_BODY_BYTES = 64 * 1024;
 const DISCORD_SIGNATURE_TOLERANCE_SECONDS = 60 * 5;
@@ -1566,6 +1589,285 @@ async function createWorkspace(request: Request, env: Env): Promise<Response> {
   }, { status: 201 }, session.responseCookies);
 }
 
+function isWorkspaceRole(value: unknown): value is WorkspaceRole {
+  return ["owner", "admin", "editor", "viewer"].includes(String(value));
+}
+
+function isWorkspaceMemberStatus(value: unknown): value is WorkspaceMemberStatus {
+  return ["active", "invited", "removed"].includes(String(value));
+}
+
+function parseWorkspaceMemberRow(value: unknown): WorkspaceMemberRpcRow | null {
+  if (!value || typeof value !== "object") return null;
+  const member = value as Partial<WorkspaceMemberRpcRow>;
+  if (
+    typeof member.user_id !== "string" || !UUID_PATTERN.test(member.user_id) ||
+    typeof member.display_name !== "string" || member.display_name.trim().length === 0 ||
+    Array.from(member.display_name).length > 64 ||
+    !isWorkspaceRole(member.role) ||
+    !isWorkspaceMemberStatus(member.status) ||
+    (member.joined_at !== null && (
+      typeof member.joined_at !== "string" || Number.isNaN(Date.parse(member.joined_at))
+    ))
+  ) {
+    return null;
+  }
+  return member as WorkspaceMemberRpcRow;
+}
+
+function workspaceMemberSummary(member: WorkspaceMemberRpcRow): WorkspaceMemberSummary {
+  return {
+    userId: member.user_id,
+    displayName: member.display_name,
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joined_at
+  };
+}
+
+function memberRpcMessage(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || !("message" in payload)) return "";
+  return typeof payload.message === "string" ? payload.message : "";
+}
+
+function throwMemberRpcFailure(
+  payload: unknown,
+  mutation: boolean,
+  fallback?: { code: string; message: string }
+): never {
+  const message = memberRpcMessage(payload);
+  if (message.includes("MM_WORKSPACE_MEMBERS_NOT_FOUND")) {
+    throw new AppError(404, "WORKSPACE_MEMBERS_NOT_FOUND", "ワークスペースまたはメンバー情報を確認できませんでした。");
+  }
+  if (message.includes("MM_MEMBER_MANAGE_FORBIDDEN")) {
+    throw new AppError(403, "MEMBER_MANAGE_FORBIDDEN", "メンバーを変更する権限がありません。");
+  }
+  if (message.includes("MM_OWNER_TRANSFER_REQUIRED")) {
+    throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更・停止は、専用の移管手続きが利用できるまで行えません。");
+  }
+  if (message.includes("MM_JOIN_CODE_UNAVAILABLE")) {
+    throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
+  }
+  if (message.includes("MM_JOIN_CODE_CREATE_FAILED")) {
+    throw new AppError(502, "JOIN_CODE_CREATE_RESULT_UNKNOWN", "参加コードを確認できませんでした。もう一度発行すると、以前のコードは無効になります。");
+  }
+  if (message.includes("MM_MEMBER_UPDATE_UNAVAILABLE")) {
+    throw new AppError(409, "MEMBER_UPDATE_UNAVAILABLE", "対象メンバーの状態が変わったため更新できませんでした。一覧を更新してください。");
+  }
+  if (message.includes("MM_MEMBER_STATUS_INVALID")) {
+    throw new AppError(400, "MEMBER_STATUS_INVALID", "メンバー状態の指定が正しくありません。");
+  }
+  if (message.includes("MM_WORKSPACE_MEMBERS_LIMIT_EXCEEDED")) {
+    throw new AppError(409, "WORKSPACE_MEMBERS_LIMIT_EXCEEDED", "メンバーが多いため一覧を表示できません。管理者に整理を依頼してください。");
+  }
+  if (mutation) {
+    throw new AppError(
+      502,
+      fallback?.code ?? "MEMBER_CHANGE_RESULT_UNKNOWN",
+      fallback?.message ?? "変更結果を確認できませんでした。一覧を更新して状態を確認してください。"
+    );
+  }
+  throw new AppError(502, "WORKSPACE_MEMBERS_FETCH_FAILED", "メンバー一覧を取得できませんでした。時間をおいて、もう一度お試しください。");
+}
+
+async function callWorkspaceMemberRpc(
+  env: Env,
+  accessToken: string,
+  rpcName: string,
+  body: Record<string, unknown>,
+  mutation: boolean,
+  fallback?: { code: string; message: string }
+): Promise<unknown> {
+  const fallbackCode = fallback?.code ?? (mutation ? "MEMBER_CHANGE_RESULT_UNKNOWN" : "WORKSPACE_MEMBERS_FETCH_FAILED");
+  const fallbackMessage = fallback?.message ?? (mutation
+    ? "変更結果を確認できませんでした。一覧を更新して状態を確認してください。"
+    : "メンバー一覧を取得できませんでした。時間をおいて、もう一度お試しください。");
+  return withSupabaseReadTimeout(async (signal) => {
+    const response = await supabaseFetch(env, `/rest/v1/rpc/${rpcName}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal
+    }, accessToken);
+    if (response.status === 401) {
+      throw new AppError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+    }
+    let payload: unknown;
+    try {
+      payload = await readSupabaseJson(response);
+    } catch {
+      throw new AppError(502, fallbackCode, fallbackMessage);
+    }
+    if (!response.ok) throwMemberRpcFailure(payload, mutation, fallback);
+    return payload;
+  }, fallbackCode, fallbackMessage);
+}
+
+async function createWorkspaceJoinCode(request: Request, env: Env): Promise<Response> {
+  const session = await requireSession(request, env);
+  await readJsonBody<Record<string, never>>(request);
+  const unknown = {
+    code: "JOIN_CODE_CREATE_RESULT_UNKNOWN",
+    message: "参加コードを確認できませんでした。もう一度発行すると、以前のコードは無効になります。"
+  };
+  const payload = await callWorkspaceMemberRpc(
+    env,
+    session.accessToken,
+    "create_workspace_join_code",
+    {},
+    true,
+    unknown
+  );
+  if (!Array.isArray(payload) || payload.length !== 1) {
+    throw new AppError(502, unknown.code, unknown.message);
+  }
+  const row = payload[0];
+  if (!row || typeof row !== "object") {
+    throw new AppError(502, unknown.code, unknown.message);
+  }
+  const candidate = row as { join_code?: unknown; expires_at?: unknown };
+  const expiresAt = typeof candidate.expires_at === "string" ? Date.parse(candidate.expires_at) : Number.NaN;
+  const now = Date.now();
+  if (
+    typeof candidate.join_code !== "string" || !JOIN_CODE_PATTERN.test(candidate.join_code) ||
+    !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + 11 * 60 * 1000
+  ) {
+    throw new AppError(502, unknown.code, unknown.message);
+  }
+  return jsonResponse({
+    joinCode: candidate.join_code,
+    expiresAt: candidate.expires_at
+  }, { status: 201 }, session.responseCookies);
+}
+
+function requireWorkspaceId(workspaceId: string): void {
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new AppError(404, "WORKSPACE_MEMBERS_NOT_FOUND", "ワークスペースまたはメンバー情報を確認できませんでした。");
+  }
+}
+
+async function getWorkspaceMembers(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const session = await requireSession(request, env);
+  const payload = await callWorkspaceMemberRpc(
+    env,
+    session.accessToken,
+    "list_workspace_members",
+    { target_workspace_id: workspaceId },
+    false
+  );
+  if (!Array.isArray(payload) || payload.length === 0 || payload.length > MAX_WORKSPACE_MEMBER_LIST_ITEMS) {
+    throw new AppError(502, "WORKSPACE_MEMBERS_RESPONSE_INVALID", "メンバー一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const rows = payload.map(parseWorkspaceMemberRow);
+  if (rows.some((member) => member === null)) {
+    throw new AppError(502, "WORKSPACE_MEMBERS_RESPONSE_INVALID", "メンバー一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const members = rows as WorkspaceMemberRpcRow[];
+  const actorRole = members[0]?.actor_role;
+  const totalCount = members[0]?.total_count;
+  if (
+    !isWorkspaceRole(actorRole) ||
+    typeof totalCount !== "number" || !Number.isSafeInteger(totalCount) || totalCount !== members.length ||
+    members.some((member) => member.status !== "active") ||
+    members.some((member) => member.actor_role !== actorRole || member.total_count !== totalCount) ||
+    new Set(members.map((member) => member.user_id)).size !== members.length
+  ) {
+    throw new AppError(502, "WORKSPACE_MEMBERS_RESPONSE_INVALID", "メンバー一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  return jsonResponse({
+    workspaceId,
+    currentUserRole: actorRole,
+    members: members.map(workspaceMemberSummary)
+  }, undefined, session.responseCookies);
+}
+
+function requireManageableRole(value: unknown): "admin" | "editor" | "viewer" {
+  if (value !== "admin" && value !== "editor" && value !== "viewer") {
+    if (value === "owner") {
+      throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更・停止は、専用の移管手続きが利用できるまで行えません。");
+    }
+    throw new AppError(400, "MEMBER_ROLE_INVALID", "権限は管理者・編集者・閲覧者から選択してください。");
+  }
+  return value;
+}
+
+function requireMemberMutationResult(
+  payload: unknown,
+  expected: { userId?: string; role: "admin" | "editor" | "viewer"; status: "active" | "removed" }
+): WorkspaceMemberSummary {
+  if (!Array.isArray(payload) || payload.length !== 1) {
+    throw new AppError(502, "MEMBER_CHANGE_RESULT_UNKNOWN", "変更結果を確認できませんでした。一覧を更新して状態を確認してください。");
+  }
+  const member = parseWorkspaceMemberRow(payload[0]);
+  if (
+    !member ||
+    (expected.userId !== undefined && member.user_id !== expected.userId) ||
+    member.role !== expected.role ||
+    member.status !== expected.status
+  ) {
+    throw new AppError(502, "MEMBER_CHANGE_RESULT_UNKNOWN", "変更結果を確認できませんでした。一覧を更新して状態を確認してください。");
+  }
+  return workspaceMemberSummary(member);
+}
+
+async function addWorkspaceMember(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const session = await requireSession(request, env);
+  const body = await readJsonBody<{ joinCode?: string; role?: string }>(request);
+  if (typeof body.joinCode !== "string" || !JOIN_CODE_PATTERN.test(body.joinCode.trim())) {
+    throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
+  }
+  const joinCode = body.joinCode.trim();
+  const role = requireManageableRole(body.role);
+  const payload = await callWorkspaceMemberRpc(
+    env,
+    session.accessToken,
+    "redeem_workspace_join_code",
+    { target_workspace_id: workspaceId, join_code: joinCode, target_role: role },
+    true
+  );
+  return jsonResponse({
+    member: requireMemberMutationResult(payload, { role, status: "active" })
+  }, { status: 201 }, session.responseCookies);
+}
+
+async function updateWorkspaceMember(
+  request: Request,
+  env: Env,
+  workspaceId: string,
+  userId: string
+): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  if (!UUID_PATTERN.test(userId)) {
+    throw new AppError(409, "MEMBER_UPDATE_UNAVAILABLE", "対象メンバーの状態が変わったため更新できませんでした。一覧を更新してください。");
+  }
+  const session = await requireSession(request, env);
+  const body = await readJsonBody<{ role?: string; status?: string }>(request);
+  const role = requireManageableRole(body.role);
+  if (body.status !== "active" && body.status !== "removed") {
+    throw new AppError(400, "MEMBER_STATUS_INVALID", "メンバー状態の指定が正しくありません。");
+  }
+  const payload = await callWorkspaceMemberRpc(
+    env,
+    session.accessToken,
+    "update_workspace_member",
+    {
+      target_workspace_id: workspaceId,
+      target_user_id: userId,
+      target_role: role,
+      target_status: body.status
+    },
+    true
+  );
+  return jsonResponse({
+    member: requireMemberMutationResult(payload, {
+      userId,
+      role,
+      status: body.status
+    })
+  }, undefined, session.responseCookies);
+}
+
 async function logout(request: Request, env: Env): Promise<Response> {
   await readJsonBody<Record<string, never>>(request);
   const cookies = parseCookies(request, true);
@@ -1657,6 +1959,8 @@ function basicHealth(): Response {
 async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const hasCurrentAssetVersion = url.searchParams.get("v") === APP_ASSET_VERSION;
+  const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
+  const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
   if (url.pathname === "/v1/integrations/discord/interactions") {
     return discordInteractions(request, env, ctx);
@@ -1682,6 +1986,16 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
     return jsonResponse({ workspaces: await fetchWorkspaces(env, session.accessToken) }, undefined, session.responseCookies);
   }
   if (request.method === "POST" && url.pathname === "/api/workspaces") return createWorkspace(request, env);
+  if (request.method === "POST" && url.pathname === "/api/member-join-code") return createWorkspaceJoinCode(request, env);
+  if (request.method === "GET" && workspaceMembersMatch) {
+    return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
+  }
+  if (request.method === "POST" && workspaceMembersMatch) {
+    return addWorkspaceMember(request, env, workspaceMembersMatch[1]);
+  }
+  if (request.method === "PATCH" && workspaceMemberMatch) {
+    return updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
+  }
 
   return jsonResponse({
     code: "NOT_FOUND",

@@ -14,6 +14,7 @@ const bundle = result.stdout;
 const baseline = "-- BEGIN supabase/migrations/202608010001_phase1_identity_workspaces.sql";
 const hardening = "-- BEGIN supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql";
 const inputHardening = "-- BEGIN supabase/migrations/202608100001_phase1_workspace_input_hardening.sql";
+const memberManagement = "-- BEGIN supabase/migrations/202608100002_phase1_member_management.sql";
 const errors = [];
 
 if ((bundle.match(/^begin;$/gm) || []).length !== 1) {
@@ -22,12 +23,16 @@ if ((bundle.match(/^begin;$/gm) || []).length !== 1) {
 if ((bundle.match(/^commit;$/gm) || []).length !== 1 || !bundle.trimEnd().endsWith("commit;")) {
   errors.push("bundle must end with exactly one commit statement");
 }
-if ((bundle.match(/^-- SHA-256 [a-f0-9]{64}$/gm) || []).length !== 3) {
-  errors.push("bundle must contain three migration SHA-256 markers");
+if ((bundle.match(/^-- SHA-256 [a-f0-9]{64}$/gm) || []).length !== 4) {
+  errors.push("bundle must contain four migration SHA-256 markers");
 }
-if (bundle.indexOf(baseline) < 0 || bundle.indexOf(hardening) < 0 || bundle.indexOf(inputHardening) < 0) {
+if (bundle.indexOf(baseline) < 0 || bundle.indexOf(hardening) < 0 || bundle.indexOf(inputHardening) < 0 || bundle.indexOf(memberManagement) < 0) {
   errors.push("bundle must contain all Phase 1 migrations");
-} else if (!(bundle.indexOf(baseline) < bundle.indexOf(hardening) && bundle.indexOf(hardening) < bundle.indexOf(inputHardening))) {
+} else if (!(
+  bundle.indexOf(baseline) < bundle.indexOf(hardening) &&
+  bundle.indexOf(hardening) < bundle.indexOf(inputHardening) &&
+  bundle.indexOf(inputHardening) < bundle.indexOf(memberManagement)
+)) {
   errors.push("Phase 1 migrations must preserve their declared order");
 }
 
@@ -36,4 +41,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Phase 1 migration bundle OK: one transaction, three ordered migrations, three SHA-256 markers.");
+console.log("Phase 1 migration bundle OK: one transaction, four ordered migrations, four SHA-256 markers.");

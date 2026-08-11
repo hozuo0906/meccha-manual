@@ -5,16 +5,30 @@ import vm from "node:vm";
 
 import { APP_JS } from "../apps/worker/src/app-assets.ts";
 
-function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sessionStorageSetThrows = false } = {}) {
+function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sessionStorageSetThrows = false, confirmResult = true, nowMs = Date.now() } = {}) {
   const storage = new Map();
   const sessionStorageValues = new Map();
   const lockCalls = [];
   const broadcastMessages = [];
+  const confirmationMessages = [];
   let broadcastChannelInstance = null;
   const elements = new Map();
   let focusedId = null;
   let insideLock = false;
   let lockTail = Promise.resolve();
+  let clockMs = nowMs;
+  let nextTimerId = 1;
+  const timers = new Map();
+
+  class HarnessDate extends Date {
+    constructor(...args) {
+      super(...(args.length ? args : [clockMs]));
+    }
+
+    static now() {
+      return clockMs;
+    }
+  }
 
   class HarnessFormData {
     constructor(form) {
@@ -90,13 +104,27 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
     FormData: HarnessFormData,
     Set,
     URL,
+    Date: HarnessDate,
     crypto: webcrypto,
+    setTimeout(callback, delay = 0) {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, { callback, dueAt: clockMs + Math.max(0, Number(delay) || 0) });
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
     document: {
       getElementById(id) {
         return element(id);
       }
     },
     fetch: (...args) => (fetch ?? (async () => Response.json({})))(...args, { insideLock, storage }),
+    confirm(message) {
+      confirmationMessages.push(message);
+      return confirmResult;
+    },
     localStorage: {
       getItem(key) {
         return storage.get(key) ?? null;
@@ -159,9 +187,13 @@ globalThis.__appAuthTest = {
   restoreUncertainWorkspaceCreation,
   createWorkspace,
   reloadWorkspaces,
+  loadWorkspaceMembers,
+  addWorkspaceMember,
+  updateWorkspaceMemberFromUi,
   replaceCurrentSession,
   setBox,
-  getCurrentSession: () => currentSession
+  getCurrentSession: () => currentSession,
+  getWorkspaceMembersState: () => workspaceMembersState
 };`;
   vm.runInNewContext(source, context);
   return {
@@ -170,10 +202,22 @@ globalThis.__appAuthTest = {
     element,
     focusedId: () => focusedId,
     broadcastMessages,
+    confirmationMessages,
     lockCalls,
     storage,
     sessionStorageValues,
     sessionStorage: context.sessionStorage,
+    advanceTime(ms) {
+      clockMs += ms;
+      while (true) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.dueAt <= clockMs)
+          .sort((left, right) => left[1].dueAt - right[1].dueAt)[0];
+        if (!due) break;
+        timers.delete(due[0]);
+        due[1].callback();
+      }
+    },
     emitBroadcast(data) {
       return broadcastChannelInstance?.listeners.get("message")?.({ data });
     }
@@ -1664,4 +1708,591 @@ test("一覧上限超過の手動更新は既存一覧を保持して管理者�
   assert.match(app.innerHTML, /営業部/);
   assert.match(app.innerHTML, /管理者に整理を依頼/);
   assert.doesNotMatch(app.innerHTML, /通信環境を確認/);
+});
+
+test("メンバー一覧を明示操作で読み込みowner/adminだけに変更UIを表示する", async () => {
+  const workspace = {
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "営業部",
+    slug: "sales-team",
+    status: "active",
+    created_at: "2026-08-10T00:00:00Z"
+  };
+  const members = [
+    {
+      userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      displayName: "管理責任者",
+      role: "owner",
+      status: "active",
+      joinedAt: "2026-08-10T00:00:00Z"
+    },
+    {
+      userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      displayName: "編集担当",
+      role: "editor",
+      status: "active",
+      joinedAt: "2026-08-10T01:00:00Z"
+    }
+  ];
+  const session = {
+    user: { id: members[0].userId, email: "owner@example.invalid" },
+    workspaces: [workspace]
+  };
+  const harness = createHarness({
+    fetch: async (path) => {
+      assert.equal(path, `/api/workspaces/${workspace.id}/members`);
+      return Response.json({ workspaceId: workspace.id, currentUserRole: "owner", members });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  assert.match(harness.app.innerHTML, /メンバー一覧を表示/);
+  assert.doesNotMatch(harness.app.innerHTML, /member-add-form/);
+
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "メンバー一覧が読み込まれませんでした");
+
+  assert.match(harness.app.innerHTML, /参加コードでメンバーを追加/);
+  assert.match(harness.app.innerHTML, /member-save-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/);
+  assert.doesNotMatch(harness.app.innerHTML, /member-stop-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/);
+});
+
+test("editor/viewerのメンバー画面は一覧だけを表示し変更操作を出さない", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const session = {
+    user: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "editor@example.invalid" },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  const harness = createHarness({
+    fetch: async () => Response.json({
+      workspaceId,
+      currentUserRole: "editor",
+      members: [{
+        userId: session.user.id,
+        displayName: "編集担当",
+        role: "editor",
+        status: "active",
+        joinedAt: "2026-08-10T00:00:00Z"
+      }]
+    })
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "editor一覧が読み込まれませんでした");
+
+  assert.match(harness.app.innerHTML, /現在の権限は「編集者」/);
+  assert.doesNotMatch(harness.app.innerHTML, /member-add-form|権限を保存|利用を停止/);
+});
+
+test("参加コード追加はコードを画面から消して最新一覧を再取得する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = {
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    displayName: "管理責任者",
+    role: "owner",
+    status: "active",
+    joinedAt: "2026-08-10T00:00:00Z"
+  };
+  const added = {
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    displayName: "追加担当",
+    role: "viewer",
+    status: "active",
+    joinedAt: "2026-08-10T01:00:00Z"
+  };
+  const calls = [];
+  let listCount = 0;
+  const session = {
+    user: { id: owner.userId, email: "owner@example.invalid" },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      calls.push({ path, method: options.method || "GET", body: options.body });
+      if (path.endsWith("/members") && options.method === "POST") {
+        return Response.json({ member: added }, { status: 201 });
+      }
+      listCount += 1;
+      return Response.json({ workspaceId, currentUserRole: "owner", members: listCount === 1 ? [owner] : [owner, added] });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  const form = harness.element("member-add-form");
+  const joinCode = `mmj_${"A".repeat(43)}`;
+  form.elements.memberJoinCode = { value: `  ${joinCode}  ` };
+  form.elements.memberRole = { value: "viewer" };
+  await form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+  await waitForCondition(
+    () => harness.api.getWorkspaceMembersState()?.members.length === 2,
+    "追加後の一覧が読み込まれませんでした"
+  );
+
+  const post = calls.find((call) => call.method === "POST");
+  assert.deepEqual(JSON.parse(post.body), { joinCode, role: "viewer" });
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(joinCode));
+  assert.equal(harness.api.getWorkspaceMembersState().message, "メンバーを追加しました。");
+  assert.equal(harness.focusedId(), "members-message");
+});
+
+test("参加コード消費後に応答を読めなくても再送せず最新一覧で結果を確認する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = {
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    displayName: "管理責任者",
+    role: "owner",
+    status: "active",
+    joinedAt: "2026-08-10T00:00:00Z"
+  };
+  const added = {
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    displayName: "追加担当",
+    role: "viewer",
+    status: "active",
+    joinedAt: "2026-08-10T01:00:00Z"
+  };
+  const joinCode = `mmj_${"T".repeat(43)}`;
+  let committed = false;
+  let postCount = 0;
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }]
+  };
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      if (path.endsWith("/members") && options.method === "POST") {
+        postCount += 1;
+        committed = true;
+        return new Response("応答本文が壊れました", {
+          status: 201,
+          headers: { "content-type": "text/plain" }
+        });
+      }
+      return Response.json({
+        workspaceId,
+        currentUserRole: "owner",
+        members: committed ? [owner, added] : [owner]
+      });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  const form = harness.element("member-add-form");
+  form.elements.memberJoinCode = { value: joinCode };
+  form.elements.memberRole = { value: "viewer" };
+  await form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+
+  assert.equal(postCount, 1);
+  assert.equal(harness.api.getWorkspaceMembersState().members.length, 2);
+  assert.match(harness.api.getWorkspaceMembersState().message, /変更結果を一覧で確認/);
+  assert.equal(harness.api.getWorkspaceMembersState().messageKind, "warning");
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(joinCode));
+});
+
+test("ワークスペース切替後は旧メンバー一覧の遅延応答を採用しない", async () => {
+  const delayedMembers = deferred();
+  const workspaces = [
+    { id: "11111111-1111-4111-8111-111111111111", name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" },
+    { id: "22222222-2222-4222-8222-222222222222", name: "企画部", slug: "planning-team", status: "active", created_at: "2026-08-10T01:00:00Z" }
+  ];
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces };
+  const harness = createHarness({ fetch: async () => delayedMembers.promise });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  harness.element("members-reload-button").listeners.get("click")();
+
+  harness.api.selectCurrentWorkspace({ currentTarget: { value: workspaces[1].id } });
+  delayedMembers.resolve(Response.json({
+    workspaceId: workspaces[0].id,
+    currentUserRole: "owner",
+    members: [{
+      userId: session.user.id,
+      displayName: "旧メンバー",
+      role: "owner",
+      status: "active",
+      joinedAt: "2026-08-10T00:00:00Z"
+    }]
+  }));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.api.getWorkspaceMembersState().workspaceId, workspaces[1].id);
+  assert.equal(harness.api.getWorkspaceMembersState().status, "idle");
+  assert.doesNotMatch(harness.app.innerHTML, /旧メンバー/);
+});
+
+test("権限変更と利用停止はdesired stateを送り毎回最新一覧で確定する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = {
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    displayName: "管理責任者",
+    role: "owner",
+    status: "active",
+    joinedAt: "2026-08-10T00:00:00Z"
+  };
+  const editor = {
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    displayName: "編集担当",
+    role: "editor",
+    status: "active",
+    joinedAt: "2026-08-10T01:00:00Z"
+  };
+  let members = [owner, editor];
+  const patches = [];
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      if (options.method === "PATCH") {
+        const body = JSON.parse(options.body);
+        patches.push(body);
+        members = body.status === "removed"
+          ? [owner]
+          : [owner, { ...editor, role: body.role }];
+        return Response.json({ member: { ...editor, role: body.role, status: body.status } });
+      }
+      return Response.json({ workspaceId, currentUserRole: "owner", members });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  harness.element(`member-role-${editor.userId}`).value = "viewer";
+  await harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+  assert.deepEqual(patches[0], { role: "viewer", status: "active" });
+  assert.equal(harness.api.getWorkspaceMembersState().members[1].role, "viewer");
+
+  await harness.api.updateWorkspaceMemberFromUi(editor.userId, true);
+  assert.deepEqual(patches[1], { role: "viewer", status: "removed" });
+  assert.equal(harness.api.getWorkspaceMembersState().members.length, 1);
+  assert.equal(harness.api.getWorkspaceMembersState().message, "メンバーの利用を停止しました。");
+});
+
+test("メンバー保存中の同一ユーザー認証変更後は応答確定を待って最新一覧を再照合する", async () => {
+  const patchResponse = deferred();
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = {
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    displayName: "管理責任者",
+    role: "owner",
+    status: "active",
+    joinedAt: "2026-08-10T00:00:00Z"
+  };
+  const editor = {
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    displayName: "編集担当",
+    role: "editor",
+    status: "active",
+    joinedAt: "2026-08-10T01:00:00Z"
+  };
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path, options = {}) => {
+      if (path === "/api/session") return Response.json(session);
+      if (options.method === "PATCH") return patchResponse.promise;
+      return Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  harness.element(`member-role-${editor.userId}`).value = "viewer";
+  const saving = harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "保存中になりませんでした");
+  harness.emitBroadcast({ type: "authentication-changed" });
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "認証変更後の結果確認待ちが維持されませんでした");
+
+  patchResponse.resolve(Response.json({ member: { ...editor, role: "viewer" } }));
+  await saving;
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "認証変更後に一覧を再照合できませんでした");
+  assert.match(harness.api.getWorkspaceMembersState().message, /変更結果を最新の一覧で確認/);
+  assert.equal(harness.focusedId(), "members-message");
+});
+
+test("利用停止中の同一ユーザー認証変更も停止応答後に一覧を再照合する", async () => {
+  const mutationResponse = deferred();
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  let stopped = false;
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path, options = {}) => {
+      if (path === "/api/session") return Response.json(session);
+      if (options.method === "PATCH") {
+        const response = await mutationResponse.promise;
+        stopped = true;
+        return response;
+      }
+      return Response.json({ workspaceId, currentUserRole: "owner", members: stopped ? [owner] : [owner, editor] });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+  const saving = harness.api.updateWorkspaceMemberFromUi(editor.userId, true);
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "停止処理が開始されませんでした");
+  harness.emitBroadcast({ type: "authentication-changed" });
+  mutationResponse.resolve(Response.json({ member: { ...editor, status: "removed" } }));
+  await saving;
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "停止後一覧を再照合できませんでした");
+  assert.equal(harness.api.getWorkspaceMembersState().members.length, 1);
+  assert.match(harness.api.getWorkspaceMembersState().message, /変更結果を最新の一覧で確認/);
+});
+
+test("保存中に認証主体が変わった場合は旧ユーザーの保留状態を破棄する", async () => {
+  const mutationResponse = deferred();
+  const oldWorkspaceId = "11111111-1111-4111-8111-111111111111";
+  const newWorkspaceId = "22222222-2222-4222-8222-222222222222";
+  const oldUser = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "旧管理者", role: "admin", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const target = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  const oldSession = { user: { id: oldUser.userId }, workspaces: [{ id: oldWorkspaceId, name: "旧営業部", slug: "old-sales", status: "active" }] };
+  const newSession = { user: { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }, workspaces: [{ id: newWorkspaceId, name: "新企画部", slug: "new-plan", status: "active" }] };
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path, options = {}) => {
+      if (path === "/api/session") return Response.json(newSession);
+      if (options.method === "PATCH") return mutationResponse.promise;
+      return Response.json({ workspaceId: oldWorkspaceId, currentUserRole: "admin", members: [oldUser, target] });
+    }
+  });
+  harness.api.replaceCurrentSession(oldSession);
+  harness.api.renderShell(oldSession);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "旧一覧が読み込まれませんでした");
+  const saving = harness.api.updateWorkspaceMemberFromUi(target.userId, false);
+  harness.emitBroadcast({ type: "authentication-changed" });
+  await waitForCondition(() => harness.api.getCurrentSession()?.user?.id === newSession.user.id, "認証主体が切り替わりませんでした");
+  mutationResponse.resolve(Response.json({ member: { ...target, role: "editor" } }));
+  await saving;
+  assert.equal(harness.api.getWorkspaceMembersState().workspaceId, newWorkspaceId);
+  assert.equal(harness.api.getWorkspaceMembersState().status, "idle");
+  assert.doesNotMatch(harness.app.innerHTML, /旧営業部|旧管理者/);
+});
+
+test("利用停止は確認をキャンセルでき確認後だけ送信する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  for (const [confirmResult, expectedPatchCount] of [[false, 0], [true, 1]]) {
+    let patchCount = 0;
+    const harness = createHarness({
+      confirmResult,
+      fetch: async (_path, options = {}) => {
+        if (options.method === "PATCH") {
+          patchCount += 1;
+          return Response.json({ member: { ...editor, status: "removed" } });
+        }
+        return Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] });
+      }
+    });
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    await harness.element("members-reload-button").listeners.get("click")();
+    await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+    await harness.api.updateWorkspaceMemberFromUi(editor.userId, true);
+    assert.equal(patchCount, expectedPatchCount);
+    assert.match(harness.confirmationMessages[0], /一覧から表示されなくなります/);
+  }
+});
+
+test("自分自身の利用停止はUIと関数の両方で拒否する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const admin = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "自分", role: "admin", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  let patchCount = 0;
+  const session = { user: { id: admin.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  const harness = createHarness({ fetch: async (_path, options = {}) => {
+    if (options.method === "PATCH") patchCount += 1;
+    return Response.json({ workspaceId, currentUserRole: "admin", members: [owner, admin] });
+  } });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(`member-stop-${admin.userId}`));
+  assert.match(harness.app.innerHTML, /自分自身の利用停止はできません/);
+  await harness.api.updateWorkspaceMemberFromUi(admin.userId, true);
+  assert.equal(patchCount, 0);
+  assert.match(harness.api.getWorkspaceMembersState().message, /自分自身の利用は停止できません/);
+});
+
+test("管理者への昇格は影響確認をキャンセルでき確認後だけ送信する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  for (const [confirmResult, expectedPatchCount] of [[false, 0], [true, 1]]) {
+    let patchCount = 0;
+    const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+    const harness = createHarness({ confirmResult, fetch: async (_path, options = {}) => {
+      if (options.method === "PATCH") {
+        patchCount += 1;
+        return Response.json({ member: { ...editor, role: "admin" } });
+      }
+      return Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] });
+    } });
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    await harness.element("members-reload-button").listeners.get("click")();
+    await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+    harness.element(`member-role-${editor.userId}`).value = "admin";
+    await harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+    assert.equal(patchCount, expectedPatchCount);
+    assert.match(harness.confirmationMessages[0], /メンバーの追加・権限変更・利用停止/);
+  }
+});
+
+test("不正な参加コードは入力値とエラー関連付けを保ち入力欄へ戻す", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  const harness = createHarness({ fetch: async () => Response.json({ workspaceId, currentUserRole: "owner", members: [owner] }) });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+  const form = harness.element("member-add-form");
+  form.elements.memberJoinCode = { value: "bad<code" };
+  form.elements.memberRole = { value: "editor" };
+  await form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+  assert.match(harness.app.innerHTML, /value="bad&lt;code"/);
+  assert.match(harness.app.innerHTML, /aria-invalid="true" aria-describedby="member-join-code-error"/);
+  assert.match(harness.app.innerHTML, /参加コードの形式を確認してください/);
+  assert.equal(harness.focusedId(), "member-join-code");
+});
+
+test("参加コードは明示発行時だけ表示しStorageへ保存しない", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const joinCode = `mmj_${"Z".repeat(43)}`;
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  const harness = createHarness({ fetch: async (path, options = {}) => {
+    assert.equal(path, "/api/member-join-code");
+    assert.equal(options.method, "POST");
+    return Response.json({ joinCode, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() }, { status: 201 });
+  } });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(joinCode));
+  await harness.element("issue-join-code-button").listeners.get("click")();
+  await waitForCondition(() => harness.app.innerHTML.includes(joinCode), "参加コードが表示されませんでした");
+  assert.doesNotMatch(JSON.stringify([...harness.storage.entries()]), /mmj_/);
+  assert.doesNotMatch(JSON.stringify([...harness.sessionStorageValues.entries()]), /mmj_/);
+  assert.match(harness.app.innerHTML, /参加コードは秘密情報です/);
+  assert.match(harness.app.innerHTML, /グループチャットや共有チャンネルには送らない/);
+});
+
+test("参加コード発行中の同一ユーザー認証変更は遅延成功後に発行状態を確定する", async () => {
+  const response = deferred();
+  const joinCode = `mmj_${"S".repeat(43)}`;
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [] };
+  const harness = createHarness({ enableBroadcast: true, fetch: async (path) => {
+    if (path === "/api/session") return Response.json(session);
+    return response.promise;
+  } });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const issuing = harness.element("issue-join-code-button").listeners.get("click")();
+  harness.emitBroadcast({ type: "authentication-changed" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(harness.app.innerHTML, /発行中/);
+  response.resolve(Response.json({ joinCode, expiresAt: new Date(Date.now() + 600000).toISOString() }, { status: 201 }));
+  await issuing;
+  await waitForCondition(() => harness.app.innerHTML.includes(joinCode), "認証変更後に発行成功を確定できませんでした");
+  assert.doesNotMatch(harness.app.innerHTML, /発行中/);
+});
+
+test("参加コード発行中の同一ユーザー認証変更は遅延失敗後に再発行可能になる", async () => {
+  const response = deferred();
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [] };
+  const harness = createHarness({ enableBroadcast: true, fetch: async (path) => {
+    if (path === "/api/session") return Response.json(session);
+    return response.promise;
+  } });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const issuing = harness.element("issue-join-code-button").listeners.get("click")();
+  harness.emitBroadcast({ type: "authentication-changed" });
+  await new Promise((resolve) => setImmediate(resolve));
+  response.resolve(Response.json({ code: "JOIN_CODE_CREATE_RESULT_UNKNOWN", message: "参加コードを確認できませんでした。再発行してください。" }, { status: 502 }));
+  await issuing;
+  await waitForCondition(() => /再発行してください/.test(harness.app.innerHTML), "認証変更後の発行失敗を表示できませんでした");
+  assert.doesNotMatch(harness.app.innerHTML, /発行中/);
+  assert.match(harness.app.innerHTML, /参加コードを発行/);
+});
+
+test("参加コード発行中に別ユーザーへ変わったら遅延した平文を表示しない", async () => {
+  const response = deferred();
+  const secretCode = `mmj_${"X".repeat(43)}`;
+  const oldSession = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [] };
+  const newSession = { user: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, workspaces: [] };
+  const harness = createHarness({ enableBroadcast: true, fetch: async (path) => {
+    if (path === "/api/session") return Response.json(newSession);
+    return response.promise;
+  } });
+  harness.api.replaceCurrentSession(oldSession);
+  harness.api.renderShell(oldSession);
+  const issuing = harness.element("issue-join-code-button").listeners.get("click")();
+  harness.emitBroadcast({ type: "authentication-changed" });
+  await waitForCondition(() => harness.api.getCurrentSession()?.user?.id === newSession.user.id, "別ユーザーへ切り替わりませんでした");
+  response.resolve(Response.json({ joinCode: secretCode, expiresAt: new Date(Date.now() + 600000).toISOString() }, { status: 201 }));
+  await issuing;
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(secretCode));
+  assert.doesNotMatch(harness.app.innerHTML, /発行中/);
+});
+
+test("参加コードは期限到達時に画面とstateから消えて再発行を案内する", async () => {
+  const nowMs = Date.UTC(2026, 7, 11, 0, 0, 0);
+  const joinCode = `mmj_${"E".repeat(43)}`;
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [] };
+  const harness = createHarness({ nowMs, fetch: async () => Response.json({
+    joinCode,
+    expiresAt: new Date(nowMs + 600000).toISOString()
+  }, { status: 201 }) });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("issue-join-code-button").listeners.get("click")();
+  assert.match(harness.app.innerHTML, new RegExp(joinCode));
+  harness.advanceTime(600000);
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp(joinCode));
+  assert.doesNotMatch(harness.app.innerHTML, /copy-join-code-button/);
+  assert.match(harness.app.innerHTML, /有効期限が切れました。新しいコードを発行してください/);
+});
+
+test("参加コードの再発行は現在コード失効の確認をキャンセルでき確認後だけ送信する", async () => {
+  const firstCode = `mmj_${"F".repeat(43)}`;
+  const secondCode = `mmj_${"N".repeat(43)}`;
+  const session = { user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, workspaces: [] };
+  for (const [confirmResult, expectedCalls] of [[false, 1], [true, 2]]) {
+    let calls = 0;
+    const harness = createHarness({ confirmResult, fetch: async () => {
+      calls += 1;
+      return Response.json({ joinCode: calls === 1 ? firstCode : secondCode, expiresAt: new Date(Date.now() + 600000).toISOString() }, { status: 201 });
+    } });
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    await harness.element("issue-join-code-button").listeners.get("click")();
+    await harness.element("issue-join-code-button").listeners.get("click")();
+    assert.equal(calls, expectedCalls);
+    assert.match(harness.confirmationMessages[0], /現在のコードはすぐに無効/);
+    assert.match(harness.app.innerHTML, new RegExp(confirmResult ? secondCode : firstCode));
+  }
 });

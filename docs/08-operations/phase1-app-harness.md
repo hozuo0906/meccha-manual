@@ -17,6 +17,8 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - ログイン中ユーザーのセッション確認
 - 所属ワークスペース一覧
 - `create_workspace` RPCによるワークスペース作成
+- SCR-MEMBERSのメンバー一覧、本人発行の短命参加コードによる追加、role変更、利用停止
+- owner/admin/editor/viewerのAPI/UI境界とlast-owner保護
 - CSPなどの最低限のセキュリティヘッダー
 - 401、接続失敗、サーバー失敗を区別する認証画面状態
 - Supabase現在セッションの失効を伴うログアウト
@@ -24,11 +26,9 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - Web Locksと非機密な認証世代nonceによる複数タブのlogin/logout/refresh直列化・待機中の古いlogout/refresh取消、認証変更時に旧shellを即時非表示にする通知、workspace作成・一覧更新の古い応答・失敗を破棄する競合制御
 - 異origin、壊れたCookie、認証エラー非露出、ログアウト失効、refresh競合・失敗のWorker/UI認証テスト
 
-Phase 1で追加するもの:
+Phase 1で残るもの:
 
 - SCR-WORKSPACEの画面状態とワークスペース選択
-- SCR-MEMBERSのメンバー一覧とowner/admin/editor/viewer管理
-- last-owner保護を含むメンバーAPI
 - SCR-SHELLの日本語ナビと権限別UI
 - 画面別の空、読込、保存、失敗、権限不足、接続切断、期限切れ状態
 - WCAG 2.2 AAを目標とするアクセシビリティ検査
@@ -69,6 +69,10 @@ Cookie属性:
 - `GET /api/session`
 - `GET /api/workspaces`
 - `POST /api/workspaces`
+- `POST /api/member-join-code`
+- `GET /api/workspaces/{id}/members`
+- `POST /api/workspaces/{id}/members`
+- `PATCH /api/workspaces/{id}/members/{userId}`
 
 `POST /api/workspaces` はSupabase RPC `create_workspace(workspace_name, workspace_slug)` を呼ぶ。直接 `workspaces` へINSERTしない。
 
@@ -76,7 +80,7 @@ Cookie属性:
 
 通常の保護GETと業務APIはrefresh tokenを交換せず、access token失効時に`SESSION_REFRESH_REQUIRED`を返す。ブラウザは最初の要求前に認証世代を固定し、認証Web Lockの取得後に元の要求を現在のsessionで再確認する。なおrefreshが必要な場合だけ、`POST /api/auth/refresh`とrefresh後の1回再試行を同じlock内で完結させる。認証世代が変わった状態変更要求は再送しない。refresh後のCookieを通常APIの処理結果へ同梱しないため、後続のprofile/workspace取得失敗でも回転済みtokenを失わない。
 
-Phase 1ではメンバー一覧、追加、ロール変更、停止用APIを小分けIssueで追加する。APIはowner/admin/editor/viewerの認可を行い、RLSを最終防衛線とする。最後のactive ownerの停止、削除、降格を拒否する。owner移管は専用フローの設計がAcceptedになるまで提供しない。
+メンバーAPIはowner/admin/editor/viewerの認可を行い、RLSを最終防衛線とする。追加される本人が`POST /api/member-join-code`で256 bit・10分有効・単回使用の参加コードを発行し、owner/adminがそのコードを利用する。メールアドレスは受け付けず、平文コードはStorage、URL、ログ、監査ログへ保存しない。発行画面では参加を希望するworkspaceの信頼できる管理者へ1対1でだけ共有するよう警告し、期限到達時は平文をDOMとメモリstateから消去する。再発行は現在コードの失効確認を必須とする。発行中の認証変更は、同一ユーザーでは遅延成功・失敗を確定して発行中状態を終了し、別ユーザーでは遅延した平文を破棄する。最後のactive ownerの停止、削除、降格を拒否する。owner移管は専用フローの設計がAcceptedになるまで提供しない。画面では各ロールの影響を説明し、adminへの昇格と利用停止を確認操作にし、自分自身の利用停止は行わせない。保存と別タブの認証変更が競合した場合、同一ユーザーでは保留中処理の決着後に一覧を再照合し、別ユーザーでは旧状態を破棄する。
 
 ## Verification
 
@@ -107,4 +111,4 @@ Phase 1ではメンバー一覧、追加、ロール変更、停止用APIを小�
 
 RLS negative testスクリプトはリポジトリに存在するが、外部Supabase環境、検証用ユーザー、対象migrationの適用が必要である。リポジトリにmigrationがあることを、dev、staging、productionのいずれかへ適用済みという根拠にしてはならない。外部環境へデータを作成する動的テストと新規migration適用は、対象環境と承認を確認してから実行する。
 
-メンバー管理API/UI、本格E2E、画面状態とアクセシビリティの自動検査は未実装であり、P1-01からP1-10のIssueで完了させる。
+メンバー管理API/UIのリポジトリ実装とWorker/UI回帰テストは存在する。本格E2E、外部Supabaseへforward migrationを適用した動的RLS検証、Phase 1全画面のアクセシビリティ自動検査は未完了であり、後続Issueで完了させる。
