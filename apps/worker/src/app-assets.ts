@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-fd7179cb3a29d655";
+export const APP_ASSET_VERSION = "sha256-7bcde4f31d9f2561";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -9,11 +9,14 @@ export const APP_HTML = `<!doctype html>
   <link rel="stylesheet" href="/assets/app.css?v=${APP_ASSET_VERSION}">
 </head>
 <body>
-  <main id="app" class="app">
-    <section class="boot" role="status" aria-live="polite" aria-busy="true">
+  <a class="skip-link" href="#screen-content">本文へ移動</a>
+  <main class="app">
+    <div id="app">
+    <section id="screen-content" class="boot" role="status" aria-live="polite" aria-busy="true" tabindex="-1">
       <div class="logo-mark" aria-hidden="true"><span>め</span></div>
       <p>ワークスペースを読み込んでいます</p>
     </section>
+    </div>
   </main>
   <script src="/assets/app.js?v=${APP_ASSET_VERSION}" defer></script>
 </body>
@@ -45,6 +48,28 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
+  line-height: 1.5;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--primary-strong);
+  font-weight: 800;
+  box-shadow: var(--shadow);
+  transform: translateY(-160%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 button,
@@ -61,6 +86,12 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #1d4ed8;
 }
 
 .app {
@@ -342,6 +373,25 @@ h1 {
   padding: 0 10px;
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.76);
+  text-decoration: none;
+}
+
+a.nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.nav-item[aria-disabled="true"] {
+  justify-content: space-between;
+  cursor: not-allowed;
+}
+
+.nav-status {
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .nav-item.active {
@@ -354,6 +404,7 @@ h1 {
   gap: 10px;
   color: rgba(255, 255, 255, 0.72);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .main {
@@ -462,6 +513,7 @@ h1 {
 
 .workspace-name {
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .badge {
@@ -497,6 +549,30 @@ h1 {
 
 .muted {
   color: var(--muted);
+}
+
+.join-code-section > .warning-box,
+.join-code-section > .notice-box,
+.join-code-section > .error-box,
+.join-code-section > button,
+.join-code-section > .muted {
+  margin: 18px 20px;
+}
+
+#workspace-join-code {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  user-select: all;
+  white-space: normal;
+}
+
+.context-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
 }
 
 .members-section {
@@ -569,8 +645,7 @@ h1 {
   }
 
   .nav {
-    grid-auto-flow: column;
-    overflow-x: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 0;
   }
 
@@ -580,6 +655,42 @@ h1 {
 
   .member-add-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .login-intro,
+  .login-panel,
+  .main,
+  .sidebar {
+    padding: 16px;
+  }
+
+  .nav {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar,
+  .section-header {
+    align-items: stretch;
+  }
+
+  .topbar > button,
+  .member-header-actions > button {
+    width: 100%;
+  }
+
+  .table th,
+  .table td {
+    padding: 12px;
+  }
+}
+
+@media (forced-colors: active) {
+  .logo-mark,
+  .badge,
+  .nav-item.active {
+    border: 1px solid CanvasText;
   }
 }
 `;
@@ -780,7 +891,7 @@ async function logoutWithAuthenticationLock(expectedVersion) {
 
 function renderAuthenticationReload() {
   app.innerHTML =
-    '<section class="boot" role="status" aria-live="polite">' +
+    '<section id="screen-content" class="boot" tabindex="-1" role="status" aria-live="polite">' +
       '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
       '<p>ログイン状態を更新しています</p>' +
     '</section>';
@@ -894,12 +1005,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function setBox(id, message, kind) {
+function setBox(id, message, kind, shouldFocus = true) {
   const box = document.getElementById(id);
   if (!box) return;
   box.textContent = message || "";
   box.className = kind === "notice" ? "notice-box show" : "error-box show";
-  if (kind !== "notice") box.focus();
+  box.setAttribute("role", kind === "notice" ? "status" : "alert");
+  box.setAttribute("aria-live", kind === "notice" ? "polite" : "assertive");
+  box.setAttribute("aria-atomic", "true");
+  if (kind !== "notice" && shouldFocus) box.focus();
 }
 
 function clearBox(id) {
@@ -1019,13 +1133,53 @@ function clearLoginFieldError(field) {
 function clearWorkspaceFieldError(field) {
   field?.removeAttribute?.("aria-invalid");
   const describedBy = field?.getAttribute?.("aria-describedby") || field?.["aria-describedby"] || "";
-  const remaining = describedBy.split(/\s+/).filter((id) => id && id !== "workspace-message").join(" ");
+  const remaining = describedBy.split(/\\s+/).filter((id) => id && id !== "workspace-message").join(" ");
   if (remaining) field.setAttribute?.("aria-describedby", remaining);
   else field?.removeAttribute?.("aria-describedby");
 }
 
+function clearWorkspaceLimitMessage(message) {
+  const box = document.getElementById("workspace-message");
+  if (box?.textContent === message) clearBox("workspace-message");
+}
+
+function setWorkspaceLimitError(field, message) {
+  clearWorkspaceFieldError(document.getElementById("workspace-name"));
+  clearWorkspaceFieldError(document.getElementById("workspace-slug"));
+  field.setAttribute?.("aria-invalid", "true");
+  const describedBy = field.getAttribute?.("aria-describedby") || field["aria-describedby"] || "";
+  field.setAttribute?.(
+    "aria-describedby",
+    [describedBy, "workspace-message"].filter(Boolean).join(" ")
+  );
+  setBox("workspace-message", message, "error", false);
+}
+
 function workspaceNameLength(value) {
   return Array.from(value).length;
+}
+
+function limitWorkspaceNameCodePoints(field) {
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  const codePoints = Array.from(normalizedValue);
+  if (codePoints.length <= 64) return false;
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + codePoints.slice(0, 64).join("") + trailingWhitespace;
+  setWorkspaceLimitError(field, "ワークスペース名は64文字以内で入力してください。");
+  return true;
+}
+
+function limitWorkspaceSlugLength(field) {
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  if (normalizedValue.length <= 63) return false;
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + normalizedValue.slice(0, 63) + trailingWhitespace;
+  setWorkspaceLimitError(field, "URL用IDは63文字以内で入力してください。");
+  return true;
 }
 
 function validateWorkspaceForm(form) {
@@ -1066,12 +1220,12 @@ function updateLoginFieldErrors(form, validationMessage) {
 
 function renderLogin(message = "") {
   app.innerHTML =
-    '<section class="login-screen">' +
+    '<section id="screen-content" class="login-screen" aria-labelledby="service-title" tabindex="-1">' +
       '<div class="login-intro">' +
         '<div class="login-copy">' +
           '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
           '<p class="eyebrow">日本のオフィスワーカー専用</p>' +
-          '<h1>めっちゃマニュアル</h1>' +
+          '<h1 id="service-title">めっちゃマニュアル</h1>' +
           '<p>業務の手順をわかりやすく整理し、チームで共有するためのサービスです。</p>' +
         '</div>' +
       '</div>' +
@@ -1081,10 +1235,10 @@ function renderLogin(message = "") {
           '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
         '</div>' +
         '<form id="login-form" class="form" novalidate>' +
-          '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" tabindex="-1">' + escapeHtml(message) + '</div>' +
+          '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
-            '<input id="email" name="email" type="email" autocomplete="email" required>' +
+            '<input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>' +
           '</div>' +
           '<div class="field">' +
             '<label for="password">パスワード</label>' +
@@ -1138,7 +1292,7 @@ function renderLogin(message = "") {
 
 function renderLoadFailure(title, message) {
   app.innerHTML =
-    '<section class="boot" role="alert" aria-live="assertive">' +
+    '<section id="screen-content" class="boot" role="alert" aria-live="assertive" tabindex="-1">' +
       '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
       '<h1>' + escapeHtml(title) + '</h1>' +
       '<p>' + escapeHtml(message) + '</p>' +
@@ -1199,7 +1353,7 @@ function memberMessageHtml(state) {
   const className = state.messageKind === "error" ? "error-box show" :
     state.messageKind === "warning" ? "warning-box show" : "notice-box show";
   const role = state.messageKind === "error" ? "alert" : "status";
-  return '<div id="members-message" class="' + className + '" role="' + role + '" aria-live="polite" tabindex="-1">' + escapeHtml(state.message) + '</div>';
+  return '<div id="members-message" class="' + className + '" role="' + role + '" aria-live="' + (state.messageKind === "error" ? "assertive" : "polite") + '" aria-atomic="true" tabindex="-1">' + escapeHtml(state.message) + '</div>';
 }
 
 function clearExpiredWorkspaceJoinCode() {
@@ -1235,11 +1389,11 @@ function renderWorkspaceJoinCodeIssuer() {
     ? '<div class="notice-box show" role="status"><p><strong>参加コード</strong></p><p><code id="workspace-join-code">' + escapeHtml(state.joinCode) + '</code></p><p class="muted">有効期限：' + escapeHtml(new Date(state.expiresAt).toLocaleString("ja-JP")) + '</p><button id="copy-join-code-button" class="secondary-button compact-button" type="button">コードをコピー</button></div>'
     : '';
   const message = state.message
-    ? '<div id="join-code-message" class="' + (state.status === "error" ? 'error-box show' : 'notice-box show') + '" role="' + (state.status === "error" ? 'alert' : 'status') + '" tabindex="-1">' + escapeHtml(state.message) + '</div>'
+    ? '<div id="join-code-message" class="' + (state.status === "error" ? 'error-box show' : state.status === "expired" ? 'warning-box show' : 'notice-box show') + '" role="' + (state.status === "error" ? 'alert' : 'status') + '" aria-live="' + (state.status === "error" ? 'assertive' : 'polite') + '" aria-atomic="true" tabindex="-1">' + escapeHtml(state.message) + '</div>'
     : '<div id="join-code-message" class="notice-box" role="status" tabindex="-1"></div>';
-  return '<section class="section" aria-labelledby="join-code-heading"' + (issuing ? ' aria-busy="true"' : '') + '>' +
+  return '<section class="section join-code-section" aria-labelledby="join-code-heading" aria-describedby="join-code-warning"' + (issuing ? ' aria-busy="true"' : '') + '>' +
     '<div class="section-header"><div><h2 id="join-code-heading">自分の参加コード</h2><p class="muted">ワークスペースへ参加するときに発行します。コードは10分間・1回だけ有効です。</p></div></div>' +
-    '<div class="warning-box show"><strong>参加コードは秘密情報です。</strong>コードを受け取った管理者は、その管理者が管理する任意のワークスペースへ、あなたを選択した権限で1回追加できます。参加先を確認し、信頼できる管理者1人へ安全な1対1の方法で渡してください。グループチャットや共有チャンネルには送らないでください。</div>' +
+    '<div id="join-code-warning" class="warning-box show"><strong>参加コードは秘密情報です。</strong>コードを受け取った管理者は、その管理者が管理する任意のワークスペースへ、あなたを選択した権限で1回追加できます。参加先を確認し、信頼できる管理者1人へ安全な1対1の方法で渡してください。グループチャットや共有チャンネルには送らないでください。</div>' +
     message + code +
     '<button id="issue-join-code-button" class="secondary-button" type="button"' + (issuing ? ' disabled' : '') + '>' + (issuing ? '発行中' : state.joinCode ? '新しいコードを発行' : '参加コードを発行') + '</button>' +
     (state.joinCode ? '<p class="muted">新しく発行すると、現在のコードは無効になります。</p>' : '') +
@@ -1252,7 +1406,7 @@ function workspaceMemberRows(state) {
   return state.members.map((member) => {
     const stopControl = member.userId === currentSession?.user?.id
       ? '<span class="muted">自分自身の利用停止はできません</span>'
-      : '<button id="member-stop-' + escapeHtml(member.userId) + '" class="danger-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>利用を停止</button>';
+      : '<button id="member-stop-' + escapeHtml(member.userId) + '" class="danger-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'さんの</span>利用を停止</button>';
     const roleControl = canManage && member.role !== "owner" && member.status === "active"
       ? '<div class="member-actions">' +
           '<label class="visually-hidden" for="member-role-' + escapeHtml(member.userId) + '">' + escapeHtml(member.displayName) + 'さんの権限</label>' +
@@ -1261,7 +1415,7 @@ function workspaceMemberRows(state) {
               '<option value="' + role + '"' + (member.role === role ? ' selected' : '') + '>' + escapeHtml(workspaceRoleLabels[role]) + '</option>'
             ).join('') +
           '</select>' +
-          '<button id="member-save-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>権限を保存</button>' +
+          '<button id="member-save-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'さんの</span>権限を保存</button>' +
           stopControl +
         '</div>'
       : '<span class="muted">' + (member.role === "owner" ? '専用の移管手続きが必要です' : '変更できません') + '</span>';
@@ -1293,7 +1447,7 @@ function renderWorkspaceMembers(currentWorkspace) {
   if (state.status === "loading") {
     return '<section class="section members-section" aria-labelledby="members-heading" aria-busy="true">' +
       '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
-      '<div class="empty" role="status" aria-live="polite">メンバーを読み込んでいます。</div>' +
+      '<div id="members-loading-status" class="empty" role="status" aria-live="polite" aria-atomic="true" tabindex="-1">メンバーを読み込んでいます。</div>' +
     '</section>';
   }
   if (state.status === "error") {
@@ -1315,14 +1469,14 @@ function renderWorkspaceMembers(currentWorkspace) {
     memberMessageHtml(state) +
     (canManage ? roleHelp : '') +
     (state.members.length
-      ? '<div class="table-scroll" tabindex="0" aria-label="ワークスペースメンバー一覧"><table class="table"><caption class="visually-hidden">ワークスペースメンバー一覧</caption><thead><tr><th scope="col">名前</th><th scope="col">権限</th><th scope="col">状態</th><th scope="col">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      ? '<div class="table-scroll" role="region" tabindex="0" aria-label="ワークスペースメンバー一覧"><table class="table"><caption class="visually-hidden">ワークスペースメンバー一覧</caption><thead><tr><th scope="col">名前</th><th scope="col">権限</th><th scope="col">状態</th><th scope="col">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       : '<div class="empty">メンバーがいません。</div>') +
     (canManage
       ? '<form id="member-add-form" class="member-add-form" novalidate>' +
           '<h3>参加コードでメンバーを追加</h3>' +
           '<p class="muted">追加する本人が発行した10分間有効の参加コードを入力してください。コードは成功時に1回だけ使用されます。</p>' +
           '<div class="member-add-grid">' +
-            '<div class="field"><label for="member-join-code">参加コード</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
+            '<div class="field"><label for="member-join-code">参加コード</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" data-max-normalized-length="47" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error" role="alert" aria-live="assertive" aria-atomic="true"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
             '<div class="field"><label for="member-role">権限</label><select id="member-role" name="memberRole" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '><option value="editor">編集者</option><option value="viewer">閲覧者</option><option value="admin">管理者</option></select></div>' +
             '<button class="primary-button" type="submit"' + (saving ? ' disabled' : '') + '>' + (saving ? '保存中' : 'メンバーを追加') + '</button>' +
           '</div>' +
@@ -1347,7 +1501,7 @@ async function loadWorkspaceMembers(workspaceId, options = {}) {
     addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
     addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
   };
-  if (!options.alreadyRendered) renderShell(currentSession, "", "notice", null);
+  if (!options.alreadyRendered) renderShell(currentSession, "", "notice", "members-loading-status");
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/members");
     if (
@@ -1381,11 +1535,12 @@ async function loadWorkspaceMembers(workspaceId, options = {}) {
       await loadSession();
       return;
     }
+    const preserveKnownRole = error.status === 0 || error.status === 429 || error.status >= 500;
     workspaceMembersState = {
       userId,
       workspaceId,
       status: "error",
-      currentUserRole: null,
+      currentUserRole: preserveKnownRole ? workspaceMembersState?.currentUserRole || null : null,
       members: [],
       message: error.status === 404
         ? "ワークスペースへの所属を確認できませんでした。一覧を更新してください。"
@@ -1437,6 +1592,30 @@ function clearWorkspaceMemberJoinCodeError(field) {
     error.textContent = "";
     error.hidden = true;
   }
+}
+
+function limitWorkspaceMemberJoinCodeLength(field) {
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  if (normalizedValue.length <= 47) return false;
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + normalizedValue.slice(0, 47) + trailingWhitespace;
+  if (workspaceMembersState) {
+    workspaceMembersState.addDraftJoinCode = field.value;
+    workspaceMembersState.addJoinCodeError = "参加コードは47文字以内で入力してください。";
+  }
+  field.setAttribute?.("aria-invalid", "true");
+  field.setAttribute?.("aria-describedby", "member-join-code-error");
+  const error = document.getElementById("member-join-code-error");
+  if (error) {
+    error.textContent = "参加コードは47文字以内で入力してください。";
+    error.hidden = false;
+    error.setAttribute?.("role", "alert");
+    error.setAttribute?.("aria-live", "assertive");
+    error.setAttribute?.("aria-atomic", "true");
+  }
+  return true;
 }
 
 async function finalizeWorkspaceJoinCodeIssuance(issuance) {
@@ -1497,7 +1676,7 @@ async function issueWorkspaceJoinCode() {
   if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
   workspaceJoinCodeExpiryTimer = null;
   workspaceJoinCodeState = { status: "issuing", joinCode: "", expiresAt: "", message: "参加コードを発行しています。" };
-  renderShell(currentSession, "", "notice", null);
+  renderShell(currentSession, "", "notice", "join-code-message");
   try {
     issuance.payload = await requestJson("/api/member-join-code", { method: "POST", body: "{}" });
   } catch (error) {
@@ -1578,10 +1757,11 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
   const mutation = { userId, workspaceId, settled: false, authReconciled: true, reconciling: false };
   pendingWorkspaceMemberMutation = mutation;
   workspaceMembersState = { ...previous, status: "saving", message: "保存しています。", messageKind: "notice" };
-  renderShell(currentSession, "", "notice", null);
+  renderShell(currentSession, "", "notice", "members-message");
   try {
     await requestJson(path, requestOptions);
     mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
     if (requestGeneration !== sessionGeneration || currentSession?.user?.id !== userId) {
       await reconcilePendingWorkspaceMemberMutation(mutation);
       return;
@@ -1589,6 +1769,7 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
     await loadWorkspaceMembers(workspaceId, { message: successMessage, focusId: "members-message" });
   } catch (error) {
     mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
     if (requestGeneration !== sessionGeneration) {
       await reconcilePendingWorkspaceMemberMutation(mutation);
       return;
@@ -1609,12 +1790,22 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
       });
       return;
     }
-    workspaceMembersState = {
-      ...previous,
-      status: "loaded",
-      message: error.message,
-      messageKind: "error"
-    };
+    const accessRejected = error.status === 403 || error.status === 404;
+    workspaceMembersState = accessRejected
+      ? {
+          ...previous,
+          status: "error",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        }
+      : {
+          ...previous,
+          status: "loaded",
+          message: error.message,
+          messageKind: "error"
+        };
     pendingWorkspaceMemberMutation = null;
     renderShell(currentSession, "", "notice", "members-message");
   }
@@ -1625,6 +1816,10 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
   restoreUncertainWorkspaceCreation(session.user?.id);
   const currentWorkspace = resolveCurrentWorkspace(session);
   prepareWorkspaceMembersState(session, currentWorkspace);
+  const currentRole = currentWorkspace && workspaceMembersState &&
+    workspaceMembersState.workspaceId === currentWorkspace.id
+    ? workspaceMembersState.currentUserRole
+    : null;
   const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
   const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
   const rows = workspaces.map((workspace) =>
@@ -1634,30 +1829,49 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
       '<td>' + escapeHtml(workspace.created_at ? workspace.created_at.slice(0, 10) : "") + '</td>' +
     '</tr>'
   ).join("");
+  const shellMessageClass = notice
+    ? noticeKind === "error"
+      ? "error-box show"
+      : (creationUncertain || noticeKind === "warning")
+        ? "warning-box show"
+        : "notice-box show"
+    : "notice-box";
+  const shellMessageRole = noticeKind === "error" ? "alert" : "status";
+  const shellMessageLive = noticeKind === "error" ? "assertive" : "polite";
 
   app.innerHTML =
     '<section class="shell">' +
-      '<aside class="sidebar">' +
+      '<aside class="sidebar" aria-label="アプリメニュー">' +
         '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
         '<nav class="nav" aria-label="主要メニュー">' +
-          '<div class="nav-item active" aria-current="page">ワークスペース</div>' +
-          '<div class="nav-item" aria-disabled="true">手順書（準備中）</div>' +
-          '<div class="nav-item" aria-disabled="true">操作を記録（準備中）</div>' +
+          '<a class="nav-item active" href="#workspace-heading" aria-current="page">ワークスペース</a>' +
+          '<a class="nav-item" href="#members-heading">メンバー管理</a>' +
+          '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">準備中</span></span>' +
+          '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
         '</nav>' +
         '<div class="user-box">' +
-          '<span>' + escapeHtml(session.user.email || "ログイン中") + '</span>' +
+          '<span>ログイン中：' + escapeHtml(session.user.email || "メールアドレス未設定") + '</span>' +
           '<button id="logout-button" class="secondary-button" type="button">ログアウト</button>' +
         '</div>' +
       '</aside>' +
-      '<div class="main">' +
+      '<div id="screen-content" class="main" tabindex="-1">' +
         '<header class="topbar">' +
-          '<div><h1 id="workspace-heading" tabindex="-1">ワークスペース</h1><p>所属しているワークスペースだけが表示されます。</p></div>' +
+          '<div><h1 id="workspace-heading" tabindex="-1">ワークスペース</h1><p>所属しているワークスペースだけが表示されます。</p>' +
+            '<div class="context-summary" aria-label="現在の利用状況">' +
+              (currentWorkspace ? '<span class="badge">選択中：' + escapeHtml(currentWorkspace.name) + '</span>' : '<span class="badge">ワークスペース未選択</span>') +
+              (currentRole
+                ? '<span class="badge">' + (workspaceMembersState?.status === "error" ? '前回確認した権限：' : '現在の権限：') + escapeHtml(workspaceRoleLabels[currentRole]) + '</span>'
+                : currentWorkspace
+                  ? '<span class="badge">現在の権限：' + (workspaceMembersState?.status === "error" ? '確認できません' : 'メンバー一覧で確認') + '</span>'
+                  : '') +
+            '</div>' +
+          '</div>' +
           '<button id="reload-button" class="secondary-button" type="button">一覧を更新</button>' +
         '</header>' +
-        '<div id="shell-message" class="' + (notice ? ((creationUncertain || noticeKind === 'warning') ? 'warning-box show' : 'notice-box show') : 'error-box') + '" role="status" aria-live="polite" tabindex="-1">' + escapeHtml(notice) + '</div>' +
+        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(notice) + '</div>' +
         '<div class="dashboard-grid">' +
-          '<section class="section">' +
-            '<div class="section-header"><h2>所属ワークスペース</h2><span class="badge">' + workspaces.length + '件</span></div>' +
+          '<section id="workspace-overview" class="section" aria-labelledby="workspace-list-heading">' +
+            '<div class="section-header"><h2 id="workspace-list-heading">所属ワークスペース</h2><span class="badge">' + workspaces.length + '件</span></div>' +
             (workspaces.length > 0
               ? '<div class="workspace-selector field">' +
                   '<label for="current-workspace">現在のワークスペース</label>' +
@@ -1674,10 +1888,10 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
                     ? '<p class="muted">現在選択中：' + escapeHtml(currentWorkspace.name) + '</p>'
                     : '<p class="muted">利用中のワークスペースがありません。管理者に確認してください。</p>') +
                 '</div>' +
-                '<div class="table-scroll" tabindex="0" aria-label="所属ワークスペース一覧">' +
+                '<div class="table-scroll" role="region" tabindex="0" aria-label="所属ワークスペース一覧">' +
                   '<table class="table"><caption class="visually-hidden">所属ワークスペース一覧</caption><thead><tr><th scope="col">名前</th><th scope="col">状態</th><th scope="col">作成日</th></tr></thead><tbody>' + rows + '</tbody></table>' +
                 '</div>'
-              : '<div class="empty"><strong>まだ所属しているワークスペースはありません。</strong><br>最初のワークスペースを作成してください。手順書はワークスペース内に保存されます。</div>') +
+              : '<div class="empty" role="status"><strong>まだ所属しているワークスペースはありません。</strong><br>最初のワークスペースを作成してください。手順書はワークスペース内に保存されます。</div>') +
           '</section>' +
           (creationInFlight
             ? '<section class="workspace-form" aria-labelledby="workspace-creating-title" aria-busy="true">' +
@@ -1697,11 +1911,11 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
                 '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
                 '<div class="field">' +
                   '<label for="workspace-name">名前</label>' +
-                  '<input id="workspace-name" name="name" required placeholder="例：営業部">' +
+                  '<input id="workspace-name" name="name" data-max-code-points="64" required placeholder="例：営業部">' +
                 '</div>' +
                 '<div class="field">' +
                   '<label for="workspace-slug">URL用ID</label>' +
-                  '<input id="workspace-slug" name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
+                  '<input id="workspace-slug" name="slug" data-max-normalized-length="63" inputmode="url" autocapitalize="none" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
                   '<span id="workspace-slug-help" class="muted">半角英数字とハイフンを使い、3〜63文字で入力してください。</span>' +
                 '</div>' +
                 '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
@@ -1715,15 +1929,38 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
   document.getElementById("logout-button").addEventListener("click", logout);
   document.getElementById("reload-button").addEventListener("click", reloadWorkspaces);
   document.getElementById("workspace-form")?.addEventListener("submit", createWorkspace);
-  for (const field of [document.getElementById("workspace-name"), document.getElementById("workspace-slug")]) {
-    field?.addEventListener("input", () => clearWorkspaceFieldError(field));
-  }
+  const workspaceNameField = document.getElementById("workspace-name");
+  let workspaceNameComposing = false;
+  const enforceWorkspaceNameLimit = () => {
+    clearWorkspaceFieldError(workspaceNameField);
+    if (!limitWorkspaceNameCodePoints(workspaceNameField)) {
+      clearWorkspaceLimitMessage("ワークスペース名は64文字以内で入力してください。");
+    }
+  };
+  workspaceNameField?.addEventListener("compositionstart", () => { workspaceNameComposing = true; });
+  workspaceNameField?.addEventListener("compositionend", () => {
+    workspaceNameComposing = false;
+    enforceWorkspaceNameLimit();
+  });
+  workspaceNameField?.addEventListener("input", () => {
+    if (!workspaceNameComposing) enforceWorkspaceNameLimit();
+  });
+  const workspaceSlugField = document.getElementById("workspace-slug");
+  workspaceSlugField?.addEventListener("input", () => {
+    clearWorkspaceFieldError(workspaceSlugField);
+    if (!limitWorkspaceSlugLength(workspaceSlugField)) {
+      clearWorkspaceLimitMessage("URL用IDは63文字以内で入力してください。");
+    }
+  });
   document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
   document.getElementById("members-reload-button")?.addEventListener("click", () => {
     if (currentWorkspace?.id) loadWorkspaceMembers(currentWorkspace.id, { focusId: "members-reload-button" });
   });
   document.getElementById("member-add-form")?.addEventListener("submit", addWorkspaceMember);
-  document.getElementById("member-join-code")?.addEventListener("input", (event) => clearWorkspaceMemberJoinCodeError(event.currentTarget));
+  document.getElementById("member-join-code")?.addEventListener("input", (event) => {
+    clearWorkspaceMemberJoinCodeError(event.currentTarget);
+    limitWorkspaceMemberJoinCodeLength(event.currentTarget);
+  });
   document.getElementById("issue-join-code-button")?.addEventListener("click", issueWorkspaceJoinCode);
   document.getElementById("copy-join-code-button")?.addEventListener("click", copyWorkspaceJoinCode);
   for (const member of workspaceMembersState?.members || []) {
@@ -1818,7 +2055,22 @@ async function loadSession(options = {}) {
         : error.status === 403
           ? "一覧を更新する権限を確認できませんでした。表示中の一覧は更新前です。もう一度ログインするか、管理者に確認してください。"
           : "一覧を更新できませんでした。表示中の一覧は更新前です。通信環境を確認して、もう一度お試しください。";
-      renderShell(currentSession, message, "warning");
+      if (error.status === 403 && currentWorkspaceSelection?.workspaceId) {
+        workspaceMemberRequestSequence += 1;
+        pendingWorkspaceMemberMutation = null;
+        workspaceMembersState = {
+          userId: currentSession.user?.id,
+          workspaceId: currentWorkspaceSelection.workspaceId,
+          status: "error",
+          currentUserRole: null,
+          members: [],
+          message: "現在の権限を確認できませんでした。もう一度ログインするか、管理者に確認してください。",
+          messageKind: "error",
+          addDraftJoinCode: "",
+          addJoinCodeError: ""
+        };
+      }
+      renderShell(currentSession, message, error.status === 403 ? "error" : "warning");
       const form = document.getElementById("workspace-form");
       if (form?.elements?.name && form?.elements?.slug && options.workspaceDraft) {
         form.elements.name.value = options.workspaceDraft.name;

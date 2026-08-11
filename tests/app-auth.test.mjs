@@ -709,6 +709,8 @@ test("エラー表示はalert領域へフォーカスを移す", () => {
   const { api, element, focusedId } = createHarness();
   api.setBox("login-message", "入力を確認してください。", "error");
   assert.equal(element("login-message").textContent, "入力を確認してください。");
+  assert.equal(element("login-message").role, "alert");
+  assert.equal(element("login-message")["aria-live"], "assertive");
   assert.equal(focusedId(), "login-message");
 });
 
@@ -727,6 +729,8 @@ test("ログアウト通信失敗ではshellを維持して再試行を案内す
   assert.match(app.innerHTML, /class="shell"/);
   assert.equal(api.getCurrentSession().user.id, "user-1");
   assert.match(element("shell-message").textContent, /ログアウトを完了できませんでした/);
+  assert.equal(element("shell-message").role, "alert");
+  assert.equal(element("shell-message")["aria-live"], "assertive");
 });
 
 test("ログアウト成功で保護sessionを消去してログイン表示へ戻る", async () => {
@@ -953,6 +957,123 @@ test("workspace名の64文字上限はUnicode code pointで検証する", () => 
   assert.match(api.validateWorkspaceForm(form).message, /1〜64文字/);
 });
 
+test("workspace名入力欄はfocusを保ってUnicode code point単位で64文字へ制限する", () => {
+  const { api, element, focusedId } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-name");
+  field.value = "😀".repeat(65);
+  field.focus();
+
+  field.listeners.get("input")({ currentTarget: field });
+
+  assert.equal(Array.from(field.value).length, 64);
+  assert.equal(field.value, "😀".repeat(64));
+  assert.equal(field["aria-invalid"], "true");
+  assert.equal(field["aria-describedby"], "workspace-message");
+  assert.equal(element("workspace-message").role, "alert");
+  assert.equal(element("workspace-message")["aria-live"], "assertive");
+  assert.equal(element("workspace-message").textContent, "ワークスペース名は64文字以内で入力してください。");
+  assert.equal(focusedId(), "workspace-name");
+
+  field.value = "😀".repeat(64);
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(element("workspace-message").textContent, "");
+  assert.doesNotMatch(element("workspace-message").className, /show/);
+});
+
+test("workspace名入力欄はtrim後64 code pointなら前後空白を含んでも欠損させない", () => {
+  const { api, element } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-name");
+  const validWithWhitespace = "  " + "😀".repeat(64) + "  ";
+  field.value = validWithWhitespace;
+
+  field.listeners.get("input")();
+
+  assert.equal(field.value, validWithWhitespace);
+});
+
+test("workspace名の日本語IME変換中は確定までcode point制限を待つ", () => {
+  const { api, element, focusedId } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-name");
+  field.focus();
+  field.listeners.get("compositionstart")();
+  field.value = "😀".repeat(65);
+
+  field.listeners.get("input")();
+  assert.equal(Array.from(field.value).length, 65);
+  assert.equal(focusedId(), "workspace-name");
+
+  field.listeners.get("compositionend")();
+  assert.equal(Array.from(field.value).length, 64);
+  assert.equal(focusedId(), "workspace-name");
+});
+
+test("workspace slug入力欄はtrim後63文字を許可し64文字目だけを制限する", () => {
+  const { api, element, focusedId } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-slug");
+  field.setAttribute("aria-describedby", "workspace-slug-help");
+  field.focus();
+  const validWithWhitespace = "  " + "a".repeat(63) + "  ";
+  field.value = validWithWhitespace;
+  field.listeners.get("input")();
+  assert.equal(field.value, validWithWhitespace);
+
+  field.value = "  " + "a".repeat(64) + "  ";
+  field.listeners.get("input")();
+  assert.equal(field.value, validWithWhitespace);
+  assert.equal(field["aria-invalid"], "true");
+  assert.equal(field["aria-describedby"], "workspace-slug-help workspace-message");
+  assert.equal(focusedId(), "workspace-slug");
+
+  field.value = validWithWhitespace;
+  field.listeners.get("input")();
+  assert.equal(field["aria-invalid"], undefined);
+  assert.equal(field["aria-describedby"], "workspace-slug-help");
+  assert.equal(element("workspace-message").textContent, "");
+  assert.doesNotMatch(element("workspace-message").className, /show/);
+});
+
+test("workspace上限エラーは共有メッセージを現在の入力欄だけへ関連付ける", () => {
+  const { api, element } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const nameField = element("workspace-name");
+  const slugField = element("workspace-slug");
+  slugField.setAttribute("aria-describedby", "workspace-slug-help");
+
+  slugField.value = "a".repeat(64);
+  slugField.listeners.get("input")();
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help workspace-message");
+
+  nameField.value = "😀".repeat(65);
+  nameField.listeners.get("input")();
+  assert.equal(nameField["aria-invalid"], "true");
+  assert.equal(nameField["aria-describedby"], "workspace-message");
+  assert.equal(slugField["aria-invalid"], undefined);
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help");
+  assert.match(element("workspace-message").textContent, /ワークスペース名/);
+
+  slugField.value = "a".repeat(64);
+  slugField.listeners.get("input")();
+  assert.equal(nameField["aria-invalid"], undefined);
+  assert.equal(nameField["aria-describedby"], undefined);
+  assert.equal(slugField["aria-invalid"], "true");
+  assert.equal(slugField["aria-describedby"], "workspace-slug-help workspace-message");
+  assert.match(element("workspace-message").textContent, /URL用ID/);
+});
+
 test("sessionStorageが使えなくても選択したworkspaceを現在タブで維持する", () => {
   const { api, sessionStorage } = createHarness();
   const session = {
@@ -1003,6 +1124,78 @@ test("一覧更新失敗では表示済み一覧・選択・入力内容を保�
   assert.match(app.innerHTML, /表示中の一覧は更新前/);
   assert.equal(form.elements.name.value, "入力途中の名前");
   assert.equal(form.elements.slug.value, "draft-slug");
+});
+
+test("共通一覧更新が403なら確認済み権限・メンバー・管理UIを破棄する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  let calls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      calls += 1;
+      if (path.includes("/members")) return Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] });
+      return Response.json({ code: "WORKSPACES_ACCESS_DENIED", message: "権限を確認できませんでした。" }, { status: 403 });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+  assert.match(harness.app.innerHTML, /現在の権限：管理責任者|member-add-form/);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.ok(calls >= 2);
+  assert.equal(harness.api.getWorkspaceMembersState().status, "error");
+  assert.match(harness.app.innerHTML, /現在の権限：確認できません/);
+  assert.doesNotMatch(harness.app.innerHTML, /現在の権限：管理責任者|member-add-form|権限を保存|利用を停止/);
+});
+
+test("メンバー変更中の共通一覧403後は遅着したPATCH結果で管理UIを復元しない", async () => {
+  for (const patchResult of ["success", "bad-request"]) {
+    const workspaceId = "11111111-1111-4111-8111-111111111111";
+    const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+    const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+    const session = {
+      user: { id: owner.userId },
+      workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+    };
+    const patchResponse = deferred();
+    let memberFetches = 0;
+    const harness = createHarness({
+      fetch: async (path, options = {}) => {
+        if (options.method === "PATCH") return patchResponse.promise;
+        if (path.includes("/members")) {
+          memberFetches += 1;
+          return Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] });
+        }
+        return Response.json({ code: "WORKSPACES_ACCESS_DENIED", message: "権限を確認できませんでした。" }, { status: 403 });
+      }
+    });
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    await harness.element("members-reload-button").listeners.get("click")();
+    await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+    harness.element(`member-role-${editor.userId}`).value = "viewer";
+    const changing = harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+    await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "保存中になりませんでした");
+
+    await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+    patchResponse.resolve(patchResult === "success"
+      ? Response.json({ member: { ...editor, role: "viewer", status: "active" } })
+      : Response.json({ code: "WORKSPACE_MEMBER_CHANGE_INVALID", message: "変更を受け付けられませんでした。" }, { status: 400 }));
+    await changing;
+
+    assert.equal(memberFetches, 1, patchResult);
+    assert.equal(harness.api.getWorkspaceMembersState().status, "error", patchResult);
+    assert.match(harness.app.innerHTML, /現在の権限：確認できません/);
+    assert.doesNotMatch(harness.app.innerHTML, /現在の権限：管理責任者|member-add-form|権限を保存|利用を停止/);
+  }
 });
 
 test("workspace作成結果不明は再作成させず一覧確認を案内する", async () => {
@@ -1107,6 +1300,7 @@ test("認証変更通知で旧workspace選択と結果不明ロックを即時�
   sessionStorageValues.set("meccha-manual-uncertain-workspace", JSON.stringify({ userId: "old-user", slug: "old-workspace" }));
 
   emitBroadcast({ type: "authentication-changed" });
+  assert.match(app.innerHTML, /id="screen-content" class="boot" tabindex="-1"/);
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(sessionStorageValues.has("meccha-manual-uncertain-workspace"), false);
@@ -1710,6 +1904,30 @@ test("一覧上限超過の手動更新は既存一覧を保持して管理者�
   assert.doesNotMatch(app.innerHTML, /通信環境を確認/);
 });
 
+test("共通シェルのメールと選択中workspace名はHTMLとして解釈可能な形で出力しない", () => {
+  const unsafeEmail = 'user"><img src=x onerror=alert(1)>@example.invalid';
+  const unsafeName = '<svg onload=alert(1)>営業部';
+  const session = {
+    user: { id: "user-1", email: unsafeEmail },
+    workspaces: [{
+      id: "11111111-1111-4111-8111-111111111111",
+      name: unsafeName,
+      slug: "sales-team",
+      status: "active",
+      created_at: "2026-08-10T00:00:00Z"
+    }]
+  };
+  const { api, app } = createHarness();
+
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  assert.doesNotMatch(app.innerHTML, /<img src=x onerror=/);
+  assert.doesNotMatch(app.innerHTML, /<svg onload=/);
+  assert.match(app.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(app.innerHTML, /&lt;svg onload=alert\(1\)&gt;営業部/);
+});
+
 test("メンバー一覧を明示操作で読み込みowner/adminだけに変更UIを表示する", async () => {
   const workspace = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -1746,14 +1964,22 @@ test("メンバー一覧を明示操作で読み込みowner/adminだけに変更
   });
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
+  assert.match(harness.app.innerHTML, /href="#workspace-heading" aria-current="page">ワークスペース/);
+  assert.match(harness.app.innerHTML, /href="#members-heading">メンバー管理/);
+  assert.match(harness.app.innerHTML, /<span class="nav-item" aria-disabled="true"><span>手順書<\/span><span class="nav-status">準備中/);
+  assert.match(harness.app.innerHTML, /現在の権限：メンバー一覧で確認/);
   assert.match(harness.app.innerHTML, /メンバー一覧を表示/);
   assert.doesNotMatch(harness.app.innerHTML, /member-add-form/);
 
-  await harness.element("members-reload-button").listeners.get("click")();
+  harness.element("members-reload-button").listeners.get("click")();
+  assert.equal(harness.focusedId(), "members-loading-status");
   await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "メンバー一覧が読み込まれませんでした");
 
   assert.match(harness.app.innerHTML, /参加コードでメンバーを追加/);
+  assert.match(harness.app.innerHTML, /現在の権限：管理責任者/);
   assert.match(harness.app.innerHTML, /member-save-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/);
+  assert.match(harness.app.innerHTML, /編集担当さんの<\/span>権限を保存/);
+  assert.match(harness.app.innerHTML, /編集担当さんの<\/span>利用を停止/);
   assert.doesNotMatch(harness.app.innerHTML, /member-stop-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/);
 });
 
@@ -1783,6 +2009,77 @@ test("editor/viewerのメンバー画面は一覧だけを表示し変更操作�
 
   assert.match(harness.app.innerHTML, /現在の権限は「編集者」/);
   assert.doesNotMatch(harness.app.innerHTML, /member-add-form|権限を保存|利用を停止/);
+});
+
+test("確認済みの本人権限はメンバー再読込中と一時障害後も共通シェルに保持する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const session = {
+    user: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  let calls = 0;
+  const harness = createHarness({
+    fetch: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          workspaceId,
+          currentUserRole: "editor",
+          members: [{
+            userId: session.user.id,
+            displayName: "編集担当",
+            role: "editor",
+            status: "active",
+            joinedAt: "2026-08-10T00:00:00Z"
+          }]
+        });
+      }
+      return Response.json({ code: "WORKSPACE_MEMBERS_FETCH_FAILED", message: "一時的に権限を確認できませんでした。" }, { status: 502 });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  harness.element("members-reload-button").listeners.get("click")();
+  assert.match(harness.app.innerHTML, /現在の権限：編集者/);
+  assert.equal(harness.focusedId(), "members-loading-status");
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "error", "再読込失敗になりませんでした");
+
+  assert.match(harness.app.innerHTML, /前回確認した権限：編集者/);
+  assert.match(harness.app.innerHTML, /一時的に権限を確認できませんでした/);
+});
+
+test("メンバー再読込が403なら失効した本人権限と操作UIを破棄する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const session = {
+    user: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  let calls = 0;
+  const harness = createHarness({
+    fetch: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          workspaceId,
+          currentUserRole: "owner",
+          members: [{ userId: session.user.id, displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" }]
+        });
+      }
+      return Response.json({ code: "WORKSPACE_MEMBERS_ACCESS_DENIED", message: "権限を確認できませんでした。" }, { status: 403 });
+    }
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "error", "権限拒否になりませんでした");
+
+  assert.match(harness.app.innerHTML, /現在の権限：確認できません/);
+  assert.doesNotMatch(harness.app.innerHTML, /現在の権限：管理責任者|member-add-form|権限を保存|利用を停止/);
 });
 
 test("参加コード追加はコードを画面から消して最新一覧を再取得する", async () => {
@@ -1978,6 +2275,32 @@ test("権限変更と利用停止はdesired stateを送り毎回最新一覧で�
   assert.equal(harness.api.getWorkspaceMembersState().message, "メンバーの利用を停止しました。");
 });
 
+test("メンバー変更が403なら失効した管理権限と操作UIを破棄する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const editor = { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", displayName: "編集担当", role: "editor", status: "active", joinedAt: "2026-08-10T01:00:00Z" };
+  const session = {
+    user: { id: owner.userId },
+    workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active", created_at: "2026-08-10T00:00:00Z" }]
+  };
+  const harness = createHarness({
+    fetch: async (_path, options = {}) => options.method === "PATCH"
+      ? Response.json({ code: "WORKSPACE_MEMBER_CHANGE_FORBIDDEN", message: "管理権限を確認できませんでした。" }, { status: 403 })
+      : Response.json({ workspaceId, currentUserRole: "owner", members: [owner, editor] })
+  });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "初回一覧が読み込まれませんでした");
+
+  harness.element(`member-role-${editor.userId}`).value = "viewer";
+  await harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+
+  assert.equal(harness.api.getWorkspaceMembersState().status, "error");
+  assert.match(harness.app.innerHTML, /現在の権限：確認できません|管理権限を確認できませんでした/);
+  assert.doesNotMatch(harness.app.innerHTML, /現在の権限：管理責任者|member-add-form|権限を保存|利用を停止/);
+});
+
 test("メンバー保存中の同一ユーザー認証変更後は応答確定を待って最新一覧を再照合する", async () => {
   const patchResponse = deferred();
   const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -2014,6 +2337,7 @@ test("メンバー保存中の同一ユーザー認証変更後は応答確定�
 
   harness.element(`member-role-${editor.userId}`).value = "viewer";
   const saving = harness.api.updateWorkspaceMemberFromUi(editor.userId, false);
+  assert.equal(harness.focusedId(), "members-message");
   await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "保存中になりませんでした");
   harness.emitBroadcast({ type: "authentication-changed" });
   await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "saving", "認証変更後の結果確認待ちが維持されませんでした");
@@ -2180,6 +2504,35 @@ test("不正な参加コードは入力値とエラー関連付けを保ち入�
   assert.equal(harness.focusedId(), "member-join-code");
 });
 
+test("参加コード入力欄はtrim後47文字を許可し48文字目だけを制限する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  const harness = createHarness({ fetch: async () => Response.json({ workspaceId, currentUserRole: "owner", members: [owner] }) });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+  const field = harness.element("member-join-code");
+  field.focus();
+  const validWithWhitespace = "  " + "m".repeat(47) + "  ";
+  field.value = validWithWhitespace;
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(field.value, validWithWhitespace);
+
+  field.value = "  " + "m".repeat(48) + "  ";
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(field.value, validWithWhitespace);
+  assert.equal(field["aria-invalid"], "true");
+  assert.equal(field["aria-describedby"], "member-join-code-error");
+  assert.equal(harness.element("member-join-code-error").hidden, false);
+  assert.match(harness.element("member-join-code-error").textContent, /47文字以内/);
+  assert.equal(harness.element("member-join-code-error").role, "alert");
+  assert.equal(harness.element("member-join-code-error")["aria-live"], "assertive");
+  assert.equal(harness.element("member-join-code-error")["aria-atomic"], "true");
+  assert.equal(harness.focusedId(), "member-join-code");
+});
+
 test("参加コードは明示発行時だけ表示しStorageへ保存しない", async () => {
   const workspaceId = "11111111-1111-4111-8111-111111111111";
   const joinCode = `mmj_${"Z".repeat(43)}`;
@@ -2211,6 +2564,7 @@ test("参加コード発行中の同一ユーザー認証変更は遅延成功�
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
   const issuing = harness.element("issue-join-code-button").listeners.get("click")();
+  assert.equal(harness.focusedId(), "join-code-message");
   harness.emitBroadcast({ type: "authentication-changed" });
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(harness.app.innerHTML, /発行中/);

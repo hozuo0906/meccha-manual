@@ -18,6 +18,8 @@
     "worker:check": "node scripts/check-worker.mjs",
     "worker:runtime:test": "node --experimental-strip-types --test tests/worker-runtime.test.mjs",
     "app:auth:test": "node --test tests/app-auth.test.mjs",
+    "phase1:a11y:check": "node scripts/check-phase1-accessibility.mjs",
+    "phase1:a11y:test": "node --test tests/phase1-accessibility.test.mjs",
     "workflows:check": "node scripts/check-workflows.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
     "test:phase2": "node scripts/phase2-smoke-test.mjs",
@@ -42,7 +44,7 @@
     "secrets:test": "node --test tests/sensitive-values.test.mjs",
     "secrets:check": "node scripts/check-sensitive-values.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run brand:check && npm run worker:check && npm run worker:runtime:test && npm run app:auth:test && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check"
+    "check": "npm run docs:check && npm run brand:check && npm run worker:check && npm run worker:runtime:test && npm run app:auth:test && npm run phase1:a11y:check && npm run phase1:a11y:test && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check"
   },
   "devDependencies": {
     "parse5": "^8.0.0"

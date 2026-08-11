@@ -19,6 +19,11 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - `create_workspace` RPCによるワークスペース作成
 - SCR-MEMBERSのメンバー一覧、本人発行の短命参加コードによる追加、role変更、利用停止
 - owner/admin/editor/viewerのAPI/UI境界とlast-owner保護
+- 反復ナビを飛ばす本文スキップ、日本語ナビ、現在のワークスペース、本人権限の未確認・確認済み表示
+- キーボードで到達できるワークスペース・メンバー導線と可視フォーカス
+- 44px以上の主要操作領域、200%ズームを想定した1列再配置、強制カラーモードの境界表示
+- 状態通知のlive region、入力エラーの関連付け、名前付きの横スクロール表
+- 未提供の手順書・操作記録を操作不能な「準備中」として表示
 - CSPなどの最低限のセキュリティヘッダー
 - 401、接続失敗、サーバー失敗を区別する認証画面状態
 - Supabase現在セッションの失効を伴うログアウト
@@ -28,10 +33,9 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 
 Phase 1で残るもの:
 
-- SCR-WORKSPACEの画面状態とワークスペース選択
-- SCR-SHELLの日本語ナビと権限別UI
-- 画面別の空、読込、保存、失敗、権限不足、接続切断、期限切れ状態
-- WCAG 2.2 AAを目標とするアクセシビリティ検査
+- 実ブラウザでのSCR-LOGINからログアウトまでの4ロールE2E
+- 実ブラウザでの200%ズーム、フォーカス順、スクリーンリーダー相当の横断確認
+- 隔離dev/stagingでの動的RLS negative test
 
 この段階で提供しないもの:
 
@@ -89,6 +93,7 @@ Cookie属性:
 - 必須API、Cookie属性、同一origin検査が実装から失われていない。
 - Phase 1 migrationとhardening migrationが順序どおり存在する。
 - RLS negative testの手順と必要環境変数が文書化されている。
+- `npm run phase1:a11y:test`が、日本語ランドマーク、本文スキップ、可視フォーカス、44px操作領域、ズーム用再配置、状態通知、権限表示、準備中表示の契約を検査し、重要要素を壊した変異で失敗する。
 
 外部dev/staging環境で実行が必要な確認:
 
@@ -111,4 +116,4 @@ Cookie属性:
 
 RLS negative testスクリプトはリポジトリに存在するが、外部Supabase環境、検証用ユーザー、対象migrationの適用が必要である。リポジトリにmigrationがあることを、dev、staging、productionのいずれかへ適用済みという根拠にしてはならない。外部環境へデータを作成する動的テストと新規migration適用は、対象環境と承認を確認してから実行する。
 
-メンバー管理API/UIのリポジトリ実装とWorker/UI回帰テストは存在する。本格E2E、外部Supabaseへforward migrationを適用した動的RLS検証、Phase 1全画面のアクセシビリティ自動検査は未完了であり、後続Issueで完了させる。
+メンバー管理API/UIと共通シェルのリポジトリ実装、Worker/UI回帰テスト、アクセシビリティ契約検査は存在する。本格E2E、実ブラウザによる横断アクセシビリティ確認、外部Supabaseへforward migrationを適用した動的RLS検証は未完了であり、後続Issueで完了させる。

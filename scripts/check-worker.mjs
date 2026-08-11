@@ -84,7 +84,7 @@ const requiredAppSnippets = [
   "SESSION_INVALID",
   "サービスを読み込めません",
   "ワークスペースを作成",
-  "手順書（準備中）"
+  "aria-disabled=\"true\"><span>手順書</span><span class=\"nav-status\">準備中</span>"
 ];
 
 const forbiddenSnippets = [
