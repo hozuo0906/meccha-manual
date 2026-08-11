@@ -98,10 +98,11 @@ export function validatePhase1Accessibility({ html = APP_HTML, css = APP_CSS, js
     ['さんの</span>権限を保存</button>', "権限保存の読み上げ名に対象者を含めてください。"],
     ['さんの</span>利用を停止</button>', "利用停止の読み上げ名に対象者を含めてください。"],
     ['data-max-code-points="64" required placeholder="例：営業部"', "ワークスペース名の入力上限を画面でも強制してください。"],
-    ['limitWorkspaceNameCodePoints(workspaceNameField);', "ワークスペース名をUnicode code point単位で制限してください。"],
+    ['limitWorkspaceNameCodePoints(workspaceNameField)', "ワークスペース名をUnicode code point単位で制限してください。"],
     ['data-max-normalized-length="63" inputmode="url"', "URL用IDの入力上限を正規化後の長さで強制してください。"],
-    ['limitWorkspaceSlugLength(workspaceSlugField);', "URL用IDをtrim後の長さで制限してください。"],
-    ['maxlength="47" required value="', "参加コードの入力上限を画面でも強制してください。"],
+    ['limitWorkspaceSlugLength(workspaceSlugField)', "URL用IDをtrim後の長さで制限してください。"],
+    ['data-max-normalized-length="47" required value="', "参加コードの入力上限を正規化後の長さで強制してください。"],
+    ['limitWorkspaceMemberJoinCodeLength(event.currentTarget);', "参加コードをtrim後の長さで制限してください。"],
     ['現在の権限：', "現在ユーザーの権限を画面で確認できるようにしてください。"]
   ];
   for (const [fragment, message] of jsContracts) {

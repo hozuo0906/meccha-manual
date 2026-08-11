@@ -32,10 +32,11 @@ const contractMutations = [
   ["権限保存の対象者", "権限保存", { js: APP_JS.replace('さんの</span>権限を保存</button>', '権限を保存</button>') }],
   ["利用停止の対象者", "利用停止", { js: APP_JS.replace('さんの</span>利用を停止</button>', '利用を停止</button>') }],
   ["workspace名上限", "ワークスペース名の入力上限", { js: APP_JS.replace('data-max-code-points="64" required placeholder="例：営業部"', 'required placeholder="例：営業部"') }],
-  ["workspace名code point制限", "Unicode code point", { js: APP_JS.replace('limitWorkspaceNameCodePoints(workspaceNameField);', '') }],
+  ["workspace名code point制限", "Unicode code point", { js: APP_JS.replace('limitWorkspaceNameCodePoints(workspaceNameField)', 'false') }],
   ["slug正規化後上限", "URL用IDの入力上限", { js: APP_JS.replace('data-max-normalized-length="63" inputmode="url"', 'inputmode="url"') }],
-  ["slug trim後制限", "trim後", { js: APP_JS.replace('limitWorkspaceSlugLength(workspaceSlugField);', '') }],
-  ["参加コード上限", "参加コードの入力上限", { js: APP_JS.replace('maxlength="47" required value="', 'required value="') }],
+  ["slug trim後制限", "trim後", { js: APP_JS.replace('limitWorkspaceSlugLength(workspaceSlugField)', 'false') }],
+  ["参加コード正規化後上限", "参加コードの入力上限", { js: APP_JS.replace('data-max-normalized-length="47" required value="', 'required value="') }],
+  ["参加コードtrim後制限", "参加コードをtrim後", { js: APP_JS.replace('limitWorkspaceMemberJoinCodeLength(event.currentTarget);', '') }],
   ["権限表示", "現在ユーザーの権限", { js: APP_JS.replaceAll("現在の権限：", "権限表示なし：") }]
 ];
 

@@ -976,6 +976,11 @@ test("workspace名入力欄はfocusを保ってUnicode code point単位で64文�
   assert.equal(element("workspace-message")["aria-live"], "assertive");
   assert.equal(element("workspace-message").textContent, "ワークスペース名は64文字以内で入力してください。");
   assert.equal(focusedId(), "workspace-name");
+
+  field.value = "😀".repeat(64);
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(element("workspace-message").textContent, "");
+  assert.doesNotMatch(element("workspace-message").className, /show/);
 });
 
 test("workspace名入力欄はtrim後64 code pointなら前後空白を含んでも欠損させない", () => {
@@ -1030,6 +1035,13 @@ test("workspace slug入力欄はtrim後63文字を許可し64文字目だけを�
   assert.equal(field["aria-invalid"], "true");
   assert.equal(field["aria-describedby"], "workspace-slug-help workspace-message");
   assert.equal(focusedId(), "workspace-slug");
+
+  field.value = validWithWhitespace;
+  field.listeners.get("input")();
+  assert.equal(field["aria-invalid"], undefined);
+  assert.equal(field["aria-describedby"], "workspace-slug-help");
+  assert.equal(element("workspace-message").textContent, "");
+  assert.doesNotMatch(element("workspace-message").className, /show/);
 });
 
 test("sessionStorageが使えなくても選択したworkspaceを現在タブで維持する", () => {
@@ -2459,6 +2471,32 @@ test("不正な参加コードは入力値とエラー関連付けを保ち入�
   assert.match(harness.app.innerHTML, /value="bad&lt;code"/);
   assert.match(harness.app.innerHTML, /aria-invalid="true" aria-describedby="member-join-code-error"/);
   assert.match(harness.app.innerHTML, /参加コードの形式を確認してください/);
+  assert.equal(harness.focusedId(), "member-join-code");
+});
+
+test("参加コード入力欄はtrim後47文字を許可し48文字目だけを制限する", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
+  const session = { user: { id: owner.userId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales-team", status: "active" }] };
+  const harness = createHarness({ fetch: async () => Response.json({ workspaceId, currentUserRole: "owner", members: [owner] }) });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "一覧が読み込まれませんでした");
+  const field = harness.element("member-join-code");
+  field.focus();
+  const validWithWhitespace = "  " + "m".repeat(47) + "  ";
+  field.value = validWithWhitespace;
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(field.value, validWithWhitespace);
+
+  field.value = "  " + "m".repeat(48) + "  ";
+  field.listeners.get("input")({ currentTarget: field });
+  assert.equal(field.value, validWithWhitespace);
+  assert.equal(field["aria-invalid"], "true");
+  assert.equal(field["aria-describedby"], "member-join-code-error");
+  assert.equal(harness.element("member-join-code-error").hidden, false);
+  assert.match(harness.element("member-join-code-error").textContent, /47文字以内/);
   assert.equal(harness.focusedId(), "member-join-code");
 });
 
