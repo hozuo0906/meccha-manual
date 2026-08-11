@@ -442,7 +442,7 @@ begin
 
   if not (
     previous_status is null
-    or (previous_status = 'removed' and previous_role <> 'owner')
+    or (previous_status in ('invited', 'removed') and previous_role <> 'owner')
   ) then
     raise exception 'MM_JOIN_CODE_UNAVAILABLE';
   end if;

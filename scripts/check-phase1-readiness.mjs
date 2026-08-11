@@ -174,6 +174,7 @@ for (const snippet of [
   "create unique index workspace_join_codes_one_per_user",
   "on conflict (user_id) do update",
   "previous_status <> 'active' and target_status = 'active'",
+  "previous_status in ('invited', 'removed') and previous_role <> 'owner'",
   "active_member_count >= 1000",
   "revoke insert, update, delete on table public.workspace_members from authenticated",
   "MM_MEMBER_MANAGE_FORBIDDEN",

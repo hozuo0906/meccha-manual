@@ -90,6 +90,7 @@ const requiredPhase1MemberManagementSnippets = [
   "on conflict (user_id) do update",
   "consumed_workspace_id = null",
   "previous_status <> 'active' and target_status = 'active'",
+  "previous_status in ('invited', 'removed') and previous_role <> 'owner'",
   "active_member_count >= 1000",
   "interval '10 minutes'",
   "revoke insert, update, delete on table public.workspace_members from authenticated",
