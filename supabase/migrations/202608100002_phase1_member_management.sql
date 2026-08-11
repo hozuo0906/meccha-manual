@@ -639,12 +639,15 @@ begin
   return query
   select
     wm.user_id,
-    left(coalesce(nullif(public.normalize_workspace_name(p.display_name), ''), '名前未設定'), 64) as display_name,
+    case
+      when wm.status = 'removed' then '利用停止済み'
+      else left(coalesce(nullif(public.normalize_workspace_name(p.display_name), ''), '名前未設定'), 64)
+    end as display_name,
     wm.role,
     wm.status,
     wm.joined_at
   from public.workspace_members wm
-  left join public.profiles p on p.id = wm.user_id
+  left join public.profiles p on p.id = wm.user_id and wm.status <> 'removed'
   where wm.workspace_id = target_workspace_id
     and wm.user_id = target_user_id;
 end;

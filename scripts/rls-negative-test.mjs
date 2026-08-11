@@ -895,7 +895,17 @@ async function assertMemberManagementApis(appOrigin, owner, managedMember, works
   await assertMemberMutationApisRejected(appOrigin, managedMember, owner, workspace, "editor");
   await updateWorkspaceMember(appOrigin, owner, workspace, managedMember.userId, "viewer", "active");
   await assertMemberMutationApisRejected(appOrigin, managedMember, owner, workspace, "viewer");
-  await updateWorkspaceMember(appOrigin, owner, workspace, managedMember.userId, "viewer", "removed");
+  const stopped = await updateWorkspaceMember(appOrigin, owner, workspace, managedMember.userId, "viewer", "removed");
+  const stoppedAgain = await updateWorkspaceMember(appOrigin, owner, workspace, managedMember.userId, "viewer", "removed");
+  for (const result of [stopped, stoppedAgain]) {
+    if (
+      result.member?.userId !== managedMember.userId ||
+      result.member?.status !== "removed" ||
+      result.member?.displayName !== "利用停止済み"
+    ) {
+      throw new Error("removed member mutation response exposed profile fields or lacked the redaction label.");
+    }
+  }
   const stoppedList = await getWorkspaceMembers(appOrigin, owner, workspace);
   if (stoppedList.members?.some((member) => member.userId === managedMember.userId)) {
     throw new Error("owner member list still included the stopped member.");
@@ -1251,6 +1261,7 @@ async function main() {
       ownerCanRedeemConsentCodeChangeAndStopMember: true,
       repeatedJoinCodeIssuanceReplacesPriorCode: true,
       removedMemberRequiresFreshJoinCode: true,
+      removedMemberMutationRedactsProfile: true,
       editorCannotUseMemberMutationApi: true,
       memberApiRejectsLastOwnerRemoval: true
     },

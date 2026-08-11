@@ -176,6 +176,8 @@ for (const snippet of [
   "previous_status <> 'active' and target_status = 'active'",
   "previous_status in ('invited', 'removed') and previous_role <> 'owner'",
   "active_member_count >= 1000",
+  "when wm.status = 'removed' then '利用停止済み'",
+  "left join public.profiles p on p.id = wm.user_id and wm.status <> 'removed'",
   "revoke insert, update, delete on table public.workspace_members from authenticated",
   "MM_MEMBER_MANAGE_FORBIDDEN",
   "MM_OWNER_TRANSFER_REQUIRED"
@@ -214,6 +216,7 @@ for (const snippet of [
   "assertRemovedMemberRequiresFreshJoinCode",
   "repeatedJoinCodeIssuanceReplacesPriorCode",
   "removedMemberRequiresFreshJoinCode",
+  "removedMemberMutationRedactsProfile",
   "assertMemberAuditSequence",
   "memberApiRejectsLastOwnerRemoval"
 ]) {

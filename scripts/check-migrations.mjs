@@ -92,6 +92,8 @@ const requiredPhase1MemberManagementSnippets = [
   "previous_status <> 'active' and target_status = 'active'",
   "previous_status in ('invited', 'removed') and previous_role <> 'owner'",
   "active_member_count >= 1000",
+  "when wm.status = 'removed' then '利用停止済み'",
+  "left join public.profiles p on p.id = wm.user_id and wm.status <> 'removed'",
   "interval '10 minutes'",
   "revoke insert, update, delete on table public.workspace_members from authenticated",
   "revoke all on table public.workspace_join_codes from public, anon, authenticated",
@@ -222,6 +224,7 @@ for (const executableCheck of [
   "assertRemovedMemberRequiresFreshJoinCode",
   "repeatedJoinCodeIssuanceReplacesPriorCode",
   "removedMemberRequiresFreshJoinCode",
+  "removedMemberMutationRedactsProfile",
   "assertMemberAuditSequence",
   "memberApiRejectsLastOwnerRemoval"
 ]) {
