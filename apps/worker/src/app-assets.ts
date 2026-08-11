@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-a8b42e97593ecd77";
+export const APP_ASSET_VERSION = "sha256-bbc18b372c0b5c05";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1005,7 +1005,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function setBox(id, message, kind) {
+function setBox(id, message, kind, shouldFocus = true) {
   const box = document.getElementById(id);
   if (!box) return;
   box.textContent = message || "";
@@ -1013,7 +1013,7 @@ function setBox(id, message, kind) {
   box.setAttribute("role", kind === "notice" ? "status" : "alert");
   box.setAttribute("aria-live", kind === "notice" ? "polite" : "assertive");
   box.setAttribute("aria-atomic", "true");
-  if (kind !== "notice") box.focus();
+  if (kind !== "notice" && shouldFocus) box.focus();
 }
 
 function clearBox(id) {
@@ -1144,9 +1144,12 @@ function workspaceNameLength(value) {
 
 function limitWorkspaceNameCodePoints(field) {
   const codePoints = Array.from(String(field?.value || ""));
-  if (codePoints.length <= 64) return;
+  if (codePoints.length <= 64) return false;
   field.value = codePoints.slice(0, 64).join("");
-  setBox("workspace-message", "ワークスペース名は64文字以内で入力してください。", "error");
+  field.setAttribute?.("aria-invalid", "true");
+  field.setAttribute?.("aria-describedby", "workspace-message");
+  setBox("workspace-message", "ワークスペース名は64文字以内で入力してください。", "error", false);
+  return true;
 }
 
 function validateWorkspaceForm(form) {
@@ -1704,6 +1707,7 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
   try {
     await requestJson(path, requestOptions);
     mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
     if (requestGeneration !== sessionGeneration || currentSession?.user?.id !== userId) {
       await reconcilePendingWorkspaceMemberMutation(mutation);
       return;
@@ -1711,6 +1715,7 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
     await loadWorkspaceMembers(workspaceId, { message: successMessage, focusId: "members-message" });
   } catch (error) {
     mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
     if (requestGeneration !== sessionGeneration) {
       await reconcilePendingWorkspaceMemberMutation(mutation);
       return;
@@ -1871,9 +1876,18 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
   document.getElementById("reload-button").addEventListener("click", reloadWorkspaces);
   document.getElementById("workspace-form")?.addEventListener("submit", createWorkspace);
   const workspaceNameField = document.getElementById("workspace-name");
-  workspaceNameField?.addEventListener("input", () => {
-    limitWorkspaceNameCodePoints(workspaceNameField);
+  let workspaceNameComposing = false;
+  const enforceWorkspaceNameLimit = () => {
     clearWorkspaceFieldError(workspaceNameField);
+    limitWorkspaceNameCodePoints(workspaceNameField);
+  };
+  workspaceNameField?.addEventListener("compositionstart", () => { workspaceNameComposing = true; });
+  workspaceNameField?.addEventListener("compositionend", () => {
+    workspaceNameComposing = false;
+    enforceWorkspaceNameLimit();
+  });
+  workspaceNameField?.addEventListener("input", () => {
+    if (!workspaceNameComposing) enforceWorkspaceNameLimit();
   });
   const workspaceSlugField = document.getElementById("workspace-slug");
   workspaceSlugField?.addEventListener("input", () => clearWorkspaceFieldError(workspaceSlugField));
