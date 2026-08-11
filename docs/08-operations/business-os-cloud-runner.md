@@ -1,0 +1,49 @@
+# Business OS cloud runner
+
+Status: Accepted
+
+## 目的
+
+Business OSの承認済みjobを、特定PCに依存せずGitHub-hosted runnerで受け取り、検査済みのdraft PRまで進める。
+
+既存の `approved-for-codex` Issue runnerは維持する。Business OS runnerは置換ではなく、署名、予算、許可path、監査を必要とする無人automation用の別経路である。
+
+## Workflow
+
+標準workflowは `.github/workflows/business-os-codex.yml`、trusted clientは `scripts/cloud-runner-client.mjs` とする。
+
+1. `probe`でBusiness OS URL、execution target、repository、workflow、runner token、Cloudflare Accessを照合する。
+2. Ownerが承認したjobだけをclaimする。
+3. trusted clientが署名、repository、target、job ID、`codex/` branch、production禁止flagを検証する。
+4. CodexへGitHub書込tokenを渡さず、権限の弱いOS userで実行する。
+5. 許可root外、`.github`、secret-bearing path、symlink、submoduleを拒否する。
+6. 別runnerで `npm run check` を実行する。
+7. trusted publish jobだけが `codex/` branchへpushし、draft PRを作成する。
+8. 結果をBusiness OSへ返す。stagingとproductionは別workflowへ引き渡す。
+
+## GitHub設定
+
+Variable:
+
+- `BUSINESS_OS_URL`
+
+Secrets:
+
+- `BUSINESS_OS_RUNNER_TOKEN`
+- `CLOUD_RUNNER_JOB_SIGNING_SECRET`
+- `CF_ACCESS_CLIENT_ID`
+- `CF_ACCESS_CLIENT_SECRET`
+
+有料automationをOwnerが承認した場合だけ設定:
+
+- `OPENAI_API_KEY`
+
+値はIssue、PR、Markdown、Actions logへ記録しない。
+
+## 安全境界
+
+- mainへ直接pushしない。
+- production deploy、rollback、DB migration、secret変更、課金変更を実行しない。
+- 既存の `CODEX_ACCESS_TOKEN` とBusiness OS runner secretを共有しない。
+- `OPENAI_API_KEY` 未設定でもprobeと拒否系testを実行できる。
+- 初回有料jobはdocs-only、月次warning 3 USD、hard stop 5 USD、job単位の `maxCostUsd` 内で行う。
