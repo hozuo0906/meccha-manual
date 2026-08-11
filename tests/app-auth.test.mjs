@@ -978,6 +978,20 @@ test("workspace名入力欄はfocusを保ってUnicode code point単位で64文�
   assert.equal(focusedId(), "workspace-name");
 });
 
+test("workspace名入力欄はtrim後64 code pointなら前後空白を含んでも欠損させない", () => {
+  const { api, element } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-name");
+  const validWithWhitespace = "  " + "😀".repeat(64) + "  ";
+  field.value = validWithWhitespace;
+
+  field.listeners.get("input")();
+
+  assert.equal(field.value, validWithWhitespace);
+});
+
 test("workspace名の日本語IME変換中は確定までcode point制限を待つ", () => {
   const { api, element, focusedId } = createHarness();
   const session = { user: { id: "user-1" }, workspaces: [] };
@@ -995,6 +1009,27 @@ test("workspace名の日本語IME変換中は確定までcode point制限を待�
   field.listeners.get("compositionend")();
   assert.equal(Array.from(field.value).length, 64);
   assert.equal(focusedId(), "workspace-name");
+});
+
+test("workspace slug入力欄はtrim後63文字を許可し64文字目だけを制限する", () => {
+  const { api, element, focusedId } = createHarness();
+  const session = { user: { id: "user-1" }, workspaces: [] };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+  const field = element("workspace-slug");
+  field.setAttribute("aria-describedby", "workspace-slug-help");
+  field.focus();
+  const validWithWhitespace = "  " + "a".repeat(63) + "  ";
+  field.value = validWithWhitespace;
+  field.listeners.get("input")();
+  assert.equal(field.value, validWithWhitespace);
+
+  field.value = "  " + "a".repeat(64) + "  ";
+  field.listeners.get("input")();
+  assert.equal(field.value, validWithWhitespace);
+  assert.equal(field["aria-invalid"], "true");
+  assert.equal(field["aria-describedby"], "workspace-slug-help workspace-message");
+  assert.equal(focusedId(), "workspace-slug");
 });
 
 test("sessionStorageが使えなくても選択したworkspaceを現在タブで維持する", () => {

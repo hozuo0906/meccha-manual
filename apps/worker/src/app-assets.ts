@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-bbc18b372c0b5c05";
+export const APP_ASSET_VERSION = "sha256-263c95255ab0a278";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1133,7 +1133,7 @@ function clearLoginFieldError(field) {
 function clearWorkspaceFieldError(field) {
   field?.removeAttribute?.("aria-invalid");
   const describedBy = field?.getAttribute?.("aria-describedby") || field?.["aria-describedby"] || "";
-  const remaining = describedBy.split(/\s+/).filter((id) => id && id !== "workspace-message").join(" ");
+  const remaining = describedBy.split(/\\s+/).filter((id) => id && id !== "workspace-message").join(" ");
   if (remaining) field.setAttribute?.("aria-describedby", remaining);
   else field?.removeAttribute?.("aria-describedby");
 }
@@ -1143,12 +1143,33 @@ function workspaceNameLength(value) {
 }
 
 function limitWorkspaceNameCodePoints(field) {
-  const codePoints = Array.from(String(field?.value || ""));
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  const codePoints = Array.from(normalizedValue);
   if (codePoints.length <= 64) return false;
-  field.value = codePoints.slice(0, 64).join("");
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + codePoints.slice(0, 64).join("") + trailingWhitespace;
   field.setAttribute?.("aria-invalid", "true");
   field.setAttribute?.("aria-describedby", "workspace-message");
   setBox("workspace-message", "ワークスペース名は64文字以内で入力してください。", "error", false);
+  return true;
+}
+
+function limitWorkspaceSlugLength(field) {
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  if (normalizedValue.length <= 63) return false;
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + normalizedValue.slice(0, 63) + trailingWhitespace;
+  field.setAttribute?.("aria-invalid", "true");
+  const describedBy = field.getAttribute?.("aria-describedby") || field["aria-describedby"] || "";
+  field.setAttribute?.(
+    "aria-describedby",
+    [describedBy, "workspace-message"].filter(Boolean).join(" ")
+  );
+  setBox("workspace-message", "URL用IDは63文字以内で入力してください。", "error", false);
   return true;
 }
 
@@ -1861,7 +1882,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
                 '</div>' +
                 '<div class="field">' +
                   '<label for="workspace-slug">URL用ID</label>' +
-                  '<input id="workspace-slug" name="slug" maxlength="63" inputmode="url" autocapitalize="none" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
+                  '<input id="workspace-slug" name="slug" data-max-normalized-length="63" inputmode="url" autocapitalize="none" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="例：sales-team">' +
                   '<span id="workspace-slug-help" class="muted">半角英数字とハイフンを使い、3〜63文字で入力してください。</span>' +
                 '</div>' +
                 '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
@@ -1890,7 +1911,10 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = "wor
     if (!workspaceNameComposing) enforceWorkspaceNameLimit();
   });
   const workspaceSlugField = document.getElementById("workspace-slug");
-  workspaceSlugField?.addEventListener("input", () => clearWorkspaceFieldError(workspaceSlugField));
+  workspaceSlugField?.addEventListener("input", () => {
+    clearWorkspaceFieldError(workspaceSlugField);
+    limitWorkspaceSlugLength(workspaceSlugField);
+  });
   document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
   document.getElementById("members-reload-button")?.addEventListener("click", () => {
     if (currentWorkspace?.id) loadWorkspaceMembers(currentWorkspace.id, { focusId: "members-reload-button" });
