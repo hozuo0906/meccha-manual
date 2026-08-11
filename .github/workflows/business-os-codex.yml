@@ -1,6 +1,15 @@
 name: Business OS Codex Runner
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/business-os-codex.yml"
+      - "scripts/cloud-runner-client.mjs"
+      - "scripts/check-business-os-runner.mjs"
+      - "docs/03-architecture/adrs/ADR-0022-business-os-cloud-runner.md"
+      - "docs/08-operations/business-os-cloud-runner.md"
+      - "docs/08-operations/environment-variables.md"
+      - "package.json"
   workflow_dispatch:
     inputs:
       mode:
@@ -26,6 +35,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
   probe:
     if: inputs.mode == 'probe'
     runs-on: ubuntu-latest
