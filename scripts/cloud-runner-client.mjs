@@ -61,7 +61,7 @@ async function claim() {
   if (!["read_only", "code_change"].includes(job.permissions.operation)) throw new Error("Unsupported cloud job operation");
   const expiresAt = Date.parse(job.expiresAt);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("Cloud job expired");
-  if (job.permissions.allowProductionDeploy !== false || !job.branchName.startsWith("codex/")) throw new Error("Unsafe job permissions");
+  if (job.permissions.allowProductionDeploy !== false || !/^codex\/[a-z0-9][a-z0-9-]{1,80}$/.test(job.branchName)) throw new Error("Unsafe job permissions");
   if (job.permissions.operation === "code_change" && (job.permissions.allowPush !== true || job.permissions.allowDraftPr !== true)) {
     throw new Error("Publishing permissions denied");
   }
