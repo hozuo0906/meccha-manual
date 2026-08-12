@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-21c9687eb4450731";
+export const APP_ASSET_VERSION = "sha256-5643e4c1cc99d92b";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -908,7 +908,7 @@ authenticationChannel?.addEventListener("message", (event) => {
   if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
   if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
   renderAuthenticationReload();
-  loadSession();
+  loadSession({ focusId: "workspace-heading" });
 });
 
 class AppRequestError extends Error {
