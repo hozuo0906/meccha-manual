@@ -115,7 +115,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: business-os-state-${{ inputs.job_id }}
-          path: ${{ runner.temp }}/business-os-job.json
+          path: |
+            ${{ runner.temp }}/business-os-job.json
+            ${{ runner.temp }}/cloud-runner-client.mjs
           if-no-files-found: error
           retention-days: 1
       - name: Record accepted job
@@ -181,6 +183,7 @@ jobs:
           name: business-os-codex-${{ inputs.job_id }}
           path: |
             ${{ runner.temp }}/business-os-job.json
+            ${{ runner.temp }}/cloud-runner-client.mjs
             ${{ runner.temp }}/codex.patch
             ${{ runner.temp }}/codex-agent/codex-final-message.txt
           if-no-files-found: error
@@ -206,8 +209,8 @@ jobs:
         with:
           name: business-os-codex-${{ inputs.job_id }}
           path: ${{ runner.temp }}/result
-      - name: Preserve trusted runner client
-        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
       - name: Apply isolated patch
         run: git -c core.hooksPath=/dev/null apply --check "$RUNNER_TEMP/result/codex.patch" && git -c core.hooksPath=/dev/null apply "$RUNNER_TEMP/result/codex.patch"
       - name: Record test start
@@ -241,8 +244,8 @@ jobs:
         with:
           name: business-os-codex-${{ inputs.job_id }}
           path: ${{ runner.temp }}/result
-      - name: Preserve trusted runner client
-        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
       - name: Apply patch without executing project code
         env:
           BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
@@ -254,8 +257,19 @@ jobs:
           git config user.name "business-os[bot]"
           git config user.email "business-os[bot]@users.noreply.github.com"
           git add -A
-          git -c core.hooksPath=/dev/null commit -m "Implement approved Business OS job"
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH_NAME"
+          expected_tree="$(git write-tree)"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$remote" "refs/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            git fetch --no-tags "$remote" "refs/heads/$BRANCH_NAME"
+            remote_tree="$(git rev-parse "FETCH_HEAD^{tree}")"
+            if [ "$remote_tree" != "$expected_tree" ]; then
+              echo "Existing publication branch does not match the approved patch." >&2
+              exit 1
+            fi
+          else
+            git -c core.hooksPath=/dev/null commit -m "Implement approved Business OS job"
+            git push "$remote" "HEAD:refs/heads/$BRANCH_NAME"
+          fi
       - name: Create draft pull request
         id: pr
         env:
@@ -263,7 +277,10 @@ jobs:
           BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
           BASE_BRANCH: ${{ needs.agent.outputs.base_branch }}
         run: |
-          url="$(gh pr create --draft --base "$BASE_BRANCH" --head "$BRANCH_NAME" --title "Business OS approved change" --body "Business OSの承認済みジョブから作成しました。")"
+          url="$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh pr create --draft --base "$BASE_BRANCH" --head "$BRANCH_NAME" --title "Business OS approved change" --body "Business OSの承認済みジョブから作成しました。")"
+          fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Record Owner review
         env:
@@ -274,9 +291,13 @@ jobs:
           EVENT_SEQUENCE: "3"
           EVENT_TYPE: completed
           EVENT_SUMMARY: テスト合格後にdraft PRを作成しました。stagingとproductionは未実行です。
-          EVENT_METADATA: '{"branchName":"${{ needs.agent.outputs.branch_name }}","pullRequestUrl":"${{ steps.pr.outputs.url }}"}'
+          EVENT_BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          EVENT_PULL_REQUEST_URL: ${{ steps.pr.outputs.url }}
           RUNNER_TEMP: ${{ runner.temp }}/result
-        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+        run: |
+          EVENT_METADATA="$(node -e 'process.stdout.write(JSON.stringify({ branchName: process.env.EVENT_BRANCH_NAME, pullRequestUrl: process.env.EVENT_PULL_REQUEST_URL }))')"
+          export EVENT_METADATA
+          node "${{ runner.temp }}/cloud-runner-client.mjs" event
 
   report_read_only:
     if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'read_only'
@@ -293,8 +314,8 @@ jobs:
         with:
           name: business-os-codex-${{ inputs.job_id }}
           path: ${{ runner.temp }}/result
-      - name: Preserve trusted runner client
-        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
       - name: Record read-only result
         env:
           BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
@@ -323,8 +344,9 @@ jobs:
         with:
           name: business-os-state-${{ inputs.job_id }}
           path: .runner-state
-      - name: Preserve trusted runner client
-        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Restore trusted runner client from state artifact
+        if: hashFiles('.runner-state/cloud-runner-client.mjs') != ''
+        run: install -m 700 ".runner-state/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
       - name: Record failed workflow
         if: hashFiles('.runner-state/business-os-job.json') != ''
         env:
