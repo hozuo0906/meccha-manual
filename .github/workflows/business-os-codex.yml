@@ -57,6 +57,16 @@ jobs:
       - run: npm ci
       - run: npm run check
 
+  reject_rerun:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' && github.run_attempt != 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject same-run retry
+        run: |
+          echo "A failed cloud job is terminal. Request a new signed Business OS retry job instead of rerunning this GitHub run." >&2
+          exit 1
+
   probe:
     if: inputs.mode == 'probe'
     runs-on: ubuntu-latest
@@ -80,7 +90,7 @@ jobs:
         run: node scripts/cloud-runner-client.mjs probe
 
   agent:
-    if: inputs.mode == 'run' && inputs.job_id != ''
+    if: inputs.mode == 'run' && inputs.job_id != '' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
@@ -117,8 +127,22 @@ jobs:
         id: base
         env:
           BASE_BRANCH: ${{ steps.claim.outputs.base_branch }}
+          BRANCH_NAME: ${{ steps.claim.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          base_sha="$(git rev-parse "origin/$BASE_BRANCH^{commit}")"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$remote" "refs/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            git fetch --no-tags "$remote" "refs/heads/$BRANCH_NAME"
+            read -r -a commit_line <<< "$(git rev-list --parents -n 1 FETCH_HEAD)"
+            if [ "${#commit_line[@]}" -ne 2 ]; then
+              echo "Existing publication branch must contain one commit with one parent." >&2
+              exit 1
+            fi
+            base_sha="${commit_line[1]}"
+            git merge-base --is-ancestor "$base_sha" "origin/$BASE_BRANCH"
+          else
+            base_sha="$(git rev-parse "origin/$BASE_BRANCH^{commit}")"
+          fi
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
       - name: Preserve claimed job state
         uses: actions/upload-artifact@v4
@@ -209,7 +233,7 @@ jobs:
           EVENT_SEQUENCE=0 EVENT_TYPE=failed EVENT_SUMMARY="agent工程が失敗しました。Actionsログを確認してください。" EVENT_METADATA='{"autoSequence":true}' node "$RUNNER_TEMP/cloud-runner-client.mjs" event
 
   test:
-    if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'code_change'
+    if: github.run_attempt == 1 && needs.agent.result == 'success' && needs.agent.outputs.operation == 'code_change'
     needs: agent
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -247,7 +271,7 @@ jobs:
       - run: npm run check
 
   publish:
-    if: needs.test.result == 'success' && needs.agent.outputs.allow_push == 'true' && needs.agent.outputs.allow_draft_pr == 'true'
+    if: github.run_attempt == 1 && needs.test.result == 'success' && needs.agent.outputs.allow_push == 'true' && needs.agent.outputs.allow_draft_pr == 'true'
     needs: [agent, test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -319,7 +343,7 @@ jobs:
           node "${{ runner.temp }}/cloud-runner-client.mjs" event
 
   report_read_only:
-    if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'read_only'
+    if: github.run_attempt == 1 && needs.agent.result == 'success' && needs.agent.outputs.operation == 'read_only'
     needs: agent
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -347,7 +371,7 @@ jobs:
           EVENT_SEQUENCE=2 EVENT_TYPE=completed EVENT_SUMMARY="$summary" node "${{ runner.temp }}/cloud-runner-client.mjs" event
 
   report_failure:
-    if: always() && (needs.agent.result == 'failure' || needs.test.result == 'failure' || needs.publish.result == 'failure' || needs.report_read_only.result == 'failure')
+    if: github.run_attempt == 1 && always() && (needs.agent.result == 'failure' || needs.test.result == 'failure' || needs.publish.result == 'failure' || needs.report_read_only.result == 'failure')
     needs: [agent, test, publish, report_read_only]
     runs-on: ubuntu-latest
     timeout-minutes: 5
