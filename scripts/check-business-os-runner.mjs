@@ -14,6 +14,10 @@ async function read(path) {
 const workflow = await read(".github/workflows/business-os-codex.yml");
 for (const token of [
   "workflow_dispatch:",
+  "reject_rerun:",
+  "github.run_attempt != 1",
+  "github.run_attempt == 1",
+  "Request a new signed Business OS retry job",
   "mode:",
   "target_id:",
   "BUSINESS_OS_RUNNER_TOKEN",
@@ -29,6 +33,8 @@ for (const token of [
   "git write-tree",
   "steps.base.outputs.base_sha",
   "needs.agent.outputs.base_sha",
+  "git rev-list --parents -n 1 FETCH_HEAD",
+  "git merge-base --is-ancestor",
   "Report agent failure from local trusted state",
   "steps.claim.outcome == 'success'",
   "gh pr list",
