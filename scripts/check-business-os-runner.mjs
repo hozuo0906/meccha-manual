@@ -25,6 +25,7 @@ for (const token of [
   "safety-strategy: unprivileged-user",
   "Create draft pull request",
   "npm run check",
+  "diff HEAD --binary",
 ]) {
   if (!workflow.includes(token)) errors.push(`Business OS workflow must include ${token}`);
 }
@@ -40,6 +41,8 @@ for (const token of [
   "Protected path changed",
   "Secret-bearing path changed",
   "Path outside writable roots",
+  '"diff", "HEAD", "--name-only"',
+  '"diff", "HEAD", "--raw"',
 ]) {
   if (!client.includes(token)) errors.push(`Trusted runner client must include ${token}`);
 }
@@ -65,7 +68,24 @@ for (const name of [
 }
 
 await read("docs/08-operations/business-os-cloud-runner.md");
-await read("docs/03-architecture/adrs/ADR-0022-business-os-cloud-runner.md");
+await read("docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md");
+
+const apiContracts = await read("docs/05-api/api-contracts.md");
+for (const token of ["/api/v1/cloud-runners/probe", "/api/v1/cloud-runners/jobs/claim", "/api/v1/cloud-runners/events", "HMAC-SHA256", "canonical JSON"]) {
+  if (!apiContracts.includes(token)) errors.push(`api-contracts.md must document ${token}.`);
+}
+
+const nonFunctional = await read("docs/01-product/non-functional-requirements.md");
+if (!nonFunctional.includes("NFR-013")) errors.push("non-functional-requirements.md must define NFR-013.");
+
+const traceability = await read("docs/01-product/requirements-traceability.md");
+if (!traceability.includes("| NFR-013 |")) errors.push("requirements-traceability.md must trace NFR-013.");
+
+const adrIndex = await read("docs/03-architecture/adrs/README.md");
+if (!adrIndex.includes("| ADR-0026 |")) errors.push("ADR index must include ADR-0026.");
+
+const decisionLog = await read("docs/09-delivery/decision-log.md");
+if (!decisionLog.includes("| DEC-049 |")) errors.push("decision-log.md must include DEC-049.");
 
 if (errors.length > 0) {
   console.error(errors.join("\n"));
