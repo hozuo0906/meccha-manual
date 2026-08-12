@@ -840,14 +840,18 @@ function parseGitHubPrAction(customId: string | undefined): GitHubPrAction {
     throw new AppError(400, "DISCORD_COMPONENT_UNSUPPORTED", "Unsupported Discord button.");
   }
 
-  const number = Number(match[3]);
+  const [, rawKind, repository, rawNumber] = match;
+  if (!rawKind || !repository || !rawNumber) {
+    throw new AppError(400, "DISCORD_COMPONENT_UNSUPPORTED", "Unsupported Discord button.");
+  }
+  const number = Number(rawNumber);
   if (!Number.isSafeInteger(number) || number < 1) {
     throw new AppError(400, "DISCORD_COMPONENT_PR_INVALID", "Pull request number is invalid.");
   }
 
   return {
-    kind: match[1] === "status" ? "status" : "merge_request",
-    repository: match[2],
+    kind: rawKind === "status" ? "status" : "merge_request",
+    repository,
     number
   };
 }
@@ -1419,7 +1423,7 @@ async function withSupabaseReadTimeout<T>(
   fallbackMessage: string
 ): Promise<T> {
   const controller = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout>;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       controller.abort();
@@ -1432,7 +1436,7 @@ async function withSupabaseReadTimeout<T>(
     if (error instanceof AppError) throw error;
     throw new AppError(502, fallbackCode, fallbackMessage);
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
@@ -1487,18 +1491,20 @@ async function fetchWorkspaces(env: Env, accessToken: string): Promise<Workspace
         rangeStart === 0 &&
         Number.isSafeInteger(rangeEnd) &&
         rangeEnd - rangeStart + 1 === payload.length &&
+        typeof exactTotal === "number" &&
         Number.isSafeInteger(exactTotal) &&
         exactTotal >= payload.length;
     if (!rangeIsValid || exactTotal === null || !Number.isSafeInteger(exactTotal)) {
       throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
+    const validatedExactTotal = exactTotal;
     if (
       payload.length > MAX_WORKSPACE_LIST_ITEMS ||
-      exactTotal > MAX_WORKSPACE_LIST_ITEMS
+      validatedExactTotal > MAX_WORKSPACE_LIST_ITEMS
     ) {
       throw new AppError(409, "WORKSPACES_LIMIT_EXCEEDED", "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
     }
-    if (exactTotal !== payload.length) {
+    if (validatedExactTotal !== payload.length) {
       throw new AppError(502, "WORKSPACES_RESPONSE_INVALID", "ワークスペース一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
     return payload;
@@ -1987,13 +1993,13 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (request.method === "POST" && url.pathname === "/api/workspaces") return createWorkspace(request, env);
   if (request.method === "POST" && url.pathname === "/api/member-join-code") return createWorkspaceJoinCode(request, env);
-  if (request.method === "GET" && workspaceMembersMatch) {
+  if (request.method === "GET" && workspaceMembersMatch?.[1]) {
     return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
   }
-  if (request.method === "POST" && workspaceMembersMatch) {
+  if (request.method === "POST" && workspaceMembersMatch?.[1]) {
     return addWorkspaceMember(request, env, workspaceMembersMatch[1]);
   }
-  if (request.method === "PATCH" && workspaceMemberMatch) {
+  if (request.method === "PATCH" && workspaceMemberMatch?.[1] && workspaceMemberMatch[2]) {
     return updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
   }
 

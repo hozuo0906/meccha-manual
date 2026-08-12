@@ -9,6 +9,8 @@ node_modules/
 .npmrc
 .netrc
 .wrangler/
+playwright-report/
+test-results/
 
 # Local credentials and private key containers
 *.pem

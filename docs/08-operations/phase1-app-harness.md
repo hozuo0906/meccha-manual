@@ -88,12 +88,16 @@ Cookie属性:
 
 ## Verification
 
-リポジトリ内の静的検査で確認するもの:
+リポジトリ内の自動検査で確認するもの:
 
 - 必須API、Cookie属性、同一origin検査が実装から失われていない。
 - Phase 1 migrationとhardening migrationが順序どおり存在する。
 - RLS negative testの手順と必要環境変数が文書化されている。
 - `npm run phase1:a11y:test`が、日本語ランドマーク、本文スキップ、可視フォーカス、44px操作領域、ズーム用再配置、状態通知、権限表示、準備中表示の契約を検査し、重要要素を壊した変異で失敗する。
+- `npm run worker:typecheck`が、最新Workers型に対してWorkerをstrict modeで型検査する。
+- `npm run worker:bundle:check`が、外部へdeployせずWranglerのbundleを完了する。
+- `npm run worker:runtime:mutation:test`が、異origin拒否とJSON body上限を壊したproduction codeを実行し、共通失敗条件契約で検出する。
+- `npm run phase1:e2e:test`が、実Chromiumでowner/admin/editor/viewerのログイン、ワークスペース、メンバー権限表示、ログアウトを横断する。1280pxを200%表示した場合に相当する640 CSS pxで、本文スキップ、可視フォーカス、横方向のページoverflowがない再配置、支援技術向けの名前と状態通知も確認する。
 
 外部dev/staging環境で実行が必要な確認:
 
@@ -116,4 +120,4 @@ Cookie属性:
 
 RLS negative testスクリプトはリポジトリに存在するが、外部Supabase環境、検証用ユーザー、対象migrationの適用が必要である。リポジトリにmigrationがあることを、dev、staging、productionのいずれかへ適用済みという根拠にしてはならない。外部環境へデータを作成する動的テストと新規migration適用は、対象環境と承認を確認してから実行する。
 
-メンバー管理API/UIと共通シェルのリポジトリ実装、Worker/UI回帰テスト、アクセシビリティ契約検査は存在する。本格E2E、実ブラウザによる横断アクセシビリティ確認、外部Supabaseへforward migrationを適用した動的RLS検証は未完了であり、後続Issueで完了させる。
+メンバー管理API/UIと共通シェルのリポジトリ実装、Worker/UI回帰テスト、アクセシビリティ契約検査、fixture APIを使う実Chromium 4ロールE2Eは存在する。外部Supabaseへforward migrationを適用した動的RLS検証と、実資格情報・実RLSを含むstaging E2Eは未完了であり、対象環境のowner承認後に完了させる。

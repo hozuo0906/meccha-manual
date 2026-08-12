@@ -43,11 +43,26 @@ jobs:
       - name: Validate Worker harness
         run: npm run worker:check
 
+      - name: Typecheck Worker
+        run: npm run worker:typecheck
+
+      - name: Bundle Worker without deploying
+        run: npm run worker:bundle:check
+
       - name: Test Worker runtime
         run: npm run worker:runtime:test
 
+      - name: Test Worker failure mutations
+        run: npm run worker:runtime:mutation:test
+
       - name: Test app authentication lifecycle
         run: npm run app:auth:test
+
+      - name: Install Chromium for Phase 1 E2E
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Test Phase 1 browser flows
+        run: npm run phase1:e2e:test
 
       - name: Validate Worker runtime syntax
         run: |
