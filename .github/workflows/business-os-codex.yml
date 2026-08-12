@@ -65,6 +65,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -86,6 +87,7 @@ jobs:
       operation: ${{ steps.claim.outputs.operation }}
       branch_name: ${{ steps.claim.outputs.branch_name }}
       base_branch: ${{ steps.claim.outputs.base_branch }}
+      base_sha: ${{ steps.base.outputs.base_sha }}
       model: ${{ steps.claim.outputs.model }}
       effort: ${{ steps.claim.outputs.effort }}
       allow_push: ${{ steps.claim.outputs.allow_push }}
@@ -111,6 +113,13 @@ jobs:
           TARGET_ID: ${{ inputs.target_id }}
           JOB_ID: ${{ inputs.job_id }}
         run: node "$RUNNER_TEMP/cloud-runner-client.mjs" claim
+      - name: Resolve approved base revision
+        id: base
+        env:
+          BASE_BRANCH: ${{ steps.claim.outputs.base_branch }}
+        run: |
+          base_sha="$(git rev-parse "origin/$BASE_BRANCH^{commit}")"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
       - name: Preserve claimed job state
         uses: actions/upload-artifact@v4
         with:
@@ -135,10 +144,10 @@ jobs:
         run: npm ci
       - name: Create isolated Codex user and branch
         env:
-          BASE_BRANCH: ${{ steps.claim.outputs.base_branch }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
           BRANCH_NAME: ${{ steps.claim.outputs.branch_name }}
         run: |
-          git switch --force-create "$BRANCH_NAME" "origin/$BASE_BRANCH"
+          git switch --force-create "$BRANCH_NAME" "$BASE_SHA"
           sudo useradd --create-home --shell /bin/bash codex-agent
           sudo find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name .git -exec chown -R codex-agent:codex-agent {} +
           sudo install -d -o codex-agent -g codex-agent "$RUNNER_TEMP/codex-agent"
@@ -188,6 +197,16 @@ jobs:
             ${{ runner.temp }}/codex-agent/codex-final-message.txt
           if-no-files-found: error
           retention-days: 1
+      - name: Report agent failure from local trusted state
+        if: failure() && steps.claim.outcome == 'success'
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          EVENT_SEQUENCE=0 EVENT_TYPE=accepted EVENT_SUMMARY="署名検証済みジョブのfailure監査を開始します。" node "$RUNNER_TEMP/cloud-runner-client.mjs" event
+          EVENT_SEQUENCE=0 EVENT_TYPE=failed EVENT_SUMMARY="agent工程が失敗しました。Actionsログを確認してください。" EVENT_METADATA='{"autoSequence":true}' node "$RUNNER_TEMP/cloud-runner-client.mjs" event
 
   test:
     if: needs.agent.result == 'success' && needs.agent.outputs.operation == 'code_change'
@@ -199,7 +218,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.agent.outputs.base_branch }}
+          ref: ${{ needs.agent.outputs.base_sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -238,7 +257,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.agent.outputs.base_branch }}
+          ref: ${{ needs.agent.outputs.base_sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
