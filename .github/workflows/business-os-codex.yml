@@ -6,7 +6,12 @@ on:
       - ".github/workflows/business-os-codex.yml"
       - "scripts/cloud-runner-client.mjs"
       - "scripts/check-business-os-runner.mjs"
-      - "docs/03-architecture/adrs/ADR-0022-business-os-cloud-runner.md"
+      - "docs/01-product/non-functional-requirements.md"
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md"
+      - "docs/03-architecture/adrs/README.md"
+      - "docs/05-api/api-contracts.md"
+      - "docs/09-delivery/decision-log.md"
       - "docs/08-operations/business-os-cloud-runner.md"
       - "docs/08-operations/environment-variables.md"
       - "package.json"
@@ -166,7 +171,7 @@ jobs:
         run: |
           git add -N .
           node "$RUNNER_TEMP/cloud-runner-client.mjs" validate-diff
-          git -c core.hooksPath=/dev/null diff --binary --no-ext-diff --no-textconv > "$RUNNER_TEMP/codex.patch"
+          git -c core.hooksPath=/dev/null diff HEAD --binary --no-ext-diff --no-textconv > "$RUNNER_TEMP/codex.patch"
       - name: Upload isolated result
         if: success()
         uses: actions/upload-artifact@v4
