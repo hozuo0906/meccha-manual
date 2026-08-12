@@ -90,12 +90,14 @@ for (const [role, config] of Object.entries(roles)) {
 
     await expect(page.getByLabel("現在の利用状況")).toContainText(`現在の権限：${config.label}`);
     const addForm = page.locator("#member-add-form");
-    const targetRoleSave = page.getByRole("button", { name: "テストメンバーさんの権限を保存" });
-    const targetStop = page.getByRole("button", { name: "テストメンバーさんの利用を停止" });
+    const targetRoleSave = page.locator(`#member-save-${targetUserId}`);
+    const targetStop = page.locator(`#member-stop-${targetUserId}`);
     if (config.canManage) {
       await expect(addForm).toBeVisible();
       await expect(targetRoleSave).toBeVisible();
+      await expect(targetRoleSave).toHaveAccessibleName(/テストメンバー.*権限を保存/);
       await expect(targetStop).toBeVisible();
+      await expect(targetStop).toHaveAccessibleName(/テストメンバー.*利用を停止/);
     } else {
       await expect(addForm).toHaveCount(0);
       await expect(targetRoleSave).toHaveCount(0);
@@ -119,7 +121,7 @@ test("キーボードの本文スキップ、可視フォーカス、200%相当�
   await skipLink.press("Enter");
   await expect(page.locator("#screen-content")).toBeFocused();
 
-  const reloadButton = page.getByRole("button", { name: "一覧を更新" });
+  const reloadButton = page.locator("#members-reload-button");
   await reloadButton.focus();
   const focusStyle = await reloadButton.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -138,5 +140,7 @@ test("キーボードの本文スキップ、可視フォーカス、200%相当�
   expect((await reloadButton.boundingBox())?.height || 0).toBeGreaterThanOrEqual(44);
 
   await expect(page.locator("#members-message")).toHaveAttribute("aria-live", "polite");
-  await expect(page.getByRole("button", { name: "テストメンバーさんの権限を保存" })).toBeVisible();
+  const targetRoleSave = page.locator(`#member-save-${targetUserId}`);
+  await expect(targetRoleSave).toBeVisible();
+  await expect(targetRoleSave).toHaveAccessibleName(/テストメンバー.*権限を保存/);
 });
