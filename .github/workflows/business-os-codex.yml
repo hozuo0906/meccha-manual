@@ -88,6 +88,8 @@ jobs:
       base_branch: ${{ steps.claim.outputs.base_branch }}
       model: ${{ steps.claim.outputs.model }}
       effort: ${{ steps.claim.outputs.effort }}
+      allow_push: ${{ steps.claim.outputs.allow_push }}
+      allow_draft_pr: ${{ steps.claim.outputs.allow_draft_pr }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -223,7 +225,7 @@ jobs:
       - run: npm run check
 
   publish:
-    if: needs.test.result == 'success'
+    if: needs.test.result == 'success' && needs.agent.outputs.allow_push == 'true' && needs.agent.outputs.allow_draft_pr == 'true'
     needs: [agent, test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
