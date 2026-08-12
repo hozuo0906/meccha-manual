@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-7dc9fccf39430332";
+export const APP_ASSET_VERSION = "sha256-21c9687eb4450731";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1271,7 +1271,7 @@ function renderLogin(message = "") {
           password: form.get("password")
         })
       });
-      await loadSession();
+      await loadSession({ focusId: "workspace-heading" });
     } catch (error) {
       setBox("login-message", error.message, "error");
     } finally {
@@ -1303,7 +1303,7 @@ function renderLoadFailure(title, message) {
     retryButton.disabled = true;
     retryButton.textContent = "読み込み中";
     retryButton.setAttribute("aria-busy", "true");
-    await loadSession();
+    await loadSession({ focusId: "workspace-heading" });
   });
   retryButton.focus();
 }
@@ -2043,7 +2043,7 @@ async function loadSession(options = {}) {
       }
     }
     if (!notice && options.preserveShell) notice = "一覧を更新しました。";
-    renderShell(currentSession, notice);
+    renderShell(currentSession, notice, "notice", options.focusId || null);
     if (pendingJoinCodeIssuance?.settled) await finalizeWorkspaceJoinCodeIssuance(pendingJoinCodeIssuance);
     if (pendingMemberReconciliation?.settled) await reconcilePendingWorkspaceMemberMutation(pendingMemberReconciliation);
     if (options.preserveShell) document.getElementById("reload-button")?.focus();
