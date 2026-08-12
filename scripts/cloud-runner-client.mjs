@@ -103,9 +103,9 @@ async function probe() {
 async function validateDiff() {
   const job = JSON.parse(await readFile(jobPath, "utf8"));
   const roots = job.permissions.writableRoots.map((root) => root.replace(/^\.\//, "").replace(/\/$/, ""));
-  const output = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
+  const output = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--name-only", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
   const files = output.split("\0").filter(Boolean);
-  const raw = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "--raw", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
+  const raw = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--raw", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
   if (/:(?:120000|160000) [0-7]{6}|:[0-7]{6} (?:120000|160000)/.test(raw)) throw new Error("Symlinks and submodules are not allowed in cloud runner patches");
   if (job.permissions.operation === "code_change" && files.length === 0) throw new Error("Codex produced no code changes");
   for (const file of files) {
