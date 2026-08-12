@@ -15,7 +15,12 @@ const requiredFiles = [
   "scripts/rls-negative-test.mjs",
   "scripts/phase1-migration-bundle.mjs",
   "scripts/test-phase1-migration-bundle.mjs",
+  "scripts/check-worker-bundle.mjs",
   "tests/worker-runtime.test.mjs",
+  "tests/worker-runtime-mutation.test.mjs",
+  "tests/e2e/phase1-flow.spec.mjs",
+  "playwright.phase1.config.mjs",
+  "tsconfig.worker.json",
   ".gitignore"
 ];
 
@@ -112,6 +117,22 @@ if (!packageJson.scripts?.["worker:runtime:test"]) {
   errors.push("package.json must define worker:runtime:test.");
 }
 
+if (!packageJson.scripts?.["worker:typecheck"]) {
+  errors.push("package.json must define worker:typecheck.");
+}
+
+if (!packageJson.scripts?.["worker:bundle:check"]) {
+  errors.push("package.json must define worker:bundle:check.");
+}
+
+if (!packageJson.scripts?.["worker:runtime:mutation:test"]) {
+  errors.push("package.json must define worker:runtime:mutation:test.");
+}
+
+if (!packageJson.scripts?.["phase1:e2e:test"]) {
+  errors.push("package.json must define phase1:e2e:test.");
+}
+
 if (!packageJson.scripts?.["app:auth:test"]) {
   errors.push("package.json must define app:auth:test.");
 }
@@ -126,6 +147,12 @@ if (!packageJson.scripts?.["test:phase1-migration-bundle"]) {
 
 if (!packageJson.scripts?.check?.includes("phase1-readiness:check")) {
   errors.push("npm run check must include phase1-readiness:check.");
+}
+
+for (const command of ["worker:typecheck", "worker:bundle:check", "worker:runtime:mutation:test"]) {
+  if (!packageJson.scripts?.check?.includes(command)) {
+    errors.push(`npm run check must include ${command}.`);
+  }
 }
 
 const hardening = contents["supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql"] || "";
@@ -232,8 +259,13 @@ for (const command of [
   "npm run test:phase1-migration-bundle",
   "npm run secrets:check",
   "npm run worker:check",
+  "npm run worker:typecheck",
+  "npm run worker:bundle:check",
   "npm run worker:runtime:test",
+  "npm run worker:runtime:mutation:test",
   "npm run app:auth:test",
+  "npx --no-install playwright install --with-deps chromium",
+  "npm run phase1:e2e:test",
   "node --experimental-strip-types --check apps/worker/src/index.ts",
   "node --experimental-strip-types --check apps/worker/src/app-assets.ts",
   "npm run phase1-readiness:check"

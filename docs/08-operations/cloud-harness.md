@@ -65,13 +65,9 @@ https://<worker-url>/health/config
 
 ## 現在のCI
 
-`npm run check` は文書だけでなく、Worker、workflow、migration、migration安全性、RLS手順、環境分離、品質ゲート、秘密値などの静的検査を実行する。外部資格情報を必要とする動的RLS testとE2Eは自動的に成功扱いにしない。
+`npm run check` は文書だけでなく、Workerの型検査とbundle dry-run、runtime・失敗変異、UI、workflow、migration、migration安全性、RLS手順、環境分離、品質ゲート、秘密値を検査する。Phase 1 readiness workflowは実Chromiumのfixture E2Eも実行する。外部資格情報を必要とする動的RLS testとstaging E2Eは自動的に成功扱いにしない。
 
 Phase 1実装では次を小分けで追加する。
 
-- TypeScript typecheck
 - lint
-- unit test
-- Playwright E2E
 - RLS negative test
-- Worker deploy dry run

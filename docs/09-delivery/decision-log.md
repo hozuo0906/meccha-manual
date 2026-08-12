@@ -54,5 +54,6 @@ Status: Accepted
 | DEC-048 | 2026-08-11 | Phase 1共通シェルは反復ナビを飛ばす本文スキップ、日本語のページ内ナビ、現在のワークスペース、live region、可視フォーカス、44px操作領域、200%ズーム向け再配置を共通契約にする。本人権限はメンバー全件を暗黙取得せず、未確認状態を明示し、メンバー一覧の明示取得後に表示する。手順書と操作記録は提供開始まで操作不能な「準備中」とする | キーボード・拡大表示・支援技術の利用者が現在位置と処理状態を把握し、一覧の個人情報を必要前に取得せず、未提供機能を誤操作しないようにするため |
 
 | DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
+| DEC-050 | 2026-08-12 | Phase 1 readinessは最新Workers型のstrict typecheck、Wrangler bundle dry-run、重要な失敗条件のproduction code変異、fixture APIを使う実Chromium 4ロールE2Eを必須にする。外部Supabaseのmigration・資格情報・テストデータは使わず、動的RLS検証は承認対象のIssue #38へ分離する | 静的snippetだけの合格を防ぎつつ、外部環境を無承認で変更せずに認証・権限UI・アクセシビリティの実行可能性をPRごとに保証するため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。

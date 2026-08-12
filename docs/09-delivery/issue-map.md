@@ -42,7 +42,7 @@ Phase 1実装Issue:
 Phase 1実装Issue:
 
 - GitHub Issue #36 / P1-06〜P1-09: 共通シェル、権限別UI、共通状態、日本語文言、アクセシビリティ。対象ACはAC-012、AC-013、AC-014。
-- GitHub Issue #37 / P1-10: Worker実行テスト、型検査、bundle dry-run、SCR-LOGINからSCR-WORKSPACE、SCR-MEMBERS、ログアウトまでの4ロールE2E。
+- GitHub Issue #37 / P1-10: Worker実行テスト、型検査、bundle dry-run、SCR-LOGINからSCR-WORKSPACE、SCR-MEMBERS、ログアウトまでの4ロールE2E。Phase 1 readiness workflowでChromiumを導入して実行し、異origin拒否とbody上限はproduction codeを壊す変異でも契約検査が失敗することを保証する。
 
 Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で失敗するアクセシビリティ契約検査までを扱う。実ブラウザでの200%ズーム、フォーカス順、スクリーンリーダー相当の横断検証はIssue #37で行い、静的契約だけをE2E完了の根拠にしない。
 

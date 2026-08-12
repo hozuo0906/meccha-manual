@@ -643,9 +643,9 @@ test("ログインsubmitの認証失敗は日本語エラーを表示してfocus
   assert.equal(focusedId(), "login-message");
 });
 
-test("期限切れ表示から再ログインして利用を再開できる", async () => {
+test("期限切れ表示から再ログインして利用を再開し新しい画面見出しへフォーカスする", async () => {
   let sessionRequests = 0;
-  const { api, app, element } = createHarness({
+  const { api, app, element, focusedId } = createHarness({
     fetch: async (path) => {
       if (path === "/api/auth/login") return Response.json({ user: { id: "user-1" } });
       sessionRequests += 1;
@@ -668,6 +668,7 @@ test("期限切れ表示から再ログインして利用を再開できる", as
   assert.match(app.innerHTML, /class="shell"/);
   assert.match(app.innerHTML, /再開後ワークスペース/);
   assert.equal(api.getCurrentSession().user.id, "user-1");
+  assert.equal(focusedId(), "workspace-heading");
 });
 
 test("正常なsession取得で保護shellと所属ワークスペースを表示する", async () => {

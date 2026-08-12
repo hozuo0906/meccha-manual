@@ -14,7 +14,7 @@ Status: Accepted
 | FR-019 | SCR-BILLING | billing APIs, webhook | billing_customers, checkout_intents, billing_purchases, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | EPIC-10 |
 | FR-020 | SCR-AI-SETTINGS | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | EPIC-14 |
 | FR-021 | SCR-BILLING, SCR-USAGE | billing summary, export APIs | entitlements, usage_counters | ADR-0023 | AC-051, AC-053, AC-055, AC-058 | EPIC-10 |
-| NFR-007 | SCR-LOGIN, SCR-WORKSPACE, SCR-MEMBERS, SCR-SHELL | - | - | - | AC-012, AC-013, `phase1:a11y:test` | EPIC-03, EPIC-13 |
+| NFR-007 | SCR-LOGIN, SCR-WORKSPACE, SCR-MEMBERS, SCR-SHELL | - | - | - | AC-012, AC-013, `phase1:a11y:test`, `phase1:e2e:test` | EPIC-03, EPIC-13 |
 
 | NFR-013 | - | `POST /api/v1/cloud-runners/probe`, `POST /api/v1/cloud-runners/jobs/claim`, `POST /api/v1/cloud-runners/events` | Business OS側のexecution target/job/eventを正本とし、本サービスDBへ複製しない | ADR-0026 | `business-os-runner:check`, Business OS Codex Runner contract/probe/reject-path | Business OS #10 |
 

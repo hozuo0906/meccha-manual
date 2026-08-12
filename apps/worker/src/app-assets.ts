@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-7bcde4f31d9f2561";
+export const APP_ASSET_VERSION = "sha256-5643e4c1cc99d92b";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -908,7 +908,7 @@ authenticationChannel?.addEventListener("message", (event) => {
   if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
   if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
   renderAuthenticationReload();
-  loadSession();
+  loadSession({ focusId: "workspace-heading" });
 });
 
 class AppRequestError extends Error {
@@ -1271,7 +1271,7 @@ function renderLogin(message = "") {
           password: form.get("password")
         })
       });
-      await loadSession();
+      await loadSession({ focusId: "workspace-heading" });
     } catch (error) {
       setBox("login-message", error.message, "error");
     } finally {
@@ -1303,7 +1303,7 @@ function renderLoadFailure(title, message) {
     retryButton.disabled = true;
     retryButton.textContent = "読み込み中";
     retryButton.setAttribute("aria-busy", "true");
-    await loadSession();
+    await loadSession({ focusId: "workspace-heading" });
   });
   retryButton.focus();
 }
@@ -1811,7 +1811,7 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
   }
 }
 
-function renderShell(session, notice = "", noticeKind = "notice", focusId = "workspace-heading") {
+function renderShell(session, notice = "", noticeKind = "notice", focusId = null) {
   const workspaces = session.workspaces || [];
   restoreUncertainWorkspaceCreation(session.user?.id);
   const currentWorkspace = resolveCurrentWorkspace(session);
@@ -2043,7 +2043,7 @@ async function loadSession(options = {}) {
       }
     }
     if (!notice && options.preserveShell) notice = "一覧を更新しました。";
-    renderShell(currentSession, notice);
+    renderShell(currentSession, notice, "notice", options.focusId || null);
     if (pendingJoinCodeIssuance?.settled) await finalizeWorkspaceJoinCodeIssuance(pendingJoinCodeIssuance);
     if (pendingMemberReconciliation?.settled) await reconcilePendingWorkspaceMemberMutation(pendingMemberReconciliation);
     if (options.preserveShell) document.getElementById("reload-button")?.focus();
