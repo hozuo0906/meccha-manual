@@ -57,6 +57,16 @@ jobs:
       - run: npm ci
       - run: npm run check
 
+  reject_missing_job:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' && github.run_attempt == 1 && inputs.job_id == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject run without job ID
+        run: |
+          echo "Run mode requires an approved Business OS job ID." >&2
+          exit 1
+
   reject_rerun:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' && github.run_attempt != 1
     runs-on: ubuntu-latest
