@@ -123,3 +123,16 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 
 `CODEX_ACCESS_TOKEN` はOpenAI APIキーではなく、Codex CLIをChatGPT/Codex側の利用枠で動かすためのAccess Tokenとして扱う。
 値はGitHub Actionsログ、Issueコメント、PR本文、Markdownへ記録しない。
+
+## Business OS cloud runner
+
+| 名前 | 分類 | 用途 | 必須 | クライアント公開 |
+|---|---|---|---|---|
+| `BUSINESS_OS_URL` | runner variable | 社内Business OSのbase URL | probe以降 | no |
+| `BUSINESS_OS_RUNNER_TOKEN` | secret | execution target専用runner認証 | probe以降 | no |
+| `CLOUD_RUNNER_JOB_SIGNING_SECRET` | secret | Business OS job payloadの署名検証 | 有料job実行時 | no |
+| `CF_ACCESS_CLIENT_ID` | secret | runner専用Cloudflare Access service token ID | probe以降 | no |
+| `CF_ACCESS_CLIENT_SECRET` | secret | runner専用Cloudflare Access service token secret | probe以降 | no |
+| `OPENAI_API_KEY` | secret | Owner承認済みBusiness OS automationでCodexを実行 | optional / paid | no |
+
+Business OS runner secretは既存の `CODEX_ACCESS_TOKEN` と共有しない。値はGitHub Actions log、Issue、PR、Markdownへ記録しない。`OPENAI_API_KEY` は無料probeと拒否系testでは設定せず、費用、job単位の `maxCostUsd`、月次hard stopをOwnerが承認した後だけ登録する。

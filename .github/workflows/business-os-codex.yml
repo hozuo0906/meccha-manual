@@ -1,0 +1,417 @@
+name: Business OS Codex Runner
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/business-os-codex.yml"
+      - "scripts/cloud-runner-client.mjs"
+      - "scripts/check-business-os-runner.mjs"
+      - "docs/01-product/non-functional-requirements.md"
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md"
+      - "docs/03-architecture/adrs/README.md"
+      - "docs/05-api/api-contracts.md"
+      - "docs/09-delivery/decision-log.md"
+      - "docs/08-operations/business-os-cloud-runner.md"
+      - "docs/08-operations/environment-variables.md"
+      - "package.json"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Connection probe or approved job
+        type: choice
+        options: [probe, run]
+        default: run
+        required: true
+      target_id:
+        description: Business OS execution target UUID
+        type: string
+        required: true
+      job_id:
+        description: Approved Business OS job UUID (run only)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-os-codex-${{ inputs.target_id }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: git diff --check origin/main...HEAD
+      - run: npm ci
+      - run: npm run check
+
+  reject_missing_job:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' && github.run_attempt == 1 && inputs.job_id == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject run without job ID
+        run: |
+          echo "Run mode requires an approved Business OS job ID." >&2
+          exit 1
+
+  reject_rerun:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' && github.run_attempt != 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject same-run retry
+        run: |
+          echo "A failed cloud job is terminal. Request a new signed Business OS retry job instead of rerunning this GitHub run." >&2
+          exit 1
+
+  probe:
+    if: inputs.mode == 'probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify Business OS runner connection
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          TARGET_ID: ${{ inputs.target_id }}
+          WORKFLOW_REF: business-os-codex.yml
+        run: node scripts/cloud-runner-client.mjs probe
+
+  agent:
+    if: inputs.mode == 'run' && inputs.job_id != '' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      operation: ${{ steps.claim.outputs.operation }}
+      branch_name: ${{ steps.claim.outputs.branch_name }}
+      base_branch: ${{ steps.claim.outputs.base_branch }}
+      base_sha: ${{ steps.base.outputs.base_sha }}
+      model: ${{ steps.claim.outputs.model }}
+      effort: ${{ steps.claim.outputs.effort }}
+      allow_push: ${{ steps.claim.outputs.allow_push }}
+      allow_draft_pr: ${{ steps.claim.outputs.allow_draft_pr }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Preserve trusted runner client
+        run: install -m 700 scripts/cloud-runner-client.mjs "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Claim approved job
+        id: claim
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          BUSINESS_OS_JOB_SIGNING_SECRET: ${{ secrets.CLOUD_RUNNER_JOB_SIGNING_SECRET }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          TARGET_ID: ${{ inputs.target_id }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: node "$RUNNER_TEMP/cloud-runner-client.mjs" claim
+      - name: Resolve approved base revision
+        id: base
+        env:
+          BASE_BRANCH: ${{ steps.claim.outputs.base_branch }}
+          BRANCH_NAME: ${{ steps.claim.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          base_ref="refs/remotes/origin/business-os-base"
+          git fetch --no-tags "$remote" "+refs/heads/$BASE_BRANCH:$base_ref"
+          if git ls-remote --exit-code --heads "$remote" "refs/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            git fetch --no-tags "$remote" "refs/heads/$BRANCH_NAME"
+            read -r -a commit_line <<< "$(git rev-list --parents -n 1 FETCH_HEAD)"
+            if [ "${#commit_line[@]}" -ne 2 ]; then
+              echo "Existing publication branch must contain one commit with one parent." >&2
+              exit 1
+            fi
+            base_sha="${commit_line[1]}"
+            git merge-base --is-ancestor "$base_sha" "$base_ref"
+          else
+            base_sha="$(git rev-parse "$base_ref^{commit}")"
+          fi
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+      - name: Preserve claimed job state
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-os-state-${{ inputs.job_id }}
+          path: |
+            ${{ runner.temp }}/business-os-job.json
+            ${{ runner.temp }}/cloud-runner-client.mjs
+          if-no-files-found: error
+          retention-days: 1
+      - name: Record accepted job
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "0"
+          EVENT_TYPE: accepted
+          EVENT_SUMMARY: GitHub-hosted runnerが承認済みジョブを取得しました。
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+      - name: Install dependencies before sandboxed execution
+        if: steps.claim.outputs.operation == 'code_change'
+        run: npm ci
+      - name: Create isolated Codex user and branch
+        env:
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          BRANCH_NAME: ${{ steps.claim.outputs.branch_name }}
+        run: |
+          git switch --force-create "$BRANCH_NAME" "$BASE_SHA"
+          sudo useradd --create-home --shell /bin/bash codex-agent
+          sudo find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name .git -exec chown -R codex-agent:codex-agent {} +
+          sudo install -m 640 -o codex-agent -g codex-agent /dev/null "$GITHUB_WORKSPACE/.business-os-codex-result.txt"
+      - name: Record started job
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "1"
+          EVENT_TYPE: started
+          EVENT_SUMMARY: Codex実装を開始しました。
+        run: node "$RUNNER_TEMP/cloud-runner-client.mjs" event
+      - name: Run Codex without GitHub write credentials
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ steps.claim.outputs.prompt_path }}
+          sandbox: ${{ steps.claim.outputs.operation == 'code_change' && 'workspace-write' || 'read-only' }}
+          model: ${{ steps.claim.outputs.model }}
+          effort: ${{ steps.claim.outputs.effort }}
+          safety-strategy: unprivileged-user
+          codex-user: codex-agent
+          output-file: .business-os-codex-result.txt
+      - name: Transfer Codex result to trusted runner state
+        if: success()
+        run: |
+          sudo install -m 600 -o "$(id -u)" -g "$(id -g)" .business-os-codex-result.txt "$RUNNER_TEMP/codex-final-message.txt"
+          sudo rm -f .business-os-codex-result.txt
+          rm -f .business-os-codex-prompt.md
+      - name: Capture approved-path patch
+        if: success() && steps.claim.outputs.operation == 'code_change'
+        run: |
+          git add -N .
+          node "$RUNNER_TEMP/cloud-runner-client.mjs" validate-diff
+          git -c core.hooksPath=/dev/null diff HEAD --binary --no-ext-diff --no-textconv > "$RUNNER_TEMP/codex.patch"
+      - name: Upload isolated result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: |
+            ${{ runner.temp }}/business-os-job.json
+            ${{ runner.temp }}/cloud-runner-client.mjs
+            ${{ runner.temp }}/codex.patch
+            ${{ runner.temp }}/codex-final-message.txt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Report agent failure from local trusted state
+        if: failure() && steps.claim.outcome == 'success'
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          EVENT_SEQUENCE=0 EVENT_TYPE=accepted EVENT_SUMMARY="署名検証済みジョブのfailure監査を開始します。" node "$RUNNER_TEMP/cloud-runner-client.mjs" event
+          EVENT_SEQUENCE=0 EVENT_TYPE=failed EVENT_SUMMARY="agent工程が失敗しました。Actionsログを確認してください。" EVENT_METADATA='{"autoSequence":true}' node "$RUNNER_TEMP/cloud-runner-client.mjs" event
+
+  test:
+    if: github.run_attempt == 1 && needs.agent.result == 'success' && needs.agent.outputs.operation == 'code_change'
+    needs: agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.agent.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Apply isolated patch
+        run: git -c core.hooksPath=/dev/null apply --check "$RUNNER_TEMP/result/codex.patch" && git -c core.hooksPath=/dev/null apply "$RUNNER_TEMP/result/codex.patch"
+      - name: Record test start
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "2"
+          EVENT_TYPE: test_started
+          EVENT_SUMMARY: 独立runnerで検証を開始しました。
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
+      - run: npm ci
+      - run: npm run check
+
+  publish:
+    if: github.run_attempt == 1 && needs.test.result == 'success' && needs.agent.outputs.allow_push == 'true' && needs.agent.outputs.allow_draft_pr == 'true'
+    needs: [agent, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.agent.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Apply patch without executing project code
+        env:
+          BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git switch --create "$BRANCH_NAME"
+          git -c core.hooksPath=/dev/null apply --check "$RUNNER_TEMP/result/codex.patch"
+          git -c core.hooksPath=/dev/null apply "$RUNNER_TEMP/result/codex.patch"
+          git config user.name "business-os[bot]"
+          git config user.email "business-os[bot]@users.noreply.github.com"
+          git add -A
+          expected_tree="$(git write-tree)"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$remote" "refs/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            git fetch --no-tags "$remote" "refs/heads/$BRANCH_NAME"
+            remote_tree="$(git rev-parse "FETCH_HEAD^{tree}")"
+            if [ "$remote_tree" != "$expected_tree" ]; then
+              echo "Existing publication branch does not match the approved patch." >&2
+              exit 1
+            fi
+          else
+            git -c core.hooksPath=/dev/null commit -m "Implement approved Business OS job"
+            git push "$remote" "HEAD:refs/heads/$BRANCH_NAME"
+          fi
+      - name: Create draft pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          BASE_BRANCH: ${{ needs.agent.outputs.base_branch }}
+        run: |
+          url="$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh pr create --draft --base "$BASE_BRANCH" --head "$BRANCH_NAME" --title "Business OS approved change" --body "Business OSの承認済みジョブから作成しました。")"
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Record Owner review
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "3"
+          EVENT_TYPE: completed
+          EVENT_SUMMARY: テスト合格後にdraft PRを作成しました。stagingとproductionは未実行です。
+          EVENT_BRANCH_NAME: ${{ needs.agent.outputs.branch_name }}
+          EVENT_PULL_REQUEST_URL: ${{ steps.pr.outputs.url }}
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: |
+          EVENT_METADATA="$(node -e 'process.stdout.write(JSON.stringify({ branchName: process.env.EVENT_BRANCH_NAME, pullRequestUrl: process.env.EVENT_PULL_REQUEST_URL }))')"
+          export EVENT_METADATA
+          node "${{ runner.temp }}/cloud-runner-client.mjs" event
+
+  report_read_only:
+    if: github.run_attempt == 1 && needs.agent.result == 'success' && needs.agent.outputs.operation == 'read_only'
+    needs: agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: business-os-codex-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/result
+      - name: Restore trusted runner client from agent artifact
+        run: install -m 700 "$RUNNER_TEMP/result/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Record read-only result
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          RUNNER_TEMP: ${{ runner.temp }}/result
+        run: |
+          summary="$(head -c 3900 "$RUNNER_TEMP/codex-final-message.txt")"
+          EVENT_SEQUENCE=2 EVENT_TYPE=completed EVENT_SUMMARY="$summary" node "${{ runner.temp }}/cloud-runner-client.mjs" event
+
+  report_failure:
+    if: github.run_attempt == 1 && always() && (needs.agent.result == 'failure' || needs.test.result == 'failure' || needs.publish.result == 'failure' || needs.report_read_only.result == 'failure')
+    needs: [agent, test, publish, report_read_only]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download claimed job state
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: business-os-state-${{ inputs.job_id }}
+          path: .runner-state
+      - name: Restore trusted runner client from state artifact
+        if: hashFiles('.runner-state/cloud-runner-client.mjs') != ''
+        run: install -m 700 ".runner-state/cloud-runner-client.mjs" "$RUNNER_TEMP/cloud-runner-client.mjs"
+      - name: Record failed workflow
+        if: hashFiles('.runner-state/business-os-job.json') != ''
+        env:
+          BUSINESS_OS_URL: ${{ vars.BUSINESS_OS_URL }}
+          BUSINESS_OS_RUNNER_TOKEN: ${{ secrets.BUSINESS_OS_RUNNER_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT_SEQUENCE: "0"
+          EVENT_TYPE: failed
+          EVENT_SUMMARY: GitHub-hosted runnerの実装、検証、または公開工程が失敗しました。Actionsログを確認してください。
+          EVENT_METADATA: '{"autoSequence":true}'
+          RUNNER_TEMP: ${{ github.workspace }}/.runner-state
+        run: node "${{ runner.temp }}/cloud-runner-client.mjs" event
