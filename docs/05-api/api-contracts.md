@@ -100,6 +100,29 @@ flagをtrueからfalseへ戻した場合は新規処理の拒否だけで終え�
 
 上限や権利がない場合は、既存データを削除せず、日本語の料金案内と次の操作を返す。R2使用量が100%なら新規エクスポート生成を拒否するが、生成済み成果物の期限内ダウンロードは許可する。
 
+## Business OS cloud runner契約
+
+Business OSからのcloud executionは、既存の利用者向けAPIとは別のmachine-to-machine契約として扱う。runnerはCloudflare Access service tokenとproject専用Bearer tokenの両方を送り、Business OSは登録済みexecution target、repository、workflowを完全一致で照合する。
+
+| API | request | response・失敗境界 |
+|---|---|---|
+| `POST /api/v1/cloud-runners/probe` | `targetId`, `repository`, `workflowRef` | secret値を返さず接続結果だけを返す。pending targetでも実行できるが、登録済みrepository/workflowとの不一致、無効token、Access拒否は失敗する |
+| `POST /api/v1/cloud-runners/jobs/claim` | `targetId`, `jobId`, `repository`, `workflowRunId` | `job`とlowercase hexの`signature`を返す。active target、承認済みjob、未失効lease、repository一致、月次予算停止値、同時実行数を満たさないclaimは拒否する |
+| `POST /api/v1/cloud-runners/events` | 下記event envelope | eventを冪等に記録する。job/target/repository不一致、未知type、不正sequence、重複内容の不一致は拒否する |
+
+claim responseの署名対象jobは次を含む。
+
+- 識別: `id`, `organizationId`, `projectId`, `codexRunId`, `executionTargetId`, `provider`, `repoAlias`, `repository`, `workflowRef`
+- 実行: `baseBranch`, `branchName`, `taskBrief`, `acceptanceCriteria`, `model`, `effort`
+- 予算・期限: `tokenBudget`, `maxCostUsd`, `issuedAt`, `expiresAt`
+- 権限: `permissions.operation`, `writableRoots`, `allowNetwork`, `allowPush`, `allowDraftPr`, `allowStagingDeploy`, `allowProductionDeploy`
+
+署名はjob全体をcanonical JSON化したUTF-8 byte列に対するHMAC-SHA256で、lowercase hexadecimalとする。canonical JSONはobject keyを各階層で辞書順に並べ、array順序を保持し、scalarとnullをJSON表現にする。runnerは共有secretで再計算し、長さ確認後にtiming-safe比較する。署名不一致、期限切れ、別target・別repository、`codex/`以外のbranch、許可外operation/path、`allowProductionDeploy !== false`は実行しない。
+
+event envelopeは `eventId`, `jobId`, `codexRunId`, `executionTargetId`, `repository`, `workflowRunId`, 非負整数の`sequence`, `type`, 最大4000文字の`summary`, ISO 8601の`occurredAt`, objectの`metadata`を持つ。`type`は `accepted`, `started`, `progress`, `needs_input`, `test_started`, `staging_started`, `completed`, `failed` に限定する。`eventId`を冪等キーとし、同一job内のsequenceは状態遷移順を表す。
+
+runnerはproduction deploy、rollback、DB migration、secret変更をこの契約で表現しない。`tokenBudget`と`maxCostUsd`は署名対象であり、Business OSの月次警告・停止値と合わせてdispatch/claim時に検証する。runnerログ、event、Issue、文書へservice token、Bearer token、署名secret、OpenAI API keyを記録しない。
+
 ## Discord Interaction contract
 
 `POST /v1/integrations/discord/interactions` は通常の同一オリジンCSRF検証を通さず、Discord公式のEd25519署名検証を正とする。
