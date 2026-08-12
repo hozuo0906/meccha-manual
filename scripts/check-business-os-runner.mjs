@@ -14,6 +14,9 @@ async function read(path) {
 const workflow = await read(".github/workflows/business-os-codex.yml");
 for (const token of [
   "workflow_dispatch:",
+  "reject_missing_job:",
+  "inputs.job_id == ''",
+  "Run mode requires an approved Business OS job ID.",
   "reject_rerun:",
   "github.run_attempt != 1",
   "github.run_attempt == 1",
