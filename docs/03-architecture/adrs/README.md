@@ -29,3 +29,4 @@ Status: Accepted
 | ADR-0023 | Accepted | 都度払い・パーソナル・チーム課金とStripe Linkを採用する |
 | ADR-0024 | Accepted | ブランドサイトと認証付きアプリをサブドメインで分離する |
 | ADR-0025 | Accepted | 同意ベースの短命・単回使用参加コードでメンバーを追加する |
+| ADR-0026 | Accepted | Business OS cloud runnerを既存Issue runnerと並設する |
