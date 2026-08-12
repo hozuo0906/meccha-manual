@@ -24,6 +24,8 @@ for (const token of [
   "openai/codex-action@v1",
   "safety-strategy: unprivileged-user",
   "Create draft pull request",
+  "needs.agent.outputs.allow_push == 'true'",
+  "needs.agent.outputs.allow_draft_pr == 'true'",
   "npm run check",
   "diff HEAD --binary",
 ]) {
@@ -41,8 +43,12 @@ for (const token of [
   "Protected path changed",
   "Secret-bearing path changed",
   "Path outside writable roots",
+  "Cloud job expired",
+  "Unsupported cloud job operation",
+  "Publishing permissions denied",
   '"diff", "HEAD", "--name-only"',
   '"diff", "HEAD", "--raw"',
+  "--no-renames",
 ]) {
   if (!client.includes(token)) errors.push(`Trusted runner client must include ${token}`);
 }
@@ -71,7 +77,7 @@ await read("docs/08-operations/business-os-cloud-runner.md");
 await read("docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md");
 
 const apiContracts = await read("docs/05-api/api-contracts.md");
-for (const token of ["/api/v1/cloud-runners/probe", "/api/v1/cloud-runners/jobs/claim", "/api/v1/cloud-runners/events", "HMAC-SHA256", "canonical JSON"]) {
+for (const token of ["/api/v1/cloud-runners/probe", "/api/v1/cloud-runners/jobs/claim", "/api/v1/cloud-runners/events", "HMAC-SHA256", "canonical JSON", "`read_only`", "`code_change`", "`autoSequence`"]) {
   if (!apiContracts.includes(token)) errors.push(`api-contracts.md must document ${token}.`);
 }
 
