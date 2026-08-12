@@ -24,8 +24,8 @@ function sessionFor(role) {
   };
 }
 
-async function installApiFixture(page, role) {
-  let authenticated = false;
+async function installApiFixture(page, role, initiallyAuthenticated = false) {
+  let authenticated = initiallyAuthenticated;
   const session = sessionFor(role);
 
   await page.route("**/api/**", async (route) => {
@@ -113,8 +113,8 @@ for (const [role, config] of Object.entries(roles)) {
 
 test("キーボードの本文スキップ、可視フォーカス、200%相当の再配置を実ブラウザで確認する", async ({ page }) => {
   await page.setViewportSize({ width: 640, height: 900 });
-  await loginAndLoadMembers(page, "owner");
-  await page.reload();
+  await installApiFixture(page, "owner", true);
+  await page.goto("/");
   await expect(page.getByRole("heading", { name: "ワークスペース", exact: true })).toBeVisible();
 
   const skipLink = page.getByRole("link", { name: "本文へ移動" });
