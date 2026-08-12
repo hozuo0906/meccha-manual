@@ -79,7 +79,9 @@ async function loginAndLoadMembers(page, role) {
   await page.getByLabel("メールアドレス").fill(`${role}@example.invalid`);
   await page.getByLabel("パスワード").fill("not-a-real-password");
   await page.getByRole("button", { name: "ログイン" }).click();
-  await expect(page.getByRole("heading", { name: "ワークスペース", exact: true })).toBeVisible();
+  const workspaceHeading = page.getByRole("heading", { name: "ワークスペース", exact: true });
+  await expect(workspaceHeading).toBeVisible();
+  await expect(workspaceHeading).toBeFocused();
   await page.getByRole("button", { name: "メンバー一覧を表示" }).click();
   await expect(page.getByRole("region", { name: "ワークスペースメンバー一覧" })).toBeVisible();
 }
