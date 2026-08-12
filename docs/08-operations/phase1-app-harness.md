@@ -31,11 +31,11 @@ Cloudflare Worker上で、Supabase AuthとワークスペースRLSの接続を�
 - Web Locksと非機密な認証世代nonceによる複数タブのlogin/logout/refresh直列化・待機中の古いlogout/refresh取消、認証変更時に旧shellを即時非表示にする通知、workspace作成・一覧更新の古い応答・失敗を破棄する競合制御
 - 異origin、壊れたCookie、認証エラー非露出、ログアウト失効、refresh競合・失敗のWorker/UI認証テスト
 
-Phase 1で残るもの:
+外部環境・実機確認として残るもの:
 
-- 実ブラウザでのSCR-LOGINからログアウトまでの4ロールE2E
-- 実ブラウザでの200%ズーム、フォーカス順、スクリーンリーダー相当の横断確認
 - 隔離dev/stagingでの動的RLS negative test
+- 実資格情報・実RLSを使うdev/stagingでの認証・4ロール横断E2E
+- 実機のブラウザ200%ズームとスクリーンリーダーによる手動確認（CIでは640 CSS pxの再配置、Tab順、アクセシブル名・状態通知まで確認済み）
 
 この段階で提供しないもの:
 

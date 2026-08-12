@@ -116,19 +116,26 @@ test("キーボードの本文スキップ、可視フォーカス、200%相当�
   await loginAndLoadMembers(page, "owner");
 
   const skipLink = page.getByRole("link", { name: "本文へ移動" });
-  await skipLink.focus();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await page.keyboard.press("Tab");
   await expect(skipLink).toBeFocused();
   await skipLink.press("Enter");
   await expect(page.locator("#screen-content")).toBeFocused();
 
-  const reloadButton = page.locator("#members-reload-button");
-  await reloadButton.focus();
+  const reloadButton = page.locator("#reload-button");
+  await page.keyboard.press("Tab");
+  await expect(reloadButton).toBeFocused();
   const focusStyle = await reloadButton.evaluate((element) => {
     const style = getComputedStyle(element);
     return { outlineStyle: style.outlineStyle, boxShadow: style.boxShadow };
   });
   expect(focusStyle.outlineStyle).not.toBe("none");
   expect(focusStyle.boxShadow).not.toBe("none");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#current-workspace")).toBeFocused();
 
   const layout = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
