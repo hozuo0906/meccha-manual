@@ -58,7 +58,13 @@ async function claim() {
   if (actualSignature.length !== expectedBuffer.length || !timingSafeEqual(actualSignature, expectedBuffer)) throw new Error("Cloud job signature mismatch");
   if (job.repository.toLowerCase() !== required("GITHUB_REPOSITORY").toLowerCase()) throw new Error("Claimed repository mismatch");
   if (job.executionTargetId !== required("TARGET_ID") || job.id !== required("JOB_ID")) throw new Error("Claimed job identity mismatch");
+  if (!["read_only", "code_change"].includes(job.permissions.operation)) throw new Error("Unsupported cloud job operation");
+  const expiresAt = Date.parse(job.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("Cloud job expired");
   if (job.permissions.allowProductionDeploy !== false || !job.branchName.startsWith("codex/")) throw new Error("Unsafe job permissions");
+  if (job.permissions.operation === "code_change" && (job.permissions.allowPush !== true || job.permissions.allowDraftPr !== true)) {
+    throw new Error("Publishing permissions denied");
+  }
   await mkdir(temp, { recursive: true });
   await writeFile(jobPath, JSON.stringify(job), { mode: 0o600 });
   const criteria = job.acceptanceCriteria.map((item, index) => `${index + 1}. ${item}`).join("\n");
@@ -70,6 +76,8 @@ async function claim() {
     base_branch: job.baseBranch,
     model: job.model ?? "",
     effort: job.effort,
+    allow_push: String(job.permissions.allowPush === true),
+    allow_draft_pr: String(job.permissions.allowDraftPr === true),
     prompt_path: promptFile,
   });
 }
@@ -103,9 +111,9 @@ async function probe() {
 async function validateDiff() {
   const job = JSON.parse(await readFile(jobPath, "utf8"));
   const roots = job.permissions.writableRoots.map((root) => root.replace(/^\.\//, "").replace(/\/$/, ""));
-  const output = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--name-only", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
+  const output = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
   const files = output.split("\0").filter(Boolean);
-  const raw = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--raw", "-z", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
+  const raw = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "diff", "HEAD", "--raw", "-z", "--no-renames", "--no-ext-diff", "--no-textconv"], { encoding: "utf8" });
   if (/:(?:120000|160000) [0-7]{6}|:[0-7]{6} (?:120000|160000)/.test(raw)) throw new Error("Symlinks and submodules are not allowed in cloud runner patches");
   if (job.permissions.operation === "code_change" && files.length === 0) throw new Error("Codex produced no code changes");
   for (const file of files) {
