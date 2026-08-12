@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,6 +19,14 @@ function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+}
+
+function deterministicEventId(jobId, type, sequence) {
+  const bytes = Buffer.from(createHash("sha256").update(["business-os-cloud-runner-v1", jobId, type, String(sequence)].join("\0")).digest().subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function api(pathname, body) {
@@ -85,14 +93,15 @@ async function claim() {
 async function event() {
   const job = JSON.parse(await readFile(jobPath, "utf8"));
   const metadata = process.env.EVENT_METADATA ? JSON.parse(process.env.EVENT_METADATA) : {};
+  const sequence = Number(required("EVENT_SEQUENCE"));
   await api("/api/v1/cloud-runners/events", {
-    eventId: randomUUID(),
+    eventId: deterministicEventId(job.id, required("EVENT_TYPE"), sequence),
     jobId: job.id,
     codexRunId: job.codexRunId,
     executionTargetId: job.executionTargetId,
     repository: job.repository,
     workflowRunId: required("GITHUB_RUN_ID"),
-    sequence: Number(required("EVENT_SEQUENCE")),
+    sequence,
     type: required("EVENT_TYPE"),
     summary: (process.env.EVENT_SUMMARY || "").slice(0, 4_000),
     occurredAt: new Date().toISOString(),
