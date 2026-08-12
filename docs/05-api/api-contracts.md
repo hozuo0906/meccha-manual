@@ -110,6 +110,8 @@ Business OSからのcloud executionは、既存の利用者向けAPIとは別の
 | `POST /api/v1/cloud-runners/jobs/claim` | `targetId`, `jobId`, `repository`, `workflowRunId` | `job`とlowercase hexの`signature`を返す。active target、承認済みjob、未失効lease、repository一致、月次予算停止値、同時実行数を満たさないclaimは拒否する |
 | `POST /api/v1/cloud-runners/events` | 下記event envelope | eventを冪等に記録する。job/target/repository不一致、未知type、不正sequence、重複内容の不一致は拒否する |
 
+claim時のbase branchはagent jobでcommit SHAへ解決する。既存の承認済みpublication branchがある新規retry jobでは、そのbranchの単一親commitをbase SHAとして復元し、現在のbase branchの祖先であることを確認する。testとpublishは同じ固定SHAを使用する。
+
 claim responseの署名対象jobは次を含む。
 
 - 識別: `id`, `organizationId`, `projectId`, `codexRunId`, `executionTargetId`, `provider`, `repoAlias`, `repository`, `workflowRef`
@@ -119,7 +121,7 @@ claim responseの署名対象jobは次を含む。
 
 署名はjob全体をcanonical JSON化したUTF-8 byte列に対するHMAC-SHA256で、lowercase hexadecimalとする。canonical JSONはobject keyを各階層で辞書順に並べ、array順序を保持し、scalarとnullをJSON表現にする。runnerは共有secretで再計算し、長さ確認後にtiming-safe比較する。このworkflowが受理する`permissions.operation`は`read_only`と`code_change`だけで、共通schema上の`test`、`review`や未知値はclaim時に拒否する。署名不一致、期限切れまたは解釈不能な`expiresAt`、別target・別repository、`codex/`以外のbranch、許可外path、`allowProductionDeploy !== false`は実行しない。`code_change`は`allowPush === true`かつ`allowDraftPr === true`を必須とし、どちらかがfalseなら有料Codex actionの開始前に拒否する。workflow側のpublish jobも同じ2条件を再確認する。
 
-event envelopeは `eventId`, `jobId`, `codexRunId`, `executionTargetId`, `repository`, `workflowRunId`, 非負整数の`sequence`, `type`, 最大4000文字の`summary`, ISO 8601の`occurredAt`, objectの`metadata`を持つ。`type`は `accepted`, `started`, `progress`, `needs_input`, `test_started`, `staging_started`, `completed`, `failed` に限定する。`eventId`を冪等キーとし、同一job内のsequenceは状態遷移順を表す。このrunnerは`jobId`、`type`、宣言上の`sequence`を固定namespaceとともにSHA-256へ入力し、UUID v5形式へ整形した決定的な`eventId`を生成する。同一jobのworkflow再実行では同じtransitionが同じ`eventId`を再利用するため、Business OSは同じjob/typeならduplicate successを返し、別jobまたは別typeへのID再利用は409で拒否する。通常eventは直前eventの次のsequenceだけを受理する。例外として`failed`かつ`metadata.autoSequence === true`の場合、Business OSは受信値を使用せず、保存済みeventの次のsequenceをサーバー側で割り当てる。これはworkflowの失敗位置が不定でも終端監査eventを失わないためのfailure専用契約で、他のevent typeでは使用できない。
+event envelopeは `eventId`, `jobId`, `codexRunId`, `executionTargetId`, `repository`, `workflowRunId`, 非負整数の`sequence`, `type`, 最大4000文字の`summary`, ISO 8601の`occurredAt`, objectの`metadata`を持つ。`type`は `accepted`, `started`, `progress`, `needs_input`, `test_started`, `staging_started`, `completed`, `failed` に限定する。`eventId`を冪等キーとし、同一job内のsequenceは状態遷移順を表す。`failed` eventを記録したjobは終端であり、同じGitHub Actions runのrerunでは回復させない。workflowは`github.run_attempt != 1`のrun modeを明示的に失敗させる。安全な一時失敗を再試行する場合は、Business OSが予算と回数を再確認して新しいjob IDの署名jobを発行し、新しいevent streamを開始する。このrunnerは`jobId`、`type`、宣言上の`sequence`を固定namespaceとともにSHA-256へ入力し、UUID v5形式へ整形した決定的な`eventId`を生成する。同一jobのworkflow再実行では同じtransitionが同じ`eventId`を再利用するため、Business OSは同じjob/typeならduplicate successを返し、別jobまたは別typeへのID再利用は409で拒否する。通常eventは直前eventの次のsequenceだけを受理する。例外として`failed`かつ`metadata.autoSequence === true`の場合、Business OSは受信値を使用せず、保存済みeventの次のsequenceをサーバー側で割り当てる。これはworkflowの失敗位置が不定でも終端監査eventを失わないためのfailure専用契約で、他のevent typeでは使用できない。
 
 runnerはproduction deploy、rollback、DB migration、secret変更をこの契約で表現しない。`tokenBudget`と`maxCostUsd`は署名対象であり、Business OSの月次警告・停止値と合わせてdispatch/claim時に検証する。runnerログ、event、Issue、文書へservice token、Bearer token、署名secret、OpenAI API keyを記録しない。
 
