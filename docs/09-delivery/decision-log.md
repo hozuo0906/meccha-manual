@@ -53,4 +53,6 @@ Status: Accepted
 | DEC-047 | 2026-08-11 | DEC-045のメール直接追加を廃止し、本人が発行する256 bit・10分有効・単回使用の参加コードへ置換する。発行者へBearerコードの影響と1対1共有を警告し、期限到達時は平文をDOM/stateから消去、再発行は失効確認を必須とする。発行中の認証変更は同一ユーザーなら遅延結果を確定し、別ユーザーなら平文を破棄する（[ADR-0025](../03-architecture/adrs/ADR-0025-consent-based-member-join-codes.md)） | アカウント存在判定と同意なしの強制所属、期限切れコードの誤共有、認証競合による平文越境を防ぎ、メール送信なしでも本人同意を検証するため |
 | DEC-048 | 2026-08-11 | Phase 1共通シェルは反復ナビを飛ばす本文スキップ、日本語のページ内ナビ、現在のワークスペース、live region、可視フォーカス、44px操作領域、200%ズーム向け再配置を共通契約にする。本人権限はメンバー全件を暗黙取得せず、未確認状態を明示し、メンバー一覧の明示取得後に表示する。手順書と操作記録は提供開始まで操作不能な「準備中」とする | キーボード・拡大表示・支援技術の利用者が現在位置と処理状態を把握し、一覧の個人情報を必要前に取得せず、未提供機能を誤操作しないようにするため |
 
+| DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
+
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
