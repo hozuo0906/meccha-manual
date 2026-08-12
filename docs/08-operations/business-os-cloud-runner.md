@@ -14,12 +14,13 @@ Business OSの承認済みjobを、特定PCに依存せずGitHub-hosted runner�
 
 1. `probe`でBusiness OS URL、execution target、repository、workflow、runner token、Cloudflare Accessを照合する。
 2. Ownerが承認したjobだけをclaimする。
-3. trusted clientが署名、repository、target、job ID、`codex/` branch、production禁止flagを検証する。
+3. trusted clientが署名、repository、target、job ID、期限、`read_only|code_change`、厳格な`codex/` branch、push/PR許可、production禁止flagを検証する。
 4. CodexへGitHub書込tokenを渡さず、権限の弱いOS userで実行する。
 5. 許可root外、`.github`、secret-bearing path、symlink、submoduleを拒否する。
-6. 別runnerで `npm run check` を実行する。
-7. trusted publish jobだけが `codex/` branchへpushし、draft PRを作成する。
-8. 結果をBusiness OSへ返す。stagingとproductionは別workflowへ引き渡す。
+6. Codex実行前に保存したtrusted clientをartifactへ含め、test、publish、read-only report、failure reportへ引き継ぐ。各jobはbase branchやworkspace内のclientを秘密付きで実行しない。
+7. 別runnerで `npm run check` を実行する。
+8. trusted publish jobだけが `codex/` branchへpushし、draft PRを作成する。同一jobの再実行時は既存branchのtree一致を確認してpushを再利用し、既存のopen PRがあればそのURLを返す。
+9. event metadataはJSON serializerで生成してBusiness OSへ返す。stagingとproductionは別workflowへ引き渡す。
 
 ## GitHub設定
 
