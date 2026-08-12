@@ -34,7 +34,11 @@ for (const token of [
   "steps.base.outputs.base_sha",
   "needs.agent.outputs.base_sha",
   "git rev-list --parents -n 1 FETCH_HEAD",
+  'base_ref="refs/remotes/origin/business-os-base"',
+  '"+refs/heads/$BASE_BRANCH:$base_ref"',
   "git merge-base --is-ancestor",
+  "Transfer Codex result to trusted runner state",
+  'sudo install -m 600 -o "$(id -u)" -g "$(id -g)"',
   "Report agent failure from local trusted state",
   "steps.claim.outcome == 'success'",
   "gh pr list",
@@ -46,6 +50,7 @@ for (const token of [
 ]) {
   if (!workflow.includes(token)) errors.push(`Business OS workflow must include ${token}`);
 }
+if (workflow.includes("codex-agent/codex-final-message.txt")) errors.push("Codex result must not remain owned by the unprivileged agent.");
 const workspaceClientCopies = workflow.match(/install -m 700 scripts\/cloud-runner-client\.mjs/g) ?? [];
 if (workspaceClientCopies.length !== 1) errors.push("Only the agent job may copy the trusted client from the workflow checkout.");
 for (const token of [
