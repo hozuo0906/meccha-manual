@@ -131,6 +131,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          base_ref="refs/remotes/origin/business-os-base"
+          git fetch --no-tags "$remote" "+refs/heads/$BASE_BRANCH:$base_ref"
           if git ls-remote --exit-code --heads "$remote" "refs/heads/$BRANCH_NAME" >/dev/null 2>&1; then
             git fetch --no-tags "$remote" "refs/heads/$BRANCH_NAME"
             read -r -a commit_line <<< "$(git rev-list --parents -n 1 FETCH_HEAD)"
@@ -139,9 +141,9 @@ jobs:
               exit 1
             fi
             base_sha="${commit_line[1]}"
-            git merge-base --is-ancestor "$base_sha" "origin/$BASE_BRANCH"
+            git merge-base --is-ancestor "$base_sha" "$base_ref"
           else
-            base_sha="$(git rev-parse "origin/$BASE_BRANCH^{commit}")"
+            base_sha="$(git rev-parse "$base_ref^{commit}")"
           fi
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
       - name: Preserve claimed job state
@@ -174,7 +176,6 @@ jobs:
           git switch --force-create "$BRANCH_NAME" "$BASE_SHA"
           sudo useradd --create-home --shell /bin/bash codex-agent
           sudo find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name .git -exec chown -R codex-agent:codex-agent {} +
-          sudo install -d -o codex-agent -g codex-agent "$RUNNER_TEMP/codex-agent"
           sudo install -m 640 -o codex-agent -g codex-agent /dev/null "$GITHUB_WORKSPACE/.business-os-codex-result.txt"
       - name: Record started job
         env:
@@ -198,10 +199,11 @@ jobs:
           safety-strategy: unprivileged-user
           codex-user: codex-agent
           output-file: .business-os-codex-result.txt
-      - name: Isolate Codex result from the patch
+      - name: Transfer Codex result to trusted runner state
         if: success()
         run: |
-          mv .business-os-codex-result.txt "$RUNNER_TEMP/codex-agent/codex-final-message.txt"
+          sudo install -m 600 -o "$(id -u)" -g "$(id -g)" .business-os-codex-result.txt "$RUNNER_TEMP/codex-final-message.txt"
+          sudo rm -f .business-os-codex-result.txt
           rm -f .business-os-codex-prompt.md
       - name: Capture approved-path patch
         if: success() && steps.claim.outputs.operation == 'code_change'
@@ -218,7 +220,7 @@ jobs:
             ${{ runner.temp }}/business-os-job.json
             ${{ runner.temp }}/cloud-runner-client.mjs
             ${{ runner.temp }}/codex.patch
-            ${{ runner.temp }}/codex-agent/codex-final-message.txt
+            ${{ runner.temp }}/codex-final-message.txt
           if-no-files-found: error
           retention-days: 1
       - name: Report agent failure from local trusted state
