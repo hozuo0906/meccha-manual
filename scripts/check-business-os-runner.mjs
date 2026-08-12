@@ -24,6 +24,11 @@ for (const token of [
   "openai/codex-action@v1",
   "safety-strategy: unprivileged-user",
   "Create draft pull request",
+  "cloud-runner-client.mjs",
+  "git ls-remote --exit-code",
+  "git write-tree",
+  "gh pr list",
+  "JSON.stringify({ branchName:",
   "needs.agent.outputs.allow_push == 'true'",
   "needs.agent.outputs.allow_draft_pr == 'true'",
   "npm run check",
@@ -31,6 +36,15 @@ for (const token of [
 ]) {
   if (!workflow.includes(token)) errors.push(`Business OS workflow must include ${token}`);
 }
+const workspaceClientCopies = workflow.match(/install -m 700 scripts\/cloud-runner-client\.mjs/g) ?? [];
+if (workspaceClientCopies.length !== 1) errors.push("Only the agent job may copy the trusted client from the workflow checkout.");
+for (const token of [
+  '$RUNNER_TEMP/result/cloud-runner-client.mjs',
+  '.runner-state/cloud-runner-client.mjs',
+]) {
+  if (!workflow.includes(token)) errors.push(`Downstream jobs must restore the trusted client from artifacts: ${token}`);
+}
+
 for (const forbidden of ["deploy-production", "wrangler deploy", "supabase db push"]) {
   if (workflow.includes(forbidden)) errors.push(`Business OS workflow must not include ${forbidden}`);
 }
@@ -40,6 +54,7 @@ for (const token of [
   "Cloud job signature mismatch",
   "Claimed repository mismatch",
   "Unsafe job permissions",
+  "^codex\\/[a-z0-9][a-z0-9-]{1,80}$",
   "Protected path changed",
   "Secret-bearing path changed",
   "Path outside writable roots",
