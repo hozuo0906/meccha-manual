@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-7bcde4f31d9f2561";
+export const APP_ASSET_VERSION = "sha256-7dc9fccf39430332";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1811,7 +1811,7 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
   }
 }
 
-function renderShell(session, notice = "", noticeKind = "notice", focusId = "workspace-heading") {
+function renderShell(session, notice = "", noticeKind = "notice", focusId = null) {
   const workspaces = session.workspaces || [];
   restoreUncertainWorkspaceCreation(session.user?.id);
   const currentWorkspace = resolveCurrentWorkspace(session);

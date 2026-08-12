@@ -119,13 +119,6 @@ test("キーボードの本文スキップ、可視フォーカス、200%相当�
 
   const skipLink = page.getByRole("link", { name: "本文へ移動" });
   await page.keyboard.press("Tab");
-  if (!(await skipLink.evaluate((element) => element === document.activeElement))) {
-    const focusIsDocumentEntry = await page.evaluate(() =>
-      document.activeElement === document.body || document.activeElement === document.documentElement
-    );
-    expect(focusIsDocumentEntry, "本文スキップより前に別のページ内要素へフォーカスしました").toBe(true);
-    await page.keyboard.press("Tab");
-  }
   await expect(skipLink).toBeFocused();
   await skipLink.press("Enter");
   await expect(page.locator("#screen-content")).toBeFocused();
