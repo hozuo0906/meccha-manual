@@ -114,12 +114,10 @@ for (const [role, config] of Object.entries(roles)) {
 test("キーボードの本文スキップ、可視フォーカス、200%相当の再配置を実ブラウザで確認する", async ({ page }) => {
   await page.setViewportSize({ width: 640, height: 900 });
   await loginAndLoadMembers(page, "owner");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "ワークスペース", exact: true })).toBeVisible();
 
   const skipLink = page.getByRole("link", { name: "本文へ移動" });
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
   await page.keyboard.press("Tab");
   await expect(skipLink).toBeFocused();
   await skipLink.press("Enter");
@@ -136,6 +134,9 @@ test("キーボードの本文スキップ、可視フォーカス、200%相当�
   expect(focusStyle.boxShadow).not.toBe("none");
   await page.keyboard.press("Tab");
   await expect(page.locator("#current-workspace")).toBeFocused();
+
+  await page.getByRole("button", { name: "メンバー一覧を表示" }).click();
+  await expect(page.getByRole("region", { name: "ワークスペースメンバー一覧" })).toBeVisible();
 
   const layout = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
