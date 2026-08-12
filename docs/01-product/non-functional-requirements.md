@@ -16,3 +16,4 @@ Status: Accepted
 | NFR-010 | AI | 初期状態で外部AI APIを呼ばず、AIコストを発生させない |
 | NFR-011 | 運用 | 本番同等環境でsmoke test、監視、ロールバック手順を持つ |
 | NFR-012 | 地域 | Supabaseは東京リージョンを第一候補とし、Cloudflare Browser Runのグローバル処理可能性を明記する |
+| NFR-013 | 運用・セキュリティ | Business OSからのcloud実行は、登録済みrepositoryとworkflow、承認済み署名job、期限、予算、operation、書込pathを検証し、main直接push、production deploy、DB migration、secret変更を許可しない |
