@@ -117,9 +117,9 @@ claim responseの署名対象jobは次を含む。
 - 予算・期限: `tokenBudget`, `maxCostUsd`, `issuedAt`, `expiresAt`
 - 権限: `permissions.operation`, `writableRoots`, `allowNetwork`, `allowPush`, `allowDraftPr`, `allowStagingDeploy`, `allowProductionDeploy`
 
-署名はjob全体をcanonical JSON化したUTF-8 byte列に対するHMAC-SHA256で、lowercase hexadecimalとする。canonical JSONはobject keyを各階層で辞書順に並べ、array順序を保持し、scalarとnullをJSON表現にする。runnerは共有secretで再計算し、長さ確認後にtiming-safe比較する。署名不一致、期限切れ、別target・別repository、`codex/`以外のbranch、許可外operation/path、`allowProductionDeploy !== false`は実行しない。
+署名はjob全体をcanonical JSON化したUTF-8 byte列に対するHMAC-SHA256で、lowercase hexadecimalとする。canonical JSONはobject keyを各階層で辞書順に並べ、array順序を保持し、scalarとnullをJSON表現にする。runnerは共有secretで再計算し、長さ確認後にtiming-safe比較する。このworkflowが受理する`permissions.operation`は`read_only`と`code_change`だけで、共通schema上の`test`、`review`や未知値はclaim時に拒否する。署名不一致、期限切れまたは解釈不能な`expiresAt`、別target・別repository、`codex/`以外のbranch、許可外path、`allowProductionDeploy !== false`は実行しない。`code_change`は`allowPush === true`かつ`allowDraftPr === true`を必須とし、どちらかがfalseなら有料Codex actionの開始前に拒否する。workflow側のpublish jobも同じ2条件を再確認する。
 
-event envelopeは `eventId`, `jobId`, `codexRunId`, `executionTargetId`, `repository`, `workflowRunId`, 非負整数の`sequence`, `type`, 最大4000文字の`summary`, ISO 8601の`occurredAt`, objectの`metadata`を持つ。`type`は `accepted`, `started`, `progress`, `needs_input`, `test_started`, `staging_started`, `completed`, `failed` に限定する。`eventId`を冪等キーとし、同一job内のsequenceは状態遷移順を表す。
+event envelopeは `eventId`, `jobId`, `codexRunId`, `executionTargetId`, `repository`, `workflowRunId`, 非負整数の`sequence`, `type`, 最大4000文字の`summary`, ISO 8601の`occurredAt`, objectの`metadata`を持つ。`type`は `accepted`, `started`, `progress`, `needs_input`, `test_started`, `staging_started`, `completed`, `failed` に限定する。`eventId`を冪等キーとし、同一job内のsequenceは状態遷移順を表す。通常eventは直前eventの次のsequenceだけを受理する。例外として`failed`かつ`metadata.autoSequence === true`の場合、Business OSは受信値を使用せず、保存済みeventの次のsequenceをサーバー側で割り当てる。これはworkflowの失敗位置が不定でも終端監査eventを失わないためのfailure専用契約で、他のevent typeでは使用できない。
 
 runnerはproduction deploy、rollback、DB migration、secret変更をこの契約で表現しない。`tokenBudget`と`maxCostUsd`は署名対象であり、Business OSの月次警告・停止値と合わせてdispatch/claim時に検証する。runnerログ、event、Issue、文書へservice token、Bearer token、署名secret、OpenAI API keyを記録しない。
 
