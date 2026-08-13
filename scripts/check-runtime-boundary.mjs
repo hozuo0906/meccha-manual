@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const STAGING_SUPABASE_REF = "spjowmulvoyxxkfeyjkr";
+const STAGING_SUPABASE_ANON_KEY_SHA256 = "adce1c87f20633f9737ca9edb6bbb454fd14690e674310e12a6fb11086ad9a1b";
 const expected = {
   APP_ENV: "staging",
   APP_BASE_URL: "https://meccha-manual.tattoo-studio-crm.workers.dev",
@@ -33,6 +35,11 @@ const anonKey = wrangler.vars?.SUPABASE_ANON_KEY;
 if (typeof anonKey !== "string") {
   errors.push("SUPABASE_ANON_KEY must be present for the provisional staging Worker.");
 } else {
+  const anonKeySha256 = createHash("sha256").update(anonKey, "utf8").digest("hex");
+  if (anonKeySha256 !== STAGING_SUPABASE_ANON_KEY_SHA256) {
+    errors.push("SUPABASE_ANON_KEY must exactly match the approved public staging anon key fingerprint.");
+  }
+
   try {
     const parts = anonKey.split(".");
     if (parts.length !== 3) throw new Error("JWT must have three segments");
@@ -53,4 +60,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Runtime boundary harness OK: provisional Worker is staging, staging Supabase is pinned, technical URL only, and billing is fail-closed.");
+console.log("Runtime boundary harness OK: provisional Worker is staging, approved staging Supabase URL/key are pinned, technical URL only, and billing is fail-closed.");
