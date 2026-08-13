@@ -33,9 +33,9 @@ Phase 1実装Issue:
 - GitHub Issue #33 / P1-01 認証状態: SCR-LOGIN、HttpOnly Cookie、ログイン、ログアウト、期限切れ、再ログイン、401と接続障害の分離。対象ACはAC-001、AC-003、AC-004、AC-005。
 - GitHub Issue #34 / P1-02 ワークスペース: SCR-WORKSPACE、一覧、選択、`create_workspace`、空/読込/作成/失敗状態。対象ACはAC-002、AC-006、AC-012。
 - GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
-- GitHub Issue #38 / P1-05 RLS回帰: 匿名RPC拒否、workspace/member越境拒否、識別子と作成監査項目の不変条件、4ロールの動的negative test。外部migrationとテストデータ作成の承認待ち。
+- GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。`npm run test:rls` の実アカウントE2Eはテスト資格情報の安全な実行経路待ち。
 
-リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管、実環境でのmigration適用と動的RLS検証は完了済みとして扱わない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
+リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #38の受入条件である実アカウント `npm run test:rls` は完了済みとして扱わない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
 
 ## EPIC-03: アプリシェル
 
@@ -48,7 +48,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 
 外部設定Issue:
 
-- GitHub Issue #39: GitHub保護、repository visibility、Cloudflare dev/staging境界。外部設定変更と公開範囲の承認待ち。
+- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
 
 ## EPIC-04: Browser Run
 

@@ -75,6 +75,20 @@ GitHub Actionsで `Cloudflare Config Audit` を手動実行する。
 - `DISCORD_ALLOWED_GUILD_IDS`
 - `DISCORD_ALLOWED_CHANNEL_IDS`
 
+## 2026-08-13 Phase 1外部設定の確定
+
+現在の単一Workerはproductionではなく暫定dev/stagingである。Dashboard側の既存varsに依存して環境境界が曖昧にならないよう、`wrangler.jsonc` へ次を明示する。
+
+- `APP_ENV=staging`
+- `APP_BASE_URL=https://meccha-manual.tattoo-studio-crm.workers.dev`
+- `BILLING_FEATURE_ENABLED=false`
+
+`keep_vars=true` は既存のDashboard設定を不用意に削除しないため維持する。一方、上記3項目はソース管理されたstaging境界を正とし、production URL、production Supabase、live billingへfallbackしない。
+
+Repository visibilityはPhase 1 prelaunchでは **publicを維持する**。理由は、現リポジトリが公開前提のソース・設計文書・公開可能なanon keyのみを扱い、secret値、service role key、DB password、JWT Secret、実ユーザーPIIをコミットしない運用を既存のsecret scanとPR gateで強制しているためである。秘密値や実業務データを公開リポジトリへ置くことを許可する判断ではない。公開継続が不適切になる要件が入った場合は、visibility変更を別の明示判断として扱う。
+
+GitHub branch protectionのrequired checks、up-to-date要求、conversation resolution、bypass禁止、GitHub Environment required reviewersはRepository/Dashboard外部設定であり、リポジトリ内の静的ハーネスだけでは設定完了とみなさない。
+
 ## PR mergeとの関係
 
 DiscordからPR内容確認やレビュー依頼はできるようにする。

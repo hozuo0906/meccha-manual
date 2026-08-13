@@ -29,6 +29,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check diff whitespace
+        env:
+          DIFF_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          if [ -n "$DIFF_BASE_SHA" ] && git cat-file -e "$DIFF_BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$DIFF_BASE_SHA...HEAD"
+          else
+            git diff --check HEAD^...HEAD
+          fi
+
       - name: Run project checks
         env:
           SECRET_SCAN_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
