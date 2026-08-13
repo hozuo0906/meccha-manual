@@ -19,7 +19,7 @@ if (wrangler.keep_vars !== true) {
 
 for (const [name, value] of Object.entries(expected)) {
   if (wrangler.vars?.[name] !== value) {
-    errors.push(`${name} must be pinned to ${value} for the provisional staging Worker.`);
+    errors.push(`${name} must match the approved provisional staging value.`);
   }
 }
 
