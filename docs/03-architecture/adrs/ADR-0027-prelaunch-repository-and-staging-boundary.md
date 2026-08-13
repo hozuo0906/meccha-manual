@@ -15,8 +15,8 @@ Phase 1 prelaunchでは、現在の単一WorkerとSupabase projectを暫定dev/s
 - 現在の単一Workerはproductionではなく暫定stagingとして扱い、`APP_ENV=staging` をソース側で固定する。
 - `APP_BASE_URL` は暫定Workerの技術URLだけを許可し、production custom domainを指さない。
 - `BILLING_FEATURE_ENABLED=false` を固定し、Phase 1 prelaunchでは課金をfail closedにする。
-- staging Workerの `SUPABASE_URL` は承認済み暫定staging project ref `spjowmulvoyxxkfeyjkr` に固定する。
-- `SUPABASE_ANON_KEY` はJWT payloadの `ref` が同じstaging project ref、`role` が `anon` であることをCIで検査する。service role等の強権credentialは許可しない。
+- staging Workerの `SUPABASE_URL` は、承認済み暫定staging projectだけを指すようリポジトリ側runtime boundary harnessで固定する。具体的なproject refは運用文書へ重複記録しない。
+- `SUPABASE_ANON_KEY` は承認済み公開anon keyのSHA-256 fingerprintとの完全一致をCIで検査し、あわせてJWT payloadのproject/role整合も確認する。service role等の強権credentialは許可しない。
 - GitHub branch protection、required checks、up-to-date要求、conversation resolution、bypass禁止、GitHub Environment required reviewersは外部管理設定として別途監査し、リポジトリ内の静的設定だけで完了扱いにしない。
 
 ## Consequences
