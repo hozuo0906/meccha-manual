@@ -48,7 +48,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 
 外部設定Issue:
 
-- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0025を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
+- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
 
 ## EPIC-04: Browser Run
 
