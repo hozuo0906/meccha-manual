@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 
+const STAGING_SUPABASE_REF = "spjowmulvoyxxkfeyjkr";
 const expected = {
   APP_ENV: "staging",
   APP_BASE_URL: "https://meccha-manual.tattoo-studio-crm.workers.dev",
-  BILLING_FEATURE_ENABLED: "false"
+  BILLING_FEATURE_ENABLED: "false",
+  SUPABASE_URL: `https://${STAGING_SUPABASE_REF}.supabase.co`
 };
 
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
@@ -27,9 +29,28 @@ if (String(wrangler.vars?.BILLING_FEATURE_ENABLED).toLowerCase() !== "false") {
   errors.push("Billing must remain fail-closed during Phase 1 prelaunch.");
 }
 
+const anonKey = wrangler.vars?.SUPABASE_ANON_KEY;
+if (typeof anonKey !== "string") {
+  errors.push("SUPABASE_ANON_KEY must be present for the provisional staging Worker.");
+} else {
+  try {
+    const parts = anonKey.split(".");
+    if (parts.length !== 3) throw new Error("JWT must have three segments");
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (payload.ref !== STAGING_SUPABASE_REF) {
+      errors.push("SUPABASE_ANON_KEY must belong to the approved staging Supabase project.");
+    }
+    if (payload.role !== "anon") {
+      errors.push("SUPABASE_ANON_KEY must be an anon key, not a privileged Supabase credential.");
+    }
+  } catch {
+    errors.push("SUPABASE_ANON_KEY must be a valid Supabase anon JWT whose project can be verified.");
+  }
+}
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 
-console.log("Runtime boundary harness OK: provisional Worker is staging, technical URL only, and billing is fail-closed.");
+console.log("Runtime boundary harness OK: provisional Worker is staging, staging Supabase is pinned, technical URL only, and billing is fail-closed.");
