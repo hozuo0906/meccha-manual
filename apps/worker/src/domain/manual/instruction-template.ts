@@ -5,19 +5,29 @@ export interface ManualInstructionSuggestionInput {
   actionType: ManualActionType;
 }
 
-const ACTION_SUFFIXES: Record<ManualActionType, string> = {
-  click: "をクリックします。",
-  input: "に入力します。",
-  select: "を選択します。",
-  navigate: "を開きます。",
-  wait: "を待ちます。",
-  other: "を操作します。"
-};
-
 function normalizeTargetText(value: string | null | undefined): string {
   return String(value ?? "")
     .trim()
     .replace(/\s+/gu, " ");
+}
+
+function actionSuffix(actionType: ManualActionType): string | null {
+  switch (actionType) {
+    case "click":
+      return "をクリックします。";
+    case "input":
+      return "に入力します。";
+    case "select":
+      return "を選択します。";
+    case "navigate":
+      return "を開きます。";
+    case "wait":
+      return "を待ちます。";
+    case "other":
+      return "を操作します。";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -32,7 +42,7 @@ export function suggestManualInstruction(
   const target = normalizeTargetText(input.targetText);
   if (!target) return null;
 
-  const suffix = ACTION_SUFFIXES[input.actionType];
+  const suffix = actionSuffix(input.actionType);
   if (!suffix) return null;
 
   return `${target}${suffix}`;
