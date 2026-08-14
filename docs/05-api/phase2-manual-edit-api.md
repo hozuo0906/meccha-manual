@@ -42,7 +42,7 @@ current draft末尾へstepを追加する。
 
 - owner/admin/editorのみ。
 - DB書込は`append_manual_step` RPCを利用する。
-- RPCはdraft revision rowをlockしてposition採番を直列化する。
+- RPCはdraft revision rowを`FOR UPDATE`でlockしてposition採番を直列化する。
 - `type`: `action | note | decision | warning`。
 - `actionType`: `click | input | select | navigate | wait | other | null`。
 - titleは必須。instructionは任意。
@@ -56,6 +56,7 @@ current draft末尾へstepを追加する。
 current draft上のstep内容を更新する。
 
 - owner/admin/editorのみ。
+- DB書込は`update_manual_step` RPCを利用し、append/delete/reorderと同じdraft revision rowをlockする。
 - `position`、`workspace_id`、`revision_id`、`created_by`等の所有・並び順項目は入力として受け付けない。
 - current draftに属するactive stepだけを更新する。
 - 結果不明時は詳細再取得で確認し、同じ変更を自動再送しない。
@@ -65,6 +66,7 @@ current draft上のstep内容を更新する。
 UI上のstep削除をsoft deleteとして実装する。
 
 - owner/admin/editorのみ。
+- DB書込は`soft_delete_manual_step` RPCを利用し、他のstep mutationと同じdraft revision rowをlockする。
 - 物理DELETEせず`deleted_at`を設定する。
 - active step以外は404相当。
 - 削除後にpositionを自動詰めしない。次の明示的reorderで0始まり連番へ正規化する。
@@ -82,7 +84,7 @@ UI上のstep削除をsoft deleteとして実装する。
 ```
 
 - owner/admin/editorのみ。
-- `reorder_manual_steps` RPCを利用する。
+- `reorder_manual_steps` RPCを利用し、他のstep mutationと同じdraft revision rowをlockする。
 - current draftの全active step IDを重複なく、過不足なく1回ずつ送る。
 - 別revision、deleted step、重複、欠落、余分なIDは全体を失敗させる。
 - unique position制約との衝突を避けるため、RPC内で一時positionへ退避してから0始まり連番にする。
@@ -94,8 +96,8 @@ FR-006の文章生成は常にローカル決定的処理とする。
 
 例:
 
-- `保存ボタン` + `click` → `保存ボタンをクリックします。`
-- `メールアドレス欄` + `input` → `メールアドレス欄に入力します。`
+- `保存ボタン` + `click` → `［保存ボタン］をクリックします。`
+- `メールアドレス欄` + `input` → `［メールアドレス欄］に入力します。`
 
 入力値そのもの、password、カード番号、token、個人番号を文章生成関数へ渡さない。将来FR-020を実装してもFR-006を外部AIへ切り替えない。
 
@@ -104,9 +106,18 @@ FR-006の文章生成は常にローカル決定的処理とする。
 `202608140010_phase2_manual_step_mutations.sql`は次を追加する。
 
 - `append_manual_step`
+- `update_manual_step`
+- `soft_delete_manual_step`
 - `reorder_manual_steps`
 
-このmigrationはrepository内で静的検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
+境界ルール:
+
+- `authenticated`から`manual_steps`への直接`INSERT / UPDATE / DELETE`権限をrevokeする。
+- 4つのmutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
+- 失敗時は部分更新を残さずtransaction全体をrollbackする。
+- RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
+
+このmigrationはrepository内とGitHub Actions内の使い捨てPostgreSQLで検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
 
 ## テスト
 
@@ -116,10 +127,13 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - viewer mutation 403
 - 非member/別workspace 404
 - published/superseded直接変更拒否
-- append RPC正常系と競合境界
+- append/update/soft-delete/reorder RPC正常系
+- `authenticated`の直接write拒否
+- 4 RPCが同じrevision lockを待つ並行実行試験
 - updateでposition変更不可
 - soft delete
 - reorder全集合、重複、欠落、越境拒否
+- 失敗時rollback
 - reorder結果不明時に再送を誘発しない
 - FR-006ローカル生成と手修正保持
 - `npm run check`
