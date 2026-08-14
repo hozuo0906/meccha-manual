@@ -9,6 +9,7 @@ on:
       - "scripts/apply-phase2-manual-editor-ui.mjs"
       - "scripts/fix-phase2-manual-editor-e2e.mjs"
       - "scripts/update-phase2-manual-editor-docs.mjs"
+      - "tests/manual-editor-ui.test.mjs"
 
 permissions:
   contents: write
