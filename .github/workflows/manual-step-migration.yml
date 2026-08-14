@@ -5,6 +5,9 @@ on:
     paths:
       - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
       - "scripts/check-phase2-manual-step-migration.mjs"
+      - "scripts/test-phase2-manual-step-locks.sh"
+      - "tests/sql/phase2-manual-step-rpc-fixture.sql"
+      - "tests/sql/phase2-manual-step-rpc-test.sql"
       - ".github/workflows/manual-step-migration.yml"
 
 permissions:
@@ -13,7 +16,25 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +47,14 @@ jobs:
       - run: npm ci
       - name: Validate manual step mutation migration
         run: node scripts/check-phase2-manual-step-migration.mjs
+      - name: Install migration in disposable Postgres
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+      - name: Exercise RPC and permission boundaries
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
+      - name: Exercise shared revision lock
+        run: bash scripts/test-phase2-manual-step-locks.sh
       - name: Validate migration safety
         run: npm run migration:safety:check
       - name: Validate repository migrations
