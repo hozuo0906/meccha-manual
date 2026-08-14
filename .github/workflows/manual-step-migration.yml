@@ -3,7 +3,7 @@ name: Manual Step Migration
 on:
   pull_request:
     paths:
-      - "supabase/migrations/202608140001_phase2_manual_step_mutations.sql"
+      - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
       - "scripts/check-phase2-manual-step-migration.mjs"
       - ".github/workflows/manual-step-migration.yml"
 
