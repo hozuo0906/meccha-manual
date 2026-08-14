@@ -28,7 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Test manual API boundaries
-        run: node --experimental-strip-types --test tests/manual-api.test.mjs
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs
       - name: Repository checks
         run: npm run check
       - name: Diff check
