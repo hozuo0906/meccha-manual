@@ -74,6 +74,24 @@ accessibilityTest = replaceOnce(
   String.raw`  ["メンバー導線", "メンバー管理", { js: APP_JS.replaceAll('id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>', "メンバー管理") }],`,
   "accessible member navigation mutation"
 );
+accessibilityTest = replaceOnce(
+  accessibilityTest,
+  String.raw`  ["900px再配置", "主要レイアウト", { css: APP_CSS.replace("@media (max-width: 900px)", "@media (min-width: 9999px)") }],`,
+  String.raw`  ["900px再配置", "主要レイアウト", { css: APP_CSS.replaceAll("@media (max-width: 900px)", "@media (min-width: 9999px)") }],`,
+  "900px accessibility mutation"
+);
+accessibilityTest = replaceOnce(
+  accessibilityTest,
+  String.raw`  ["共通シェルのスキップ先", "共通シェル", { js: APP_JS.replace('id="screen-content" class="main"', 'id="removed-content" class="main"') }],`,
+  String.raw`  ["共通シェルのスキップ先", "共通シェル", { js: APP_JS.replaceAll('id="screen-content" class="main"', 'id="removed-content" class="main"') }],`,
+  "shell skip target mutation"
+);
+accessibilityTest = replaceOnce(
+  accessibilityTest,
+  String.raw`  ["主要ナビの名前", "主要ナビゲーション", { js: APP_JS.replace('aria-label="主要メニュー"', "") }],`,
+  String.raw`  ["主要ナビの名前", "主要ナビゲーション", { js: APP_JS.replaceAll('aria-label="主要メニュー"', "") }],`,
+  "navigation label mutation"
+);
 await writeFile("tests/phase1-accessibility.test.mjs", accessibilityTest, "utf8");
 
 let appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
