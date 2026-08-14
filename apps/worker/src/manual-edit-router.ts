@@ -542,6 +542,9 @@ function knownRpcError(message: string): ManualError | null {
   if (message.includes("draft revision not found") || message.includes("current draft revision")) {
     return new ManualError(409, "MANUAL_DRAFT_UNAVAILABLE", "編集できる下書きがありません。詳細を再読み込みしてください。");
   }
+  if (message.includes("manual step changed concurrently")) {
+    return new ManualError(409, "MANUAL_STEP_EDIT_CONFLICT", "別の更新が先に保存されました。詳細を再読み込みして、変更内容を確認してください。");
+  }
   if (message.includes("active manual step not found")) {
     return new ManualError(404, "MANUAL_STEP_NOT_FOUND", "指定された手順が見つかりません。");
   }
@@ -808,6 +811,7 @@ async function updateStep(
     {
       target_revision_id: draftId,
       target_step_id: stepId,
+      expected_step_updated_at: existing.updatedAt,
       step_type: next.type,
       step_title: next.title,
       step_instruction: next.instruction,

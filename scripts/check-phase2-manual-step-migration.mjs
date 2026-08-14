@@ -12,6 +12,9 @@ const [sql, contract, workflow] = await Promise.all([
 const required = [
   "create or replace function public.append_manual_step(",
   "create or replace function public.update_manual_step(",
+  "expected_step_updated_at timestamptz",
+  "and ms.updated_at = expected_step_updated_at",
+  "manual step changed concurrently",
   "create or replace function public.soft_delete_manual_step(",
   "create or replace function public.reorder_manual_steps(",
   "for update of mr",
@@ -41,6 +44,8 @@ const requiredContract = [
   "`authenticated`から`manual_steps`への直接`INSERT / UPDATE / DELETE`権限をrevokeする。",
   "同一のdraft revision rowを`FOR UPDATE`でlockする。",
   "4 RPCが同じrevision lockを待つ並行実行試験",
+  "同じupdatedAtを持つ2更新のうち1件だけ成功",
+  "`MANUAL_STEP_EDIT_CONFLICT`",
   "`［保存ボタン］をクリックします。`",
   "GitHub PRだけを根拠にstaging/productionへ適用しない"
 ];

@@ -67,9 +67,42 @@ $$;
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
-select public.update_manual_step(
-  :'revision_a', :'step_a', 'action', '保存', '手修正済み instruction', 'click', '保存', null, null, '{}'::jsonb, '{}'::jsonb
-);
+do $$
+declare
+  target_id uuid;
+  stale_updated_at timestamptz;
+  rejected boolean := false;
+begin
+  select id, updated_at
+  into target_id, stale_updated_at
+  from public.manual_steps
+  where revision_id = '66666666-6666-4666-8666-666666666666'
+    and title = '保存ボタン';
+
+  perform public.update_manual_step(
+    '66666666-6666-4666-8666-666666666666', target_id, stale_updated_at,
+    'action', '保存', '手修正済み instruction', 'click', '保存', null, null, '{}'::jsonb, '{}'::jsonb
+  );
+
+  begin
+    perform public.update_manual_step(
+      '66666666-6666-4666-8666-666666666666', target_id, stale_updated_at,
+      'action', '競合上書き', '古い更新', 'click', '古い対象', null, null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step changed concurrently%' then
+        rejected := true;
+      else
+        raise;
+      end if;
+  end;
+
+  if not rejected then
+    raise exception 'stale manual step update was accepted';
+  end if;
+end;
+$$;
 select public.reorder_manual_steps(:'revision_a', array[:'step_b'::uuid, :'step_a'::uuid]);
 reset role;
 

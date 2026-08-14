@@ -56,6 +56,7 @@ create table public.manual_steps (
   annotation jsonb not null default '{}'::jsonb,
   masking jsonb not null default '{}'::jsonb,
   created_by uuid not null,
+  updated_at timestamptz not null default clock_timestamp(),
   deleted_at timestamptz
 );
 

@@ -16,7 +16,7 @@ Status: Accepted
 
 ## 共通上限
 
-- write bodyはContent-Lengthの有無にかかわらず16 KiBで打ち切る。
+- write bodyはContent-Lengthの有無にかかわらず64 KiBで打ち切る。10,000 Unicode code pointのdescriptionが4 byte文字でもJSONとして収まる一方、無制限bufferは許可しない。
 - 詳細・作成とも最大200 active stepsとする。DB triggerが201件目を拒否し、APIは`409 MANUAL_STEPS_LIMIT_EXCEEDED`を返す。既存データに201件以上ある場合はmigration preflightで停止する。
 - 詳細のSupabase JSONは、200 active stepsの最大フィールド長を安全に読める6 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
@@ -110,6 +110,7 @@ current draft上のstep内容を部分更新する。
 - same-origin `Origin`と`Content-Type: application/json`を必須にする。
 - owner/admin/editorのみ。
 - DB書込は`update_manual_step` RPCを利用し、append/delete/reorderと同じdraft revision rowをlockする。
+- Workerが取得したstepの`updatedAt`を楽観的更新条件としてRPCへ渡し、revision lock取得後のDB rowと一致するときだけ更新する。同じversionからの後続更新は`409 MANUAL_STEP_EDIT_CONFLICT`とし、先行更新を上書きしない。
 - `position`、`workspace_id`、`revision_id`、`created_by`、`assetId`、`annotation`、`masking`等は入力として受け付けない。
 - current draftに属するactive stepだけを更新する。
 - instructionが入力に含まれない場合、保存済みinstructionを保持し、ローカル候補で上書きしない。
@@ -199,6 +200,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - 4 RPCが同じrevision lockを待つ並行実行試験
+- 同じupdatedAtを持つ2更新のうち1件だけ成功し、もう1件が`MANUAL_STEP_EDIT_CONFLICT`になる並行実行試験
 - step更新時の手修正instruction保持
 - 入力値フィールド拒否
 - soft delete

@@ -37,7 +37,7 @@ export function canonicalUuidSegment(segment: string): string | null {
     return null;
   }
 }
-const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_JSON_BODY_BYTES = 64 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
 const MAX_MANUAL_LIST_JSON_BYTES = 1024 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;

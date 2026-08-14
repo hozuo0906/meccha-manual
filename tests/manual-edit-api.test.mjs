@@ -205,6 +205,42 @@ test("editor updates manual and draft metadata through one RPC", async () => {
   }
 });
 
+test("10,000 four-byte Japanese characters fit within the bounded request body", async () => {
+  const description = "𠮷".repeat(10_000);
+  const body = JSON.stringify({ title: "最大説明", description });
+  assert.ok(new TextEncoder().encode(body).byteLength < 64 * 1024);
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json(DRAFT_ID)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/draft"), "PATCH", body),
+      ENV
+    );
+    assert.equal(response?.status, 200);
+    assert.equal(JSON.parse(String(mock.calls[4].init.body)).draft_description, description);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("request bodies above 64 KiB are rejected before mutation RPC", async () => {
+  const body = JSON.stringify({ title: "上限超過", description: "あ".repeat(22_000) });
+  assert.ok(new TextEncoder().encode(body).byteLength > 64 * 1024);
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()])]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/draft"), "PATCH", body),
+      ENV
+    );
+    assert.equal(response?.status, 413);
+    assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("step creation uses the local Japanese suggestion only when instruction is omitted", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()]), json(STEP_ID)
@@ -267,9 +303,29 @@ test("step patch keeps the saved instruction when target fields change", async (
     const rpc = mock.calls[5];
     assert.match(rpc.url, /\/rest\/v1\/rpc\/update_manual_step$/);
     const rpcBody = JSON.parse(String(rpc.init.body));
+    assert.equal(rpcBody.expected_step_updated_at, "2026-08-14T00:00:02.000Z");
     assert.equal(rpcBody.step_instruction, "手修正済みです。");
     assert.equal(rpcBody.step_action_type, "select");
     assert.equal(rpcBody.step_target_text, "プラン選択");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("stale manual step update maps to a determinate 409 conflict", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json([stepRow()]),
+    json({ message: "manual step changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath(`/steps/${STEP_ID}`), "PATCH", JSON.stringify({ title: "競合更新" })),
+      ENV
+    );
+    assert.equal(response?.status, 409);
+    const body = await response.json();
+    assert.equal(body.code, "MANUAL_STEP_EDIT_CONFLICT");
+    assert.match(body.message, /再読み込み/);
   } finally {
     mock.restore();
   }

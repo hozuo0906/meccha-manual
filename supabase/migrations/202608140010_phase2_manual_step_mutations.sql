@@ -94,6 +94,7 @@ $$;
 create or replace function public.update_manual_step(
   target_revision_id uuid,
   target_step_id uuid,
+  expected_step_updated_at timestamptz,
   step_type public.manual_step_type,
   step_title text,
   step_instruction text,
@@ -117,6 +118,10 @@ begin
     raise exception 'authentication required';
   end if;
 
+  if expected_step_updated_at is null then
+    raise exception 'expected step updated_at is required';
+  end if;
+
   select mr.workspace_id
   into target_workspace_id
   from public.manual_revisions mr
@@ -138,7 +143,7 @@ begin
     raise exception 'workspace editor role required';
   end if;
 
-  update public.manual_steps
+  update public.manual_steps ms
   set type = step_type,
       title = step_title,
       instruction = coalesce(step_instruction, ''),
@@ -147,13 +152,25 @@ begin
       url = step_url,
       asset_id = step_asset_id,
       annotation = coalesce(step_annotation, '{}'::jsonb),
-      masking = coalesce(step_masking, '{}'::jsonb)
-  where id = target_step_id
-    and revision_id = target_revision_id
-    and workspace_id = target_workspace_id
-    and deleted_at is null;
+      masking = coalesce(step_masking, '{}'::jsonb),
+      updated_at = clock_timestamp()
+  where ms.id = target_step_id
+    and ms.revision_id = target_revision_id
+    and ms.workspace_id = target_workspace_id
+    and ms.deleted_at is null
+    and ms.updated_at = expected_step_updated_at;
 
   if not found then
+    if exists (
+      select 1
+      from public.manual_steps ms
+      where ms.id = target_step_id
+        and ms.revision_id = target_revision_id
+        and ms.workspace_id = target_workspace_id
+        and ms.deleted_at is null
+    ) then
+      raise exception 'manual step changed concurrently';
+    end if;
     raise exception 'active manual step not found';
   end if;
 end;
@@ -336,6 +353,7 @@ revoke all on function public.append_manual_step(
 revoke all on function public.update_manual_step(
   uuid,
   uuid,
+  timestamptz,
   public.manual_step_type,
   text,
   text,
@@ -364,6 +382,7 @@ grant execute on function public.append_manual_step(
 grant execute on function public.update_manual_step(
   uuid,
   uuid,
+  timestamptz,
   public.manual_step_type,
   text,
   text,

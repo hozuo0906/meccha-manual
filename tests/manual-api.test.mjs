@@ -148,13 +148,13 @@ test("editor creates manual through create_manual RPC", async () => {
   }
 });
 
-test("streamed JSON body over 16 KiB fails with 413 before create RPC", async () => {
-  const largeJson = JSON.stringify({ title: "手順", description: "x".repeat(20 * 1024) });
+test("streamed JSON body over 64 KiB fails with 413 before create RPC", async () => {
+  const largeJson = JSON.stringify({ title: "手順", description: "x".repeat(70 * 1024) });
   const bytes = new TextEncoder().encode(largeJson);
   const body = new ReadableStream({
     start(controller) {
-      controller.enqueue(bytes.slice(0, 9000));
-      controller.enqueue(bytes.slice(9000));
+      controller.enqueue(bytes.slice(0, 30000));
+      controller.enqueue(bytes.slice(30000));
       controller.close();
     }
   });
