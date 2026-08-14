@@ -50,21 +50,24 @@ jobs:
       - run: npm ci
       - name: Test manual list/create contracts
         run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs
+      - name: Prepare isolated disposable databases
+        run: |
+          createdb manual_title_test
+          createdb manual_step_test
       - name: Install and test title constraints
         run: |
-          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
-          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
-          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-test.sql
-          psql -X -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
+          PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
+          PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+          PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-test.sql
       - name: Validate manual step mutation migration
         run: node scripts/check-phase2-manual-step-migration.mjs
       - name: Install and test step mutation migration
         run: |
-          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-fixture.sql
-          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
-          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-fixture.sql
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
       - name: Exercise shared revision lock
-        run: bash scripts/test-phase2-manual-step-locks.sh
+        run: PGDATABASE=manual_step_test bash scripts/test-phase2-manual-step-locks.sh
       - name: Validate migration safety and ordering
         run: |
           npm run migration:safety:check
