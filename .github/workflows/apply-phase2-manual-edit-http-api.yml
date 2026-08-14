@@ -42,7 +42,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply shared router and documentation integration
-        run: node scripts/apply-phase2-manual-edit-http-api.mjs
+        run: |
+          node scripts/apply-phase2-manual-edit-http-api.mjs
+          node scripts/fix-phase2-manual-edit-table-docs.mjs
       - run: npm ci
       - name: Validate manual edit API contracts
         run: node scripts/check-phase2-manual-edit-api.mjs
@@ -67,6 +69,7 @@ jobs:
       - name: Commit permanent integration only
         run: |
           rm scripts/apply-phase2-manual-edit-http-api.mjs
+          rm scripts/fix-phase2-manual-edit-table-docs.mjs
           rm .github/workflows/apply-phase2-manual-edit-http-api.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
