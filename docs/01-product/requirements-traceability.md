@@ -7,7 +7,9 @@ Status: Accepted
 | FR-001 | SCR-LOGIN, SCR-SHELL | auth callbacks, session API | profiles | ADR-0004, ADR-0010 | AC-001, AC-003, AC-004, AC-005 | EPIC-02, EPIC-03 |
 | FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0004, ADR-0010 | AC-002, AC-006, AC-007 | EPIC-02, EPIC-03 |
 | FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, profiles | ADR-0004 | AC-007, AC-008, AC-009, AC-014 | EPIC-02, EPIC-03 |
-| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`; 後続manual APIs | manuals, manual_revisions, manual_steps | ADR-0006 | `tests/manual-api.test.mjs`, AC-010 | #63, EPIC-06 |
+| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft APIs | manuals, manual_revisions, manual_steps | ADR-0006 | `tests/manual-api.test.mjs`, #64 manual edit tests, AC-010 | #63, #64, EPIC-06 |
+| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0006 | #64 manual edit tests | #64, EPIC-06 |
+| FR-006 | SCR-MANUAL-EDITOR | local instruction suggestion only; external APIなし | - | ADR-0009 | `tests/manual-instruction-template.test.mjs`, #64 manual edit tests | #64, EPIC-06 |
 | FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 | EPIC-04 |
 | FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024, AC-025 | EPIC-04 |
 | FR-012 | SCR-SHARE | share APIs | share_links | ADR-0008 | AC-030 | EPIC-08 |
@@ -30,7 +32,10 @@ Status: Accepted
 ## Phase 2 手順書コア
 
 - Issue #63のAccepted API契約は `docs/05-api/phase2-manual-api.md` を正とする。
-- #63は一覧・新規作成だけを扱い、詳細取得・draft/step編集は#64、UI/E2Eは#65へ分離する。
+- Issue #64のAccepted API契約は `docs/05-api/phase2-manual-edit-api.md` を正とする。
+- #63は一覧・新規作成、#64は詳細・draft/step編集、#65はUI/E2Eへ分離する。
+- step追加のposition採番と並べ替えは`202608140010_phase2_manual_step_mutations.sql`の原子的RPCを利用し、GitHub PRだけを根拠に外部DBへ適用しない。
+- FR-006は将来FR-020が実装されても常にローカル決定的処理とし、外部AI APIへ切り替えない。
 - Phase 2でもPhase 1のHttpOnly Cookie session、same-origin write、RLSを迂回しない。
 
 Phase 1の実装では、上記の各行を詳細Issueへ展開し、画面、API、RLS、受入テストを同じPRで更新する。Phase 2以降の行も、実装開始前に同じ粒度へ展開する。
