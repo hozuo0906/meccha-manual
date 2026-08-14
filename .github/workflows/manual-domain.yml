@@ -1,0 +1,31 @@
+name: Manual Domain
+
+on:
+  pull_request:
+    paths:
+      - "apps/worker/src/domain/manual/**"
+      - "tests/manual-instruction-template.test.mjs"
+      - ".github/workflows/manual-domain.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test local instruction template
+        run: node --experimental-strip-types --test tests/manual-instruction-template.test.mjs
+      - name: Typecheck local instruction template
+        run: npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --allowImportingTsExtensions true --types @cloudflare/workers-types apps/worker/src/domain/manual/instruction-template.ts
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
