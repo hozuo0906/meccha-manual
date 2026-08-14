@@ -47,8 +47,11 @@ test("blank target does not invent an instruction", () => {
 });
 
 test("unknown runtime action fails closed instead of inventing text", () => {
-  assert.equal(
-    suggestManualInstruction({ targetText: "対象項目", actionType: "unknown" }),
-    null
-  );
+  for (const actionType of ["unknown", "toString", "constructor", "__proto__"]) {
+    assert.equal(
+      suggestManualInstruction({ targetText: "対象項目", actionType }),
+      null,
+      actionType
+    );
+  }
 });
