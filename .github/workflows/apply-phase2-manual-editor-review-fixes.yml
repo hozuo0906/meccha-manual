@@ -1,0 +1,64 @@
+name: Apply Phase 2 Manual Editor Review Fixes
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-editor-ui
+    paths:
+      - ".github/workflows/apply-phase2-manual-editor-review-fixes.yml"
+      - "scripts/apply-phase2-manual-editor-review-fixes.mjs"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-editor-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Prepare literal fixture placeholders
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
+          const path = "scripts/apply-phase2-manual-editor-review-fixes.mjs";
+          let source = await readFile(path, "utf8");
+          const marker = 'import { readFile, writeFile } from "node:fs/promises";\n';
+          const constants = '\nconst workspaceId = "${workspaceId}";\nconst manualId = "${manualId}";\nconst firstStepId = "${firstStepId}";\n';
+          if (!source.includes(marker)) throw new Error("Apply script import marker is missing.");
+          source = source.replace(marker, marker + constants);
+          await writeFile(path, source, "utf8");
+          NODE
+      - name: Apply review fixes
+        run: node scripts/apply-phase2-manual-editor-review-fixes.mjs
+      - run: npm ci
+      - name: Validate manual editor UI contracts
+        run: node scripts/check-phase2-manual-editor-ui.mjs
+      - name: Test static manual editor safety boundaries
+        run: node --test tests/manual-editor-ui.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test manual editor browser flows
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: git diff --check
+      - name: Commit permanent review fixes only
+        run: |
+          rm scripts/apply-phase2-manual-editor-review-fixes.mjs
+          rm .github/workflows/apply-phase2-manual-editor-review-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve manual editor drafts and permissions"
+          git push origin HEAD:feature/phase2-manual-editor-ui
