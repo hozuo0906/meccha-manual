@@ -30,6 +30,7 @@ const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
+const MAX_MANUAL_LIST_JSON_BYTES = 1024 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;
 const MAX_MANUAL_TITLE_LENGTH = 64;
 const SUPABASE_TIMEOUT_MS = 5000;
@@ -140,8 +141,11 @@ async function readTextLimited(response: Response, maxBytes: number): Promise<st
   return new TextDecoder().decode(bytes);
 }
 
-async function readJsonLimited(response: Response): Promise<unknown> {
-  const text = await readTextLimited(response, MAX_SUPABASE_JSON_BYTES);
+async function readJsonLimited(
+  response: Response,
+  maxBytes = MAX_SUPABASE_JSON_BYTES
+): Promise<unknown> {
+  const text = await readTextLimited(response, maxBytes);
   if (!text) return null;
   return JSON.parse(text);
 }
@@ -479,7 +483,7 @@ async function listManuals(request: Request, env: ManualEnv, workspaceId: string
 
   let payload: unknown;
   try {
-    payload = await readJsonLimited(response);
+    payload = await readJsonLimited(response, MAX_MANUAL_LIST_JSON_BYTES);
   } catch {
     throw new ManualError(502, "MANUALS_RESPONSE_INVALID", "手順書一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
   }

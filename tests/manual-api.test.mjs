@@ -320,7 +320,7 @@ test("oversized Content-Length response cancels its unread body immediately", as
     status: 200,
     headers: {
       "content-type": "application/json",
-      "content-length": "600000",
+      "content-length": "1200000",
       "content-range": "0-0/1"
     }
   });
@@ -332,6 +332,41 @@ test("oversized Content-Length response cancels its unread body immediately", as
     assert.equal((await response.json()).code, "MANUALS_RESPONSE_INVALID");
     assert.equal(cancelled, true);
     assert.ok(Date.now() - startedAt < 1000, "oversized body cancellation should not wait for the 5-second deadline");
+  } finally {
+    mock.restore();
+  }
+});
+
+
+test("1000 worst-case JSON-escaped titles fit the dedicated manual list budget", async () => {
+  const title = "\u0001".repeat(64);
+  const rows = Array.from({ length: 1000 }, (_, index) => ({
+    ...manualRow(index + 1),
+    title
+  }));
+  const serialized = JSON.stringify(rows);
+  const serializedBytes = Buffer.byteLength(serialized);
+  assert.ok(serializedBytes > 512 * 1024, "fixture must exceed the generic Supabase JSON budget");
+  assert.ok(serializedBytes < 1024 * 1024, "fixture must fit the dedicated manual list budget");
+
+  const mock = installFetch([
+    authOk(),
+    memberOk(),
+    new Response(serialized, {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(serializedBytes),
+        "content-range": "0-999/1000"
+      }
+    })
+  ]);
+  try {
+    const response = await handleManualRoute(request(), ENV);
+    assert.equal(response?.status, 200);
+    const body = await response.json();
+    assert.equal(body.manuals.length, 1000);
+    assert.equal(body.manuals[0].title, title);
   } finally {
     mock.restore();
   }

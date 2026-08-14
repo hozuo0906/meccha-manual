@@ -20,6 +20,7 @@ Phase 1のHttpOnly Cookie sessionと既存Supabase RLS/RPCを使い、選択work
 - PostgRESTは`limit=1001` + `Prefer: count=exact`を使い、`Content-Range`と返却件数を照合する。
 - 総数または返却件数が1000件を超えた場合は`409 MANUALS_LIMIT_EXCEEDED`とし、切り詰めた一覧を返さない。
 - header欠落、件数不整合、不正なrow、過大/非JSONの上流応答は空一覧にせず502とする。
+- 一覧本文は1000件・title最大64 code point・JSON最悪エスケープを含めて1 MiBで打ち切り、その他のSupabase JSON応答は512 KiBを維持する。
 - access token更新が必要な場合はCookieを変更せず`401 SESSION_REFRESH_REQUIRED`とする。
 - Supabase URL/anon keyの読取・正規化は`server-config.ts`だけで行い、Phase 1とmanual routeで同じ設定境界を使う。
 - Supabase応答はheader到着だけでtimeoutを解除せず、本文読取完了まで5秒deadlineを維持する。
