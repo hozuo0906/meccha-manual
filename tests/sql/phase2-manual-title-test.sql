@@ -131,6 +131,100 @@ begin
 end;
 $$;
 
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    insert into public.manuals (
+      id,
+      workspace_id,
+      title,
+      owner_id,
+      created_by
+    )
+    values (
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      repeat(chr(9), 3),
+      '11111111-1111-4111-8111-111111111111',
+      '11111111-1111-4111-8111-111111111111'
+    );
+  exception
+    when check_violation then rejected := true;
+  end;
+
+  if not rejected then
+    raise exception 'tab-only manual title was accepted';
+  end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    insert into public.manual_revisions (
+      id,
+      workspace_id,
+      manual_id,
+      title,
+      created_by
+    )
+    values (
+      '77777777-7777-4777-8777-777777777777',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '22222222-2222-4222-8222-222222222222',
+      repeat(chr(160), 3),
+      '11111111-1111-4111-8111-111111111111'
+    );
+  exception
+    when check_violation then rejected := true;
+  end;
+
+  if not rejected then
+    raise exception 'NBSP-only revision title was accepted';
+  end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    update public.manuals
+    set title = repeat(chr(9), 3)
+    where id = '22222222-2222-4222-8222-222222222222';
+  exception
+    when check_violation then rejected := true;
+  end;
+
+  if not rejected then
+    raise exception 'tab-only manual title update was accepted';
+  end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    update public.manual_revisions
+    set title = repeat(chr(160), 3)
+    where id = '33333333-3333-4333-8333-333333333333';
+  exception
+    when check_violation then rejected := true;
+  end;
+
+  if not rejected then
+    raise exception 'NBSP-only revision title update was accepted';
+  end if;
+end;
+$$;
+
 reset role;
 
 do $$

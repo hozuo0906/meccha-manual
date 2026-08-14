@@ -280,6 +280,10 @@ test("manual title migration fixes the same 64-character contract", async () => 
   assert.match(migration, /manuals_title_length/);
   assert.match(migration, /manual_revisions_title_length/);
   assert.match(migration, /char_length\(title\) between 1 and 64/i);
+  assert.match(migration, /manuals_title_nonblank/);
+  assert.match(migration, /manual_revisions_title_nonblank/);
+  assert.match(migration, /btrim\(\s*title/i);
+  assert.match(migration, /chr\(160\)/);
 });
 
 
@@ -367,6 +371,38 @@ test("1000 worst-case JSON-escaped titles fit the dedicated manual list budget",
     const body = await response.json();
     assert.equal(body.manuals.length, 1000);
     assert.equal(body.manuals[0].title, title);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("uppercase workspace UUID is canonicalized before querying and comparing rows", async () => {
+  const canonicalWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const uppercaseWorkspaceId = canonicalWorkspaceId.toUpperCase();
+  const row = { ...manualRow(1), workspace_id: canonicalWorkspaceId };
+  const mock = installFetch([
+    authOk(),
+    memberOk(),
+    json([row], 200, { "content-range": "0-0/1" })
+  ]);
+  try {
+    const response = await handleManualRoute(
+      new Request(
+        `${APP_ORIGIN}/api/workspaces/${uppercaseWorkspaceId}/manuals`,
+        { headers: { cookie: "__Host-mm_access=access-token; __Host-mm_refresh=refresh-token" } }
+      ),
+      ENV
+    );
+    assert.equal(response?.status, 200);
+    assert.equal((await response.json()).manuals[0].id, row.id);
+    assert.deepEqual(JSON.parse(String(mock.calls[1].init.body)), {
+      target_workspace_id: canonicalWorkspaceId,
+      target_user_id: USER_ID
+    });
+    assert.ok(
+      mock.calls[2].url.includes(`workspace_id=eq.${canonicalWorkspaceId}`),
+      "manual query must use the canonical lowercase workspace UUID"
+    );
   } finally {
     mock.restore();
   }

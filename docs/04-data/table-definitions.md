@@ -23,8 +23,8 @@ Status: Accepted
 | `workspace_join_codes` | `id`, `user_id`, `token_hash`, `expires_at`, `consumed_at`, `consumed_workspace_id`, `consumed_by`, `revoked_at`, `created_at` | client table access禁止。本人だけがRPCで発行し、owner/adminがRPCで利用する。256 bitコードのSHA-256 digestだけを保存し、10分で失効、1回だけ利用可能 |
 | `workspace_invitations` | `email`, `role`, `token_hash`, `expires_at`, `accepted_at` | owner/admin管理。生トークン保存禁止 |
 | `folders` | `workspace_id`, `parent_id`, `name`, `position`, `created_by` | メンバー閲覧、editor以上で変更 |
-| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧、editor以上で変更。`title`はtrim後1〜64 Unicode文字。`manuals_title_length` constraintでdirect authenticated writeを含めて強制 |
-| `manual_revisions` | `workspace_id`, `manual_id`, `revision_no`, `state`, `title`, `description`, `source_url`, `cover_asset_id`, `published_at` | 下書きはeditor以上、公開版は不変。`title`は1〜64 Unicode文字で、`manual_revisions_title_length` constraintを強制 |
+| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧、editor以上で変更。raw `title`は`char_length(title) between 1 and 64`、かつECMAScript `trim()`相当後に空でないことを`manuals_title_length`と`manuals_title_nonblank`でdirect authenticated writeにも強制 |
+| `manual_revisions` | `workspace_id`, `manual_id`, `revision_no`, `state`, `title`, `description`, `source_url`, `cover_asset_id`, `published_at` | 下書きはeditor以上、公開版は不変。raw `title`は`char_length(title) between 1 and 64`、かつECMAScript `trim()`相当後に空でないことを`manual_revisions_title_length`と`manual_revisions_title_nonblank`で強制 |
 | `manual_steps` | `workspace_id`, `revision_id`, `position`, `type`, `title`, `instruction`, `action_type`, `target_text`, `url`, `asset_id`, `annotation`, `masking` | revision権限を継承、公開版更新禁止 |
 | `step_targets` | `workspace_id`, `step_id`, `selector_candidates`, `frame_path`, `rect`, `confidence` | revision権限を継承 |
 | `tags` | `workspace_id`, `name`, `color` | メンバー閲覧、editor以上で変更 |

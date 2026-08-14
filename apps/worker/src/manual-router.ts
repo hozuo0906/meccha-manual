@@ -579,7 +579,7 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
   try {
     let workspaceId: string;
     try {
-      workspaceId = decodeURIComponent(match[1]);
+      workspaceId = decodeURIComponent(match[1]).toLowerCase();
     } catch {
       throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
     }

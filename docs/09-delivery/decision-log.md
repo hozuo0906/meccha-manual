@@ -55,5 +55,6 @@ Status: Accepted
 
 | DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
 | DEC-050 | 2026-08-12 | Phase 1 readinessは最新Workers型のstrict typecheck、Wrangler bundle dry-run、重要な失敗条件のproduction code変異、fixture APIを使う実Chromium 4ロールE2Eを必須にする。外部Supabaseのmigration・資格情報・テストデータは使わず、動的RLS検証は承認対象のIssue #38へ分離する | 静的snippetだけの合格を防ぎつつ、外部環境を無承認で変更せずに認証・権限UI・アクセシビリティの実行可能性をPRごとに保証するため |
+| DEC-051 | 2026-08-14 | 手順書一覧のSupabase応答上限は1000件かつ1 MiBとし、その他のSupabase JSON応答は512 KiBを維持する | title最大64 Unicode code pointがJSON制御文字として最大6 byteへ展開しても1000件一覧を取得可能にしつつ、一般応答の無制限buffer拡大を避けるため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。

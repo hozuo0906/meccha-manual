@@ -25,6 +25,9 @@ test("table definitions record the same manual title invariant", async () => {
   assert.match(definitions, /manuals\.title[^\n]*1〜64/);
   assert.match(definitions, /manual_revisions\.title[^\n]*1〜64/);
   assert.match(definitions, /char_length\(title\) between 1 and 64/);
+  assert.match(definitions, /manuals_title_nonblank/);
+  assert.match(definitions, /manual_revisions_title_nonblank/);
+  assert.match(definitions, /ECMAScript \x60trim\(\)\x60相当/);
 });
 
 test("Manual API CI executes the migration through authenticated RLS fixtures", async () => {
@@ -33,4 +36,12 @@ test("Manual API CI executes the migration through authenticated RLS fixtures", 
   assert.match(workflow, /phase2-manual-title-fixture\.sql/);
   assert.match(workflow, /202608140005_phase2_manual_title_length\.sql/);
   assert.match(workflow, /phase2-manual-title-test\.sql/);
+});
+
+test("decision log records the dedicated manual-list response budget", async () => {
+  const decisionLog = await readFile("docs/09-delivery/decision-log.md", "utf8");
+  const api = await readFile("docs/05-api/phase2-manual-api.md", "utf8");
+  assert.match(decisionLog, /DEC-051[^\n]*1000件かつ1 MiB[^\n]*512 KiB/);
+  assert.match(decisionLog, /JSON制御文字として最大6 byte/);
+  assert.match(api, /1 MiB[^\n]*512 KiB[^\n]*DEC-051/);
 });
