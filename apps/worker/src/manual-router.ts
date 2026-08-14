@@ -107,7 +107,10 @@ function verifySameOriginWrite(request: Request): void {
 
 async function readTextLimited(response: Response, maxBytes: number): Promise<string> {
   const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) > maxBytes) throw new Error("response too large");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel("response too large").catch(() => undefined);
+    throw new Error("response too large");
+  }
   if (!response.body) return "";
 
   const reader = response.body.getReader();

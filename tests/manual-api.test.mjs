@@ -308,3 +308,31 @@ test("status-only create failure cancels the unread Supabase body", async () => 
     mock.restore();
   }
 });
+
+
+test("oversized Content-Length response cancels its unread body immediately", async () => {
+  let cancelled = false;
+  const oversized = new Response(new ReadableStream({
+    cancel() {
+      cancelled = true;
+    }
+  }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "content-length": "600000",
+      "content-range": "0-0/1"
+    }
+  });
+  const mock = installFetch([authOk(), memberOk(), oversized]);
+  try {
+    const startedAt = Date.now();
+    const response = await handleManualRoute(request(), ENV);
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUALS_RESPONSE_INVALID");
+    assert.equal(cancelled, true);
+    assert.ok(Date.now() - startedAt < 1000, "oversized body cancellation should not wait for the 5-second deadline");
+  } finally {
+    mock.restore();
+  }
+});
