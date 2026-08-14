@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 function replaceOnce(source, find, replacement, label) {
@@ -34,3 +35,18 @@ test = replaceOnce(
   "saved instruction assertion"
 );
 await writeFile("tests/e2e/phase2-manual-editor.spec.mjs", test, "utf8");
+
+let appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
+const appAssetsModuleUrl = `data:text/javascript;base64,${Buffer.from(appAssets).toString("base64")}`;
+const { APP_CSS, APP_JS } = await import(appAssetsModuleUrl);
+const assetVersion = `sha256-${createHash("sha256")
+  .update(APP_CSS)
+  .update("\0")
+  .update(APP_JS)
+  .digest("hex")
+  .slice(0, 16)}`;
+appAssets = appAssets.replace(
+  /APP_ASSET_VERSION = "[^"]+"/,
+  `APP_ASSET_VERSION = "${assetVersion}"`
+);
+await writeFile("apps/worker/src/app-assets.ts", appAssets, "utf8");
