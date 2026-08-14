@@ -8,6 +8,7 @@ on:
       - ".github/workflows/apply-phase2-manual-edit-http-api.yml"
       - "scripts/apply-phase2-manual-edit-http-api.mjs"
       - "scripts/fix-phase2-manual-edit-table-docs.mjs"
+      - "scripts/fix-phase2-manual-edit-types.mjs"
 
 permissions:
   contents: write
@@ -47,6 +48,7 @@ jobs:
         run: |
           node scripts/apply-phase2-manual-edit-http-api.mjs
           node scripts/fix-phase2-manual-edit-table-docs.mjs
+          node scripts/fix-phase2-manual-edit-types.mjs
       - run: npm ci
       - name: Validate manual edit API contracts
         run: node scripts/check-phase2-manual-edit-api.mjs
@@ -72,6 +74,7 @@ jobs:
         run: |
           rm scripts/apply-phase2-manual-edit-http-api.mjs
           rm scripts/fix-phase2-manual-edit-table-docs.mjs
+          rm scripts/fix-phase2-manual-edit-types.mjs
           rm .github/workflows/apply-phase2-manual-edit-http-api.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
