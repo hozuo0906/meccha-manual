@@ -93,6 +93,10 @@ jobs:
           PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
           PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
           PGDATABASE=manual_step_test bash scripts/test-phase2-manual-step-locks.sh
+      - name: Reset disposable PostgreSQL fixture roles
+        run: |
+          dropdb manual_step_test
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c "drop role if exists anon; drop role if exists authenticated;"
       - name: Test full manual edit migrations in disposable PostgreSQL
         run: |
           createdb manual_edit_test
