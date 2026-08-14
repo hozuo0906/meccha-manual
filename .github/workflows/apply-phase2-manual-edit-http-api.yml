@@ -6,6 +6,8 @@ on:
       - feature/phase2-manual-edit-http-api
     paths:
       - ".github/workflows/apply-phase2-manual-edit-http-api.yml"
+      - "scripts/apply-phase2-manual-edit-http-api.mjs"
+      - "scripts/fix-phase2-manual-edit-table-docs.mjs"
 
 permissions:
   contents: write
