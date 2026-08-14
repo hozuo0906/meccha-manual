@@ -1,0 +1,94 @@
+name: Apply Phase 2 Manual Concurrency And Request Budget Fixes
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-editor-ui
+    paths:
+      - ".github/workflows/apply-phase2-manual-concurrency-budget-fixes.yml"
+      - "scripts/apply-phase2-manual-concurrency-budget-fixes.mjs"
+      - "scripts/test-phase2-manual-step-locks.next.sh"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-editor-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply optimistic concurrency and request budget fixes
+        run: |
+          node scripts/apply-phase2-manual-concurrency-budget-fixes.mjs
+          chmod +x scripts/test-phase2-manual-step-locks.sh
+      - run: npm ci
+      - name: Validate manual contracts
+        run: |
+          node scripts/check-phase2-manual-step-migration.mjs
+          node scripts/check-phase2-manual-edit-api.mjs
+      - name: Test manual HTTP boundaries
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
+      - name: Test step RPCs and concurrency in disposable PostgreSQL
+        run: |
+          createdb manual_step_test
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-fixture.sql
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          PGDATABASE=manual_step_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
+          PGDATABASE=manual_step_test bash scripts/test-phase2-manual-step-locks.sh
+      - name: Test full manual edit migrations in disposable PostgreSQL
+        run: |
+          createdb manual_edit_test
+          PGDATABASE=manual_edit_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-fixture.sql
+          PGDATABASE=manual_edit_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+          PGDATABASE=manual_edit_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          PGDATABASE=manual_edit_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
+          PGDATABASE=manual_edit_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-test.sql
+      - name: Validate migration safety and repository checks
+        run: |
+          npm run migration:safety:check
+          npm run migrations:check
+          npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test manual editor browser flows
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: git diff --check
+      - name: Commit permanent fixes only
+        run: |
+          rm scripts/apply-phase2-manual-concurrency-budget-fixes.mjs
+          rm scripts/test-phase2-manual-step-locks.next.sh
+          rm .github/workflows/apply-phase2-manual-concurrency-budget-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: prevent stale manual step overwrites"
+          git push origin HEAD:feature/phase2-manual-editor-ui
