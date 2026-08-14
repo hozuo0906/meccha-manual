@@ -39,6 +39,7 @@ Status: Accepted
 | AC-057 | active/grace/read_onlyのTeam契約がある | メンバー1人または複数人でPersonalへの変更を開始する | Stripe APIへ通信せず `PLAN_CHANGE_UNRESOLVED` で停止する |
 | AC-058 | R2使用量が100%で生成済みexportがある | 新規生成と既存成果物downloadを行う | 新規生成は拒否し、期限内の既存成果物downloadは成功する |
 | AC-059 | 同じ購入操作のCheckout Session作成が並行実行または応答消失後に再送される | APIとStripeへ再試行する | 同じcheckout intentとStripe Sessionだけを返し、二重の支払い可能Sessionを作らない |
+| AC-060 | 収益安定後のユーザー明示承認が未記録 | 手順書作成・編集・操作記録・画像・共有・export・分析を利用する | AI専用adapter、feature flag、API key/Secret、外部AI API呼出しを必要とせず基本導線が動作する |
 | AC-062 | 同じworkspaceでPersonalとTeamの購入を並行開始する | 両方のSession作成とWebhookを順不同で処理する | subscription用の支払い可能Sessionは1件だけとなり、対象自身を競合扱いせず、別契約へ二重entitlementを付与しない |
 | AC-063 | DBへ照合できないsubscription modeの決済が成功する | draft/open/paid invoiceのWebhookを重複・順不同で再送する | entitlementを付与せず、subscription cancelと状態別のdelete/void/refundが冪等に完了して継続請求を残さない |
-| AC-060 | AI feature flagがOFF | 手順書を作る | 外部AI APIが呼ばれない |
+| AC-064 | FR-006の日本語テンプレート生成 | click/input/select/navigate/wait/otherの手順文を提案する | FR-020の将来状態に関係なく決定的なローカル処理だけで生成し、外部AI APIを呼ばず、入力値そのものを文生成へ渡さない |
