@@ -59,6 +59,10 @@ jobs:
           PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
           PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
           PGDATABASE=manual_title_test psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-test.sql
+      - name: Reset cluster-wide fixture role
+        run: |
+          dropdb manual_title_test
+          psql -X -v ON_ERROR_STOP=1 -c "drop role authenticated;"
       - name: Validate manual step mutation migration
         run: node scripts/check-phase2-manual-step-migration.mjs
       - name: Install and test step mutation migration
