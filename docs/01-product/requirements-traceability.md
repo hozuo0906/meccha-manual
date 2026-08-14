@@ -8,12 +8,13 @@ Status: Accepted
 | FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0004, ADR-0010 | AC-002, AC-006, AC-007 | EPIC-02, EPIC-03 |
 | FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, profiles | ADR-0004 | AC-007, AC-008, AC-009, AC-014 | EPIC-02, EPIC-03 |
 | FR-004 | SCR-MANUAL-EDITOR | manual APIs | manuals, manual_revisions, manual_steps | ADR-0006 | AC-010 | EPIC-06 |
+| FR-006 | SCR-MANUAL-EDITOR | local instruction template only; no external AI API | manual_steps | ADR-0009 | AC-064, `tests/manual-instruction-template.test.mjs` | GitHub #64, EPIC-06 |
 | FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 | EPIC-04 |
 | FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024, AC-025 | EPIC-04 |
 | FR-012 | SCR-SHARE | share APIs | share_links | ADR-0008 | AC-030 | EPIC-08 |
 | FR-019 | SCR-BILLING | billing APIs, webhook | billing_customers, checkout_intents, billing_purchases, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | EPIC-10 |
-| FR-020 | SCR-AI-SETTINGS | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | EPIC-14 |
-| FR-021 | SCR-BILLING, SCR-USAGE | billing summary, export APIs | entitlements, usage_counters | ADR-0023 | AC-051, AC-053, AC-055, AC-058 | EPIC-10 |
+| FR-020 | deferred until revenue stability + explicit user approval | no AI runtime API before approval | no AI-specific table before approval | ADR-0009 | AC-060 | GitHub #62, EPIC-14 |
+| FR-021 | SCR-BILLING, SCR-USAGE | usage guards + billing summary/export APIs | entitlements, usage_counters | ADR-0023 | AC-051, AC-053, AC-055, AC-058 | EPIC-04, EPIC-05, EPIC-10 |
 | NFR-007 | SCR-LOGIN, SCR-WORKSPACE, SCR-MEMBERS, SCR-SHELL | - | - | - | AC-012, AC-013, `phase1:a11y:test`, `phase1:e2e:test` | EPIC-03, EPIC-13 |
 
 | NFR-013 | - | `POST /api/v1/cloud-runners/probe`, `POST /api/v1/cloud-runners/jobs/claim`, `POST /api/v1/cloud-runners/events` | Business OS側のexecution target/job/eventを正本とし、本サービスDBへ複製しない | ADR-0026 | `business-os-runner:check`, Business OS Codex Runner contract/probe/reject-path | Business OS #10 |
