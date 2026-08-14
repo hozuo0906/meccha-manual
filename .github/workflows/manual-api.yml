@@ -3,9 +3,20 @@ name: Manual API
 on:
   pull_request:
     paths:
+      - "apps/worker/src/index.ts"
       - "apps/worker/src/index-phase2.ts"
       - "apps/worker/src/manual-router.ts"
+      - "apps/worker/src/server-config.ts"
+      - "docs/04-data/phase2-manual-core-setup.md"
+      - "docs/04-data/table-definitions.md"
+      - "docs/05-api/phase2-manual-api.md"
+      - "docs/09-delivery/decision-log.md"
+      - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "tests/manual-api.test.mjs"
+      - "tests/manual-title-docs.test.mjs"
+      - "tests/worker-runtime-mutation.test.mjs"
+      - "tests/sql/phase2-manual-title-fixture.sql"
+      - "tests/sql/phase2-manual-title-test.sql"
       - "tsconfig.worker.json"
       - "wrangler.jsonc"
       - ".github/workflows/manual-api.yml"
@@ -17,6 +28,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,8 +56,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Test manual API boundaries
-        run: node --experimental-transform-types --test tests/manual-api.test.mjs
+      - name: Test manual API and rollout boundaries
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs
+      - name: Install title constraints in disposable Postgres
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+      - name: Exercise authenticated RLS title boundaries
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-test.sql
       - name: Repository checks
         run: npm run check
       - name: Diff check

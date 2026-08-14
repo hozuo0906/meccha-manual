@@ -1,7 +1,6 @@
-interface ManualEnv {
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
-}
+import { inspectSupabaseConfig, type SupabaseBindings } from "./server-config.ts";
+
+interface ManualEnv extends SupabaseBindings {}
 
 type ManualStatus = "draft" | "reviewing" | "published" | "stale" | "archived";
 
@@ -31,7 +30,9 @@ const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
+const MAX_MANUAL_LIST_JSON_BYTES = 1024 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;
+const MAX_MANUAL_TITLE_LENGTH = 64;
 const SUPABASE_TIMEOUT_MS = 5000;
 const MANUAL_STATUSES = new Set<ManualStatus>(["draft", "reviewing", "published", "stale", "archived"]);
 
@@ -67,13 +68,11 @@ function errorResponse(error: unknown): Response {
 }
 
 function ensureConfig(env: ManualEnv): { url: string; anonKey: string } {
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+  const config = inspectSupabaseConfig(env).config;
+  if (!config) {
     throw new ManualError(500, "SUPABASE_NOT_CONFIGURED", "Supabase設定が未完了です。");
   }
-  return {
-    url: env.SUPABASE_URL.replace(/\/$/, ""),
-    anonKey: env.SUPABASE_ANON_KEY
-  };
+  return config;
 }
 
 function parseCookies(request: Request): Map<string, string> {
@@ -109,7 +108,10 @@ function verifySameOriginWrite(request: Request): void {
 
 async function readTextLimited(response: Response, maxBytes: number): Promise<string> {
   const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) > maxBytes) throw new Error("response too large");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel("response too large").catch(() => undefined);
+    throw new Error("response too large");
+  }
   if (!response.body) return "";
 
   const reader = response.body.getReader();
@@ -139,8 +141,11 @@ async function readTextLimited(response: Response, maxBytes: number): Promise<st
   return new TextDecoder().decode(bytes);
 }
 
-async function readJsonLimited(response: Response): Promise<unknown> {
-  const text = await readTextLimited(response, MAX_SUPABASE_JSON_BYTES);
+async function readJsonLimited(
+  response: Response,
+  maxBytes = MAX_SUPABASE_JSON_BYTES
+): Promise<unknown> {
+  const text = await readTextLimited(response, maxBytes);
   if (!text) return null;
   return JSON.parse(text);
 }
@@ -211,11 +216,71 @@ async function supabaseFetch(
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SUPABASE_TIMEOUT_MS);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort(init.signal.reason);
+    else init.signal.addEventListener("abort", () => controller.abort(init.signal?.reason), { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(new Error("Supabase response deadline exceeded")), SUPABASE_TIMEOUT_MS);
+
   try {
-    return await fetch(`${config.url}${path}`, { ...init, headers, signal: controller.signal });
-  } finally {
+    const response = await fetch(`${config.url}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal
+    });
+    if (!response.body) {
+      clearTimeout(timer);
+      return response;
+    }
+
+    const reader = response.body.getReader();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      reader.releaseLock();
+    };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(streamController) {
+        try {
+          const result = await reader.read();
+          if (result.done) {
+            finish();
+            streamController.close();
+            return;
+          }
+          streamController.enqueue(result.value);
+        } catch (error) {
+          finish();
+          streamController.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          finish();
+        }
+      }
+    });
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  } catch (error) {
     clearTimeout(timer);
+    throw error;
+  }
+}
+
+async function cancelUnreadResponseBody(response: Response): Promise<void> {
+  if (!response.body) return;
+  try {
+    await response.body.cancel("response body not consumed");
+  } catch {
+    // The response is already terminating; cancellation is best effort.
   }
 }
 
@@ -237,10 +302,12 @@ async function requireSession(request: Request, env: ManualEnv): Promise<{ userI
   }
 
   if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
     if (refreshToken) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
     throw new ManualError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。");
   }
   if (!response.ok) {
+    await cancelUnreadResponseBody(response);
     throw new ManualError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
 
@@ -274,8 +341,14 @@ async function booleanRpc(
   } catch {
     throw new ManualError(502, failureCode, failureMessage);
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  if (!response.ok) throw new ManualError(502, failureCode, failureMessage);
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
+  if (!response.ok) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(502, failureCode, failureMessage);
+  }
   try {
     const payload = await readJsonLimited(response);
     if (typeof payload !== "boolean") throw new Error("invalid boolean rpc response");
@@ -334,7 +407,7 @@ function parseManualRow(value: unknown, workspaceId: string): ManualSummary | nu
     typeof row.id !== "string" || !UUID_PATTERN.test(row.id) ||
     row.workspace_id !== workspaceId ||
     (row.folder_id !== null && (typeof row.folder_id !== "string" || !UUID_PATTERN.test(row.folder_id))) ||
-    typeof row.title !== "string" || row.title.trim().length === 0 ||
+    typeof row.title !== "string" || row.title.trim().length === 0 || Array.from(row.title).length > MAX_MANUAL_TITLE_LENGTH ||
     typeof row.status !== "string" || !MANUAL_STATUSES.has(row.status as ManualStatus) ||
     (row.current_draft_revision_id !== null && (typeof row.current_draft_revision_id !== "string" || !UUID_PATTERN.test(row.current_draft_revision_id))) ||
     (row.current_published_revision_id !== null && (typeof row.current_published_revision_id !== "string" || !UUID_PATTERN.test(row.current_published_revision_id))) ||
@@ -399,12 +472,18 @@ async function listManuals(request: Request, env: ManualEnv, workspaceId: string
   } catch {
     throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  if (!response.ok) throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
+  if (!response.ok) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
+  }
 
   let payload: unknown;
   try {
-    payload = await readJsonLimited(response);
+    payload = await readJsonLimited(response, MAX_MANUAL_LIST_JSON_BYTES);
   } catch {
     throw new ManualError(502, "MANUALS_RESPONSE_INVALID", "手順書一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
@@ -432,6 +511,9 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
   }
   const title = body.title.trim();
   if (!title) throw new ManualError(400, "MANUAL_TITLE_REQUIRED", "手順書タイトルを入力してください。");
+  if (Array.from(title).length > MAX_MANUAL_TITLE_LENGTH) {
+    throw new ManualError(400, "MANUAL_TITLE_INVALID", "手順書タイトルは64文字以内で入力してください。");
+  }
   if (body.description !== undefined && typeof body.description !== "string") {
     throw new ManualError(400, "MANUAL_DESCRIPTION_INVALID", "説明は文字で入力してください。");
   }
@@ -455,9 +537,13 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
   } catch {
     throw new ManualError(502, "MANUAL_CREATE_RESULT_UNKNOWN", "作成結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。");
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
   if (!response.ok) {
     if (response.status >= 500) {
+      await cancelUnreadResponseBody(response);
       throw new ManualError(502, "MANUAL_CREATE_RESULT_UNKNOWN", "作成結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。");
     }
     let message = "";
@@ -491,7 +577,12 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
   if (!match?.[1]) return null;
 
   try {
-    const workspaceId = decodeURIComponent(match[1]);
+    let workspaceId: string;
+    try {
+      workspaceId = decodeURIComponent(match[1]).toLowerCase();
+    } catch {
+      throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
+    }
     if (!UUID_PATTERN.test(workspaceId)) {
       throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
     }
