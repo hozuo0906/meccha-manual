@@ -43,8 +43,12 @@ jobs:
           path.write_text(text)
           PY
       - run: node scripts/apply-phase2-manual-review-fixes.mjs
-      - name: Restore one-shot files for repository scanners
-        run: git checkout HEAD -- scripts/apply-phase2-manual-review-fixes.mjs .github/workflows/apply-phase2-manual-review-fixes.yml
+      - name: Restore workflow and one-shot files before validation
+        run: |
+          git checkout HEAD -- \
+            scripts/apply-phase2-manual-review-fixes.mjs \
+            .github/workflows/apply-phase2-manual-review-fixes.yml \
+            .github/workflows/manual-api.yml
       - name: Keep mutation fixtures aligned with centralized config
         run: |
           python - <<'PY'
@@ -68,11 +72,9 @@ jobs:
         run: node --experimental-transform-types --test tests/manual-api.test.mjs
       - name: Repository checks
         run: npm run check
-      - name: Remove one-shot implementation files
-        run: rm scripts/apply-phase2-manual-review-fixes.mjs .github/workflows/apply-phase2-manual-review-fixes.yml
       - name: Diff check
         run: git diff --check
-      - name: Commit verified fixes
+      - name: Commit verified non-workflow fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
