@@ -1,0 +1,58 @@
+name: Apply Phase 2 Manual Review Fixes
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-list-create
+    paths:
+      - scripts/apply-phase2-manual-review-fixes.mjs
+      - .github/workflows/apply-phase2-manual-review-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-list-create
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Correct exact documentation target in one-shot script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-phase2-manual-review-fixes.mjs')
+          text = path.read_text()
+          old = '"- 不正workspace IDは存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。"'
+          new = '"- 別workspace、非member、不正workspace IDは存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。"'
+          replacement = '"- 別workspace、非member、不正workspace ID（不正なpercent encodingを含む）は存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。"'
+          if old not in text:
+              raise SystemExit('one-shot documentation target not found')
+          text = text.replace(old, new).replace(
+              '"- 不正workspace ID（不正なpercent encodingを含む）は存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。"',
+              replacement,
+          )
+          path.write_text(text)
+          PY
+      - run: node scripts/apply-phase2-manual-review-fixes.mjs
+      - run: npm ci
+      - name: Test manual API review boundaries
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check
+      - name: Commit verified fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: harden Phase 2 manual list and create API"
+          git push origin HEAD:feature/phase2-manual-list-create
