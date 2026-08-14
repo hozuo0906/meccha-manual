@@ -342,12 +342,19 @@ async function fetchDraft(
   return draft;
 }
 
-function parseStep(value: unknown, workspaceId: string, draftId: string): ManualStep | null {
+function parseStep(
+  value: unknown,
+  workspaceId: string,
+  draftId: string,
+  requireInternalFields = false
+): ManualStep | null {
   if (!isPlainObject(value)) return null;
   const id = canonicalUuidValue(value.id);
   const rowWorkspaceId = canonicalUuidValue(value.workspace_id);
   const revisionId = canonicalUuidValue(value.revision_id);
-  const assetId = value.asset_id === null ? null : canonicalUuidValue(value.asset_id);
+  const assetId = value.asset_id === undefined || value.asset_id === null ? null : canonicalUuidValue(value.asset_id);
+  const annotation = value.annotation === undefined ? {} : value.annotation;
+  const masking = value.masking === undefined ? {} : value.masking;
   const updatedAt = requireTimestamp(value.updated_at);
   if (
     !id || rowWorkspaceId !== workspaceId || revisionId !== draftId ||
@@ -358,8 +365,9 @@ function parseStep(value: unknown, workspaceId: string, draftId: string): Manual
     (value.action_type !== null && (typeof value.action_type !== "string" || !ACTION_TYPES.has(value.action_type as ManualActionType))) ||
     (value.target_text !== null && (typeof value.target_text !== "string" || codePointLength(value.target_text) > MAX_STEP_TARGET_TEXT_LENGTH)) ||
     (value.url !== null && (typeof value.url !== "string" || codePointLength(value.url) > MAX_STEP_URL_LENGTH)) ||
-    (value.asset_id !== null && !assetId) ||
-    !isPlainObject(value.annotation) || !isPlainObject(value.masking) ||
+    (value.asset_id !== undefined && value.asset_id !== null && !assetId) ||
+    !isPlainObject(annotation) || !isPlainObject(masking) ||
+    (requireInternalFields && (value.asset_id === undefined || value.annotation === undefined || value.masking === undefined)) ||
     !updatedAt
   ) return null;
   return {
@@ -374,8 +382,8 @@ function parseStep(value: unknown, workspaceId: string, draftId: string): Manual
     targetText: value.target_text as string | null,
     url: value.url as string | null,
     assetId,
-    annotation: value.annotation,
-    masking: value.masking,
+    annotation,
+    masking,
     updatedAt
   };
 }
@@ -408,7 +416,7 @@ async function fetchSteps(
   draftId: string
 ): Promise<ManualStep[]> {
   const query = [
-    "/rest/v1/manual_steps?select=id,workspace_id,revision_id,position,type,title,instruction,action_type,target_text,url,asset_id,annotation,masking,updated_at",
+    "/rest/v1/manual_steps?select=id,workspace_id,revision_id,position,type,title,instruction,action_type,target_text,url,updated_at",
     `workspace_id=eq.${encodeURIComponent(workspaceId)}`,
     `revision_id=eq.${encodeURIComponent(draftId)}`,
     "deleted_at=is.null",
@@ -470,7 +478,7 @@ async function fetchActiveStep(
   if (rows.length !== 1) {
     throw new ManualError(502, "MANUAL_STEP_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
-  const step = parseStep(rows[0], workspaceId, draftId);
+  const step = parseStep(rows[0], workspaceId, draftId, true);
   if (!step || step.id !== stepId) {
     throw new ManualError(502, "MANUAL_STEP_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
@@ -536,6 +544,9 @@ function knownRpcError(message: string): ManualError | null {
   }
   if (message.includes("active manual step not found")) {
     return new ManualError(404, "MANUAL_STEP_NOT_FOUND", "指定された手順が見つかりません。");
+  }
+  if (message.includes("manual step limit exceeded")) {
+    return new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順は200件まで追加できます。不要な手順を整理してください。");
   }
   if (message.includes("ordered step ids")) {
     return new ManualError(400, "MANUAL_STEP_ORDER_INVALID", "手順の並び順を確認してください。");

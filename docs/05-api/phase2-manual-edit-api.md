@@ -17,7 +17,7 @@ Status: Accepted
 ## 共通上限
 
 - write bodyはContent-Lengthの有無にかかわらず16 KiBで打ち切る。
-- 詳細は最大200 active stepsとする。201件以上は切り詰めず`409 MANUAL_STEPS_LIMIT_EXCEEDED`。
+- 詳細・作成とも最大200 active stepsとする。DB triggerが201件目を拒否し、APIは`409 MANUAL_STEPS_LIMIT_EXCEEDED`を返す。既存データに201件以上ある場合はmigration preflightで停止する。
 - 詳細のSupabase JSONは、200 active stepsの最大フィールド長を安全に読める6 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（DEC-052）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
@@ -34,7 +34,7 @@ Status: Accepted
 - draftが無い場合は`draft: null`、`steps: []`を返す。
 - stepは`position asc`、`deleted_at is null`だけを返す。
 - published/superseded revisionを編集対象として返さない。
-- `annotation`、`masking`、`assetId`など内部更新項目はレスポンスへ公開しない。
+- `annotation`、`masking`、`assetId`など内部更新項目は詳細取得queryにも含めず、レスポンスへ公開しない。step更新時だけ対象1件を取得し、内部JSONは各64 KiB以下をDBで強制する。
 
 成功例:
 

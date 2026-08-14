@@ -283,6 +283,54 @@ begin
 end;
 $$;
 
+do $$
+declare
+  index_no integer;
+  rejected boolean := false;
+begin
+  for index_no in 2..200 loop
+    perform public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'note',
+      '手順' || index_no::text,
+      '',
+      null,
+      null,
+      null,
+      null,
+      '{}'::jsonb,
+      '{}'::jsonb
+    );
+  end loop;
+
+  begin
+    perform public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'note',
+      '201件目',
+      '',
+      null,
+      null,
+      null,
+      null,
+      '{}'::jsonb,
+      '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step limit exceeded%' then
+        rejected := true;
+      else
+        raise;
+      end if;
+  end;
+
+  if not rejected then
+    raise exception '201st active manual step was accepted';
+  end if;
+end;
+$$;
+
 reset role;
 
 do $$

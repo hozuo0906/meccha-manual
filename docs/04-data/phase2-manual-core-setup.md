@@ -116,6 +116,8 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `manual_steps_instruction_length`
 - `manual_steps_target_text_length` / `manual_steps_target_text_nonblank`
 - `manual_steps_url_length`
+- `manual_steps_annotation_size` / `manual_steps_masking_size`
+- `manual_steps_active_limit_guard` trigger
 
 SQL Editorにエラーが出ないこと。constraint validationが失敗した場合は既存データを自動修正せず、対象行を確認してから再実行する。
 
@@ -133,7 +135,7 @@ Phase 2 migration適用後に実行するテスト:
 - authenticatedはmanual/revision/stepを直接変更できず、editorは承認済みRPC経由で変更できる。
 - draft revisionの手順ステップは追加・更新・soft delete・並べ替えできる。
 - viewer、anon、別workspaceはmutation RPCを実行できない。
-- 200 active stepsと本文フィールド上限を超える入力・応答を拒否する。
+- 200 active stepsと本文フィールド上限を超える入力・応答を拒否する。201件目はDB triggerで拒否し、内部annotation/maskingは各64 KiB以下とする。
 - published revisionの手順ステップは変更できない。
 - `publish_manual` 後、公開版が不変になる。
 - `create_manual_draft` で公開版から次の下書きを作れる。

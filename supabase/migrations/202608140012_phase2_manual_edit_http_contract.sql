@@ -137,6 +137,122 @@ end $$;
 
 alter table public.manual_steps validate constraint manual_steps_url_length;
 
+do $$
+begin
+  if exists (
+    select 1
+    from public.manual_steps ms
+    where ms.deleted_at is null
+    group by ms.revision_id
+    having count(*) > 200
+  ) then
+    raise exception 'manual step limit preflight failed';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'manual_steps_annotation_size'
+      and conrelid = 'public.manual_steps'::regclass
+  ) then
+    alter table public.manual_steps
+      add constraint manual_steps_annotation_size
+      check (octet_length(annotation::text) <= 65536)
+      not valid;
+  end if;
+end $$;
+
+alter table public.manual_steps validate constraint manual_steps_annotation_size;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'manual_steps_masking_size'
+      and conrelid = 'public.manual_steps'::regclass
+  ) then
+    alter table public.manual_steps
+      add constraint manual_steps_masking_size
+      check (octet_length(masking::text) <= 65536)
+      not valid;
+  end if;
+end $$;
+
+alter table public.manual_steps validate constraint manual_steps_masking_size;
+
+create or replace function public.enforce_manual_steps_active_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  needs_check boolean := false;
+  active_step_count integer;
+begin
+  if tg_op = 'INSERT' then
+    needs_check := new.deleted_at is null;
+  elsif tg_op = 'UPDATE' then
+    needs_check := new.deleted_at is null
+      and (old.deleted_at is not null or old.revision_id is distinct from new.revision_id);
+  end if;
+
+  if not needs_check then
+    return new;
+  end if;
+
+  perform 1
+  from public.manual_revisions mr
+  where mr.id = new.revision_id
+  for update;
+
+  if not found then
+    raise exception 'draft revision not found';
+  end if;
+
+  if tg_op = 'INSERT' then
+    select count(*)::integer
+    into active_step_count
+    from public.manual_steps ms
+    where ms.revision_id = new.revision_id
+      and ms.deleted_at is null;
+  else
+    select count(*)::integer
+    into active_step_count
+    from public.manual_steps ms
+    where ms.revision_id = new.revision_id
+      and ms.deleted_at is null
+      and ms.id <> old.id;
+  end if;
+
+  if active_step_count >= 200 then
+    raise exception 'manual step limit exceeded';
+  end if;
+
+  return new;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgname = 'manual_steps_active_limit_guard'
+      and tgrelid = 'public.manual_steps'::regclass
+      and not tgisinternal
+  ) then
+    create trigger manual_steps_active_limit_guard
+    before insert or update of revision_id, deleted_at on public.manual_steps
+    for each row
+    execute function public.enforce_manual_steps_active_limit();
+  end if;
+end $$;
+
+revoke all on function public.enforce_manual_steps_active_limit() from public, anon, authenticated;
+
 create or replace function public.update_manual_draft(
   target_manual_id uuid,
   draft_title text,

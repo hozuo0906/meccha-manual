@@ -409,3 +409,51 @@ test("manual detail refuses more than 200 active steps", async () => {
     mock.restore();
   }
 });
+
+test("step creation maps the database capacity guard to 409", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]),
+    json({ message: "manual step limit exceeded" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "note",
+        title: "上限確認",
+        instruction: "確認します。"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_STEPS_LIMIT_EXCEEDED");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("manual detail does not request hidden step mutation fields", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json([draftRow()]),
+    json([{
+      id: STEP_ID,
+      workspace_id: WORKSPACE_ID,
+      revision_id: DRAFT_ID,
+      position: 0,
+      type: "note",
+      title: "確認",
+      instruction: "確認します。",
+      action_type: null,
+      target_text: null,
+      url: null,
+      updated_at: "2026-08-14T00:00:02.000Z"
+    }], 200, { "content-range": "0-0/1" })
+  ]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath()), ENV);
+    assert.equal(response?.status, 200);
+    const stepQuery = mock.calls[5].url;
+    assert.doesNotMatch(stepQuery, /asset_id|annotation|masking/);
+  } finally {
+    mock.restore();
+  }
+});
