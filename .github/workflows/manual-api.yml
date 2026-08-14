@@ -3,9 +3,13 @@ name: Manual API
 on:
   pull_request:
     paths:
+      - "apps/worker/src/index.ts"
       - "apps/worker/src/index-phase2.ts"
       - "apps/worker/src/manual-router.ts"
+      - "apps/worker/src/server-config.ts"
+      - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "tests/manual-api.test.mjs"
+      - "tests/worker-runtime-mutation.test.mjs"
       - "tsconfig.worker.json"
       - "wrangler.jsonc"
       - ".github/workflows/manual-api.yml"
