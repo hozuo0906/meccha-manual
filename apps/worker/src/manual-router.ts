@@ -268,6 +268,15 @@ async function supabaseFetch(
   }
 }
 
+async function cancelUnreadResponseBody(response: Response): Promise<void> {
+  if (!response.body) return;
+  try {
+    await response.body.cancel("response body not consumed");
+  } catch {
+    // The response is already terminating; cancellation is best effort.
+  }
+}
+
 async function requireSession(request: Request, env: ManualEnv): Promise<{ userId: string; accessToken: string }> {
   const cookies = parseCookies(request);
   const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
@@ -286,10 +295,12 @@ async function requireSession(request: Request, env: ManualEnv): Promise<{ userI
   }
 
   if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
     if (refreshToken) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
     throw new ManualError(401, "SESSION_EXPIRED", "セッションの有効期限が切れました。もう一度ログインしてください。");
   }
   if (!response.ok) {
+    await cancelUnreadResponseBody(response);
     throw new ManualError(502, "SESSION_VERIFY_FAILED", "セッション状態を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
 
@@ -323,8 +334,14 @@ async function booleanRpc(
   } catch {
     throw new ManualError(502, failureCode, failureMessage);
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  if (!response.ok) throw new ManualError(502, failureCode, failureMessage);
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
+  if (!response.ok) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(502, failureCode, failureMessage);
+  }
   try {
     const payload = await readJsonLimited(response);
     if (typeof payload !== "boolean") throw new Error("invalid boolean rpc response");
@@ -448,8 +465,14 @@ async function listManuals(request: Request, env: ManualEnv, workspaceId: string
   } catch {
     throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
-  if (!response.ok) throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
+  if (!response.ok) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
+  }
 
   let payload: unknown;
   try {
@@ -507,9 +530,13 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
   } catch {
     throw new ManualError(502, "MANUAL_CREATE_RESULT_UNKNOWN", "作成結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。");
   }
-  if (response.status === 401) throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
   if (!response.ok) {
     if (response.status >= 500) {
+      await cancelUnreadResponseBody(response);
       throw new ManualError(502, "MANUAL_CREATE_RESULT_UNKNOWN", "作成結果を確認できませんでした。重ねて作成せず、一覧を更新して確認してください。");
     }
     let message = "";

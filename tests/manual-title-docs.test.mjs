@@ -6,7 +6,15 @@ const TITLE_MIGRATION = "supabase/migrations/202608140005_phase2_manual_title_le
 
 test("accepted Phase 2 rollout includes the manual title constraint migration", async () => {
   const setup = await readFile("docs/04-data/phase2-manual-core-setup.md", "utf8");
-  assert.match(setup, new RegExp(TITLE_MIGRATION.replaceAll("/", "\\/")));
+  const migrationBlock = setup.match(/## Migration\s+[\s\S]*?\x60\x60\x60text\n([\s\S]*?)\x60\x60\x60/)?.[1];
+  assert.ok(migrationBlock, "ordered Phase 2 migration block is required");
+  const migrationFiles = migrationBlock.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const coreIndex = migrationFiles.indexOf("supabase/migrations/202608020001_phase2_manual_core.sql");
+  const contextFixIndex = migrationFiles.indexOf("supabase/migrations/202608020002_phase2_manual_create_context_fix.sql");
+  const titleIndex = migrationFiles.indexOf(TITLE_MIGRATION);
+  assert.ok(coreIndex >= 0, "manual core migration must be executable");
+  assert.ok(contextFixIndex > coreIndex, "context fix must follow manual core");
+  assert.ok(titleIndex > contextFixIndex, "title constraint must follow both Phase 2 prerequisites");
   assert.match(setup, /manuals_title_length/);
   assert.match(setup, /manual_revisions_title_length/);
   assert.match(setup, /65文字以上/);

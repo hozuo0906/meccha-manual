@@ -281,3 +281,30 @@ test("manual title migration fixes the same 64-character contract", async () => 
   assert.match(migration, /manual_revisions_title_length/);
   assert.match(migration, /char_length\(title\) between 1 and 64/i);
 });
+
+
+test("status-only create failure cancels the unread Supabase body", async () => {
+  let cancelled = false;
+  const stalledFailure = new Response(new ReadableStream({
+    cancel() {
+      cancelled = true;
+    }
+  }), {
+    status: 500,
+    headers: { "content-type": "application/json" }
+  });
+  const mock = installFetch([authOk(), memberOk(), editorOk(), stalledFailure]);
+  try {
+    const startedAt = Date.now();
+    const response = await handleManualRoute(
+      request("POST", JSON.stringify({ title: "保存手順" })),
+      ENV
+    );
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUAL_CREATE_RESULT_UNKNOWN");
+    assert.equal(cancelled, true);
+    assert.ok(Date.now() - startedAt < 1000, "unread body cancellation should not wait for the 5-second deadline");
+  } finally {
+    mock.restore();
+  }
+});
