@@ -43,6 +43,24 @@ jobs:
           path.write_text(text)
           PY
       - run: node scripts/apply-phase2-manual-review-fixes.mjs
+      - name: Keep mutation fixtures aligned with centralized config
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/worker-runtime-mutation.test.mjs')
+          text = path.read_text()
+          text = text.replace(
+              '  const assetsPath = join(directory, "app-assets.ts");\n',
+              '  const assetsPath = join(directory, "app-assets.ts");\n  const serverConfigPath = join(directory, "server-config.ts");\n',
+          )
+          text = text.replace(
+              '    writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8")\n',
+              '    writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),\n    writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8")\n',
+          )
+          if 'serverConfigPath' not in text:
+              raise SystemExit('mutation fixture patch did not apply')
+          path.write_text(text)
+          PY
       - run: npm ci
       - name: Test manual API review boundaries
         run: node --experimental-transform-types --test tests/manual-api.test.mjs
