@@ -16,7 +16,10 @@ test("manual navigation and editor states are embedded in the app shell", async 
     '作成結果を一覧で確認してください。重ねて作成しないでください。',
     '処理結果を詳細で確認してください。重ねて操作しないでください。',
     '入力した値やパスワードは記録せず',
-    '外部AIは使用しません。'
+    '外部AIは使用しません。',
+    'function captureManualDetailDrafts',
+    'preserveDomUntilLoaded: true',
+    'requestGeneration !== sessionGeneration'
   ]) {
     assert.match(source, new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -42,6 +45,8 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /maxlength="4000"/);
   assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
   assert.doesNotMatch(source, /<button[^>]*role="listitem"/);
+  assert.match(source, /id="members-heading" tabindex="-1"/);
+  assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
 });
 
 test("Phase 2 browser config runs only the manual editor flow", async () => {
@@ -50,5 +55,6 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(config, /phase2-manual-editor\.spec\.mjs/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
   assert.match(spec, /閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない/);
+  assert.match(spec, /権限失効時は編集UIを閉じて最新権限を再取得する/);
   assert.match(spec, /横スクロールせずキーボードで移動できる/);
 });

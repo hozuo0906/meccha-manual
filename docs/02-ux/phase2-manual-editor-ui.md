@@ -22,6 +22,8 @@ Status: Accepted
 - viewerは手順文、操作対象、URLを閲覧できるが、編集フォームや削除・並べ替え操作を表示しない。
 - stepは上へ/下へボタンでキーボード操作でき、全active step IDをreorder APIへ送る。
 - mutation結果不明時は自動再送せず、詳細を再取得して確認を案内する。
+- 1フォームの保存中も他フォームの未保存変更は現在タブのメモリで保持し、確定エラーでは送信フォームの入力も残す。
+- 編集mutationが403になった場合は編集UIを安全側で閉じ、詳細を再取得して最新権限を反映する。
 
 ## 個人情報・秘密情報
 
@@ -39,7 +41,7 @@ Status: Accepted
 
 ## アクセシビリティ
 
-- 画面遷移後は画面見出しへフォーカスする。
+- 画面遷移後は画面見出しへフォーカスする。メンバー管理見出しも`tabindex="-1"`でプログラムフォーカス可能にする。
 - 読込・成功・警告・失敗は`aria-live`で通知する。
 - 主要操作は実ボタンとlabel付きフォームで提供する。
 - step並べ替えボタンは対象step名をaccessible nameへ含める。
@@ -55,7 +57,8 @@ Status: Accepted
 ## テスト
 
 - 静的UI安全契約: `tests/manual-editor-ui.test.mjs`
-- editor作成・追加・手修正文保持: `tests/e2e/phase2-manual-editor.spec.mjs`
+- editor作成・追加・手修正文保持、確定エラー時の入力保持、別フォーム未保存変更の保持: `tests/e2e/phase2-manual-editor.spec.mjs`
+- 403権限失効時の編集UI閉鎖と詳細再取得
 - viewer閲覧専用
 - 幅640px・キーボード・aria-live
 - Phase 1ログイン・workspace・メンバーE2E回帰

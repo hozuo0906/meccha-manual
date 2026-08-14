@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-e439a83dd581a80c";
+export const APP_ASSET_VERSION = "sha256-e2426b297f5d2815";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1099,6 +1099,7 @@ authenticationChannel?.addEventListener("message", (event) => {
   sessionGeneration += 1;
   sessionReloadSequence += 1;
   workspaceMemberRequestSequence += 1;
+  manualRequestSequence += 1;
   if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
   if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
   renderAuthenticationReload();
@@ -1629,27 +1630,27 @@ function workspaceMemberRows(state) {
 function renderWorkspaceMembers(currentWorkspace) {
   if (!currentWorkspace || !workspaceMembersState) {
     return '<section class="section members-section" aria-labelledby="members-heading">' +
-      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">メンバー管理</h2></div>' +
       '<div class="empty">利用中のワークスペースを選択するとメンバーを確認できます。</div>' +
     '</section>';
   }
   const state = workspaceMembersState;
   if (state.status === "idle") {
     return '<section class="section members-section" aria-labelledby="members-heading">' +
-      '<div class="section-header"><div><h2 id="members-heading">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div></div>' +
+      '<div class="section-header"><div><h2 id="members-heading" tabindex="-1">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div></div>' +
       '<p>所属メンバーと権限を確認します。</p>' +
       '<button id="members-reload-button" class="secondary-button" type="button">メンバー一覧を表示</button>' +
     '</section>';
   }
   if (state.status === "loading") {
     return '<section class="section members-section" aria-labelledby="members-heading" aria-busy="true">' +
-      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">メンバー管理</h2></div>' +
       '<div id="members-loading-status" class="empty" role="status" aria-live="polite" aria-atomic="true" tabindex="-1">メンバーを読み込んでいます。</div>' +
     '</section>';
   }
   if (state.status === "error") {
     return '<section class="section members-section" aria-labelledby="members-heading">' +
-      '<div class="section-header"><h2 id="members-heading">メンバー管理</h2></div>' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">メンバー管理</h2></div>' +
       memberMessageHtml(state) +
       '<button id="members-reload-button" class="secondary-button" type="button">もう一度読み込む</button>' +
     '</section>';
@@ -1661,7 +1662,7 @@ function renderWorkspaceMembers(currentWorkspace) {
   const addJoinCodeError = state.addJoinCodeError || "";
   const roleHelp = '<p id="member-role-help" class="muted permission-note">管理者：メンバー管理と設定ができます。編集者：手順書を作成・編集できます。閲覧者：手順書の閲覧だけができます。</p>';
   return '<section class="section members-section" aria-labelledby="members-heading"' + (saving ? ' aria-busy="true"' : '') + '>' +
-    '<div class="section-header"><div><h2 id="members-heading">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div>' +
+    '<div class="section-header"><div><h2 id="members-heading" tabindex="-1">メンバー管理</h2><p class="muted">現在のワークスペース：' + escapeHtml(currentWorkspace.name) + '</p></div>' +
       '<div class="member-header-actions"><span class="badge">' + state.members.length + '件</span><button id="members-reload-button" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>一覧を更新</button></div></div>' +
     memberMessageHtml(state) +
     (canManage ? roleHelp : '') +
@@ -2009,6 +2010,101 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
 }
 
 
+
+function manualDetailFormKey(form) {
+  if (!form) return "";
+  if (form.id === "manual-draft-form") return "draft";
+  if (form.id === "manual-step-add-form") return "new-step";
+  if (form.classList.contains("manual-step-form") && form.dataset.stepId) return "step:" + form.dataset.stepId;
+  return "";
+}
+
+function manualDetailBaselineValue(key, name) {
+  const detail = manualDetailState.value;
+  if (!detail) return "";
+  if (key === "draft") {
+    if (name === "title") return String(detail.draft?.title || "");
+    if (name === "description") return String(detail.draft?.description || "");
+    return "";
+  }
+  if (key === "new-step") {
+    if (name === "type") return "action";
+    if (name === "actionType") return "click";
+    return "";
+  }
+  if (!key.startsWith("step:")) return "";
+  const step = (detail.steps || []).find((item) => item.id === key.slice(5));
+  if (!step) return "";
+  const values = {
+    type: step.type,
+    title: step.title,
+    actionType: step.actionType,
+    targetText: step.targetText,
+    instruction: step.instruction,
+    url: step.url
+  };
+  return String(values[name] ?? "");
+}
+
+function captureManualDetailDrafts(excludedKeys = []) {
+  const excluded = new Set(excludedKeys);
+  const drafts = {};
+  const forms = document.querySelectorAll("#manual-draft-form, #manual-step-add-form, .manual-step-form");
+  for (const form of forms) {
+    const key = manualDetailFormKey(form);
+    if (!key || excluded.has(key)) continue;
+    const changed = {};
+    for (const field of form.querySelectorAll("input[name], select[name], textarea[name]")) {
+      const value = String(field.value ?? "");
+      if (value !== manualDetailBaselineValue(key, field.name)) changed[field.name] = value;
+    }
+    if (Object.keys(changed).length > 0) drafts[key] = changed;
+  }
+  return drafts;
+}
+
+function findManualDetailForm(key) {
+  if (key === "draft") return document.getElementById("manual-draft-form");
+  if (key === "new-step") return document.getElementById("manual-step-add-form");
+  if (!key.startsWith("step:")) return null;
+  const stepId = key.slice(5);
+  return [...document.querySelectorAll(".manual-step-form")].find((form) => form.dataset.stepId === stepId) || null;
+}
+
+function restoreManualDetailDrafts(drafts) {
+  if (!drafts || typeof drafts !== "object") return;
+  for (const [key, values] of Object.entries(drafts)) {
+    const form = findManualDetailForm(key);
+    if (!form) continue;
+    for (const [name, value] of Object.entries(values || {})) {
+      const field = form.elements.namedItem(name);
+      if (field && typeof field.value !== "undefined") field.value = value;
+    }
+  }
+}
+
+function setManualMutationBusyState(isBusy, messageId = "", message = "") {
+  manualMutationInFlight = isBusy;
+  const screen = document.getElementById("screen-content");
+  if (isBusy) screen?.setAttribute("aria-busy", "true");
+  else screen?.removeAttribute("aria-busy");
+  const forms = document.querySelectorAll("#manual-create-form, #manual-draft-form, #manual-step-add-form, .manual-step-form");
+  for (const form of forms) {
+    for (const control of form.querySelectorAll("button, input, select, textarea")) {
+      if (isBusy) {
+        if (!control.hasAttribute("data-manual-disabled-before")) {
+          control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
+        }
+        control.disabled = true;
+      } else if (control.hasAttribute("data-manual-disabled-before")) {
+        control.disabled = control.getAttribute("data-manual-disabled-before") === "true";
+        control.removeAttribute("data-manual-disabled-before");
+      }
+    }
+  }
+  if (messageId && message) setBox(messageId, message, "notice", false);
+}
+
 function manualCanEdit(currentWorkspace) {
   if (!currentWorkspace || workspaceMembersState?.workspaceId !== currentWorkspace.id) return false;
   return ["owner", "admin", "editor"].includes(workspaceMembersState.currentUserRole);
@@ -2235,17 +2331,25 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
 }
 
 async function loadManuals(workspaceId, options = {}) {
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
   manualsState = { workspaceId, status: "loading", items: manualsState.workspaceId === workspaceId ? manualsState.items : [], message: "", messageKind: "notice" };
   renderShell(currentSession, "", "notice", options.focusId || null);
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals");
-    if (sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId) return;
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) return;
     if (!Array.isArray(payload.manuals)) throw new AppRequestError("手順書一覧を確認できませんでした。", 502, "MANUALS_RESPONSE_INVALID");
     manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: options.message || "", messageKind: options.messageKind || "notice" };
     renderShell(currentSession, "", "notice", options.focusId || null);
   } catch (error) {
-    if (sequence !== manualRequestSequence) return;
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence
+    ) return;
     if (isTerminalSessionError(error)) return loadSession();
     manualsState = { workspaceId, status: "error", items: [], message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manuals-message");
@@ -2260,17 +2364,52 @@ function openManualDetail(workspaceId, manualId) {
 }
 
 async function loadManualDetail(workspaceId, manualId, options = {}) {
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
   manualDetailState = { ...manualDetailState, workspaceId, manualId, status: "loading", message: "", messageKind: "notice" };
-  renderShell(currentSession, "", "notice", options.focusId || null);
+  if (!options.preserveDomUntilLoaded) renderShell(currentSession, "", "notice", options.focusId || null);
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId));
-    if (sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId) return;
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) {
+      if (options.finishMutation) {
+        setManualMutationBusyState(false);
+        loadSession({ focusId: "workspace-heading" });
+      }
+      return;
+    }
+    if (options.finishMutation) manualMutationInFlight = false;
     manualDetailState = { workspaceId, manualId, status: "loaded", value: payload, message: options.message || "", messageKind: options.messageKind || "notice" };
     renderShell(currentSession, "", "notice", options.focusId || null);
+    restoreManualDetailDrafts(options.restoreDrafts);
   } catch (error) {
-    if (sequence !== manualRequestSequence) return;
-    if (isTerminalSessionError(error)) return loadSession();
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence
+    ) {
+      if (options.finishMutation) {
+        setManualMutationBusyState(false);
+        loadSession({ focusId: "workspace-heading" });
+      }
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (
+      options.preserveDomOnError && currentScreen === "manual-detail" &&
+      manualDetailState.workspaceId === workspaceId && manualDetailState.manualId === manualId && manualDetailState.value
+    ) {
+      manualDetailState = { ...manualDetailState, status: "loaded", message: error.message, messageKind: "error" };
+      setManualMutationBusyState(false);
+      setBox("manual-detail-message", error.message, "error");
+      return;
+    }
+    if (options.finishMutation) manualMutationInFlight = false;
     manualDetailState = { workspaceId, manualId, status: "error", value: null, message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manual-detail-message");
   }
@@ -2284,6 +2423,8 @@ async function createManualFromUi(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const workspaceId = currentWorkspaceSelection?.workspaceId;
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
   const title = String(form.elements.title.value || "").trim();
   const description = String(form.elements.description.value || "");
   if (!workspaceId || !title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
@@ -2292,42 +2433,95 @@ async function createManualFromUi(event) {
     renderShell(currentSession, "", "notice", "manuals-message");
     return;
   }
-  manualMutationInFlight = true;
-  renderShell(currentSession);
+  setManualMutationBusyState(true, "manuals-message", "手順書を作成しています。");
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals", { method: "POST", body: JSON.stringify({ title, description, folderId: null }) });
-    manualMutationInFlight = false;
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    setManualMutationBusyState(false);
     openManualDetail(workspaceId, payload.manualId);
   } catch (error) {
-    manualMutationInFlight = false;
-    if (isTerminalSessionError(error)) return loadSession();
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
     if (manualMutationUnknown(error)) {
+      setManualMutationBusyState(false);
       await loadManuals(workspaceId, { message: "作成結果を一覧で確認してください。重ねて作成しないでください。", messageKind: "warning", focusId: "manuals-message" });
       return;
     }
     manualsState = { ...manualsState, message: error.message, messageKind: "error" };
-    renderShell(currentSession, "", "notice", "manuals-message");
+    setManualMutationBusyState(false);
+    setBox("manuals-message", error.message, "error");
   }
 }
 
-async function runDetailMutation(operation, successMessage) {
+async function runDetailMutation(operation, successMessage, options = {}) {
   const workspaceId = manualDetailState.workspaceId;
   const manualId = manualDetailState.manualId;
-  manualMutationInFlight = true;
-  renderShell(currentSession);
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const retainedDrafts = captureManualDetailDrafts(options.excludeDraftKeys || []);
+  setManualMutationBusyState(true, "manual-detail-message", "保存しています。");
   try {
     await operation(workspaceId, manualId);
-    manualMutationInFlight = false;
-    await loadManualDetail(workspaceId, manualId, { message: successMessage, messageKind: "notice", focusId: "manual-detail-message" });
-  } catch (error) {
-    manualMutationInFlight = false;
-    if (isTerminalSessionError(error)) return loadSession();
-    if (manualMutationUnknown(error)) {
-      await loadManualDetail(workspaceId, manualId, { message: "処理結果を詳細で確認してください。重ねて操作しないでください。", messageKind: "warning", focusId: "manual-detail-message" });
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
       return;
     }
-    manualDetailState = { ...manualDetailState, message: error.message, messageKind: "error" };
-    renderShell(currentSession, "", "notice", "manual-detail-message");
+    await loadManualDetail(workspaceId, manualId, {
+      message: successMessage,
+      messageKind: "notice",
+      focusId: "manual-detail-message",
+      preserveDomUntilLoaded: true,
+      preserveDomOnError: true,
+      finishMutation: true,
+      restoreDrafts: retainedDrafts
+    });
+  } catch (error) {
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (error.status === 403) {
+      setManualMutationBusyState(false);
+      const safeValue = manualDetailState.value
+        ? { ...manualDetailState.value, permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false } }
+        : null;
+      manualDetailState = { ...manualDetailState, status: "loaded", value: safeValue, message: error.message, messageKind: "error" };
+      renderShell(currentSession, "", "notice", "manual-detail-message");
+      await loadManualDetail(workspaceId, manualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
+      return;
+    }
+    if (manualMutationUnknown(error)) {
+      await loadManualDetail(workspaceId, manualId, {
+        message: "処理結果を詳細で確認してください。重ねて操作しないでください。",
+        messageKind: "warning",
+        focusId: "manual-detail-message",
+        preserveDomUntilLoaded: true,
+        preserveDomOnError: true,
+        finishMutation: true,
+        restoreDrafts: retainedDrafts
+      });
+      return;
+    }
+    manualDetailState = { ...manualDetailState, status: "loaded", message: error.message, messageKind: "error" };
+    setManualMutationBusyState(false);
+    setBox("manual-detail-message", error.message, "error");
   }
 }
 
@@ -2336,7 +2530,7 @@ function updateManualDraftFromUi(event) {
   const form = event.currentTarget;
   const title = String(form.elements.title.value || "").trim();
   const description = String(form.elements.description.value || "");
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description }) }), "基本情報を保存しました。");
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"] });
 }
 
 function stepPayloadFromForm(form, isNew) {
@@ -2356,7 +2550,7 @@ function addManualStepFromUi(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const payload = stepPayloadFromForm(form, true);
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps", { method: "POST", body: JSON.stringify(payload) }), "手順を追加しました。");
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps", { method: "POST", body: JSON.stringify(payload) }), "手順を追加しました。", { excludeDraftKeys: ["new-step"] });
 }
 
 function updateManualStepFromUi(event) {
@@ -2364,7 +2558,7 @@ function updateManualStepFromUi(event) {
   const form = event.currentTarget;
   const stepId = form.dataset.stepId;
   const payload = stepPayloadFromForm(form, false);
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "PATCH", body: JSON.stringify(payload) }), "手順を保存しました。");
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "PATCH", body: JSON.stringify(payload) }), "手順を保存しました。", { excludeDraftKeys: ["step:" + stepId] });
 }
 
 function deleteManualStepFromUi(event) {
@@ -2372,7 +2566,7 @@ function deleteManualStepFromUi(event) {
   const stepId = button.dataset.stepId;
   const title = button.dataset.stepTitle || "この手順";
   if (!window.confirm("「" + title + "」を削除しますか？")) return;
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "DELETE" }), "手順を削除しました。");
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "DELETE" }), "手順を削除しました。", { excludeDraftKeys: ["step:" + stepId] });
 }
 
 function reorderManualStepFromUi(event) {

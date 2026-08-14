@@ -32,10 +32,11 @@ async function installManualFixture(page, role, options = {}) {
       updatedAt: "2026-08-14T00:00:00.000Z"
     }],
     steps: options.steps ? [...options.steps] : [],
-    instructionSeenOnPatch: null
+    instructionSeenOnPatch: null,
+    failNextStepPatch: null,
+    canEdit: role !== "viewer"
   };
   const session = sessionFor(role);
-  const canEdit = role !== "viewer";
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -87,7 +88,7 @@ async function installManualFixture(page, role, options = {}) {
           updatedAt: "2026-08-14T00:00:01.000Z"
         },
         steps: state.steps,
-        permissions: { canEdit }
+        permissions: { canEdit: state.canEdit }
       });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/draft` && method === "PATCH") {
@@ -112,6 +113,12 @@ async function installManualFixture(page, role, options = {}) {
       return json(201, { stepId: firstStepId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps/${firstStepId}` && method === "PATCH") {
+      if (state.failNextStepPatch) {
+        const failure = state.failNextStepPatch;
+        state.failNextStepPatch = null;
+        if (failure.status === 403) state.canEdit = false;
+        return json(failure.status, { code: failure.code, message: failure.message });
+      }
       const body = request.postDataJSON();
       state.instructionSeenOnPatch = body.instruction;
       state.steps[0] = { ...state.steps[0], ...body, updatedAt: "2026-08-14T00:00:03.000Z" };
@@ -155,12 +162,47 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   const target = page.locator(`#step-target-${firstStepId}`);
   await expect(instruction).toHaveValue("［保存ボタン］をクリックします。");
 
+  await page.locator("#manual-draft-description").fill("別フォームの未保存説明");
   await instruction.fill("利用者が手修正した文章です。");
   await target.fill("確定ボタン");
+  state.failNextStepPatch = { status: 409, code: "MANUAL_EDIT_CONFLICT", message: "更新競合を解消してください。" };
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("更新競合を解消してください。");
+  await expect(instruction).toHaveValue("利用者が手修正した文章です。");
+  await expect(target).toHaveValue("確定ボタン");
+  await expect(page.locator("#manual-draft-description")).toHaveValue("別フォームの未保存説明");
+  expect(state.instructionSeenOnPatch).toBeNull();
+
   await page.getByRole("button", { name: "手順を保存" }).click();
   await expect(page.locator(`#step-instruction-${firstStepId}`)).toHaveValue("利用者が手修正した文章です。");
+  await expect(page.locator("#manual-draft-description")).toHaveValue("別フォームの未保存説明");
   expect(state.instructionSeenOnPatch).toBe("利用者が手修正した文章です。");
   expect(JSON.stringify(state.steps)).not.toContain("person@example.com");
+});
+
+
+test("権限失効時は編集UIを閉じて最新権限を再取得する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", {
+    steps: [{
+      id: firstStepId,
+      position: 0,
+      type: "action",
+      title: "保存する",
+      instruction: "［保存ボタン］をクリックします。",
+      actionType: "click",
+      targetText: "保存ボタン",
+      url: null,
+      updatedAt: "2026-08-14T00:00:02.000Z"
+    }]
+  });
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  state.failNextStepPatch = { status: 403, code: "MANUAL_EDIT_FORBIDDEN", message: "編集権限がありません。" };
+  await page.locator("#step-instruction-" + firstStepId).fill("保存しようとした文章");
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+  await expect(page.locator(".manual-step-form")).toHaveCount(0);
+  await expect(page.getByText("現在の権限では閲覧のみ利用できます。" )).toBeVisible();
 });
 
 test("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない", async ({ page }) => {
@@ -202,4 +244,6 @@ test("手順書画面は狭い表示でも横スクロールせずキーボー�
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "再読み込み" })).toBeFocused();
   await expect(page.locator("#manuals-message")).toHaveAttribute("aria-live", "polite");
+  await page.getByRole("button", { name: "メンバー管理", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "メンバー管理", exact: true })).toBeFocused();
 });
