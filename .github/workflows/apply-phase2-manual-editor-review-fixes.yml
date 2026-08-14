@@ -34,6 +34,7 @@ jobs:
           const constants = '\nconst workspaceId = "${workspaceId}";\nconst manualId = "${manualId}";\nconst firstStepId = "${firstStepId}";\n';
           if (!source.includes(marker)) throw new Error("Apply script import marker is missing.");
           source = source.replace(marker, marker + constants);
+          source = source.replace('  4,\n  "focusable member headings"', '  5,\n  "focusable member headings"');
           await writeFile(path, source, "utf8");
           NODE
       - name: Apply review fixes
