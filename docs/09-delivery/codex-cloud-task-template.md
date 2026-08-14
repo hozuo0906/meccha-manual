@@ -6,7 +6,7 @@ Status: Accepted
 
 Codex Cloud、Codex web、GitHub Codespacesで作業を始める時は、このテンプレートをtask本文に貼る。
 
-毎日0時に新しい独立セッションを作る用途では、より限定された `daily-session-prompt.md` を使う。
+毎日0時に既存チャットの文脈を継続しない用途では、ChatGPTのStandalone scheduled taskとして、より限定された `daily-session-prompt.md` を使う。
 
 ```text
 Repository: hozuo0906/meccha-manual
