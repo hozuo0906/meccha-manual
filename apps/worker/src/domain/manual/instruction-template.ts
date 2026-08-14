@@ -45,5 +45,5 @@ export function suggestManualInstruction(
   const suffix = actionSuffix(input.actionType);
   if (!suffix) return null;
 
-  return `${target}${suffix}`;
+  return `［${target}］${suffix}`;
 }
