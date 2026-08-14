@@ -10,11 +10,12 @@ Phase 2では、手順書サービスとして成立するためのDB土台を�
 
 ## Migration
 
-実行するファイル:
+ファイル名順に実行する:
 
 ```text
 supabase/migrations/202608020001_phase2_manual_core.sql
 supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
+supabase/migrations/202608140005_phase2_manual_title_length.sql
 ```
 
 前提migration:
@@ -26,9 +27,11 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 
 `202608010002_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。migrationのファイル名順でもPhase 2より先に並ぶことを静的検査する。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
 
+`202608140005_phase2_manual_title_length.sql` は、`manuals.title` と `manual_revisions.title` を1〜64文字へ固定するforward migrationである。既存行を切り詰めず、互換性のない既存データがある場合はconstraint validationを失敗させて安全に停止する。
+
 ## Scope
 
-作成される主な要素:
+作成・強化される主な要素:
 
 - `folders`
 - `manuals`
@@ -45,8 +48,9 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `create_manual(workspace_id, folder_id, title, description)`
 - `publish_manual(manual_id)`
 - `create_manual_draft(manual_id)`
+- `manuals.title` と `manual_revisions.title` の1〜64文字DB制約
 
-このmigrationには共有リンク、操作記録、Browser Run、Storage asset、課金、AI拡張は含めない。
+これらのmigrationには共有リンク、操作記録、Browser Run、Storage asset、課金、AI拡張は含めない。
 
 ## Rules
 
@@ -54,6 +58,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - RLSはdeny-by-defaultを前提に有効化する。
 - ワークスペース所属メンバーだけが閲覧できる。
 - `owner`、`admin`、`editor` だけが作成・更新できる。
+- 手順書タイトルとrevisionタイトルは、前後空白を除去した業務入力で1〜64 Unicode文字とし、WorkerとDB constraintの両方で強制する。
 - 公開済みrevisionとsuperseded revisionは本文・タイトル・説明を変更できない。
 - `published -> superseded` の状態変更だけは、古い公開版を退役させるために許可する。
 - 手順ステップとDOM候補はdraft revisionに対してだけ変更できる。
@@ -69,8 +74,11 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 2. 左メニューの `SQL Editor` を開く。
 3. `New query` を押す。
 4. migration履歴で `202608010002_phase1_workspace_membership_hardening.sql` の適用済みを確認する。未適用なら、ユーザー承認を得て先に同migrationを適用し、RLS negative testを実行する。旧名 `202608020003_phase1_workspace_membership_hardening.sql` が履歴にある場合は再適用せず、履歴整合を別途確認する。
-5. `supabase/migrations/202608020001_phase2_manual_core.sql` の全文を貼る。
-6. `Run` を押す。
+5. `supabase/migrations/202608020001_phase2_manual_core.sql` の全文を貼り、`Run` を押す。
+6. `supabase/migrations/202608020002_phase2_manual_create_context_fix.sql` の全文を貼り、`Run` を押す。
+7. 既存の `manuals.title` と `manual_revisions.title` に65文字以上の行がないことを確認する。
+8. `supabase/migrations/202608140005_phase2_manual_title_length.sql` の全文を貼り、`Run` を押す。
+9. migration履歴とconstraint名を確認し、後述のRLS回帰テストを実行する。
 
 ## Expected result
 
@@ -82,20 +90,29 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `manual_steps`
 - `step_targets`
 
-SQL Editorにエラーが出ないこと。
+さらに以下のconstraintが有効になる。
+
+- `manuals_title_length`
+- `manual_revisions_title_length`
+
+SQL Editorにエラーが出ないこと。constraint validationが失敗した場合は既存データを自動修正せず、対象行を確認してから再実行する。
 
 ## Verification plan
 
-Phase 2 migration適用後に追加するテスト:
+Phase 2 migration適用後に実行するテスト:
 
 - editor以上は `create_manual` で手順書を作成できる。
 - viewerは `create_manual` を実行できない。
 - 同一ワークスペースのメンバーは手順書を閲覧できる。
 - 別ワークスペースのユーザーは手順書を閲覧できない。
+- 認証済みeditorのRLS経路で64文字のmanual/revisionタイトルを作成・更新できる。
+- 認証済みeditorのRLS経路でも65文字以上のmanual/revisionタイトルはDB constraintで拒否される。
 - draft revisionの手順ステップは追加・更新・削除できる。
 - published revisionの手順ステップは変更できない。
 - `publish_manual` 後、公開版が不変になる。
 - `create_manual_draft` で公開版から次の下書きを作れる。
+
+リポジトリでは `tests/sql/phase2-manual-title-fixture.sql`、`tests/sql/phase2-manual-title-test.sql` と `Manual API` workflowが、使い捨てPostgresへ実migrationを適用してタイトル制約を検証する。
 
 ## Do not paste
 
@@ -109,6 +126,4 @@ Phase 2 migration適用後に追加するテスト:
 
 ## Next step
 
-このmigrationをSupabaseへ適用したあと、Phase 2のAPI/画面を小さく分けて実装する。
-
-実装前にユーザー承認を受ける。
+ユーザー承認を得て全migrationとRLS回帰テストを対象環境へ適用したあと、Phase 2のAPI/画面を小さく分けて実装する。
