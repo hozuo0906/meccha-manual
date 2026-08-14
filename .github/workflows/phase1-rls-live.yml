@@ -1,0 +1,176 @@
+name: Phase 1 RLS Live Gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-rls-live
+  cancel-in-progress: false
+
+jobs:
+  rls-live:
+    name: Run live RLS negative test on staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    steps:
+      - name: Checkout immutable dispatch SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$DISPATCH_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify staging runtime boundary
+        run: npm run runtime-boundary:check
+
+      - name: Upload immutable Worker version for RLS testing
+        id: worker_preview
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISPATCH_SHA: ${{ github.sha }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+        run: |
+          npx wrangler versions upload \
+            --keep-vars \
+            --strict \
+            --experimental-provision=false \
+            --experimental-auto-create=false \
+            --message "Phase 1 RLS live gate ${DISPATCH_SHA}"
+
+          node --input-type=module <<'NODE'
+          import { readFile, appendFile } from "node:fs/promises";
+          const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
+          const githubOutput = process.env.GITHUB_OUTPUT;
+          if (!outputPath || !githubOutput) throw new Error("Wrangler output path is not configured.");
+          const lines = (await readFile(outputPath, "utf8"))
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .map((line) => JSON.parse(line));
+          const upload = [...lines].reverse().find((entry) => entry?.type === "version-upload");
+          if (!upload || typeof upload.version_id !== "string") throw new Error("Wrangler did not report a Worker version upload.");
+          if (typeof upload.preview_url !== "string") throw new Error("Wrangler did not report an immutable version preview URL.");
+          let previewUrl;
+          try {
+            previewUrl = new URL(upload.preview_url);
+          } catch {
+            throw new Error("Wrangler reported an invalid immutable version preview URL.");
+          }
+          if (
+            previewUrl.protocol !== "https:" ||
+            !previewUrl.hostname.endsWith(".workers.dev") ||
+            !previewUrl.hostname.includes("-meccha-manual.")
+          ) {
+            throw new Error("Wrangler reported an unexpected immutable version preview URL.");
+          }
+          await appendFile(
+            githubOutput,
+            `version_id=${upload.version_id}\npreview_url=${previewUrl.origin}\n`,
+            "utf8"
+          );
+          console.log("Immutable Worker version preview is ready for RLS testing.");
+          NODE
+
+      - name: Verify immutable Worker staging boundary
+        env:
+          MECCHA_APP_ORIGIN: ${{ steps.worker_preview.outputs.preview_url }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const origin = process.env.MECCHA_APP_ORIGIN;
+          const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
+          const expectedUrl = wrangler.vars?.SUPABASE_URL;
+          if (!origin || !expectedUrl) throw new Error("Approved staging boundary configuration is incomplete.");
+          const expectedRef = new URL(expectedUrl).hostname.replace(/\.supabase\.co$/, "");
+          const response = await fetch(`${origin}/health/config`, { headers: { accept: "application/json" } });
+          if (!response.ok) throw new Error(`Immutable preview config health check failed with HTTP ${response.status}.`);
+          const payload = await response.json();
+          const liveSupabase = payload?.config?.supabase;
+          if (liveSupabase?.configured !== true || typeof liveSupabase?.projectRef !== "string" || liveSupabase.projectRef !== expectedRef) {
+            throw new Error("Immutable Worker Supabase boundary does not match the approved staging configuration.");
+          }
+          console.log("Immutable Worker staging Supabase boundary verified.");
+          NODE
+
+      - name: Verify protected test credentials are present
+        shell: bash
+        env:
+          MECCHA_RLS_USER_A_EMAIL: ${{ secrets.MECCHA_RLS_USER_A_EMAIL }}
+          MECCHA_RLS_USER_A_PASSWORD: ${{ secrets.MECCHA_RLS_USER_A_PASSWORD }}
+          MECCHA_RLS_USER_B_EMAIL: ${{ secrets.MECCHA_RLS_USER_B_EMAIL }}
+          MECCHA_RLS_USER_B_PASSWORD: ${{ secrets.MECCHA_RLS_USER_B_PASSWORD }}
+        run: |
+          set +x
+          missing=0
+          for name in MECCHA_RLS_USER_A_EMAIL MECCHA_RLS_USER_A_PASSWORD MECCHA_RLS_USER_B_EMAIL MECCHA_RLS_USER_B_PASSWORD; do
+            value="${!name:-}"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required staging Environment secret: $name"
+              missing=1
+            else
+              echo "::add-mask::$value"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if [ "$MECCHA_RLS_USER_A_EMAIL" = "$MECCHA_RLS_USER_B_EMAIL" ]; then
+            echo "::error::RLS users A and B must be distinct accounts."
+            exit 1
+          fi
+
+      - name: Run live RLS negative test against immutable Worker version
+        env:
+          MECCHA_APP_ORIGIN: ${{ steps.worker_preview.outputs.preview_url }}
+          MECCHA_RLS_ALLOW_REMOTE_WRITE: I_UNDERSTAND_TEST_DATA_WILL_BE_CREATED
+          MECCHA_RLS_USER_A_EMAIL: ${{ secrets.MECCHA_RLS_USER_A_EMAIL }}
+          MECCHA_RLS_USER_A_PASSWORD: ${{ secrets.MECCHA_RLS_USER_A_PASSWORD }}
+          MECCHA_RLS_USER_B_EMAIL: ${{ secrets.MECCHA_RLS_USER_B_EMAIL }}
+          MECCHA_RLS_USER_B_PASSWORD: ${{ secrets.MECCHA_RLS_USER_B_PASSWORD }}
+        run: npm run test:rls
+
+      - name: Record successful result summary
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+          WORKER_VERSION_ID: ${{ steps.worker_preview.outputs.version_id }}
+        run: |
+          {
+            echo "## Phase 1 RLS Live Gate"
+            echo
+            echo "- Result: success"
+            echo "- Target: immutable non-production Worker version preview"
+            echo "- Tested commit: \`$DISPATCH_SHA\`"
+            echo "- Worker version ID: \`$WORKER_VERSION_ID\`"
+            echo "- Test command: npm run test:rls"
+            echo "- Static config and immutable preview Supabase boundary were verified before credentials were used"
+            echo "- Credential values and preview URL are not written to artifacts or summaries"
+            echo "- The test may create staging workspace/test rows as documented by Issue #38"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record failed result summary
+        if: failure()
+        run: |
+          {
+            echo "## Phase 1 RLS Live Gate"
+            echo
+            echo "- Result: failed"
+            echo "- This run did not complete the live RLS acceptance gate."
+            echo "- Do not use this run as Issue #38 success evidence."
+            echo "- Credential values and preview URL are not written to artifacts or summaries."
+          } >> "$GITHUB_STEP_SUMMARY"
