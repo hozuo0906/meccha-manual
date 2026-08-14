@@ -67,21 +67,25 @@ jobs:
             .map((line) => JSON.parse(line));
           const upload = [...lines].reverse().find((entry) => entry?.type === "version-upload");
           if (!upload || typeof upload.version_id !== "string") throw new Error("Wrangler did not report a Worker version upload.");
-          const candidates = [
-            upload.preview_url,
-            ...(Array.isArray(upload.preview_urls) ? upload.preview_urls : []),
-            ...(Array.isArray(upload.targets) ? upload.targets : [])
-          ].filter((value) => typeof value === "string");
-          const previewUrl = candidates.find((value) => {
-            try {
-              const url = new URL(value);
-              return url.protocol === "https:" && url.hostname.endsWith(".workers.dev") && url.hostname.includes("-meccha-manual.");
-            } catch {
-              return false;
-            }
-          });
-          if (!previewUrl) throw new Error("Wrangler did not report an immutable version preview URL.");
-          await appendFile(githubOutput, `version_id=${upload.version_id}\npreview_url=${previewUrl.replace(/\/$/, "")}\n`, "utf8");
+          if (typeof upload.preview_url !== "string") throw new Error("Wrangler did not report an immutable version preview URL.");
+          let previewUrl;
+          try {
+            previewUrl = new URL(upload.preview_url);
+          } catch {
+            throw new Error("Wrangler reported an invalid immutable version preview URL.");
+          }
+          if (
+            previewUrl.protocol !== "https:" ||
+            !previewUrl.hostname.endsWith(".workers.dev") ||
+            !previewUrl.hostname.includes("-meccha-manual.")
+          ) {
+            throw new Error("Wrangler reported an unexpected immutable version preview URL.");
+          }
+          await appendFile(
+            githubOutput,
+            `version_id=${upload.version_id}\npreview_url=${previewUrl.origin}\n`,
+            "utf8"
+          );
           console.log("Immutable Worker version preview is ready for RLS testing.");
           NODE
 
