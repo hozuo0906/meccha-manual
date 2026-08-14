@@ -95,12 +95,10 @@ on public.manual_steps
 for select
 to authenticated
 using (
-  exists (
-    select 1
-    from public.workspace_members wm
-    where wm.workspace_id = manual_steps.workspace_id
-      and wm.user_id = auth.uid()
-      and wm.status = 'active'
+  public.has_workspace_role(
+    manual_steps.workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor', 'viewer']::public.workspace_role[]
   )
 );
 
