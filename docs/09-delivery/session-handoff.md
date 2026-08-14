@@ -84,19 +84,22 @@ Issue #70には最低限、次を残す。
 
 ## 毎日0時の独立セッション
 
-毎日0時に新しいセッションを開始する場合は、`docs/09-delivery/daily-session-prompt.md` を使用する。
+毎日0時に前日の会話文脈を継続しない実行を開始する場合は、`docs/09-delivery/daily-session-prompt.md` を使用する。
 
 推奨設定は次のとおり。
 
 - タイムゾーン: Asia/Tokyo
 - 実行時刻: 毎日00:00
-- 実行方式: 前日の会話を再利用しない独立セッション
+- 実行方式: ChatGPTのStandalone scheduled task
+- コンテキスト: 各runを保存済みプロンプトから開始し、既存チャットの会話文脈を継続しない
 - 情報源: GitHub連携を使用し、Issue #70とリポジトリを読み直す
 - 既定権限: 読み取りと現在地整理を基本とする
 - 許可する書き込み: 明示した場合のみIssue #70の更新
 - 禁止: 自動merge、production反映、DB migration適用、課金変更、AI API有効化、共有リンク公開
 
-ローカルcheckoutだけに存在してGitHubへpushされていない変更は、クラウド側の新しいセッションから確認できない。セッションをまたいで必要な変更は、安全なbranchへcommit・pushしてから引き継ぐ。
+ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るscheduled taskを使い分けられる。このプロジェクトでは会話上限とコンテキスト汚染を避けるため、既存チャット内ではなくStandaloneとして登録する。
+
+ローカルcheckoutだけに存在してGitHubへpushされていない変更は、クラウド側の独立runから確認できない。セッションをまたいで必要な変更は、安全なbranchへcommit・pushしてから引き継ぐ。
 
 ## 日付で区切る際の注意
 
