@@ -1,0 +1,35 @@
+name: Manual API
+
+on:
+  pull_request:
+    paths:
+      - "apps/worker/src/index-phase2.ts"
+      - "apps/worker/src/manual-router.ts"
+      - "tests/manual-api.test.mjs"
+      - "tsconfig.worker.json"
+      - "wrangler.jsonc"
+      - ".github/workflows/manual-api.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test manual API boundaries
+        run: node --experimental-strip-types --test tests/manual-api.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
