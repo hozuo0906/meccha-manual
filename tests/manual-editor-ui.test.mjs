@@ -40,6 +40,8 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /maxlength="64"/);
   assert.match(source, /maxlength="10000"/);
   assert.match(source, /maxlength="4000"/);
+  assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
+  assert.doesNotMatch(source, /<button[^>]*role="listitem"/);
 });
 
 test("Phase 2 browser config runs only the manual editor flow", async () => {
