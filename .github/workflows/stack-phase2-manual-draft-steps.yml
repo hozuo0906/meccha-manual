@@ -1,0 +1,81 @@
+name: Stack Phase 2 Manual Draft Steps
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-draft-steps
+    paths:
+      - ".github/workflows/stack-phase2-manual-draft-steps.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  stack-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-draft-steps
+          fetch-depth: 0
+      - name: Merge latest list/create branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feature/phase2-manual-list-create
+          git merge --no-ff origin/feature/phase2-manual-list-create -m "merge: stack manual draft steps on list/create API"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test manual list/create contracts
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs
+      - name: Install and test title constraints
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-test.sql
+          psql -X -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
+      - name: Validate manual step mutation migration
+        run: node scripts/check-phase2-manual-step-migration.mjs
+      - name: Install and test step mutation migration
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-step-rpc-test.sql
+      - name: Exercise shared revision lock
+        run: bash scripts/test-phase2-manual-step-locks.sh
+      - name: Validate migration safety and ordering
+        run: |
+          npm run migration:safety:check
+          npm run migrations:check
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check origin/feature/phase2-manual-list-create...HEAD
+      - name: Remove one-shot workflow and push verified stack
+        run: |
+          rm .github/workflows/stack-phase2-manual-draft-steps.yml
+          git add -A
+          git commit -m "chore: remove one-shot Phase 2 stack workflow"
+          git push origin HEAD:feature/phase2-manual-draft-steps
