@@ -9,6 +9,8 @@ on:
       - "apps/worker/src/server-config.ts"
       - "docs/04-data/phase2-manual-core-setup.md"
       - "docs/04-data/table-definitions.md"
+      - "docs/05-api/phase2-manual-api.md"
+      - "docs/09-delivery/decision-log.md"
       - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "tests/manual-api.test.mjs"
       - "tests/manual-title-docs.test.mjs"
