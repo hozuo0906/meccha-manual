@@ -1,0 +1,36 @@
+name: Manual Step Migration
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/202608140001_phase2_manual_step_mutations.sql"
+      - "scripts/check-phase2-manual-step-migration.mjs"
+      - ".github/workflows/manual-step-migration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate manual step mutation migration
+        run: node scripts/check-phase2-manual-step-migration.mjs
+      - name: Validate migration safety
+        run: npm run migration:safety:check
+      - name: Validate repository migrations
+        run: npm run migrations:check
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
