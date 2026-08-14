@@ -38,6 +38,12 @@ test("Manual API CI executes the migration through authenticated RLS fixtures", 
   assert.match(workflow, /phase2-manual-title-test\.sql/);
 });
 
+test("Manual API CI is triggered by every contract document used by these tests", async () => {
+  const workflow = await readFile(".github/workflows/manual-api.yml", "utf8");
+  assert.match(workflow, /docs\/05-api\/phase2-manual-api\.md/);
+  assert.match(workflow, /docs\/09-delivery\/decision-log\.md/);
+});
+
 test("decision log records the dedicated manual-list response budget", async () => {
   const decisionLog = await readFile("docs/09-delivery/decision-log.md", "utf8");
   const api = await readFile("docs/05-api/phase2-manual-api.md", "utf8");
