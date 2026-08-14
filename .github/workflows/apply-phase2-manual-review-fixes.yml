@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Correct exact documentation target in one-shot script
+      - name: Correct one-shot script generation literals
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -39,6 +39,7 @@ jobs:
               '"- 不正workspace ID（不正なpercent encodingを含む）は存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。"',
               replacement,
           )
+          text = text.replace('${APP_ORIGIN}/api/workspaces/%ZZ/manuals', r'\${APP_ORIGIN}/api/workspaces/%ZZ/manuals')
           path.write_text(text)
           PY
       - run: node scripts/apply-phase2-manual-review-fixes.mjs
