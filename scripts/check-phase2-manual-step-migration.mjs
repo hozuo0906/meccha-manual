@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const migrationPath = "supabase/migrations/202608140001_phase2_manual_step_mutations.sql";
+const migrationPath = "supabase/migrations/202608140010_phase2_manual_step_mutations.sql";
 const sql = await readFile(migrationPath, "utf8");
 
 const required = [
