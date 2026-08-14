@@ -7,8 +7,11 @@ on:
       - "apps/worker/src/index-phase2.ts"
       - "apps/worker/src/manual-router.ts"
       - "apps/worker/src/server-config.ts"
+      - "docs/04-data/phase2-manual-core-setup.md"
+      - "docs/04-data/table-definitions.md"
       - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "tests/manual-api.test.mjs"
+      - "tests/manual-title-docs.test.mjs"
       - "tests/worker-runtime-mutation.test.mjs"
       - "tests/sql/phase2-manual-title-fixture.sql"
       - "tests/sql/phase2-manual-title-test.sql"
@@ -51,8 +54,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Test manual API boundaries
-        run: node --experimental-transform-types --test tests/manual-api.test.mjs
+      - name: Test manual API and rollout boundaries
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs
       - name: Install title constraints in disposable Postgres
         run: |
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-title-fixture.sql
