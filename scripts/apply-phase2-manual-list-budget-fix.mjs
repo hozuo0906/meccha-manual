@@ -31,6 +31,12 @@ router = replaceOnce(
 await writeFile("apps/worker/src/manual-router.ts", router, "utf8");
 
 let tests = await readFile("tests/manual-api.test.mjs", "utf8");
+tests = replaceOnce(
+  tests,
+  '"content-length": "600000",',
+  '"content-length": "1200000",',
+  "oversized fixture above dedicated list budget"
+);
 tests += `
 
 test("1000 worst-case JSON-escaped titles fit the dedicated manual list budget", async () => {
