@@ -18,7 +18,7 @@ Status: Accepted
 
 - write bodyはContent-Lengthの有無にかかわらず16 KiBで打ち切る。
 - 詳細・作成とも最大200 active stepsとする。DB triggerが201件目を拒否し、APIは`409 MANUAL_STEPS_LIMIT_EXCEEDED`を返す。既存データに201件以上ある場合はmigration preflightで停止する。
-- 詳細のSupabase JSONは、200 active stepsの最大フィールド長を安全に読める6 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（DEC-052）。
+- 詳細のSupabase JSONは、200 active stepsの最大フィールド長を安全に読める6 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
 - URLはHTTP/HTTPSのみとし、userinfoを含むURLを拒否する。URLをサーバー側から取得・実行しない。
@@ -173,6 +173,8 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - `update_manual_draft`
 - draft descriptionとstep本文フィールドの上限constraint
 - step title/targetTextの空白のみ拒否constraint
+- revisionごとのactive step 200件preflightと`manual_steps_active_limit_guard`
+- `annotation` / `masking` JSON各64 KiB constraint
 - `manuals`と`manual_revisions`のauthenticated direct write revoke
 
 境界ルール:
@@ -203,6 +205,8 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - reorder全集合、重複、欠落、越境拒否
 - 失敗時rollback
 - mutation結果不明時に再送を誘発しない
+- DB triggerによる201件目の拒否と409 mapping
+- 詳細queryが`assetId` / `annotation` / `masking`を取得しないこと
 - body/response/件数上限と未読body cancel
 - FR-006ローカル生成と手修正保持
 - `npm run check`
