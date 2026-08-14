@@ -36,6 +36,28 @@ test = replaceOnce(
 );
 await writeFile("tests/e2e/phase2-manual-editor.spec.mjs", test, "utf8");
 
+let appAuthTest = await readFile("tests/app-auth.test.mjs", "utf8");
+appAuthTest = replaceOnce(
+  appAuthTest,
+  String.raw`  assert.match(harness.app.innerHTML, /href="#workspace-heading" aria-current="page">ワークスペース/);`,
+  String.raw`  assert.match(harness.app.innerHTML, /id="workspace-nav-button" class="nav-item nav-button active" type="button" aria-current="page">ワークスペース/);`,
+  "workspace navigation assertion"
+);
+appAuthTest = replaceOnce(
+  appAuthTest,
+  String.raw`  assert.match(harness.app.innerHTML, /href="#members-heading">メンバー管理/);`,
+  String.raw`  assert.match(harness.app.innerHTML, /id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理/);`,
+  "member navigation assertion"
+);
+appAuthTest = replaceOnce(
+  appAuthTest,
+  String.raw`  assert.match(harness.app.innerHTML, /<span class="nav-item" aria-disabled="true"><span>手順書<\/span><span class="nav-status">準備中/);`,
+  String.raw`  assert.match(harness.app.innerHTML, /id="manual-nav-button" class="nav-item nav-button" type="button">手順書/);
+  assert.match(harness.app.innerHTML, /<span class="nav-item" aria-disabled="true"><span>操作を記録<\/span><span class="nav-status">準備中/);`,
+  "manual and recording navigation assertions"
+);
+await writeFile("tests/app-auth.test.mjs", appAuthTest, "utf8");
+
 let appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
 const appAssetsModuleUrl = `data:text/javascript;base64,${Buffer.from(appAssets).toString("base64")}`;
 const { APP_CSS, APP_JS } = await import(appAssetsModuleUrl);
