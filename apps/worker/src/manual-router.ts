@@ -1,6 +1,6 @@
 import { inspectSupabaseConfig, type SupabaseBindings } from "./server-config.ts";
 
-interface ManualEnv extends SupabaseBindings {}
+export interface ManualEnv extends SupabaseBindings {}
 
 type ManualStatus = "draft" | "reviewing" | "published" | "stale" | "archived";
 
@@ -27,12 +27,21 @@ type ManualSummary = {
 
 const COOKIE_ACCESS_TOKEN = "__Host-mm_access";
 const COOKIE_REFRESH_TOKEN = "__Host-mm_refresh";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function canonicalUuidSegment(segment: string): string | null {
+  try {
+    const canonical = decodeURIComponent(segment).toLowerCase();
+    return UUID_PATTERN.test(canonical) ? canonical : null;
+  } catch {
+    return null;
+  }
+}
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
 const MAX_MANUAL_LIST_JSON_BYTES = 1024 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;
-const MAX_MANUAL_TITLE_LENGTH = 64;
+export const MAX_MANUAL_TITLE_LENGTH = 64;
 const SUPABASE_TIMEOUT_MS = 5000;
 const MANUAL_STATUSES = new Set<ManualStatus>(["draft", "reviewing", "published", "stale", "archived"]);
 
@@ -43,7 +52,7 @@ const JSON_HEADERS = {
   "referrer-policy": "same-origin"
 };
 
-class ManualError extends Error {
+export class ManualError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -53,14 +62,14 @@ class ManualError extends Error {
   }
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
     headers: JSON_HEADERS
   });
 }
 
-function errorResponse(error: unknown): Response {
+export function errorResponse(error: unknown): Response {
   if (error instanceof ManualError) {
     return jsonResponse({ code: error.code, message: error.message }, error.status);
   }
@@ -91,8 +100,8 @@ function parseCookies(request: Request): Map<string, string> {
   return cookies;
 }
 
-function verifySameOriginWrite(request: Request): void {
-  if (request.method !== "POST") return;
+export function verifySameOriginWrite(request: Request): void {
+  if (!["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) return;
   const origin = request.headers.get("origin");
   if (!origin) throw new ManualError(403, "ORIGIN_REQUIRED", "不正なリクエストです。");
   let parsed: URL;
@@ -141,7 +150,7 @@ async function readTextLimited(response: Response, maxBytes: number): Promise<st
   return new TextDecoder().decode(bytes);
 }
 
-async function readJsonLimited(
+export async function readJsonLimited(
   response: Response,
   maxBytes = MAX_SUPABASE_JSON_BYTES
 ): Promise<unknown> {
@@ -184,7 +193,7 @@ async function readRequestTextLimited(request: Request): Promise<string> {
   return new TextDecoder().decode(bytes);
 }
 
-async function readRequestJson(request: Request): Promise<Record<string, unknown>> {
+export async function readRequestJson(request: Request): Promise<Record<string, unknown>> {
   const mediaType = (request.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase();
   if (mediaType !== "application/json") {
     throw new ManualError(415, "JSON_CONTENT_TYPE_REQUIRED", "Content-Typeはapplication/jsonにしてください。");
@@ -203,7 +212,7 @@ async function readRequestJson(request: Request): Promise<Record<string, unknown
   return value as Record<string, unknown>;
 }
 
-async function supabaseFetch(
+export async function supabaseFetch(
   env: ManualEnv,
   path: string,
   accessToken: string,
@@ -275,7 +284,7 @@ async function supabaseFetch(
   }
 }
 
-async function cancelUnreadResponseBody(response: Response): Promise<void> {
+export async function cancelUnreadResponseBody(response: Response): Promise<void> {
   if (!response.body) return;
   try {
     await response.body.cancel("response body not consumed");
@@ -284,7 +293,7 @@ async function cancelUnreadResponseBody(response: Response): Promise<void> {
   }
 }
 
-async function requireSession(request: Request, env: ManualEnv): Promise<{ userId: string; accessToken: string }> {
+export async function requireSession(request: Request, env: ManualEnv): Promise<{ userId: string; accessToken: string }> {
   const cookies = parseCookies(request);
   const accessToken = cookies.get(COOKIE_ACCESS_TOKEN);
   const refreshToken = cookies.get(COOKIE_REFRESH_TOKEN);
@@ -324,7 +333,7 @@ async function requireSession(request: Request, env: ManualEnv): Promise<{ userI
   return { userId, accessToken };
 }
 
-async function booleanRpc(
+export async function booleanRpc(
   env: ManualEnv,
   accessToken: string,
   functionName: string,
@@ -358,7 +367,7 @@ async function booleanRpc(
   }
 }
 
-async function assertWorkspaceMember(
+export async function assertWorkspaceMember(
   env: ManualEnv,
   accessToken: string,
   userId: string,
@@ -577,13 +586,8 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
   if (!match?.[1]) return null;
 
   try {
-    let workspaceId: string;
-    try {
-      workspaceId = decodeURIComponent(match[1]).toLowerCase();
-    } catch {
-      throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
-    }
-    if (!UUID_PATTERN.test(workspaceId)) {
+    const workspaceId = canonicalUuidSegment(match[1]);
+    if (!workspaceId) {
       throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
     }
     if (request.method === "GET") return await listManuals(request, env, workspaceId);
@@ -594,4 +598,4 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
   }
 }
 
-export type { ManualEnv, ManualSummary };
+export type { ManualSummary };

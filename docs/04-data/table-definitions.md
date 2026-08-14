@@ -23,9 +23,9 @@ Status: Accepted
 | `workspace_join_codes` | `id`, `user_id`, `token_hash`, `expires_at`, `consumed_at`, `consumed_workspace_id`, `consumed_by`, `revoked_at`, `created_at` | client table access禁止。本人だけがRPCで発行し、owner/adminがRPCで利用する。256 bitコードのSHA-256 digestだけを保存し、10分で失効、1回だけ利用可能 |
 | `workspace_invitations` | `email`, `role`, `token_hash`, `expires_at`, `accepted_at` | owner/admin管理。生トークン保存禁止 |
 | `folders` | `workspace_id`, `parent_id`, `name`, `position`, `created_by` | メンバー閲覧、editor以上で変更 |
-| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧、editor以上で変更。raw `title`は`char_length(title) between 1 and 64`、かつECMAScript `trim()`相当後に空でないことを`manuals_title_length`と`manuals_title_nonblank`でdirect authenticated writeにも強制 |
-| `manual_revisions` | `workspace_id`, `manual_id`, `revision_no`, `state`, `title`, `description`, `source_url`, `cover_asset_id`, `published_at` | 下書きはeditor以上、公開版は不変。raw `title`は`char_length(title) between 1 and 64`、かつECMAScript `trim()`相当後に空でないことを`manual_revisions_title_length`と`manual_revisions_title_nonblank`で強制 |
-| `manual_steps` | `workspace_id`, `revision_id`, `position`, `type`, `title`, `instruction`, `action_type`, `target_text`, `url`, `asset_id`, `annotation`, `masking` | revision権限を継承、公開版更新禁止 |
+| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧。作成・draft metadata・公開状態変更はSECURITY DEFINER RPCのみ。`manuals.title`はraw 1〜64文字、ECMAScript `trim()`相当後に空でないことを`manuals_title_length` / `manuals_title_nonblank`で強制し、authenticated direct writeをrevoke |
+| `manual_revisions` | `workspace_id`, `manual_id`, `revision_no`, `state`, `title`, `description`, `source_url`, `cover_asset_id`, `published_at` | メンバー閲覧、公開版は不変。draft更新・作成・公開はRPCのみ。`manual_revisions.title`はraw 1〜64文字・空白のみ拒否を`manual_revisions_title_length` / `manual_revisions_title_nonblank`で強制し、descriptionは`manual_revisions_description_length`で10,000文字以内、authenticated direct writeをrevoke |
+| `manual_steps` | `workspace_id`, `revision_id`, `position`, `type`, `title`, `instruction`, `action_type`, `target_text`, `url`, `asset_id`, `annotation`, `masking` | メンバー閲覧、公開版更新禁止。authenticated direct DMLをrevokeし、同じdraft revision lockを取る4 RPCだけで変更。`manual_steps_title_*`、`manual_steps_instruction_length`、`manual_steps_target_text_*`、`manual_steps_url_length`で本文上限を強制 |
 | `step_targets` | `workspace_id`, `step_id`, `selector_candidates`, `frame_path`, `rect`, `confidence` | revision権限を継承 |
 | `tags` | `workspace_id`, `name`, `color` | メンバー閲覧、editor以上で変更 |
 | `manual_tags` | `workspace_id`, `manual_id`, `tag_id` | メンバー閲覧、editor以上で変更 |
@@ -50,12 +50,13 @@ Status: Accepted
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
 | `idempotency_keys` | `scope`, `key_hash`, `request_hash`, `response_ref`, `expires_at` | service role専用 |
 
-## 手順書タイトル制約
+## 手順書編集制約
 
-- `manuals.title` と `manual_revisions.title` は1〜64文字。
-- Workerはtrim後のUnicode code point数を検証し、DBは `char_length(title) between 1 and 64` を最終防衛線とする。
-- forward migrationは既存タイトルを切り詰めない。65文字以上の既存行がある場合はvalidationを失敗させ、運用者が対象行を確認する。
-- 認証済みeditorがRLSを通る直接INSERT/UPDATEを行っても、65文字以上はDB constraintで拒否される。
+- `manuals.title` と `manual_revisions.title` はraw 1〜64文字で、`manuals_title_length` / `manual_revisions_title_length` が `char_length(title) between 1 and 64` を強制する。
+- `manuals_title_nonblank` / `manual_revisions_title_nonblank` はECMAScript `trim()`相当後に空となるtitleを拒否する。
+- `manual_revisions_description_length` と `manual_steps_*` constraintはDEC-052の本文上限を強制する。
+- forward migrationは既存値を切り詰めない。互換性がない既存行ではvalidationを失敗させ、対象行を確認する。
+- authenticatedのmanual/revision/step direct writeはrevokeし、SECURITY DEFINER RPCだけを利用する。
 
 ## 課金データの制約
 

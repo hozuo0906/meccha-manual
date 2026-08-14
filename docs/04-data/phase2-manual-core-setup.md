@@ -16,6 +16,8 @@ Phase 2では、手順書サービスとして成立するためのDB土台を�
 supabase/migrations/202608020001_phase2_manual_core.sql
 supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
 supabase/migrations/202608140005_phase2_manual_title_length.sql
+supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
 ```
 
 前提migration:
@@ -28,6 +30,10 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 `202608010002_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。migrationのファイル名順でもPhase 2より先に並ぶことを静的検査する。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
 
 `202608140005_phase2_manual_title_length.sql` は、`manuals.title` と `manual_revisions.title` のraw長を1〜64文字へ固定し、ECMAScript `trim()`相当後に空白だけとなる値を拒否するforward migrationである。既存行を切り詰めたり正規化したりせず、互換性のない既存データがある場合はconstraint validationを失敗させて安全に停止する。
+
+`202608140010_phase2_manual_step_mutations.sql` は、4つのstep mutation RPCを同じdraft revision lockへ統一し、authenticatedの直接step DMLを閉じる。
+
+`202608140012_phase2_manual_edit_http_contract.sql` は、draft metadataの原子的更新RPC、本文フィールド上限、manual/revisionのauthenticated direct write revokeを追加する。既存行を加工せず、上限違反があればconstraint validationで停止する。
 
 ## Scope
 
@@ -48,7 +54,10 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `create_manual(workspace_id, folder_id, title, description)`
 - `publish_manual(manual_id)`
 - `create_manual_draft(manual_id)`
+- `update_manual_draft(manual_id, title, description)`
+- `append_manual_step` / `update_manual_step` / `soft_delete_manual_step` / `reorder_manual_steps`
 - `manuals.title` と `manual_revisions.title` のraw 1〜64文字・ECMAScript空白のみ拒否DB制約
+- draft descriptionとstep本文フィールドの上限DB制約
 
 これらのmigrationには共有リンク、操作記録、Browser Run、Storage asset、課金、AI拡張は含めない。
 
@@ -66,6 +75,8 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - 公開処理は `publish_manual` RPCを使う。
 - 公開後の再編集は `create_manual_draft` RPCを使う。
 - 手順書の公開状態、現在の下書き、現在の公開版はRPC以外で変更しない。
+- manual作成、draft metadata更新、step mutationはSECURITY DEFINER RPCだけを利用し、authenticated direct DMLを許可しない。
+- 詳細APIは200 active steps、6 MiBを上限とし、本文フィールド上限をDBとWorkerで一致させる。
 - `workspace_id`、作成者、所有者などの所有境界フィールドは更新しない。
 
 ## Manual setup steps
@@ -78,7 +89,11 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 6. `supabase/migrations/202608020002_phase2_manual_create_context_fix.sql` の全文を貼り、`Run` を押す。
 7. 既存の `manuals.title` と `manual_revisions.title` に65文字以上、またはECMAScript `trim()`相当後に空となる行がないことを確認する。
 8. `supabase/migrations/202608140005_phase2_manual_title_length.sql` の全文を貼り、`Run` を押す。
-9. migration履歴とconstraint名を確認し、後述のRLS回帰テストを実行する。
+9. `supabase/migrations/202608140010_phase2_manual_step_mutations.sql` の適用前に、step mutationを利用する全clientがRPC経由へ切替済みであることを確認する。
+10. `supabase/migrations/202608140010_phase2_manual_step_mutations.sql` の全文を貼り、`Run` を押す。
+11. description 10,000文字超、step title 128文字超、instruction 4,000文字超、target 256文字超、URL 2,048文字超の既存行がないことを確認する。
+12. `supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql` の全文を貼り、`Run` を押す。
+13. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
 
 ## Expected result
 
@@ -96,6 +111,11 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `manuals_title_nonblank`
 - `manual_revisions_title_length`
 - `manual_revisions_title_nonblank`
+- `manual_revisions_description_length`
+- `manual_steps_title_length` / `manual_steps_title_nonblank`
+- `manual_steps_instruction_length`
+- `manual_steps_target_text_length` / `manual_steps_target_text_nonblank`
+- `manual_steps_url_length`
 
 SQL Editorにエラーが出ないこと。constraint validationが失敗した場合は既存データを自動修正せず、対象行を確認してから再実行する。
 
@@ -109,12 +129,16 @@ Phase 2 migration適用後に実行するテスト:
 - 別ワークスペースのユーザーは手順書を閲覧できない。
 - 認証済みeditorのRLS経路で64文字のmanual/revisionタイトルを作成・更新できる。
 - 認証済みeditorのRLS経路でも65文字以上、およびタブ・NBSPなどECMAScript空白だけのmanual/revisionタイトルはDB constraintで拒否される。
-- draft revisionの手順ステップは追加・更新・削除できる。
+- `update_manual_draft`はmanual titleとcurrent draft title/descriptionを同じtransactionで更新する。
+- authenticatedはmanual/revision/stepを直接変更できず、editorは承認済みRPC経由で変更できる。
+- draft revisionの手順ステップは追加・更新・soft delete・並べ替えできる。
+- viewer、anon、別workspaceはmutation RPCを実行できない。
+- 200 active stepsと本文フィールド上限を超える入力・応答を拒否する。
 - published revisionの手順ステップは変更できない。
 - `publish_manual` 後、公開版が不変になる。
 - `create_manual_draft` で公開版から次の下書きを作れる。
 
-リポジトリでは `tests/sql/phase2-manual-title-fixture.sql`、`tests/sql/phase2-manual-title-test.sql` と `Manual API` workflowが、使い捨てPostgresへ実migrationを適用してタイトル制約を検証する。
+リポジトリではタイトル境界に加え、`tests/sql/phase2-manual-edit-http-fixture.sql`、`tests/sql/phase2-manual-edit-http-test.sql` と `Manual Edit API` workflowが、使い捨てPostgresへstep/draft migrationを実適用してRPC・権限・上限を検証する。
 
 ## Do not paste
 

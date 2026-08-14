@@ -432,7 +432,9 @@ async function fetchSteps(
   }
   const typed = steps as ManualStep[];
   for (let index = 1; index < typed.length; index += 1) {
-    if (typed[index].position <= typed[index - 1].position) {
+    const current = typed[index];
+    const previous = typed[index - 1];
+    if (!current || !previous || current.position <= previous.position) {
       throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
   }
@@ -898,20 +900,20 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
 
   try {
     if (reorderMatch) {
-      const ids = routeIds(reorderMatch[1], reorderMatch[2]);
+      const ids = routeIds(reorderMatch[1] ?? "", reorderMatch[2] ?? "");
       if (request.method === "POST") return await reorderSteps(request, env, ids.workspaceId, ids.manualId);
     } else if (draftMatch) {
-      const ids = routeIds(draftMatch[1], draftMatch[2]);
+      const ids = routeIds(draftMatch[1] ?? "", draftMatch[2] ?? "");
       if (request.method === "PATCH") return await updateDraft(request, env, ids.workspaceId, ids.manualId);
     } else if (stepsMatch) {
-      const ids = routeIds(stepsMatch[1], stepsMatch[2]);
+      const ids = routeIds(stepsMatch[1] ?? "", stepsMatch[2] ?? "");
       if (request.method === "POST") return await createStep(request, env, ids.workspaceId, ids.manualId);
     } else if (stepMatch) {
-      const ids = routeIds(stepMatch[1], stepMatch[2], stepMatch[3]);
+      const ids = routeIds(stepMatch[1] ?? "", stepMatch[2] ?? "", stepMatch[3] ?? "");
       if (request.method === "PATCH") return await updateStep(request, env, ids.workspaceId, ids.manualId, ids.stepId as string);
       if (request.method === "DELETE") return await deleteStep(request, env, ids.workspaceId, ids.manualId, ids.stepId as string);
     } else if (detailMatch) {
-      const ids = routeIds(detailMatch[1], detailMatch[2]);
+      const ids = routeIds(detailMatch[1] ?? "", detailMatch[2] ?? "");
       if (request.method === "GET") return await getManualDetail(request, env, ids.workspaceId, ids.manualId);
     }
     return jsonResponse({ code: "METHOD_NOT_ALLOWED", message: "この操作は利用できません。" }, 405);
