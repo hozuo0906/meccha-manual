@@ -36,7 +36,7 @@ function manualRow(index = 0) {
 }
 
 function request(method = "GET", body, headers = {}) {
-  return new Request(`${APP_ORIGIN}/api/workspaces/${WORKSPACE_ID}/manuals`, {
+  const init = {
     method,
     headers: {
       cookie: "__Host-mm_access=access-token; __Host-mm_refresh=refresh-token",
@@ -44,7 +44,9 @@ function request(method = "GET", body, headers = {}) {
       ...headers
     },
     body
-  });
+  };
+  if (body instanceof ReadableStream) init.duplex = "half";
+  return new Request(`${APP_ORIGIN}/api/workspaces/${WORKSPACE_ID}/manuals`, init);
 }
 
 function installFetch(sequence) {
@@ -144,7 +146,7 @@ test("editor creates manual through create_manual RPC", async () => {
   }
 });
 
-test("chunked JSON body over 16 KiB fails with 413 before create RPC", async () => {
+test("streamed JSON body over 16 KiB fails with 413 before create RPC", async () => {
   const largeJson = JSON.stringify({ title: "手順", description: "x".repeat(20 * 1024) });
   const bytes = new TextEncoder().encode(largeJson);
   const body = new ReadableStream({
@@ -156,10 +158,7 @@ test("chunked JSON body over 16 KiB fails with 413 before create RPC", async () 
   });
   const mock = installFetch([authOk(), memberOk(), editorOk()]);
   try {
-    const response = await handleManualRoute(
-      request("POST", body, { "transfer-encoding": "chunked" }),
-      ENV
-    );
+    const response = await handleManualRoute(request("POST", body), ENV);
     assert.equal(response?.status, 413);
     assert.equal((await response.json()).code, "JSON_BODY_TOO_LARGE");
     assert.equal(mock.calls.length, 3);
