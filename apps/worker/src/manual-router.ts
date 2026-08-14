@@ -145,22 +145,47 @@ async function readJsonLimited(response: Response): Promise<unknown> {
   return JSON.parse(text);
 }
 
+async function readRequestTextLimited(request: Request): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_JSON_BODY_BYTES) {
+    throw new ManualError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
+  }
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_JSON_BODY_BYTES) {
+        await reader.cancel("body too large").catch(() => undefined);
+        throw new ManualError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 async function readRequestJson(request: Request): Promise<Record<string, unknown>> {
   const mediaType = (request.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase();
   if (mediaType !== "application/json") {
     throw new ManualError(415, "JSON_CONTENT_TYPE_REQUIRED", "Content-Typeはapplication/jsonにしてください。");
   }
 
-  const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_JSON_BODY_BYTES) {
-    throw new ManualError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
-  }
-
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_JSON_BODY_BYTES) {
-    throw new ManualError(413, "JSON_BODY_TOO_LARGE", "リクエストが大きすぎます。");
-  }
-
+  const text = await readRequestTextLimited(request);
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -332,6 +357,14 @@ function validateExactCount(response: Response, itemCount: number): void {
   const populated = contentRange.match(/^(\d+)-(\d+)\/(\d+)$/);
   const empty = contentRange.match(/^\*\/(\d+)$/);
   const total = populated ? Number(populated[3]) : empty ? Number(empty[1]) : null;
+
+  if (total !== null && Number.isSafeInteger(total) && total > MAX_MANUAL_LIST_ITEMS) {
+    throw new ManualError(409, "MANUALS_LIMIT_EXCEEDED", "手順書が多いため一覧を表示できません。整理してから、もう一度お試しください。");
+  }
+  if (itemCount > MAX_MANUAL_LIST_ITEMS) {
+    throw new ManualError(409, "MANUALS_LIMIT_EXCEEDED", "手順書が多いため一覧を表示できません。整理してから、もう一度お試しください。");
+  }
+
   const valid = itemCount === 0
     ? Boolean(empty && total === 0)
     : Boolean(
@@ -342,9 +375,6 @@ function validateExactCount(response: Response, itemCount: number): void {
       );
   if (!valid || total === null || !Number.isSafeInteger(total)) {
     throw new ManualError(502, "MANUALS_RESPONSE_INVALID", "手順書一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  if (total > MAX_MANUAL_LIST_ITEMS || itemCount > MAX_MANUAL_LIST_ITEMS) {
-    throw new ManualError(409, "MANUALS_LIMIT_EXCEEDED", "手順書が多いため一覧を表示できません。整理してから、もう一度お試しください。");
   }
 }
 
