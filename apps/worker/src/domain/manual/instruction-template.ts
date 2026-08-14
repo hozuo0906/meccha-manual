@@ -5,13 +5,13 @@ export interface ManualInstructionSuggestionInput {
   actionType: ManualActionType;
 }
 
-const ACTION_PHRASES: Record<ManualActionType, { particle: "を" | "に"; verb: string }> = {
-  click: { particle: "を", verb: "クリック" },
-  input: { particle: "に", verb: "入力" },
-  select: { particle: "を", verb: "選択" },
-  navigate: { particle: "を", verb: "開き" },
-  wait: { particle: "を", verb: "待ち" },
-  other: { particle: "を", verb: "操作" }
+const ACTION_SUFFIXES: Record<ManualActionType, string> = {
+  click: "をクリックします。",
+  input: "に入力します。",
+  select: "を選択します。",
+  navigate: "を開きます。",
+  wait: "を待ちます。",
+  other: "を操作します。"
 };
 
 function normalizeTargetText(value: string | null | undefined): string {
@@ -32,6 +32,5 @@ export function suggestManualInstruction(
   const target = normalizeTargetText(input.targetText);
   if (!target) return null;
 
-  const phrase = ACTION_PHRASES[input.actionType];
-  return `${target}${phrase.particle}${phrase.verb}します。`;
+  return `${target}${ACTION_SUFFIXES[input.actionType]}`;
 }
