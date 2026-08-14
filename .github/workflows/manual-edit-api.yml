@@ -1,0 +1,82 @@
+name: Manual Edit API
+
+on:
+  pull_request:
+    paths:
+      - "apps/worker/src/index-phase2.ts"
+      - "apps/worker/src/manual-router.ts"
+      - "apps/worker/src/manual-edit-router.ts"
+      - "apps/worker/src/domain/manual/instruction-template.ts"
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/04-data/phase2-manual-core-setup.md"
+      - "docs/04-data/table-definitions.md"
+      - "docs/05-api/phase2-manual-edit-api.md"
+      - "docs/09-delivery/decision-log.md"
+      - "scripts/check-phase2-manual-edit-api.mjs"
+      - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
+      - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
+      - "supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql"
+      - "tests/manual-api.test.mjs"
+      - "tests/manual-title-docs.test.mjs"
+      - "tests/manual-edit-api.test.mjs"
+      - "tests/sql/phase2-manual-edit-http-fixture.sql"
+      - "tests/sql/phase2-manual-edit-http-test.sql"
+      - "tsconfig.worker.json"
+      - "wrangler.jsonc"
+      - ".github/workflows/manual-edit-api.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate manual edit API contracts
+        run: node scripts/check-phase2-manual-edit-api.mjs
+      - name: Test manual list, title, detail, and edit boundaries
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
+      - name: Install manual edit migrations in disposable Postgres
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
+      - name: Exercise authenticated edit, permission, and bound checks
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-test.sql
+      - name: Validate migration safety and ordering
+        run: |
+          npm run migration:safety:check
+          npm run migrations:check
+      - name: Repository checks
+        run: npm run check
+      - name: Diff check
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
