@@ -11,7 +11,8 @@ test("manual navigation and editor states are embedded in the app shell", async 
     'id="manual-create-form"',
     'id="manual-draft-form"',
     'id="manual-step-add-form"',
-    'MANUAL_STEPS_LIMIT_EXCEEDED',
+    'steps.length >= 200',
+    '手順は200件までです',
     '作成結果を一覧で確認してください。重ねて作成しないでください。',
     '処理結果を詳細で確認してください。重ねて操作しないでください。',
     '入力した値やパスワードは記録せず',
@@ -36,9 +37,9 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /manual-step-up/);
   assert.match(source, /manual-step-down/);
   assert.match(source, /visually-hidden/);
-  assert.match(source, /maxlength=\\"64\\"/);
-  assert.match(source, /maxlength=\\"10000\\"/);
-  assert.match(source, /maxlength=\\"4000\\"/);
+  assert.match(source, /maxlength="64"/);
+  assert.match(source, /maxlength="10000"/);
+  assert.match(source, /maxlength="4000"/);
 });
 
 test("Phase 2 browser config runs only the manual editor flow", async () => {
