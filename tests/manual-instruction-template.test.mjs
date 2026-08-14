@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { suggestManualInstruction } from "../apps/worker/src/domain/manual/instruction-template.ts";
+
+test("click action generates the accepted Japanese template", () => {
+  assert.equal(
+    suggestManualInstruction({ targetText: "保存ボタン", actionType: "click" }),
+    "保存ボタンをクリックします。"
+  );
+});
+
+test("input action never receives or emits the entered value", () => {
+  assert.equal(
+    suggestManualInstruction({ targetText: "メールアドレス欄", actionType: "input" }),
+    "メールアドレス欄に入力します。"
+  );
+});
+
+test("supported actions stay deterministic and local", () => {
+  assert.deepEqual(
+    [
+      ["プラン", "select"],
+      ["設定ページ", "navigate"],
+      ["読み込み完了", "wait"],
+      ["対象項目", "other"]
+    ].map(([targetText, actionType]) => suggestManualInstruction({ targetText, actionType })),
+    [
+      "プランを選択します。",
+      "設定ページを開きます。",
+      "読み込み完了を待ちます。",
+      "対象項目を操作します。"
+    ]
+  );
+});
+
+test("target text is trimmed and internal whitespace is normalized", () => {
+  assert.equal(
+    suggestManualInstruction({ targetText: "  保存   ボタン  ", actionType: "click" }),
+    "保存 ボタンをクリックします。"
+  );
+});
+
+test("blank target does not invent an instruction", () => {
+  assert.equal(suggestManualInstruction({ targetText: "   ", actionType: "click" }), null);
+  assert.equal(suggestManualInstruction({ targetText: null, actionType: "click" }), null);
+});
