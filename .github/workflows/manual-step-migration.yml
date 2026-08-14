@@ -3,6 +3,8 @@ name: Manual Step Migration
 on:
   pull_request:
     paths:
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/05-api/phase2-manual-edit-api.md"
       - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
       - "scripts/check-phase2-manual-step-migration.mjs"
       - "scripts/test-phase2-manual-step-locks.sh"
@@ -45,7 +47,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Validate manual step mutation migration
+      - name: Validate manual step mutation and documentation contracts
         run: node scripts/check-phase2-manual-step-migration.mjs
       - name: Install migration in disposable Postgres
         run: |
@@ -62,4 +64,4 @@ jobs:
       - name: Repository checks
         run: npm run check
       - name: Diff check
-        run: git diff --check origin/main...HEAD
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
