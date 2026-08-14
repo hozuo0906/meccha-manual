@@ -44,4 +44,11 @@ test("decision log records the dedicated manual-list response budget", async () 
   assert.match(decisionLog, /DEC-051[^\n]*1000件かつ1 MiB[^\n]*512 KiB/);
   assert.match(decisionLog, /JSON制御文字として最大6 byte/);
   assert.match(api, /1 MiB[^\n]*512 KiB[^\n]*DEC-051/);
+  assert.match(api, /\[DEC-051\]\(\.\.\/09-delivery\/decision-log\.md\)/);
+});
+
+test("API contract records canonical lowercase workspace UUID handling", async () => {
+  const api = await readFile("docs/05-api/phase2-manual-api.md", "utf8");
+  assert.match(api, /workspace ID[^\n]*小文字のcanonical form/);
+  assert.match(api, /RPC、PostgREST query、row境界比較/);
 });
