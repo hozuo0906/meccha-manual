@@ -18,6 +18,8 @@ test("manual navigation and editor states are embedded in the app shell", async 
     '入力した値やパスワードは記録せず',
     '外部AIは使用しません。',
     'function captureManualDetailDrafts',
+    'function restoreManualDetailDrafts',
+    'restoreManualDetailDrafts(options.restoreDrafts)',
     'preserveDomUntilLoaded: true',
     'requestGeneration !== sessionGeneration'
   ]) {
@@ -33,6 +35,15 @@ test("manual UI does not persist manual content or input values in browser stora
   assert.doesNotMatch(source, /elements\.value\b/);
 });
 
+test("manual mutations preserve drafts and fail closed when edit permission expires", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /const retainedDrafts = captureManualDetailDrafts\(options\.excludeDraftKeys \|\| \[\]\)/);
+  assert.match(source, /restoreManualDetailDrafts\(options\.restoreDrafts\)/);
+  assert.match(source, /error\.status === 403[\s\S]*canEdit: false[\s\S]*loadManualDetail\(workspaceId, manualId/);
+  assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
+  assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
+});
+
 test("viewer and accessible UI contracts remain explicit", async () => {
   const source = await readFile(appPath, "utf8");
   assert.match(source, /現在の権限では閲覧のみ利用できます。/);
@@ -46,7 +57,6 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
   assert.doesNotMatch(source, /<button[^>]*role="listitem"/);
   assert.match(source, /id="members-heading" tabindex="-1"/);
-  assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
 });
 
 test("Phase 2 browser config runs only the manual editor flow", async () => {
@@ -54,7 +64,10 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   const spec = await readFile("tests/e2e/phase2-manual-editor.spec.mjs", "utf8");
   assert.match(config, /phase2-manual-editor\.spec\.mjs/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
+  assert.match(spec, /別フォームの未保存説明/);
+  assert.match(spec, /更新競合を解消してください。/);
   assert.match(spec, /閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない/);
   assert.match(spec, /権限失効時は編集UIを閉じて最新権限を再取得する/);
+  assert.match(spec, /編集権限がありません。/);
   assert.match(spec, /横スクロールせずキーボードで移動できる/);
 });
