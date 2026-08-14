@@ -58,6 +58,24 @@ appAuthTest = replaceOnce(
 );
 await writeFile("tests/app-auth.test.mjs", appAuthTest, "utf8");
 
+let accessibilityCheck = await readFile("scripts/check-phase1-accessibility.mjs", "utf8");
+accessibilityCheck = replaceOnce(
+  accessibilityCheck,
+  String.raw`    ['href="#members-heading">メンバー管理</a>', "メンバー管理へキーボード移動できる導線を提供してください。"],`,
+  String.raw`    ['id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>', "メンバー管理へキーボード移動できる導線を提供してください。"],`,
+  "accessible member navigation contract"
+);
+await writeFile("scripts/check-phase1-accessibility.mjs", accessibilityCheck, "utf8");
+
+let accessibilityTest = await readFile("tests/phase1-accessibility.test.mjs", "utf8");
+accessibilityTest = replaceOnce(
+  accessibilityTest,
+  String.raw`  ["メンバー導線", "メンバー管理", { js: APP_JS.replace('href="#members-heading">メンバー管理</a>', "メンバー管理") }],`,
+  String.raw`  ["メンバー導線", "メンバー管理", { js: APP_JS.replaceAll('id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>', "メンバー管理") }],`,
+  "accessible member navigation mutation"
+);
+await writeFile("tests/phase1-accessibility.test.mjs", accessibilityTest, "utf8");
+
 let appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
 const appAssetsModuleUrl = `data:text/javascript;base64,${Buffer.from(appAssets).toString("base64")}`;
 const { APP_CSS, APP_JS } = await import(appAssetsModuleUrl);
