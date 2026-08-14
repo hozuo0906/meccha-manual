@@ -1,6 +1,5 @@
 \set ON_ERROR_STOP on
 
--- Stable fixture identities.
 \set workspace_a 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 \set workspace_b 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 \set workspace_lock 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
@@ -43,40 +42,24 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 
 select public.append_manual_step(
-  :'revision_a',
-  'action',
-  '保存ボタン',
-  '［保存ボタン］をクリックします。',
-  'click',
-  '保存ボタン',
-  null,
-  null,
-  '{}'::jsonb,
-  '{}'::jsonb
+  :'revision_a', 'action', '保存ボタン', '［保存ボタン］をクリックします。',
+  'click', '保存ボタン', null, null, '{}'::jsonb, '{}'::jsonb
 ) as step_a \gset
 
 select public.append_manual_step(
-  :'revision_a',
-  'note',
-  '補足',
-  '内容を確認します。',
-  null,
-  null,
-  null,
-  null,
-  '{}'::jsonb,
-  '{}'::jsonb
+  :'revision_a', 'note', '補足', '内容を確認します。',
+  null, null, null, null, '{}'::jsonb, '{}'::jsonb
 ) as step_b \gset
 
 reset role;
 
 do $$
 begin
-  if (select count(*) from public.manual_steps where revision_id = :'revision_a' and deleted_at is null) <> 2 then
+  if (select count(*) from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and deleted_at is null) <> 2 then
     raise exception 'append did not create exactly two active steps';
   end if;
-  if (select min(position) from public.manual_steps where revision_id = :'revision_a') <> 0
-     or (select max(position) from public.manual_steps where revision_id = :'revision_a') <> 1 then
+  if (select min(position) from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666') <> 0
+     or (select max(position) from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666') <> 1 then
     raise exception 'append positions are not serialized to 0,1';
   end if;
 end;
@@ -91,24 +74,36 @@ select public.reorder_manual_steps(:'revision_a', array[:'step_b'::uuid, :'step_
 reset role;
 
 do $$
+declare
+  step_a_id uuid;
+  step_b_id uuid;
 begin
-  if (select instruction from public.manual_steps where id = :'step_a') <> '手修正済み instruction' then
+  select id into step_a_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '保存';
+  select id into step_b_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足';
+  if (select instruction from public.manual_steps where id = step_a_id) <> '手修正済み instruction' then
     raise exception 'update did not preserve supplied instruction';
   end if;
-  if (select position from public.manual_steps where id = :'step_b') <> 0
-     or (select position from public.manual_steps where id = :'step_a') <> 1 then
+  if (select position from public.manual_steps where id = step_b_id) <> 0
+     or (select position from public.manual_steps where id = step_a_id) <> 1 then
     raise exception 'reorder did not produce requested zero-based order';
   end if;
 end;
 $$;
 
--- Invalid reorder must roll back without changing positions.
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
+declare
+  target_id uuid;
 begin
+  select id into target_id
+  from public.manual_steps
+  where revision_id = '66666666-6666-4666-8666-666666666666' and title = '保存';
   begin
-    perform public.reorder_manual_steps(:'revision_a', array[:'step_a'::uuid, :'step_a'::uuid]);
+    perform public.reorder_manual_steps(
+      '66666666-6666-4666-8666-666666666666',
+      array[target_id, target_id]
+    );
     raise exception 'expected duplicate reorder rejection';
   exception
     when others then
@@ -120,26 +115,37 @@ $$;
 reset role;
 
 do $$
+declare
+  step_a_id uuid;
+  step_b_id uuid;
 begin
-  if (select position from public.manual_steps where id = :'step_b') <> 0
-     or (select position from public.manual_steps where id = :'step_a') <> 1 then
+  select id into step_a_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '保存';
+  select id into step_b_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足';
+  if (select position from public.manual_steps where id = step_b_id) <> 0
+     or (select position from public.manual_steps where id = step_a_id) <> 1 then
     raise exception 'failed reorder changed persisted positions';
   end if;
 end;
 $$;
 
--- Cross-revision ID is rejected atomically.
 insert into public.manual_steps (
   workspace_id, revision_id, position, type, title, instruction, created_by
-) values (:'workspace_b', :'revision_b', 0, 'note', 'Foreign', '', :'editor_id')
-returning id as foreign_step \gset
+) values (:'workspace_b', :'revision_b', 0, 'note', 'Foreign', '', :'editor_id');
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
+declare
+  local_id uuid;
+  foreign_id uuid;
 begin
+  select id into local_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足';
+  select id into foreign_id from public.manual_steps where revision_id = '77777777-7777-4777-8777-777777777777' and title = 'Foreign';
   begin
-    perform public.reorder_manual_steps(:'revision_a', array[:'step_b'::uuid, :'foreign_step'::uuid]);
+    perform public.reorder_manual_steps(
+      '66666666-6666-4666-8666-666666666666',
+      array[local_id, foreign_id]
+    );
     raise exception 'expected cross revision rejection';
   exception
     when others then
@@ -150,13 +156,14 @@ end;
 $$;
 reset role;
 
--- Viewer can read but cannot mutate through the definer RPCs.
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'viewer_id', false);
 do $$
 begin
   begin
-    perform public.append_manual_step(:'revision_a', 'note', 'Viewer write', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb);
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666', 'note', 'Viewer write', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
     raise exception 'expected viewer rejection';
   exception
     when others then
@@ -167,13 +174,14 @@ end;
 $$;
 reset role;
 
--- Published revisions are never step mutation targets.
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
 begin
   begin
-    perform public.append_manual_step(:'revision_published', 'note', 'Published write', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb);
+    perform public.append_manual_step(
+      '88888888-8888-4888-8888-888888888888', 'note', 'Published write', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
     raise exception 'expected published rejection';
   exception
     when others then
@@ -184,20 +192,21 @@ end;
 $$;
 reset role;
 
--- Direct authenticated DML is revoked; every supported mutation must use a lock-taking RPC.
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
 begin
   begin
-    update public.manual_steps set title = 'bypass' where id = :'step_a';
+    update public.manual_steps set title = 'bypass'
+    where revision_id = '66666666-6666-4666-8666-666666666666';
     raise exception 'expected direct update permission denial';
   exception
     when insufficient_privilege then null;
   end;
 
   begin
-    delete from public.manual_steps where id = :'step_a';
+    delete from public.manual_steps
+    where revision_id = '66666666-6666-4666-8666-666666666666';
     raise exception 'expected direct delete permission denial';
   exception
     when insufficient_privilege then null;
@@ -205,7 +214,11 @@ begin
 
   begin
     insert into public.manual_steps (workspace_id, revision_id, position, type, title, instruction, created_by)
-    values (:'workspace_a', :'revision_a', 50, 'note', 'bypass', '', :'editor_id');
+    values (
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '66666666-6666-4666-8666-666666666666',
+      50, 'note', 'bypass', '', '11111111-1111-4111-8111-111111111111'
+    );
     raise exception 'expected direct insert permission denial';
   exception
     when insufficient_privilege then null;
@@ -214,12 +227,14 @@ end;
 $$;
 reset role;
 
--- Anonymous callers cannot execute any step mutation RPC.
 set role anon;
 do $$
 begin
   begin
-    perform public.reorder_manual_steps(:'revision_a', array[]::uuid[]);
+    perform public.reorder_manual_steps(
+      '66666666-6666-4666-8666-666666666666',
+      array[]::uuid[]
+    );
     raise exception 'expected anonymous execute denial';
   exception
     when insufficient_privilege then null;
@@ -228,7 +243,6 @@ end;
 $$;
 reset role;
 
--- Soft deletion is an RPC mutation and leaves the row for audit/recovery.
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 select public.soft_delete_manual_step(:'revision_a', :'step_b');
@@ -236,7 +250,13 @@ reset role;
 
 do $$
 begin
-  if (select deleted_at from public.manual_steps where id = :'step_b') is null then
+  if not exists (
+    select 1
+    from public.manual_steps
+    where revision_id = '66666666-6666-4666-8666-666666666666'
+      and title = '補足'
+      and deleted_at is not null
+  ) then
     raise exception 'soft delete did not retain row with deleted_at';
   end if;
 end;
