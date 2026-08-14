@@ -1,7 +1,6 @@
-interface ManualEnv {
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
-}
+import { inspectSupabaseConfig, type SupabaseBindings } from "./server-config.ts";
+
+interface ManualEnv extends SupabaseBindings {}
 
 type ManualStatus = "draft" | "reviewing" | "published" | "stale" | "archived";
 
@@ -32,6 +31,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;
+const MAX_MANUAL_TITLE_LENGTH = 64;
 const SUPABASE_TIMEOUT_MS = 5000;
 const MANUAL_STATUSES = new Set<ManualStatus>(["draft", "reviewing", "published", "stale", "archived"]);
 
@@ -67,13 +67,11 @@ function errorResponse(error: unknown): Response {
 }
 
 function ensureConfig(env: ManualEnv): { url: string; anonKey: string } {
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+  const config = inspectSupabaseConfig(env).config;
+  if (!config) {
     throw new ManualError(500, "SUPABASE_NOT_CONFIGURED", "Supabase設定が未完了です。");
   }
-  return {
-    url: env.SUPABASE_URL.replace(/\/$/, ""),
-    anonKey: env.SUPABASE_ANON_KEY
-  };
+  return config;
 }
 
 function parseCookies(request: Request): Map<string, string> {
@@ -211,11 +209,62 @@ async function supabaseFetch(
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SUPABASE_TIMEOUT_MS);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort(init.signal.reason);
+    else init.signal.addEventListener("abort", () => controller.abort(init.signal?.reason), { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(new Error("Supabase response deadline exceeded")), SUPABASE_TIMEOUT_MS);
+
   try {
-    return await fetch(`${config.url}${path}`, { ...init, headers, signal: controller.signal });
-  } finally {
+    const response = await fetch(`${config.url}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal
+    });
+    if (!response.body) {
+      clearTimeout(timer);
+      return response;
+    }
+
+    const reader = response.body.getReader();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      reader.releaseLock();
+    };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(streamController) {
+        try {
+          const result = await reader.read();
+          if (result.done) {
+            finish();
+            streamController.close();
+            return;
+          }
+          streamController.enqueue(result.value);
+        } catch (error) {
+          finish();
+          streamController.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          finish();
+        }
+      }
+    });
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  } catch (error) {
     clearTimeout(timer);
+    throw error;
   }
 }
 
@@ -334,7 +383,7 @@ function parseManualRow(value: unknown, workspaceId: string): ManualSummary | nu
     typeof row.id !== "string" || !UUID_PATTERN.test(row.id) ||
     row.workspace_id !== workspaceId ||
     (row.folder_id !== null && (typeof row.folder_id !== "string" || !UUID_PATTERN.test(row.folder_id))) ||
-    typeof row.title !== "string" || row.title.trim().length === 0 ||
+    typeof row.title !== "string" || row.title.trim().length === 0 || Array.from(row.title).length > MAX_MANUAL_TITLE_LENGTH ||
     typeof row.status !== "string" || !MANUAL_STATUSES.has(row.status as ManualStatus) ||
     (row.current_draft_revision_id !== null && (typeof row.current_draft_revision_id !== "string" || !UUID_PATTERN.test(row.current_draft_revision_id))) ||
     (row.current_published_revision_id !== null && (typeof row.current_published_revision_id !== "string" || !UUID_PATTERN.test(row.current_published_revision_id))) ||
@@ -432,6 +481,9 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
   }
   const title = body.title.trim();
   if (!title) throw new ManualError(400, "MANUAL_TITLE_REQUIRED", "手順書タイトルを入力してください。");
+  if (Array.from(title).length > MAX_MANUAL_TITLE_LENGTH) {
+    throw new ManualError(400, "MANUAL_TITLE_INVALID", "手順書タイトルは64文字以内で入力してください。");
+  }
   if (body.description !== undefined && typeof body.description !== "string") {
     throw new ManualError(400, "MANUAL_DESCRIPTION_INVALID", "説明は文字で入力してください。");
   }
@@ -491,7 +543,12 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
   if (!match?.[1]) return null;
 
   try {
-    const workspaceId = decodeURIComponent(match[1]);
+    let workspaceId: string;
+    try {
+      workspaceId = decodeURIComponent(match[1]);
+    } catch {
+      throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
+    }
     if (!UUID_PATTERN.test(workspaceId)) {
       throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
     }

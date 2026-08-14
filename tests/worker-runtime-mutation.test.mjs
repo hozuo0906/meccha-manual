@@ -44,6 +44,7 @@ async function loadMutatedWorker(name, replacements) {
   const directory = await mkdtemp(join(tmpdir(), `meccha-manual-${name}-`));
   const indexPath = join(directory, "index.ts");
   const assetsPath = join(directory, "app-assets.ts");
+  const serverConfigPath = join(directory, "server-config.ts");
   let source = await readFile("apps/worker/src/index.ts", "utf8");
   for (const [before, after] of replacements) {
     assert.ok(source.includes(before), `mutation target not found: ${before}`);
@@ -51,7 +52,8 @@ async function loadMutatedWorker(name, replacements) {
   }
   await Promise.all([
     writeFile(indexPath, source, "utf8"),
-    writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8")
+    writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),
+    writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8")
   ]);
   const module = await import(`${pathToFileURL(indexPath).href}?mutation=${Date.now()}-${name}`);
   return { worker: module.default, cleanup: () => rm(directory, { recursive: true, force: true }) };

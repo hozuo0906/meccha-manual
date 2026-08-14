@@ -14,13 +14,15 @@ Phase 1のHttpOnly Cookie sessionと既存Supabase RLS/RPCを使い、選択work
 
 - 認証: Phase 1 HttpOnly Cookie session必須。
 - 認可: active workspace member。
-- 別workspace、非member、不正workspace IDは存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。
+- 別workspace、非member、不正workspace ID（不正なpercent encodingを含む）は存在推測を避けて`404 MANUALS_NOT_FOUND`へまとめる。
 - `manuals`のうち`archived_at is null`だけを`updated_at desc`で取得する。
 - 返却項目は`id`、`folderId`、`title`、`status`、`currentDraftRevisionId`、`currentPublishedRevisionId`、`updatedAt`だけとする。
 - PostgRESTは`limit=1001` + `Prefer: count=exact`を使い、`Content-Range`と返却件数を照合する。
 - 総数または返却件数が1000件を超えた場合は`409 MANUALS_LIMIT_EXCEEDED`とし、切り詰めた一覧を返さない。
 - header欠落、件数不整合、不正なrow、過大/非JSONの上流応答は空一覧にせず502とする。
 - access token更新が必要な場合はCookieを変更せず`401 SESSION_REFRESH_REQUIRED`とする。
+- Supabase URL/anon keyの読取・正規化は`server-config.ts`だけで行い、Phase 1とmanual routeで同じ設定境界を使う。
+- Supabase応答はheader到着だけでtimeoutを解除せず、本文読取完了まで5秒deadlineを維持する。
 
 成功:
 
@@ -45,6 +47,7 @@ Phase 1のHttpOnly Cookie sessionと既存Supabase RLS/RPCを使い、選択work
 - 認証: Phase 1 HttpOnly Cookie session必須。
 - CSRF境界: same-origin `Origin`必須、`Content-Type: application/json`必須。
 - bodyはストリーム読取中にも16 KiBで打ち切り、`Content-Length`が無いchunked bodyでも上限を迂回させない。
+- titleはtrim後1〜64 Unicode code pointとし、WorkerとDB制約で同じ上限を強制する。
 - active memberであることを確認した上で、owner/admin/editorのみ作成可能。viewerは`403 MANUAL_CREATE_FORBIDDEN`。
 - 別workspace/非memberは403にせず`404 MANUALS_NOT_FOUND`。
 - DB書込は既存`create_manual` RPCを利用し、manualとrevision 1のdraftを同一DB処理で作成する。

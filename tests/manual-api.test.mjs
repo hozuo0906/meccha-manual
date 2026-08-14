@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { handleManualRoute } from "../apps/worker/src/manual-router.ts";
+import { inspectSupabaseConfig } from "../apps/worker/src/server-config.ts";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -197,4 +199,85 @@ test("create upstream 5xx is result-unknown and does not invite immediate retry"
   } finally {
     mock.restore();
   }
+});
+
+
+test("Supabase bindings are normalized through the single server config module", async () => {
+  assert.deepEqual(
+    inspectSupabaseConfig({ SUPABASE_URL: " https://project.supabase.co/// ", SUPABASE_ANON_KEY: " key " }),
+    {
+      configured: true,
+      hasUrl: true,
+      hasAnonKey: true,
+      projectRef: "project",
+      config: { url: "https://project.supabase.co", anonKey: "key" }
+    }
+  );
+  const [indexSource, manualSource, configSource] = await Promise.all([
+    readFile("apps/worker/src/index.ts", "utf8"),
+    readFile("apps/worker/src/manual-router.ts", "utf8"),
+    readFile("apps/worker/src/server-config.ts", "utf8")
+  ]);
+  assert.doesNotMatch(indexSource, /env\.SUPABASE_(?:URL|ANON_KEY)/);
+  assert.doesNotMatch(manualSource, /env\.SUPABASE_(?:URL|ANON_KEY)/);
+  assert.match(configSource, /env\.SUPABASE_URL/);
+  assert.match(configSource, /env\.SUPABASE_ANON_KEY/);
+});
+
+test("manual title over 64 code points is rejected before create RPC", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk()]);
+  try {
+    const response = await handleManualRoute(
+      request("POST", JSON.stringify({ title: "あ".repeat(65) })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_TITLE_INVALID");
+    assert.equal(mock.calls.length, 3);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("malformed escaped workspace path is hidden as 404", async () => {
+  const response = await handleManualRoute(
+    new Request(`${APP_ORIGIN}/api/workspaces/%ZZ/manuals`),
+    ENV
+  );
+  assert.equal(response?.status, 404);
+  assert.equal((await response.json()).code, "MANUALS_NOT_FOUND");
+});
+
+test("Supabase deadline remains active while response body is consumed", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, Math.min(Number(delay), 20), ...args);
+  const mock = installFetch([
+    authOk(),
+    memberOk(),
+    (_url, init) => new Response(new ReadableStream({
+      start(controller) {
+        const fail = () => controller.error(new DOMException("Aborted", "AbortError"));
+        if (init.signal?.aborted) fail();
+        else init.signal?.addEventListener("abort", fail, { once: true });
+      }
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", "content-range": "0-0/1" }
+    })
+  ]);
+  try {
+    const response = await handleManualRoute(request(), ENV);
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUALS_RESPONSE_INVALID");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    mock.restore();
+  }
+});
+
+test("manual title migration fixes the same 64-character contract", async () => {
+  const migration = await readFile("supabase/migrations/202608140005_phase2_manual_title_length.sql", "utf8");
+  assert.match(migration, /manuals_title_length/);
+  assert.match(migration, /manual_revisions_title_length/);
+  assert.match(migration, /char_length\(title\) between 1 and 64/i);
 });
