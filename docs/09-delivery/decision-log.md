@@ -55,5 +55,7 @@ Status: Accepted
 
 | DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
 | DEC-050 | 2026-08-12 | Phase 1 readinessは最新Workers型のstrict typecheck、Wrangler bundle dry-run、重要な失敗条件のproduction code変異、fixture APIを使う実Chromium 4ロールE2Eを必須にする。外部Supabaseのmigration・資格情報・テストデータは使わず、動的RLS検証は承認対象のIssue #38へ分離する | 静的snippetだけの合格を防ぎつつ、外部環境を無承認で変更せずに認証・権限UI・アクセシビリティの実行可能性をPRごとに保証するため |
+| DEC-051 | 2026-08-14 | 外部AI機能は収益が安定したとユーザーが判断し、価値・概算コスト・月額上限・停止条件・送信データ境界を確認して実装開始を明示承認するまで着手しない。収益安定前はAI専用adapter、feature flag、管理者ON/OFF、API key/Secret、runtime call、AI専用利用ログを先行実装しない（[ADR-0009](../03-architecture/adrs/ADR-0009-ai-api-default-off.md)） | 固定費・従量費と外部データ送信を収益化前に増やさず、AIなしでプロダクト価値を検証するため |
+| DEC-052 | 2026-08-14 | Browser Run時間・同時記録数とR2保存容量のサーバー側usage guardは、Stripe決済実装を待たず、それぞれの外部原価機能を有効化する前または同じPRで実装する。上限未確定・計測不能・100%到達時はfail closedし、自動従量課金も無制限利用も行わない | 原価が発生する機能だけ先行して利用上限が後回しになると、収益化前に予測不能な費用が発生するため |
 
-DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
+DEC-006の「AI APIは初期OFF」はDEC-051で強化し、収益安定後の明示承認まで実装自体を延期する。DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
