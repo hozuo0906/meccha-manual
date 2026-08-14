@@ -45,6 +45,16 @@ jobs:
           cache: npm
       - name: Apply optimistic concurrency and request budget fixes
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/apply-phase2-manual-concurrency-budget-fixes.mjs")
+          source = path.read_text()
+          old = "return source.replace(pattern, replacement);"
+          new = "return source.replace(pattern, () => replacement);"
+          if source.count(old) != 1:
+              raise SystemExit("regex replacement helper target mismatch")
+          path.write_text(source.replace(old, new))
+          PY
           node scripts/apply-phase2-manual-concurrency-budget-fixes.mjs
           python - <<'PY'
           from pathlib import Path
