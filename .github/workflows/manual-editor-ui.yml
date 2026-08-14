@@ -1,0 +1,49 @@
+name: Manual Editor UI
+
+on:
+  pull_request:
+    paths:
+      - "apps/worker/src/app-assets.ts"
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/02-ux/phase2-manual-editor-ui.md"
+      - "docs/05-api/phase2-manual-edit-api.md"
+      - "playwright.phase1.config.mjs"
+      - "playwright.phase2.config.mjs"
+      - "scripts/check-phase2-manual-editor-ui.mjs"
+      - "tests/manual-editor-ui.test.mjs"
+      - "tests/e2e/phase1-flow.spec.mjs"
+      - "tests/e2e/phase2-manual-editor.spec.mjs"
+      - "tests/fixtures/phase1-browser-server.mjs"
+      - ".github/workflows/manual-editor-ui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate manual editor UI contracts
+        run: node scripts/check-phase2-manual-editor-ui.mjs
+      - name: Test static manual editor safety boundaries
+        run: node --test tests/manual-editor-ui.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test manual editor browser flows
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
