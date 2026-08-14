@@ -52,22 +52,36 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 
 ## EPIC-04: Browser Run
 
+GitHub Issue #57を費用優先ロードマップの正本とする。
+
 - Browser Run起動
 - Live View URL
 - Durable Object状態機械
 - 再接続
 - 終了処理
 - SSRF対策
+- Browser Run時間と同時記録数のusage counter
+- 上限不明・計測不能・100%到達時の新規開始fail closed
+
+Browser Runのサーバー側利用上限はEPIC-10の決済実装を待たず、このEPICで外部Browser Runを有効化する前に実装する。自動従量課金は行わない。
 
 ## EPIC-05: 操作記録
+
+GitHub Issue #57/#58を費用優先ロードマップの正本とする。
 
 - 操作イベント収集
 - スクリーンショット
 - Storage
 - マスキング
 - 下書き生成
+- R2保存容量のusage counter
+- 容量上限不明・計測不能・100%到達時の新規R2書込fail closed
+
+R2のサーバー側保存容量上限はEPIC-10の決済実装を待たず、外部R2への永続書込を有効化する前に実装する。無制限保存は許可しない。
 
 ## EPIC-06: 手順書編集
+
+GitHub Issue #54/#55をPhase 2手順書コアの正本とする。
 
 - 手順書一覧
 - エディタ
@@ -75,6 +89,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - 注釈
 - 版管理
 - 公開/復元
+- 外部AI APIを使わない日本語テンプレート生成
 
 ## EPIC-07: 検索と整理
 
@@ -85,6 +100,8 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - アーカイブ
 
 ## EPIC-08: 共有と出力
+
+GitHub Issue #59/#60を費用優先ロードマップの正本とする。
 
 - 共有リンク
 - 閲覧画面
@@ -107,18 +124,24 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - Webhook署名検証、重複・遅延・順不同
 - 都度払いのmanual scope entitlementと30日再出力
 - パーソナル/チームのworkspace entitlement
-- 作成者席、viewer、Browser Run、R2、同時記録のusage counter
+- 作成者席、viewerの上限
+- Browser Run時間・R2容量・同時記録数はEPIC-04/05で先行実装したusage guardを課金entitlementへ接続する
 - 80%警告、100%停止、自動従量課金なし
 - 未払い、解約、返金、chargeback
 - 請求・利用量画面
 
+決済導線を後段に置くことは、Browser Run/R2を無制限に利用可能にする理由にはならない。原価に直結するusage guardは各原価機能の有効化条件とする。
+
 ## EPIC-11: 分析
+
+GitHub Issue #61を費用優先ロードマップの正本とする。
 
 - 閲覧数
 - 完了率
 - 離脱ステップ
 - チャネル
 - 集計検証
+- 手順単位コメント、古い情報の報告
 
 ## EPIC-12: セキュリティ/運用
 
@@ -137,10 +160,24 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - 可観測性
 - ロールバック
 
-## EPIC-14: AI拡張口
+## EPIC-14: AI拡張口 — Deferred
 
-- AI feature flag
-- AI利用OFF既定
+GitHub Issue #62を正本とし、収益が安定したとユーザーが判断して実装開始を明示承認するまで着手しない。
+
+着手前に必要なこと:
+
+- AIで増える利用価値と概算API費用を比較する
+- 月額上限、停止条件、kill switchを設計する
+- 外部送信データとマスキング境界を確認する
+- ユーザーの明示承認を記録する
+
+それまでは次を実装しない:
+
+- AI専用feature flag
 - 管理者ON/OFF
-- 利用ログ
-- コスト上限
+- AI adapter
+- AI API key/Secret
+- AI runtime call
+- AI専用利用ログ・コスト計測
+
+AIがなくても基本導線がすべて成立することを維持する。
