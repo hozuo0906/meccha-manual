@@ -95,6 +95,20 @@ accessibilityTest = replaceOnce(
 await writeFile("tests/phase1-accessibility.test.mjs", accessibilityTest, "utf8");
 
 let appAssets = await readFile("apps/worker/src/app-assets.ts", "utf8");
+appAssets = replaceOnce(
+  appAssets,
+  `'<button class="manual-list-item" type="button" role="listitem" data-manual-id="'`,
+  `'<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="'`,
+  "manual list item preserves button semantics"
+);
+appAssets = replaceOnce(
+  appAssets,
+  `        '<span class="badge">' + escapeHtml(manualStatusLabels[manual.status] || manual.status) + '</span>' +
+      '</button>'`,
+  `        '<span class="badge">' + escapeHtml(manualStatusLabels[manual.status] || manual.status) + '</span>' +
+      '</button></div>'`,
+  "manual list item wrapper closes after button"
+);
 const appAssetsModuleUrl = `data:text/javascript;base64,${Buffer.from(appAssets).toString("base64")}`;
 const { APP_CSS, APP_JS } = await import(appAssetsModuleUrl);
 const assetVersion = `sha256-${createHash("sha256")
