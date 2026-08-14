@@ -32,5 +32,8 @@ export function suggestManualInstruction(
   const target = normalizeTargetText(input.targetText);
   if (!target) return null;
 
-  return `${target}${ACTION_SUFFIXES[input.actionType]}`;
+  const suffix = ACTION_SUFFIXES[input.actionType];
+  if (!suffix) return null;
+
+  return `${target}${suffix}`;
 }
