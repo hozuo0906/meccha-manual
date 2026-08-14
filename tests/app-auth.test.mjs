@@ -1965,9 +1965,10 @@ test("メンバー一覧を明示操作で読み込みowner/adminだけに変更
   });
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
-  assert.match(harness.app.innerHTML, /href="#workspace-heading" aria-current="page">ワークスペース/);
-  assert.match(harness.app.innerHTML, /href="#members-heading">メンバー管理/);
-  assert.match(harness.app.innerHTML, /<span class="nav-item" aria-disabled="true"><span>手順書<\/span><span class="nav-status">準備中/);
+  assert.match(harness.app.innerHTML, /id="workspace-nav-button" class="nav-item nav-button active" type="button" aria-current="page">ワークスペース/);
+  assert.match(harness.app.innerHTML, /id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理/);
+  assert.match(harness.app.innerHTML, /id="manual-nav-button" class="nav-item nav-button" type="button">手順書/);
+  assert.match(harness.app.innerHTML, /<span class="nav-item" aria-disabled="true"><span>操作を記録<\/span><span class="nav-status">準備中/);
   assert.match(harness.app.innerHTML, /現在の権限：メンバー一覧で確認/);
   assert.match(harness.app.innerHTML, /メンバー一覧を表示/);
   assert.doesNotMatch(harness.app.innerHTML, /member-add-form/);

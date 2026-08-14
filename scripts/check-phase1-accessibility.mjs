@@ -89,7 +89,7 @@ export function validatePhase1Accessibility({ html = APP_HTML, css = APP_CSS, js
     ['id="screen-content" class="boot" tabindex="-1" role="status" aria-live="polite"', "認証更新画面に本文スキップ先を維持してください。"],
     ['id="screen-content" class="main"', "共通シェルに反復ナビ後の本文スキップ先を置いてください。"],
     ['<nav class="nav" aria-label="主要メニュー">', "主要ナビゲーションに名前を付けてください。"],
-    ['href="#members-heading">メンバー管理</a>', "メンバー管理へキーボード移動できる導線を提供してください。"],
+    ['id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>', "メンバー管理へキーボード移動できる導線を提供してください。"],
     ['<span class="nav-item" aria-disabled="true">', "未提供機能は操作不能な準備中表示にしてください。"],
     ['role="region" tabindex="0" aria-label="所属ワークスペース一覧"', "横スクロールするワークスペース表へ名前を付けてください。"],
     ['role="region" tabindex="0" aria-label="ワークスペースメンバー一覧"', "横スクロールするメンバー表へ名前を付けてください。"],

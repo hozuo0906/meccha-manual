@@ -143,21 +143,22 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   await openManualScreen(page);
 
   await expect(page.getByText("手順書はまだありません。" )).toBeVisible();
-  await page.getByLabel("タイトル").fill("入会受付手順");
-  await page.getByLabel("説明").fill("受付担当者向け");
+  await page.locator("#manual-create-title").fill("入会受付手順");
+  await page.locator("#manual-create-description").fill("受付担当者向け");
   await page.getByRole("button", { name: "手順書を作成" }).click();
 
   await expect(page.getByRole("heading", { name: "入会受付手順" })).toBeVisible();
-  await page.getByLabel("見出し").fill("保存する");
-  await page.getByLabel("操作対象").fill("保存ボタン");
+  await page.locator("#new-step-title").fill("保存する");
+  await page.locator("#new-step-target").fill("保存ボタン");
   await page.getByRole("button", { name: "手順を追加" }).click();
-  await expect(page.getByDisplayValue("［保存ボタン］をクリックします。" )).toBeVisible();
+  const instruction = page.locator(`#step-instruction-${firstStepId}`);
+  const target = page.locator(`#step-target-${firstStepId}`);
+  await expect(instruction).toHaveValue("［保存ボタン］をクリックします。");
 
-  const instruction = page.getByLabel("手順文").last();
   await instruction.fill("利用者が手修正した文章です。");
-  await page.getByLabel("操作対象").last().fill("確定ボタン");
+  await target.fill("確定ボタン");
   await page.getByRole("button", { name: "手順を保存" }).click();
-  await expect(page.getByDisplayValue("利用者が手修正した文章です。" )).toBeVisible();
+  await expect(page.locator(`#step-instruction-${firstStepId}`)).toHaveValue("利用者が手修正した文章です。");
   expect(state.instructionSeenOnPatch).toBe("利用者が手修正した文章です。");
   expect(JSON.stringify(state.steps)).not.toContain("person@example.com");
 });
