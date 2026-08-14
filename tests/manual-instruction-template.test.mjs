@@ -45,3 +45,10 @@ test("blank target does not invent an instruction", () => {
   assert.equal(suggestManualInstruction({ targetText: "   ", actionType: "click" }), null);
   assert.equal(suggestManualInstruction({ targetText: null, actionType: "click" }), null);
 });
+
+test("unknown runtime action fails closed instead of inventing text", () => {
+  assert.equal(
+    suggestManualInstruction({ targetText: "対象項目", actionType: "unknown" }),
+    null
+  );
+});
