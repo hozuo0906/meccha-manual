@@ -25,7 +25,18 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply latest Codex review fixes
-        run: python scripts/apply-phase2-final-review-fixes.py
+        run: |
+          python scripts/apply-phase2-final-review-fixes.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("apps/worker/src/app-assets.ts")
+          source = path.read_text(encoding="utf-8")
+          old = 'export const APP_ASSET_VERSION = "sha256-e2426b297f5d2815";'
+          new = 'export const APP_ASSET_VERSION = "sha256-f91feff418aa728d";'
+          if source.count(old) != 1:
+              raise SystemExit("app asset version replacement target mismatch")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
       - run: npm ci
       - name: Validate Phase 2 contracts
         run: |
