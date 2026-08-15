@@ -1,0 +1,64 @@
+name: Apply Phase 2 Detail Budget Fix
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-editor-ui
+    paths:
+      - scripts/apply-phase2-detail-budget-fix.py
+      - .github/workflows/apply-phase2-detail-budget-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-editor-ui
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply detail response budget fix
+        run: python scripts/apply-phase2-detail-budget-fix.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate Phase 2 contracts
+        run: |
+          node scripts/check-phase2-manual-edit-api.mjs
+          node scripts/check-phase2-manual-editor-ui.mjs
+      - name: Test manual API and UI boundaries
+        run: |
+          node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
+          node --test tests/manual-editor-ui.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test Phase 2 browser flows
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: |
+          git diff --check
+          git diff --check origin/main...HEAD
+      - name: Commit permanent fixes only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/worker/src/manual-edit-router.ts \
+            scripts/check-phase2-manual-edit-api.mjs \
+            docs/05-api/phase2-manual-edit-api.md \
+            docs/09-delivery/decision-log.md \
+            tests/manual-edit-api.test.mjs
+          git commit -m "fix: size manual detail budget for escaped fields"
+          git push origin HEAD:feature/phase2-manual-editor-ui
