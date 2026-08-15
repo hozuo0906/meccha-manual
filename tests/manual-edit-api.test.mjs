@@ -287,6 +287,21 @@ test("explicit step instruction is preserved", async () => {
   }
 });
 
+test("step patch requires the version displayed by the editor", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()])]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath(`/steps/${STEP_ID}`), "PATCH", JSON.stringify({ title: "更新" })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_VERSION_INVALID");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("step patch keeps the saved instruction when target fields change", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()]), json([stepRow()]), json(null)
@@ -294,6 +309,7 @@ test("step patch keeps the saved instruction when target fields change", async (
   try {
     const response = await handleManualEditRoute(
       request(detailPath(`/steps/${STEP_ID}`), "PATCH", JSON.stringify({
+        expectedUpdatedAt: "2026-08-14T00:00:02.000Z",
         actionType: "select",
         targetText: "プラン選択"
       })),
@@ -319,12 +335,16 @@ test("stale manual step update maps to a determinate 409 conflict", async () => 
   ]);
   try {
     const response = await handleManualEditRoute(
-      request(detailPath(`/steps/${STEP_ID}`), "PATCH", JSON.stringify({ title: "競合更新" })),
+      request(detailPath(`/steps/${STEP_ID}`), "PATCH", JSON.stringify({
+        title: "競合更新",
+        expectedUpdatedAt: "2026-08-14T00:00:01.000Z"
+      })),
       ENV
     );
     assert.equal(response?.status, 409);
     const body = await response.json();
     assert.equal(body.code, "MANUAL_STEP_EDIT_CONFLICT");
+    assert.equal(JSON.parse(String(mock.calls[5].init.body)).expected_step_updated_at, "2026-08-14T00:00:01.000Z");
     assert.match(body.message, /再読み込み/);
   } finally {
     mock.restore();

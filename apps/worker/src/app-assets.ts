@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-e2426b297f5d2815";
+export const APP_ASSET_VERSION = "sha256-f91feff418aa728d";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2222,7 +2222,7 @@ function manualStepHtml(step, index, count, canEdit) {
       '</dl></div></article>';
   }
   return '<article class="manual-step-card" aria-labelledby="step-heading-' + escapeHtml(step.id) + '">' + header +
-    '<form class="manual-step-form" data-step-id="' + escapeHtml(step.id) + '">' +
+    '<form class="manual-step-form" data-step-id="' + escapeHtml(step.id) + '" data-step-updated-at="' + escapeHtml(step.updatedAt) + '">' +
       '<div class="manual-step-grid">' +
         '<div class="field"><label for="step-type-' + escapeHtml(step.id) + '">種類</label><select id="step-type-' + escapeHtml(step.id) + '" name="type">' + stepTypeOptions(step.type) + '</select></div>' +
         '<div class="field"><label for="step-action-' + escapeHtml(step.id) + '">操作</label><select id="step-action-' + escapeHtml(step.id) + '" name="actionType">' + actionTypeOptions(step.actionType) + '</select></div>' +
@@ -2453,6 +2453,28 @@ async function createManualFromUi(event) {
       setManualMutationBusyState(false);
       return loadSession();
     }
+    if (error.status === 403 || error.status === 404) {
+      manualsState = { ...manualsState, message: error.message, messageKind: "error" };
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
+      setManualMutationBusyState(false);
+      renderShell(currentSession, "", "notice", "manuals-message");
+      await loadWorkspaceMembers(workspaceId, {
+        message: error.message,
+        messageKind: "error",
+        focusId: "manuals-message",
+        alreadyRendered: true
+      });
+      return;
+    }
     if (manualMutationUnknown(error)) {
       setManualMutationBusyState(false);
       await loadManuals(workspaceId, { message: "作成結果を一覧で確認してください。重ねて作成しないでください。", messageKind: "warning", focusId: "manuals-message" });
@@ -2543,6 +2565,7 @@ function stepPayloadFromForm(form, isNew) {
   };
   const instruction = String(form.elements.instruction.value || "");
   if (!isNew || instruction) payload.instruction = instruction;
+  if (!isNew) payload.expectedUpdatedAt = String(form.dataset.stepUpdatedAt || "");
   return payload;
 }
 

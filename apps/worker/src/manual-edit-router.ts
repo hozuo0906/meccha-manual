@@ -93,6 +93,14 @@ function requireTimestamp(value: unknown): string | null {
   return value;
 }
 
+function requiredExpectedStepUpdatedAt(body: Record<string, unknown>): string {
+  const expectedUpdatedAt = requireTimestamp(body.expectedUpdatedAt);
+  if (!expectedUpdatedAt) {
+    throw new ManualError(400, "MANUAL_STEP_VERSION_INVALID", "手順を再読み込みしてから保存してください。");
+  }
+  return expectedUpdatedAt;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -765,8 +773,9 @@ async function createStep(
 }
 
 function patchStepInput(body: Record<string, unknown>, existing: ManualStep): ManualStep {
-  assertAllowedKeys(body, ["type", "title", "instruction", "actionType", "targetText", "url"]);
-  if (Object.keys(body).length === 0) {
+  assertAllowedKeys(body, ["type", "title", "instruction", "actionType", "targetText", "url", "expectedUpdatedAt"]);
+  const patchKeys = Object.keys(body).filter((key) => key !== "expectedUpdatedAt");
+  if (patchKeys.length === 0) {
     throw new ManualError(400, "MANUAL_STEP_PATCH_REQUIRED", "変更内容を入力してください。");
   }
   const type = stepType(body.type, existing.type);
@@ -802,8 +811,10 @@ async function updateStep(
   const { session } = await authorizedSession(request, env, workspaceId, true);
   const manual = await fetchManualContext(env, session.accessToken, workspaceId, manualId);
   const draftId = requireDraftId(manual);
+  const body = await readRequestJson(request);
+  const expectedUpdatedAt = requiredExpectedStepUpdatedAt(body);
   const existing = await fetchActiveStep(env, session.accessToken, workspaceId, draftId, stepId);
-  const next = patchStepInput(await readRequestJson(request), existing);
+  const next = patchStepInput(body, existing);
   await callMutationRpc(
     env,
     session.accessToken,
@@ -811,7 +822,7 @@ async function updateStep(
     {
       target_revision_id: draftId,
       target_step_id: stepId,
-      expected_step_updated_at: existing.updatedAt,
+      expected_step_updated_at: expectedUpdatedAt,
       step_type: next.type,
       step_title: next.title,
       step_instruction: next.instruction,

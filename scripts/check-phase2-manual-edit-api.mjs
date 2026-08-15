@@ -40,7 +40,9 @@ const requiredEditRouter = [
   "MANUAL_STEP_CREATE_RESULT_UNKNOWN",
   "MANUAL_STEP_UPDATE_RESULT_UNKNOWN",
   "MANUAL_STEP_EDIT_CONFLICT",
-  "expected_step_updated_at: existing.updatedAt",
+  "MANUAL_STEP_VERSION_INVALID",
+  "requiredExpectedStepUpdatedAt",
+  "expected_step_updated_at: expectedUpdatedAt",
   "MANUAL_STEP_DELETE_RESULT_UNKNOWN",
   "MANUAL_STEP_REORDER_RESULT_UNKNOWN",
   "suggestManualInstruction",
@@ -78,6 +80,7 @@ const requiredContract = [
   "64 KiB",
   "6 MiB",
   "MANUAL_STEP_EDIT_CONFLICT",
+  "`expectedUpdatedAt`",
   "202608140012_phase2_manual_edit_http_contract.sql",
   "入力値そのもの",
   "外部AI API"

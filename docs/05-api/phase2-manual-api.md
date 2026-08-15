@@ -48,8 +48,9 @@ Phase 1のHttpOnly Cookie sessionと既存Supabase RLS/RPCを使い、選択work
 
 - 認証: Phase 1 HttpOnly Cookie session必須。
 - CSRF境界: same-origin `Origin`必須、`Content-Type: application/json`必須。
-- bodyはストリーム読取中にも16 KiBで打ち切り、`Content-Length`が無いchunked bodyでも上限を迂回させない。
+- bodyはストリーム読取中にも64 KiBで打ち切り、`Content-Length`が無いchunked bodyでも上限を迂回させない。
 - titleはtrim後1〜64 Unicode code pointとし、WorkerとDB制約で同じ上限を強制する。
+- descriptionは10,000 Unicode code point以内とし、WorkerでRPC呼出前に400へ確定し、DB制約でも同じ上限を強制する。
 - active memberであることを確認した上で、owner/admin/editorのみ作成可能。viewerは`403 MANUAL_CREATE_FORBIDDEN`。
 - 別workspace/非memberは403にせず`404 MANUALS_NOT_FOUND`。
 - DB書込は既存`create_manual` RPCを利用し、manualとrevision 1のdraftを同一DB処理で作成する。
@@ -96,7 +97,8 @@ Phase 1のHttpOnly Cookie sessionと既存Supabase RLS/RPCを使い、選択work
 - 非member 404
 - viewer作成403
 - editor作成正常系と`create_manual` RPC payload
-- Content-Lengthなしの16 KiB超bodyを413
+- Content-Lengthなしの64 KiB超bodyを413
+- description 10,000文字超をRPC前に400
 - 1000件超を409
 - 1000件・JSON最悪エスケープが1 MiB以内で取得できる
 - 作成上流5xxをresult unknownとして再送誘発しない

@@ -110,7 +110,7 @@ current draft上のstep内容を部分更新する。
 - same-origin `Origin`と`Content-Type: application/json`を必須にする。
 - owner/admin/editorのみ。
 - DB書込は`update_manual_step` RPCを利用し、append/delete/reorderと同じdraft revision rowをlockする。
-- Workerが取得したstepの`updatedAt`を楽観的更新条件としてRPCへ渡し、revision lock取得後のDB rowと一致するときだけ更新する。同じversionからの後続更新は`409 MANUAL_STEP_EDIT_CONFLICT`とし、先行更新を上書きしない。
+- クライアントは詳細取得時に表示したstepの`updatedAt`を`expectedUpdatedAt`としてPATCHへ含める。Workerはその値を楽観的更新条件としてRPCへ渡し、revision lock取得後のDB rowと一致するときだけ更新する。同じversionからの後続更新は`409 MANUAL_STEP_EDIT_CONFLICT`とし、先行更新を上書きしない。WorkerがPATCH直前に再取得した新しいversionへ差し替えてはならない。
 - `position`、`workspace_id`、`revision_id`、`created_by`、`assetId`、`annotation`、`masking`等は入力として受け付けない。
 - current draftに属するactive stepだけを更新する。
 - instructionが入力に含まれない場合、保存済みinstructionを保持し、ローカル候補で上書きしない。

@@ -42,6 +42,7 @@ const MAX_SUPABASE_JSON_BYTES = 512 * 1024;
 const MAX_MANUAL_LIST_JSON_BYTES = 1024 * 1024;
 const MAX_MANUAL_LIST_ITEMS = 1000;
 export const MAX_MANUAL_TITLE_LENGTH = 64;
+const MAX_MANUAL_DESCRIPTION_LENGTH = 10_000;
 const SUPABASE_TIMEOUT_MS = 5000;
 const MANUAL_STATUSES = new Set<ManualStatus>(["draft", "reviewing", "published", "stale", "archived"]);
 
@@ -527,6 +528,9 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
     throw new ManualError(400, "MANUAL_DESCRIPTION_INVALID", "説明は文字で入力してください。");
   }
   const description = typeof body.description === "string" ? body.description : "";
+  if (Array.from(description).length > MAX_MANUAL_DESCRIPTION_LENGTH) {
+    throw new ManualError(400, "MANUAL_DESCRIPTION_INVALID", "説明は10,000文字以内で入力してください。");
+  }
   const folderId = body.folderId === undefined || body.folderId === null ? null : String(body.folderId);
   if (folderId !== null && !UUID_PATTERN.test(folderId)) {
     throw new ManualError(400, "MANUAL_FOLDER_INVALID", "フォルダーを確認してください。");

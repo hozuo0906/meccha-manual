@@ -148,6 +148,21 @@ test("editor creates manual through create_manual RPC", async () => {
   }
 });
 
+test("manual description over 10,000 code points is rejected before create RPC", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk()]);
+  try {
+    const response = await handleManualRoute(
+      request("POST", JSON.stringify({ title: "説明上限", description: "あ".repeat(10_001) })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_DESCRIPTION_INVALID");
+    assert.equal(mock.calls.length, 3);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("streamed JSON body over 64 KiB fails with 413 before create RPC", async () => {
   const largeJson = JSON.stringify({ title: "手順", description: "x".repeat(70 * 1024) });
   const bytes = new TextEncoder().encode(largeJson);

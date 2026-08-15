@@ -33,7 +33,10 @@ async function installManualFixture(page, role, options = {}) {
     }],
     steps: options.steps ? [...options.steps] : [],
     instructionSeenOnPatch: null,
+    expectedUpdatedAtSeen: null,
+    failNextManualCreate: null,
     failNextStepPatch: null,
+    currentRole: role,
     canEdit: role !== "viewer"
   };
   const session = sessionFor(role);
@@ -49,14 +52,23 @@ async function installManualFixture(page, role, options = {}) {
     if (pathname === `/api/workspaces/${workspaceId}/members` && method === "GET") {
       return json(200, {
         workspaceId,
-        currentUserRole: role,
-        members: [{ userId, displayName: `${role}ユーザー`, role, status: "active", joinedAt: "2026-08-14T00:00:00.000Z" }]
+        currentUserRole: state.currentRole,
+        members: [{ userId, displayName: `${state.currentRole}ユーザー`, role: state.currentRole, status: "active", joinedAt: "2026-08-14T00:00:00.000Z" }]
       });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "GET") {
       return json(200, { manuals: state.manuals });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "POST") {
+      if (state.failNextManualCreate) {
+        const failure = state.failNextManualCreate;
+        state.failNextManualCreate = null;
+        if (failure.status === 403 || failure.status === 404) {
+          state.currentRole = "viewer";
+          state.canEdit = false;
+        }
+        return json(failure.status, { code: failure.code, message: failure.message });
+      }
       const body = request.postDataJSON();
       state.manuals = [{
         id: manualId,
@@ -113,15 +125,20 @@ async function installManualFixture(page, role, options = {}) {
       return json(201, { stepId: firstStepId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps/${firstStepId}` && method === "PATCH") {
+      const body = request.postDataJSON();
+      state.expectedUpdatedAtSeen = body.expectedUpdatedAt;
       if (state.failNextStepPatch) {
         const failure = state.failNextStepPatch;
         state.failNextStepPatch = null;
-        if (failure.status === 403) state.canEdit = false;
+        if (failure.status === 403) {
+          state.currentRole = "viewer";
+          state.canEdit = false;
+        }
         return json(failure.status, { code: failure.code, message: failure.message });
       }
-      const body = request.postDataJSON();
-      state.instructionSeenOnPatch = body.instruction;
-      state.steps[0] = { ...state.steps[0], ...body, updatedAt: "2026-08-14T00:00:03.000Z" };
+      const { expectedUpdatedAt, ...stepPatch } = body;
+      state.instructionSeenOnPatch = stepPatch.instruction;
+      state.steps[0] = { ...state.steps[0], ...stepPatch, updatedAt: "2026-08-14T00:00:03.000Z" };
       return json(200, { stepId: firstStepId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps/${firstStepId}` && method === "DELETE") {
@@ -177,7 +194,18 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   await expect(page.locator(`#step-instruction-${firstStepId}`)).toHaveValue("利用者が手修正した文章です。");
   await expect(page.locator("#manual-draft-description")).toHaveValue("別フォームの未保存説明");
   expect(state.instructionSeenOnPatch).toBe("利用者が手修正した文章です。");
+  expect(state.expectedUpdatedAtSeen).toBe("2026-08-14T00:00:02.000Z");
   expect(JSON.stringify(state.steps)).not.toContain("person@example.com");
+});
+
+test("手順書作成中の権限失効は作成フォームを閉じて最新権限を取得する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { empty: true });
+  await openManualScreen(page);
+  state.failNextManualCreate = { status: 403, code: "MANUAL_CREATE_FORBIDDEN", message: "作成権限がありません。" };
+  await page.locator("#manual-create-title").fill("権限失効テスト");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect(page.locator("#manual-create-form")).toHaveCount(0);
+  await expect(page.getByText("現在の権限では手順書を作成・編集できません。閲覧はできます。" )).toBeVisible();
 });
 
 
