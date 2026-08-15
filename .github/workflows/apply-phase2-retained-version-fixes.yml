@@ -1,0 +1,69 @@
+name: Apply Phase 2 Retained Version Fixes
+
+on:
+  push:
+    branches:
+      - feature/phase2-manual-editor-ui
+    paths:
+      - ".github/workflows/apply-phase2-retained-version-fixes.yml"
+      - "scripts/apply-phase2-retained-version-fixes.py"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-manual-editor-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply retained-version fixes
+        run: python scripts/apply-phase2-retained-version-fixes.py
+      - name: Refresh app asset version
+        run: |
+          VERSION=$(node --experimental-strip-types --input-type=module -e 'import { createHash } from "node:crypto"; import { APP_CSS, APP_JS } from "./apps/worker/src/app-assets.ts"; process.stdout.write("sha256-" + createHash("sha256").update(APP_CSS).update("\0").update(APP_JS).digest("hex").slice(0,16));')
+          python - "$VERSION" <<'PY'
+          from pathlib import Path
+          import re, sys
+          path = Path('apps/worker/src/app-assets.ts')
+          text = path.read_text(encoding='utf-8')
+          text, count = re.subn(r'export const APP_ASSET_VERSION = "sha256-[0-9a-f]{16}";', f'export const APP_ASSET_VERSION = "{sys.argv[1]}";', text, count=1)
+          if count != 1:
+              raise SystemExit('asset version declaration not found')
+          path.write_text(text, encoding='utf-8')
+          PY
+      - run: npm ci
+      - name: Validate Phase 2 contracts
+        run: |
+          node scripts/check-phase2-manual-edit-api.mjs
+          node scripts/check-phase2-manual-editor-ui.mjs
+      - name: Test manual API and UI boundaries
+        run: |
+          node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
+          node --test tests/manual-editor-ui.test.mjs
+      - name: Repository checks
+        run: npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test Phase 2 browser flows
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: git diff --check
+      - name: Commit permanent fixes only
+        run: |
+          rm scripts/apply-phase2-retained-version-fixes.py
+          rm .github/workflows/apply-phase2-retained-version-fixes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve retained manual step versions"
+          git push origin HEAD:feature/phase2-manual-editor-ui
