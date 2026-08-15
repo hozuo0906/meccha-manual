@@ -123,29 +123,34 @@ static = static.replace(old_static, new_static, 1)
 STATIC_TEST.write_text(static, encoding='utf-8')
 
 e2e = E2E.read_text(encoding='utf-8')
-# Capture the last step create/update payload in the fixture.
-old_state = '''    failNextStepPatch: null,
-    canEdit: role !== "viewer"'''
-new_state = '''    failNextStepPatch: null,
+old_state = '''    failNextManualCreate: null,
+    failNextStepPatch: null,
+    currentRole: role,'''
+new_state = '''    failNextManualCreate: null,
+    failNextStepPatch: null,
     lastStepCreateBody: null,
     lastStepPatchBody: null,
-    canEdit: role !== "viewer"'''
+    currentRole: role,'''
 if old_state not in e2e:
     raise SystemExit('fixture state snippet not found')
 e2e = e2e.replace(old_state, new_state, 1)
+
 old_create = '''    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps` && method === "POST") {
-      const body = request.postDataJSON();'''
+      const body = request.postDataJSON();
+      const instruction = body.instruction || `［${body.targetText}］をクリックします。`;'''
 new_create = '''    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps` && method === "POST") {
       const body = request.postDataJSON();
-      state.lastStepCreateBody = body;'''
+      state.lastStepCreateBody = body;
+      const instruction = body.instruction || (body.type === "action" ? `［${body.targetText}］をクリックします。` : "");'''
 if old_create not in e2e:
     raise SystemExit('fixture create snippet not found')
 e2e = e2e.replace(old_create, new_create, 1)
-old_patch = '''      const body = request.postDataJSON();
-      state.instructionSeenOnPatch = body.instruction;'''
-new_patch = '''      const body = request.postDataJSON();
+
+old_patch = '''      const { expectedUpdatedAt, ...stepPatch } = body;
+      state.instructionSeenOnPatch = stepPatch.instruction;'''
+new_patch = '''      const { expectedUpdatedAt, ...stepPatch } = body;
       state.lastStepPatchBody = body;
-      state.instructionSeenOnPatch = body.instruction;'''
+      state.instructionSeenOnPatch = stepPatch.instruction;'''
 if old_patch not in e2e:
     raise SystemExit('fixture patch snippet not found')
 e2e = e2e.replace(old_patch, new_patch, 1)
@@ -185,11 +190,14 @@ if marker2 not in e2e:
     raise SystemExit('E2E insertion marker not found')
 e2e = e2e.replace(marker2, addition2 + marker2, 1)
 
-# Strengthen the membership-loss scenario: after detail is fail-closed, returning to list must not revive create UI.
-old_membership = '''  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+old_membership = '''  state.failNextStepPatch = { status: 404, code: "MANUALS_NOT_FOUND", message: "所属を確認できません。" };
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator(".manual-step-form")).toHaveCount(0);
 });'''
-new_membership = '''  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+new_membership = '''  state.failNextStepPatch = { status: 404, code: "MANUALS_NOT_FOUND", message: "所属を確認できません。" };
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator(".manual-step-form")).toHaveCount(0);
   await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
   await expect(page.locator("#manual-create-form")).toHaveCount(0);
