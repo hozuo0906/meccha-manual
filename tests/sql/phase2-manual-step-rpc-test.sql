@@ -260,6 +260,95 @@ end;
 $$;
 reset role;
 
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'editor_id', false);
+do $$
+declare
+  rejected boolean := false;
+  protected_step_id uuid := 'aaaaaaaa-0000-4000-8000-000000000001';
+  protected_updated_at timestamptz;
+begin
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', '内部画像', '', 'click', '保存', null,
+      '99999999-9999-4999-8999-999999999999', '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step internal fields are not accepted%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted asset_id'; end if;
+
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', 'userinfo URL', '', 'navigate', '画面', 'https://user@example.com/path',
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted URL userinfo'; end if;
+
+  select updated_at into protected_updated_at from public.manual_steps where id = protected_step_id;
+  perform public.update_manual_step(
+    '99999999-9999-4999-8999-999999999999', protected_step_id, protected_updated_at,
+    'action', 'Lock A updated', 'public fields only', 'click', '保存', null,
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+end;
+$$;
+reset role;
+
+do $$
+begin
+  update public.manual_steps
+  set asset_id = '99999999-9999-4999-8999-999999999999',
+      annotation = '{"source":"capture"}'::jsonb,
+      masking = '{"masked":true}'::jsonb
+  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+end;
+$$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'editor_id', false);
+do $$
+declare
+  protected_updated_at timestamptz;
+begin
+  select updated_at into protected_updated_at
+  from public.manual_steps
+  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+
+  perform public.update_manual_step(
+    '99999999-9999-4999-8999-999999999999',
+    'aaaaaaaa-0000-4000-8000-000000000001',
+    protected_updated_at,
+    'action', 'Lock A public edit', 'internal fields survive', 'click', '保存', null,
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+end;
+$$;
+reset role;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.manual_steps
+    where id = 'aaaaaaaa-0000-4000-8000-000000000001'
+      and asset_id = '99999999-9999-4999-8999-999999999999'
+      and annotation = '{"source":"capture"}'::jsonb
+      and masking = '{"masked":true}'::jsonb
+  ) then
+    raise exception 'public step update erased internal fields';
+  end if;
+end;
+$$;
+
 set role anon;
 do $$
 begin

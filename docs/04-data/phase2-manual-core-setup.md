@@ -76,7 +76,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - 公開後の再編集は `create_manual_draft` RPCを使う。
 - 手順書の公開状態、現在の下書き、現在の公開版はRPC以外で変更しない。
 - manual作成、draft metadata更新、step mutationはSECURITY DEFINER RPCだけを利用し、authenticated direct DMLを許可しない。
-- 詳細APIは200 active steps、6 MiBを上限とし、本文フィールド上限をDBとWorkerで一致させる。
+- 詳細APIは200 active steps、8 MiBを上限とし、本文フィールド上限をDBとWorkerで一致させる。
 - `workspace_id`、作成者、所有者などの所有境界フィールドは更新しない。
 
 ## Manual setup steps

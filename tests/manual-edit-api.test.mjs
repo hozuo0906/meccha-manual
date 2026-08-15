@@ -360,6 +360,9 @@ test("step patch keeps the saved instruction when target fields change", async (
     assert.equal(rpcBody.step_instruction, "手修正済みです。");
     assert.equal(rpcBody.step_action_type, "select");
     assert.equal(rpcBody.step_target_text, "プラン選択");
+    assert.equal(rpcBody.step_asset_id, null);
+    assert.deepEqual(rpcBody.step_annotation, {});
+    assert.deepEqual(rpcBody.step_masking, {});
   } finally {
     mock.restore();
   }

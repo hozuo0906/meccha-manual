@@ -847,9 +847,9 @@ async function updateStep(
       step_action_type: next.actionType,
       step_target_text: next.targetText,
       step_url: next.url,
-      step_asset_id: next.assetId,
-      step_annotation: next.annotation,
-      step_masking: next.masking
+      step_asset_id: null,
+      step_annotation: {},
+      step_masking: {}
     },
     "void",
     "MANUAL_STEP_UPDATE_RESULT_UNKNOWN",

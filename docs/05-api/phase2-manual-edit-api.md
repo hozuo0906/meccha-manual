@@ -187,6 +187,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
+- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字を含むURLを拒否する。step更新では既存の内部項目を保持する。
 
 これらのmigrationはrepository内とGitHub Actions内の使い捨てPostgreSQLで検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
 

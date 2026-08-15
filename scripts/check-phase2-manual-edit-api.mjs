@@ -129,6 +129,9 @@ if (!entrypoint.includes("handleManualEditRoute")) {
 if (!setup.includes("202608140012_phase2_manual_edit_http_contract.sql")) {
   errors.push("Accepted Phase 2 rollout omits manual edit HTTP migration");
 }
+if (!setup.includes("200 active steps、8 MiB")) {
+  errors.push("Accepted Phase 2 setup does not match the 8 MiB manual detail boundary");
+}
 
 const forbidden = [
   "SUPABASE_SERVICE_ROLE_KEY",

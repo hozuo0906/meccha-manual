@@ -697,7 +697,8 @@ begin
     old_published_revision_id
   from public.manuals m
   where m.id = target_manual_id
-    and m.archived_at is null;
+    and m.archived_at is null
+  for update of m;
 
   if target_workspace_id is null then
     raise exception 'manual not found';

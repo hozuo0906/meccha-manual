@@ -33,7 +33,10 @@ const required = [
   "grant execute on function public.append_manual_step(",
   "grant execute on function public.update_manual_step(",
   "grant execute on function public.soft_delete_manual_step(uuid, uuid) to authenticated",
-  "grant execute on function public.reorder_manual_steps(uuid, uuid[]) to authenticated"
+  "grant execute on function public.reorder_manual_steps(uuid, uuid[]) to authenticated",
+  "manual step internal fields are not accepted",
+  "non-action manual step cannot include action fields",
+  "manual step url is invalid"
 ];
 
 const requiredContract = [
@@ -88,6 +91,13 @@ for (const snippet of forbidden) {
   if (sql.toLowerCase().includes(snippet.toLowerCase())) {
     errors.push(`Forbidden manual-step migration contract: ${snippet}`);
   }
+}
+const updateSection = sql.slice(
+  sql.indexOf("create or replace function public.update_manual_step("),
+  sql.indexOf("create or replace function public.soft_delete_manual_step(")
+);
+if (updateSection.includes("asset_id = step_asset_id") || updateSection.includes("annotation = coalesce(step_annotation")) {
+  errors.push("update_manual_step must preserve internal fields instead of replacing them from public input");
 }
 
 if (errors.length > 0) {

@@ -311,7 +311,12 @@ begin
       '{}'::jsonb
     );
   exception
-    when check_violation then rejected := true;
+    when others then
+      if sqlerrm like '%manual step url is invalid%' or sqlstate = '23514' then
+        rejected := true;
+      else
+        raise;
+      end if;
   end;
   if not rejected then
     raise exception 'oversized step URL was accepted';
@@ -364,6 +369,62 @@ begin
   if not rejected then
     raise exception '201st active manual step was accepted';
   end if;
+end;
+$$;
+
+
+-- Authenticated callers must not bypass the Worker contract through SECURITY DEFINER RPCs.
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    perform public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'action', '内部画像', '', 'click', '保存', null,
+      '99999999-9999-4999-8999-999999999999', '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step internal fields are not accepted%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted asset_id'; end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    perform public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'note', '不正action項目', '', 'click', '保存', null,
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%non-action manual step cannot include action fields%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted action fields on a note'; end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    perform public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'action', 'userinfo URL', '', 'navigate', '画面', 'https://user@example.com/path',
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted URL userinfo'; end if;
 end;
 $$;
 

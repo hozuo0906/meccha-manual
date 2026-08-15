@@ -31,7 +31,9 @@ create table public.manuals (
   id uuid primary key,
   workspace_id uuid not null,
   title text not null,
+  status text not null default 'draft',
   current_draft_revision_id uuid,
+  current_published_revision_id uuid,
   archived_at timestamptz
 );
 
@@ -42,7 +44,8 @@ create table public.manual_revisions (
   state public.manual_revision_state not null,
   title text not null,
   description text not null default '',
-  updated_at timestamptz not null default clock_timestamp()
+  updated_at timestamptz not null default clock_timestamp(),
+  published_at timestamptz
 );
 
 create table public.manual_steps (
@@ -203,11 +206,11 @@ values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '22222222-2222-4222-8222-222222222222', 'viewer'),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '11111111-1111-4111-8111-111111111111', 'editor');
 
-insert into public.manuals (id, workspace_id, title, current_draft_revision_id)
+insert into public.manuals (id, workspace_id, title, status, current_draft_revision_id, current_published_revision_id)
 values
-  ('33333333-3333-4333-8333-333333333333', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '旧タイトル', '44444444-4444-4444-8444-444444444444'),
-  ('55555555-5555-4555-8555-555555555555', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '公開済み手順', null),
-  ('66666666-6666-4666-8666-666666666666', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '別領域', '77777777-7777-4777-8777-777777777777');
+  ('33333333-3333-4333-8333-333333333333', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '旧タイトル', 'draft', '44444444-4444-4444-8444-444444444444', null),
+  ('55555555-5555-4555-8555-555555555555', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '公開済み手順', 'published', null, '88888888-8888-4888-8888-888888888888'),
+  ('66666666-6666-4666-8666-666666666666', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '別領域', 'draft', '77777777-7777-4777-8777-777777777777', null);
 
 insert into public.manual_revisions (id, workspace_id, manual_id, state, title, description, updated_at)
 values

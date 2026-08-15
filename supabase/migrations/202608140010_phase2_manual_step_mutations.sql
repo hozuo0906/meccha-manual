@@ -49,6 +49,29 @@ begin
     raise exception 'workspace editor role required';
   end if;
 
+  if step_asset_id is not null
+    or coalesce(step_annotation, '{}'::jsonb) <> '{}'::jsonb
+    or coalesce(step_masking, '{}'::jsonb) <> '{}'::jsonb
+  then
+    raise exception 'manual step internal fields are not accepted';
+  end if;
+
+  if step_type <> 'action'
+    and (step_action_type is not null or step_target_text is not null)
+  then
+    raise exception 'non-action manual step cannot include action fields';
+  end if;
+
+  if step_url is not null
+    and (
+      char_length(step_url) > 2048
+      or step_url !~* '^https?://[^/?#@]+([/?#]|$)'
+      or step_url ~ '[[:space:][:cntrl:]]'
+    )
+  then
+    raise exception 'manual step url is invalid';
+  end if;
+
   select coalesce(max(ms.position), -1) + 1
   into next_position
   from public.manual_steps ms
@@ -143,6 +166,29 @@ begin
     raise exception 'workspace editor role required';
   end if;
 
+  if step_asset_id is not null
+    or coalesce(step_annotation, '{}'::jsonb) <> '{}'::jsonb
+    or coalesce(step_masking, '{}'::jsonb) <> '{}'::jsonb
+  then
+    raise exception 'manual step internal fields are not accepted';
+  end if;
+
+  if step_type <> 'action'
+    and (step_action_type is not null or step_target_text is not null)
+  then
+    raise exception 'non-action manual step cannot include action fields';
+  end if;
+
+  if step_url is not null
+    and (
+      char_length(step_url) > 2048
+      or step_url !~* '^https?://[^/?#@]+([/?#]|$)'
+      or step_url ~ '[[:space:][:cntrl:]]'
+    )
+  then
+    raise exception 'manual step url is invalid';
+  end if;
+
   update public.manual_steps ms
   set type = step_type,
       title = step_title,
@@ -150,9 +196,6 @@ begin
       action_type = step_action_type,
       target_text = step_target_text,
       url = step_url,
-      asset_id = step_asset_id,
-      annotation = coalesce(step_annotation, '{}'::jsonb),
-      masking = coalesce(step_masking, '{}'::jsonb),
       updated_at = clock_timestamp()
   where ms.id = target_step_id
     and ms.revision_id = target_revision_id
