@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-84209b4b4b09d236";
+export const APP_ASSET_VERSION = "sha256-8b42158903b7b1ee";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2169,6 +2169,37 @@ function openManualList(currentWorkspace, message = "", messageKind = "notice") 
   }
 }
 
+function limitManualFieldCodePoints(field, maxLength) {
+  const currentValue = String(field?.value || "");
+  const codePoints = Array.from(currentValue);
+  if (codePoints.length <= maxLength) return false;
+  const selectionStart = typeof field.selectionStart === "number" ? field.selectionStart : currentValue.length;
+  const caretCodePoints = Array.from(currentValue.slice(0, selectionStart)).length;
+  const limitedCodePoints = codePoints.slice(0, maxLength);
+  field.value = limitedCodePoints.join("");
+  if (typeof field.setSelectionRange === "function") {
+    const caret = limitedCodePoints.slice(0, Math.min(caretCodePoints, maxLength)).join("").length;
+    field.setSelectionRange(caret, caret);
+  }
+  return true;
+}
+
+function wireManualCodePointLimit(field) {
+  const maxLength = Number(field?.dataset?.codePointMax || 0);
+  if (!Number.isSafeInteger(maxLength) || maxLength < 1) return;
+  let composing = false;
+  const enforce = () => limitManualFieldCodePoints(field, maxLength);
+  field.addEventListener("compositionstart", () => { composing = true; });
+  field.addEventListener("compositionend", () => {
+    composing = false;
+    enforce();
+  });
+  field.addEventListener("input", () => {
+    if (!composing) enforce();
+  });
+  enforce();
+}
+
 function manualMessageHtml(state, id) {
   const kind = state.messageKind || "notice";
   const className = state.message
@@ -2199,8 +2230,8 @@ function manualListHtml(currentWorkspace) {
   const createPanel = canEdit
     ? '<form id="manual-create-form" class="workspace-form manual-form" novalidate>' +
         '<h2>新しい手順書</h2><p>タイトルだけでも作成できます。説明は後から変更できます。</p>' +
-        '<div class="field"><label for="manual-create-title">タイトル</label><input id="manual-create-title" name="title" maxlength="64" required></div>' +
-        '<div class="field"><label for="manual-create-description">説明</label><textarea id="manual-create-description" name="description" maxlength="10000"></textarea></div>' +
+        '<div class="field"><label for="manual-create-title">タイトル</label><input id="manual-create-title" name="title" data-code-point-max="64" required></div>' +
+        '<div class="field"><label for="manual-create-description">説明</label><textarea id="manual-create-description" name="description" data-code-point-max="10000"></textarea></div>' +
         '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>' + (manualMutationInFlight ? '作成中' : '手順書を作成') + '</button>' +
       '</form>'
     : '<section class="workspace-form" aria-labelledby="manual-permission-heading"><h2 id="manual-permission-heading">作成権限</h2><p>' + (roleKnown ? '現在の権限では手順書を作成・編集できません。閲覧はできます。' : 'メンバー権限を確認しています。') + '</p></section>';
@@ -2237,10 +2268,10 @@ function manualStepHtml(step, index, count, canEdit) {
         '<div class="field"><label for="step-type-' + escapeHtml(step.id) + '">種類</label><select id="step-type-' + escapeHtml(step.id) + '" name="type">' + stepTypeOptions(step.type) + '</select></div>' +
         '<div class="field"><label for="step-action-' + escapeHtml(step.id) + '">操作</label><select id="step-action-' + escapeHtml(step.id) + '" name="actionType">' + actionTypeOptions(step.actionType) + '</select></div>' +
       '</div>' +
-      '<div class="field"><label for="step-title-' + escapeHtml(step.id) + '">見出し</label><input id="step-title-' + escapeHtml(step.id) + '" name="title" maxlength="128" required value="' + escapeHtml(step.title) + '"></div>' +
-      '<div class="field"><label for="step-target-' + escapeHtml(step.id) + '">操作対象</label><input id="step-target-' + escapeHtml(step.id) + '" name="targetText" maxlength="256" value="' + escapeHtml(step.targetText || "") + '"></div>' +
-      '<div class="field"><label for="step-instruction-' + escapeHtml(step.id) + '">手順文</label><textarea id="step-instruction-' + escapeHtml(step.id) + '" name="instruction" maxlength="4000">' + escapeHtml(step.instruction || "") + '</textarea><span class="muted">保存済みの手順文は、操作対象を変えても自動で上書きしません。</span></div>' +
-      '<div class="field"><label for="step-url-' + escapeHtml(step.id) + '">URL</label><input id="step-url-' + escapeHtml(step.id) + '" name="url" maxlength="2048" inputmode="url" value="' + escapeHtml(step.url || "") + '"></div>' +
+      '<div class="field"><label for="step-title-' + escapeHtml(step.id) + '">見出し</label><input id="step-title-' + escapeHtml(step.id) + '" name="title" data-code-point-max="128" required value="' + escapeHtml(step.title) + '"></div>' +
+      '<div class="field"><label for="step-target-' + escapeHtml(step.id) + '">操作対象</label><input id="step-target-' + escapeHtml(step.id) + '" name="targetText" data-code-point-max="256" value="' + escapeHtml(step.targetText || "") + '"></div>' +
+      '<div class="field"><label for="step-instruction-' + escapeHtml(step.id) + '">手順文</label><textarea id="step-instruction-' + escapeHtml(step.id) + '" name="instruction" data-code-point-max="4000">' + escapeHtml(step.instruction || "") + '</textarea><span class="muted">保存済みの手順文は、操作対象を変えても自動で上書きしません。</span></div>' +
+      '<div class="field"><label for="step-url-' + escapeHtml(step.id) + '">URL</label><input id="step-url-' + escapeHtml(step.id) + '" name="url" data-code-point-max="2048" inputmode="url" value="' + escapeHtml(step.url || "") + '"></div>' +
       '<div class="manual-step-actions">' +
         '<button class="secondary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>手順を保存</button>' +
         '<button class="secondary-button compact-button manual-step-up" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === 0 || manualMutationInFlight ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'を</span>上へ</button>' +
@@ -2265,8 +2296,8 @@ function manualDetailHtml(currentWorkspace) {
   const metadata = draft
     ? canEdit
       ? '<form id="manual-draft-form" class="manual-detail-form" novalidate>' +
-          '<div class="field"><label for="manual-draft-title">タイトル</label><input id="manual-draft-title" name="title" maxlength="64" required value="' + escapeHtml(draft.title) + '"></div>' +
-          '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" maxlength="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
+          '<div class="field"><label for="manual-draft-title">タイトル</label><input id="manual-draft-title" name="title" data-code-point-max="64" required value="' + escapeHtml(draft.title) + '"></div>' +
+          '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
           '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>基本情報を保存</button>' +
         '</form>'
       : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>権限</dt><dd>閲覧のみ</dd></dl></div>'
@@ -2278,10 +2309,10 @@ function manualDetailHtml(currentWorkspace) {
     ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +
         '<h2>手順を追加</h2><p>入力した値やパスワードは記録せず、操作対象名だけを入力してください。</p>' +
         '<div class="manual-step-grid"><div class="field"><label for="new-step-type">種類</label><select id="new-step-type" name="type">' + stepTypeOptions("action") + '</select></div><div class="field"><label for="new-step-action">操作</label><select id="new-step-action" name="actionType">' + actionTypeOptions("click") + '</select></div></div>' +
-        '<div class="field"><label for="new-step-title">見出し</label><input id="new-step-title" name="title" maxlength="128" required></div>' +
-        '<div class="field"><label for="new-step-target">操作対象</label><input id="new-step-target" name="targetText" maxlength="256" placeholder="例：保存ボタン"></div>' +
-        '<div class="field"><label for="new-step-instruction">手順文（任意）</label><textarea id="new-step-instruction" name="instruction" maxlength="4000"></textarea><span class="muted">空欄の場合は操作対象からローカルで候補を作成します。外部AIは使用しません。</span></div>' +
-        '<div class="field"><label for="new-step-url">URL（任意）</label><input id="new-step-url" name="url" maxlength="2048" inputmode="url"></div>' +
+        '<div class="field"><label for="new-step-title">見出し</label><input id="new-step-title" name="title" data-code-point-max="128" required></div>' +
+        '<div class="field"><label for="new-step-target">操作対象</label><input id="new-step-target" name="targetText" data-code-point-max="256" placeholder="例：保存ボタン"></div>' +
+        '<div class="field"><label for="new-step-instruction">手順文（任意）</label><textarea id="new-step-instruction" name="instruction" data-code-point-max="4000"></textarea><span class="muted">空欄の場合は操作対象からローカルで候補を作成します。外部AIは使用しません。</span></div>' +
+        '<div class="field"><label for="new-step-url">URL（任意）</label><input id="new-step-url" name="url" data-code-point-max="2048" inputmode="url"></div>' +
         '<button class="primary-button" type="submit"' + (manualMutationInFlight || steps.length >= 200 ? ' disabled' : '') + '>' + (steps.length >= 200 ? '手順は200件までです' : '手順を追加') + '</button>' +
       '</form>'
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
@@ -2336,6 +2367,7 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   for (const form of document.querySelectorAll(".manual-step-form")) form.addEventListener("submit", updateManualStepFromUi);
   for (const button of document.querySelectorAll(".manual-step-delete")) button.addEventListener("click", deleteManualStepFromUi);
   for (const button of document.querySelectorAll(".manual-step-up, .manual-step-down")) button.addEventListener("click", reorderManualStepFromUi);
+  for (const field of document.querySelectorAll("[data-code-point-max]")) wireManualCodePointLimit(field);
   if (focusId) document.getElementById(focusId)?.focus();
   else document.getElementById(isDetail ? "manual-detail-heading" : "manuals-heading")?.focus();
 }
@@ -2578,6 +2610,17 @@ function updateManualDraftFromUi(event) {
   const form = event.currentTarget;
   const title = String(form.elements.title.value || "").trim();
   const description = String(form.elements.description.value || "");
+  if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
+    const message = "タイトルは1〜64文字、説明は10,000文字以内で入力してください。";
+    manualDetailState = { ...manualDetailState, status: "loaded", message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    const invalidField = !title || Array.from(title).length > 64 ? form.elements.title : form.elements.description;
+    invalidField.setAttribute("aria-invalid", "true");
+    invalidField.focus();
+    return;
+  }
+  form.elements.title.removeAttribute("aria-invalid");
+  form.elements.description.removeAttribute("aria-invalid");
   return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"] });
 }
 

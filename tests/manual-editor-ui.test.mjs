@@ -54,9 +54,13 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /manual-step-up/);
   assert.match(source, /manual-step-down/);
   assert.match(source, /visually-hidden/);
-  assert.match(source, /maxlength="64"/);
-  assert.match(source, /maxlength="10000"/);
-  assert.match(source, /maxlength="4000"/);
+  assert.match(source, /id="manual-create-title" name="title" data-code-point-max="64"/);
+  assert.match(source, /id="manual-create-description" name="description" data-code-point-max="10000"/);
+  assert.match(source, /id="manual-draft-description" name="description" data-code-point-max="10000"/);
+  assert.match(source, /name="instruction" data-code-point-max="4000"/);
+  assert.match(source, /function wireManualCodePointLimit/);
+  assert.match(source, /Array\.from\(description\)\.length > 10000/);
+  assert.doesNotMatch(source, /id="manual-(?:create|draft)-description"[^>]*maxlength=/);
   assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
   assert.doesNotMatch(source, /<button[^>]*role="listitem"/);
   assert.match(source, /id="members-heading" tabindex="-1"/);
@@ -66,6 +70,7 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   const config = await readFile("playwright.phase2.config.mjs", "utf8");
   const spec = await readFile("tests/e2e/phase2-manual-editor.spec.mjs", "utf8");
   assert.match(config, /phase2-manual-editor\.spec\.mjs/);
+  assert.match(spec, /手順書入力はUnicode code point単位の上限を守る/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
   assert.match(spec, /別フォームの未保存説明/);
   assert.match(spec, /更新競合を解消してください。/);

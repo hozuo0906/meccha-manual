@@ -53,7 +53,8 @@ Status: Accepted
 
 ## 上限と状態
 
-- title 64、description 10,000、step title 128、instruction 4,000、targetText 256、URL 2,048文字をHTML属性とAPI/DBで一致させる。
+- title 64、description 10,000、step title 128、instruction 4,000、targetText 256、URL 2,048文字をUIとAPI/DBで一致させる。
+- 手順書入力の文字数上限は、UTF-16 code unit基準のnative `maxlength`に依存せず、Unicode code point単位のJavaScript入力制御とsubmit/API/DB検証で強制する。
 - active stepsが200件の場合は追加ボタンを無効化する。
 - operation recordingはこの画面から起動せず、ナビゲーションも「準備中」のまま維持する。
 
