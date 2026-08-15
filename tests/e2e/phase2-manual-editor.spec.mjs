@@ -36,6 +36,8 @@ async function installManualFixture(page, role, options = {}) {
     expectedUpdatedAtSeen: null,
     failNextManualCreate: null,
     failNextStepPatch: null,
+    lastStepCreateBody: null,
+    lastStepPatchBody: null,
     currentRole: role,
     canEdit: role !== "viewer"
   };
@@ -110,7 +112,8 @@ async function installManualFixture(page, role, options = {}) {
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps` && method === "POST") {
       const body = request.postDataJSON();
-      const instruction = body.instruction || `［${body.targetText}］をクリックします。`;
+      state.lastStepCreateBody = body;
+      const instruction = body.instruction || (body.type === "action" ? `［${body.targetText}］をクリックします。` : "");
       state.steps.push({
         id: firstStepId,
         position: state.steps.length,
@@ -137,6 +140,7 @@ async function installManualFixture(page, role, options = {}) {
         return json(failure.status, { code: failure.code, message: failure.message });
       }
       const { expectedUpdatedAt, ...stepPatch } = body;
+      state.lastStepPatchBody = body;
       state.instructionSeenOnPatch = stepPatch.instruction;
       state.steps[0] = { ...state.steps[0], ...stepPatch, updatedAt: "2026-08-14T00:00:03.000Z" };
       return json(200, { stepId: firstStepId });
@@ -253,6 +257,8 @@ test("所属削除の404でも編集UIを閉じる", async ({ page }) => {
   await page.getByRole("button", { name: "手順を保存" }).click();
   await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator(".manual-step-form")).toHaveCount(0);
+  await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
+  await expect(page.locator("#manual-create-form")).toHaveCount(0);
 });
 
 test("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない", async ({ page }) => {
@@ -276,6 +282,35 @@ test("閲覧者は手順書と手順を閲覧できるが編集フォームは�
   await expect(page.locator("#manual-step-add-form")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "手順を保存" })).toHaveCount(0);
   await expect(page.getByText("現在の権限では閲覧のみ利用できます。" )).toBeVisible();
+});
+
+test("非action手順はaction専用項目を送信しない", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", {
+    steps: [{
+      id: firstStepId,
+      position: 0,
+      type: "action",
+      title: "保存する",
+      instruction: "［保存ボタン］をクリックします。",
+      actionType: "click",
+      targetText: "保存ボタン",
+      url: null,
+      updatedAt: "2026-08-14T00:00:02.000Z"
+    }]
+  });
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+
+  await page.locator(`#step-type-${firstStepId}`).selectOption("warning");
+  await page.getByRole("button", { name: "手順を保存" }).first().click();
+  expect(state.lastStepPatchBody.actionType).toBeNull();
+  expect(state.lastStepPatchBody.targetText).toBeNull();
+
+  await page.locator("#new-step-type").selectOption("note");
+  await page.locator("#new-step-title").fill("補足事項");
+  await page.getByRole("button", { name: "手順を追加" }).click();
+  expect(state.lastStepCreateBody.actionType).toBeNull();
+  expect(state.lastStepCreateBody.targetText).toBeNull();
 });
 
 test("手順書画面は狭い表示でも横スクロールせずキーボードで移動できる", async ({ page }) => {

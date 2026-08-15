@@ -200,6 +200,23 @@ test("manual count over limit fails as 409 even when response is truncated to 10
   }
 });
 
+test("create RPC role revocation is a determinate 403", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json({ message: "workspace editor role required" }, 400)
+  ]);
+  try {
+    const response = await handleManualRoute(
+      request("POST", JSON.stringify({ title: "保存手順" })),
+      ENV
+    );
+    assert.equal(response?.status, 403);
+    assert.equal((await response.json()).code, "MANUAL_CREATE_FORBIDDEN");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("create upstream 5xx is result-unknown and does not invite immediate retry", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json({ message: "upstream failed" }, 500)]);
   try {

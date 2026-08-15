@@ -41,7 +41,8 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /restoreManualDetailDrafts\(options\.restoreDrafts\)/);
   assert.match(source, /stepUpdatedAt: key\.startsWith\("step:"\)/);
   assert.match(source, /form\.dataset\.stepUpdatedAt = stepUpdatedAt/);
-  assert.match(source, /error\.status === 403 \|\| error\.status === 404[\s\S]*canEdit: false[\s\S]*loadManualDetail\(workspaceId, manualId/);
+  assert.match(source, /error\.status === 403 \|\| error\.status === 404[\s\S]*currentUserRole: null[\s\S]*canEdit: false[\s\S]*loadWorkspaceMembers\(workspaceId[\s\S]*loadManualDetail\(workspaceId, manualId/);
+  assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
   assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
 });

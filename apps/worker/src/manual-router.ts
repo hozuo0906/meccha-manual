@@ -569,6 +569,9 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
     if (message.includes("folder not found in workspace")) {
       throw new ManualError(400, "MANUAL_FOLDER_INVALID", "フォルダーを確認してください。");
     }
+    if (message.includes("workspace editor role required")) {
+      throw new ManualError(403, "MANUAL_CREATE_FORBIDDEN", "現在の権限では手順書を作成できません。");
+    }
     throw new ManualError(502, "MANUAL_CREATE_SERVICE_UNAVAILABLE", "手順書作成サービスを利用できません。入力を変えず、時間をおいて確認してください。");
   }
 

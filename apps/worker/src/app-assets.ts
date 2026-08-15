@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-293306e2975dd888";
+export const APP_ASSET_VERSION = "sha256-84209b4b4b09d236";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2531,11 +2531,27 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     }
     if (error.status === 403 || error.status === 404) {
       setManualMutationBusyState(false);
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
       const safeValue = manualDetailState.value
         ? { ...manualDetailState.value, permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false } }
         : null;
       manualDetailState = { ...manualDetailState, status: "loaded", value: safeValue, message: error.message, messageKind: "error" };
       renderShell(currentSession, "", "notice", "manual-detail-message");
+      await loadWorkspaceMembers(workspaceId, {
+        message: error.message,
+        messageKind: "error",
+        focusId: "manual-detail-message",
+        alreadyRendered: true
+      });
       await loadManualDetail(workspaceId, manualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
       return;
     }
@@ -2566,11 +2582,13 @@ function updateManualDraftFromUi(event) {
 }
 
 function stepPayloadFromForm(form, isNew) {
+  const type = form.elements.type.value;
+  const isAction = type === "action";
   const payload = {
-    type: form.elements.type.value,
+    type,
     title: String(form.elements.title.value || "").trim(),
-    actionType: form.elements.actionType.value || null,
-    targetText: String(form.elements.targetText.value || "").trim() || null,
+    actionType: isAction ? form.elements.actionType.value || null : null,
+    targetText: isAction ? String(form.elements.targetText.value || "").trim() || null : null,
     url: String(form.elements.url.value || "").trim() || null
   };
   const instruction = String(form.elements.instruction.value || "");
