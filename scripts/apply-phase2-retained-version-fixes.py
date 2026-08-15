@@ -63,8 +63,14 @@ static = static.replace(old_static, new_static, 1)
 TEST.write_text(static, encoding='utf-8')
 
 e2e = E2E.read_text(encoding='utf-8')
-fixture_old = '''        if (failure.status === 403) state.canEdit = false;'''
-fixture_new = '''        if (failure.status === 403 || failure.status === 404) state.canEdit = false;'''
+fixture_old = '''        if (failure.status === 403) {
+          state.currentRole = "viewer";
+          state.canEdit = false;
+        }'''
+fixture_new = '''        if (failure.status === 403 || failure.status === 404) {
+          state.currentRole = "viewer";
+          state.canEdit = false;
+        }'''
 if fixture_old not in e2e:
     raise SystemExit('permission fixture snippet not found')
 e2e = e2e.replace(fixture_old, fixture_new, 1)
