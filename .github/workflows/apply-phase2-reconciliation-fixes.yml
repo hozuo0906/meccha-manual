@@ -5,7 +5,7 @@ on:
     branches:
       - feature/phase2-manual-editor-ui
     paths:
-      - scripts/apply-phase2-reconciliation-fixes.py
+      - scripts/apply-phase2-final-hardening.py
       - .github/workflows/apply-phase2-reconciliation-fixes.yml
 
 permissions:
@@ -19,7 +19,25 @@ jobs:
   apply-and-verify:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,42 +48,31 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Apply reconciliation fixes
-        run: python scripts/apply-phase2-reconciliation-fixes.py
-      - name: Refresh app asset version
-        run: |
-          VERSION=$(node --experimental-strip-types --input-type=module -e 'import { createHash } from "node:crypto"; import { APP_CSS, APP_JS } from "./apps/worker/src/app-assets.ts"; process.stdout.write("sha256-" + createHash("sha256").update(APP_CSS).update("\0").update(APP_JS).digest("hex").slice(0,16));')
-          python - "$VERSION" <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-
-          path = Path('apps/worker/src/app-assets.ts')
-          text = path.read_text(encoding='utf-8')
-          text, count = re.subn(
-              r'export const APP_ASSET_VERSION = "sha256-[0-9a-f]{16}";',
-              f'export const APP_ASSET_VERSION = "{sys.argv[1]}";',
-              text,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit('asset version declaration not found')
-          path.write_text(text, encoding='utf-8')
-          PY
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Apply final hardening fixes
+        run: python scripts/apply-phase2-final-hardening.py
       - name: Install dependencies
         run: npm ci
-      - name: Validate UI contracts
+      - name: Validate static contracts
         run: |
           node scripts/check-phase2-manual-editor-ui.mjs
           node scripts/check-phase2-manual-edit-api.mjs
+          node scripts/check-phase2-manual-step-migration.mjs
       - name: Test manual API and UI boundaries
         run: |
           node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
           node --test tests/manual-editor-ui.test.mjs
+      - name: Install migrations in disposable Postgres
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
+      - name: Exercise authenticated edit and direct RPC boundaries
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-test.sql
+      - name: Exercise draft metadata optimistic conflict
+        run: bash scripts/test-phase2-manual-draft-locks.sh
+      - name: Exercise publication and draft lock order
+        run: bash scripts/test-phase2-manual-publication-locks.sh
       - name: Repository checks
         run: npm run check
       - name: Install Chromium
@@ -78,13 +85,15 @@ jobs:
         run: |
           git diff --check
           git diff --check origin/main...HEAD
-      - name: Commit permanent fixes only
+      - name: Commit permanent fixes and remove temporary machinery
         run: |
+          git rm \
+            .github/workflows/apply-phase2-reconciliation-fixes.yml \
+            scripts/apply-phase2-reconciliation-fixes.py \
+            scripts/apply-phase2-final-hardening.py
+          git add -A
+          git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            apps/worker/src/app-assets.ts \
-            tests/e2e/phase2-manual-editor.spec.mjs \
-            tests/manual-editor-ui.test.mjs
-          git commit -m "fix: reconcile delayed manual mutations"
+          git commit -m "fix: close final manual editor review boundaries"
           git push origin HEAD:feature/phase2-manual-editor-ui
