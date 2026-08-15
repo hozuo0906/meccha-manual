@@ -18,7 +18,7 @@ Status: Accepted
 
 - write bodyはContent-Lengthの有無にかかわらず64 KiBで打ち切る。10,000 Unicode code pointのdescriptionが4 byte文字でもJSONとして収まる一方、無制限bufferは許可しない。
 - 詳細・作成とも最大200 active stepsとする。DB triggerが201件目を拒否し、APIは`409 MANUAL_STEPS_LIMIT_EXCEEDED`を返す。既存データに201件以上ある場合はmigration preflightで停止する。
-- 詳細のSupabase JSONは、200 active stepsの最大フィールド長を安全に読める6 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
+- 詳細のSupabase JSONは、200 active stepsに加えて件数異常を判定する201件目まで、DBで許容される最大フィールド長と1 code pointあたり最大6 byteのJSON制御文字escapeを安全に読める8 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
 - URLはHTTP/HTTPSのみとし、userinfoを含むURLを拒否する。URLをサーバー側から取得・実行しない。

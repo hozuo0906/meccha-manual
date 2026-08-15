@@ -64,7 +64,7 @@ type ManualSession = {
   accessToken: string;
 };
 
-const MAX_MANUAL_DETAIL_JSON_BYTES = 6 * 1024 * 1024;
+const MAX_MANUAL_DETAIL_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_MANUAL_STEPS = 200;
 const MAX_MANUAL_DESCRIPTION_LENGTH = 10_000;
 const MAX_STEP_TITLE_LENGTH = 128;

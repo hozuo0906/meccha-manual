@@ -509,6 +509,37 @@ test("malformed manual UUID is hidden as 404 without upstream calls", async () =
   }
 });
 
+test("manual detail accepts 200 DB-valid rows after worst-case JSON escaping", async () => {
+  const control = "\u0001";
+  const steps = Array.from({ length: 200 }, (_, position) => ({
+    id: `55555555-5555-4555-8555-${String(position + 1).padStart(12, "0")}`,
+    workspace_id: WORKSPACE_ID,
+    revision_id: DRAFT_ID,
+    position,
+    type: "action",
+    title: control.repeat(128),
+    instruction: control.repeat(4_000),
+    action_type: "navigate",
+    target_text: control.repeat(256),
+    url: "https://" + control.repeat(2_048 - "https://".length),
+    updated_at: "2026-08-14T00:00:02.000Z"
+  }));
+  const encodedBytes = new TextEncoder().encode(JSON.stringify(steps)).byteLength;
+  assert.ok(encodedBytes > 6 * 1024 * 1024, "fixture must reproduce the former 6 MiB regression");
+  assert.ok(encodedBytes < 8 * 1024 * 1024, "DB-valid maximum rows must remain inside the bounded 8 MiB budget");
+
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json([draftRow()]),
+    json(steps, 200, { "content-range": "0-199/200" })
+  ]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath()), ENV);
+    assert.equal(response?.status, 200);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("manual detail refuses more than 200 active steps", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()]), json([draftRow()]),
