@@ -97,7 +97,7 @@ async function installManualFixture(page, role, options = {}) {
       if (state.failNextManualCreate) {
         const failure = state.failNextManualCreate;
         state.failNextManualCreate = null;
-        if (failure.status === 403 || failure.status === 404) {
+        if (failure.status === 403 || failure.code === "MANUALS_NOT_FOUND") {
           state.currentRole = "viewer";
           state.canEdit = false;
         }
@@ -177,10 +177,11 @@ async function installManualFixture(page, role, options = {}) {
       if (state.failNextStepPatch) {
         const failure = state.failNextStepPatch;
         state.failNextStepPatch = null;
-        if (failure.status === 403 || failure.status === 404) {
+        if (failure.status === 403 || failure.code === "MANUALS_NOT_FOUND") {
           state.currentRole = "viewer";
           state.canEdit = false;
         }
+        if (failure.code === "MANUAL_STEP_NOT_FOUND") state.steps = [];
         return json(failure.status, { code: failure.code, message: failure.message });
       }
       const { expectedUpdatedAt, ...stepPatch } = body;
@@ -298,9 +299,13 @@ test("基本情報保存中に別の手順書へ移動した場合は遅延完�
   await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
   await page.getByRole("button", { name: /別の保存手順/ }).click();
   await expect(page.locator("#manual-detail-heading")).toHaveText("別の保存手順");
+  await expect(page.getByRole("button", { name: "基本情報を保存" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "手順を追加" })).toBeDisabled();
   state.releaseDraftPatch();
   await expect.poll(() => state.draftPatchResolved).toBe(true);
   await expect(page.locator("#manual-detail-heading")).toHaveText("別の保存手順");
+  await expect(page.getByRole("button", { name: "基本情報を保存" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "手順を追加" })).toBeEnabled();
 });
 
 test("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない", async ({ page }) => {
@@ -360,6 +365,39 @@ test("手順書作成中の権限失効は作成フォームを閉じて最新�
   await page.getByRole("button", { name: "手順書を作成" }).click();
   await expect(page.locator("#manual-create-form")).toHaveCount(0);
   await expect(page.getByText("現在の権限では手順書を作成・編集できません。閲覧はできます。" )).toBeVisible();
+});
+
+
+test("step不存在404は権限喪失と誤判定せず未保存の基本情報を保持する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", {
+    steps: [{
+      id: firstStepId,
+      position: 0,
+      type: "action",
+      title: "保存する",
+      instruction: "［保存ボタン］をクリックします。",
+      actionType: "click",
+      targetText: "保存ボタン",
+      url: null,
+      updatedAt: "2026-08-14T00:00:02.000Z"
+    }]
+  });
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await page.locator("#manual-draft-description").fill("別フォームに残す未保存説明");
+  state.failNextStepPatch = {
+    status: 404,
+    code: "MANUAL_STEP_NOT_FOUND",
+    message: "手順は既に削除されています。"
+  };
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("手順は既に削除されています。");
+  await expect(page.locator("#manual-draft-form")).toHaveCount(1);
+  await expect(page.locator("#manual-draft-description")).toHaveValue("別フォームに残す未保存説明");
+  await expect(page.locator(".manual-step-form")).toHaveCount(0);
+  await expect(page.locator("#manual-step-add-form")).toHaveCount(1);
+  expect(state.currentRole).toBe("editor");
+  expect(state.canEdit).toBe(true);
 });
 
 

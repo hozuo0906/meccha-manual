@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-b523a94b2d7fd189";
+export const APP_ASSET_VERSION = "sha256-eb2395514e6a2270";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2117,6 +2117,12 @@ function setManualMutationBusyState(isBusy, messageId = "", message = "") {
       }
     }
   }
+  if (!isBusy) {
+    for (const control of document.querySelectorAll('[data-manual-busy-rendered="true"]')) {
+      control.disabled = false;
+      control.removeAttribute("data-manual-busy-rendered");
+    }
+  }
   if (messageId && message) setBox(messageId, message, "notice", false);
 }
 
@@ -2248,7 +2254,7 @@ function manualListHtml(currentWorkspace) {
         '<h2>新しい手順書</h2><p>タイトルだけでも作成できます。説明は後から変更できます。</p>' +
         '<div class="field"><label for="manual-create-title">タイトル</label><input id="manual-create-title" name="title" data-code-point-max="64" required></div>' +
         '<div class="field"><label for="manual-create-description">説明</label><textarea id="manual-create-description" name="description" data-code-point-max="10000"></textarea></div>' +
-        '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>' + (manualMutationInFlight ? '作成中' : '手順書を作成') + '</button>' +
+        '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>' + (manualMutationInFlight ? '作成中' : '手順書を作成') + '</button>' +
       '</form>'
     : '<section class="workspace-form" aria-labelledby="manual-permission-heading"><h2 id="manual-permission-heading">作成権限</h2><p>' + (roleKnown ? '現在の権限では手順書を作成・編集できません。閲覧はできます。' : 'メンバー権限を確認しています。') + '</p></section>';
   return '<div class="manual-layout">' +
@@ -2289,10 +2295,10 @@ function manualStepHtml(step, index, count, canEdit) {
       '<div class="field"><label for="step-instruction-' + escapeHtml(step.id) + '">手順文</label><textarea id="step-instruction-' + escapeHtml(step.id) + '" name="instruction" data-code-point-max="4000">' + escapeHtml(step.instruction || "") + '</textarea><span class="muted">保存済みの手順文は、操作対象を変えても自動で上書きしません。</span></div>' +
       '<div class="field"><label for="step-url-' + escapeHtml(step.id) + '">URL</label><input id="step-url-' + escapeHtml(step.id) + '" name="url" data-code-point-max="2048" inputmode="url" value="' + escapeHtml(step.url || "") + '"></div>' +
       '<div class="manual-step-actions">' +
-        '<button class="secondary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>手順を保存</button>' +
-        '<button class="secondary-button compact-button manual-step-up" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === 0 || manualMutationInFlight ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'を</span>上へ</button>' +
-        '<button class="secondary-button compact-button manual-step-down" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === count - 1 || manualMutationInFlight ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'を</span>下へ</button>' +
-        '<button class="danger-button compact-button manual-step-delete" type="button" data-step-id="' + escapeHtml(step.id) + '" data-step-title="' + escapeHtml(step.title) + '"' + (manualMutationInFlight ? ' disabled' : '') + '>手順を削除</button>' +
+        '<button class="secondary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>手順を保存</button>' +
+        '<button class="secondary-button compact-button manual-step-up" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === 0 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'を</span>上へ</button>' +
+        '<button class="secondary-button compact-button manual-step-down" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === count - 1 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'を</span>下へ</button>' +
+        '<button class="danger-button compact-button manual-step-delete" type="button" data-step-id="' + escapeHtml(step.id) + '" data-step-title="' + escapeHtml(step.title) + '"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>手順を削除</button>' +
       '</div>' +
     '</form></article>';
 }
@@ -2314,7 +2320,7 @@ function manualDetailHtml(currentWorkspace) {
       ? '<form id="manual-draft-form" class="manual-detail-form" data-draft-updated-at="' + escapeHtml(draft.updatedAt) + '" novalidate>' +
           '<div class="field"><label for="manual-draft-title">タイトル</label><input id="manual-draft-title" name="title" data-code-point-max="64" required value="' + escapeHtml(draft.title) + '"></div>' +
           '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
-          '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>基本情報を保存</button>' +
+          '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>基本情報を保存</button>' +
         '</form>'
       : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>権限</dt><dd>閲覧のみ</dd></dl></div>'
     : '<div class="empty"><strong>編集できる下書きがありません。</strong><br>公開済み手順書の下書き作成機能は後続で追加します。</div>';
@@ -2329,7 +2335,7 @@ function manualDetailHtml(currentWorkspace) {
         '<div class="field"><label for="new-step-target">操作対象</label><input id="new-step-target" name="targetText" data-code-point-max="256" placeholder="例：保存ボタン"></div>' +
         '<div class="field"><label for="new-step-instruction">手順文（任意）</label><textarea id="new-step-instruction" name="instruction" data-code-point-max="4000"></textarea><span class="muted">空欄の場合は操作対象からローカルで候補を作成します。外部AIは使用しません。</span></div>' +
         '<div class="field"><label for="new-step-url">URL（任意）</label><input id="new-step-url" name="url" data-code-point-max="2048" inputmode="url"></div>' +
-        '<button class="primary-button" type="submit"' + (manualMutationInFlight || steps.length >= 200 ? ' disabled' : '') + '>' + (steps.length >= 200 ? '手順は200件までです' : '手順を追加') + '</button>' +
+        '<button class="primary-button" type="submit"' + (steps.length >= 200 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>' + (steps.length >= 200 ? '手順は200件までです' : '手順を追加') + '</button>' +
       '</form>'
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
@@ -2571,6 +2577,10 @@ function isCurrentManualDetailContext(workspaceId, manualId) {
     manualDetailState.manualId === manualId;
 }
 
+function isManualPermissionRevocation(error) {
+  return error?.code === "MANUAL_EDIT_FORBIDDEN" || error?.code === "MANUALS_NOT_FOUND";
+}
+
 async function runDetailMutation(operation, successMessage, options = {}) {
   const workspaceId = manualDetailState.workspaceId;
   const manualId = manualDetailState.manualId;
@@ -2611,7 +2621,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       setManualMutationBusyState(false);
       return loadSession();
     }
-    if (error.status === 403 || error.status === 404) {
+    if (isManualPermissionRevocation(error)) {
       setManualMutationBusyState(false);
       if (workspaceMembersState?.workspaceId === workspaceId) {
         workspaceMembersState = {
@@ -2653,6 +2663,22 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       if (activeManualId && isCurrentManualDetailContext(workspaceId, activeManualId)) {
         await loadManualDetail(workspaceId, activeManualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
       }
+      return;
+    }
+    if (error.status === 404) {
+      if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+        setManualMutationBusyState(false);
+        return;
+      }
+      await loadManualDetail(workspaceId, manualId, {
+        message: error.message,
+        messageKind: "error",
+        focusId: "manual-detail-message",
+        preserveDomUntilLoaded: true,
+        preserveDomOnError: true,
+        finishMutation: true,
+        restoreDrafts: retainedDrafts
+      });
       return;
     }
     const resultUnknown = manualMutationUnknown(error);
