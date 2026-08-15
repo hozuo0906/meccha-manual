@@ -253,8 +253,14 @@ end $$;
 
 revoke all on function public.enforce_manual_steps_active_limit() from public, anon, authenticated;
 
-create or replace function public.update_manual_draft(
+drop function if exists public.update_manual_draft(uuid, text, text);
+drop function if exists public.update_manual_draft(uuid, timestamptz, text, text);
+drop function if exists public.update_manual_draft(uuid, uuid, timestamptz, text, text);
+
+create function public.update_manual_draft(
   target_manual_id uuid,
+  expected_draft_revision_id uuid,
+  expected_draft_updated_at timestamptz,
   draft_title text,
   draft_description text
 )
@@ -267,9 +273,14 @@ declare
   actor_id uuid := auth.uid();
   target_workspace_id uuid;
   target_draft_revision_id uuid;
+  current_draft_updated_at timestamptz;
 begin
   if actor_id is null then
     raise exception 'authentication required';
+  end if;
+
+  if expected_draft_revision_id is null or expected_draft_updated_at is null then
+    raise exception 'expected draft version is required';
   end if;
 
   select m.workspace_id, m.current_draft_revision_id
@@ -295,9 +306,31 @@ begin
     raise exception 'draft revision not found';
   end if;
 
+  if target_draft_revision_id is distinct from expected_draft_revision_id then
+    raise exception 'current draft revision changed';
+  end if;
+
+  select mr.updated_at
+  into current_draft_updated_at
+  from public.manual_revisions mr
+  where mr.id = target_draft_revision_id
+    and mr.manual_id = target_manual_id
+    and mr.workspace_id = target_workspace_id
+    and mr.state = 'draft'
+  for update;
+
+  if not found then
+    raise exception 'draft revision not found';
+  end if;
+
+  if current_draft_updated_at is distinct from expected_draft_updated_at then
+    raise exception 'manual draft changed concurrently';
+  end if;
+
   update public.manual_revisions mr
   set title = draft_title,
-      description = coalesce(draft_description, '')
+      description = coalesce(draft_description, ''),
+      updated_at = clock_timestamp()
   where mr.id = target_draft_revision_id
     and mr.manual_id = target_manual_id
     and mr.workspace_id = target_workspace_id
@@ -325,5 +358,5 @@ $$;
 revoke insert, update, delete on table public.manuals from authenticated;
 revoke insert, update, delete on table public.manual_revisions from authenticated;
 
-revoke all on function public.update_manual_draft(uuid, text, text) from public, anon, authenticated;
-grant execute on function public.update_manual_draft(uuid, text, text) to authenticated;
+revoke all on function public.update_manual_draft(uuid, uuid, timestamptz, text, text) from public, anon, authenticated;
+grant execute on function public.update_manual_draft(uuid, uuid, timestamptz, text, text) to authenticated;

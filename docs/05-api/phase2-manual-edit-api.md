@@ -81,8 +81,10 @@ current draftのtitle/descriptionを更新する。
 - same-origin `Origin`と`Content-Type: application/json`を必須にする。
 - owner/admin/editorのみ。
 - titleはtrim後1〜64文字、descriptionは10,000文字以内。
-- titleとdescriptionを両方送信し、`update_manual_draft` RPCで`manuals.title`とcurrent draftのtitle/descriptionを同一transactionで更新する。
-- current draftが無い場合は409で、新しいdraft作成フローを案内する。
+- title、description、詳細取得時に表示したdraftの`updatedAt`を`expectedUpdatedAt`として送信する。
+- Workerはcurrent draft IDと表示中の`updatedAt`を`update_manual_draft` RPCへ渡し、manual rowとdraft rowをlockした後に一致する場合だけ`manuals.title`とcurrent draftのtitle/descriptionを同一transactionで更新する。
+- 同じversionからの後続保存は`409 MANUAL_DRAFT_EDIT_CONFLICT`とし、先行したタイトル・説明を古いフォームで上書きしない。
+- current draftが無い、またはcurrent draft IDが切り替わった場合は409で、新しいdraft作成フローを案内する。
 - revision stateがdraftでない場合は409。
 - 通信切断、上流5xx、成功本文不正は`MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で確認する。
 
@@ -171,7 +173,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 
 `202608140012_phase2_manual_edit_http_contract.sql`は次を追加・強化する。
 
-- `update_manual_draft`
+- optimistic version照合付き`update_manual_draft`
 - draft descriptionとstep本文フィールドの上限constraint
 - step title/targetTextの空白のみ拒否constraint
 - revisionごとのactive step 200件preflightと`manual_steps_active_limit_guard`
@@ -196,6 +198,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - viewer mutation 403
 - 非member/別workspace/不正UUID 404
 - draft title/descriptionの原子的更新
+- 同じdraft `updatedAt`を持つ2更新のうち1件だけ成功し、もう1件が`MANUAL_DRAFT_EDIT_CONFLICT`になる並行実行試験
 - published/superseded直接変更拒否
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否

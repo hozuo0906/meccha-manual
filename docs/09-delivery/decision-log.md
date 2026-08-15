@@ -60,3 +60,19 @@ Status: Accepted
 | DEC-053 | 2026-08-14 | 手順書write body上限を64 KiBとし、step PATCHは取得時のupdatedAtをrevision lock内で照合する楽観的更新にする。使い捨てPostgreSQLでは同じupdatedAtの2更新を同時実行し、1件だけ成功することを必須検証とする | 10,000 Unicode code pointの日本語説明を正当に受理しつつ、同じ旧versionを基にした並行更新が互いの変更を黙って上書きすることを防ぐため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
+
+## DEC-058: draft metadataと作成UIを競合・遅延応答から保護する
+
+- Status: Accepted
+- Date: 2026-08-15
+- Decision:
+  - draft基本情報のPATCHは表示時の`updatedAt`を必須とし、manual rowとdraft rowのlock取得後に照合する。同じversionからの後続保存は409で拒否する。
+  - 手順書作成の入力エラーではフォームDOMを維持し、説明等の未保存入力を破棄しない。
+  - 作成成功後は一覧キャッシュを無効化し、一覧へ戻る時に再取得する。
+  - 作成応答前に画面またはworkspaceが変わった場合、遅延応答で元workspaceの詳細へ遷移しない。
+  - Unicode code point上限超過時は入力直前の受理済み値へ戻し、途中入力によって既存末尾を削除しない。
+- Evidence:
+  - Worker/API/SQL/Playwrightの競合・入力保持・遅延応答・一覧再取得テスト。
+  - 使い捨てPostgreSQLで同じdraft versionからの2並行更新を実行し、1件だけ成功することを確認する。
+- Boundary:
+  - staging/production migration適用とproduction deployは行わない。

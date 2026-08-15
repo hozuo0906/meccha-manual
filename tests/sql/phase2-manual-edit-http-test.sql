@@ -5,6 +5,8 @@ select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111
 
 select public.update_manual_draft(
   '33333333-3333-4333-8333-333333333333',
+  '44444444-4444-4444-8444-444444444444',
+  '2026-08-14T00:00:01Z',
   '更新タイトル',
   '更新説明'
 ) = '44444444-4444-4444-8444-444444444444'::uuid as editor_updated_draft;
@@ -21,6 +23,32 @@ begin
       and mr.description = '更新説明'
   ) then
     raise exception 'manual and draft metadata were not updated atomically';
+  end if;
+end;
+$$;
+
+do $$
+declare
+  rejected boolean := false;
+begin
+  begin
+    perform public.update_manual_draft(
+      '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      '2026-08-14T00:00:01Z',
+      '古い画面のタイトル',
+      '古い画面の説明'
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual draft changed concurrently%' then
+        rejected := true;
+      else
+        raise;
+      end if;
+  end;
+  if not rejected then
+    raise exception 'stale manual draft update was accepted';
   end if;
 end;
 $$;
@@ -85,6 +113,8 @@ begin
   begin
     perform public.update_manual_draft(
       '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      '2026-08-14T00:00:01Z',
       'viewer変更',
       'viewer変更'
     );
@@ -111,6 +141,8 @@ begin
   begin
     perform public.update_manual_draft(
       '55555555-5555-4555-8555-555555555555',
+      '88888888-8888-4888-8888-888888888888',
+      '2026-08-14T00:00:02Z',
       '下書きなし',
       ''
     );
@@ -135,6 +167,8 @@ begin
   begin
     perform public.update_manual_draft(
       '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      (select updated_at from public.manual_revisions where id = '44444444-4444-4444-8444-444444444444'),
       repeat(chr(9), 3),
       ''
     );
@@ -154,6 +188,8 @@ begin
   begin
     perform public.update_manual_draft(
       '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      (select updated_at from public.manual_revisions where id = '44444444-4444-4444-8444-444444444444'),
       '説明上限',
       repeat('あ', 10001)
     );
@@ -335,10 +371,10 @@ reset role;
 
 do $$
 begin
-  if has_function_privilege('anon', 'public.update_manual_draft(uuid,text,text)', 'EXECUTE') then
+  if has_function_privilege('anon', 'public.update_manual_draft(uuid,uuid,timestamptz,text,text)', 'EXECUTE') then
     raise exception 'anon can execute update_manual_draft';
   end if;
-  if not has_function_privilege('authenticated', 'public.update_manual_draft(uuid,text,text)', 'EXECUTE') then
+  if not has_function_privilege('authenticated', 'public.update_manual_draft(uuid,uuid,timestamptz,text,text)', 'EXECUTE') then
     raise exception 'authenticated cannot execute update_manual_draft';
   end if;
 end;

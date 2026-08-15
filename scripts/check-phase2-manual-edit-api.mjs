@@ -37,6 +37,11 @@ const requiredEditRouter = [
   "MANUAL_STEPS_LIMIT_EXCEEDED",
   "requireInternalFields",
   "MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN",
+  "MANUAL_DRAFT_EDIT_CONFLICT",
+  "MANUAL_DRAFT_VERSION_INVALID",
+  "requiredExpectedDraftUpdatedAt",
+  "expected_draft_revision_id: expectedDraftId",
+  "expected_draft_updated_at: expectedUpdatedAt",
   "MANUAL_STEP_CREATE_RESULT_UNKNOWN",
   "MANUAL_STEP_UPDATE_RESULT_UNKNOWN",
   "MANUAL_STEP_EDIT_CONFLICT",
@@ -62,11 +67,14 @@ const requiredMigration = [
   "manual step limit preflight failed",
   "manual_steps_active_limit_guard",
   "manual step limit exceeded",
-  "create or replace function public.update_manual_draft(",
+  "create function public.update_manual_draft(",
+  "expected_draft_revision_id uuid",
+  "expected_draft_updated_at timestamptz",
+  "manual draft changed concurrently",
   "for update;",
   "revoke insert, update, delete on table public.manuals from authenticated",
   "revoke insert, update, delete on table public.manual_revisions from authenticated",
-  "grant execute on function public.update_manual_draft(uuid, text, text) to authenticated"
+  "grant execute on function public.update_manual_draft(uuid, uuid, timestamptz, text, text) to authenticated"
 ];
 
 const requiredContract = [
@@ -79,6 +87,7 @@ const requiredContract = [
   "200 active steps",
   "64 KiB",
   "6 MiB",
+  "MANUAL_DRAFT_EDIT_CONFLICT",
   "MANUAL_STEP_EDIT_CONFLICT",
   "`expectedUpdatedAt`",
   "202608140012_phase2_manual_edit_http_contract.sql",
@@ -93,6 +102,7 @@ const requiredWorkflow = [
   '"tests/manual-edit-api.test.mjs"',
   "phase2-manual-edit-http-fixture.sql",
   "phase2-manual-edit-http-test.sql",
+  "test-phase2-manual-draft-locks.sh",
   "node scripts/check-phase2-manual-edit-api.mjs",
   "git diff --check \"origin/${GITHUB_BASE_REF}...HEAD\""
 ];

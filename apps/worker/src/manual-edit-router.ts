@@ -93,6 +93,14 @@ function requireTimestamp(value: unknown): string | null {
   return value;
 }
 
+function requiredExpectedDraftUpdatedAt(body: Record<string, unknown>): string {
+  const expectedUpdatedAt = requireTimestamp(body.expectedUpdatedAt);
+  if (!expectedUpdatedAt) {
+    throw new ManualError(400, "MANUAL_DRAFT_VERSION_INVALID", "基本情報を再読み込みしてから保存してください。");
+  }
+  return expectedUpdatedAt;
+}
+
 function requiredExpectedStepUpdatedAt(body: Record<string, unknown>): string {
   const expectedUpdatedAt = requireTimestamp(body.expectedUpdatedAt);
   if (!expectedUpdatedAt) {
@@ -550,6 +558,9 @@ function knownRpcError(message: string): ManualError | null {
   if (message.includes("draft revision not found") || message.includes("current draft revision")) {
     return new ManualError(409, "MANUAL_DRAFT_UNAVAILABLE", "編集できる下書きがありません。詳細を再読み込みしてください。");
   }
+  if (message.includes("manual draft changed concurrently")) {
+    return new ManualError(409, "MANUAL_DRAFT_EDIT_CONFLICT", "別の更新が先に保存されました。基本情報を再読み込みして、変更内容を確認してください。");
+  }
   if (message.includes("manual step changed concurrently")) {
     return new ManualError(409, "MANUAL_STEP_EDIT_CONFLICT", "別の更新が先に保存されました。詳細を再読み込みして、変更内容を確認してください。");
   }
@@ -683,17 +694,24 @@ async function updateDraft(
   const manual = await fetchManualContext(env, session.accessToken, workspaceId, manualId);
   const expectedDraftId = requireDraftId(manual);
   const body = await readRequestJson(request);
-  assertAllowedKeys(body, ["title", "description"]);
-  if (!hasOwn(body, "title") || !hasOwn(body, "description")) {
-    throw new ManualError(400, "MANUAL_DRAFT_INPUT_REQUIRED", "タイトルと説明を送信してください。");
+  assertAllowedKeys(body, ["title", "description", "expectedUpdatedAt"]);
+  if (!hasOwn(body, "title") || !hasOwn(body, "description") || !hasOwn(body, "expectedUpdatedAt")) {
+    throw new ManualError(400, "MANUAL_DRAFT_INPUT_REQUIRED", "タイトル、説明、表示中の更新日時を送信してください。");
   }
   const title = requiredLabel(body.title, "手順書タイトル", MAX_MANUAL_TITLE_LENGTH, "MANUAL_TITLE_INVALID");
   const description = optionalDescription(body.description);
+  const expectedUpdatedAt = requiredExpectedDraftUpdatedAt(body);
   const draftId = await callMutationRpc(
     env,
     session.accessToken,
     "update_manual_draft",
-    { target_manual_id: manualId, draft_title: title, draft_description: description },
+    {
+      target_manual_id: manualId,
+      expected_draft_revision_id: expectedDraftId,
+      expected_draft_updated_at: expectedUpdatedAt,
+      draft_title: title,
+      draft_description: description
+    },
     "uuid",
     "MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN",
     "保存結果を確認できませんでした。重ねて保存せず、詳細を再読み込みしてください。",

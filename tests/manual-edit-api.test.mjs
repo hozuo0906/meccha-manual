@@ -172,7 +172,7 @@ test("viewer cannot patch a draft", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(false)]);
   try {
     const response = await handleManualEditRoute(
-      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: "変更", description: "説明" })),
+      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: "変更", description: "説明", expectedUpdatedAt: draftRow().updated_at })),
       ENV
     );
     assert.equal(response?.status, 403);
@@ -188,7 +188,7 @@ test("editor updates manual and draft metadata through one RPC", async () => {
   ]);
   try {
     const response = await handleManualEditRoute(
-      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: " 更新後 ", description: "新しい説明" })),
+      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: " 更新後 ", description: "新しい説明", expectedUpdatedAt: draftRow().updated_at })),
       ENV
     );
     assert.equal(response?.status, 200);
@@ -197,6 +197,8 @@ test("editor updates manual and draft metadata through one RPC", async () => {
     assert.match(rpc.url, /\/rest\/v1\/rpc\/update_manual_draft$/);
     assert.deepEqual(JSON.parse(String(rpc.init.body)), {
       target_manual_id: MANUAL_ID,
+      expected_draft_revision_id: DRAFT_ID,
+      expected_draft_updated_at: draftRow().updated_at,
       draft_title: "更新後",
       draft_description: "新しい説明"
     });
@@ -205,9 +207,44 @@ test("editor updates manual and draft metadata through one RPC", async () => {
   }
 });
 
+test("draft patch requires the version displayed by the editor", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()])]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: "更新", description: "説明" })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_DRAFT_INPUT_REQUIRED");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("stale draft metadata maps to a determinate 409 conflict", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json({ message: "manual draft changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/draft"), "PATCH", JSON.stringify({
+        title: "古い画面の更新",
+        description: "古い説明",
+        expectedUpdatedAt: draftRow().updated_at
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_DRAFT_EDIT_CONFLICT");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("10,000 four-byte Japanese characters fit within the bounded request body", async () => {
   const description = "𠮷".repeat(10_000);
-  const body = JSON.stringify({ title: "最大説明", description });
+  const body = JSON.stringify({ title: "最大説明", description, expectedUpdatedAt: draftRow().updated_at });
   assert.ok(new TextEncoder().encode(body).byteLength < 64 * 1024);
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()]), json(DRAFT_ID)
@@ -225,7 +262,7 @@ test("10,000 four-byte Japanese characters fit within the bounded request body",
 });
 
 test("request bodies above 64 KiB are rejected before mutation RPC", async () => {
-  const body = JSON.stringify({ title: "上限超過", description: "あ".repeat(22_000) });
+  const body = JSON.stringify({ title: "上限超過", description: "あ".repeat(22_000), expectedUpdatedAt: draftRow().updated_at });
   assert.ok(new TextEncoder().encode(body).byteLength > 64 * 1024);
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()])]);
   try {
@@ -393,7 +430,7 @@ test("mutation upstream 5xx is result-unknown and does not invite retry", async 
   ]);
   try {
     const response = await handleManualEditRoute(
-      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: "変更", description: "説明" })),
+      request(detailPath("/draft"), "PATCH", JSON.stringify({ title: "変更", description: "説明", expectedUpdatedAt: draftRow().updated_at })),
       ENV
     );
     assert.equal(response?.status, 502);
@@ -417,7 +454,7 @@ test("PATCH without a same-origin Origin is rejected before session lookup", asy
       request(
         detailPath("/draft"),
         "PATCH",
-        JSON.stringify({ title: "変更", description: "説明" }),
+        JSON.stringify({ title: "変更", description: "説明", expectedUpdatedAt: draftRow().updated_at }),
         { origin: "" }
       ),
       ENV

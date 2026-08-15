@@ -15,6 +15,8 @@ const requiredApp = [
   'id="manual-draft-form"',
   'id="manual-step-add-form"',
   'data-step-updated-at="',
+  'data-draft-updated-at="',
+  'expectedUpdatedAt = String(form.dataset.draftUpdatedAt || "")',
   'payload.expectedUpdatedAt = String(form.dataset.stepUpdatedAt || "")',
   "loadManuals",
   "loadManualDetail",
@@ -55,7 +57,11 @@ for (const snippet of requiredWorkflow) if (!workflow.includes(snippet)) errors.
 if (!staticTest.includes("manual UI does not persist manual content")) errors.push("Missing browser-storage safety regression test");
 if (!e2e.includes("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない")) errors.push("Missing viewer browser flow");
 if (!e2e.includes("手順書作成中の権限失効は作成フォームを閉じて最新権限を取得する")) errors.push("Missing create-permission revocation browser flow");
+if (!e2e.includes("expectedDraftUpdatedAtSeen")) errors.push("Missing displayed-draft-version browser assertion");
 if (!e2e.includes("expectedUpdatedAtSeen")) errors.push("Missing displayed-step-version browser assertion");
+if (!e2e.includes("作成入力の検証エラーでも説明を保持する")) errors.push("Missing create validation draft-preservation browser flow");
+if (!e2e.includes("作成成功後に一覧を再取得して新しい手順書を表示する")) errors.push("Missing post-create list invalidation browser flow");
+if (!e2e.includes("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない")) errors.push("Missing delayed-create navigation browser flow");
 if (!config.includes("phase2-manual-editor.spec.mjs")) errors.push("Phase 2 Playwright config does not select the manual editor spec");
 
 const forbidden = [

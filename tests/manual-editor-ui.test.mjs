@@ -40,7 +40,10 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const retainedDrafts = captureManualDetailDrafts\(options\.excludeDraftKeys \|\| \[\]\)/);
   assert.match(source, /restoreManualDetailDrafts\(options\.restoreDrafts\)/);
   assert.match(source, /stepUpdatedAt: key\.startsWith\("step:"\)/);
+  assert.match(source, /draftUpdatedAt: key === "draft"/);
   assert.match(source, /form\.dataset\.stepUpdatedAt = stepUpdatedAt/);
+  assert.match(source, /form\.dataset\.draftUpdatedAt = draftUpdatedAt/);
+  assert.match(source, /expectedUpdatedAt = String\(form\.dataset\.draftUpdatedAt \|\| ""\)/);
   assert.match(source, /error\.status === 403 \|\| error\.status === 404[\s\S]*currentUserRole: null[\s\S]*canEdit: false[\s\S]*loadWorkspaceMembers\(workspaceId[\s\S]*loadManualDetail\(workspaceId, manualId/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
@@ -59,6 +62,8 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /id="manual-draft-description" name="description" data-code-point-max="10000"/);
   assert.match(source, /name="instruction" data-code-point-max="4000"/);
   assert.match(source, /function wireManualCodePointLimit/);
+  assert.match(source, /acceptedValue = String\(field\.value \|\| ""\)/);
+  assert.match(source, /field\.value = acceptedValue/);
   assert.match(source, /Array\.from\(description\)\.length > 10000/);
   assert.doesNotMatch(source, /id="manual-(?:create|draft)-description"[^>]*maxlength=/);
   assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
@@ -71,6 +76,9 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   const spec = await readFile("tests/e2e/phase2-manual-editor.spec.mjs", "utf8");
   assert.match(config, /phase2-manual-editor\.spec\.mjs/);
   assert.match(spec, /手順書入力はUnicode code point単位の上限を守る/);
+  assert.match(spec, /作成入力の検証エラーでも説明を保持する/);
+  assert.match(spec, /作成成功後に一覧を再取得して新しい手順書を表示する/);
+  assert.match(spec, /作成応答の前に画面を移動した場合は遅延成功で詳細を開かない/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
   assert.match(spec, /別フォームの未保存説明/);
   assert.match(spec, /更新競合を解消してください。/);

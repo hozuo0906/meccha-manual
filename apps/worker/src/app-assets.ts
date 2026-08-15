@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-8b42158903b7b1ee";
+export const APP_ASSET_VERSION = "sha256-490d61b977bb8961";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2061,7 +2061,8 @@ function captureManualDetailDrafts(excludedKeys = []) {
     if (Object.keys(changed).length > 0) {
       drafts[key] = {
         values: changed,
-        stepUpdatedAt: key.startsWith("step:") ? String(form.dataset.stepUpdatedAt || "") : ""
+        stepUpdatedAt: key.startsWith("step:") ? String(form.dataset.stepUpdatedAt || "") : "",
+        draftUpdatedAt: key === "draft" ? String(form.dataset.draftUpdatedAt || "") : ""
       };
     }
   }
@@ -2085,7 +2086,11 @@ function restoreManualDetailDrafts(drafts) {
     const stepUpdatedAt = draft && typeof draft === "object" && "stepUpdatedAt" in draft
       ? String(draft.stepUpdatedAt || "")
       : "";
+    const draftUpdatedAt = draft && typeof draft === "object" && "draftUpdatedAt" in draft
+      ? String(draft.draftUpdatedAt || "")
+      : "";
     if (key.startsWith("step:") && stepUpdatedAt) form.dataset.stepUpdatedAt = stepUpdatedAt;
+    if (key === "draft" && draftUpdatedAt) form.dataset.draftUpdatedAt = draftUpdatedAt;
     for (const [name, value] of Object.entries(values || {})) {
       const field = form.elements.namedItem(name);
       if (field && typeof field.value !== "undefined") field.value = value;
@@ -2169,35 +2174,46 @@ function openManualList(currentWorkspace, message = "", messageKind = "notice") 
   }
 }
 
-function limitManualFieldCodePoints(field, maxLength) {
-  const currentValue = String(field?.value || "");
-  const codePoints = Array.from(currentValue);
-  if (codePoints.length <= maxLength) return false;
-  const selectionStart = typeof field.selectionStart === "number" ? field.selectionStart : currentValue.length;
-  const caretCodePoints = Array.from(currentValue.slice(0, selectionStart)).length;
-  const limitedCodePoints = codePoints.slice(0, maxLength);
-  field.value = limitedCodePoints.join("");
-  if (typeof field.setSelectionRange === "function") {
-    const caret = limitedCodePoints.slice(0, Math.min(caretCodePoints, maxLength)).join("").length;
-    field.setSelectionRange(caret, caret);
-  }
-  return true;
-}
-
 function wireManualCodePointLimit(field) {
   const maxLength = Number(field?.dataset?.codePointMax || 0);
   if (!Number.isSafeInteger(maxLength) || maxLength < 1) return;
   let composing = false;
-  const enforce = () => limitManualFieldCodePoints(field, maxLength);
-  field.addEventListener("compositionstart", () => { composing = true; });
+  let acceptedValue = String(field.value || "");
+  let acceptedSelectionStart = typeof field.selectionStart === "number" ? field.selectionStart : acceptedValue.length;
+  let acceptedSelectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : acceptedSelectionStart;
+
+  const rememberAccepted = () => {
+    const value = String(field.value || "");
+    if (Array.from(value).length > maxLength) return false;
+    acceptedValue = value;
+    acceptedSelectionStart = typeof field.selectionStart === "number" ? field.selectionStart : value.length;
+    acceptedSelectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : acceptedSelectionStart;
+    return true;
+  };
+  const rejectOverflow = () => {
+    if (rememberAccepted()) return false;
+    field.value = acceptedValue;
+    if (typeof field.setSelectionRange === "function") {
+      field.setSelectionRange(acceptedSelectionStart, acceptedSelectionEnd);
+    }
+    return true;
+  };
+
+  field.addEventListener("beforeinput", () => {
+    if (!composing) rememberAccepted();
+  });
+  field.addEventListener("compositionstart", () => {
+    rememberAccepted();
+    composing = true;
+  });
   field.addEventListener("compositionend", () => {
     composing = false;
-    enforce();
+    rejectOverflow();
   });
   field.addEventListener("input", () => {
-    if (!composing) enforce();
+    if (!composing) rejectOverflow();
   });
-  enforce();
+  rejectOverflow();
 }
 
 function manualMessageHtml(state, id) {
@@ -2295,7 +2311,7 @@ function manualDetailHtml(currentWorkspace) {
   const steps = value.steps || [];
   const metadata = draft
     ? canEdit
-      ? '<form id="manual-draft-form" class="manual-detail-form" novalidate>' +
+      ? '<form id="manual-draft-form" class="manual-detail-form" data-draft-updated-at="' + escapeHtml(draft.updatedAt) + '" novalidate>' +
           '<div class="field"><label for="manual-draft-title">タイトル</label><input id="manual-draft-title" name="title" data-code-point-max="64" required value="' + escapeHtml(draft.title) + '"></div>' +
           '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
           '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled' : '') + '>基本情報を保存</button>' +
@@ -2469,12 +2485,23 @@ async function createManualFromUi(event) {
   const requestUserId = currentSession?.user?.id;
   const title = String(form.elements.title.value || "").trim();
   const description = String(form.elements.description.value || "");
-  if (!workspaceId || !title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
-    manualsState.message = "タイトルは1〜64文字、説明は10,000文字以内で入力してください。";
-    manualsState.messageKind = "error";
-    renderShell(currentSession, "", "notice", "manuals-message");
+  if (!workspaceId) {
+    const message = "利用中のワークスペースを選択してください。";
+    manualsState = { ...manualsState, message, messageKind: "error" };
+    setBox("manuals-message", message, "error");
     return;
   }
+  if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
+    const message = "タイトルは1〜64文字、説明は10,000文字以内で入力してください。";
+    manualsState = { ...manualsState, message, messageKind: "error" };
+    setBox("manuals-message", message, "error");
+    const invalidField = !title || Array.from(title).length > 64 ? form.elements.title : form.elements.description;
+    invalidField.setAttribute("aria-invalid", "true");
+    invalidField.focus();
+    return;
+  }
+  form.elements.title.removeAttribute("aria-invalid");
+  form.elements.description.removeAttribute("aria-invalid");
   setManualMutationBusyState(true, "manuals-message", "手順書を作成しています。");
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals", { method: "POST", body: JSON.stringify({ title, description, folderId: null }) });
@@ -2483,6 +2510,11 @@ async function createManualFromUi(event) {
       await loadSession({ focusId: "workspace-heading" });
       return;
     }
+    if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
+      setManualMutationBusyState(false);
+      return;
+    }
+    manualsState = { ...manualsState, workspaceId, status: "idle", message: "", messageKind: "notice" };
     setManualMutationBusyState(false);
     openManualDetail(workspaceId, payload.manualId);
   } catch (error) {
@@ -2494,6 +2526,10 @@ async function createManualFromUi(event) {
     if (isTerminalSessionError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
+    }
+    if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
+      setManualMutationBusyState(false);
+      return;
     }
     if (error.status === 403 || error.status === 404) {
       manualsState = { ...manualsState, message: error.message, messageKind: "error" };
@@ -2610,6 +2646,7 @@ function updateManualDraftFromUi(event) {
   const form = event.currentTarget;
   const title = String(form.elements.title.value || "").trim();
   const description = String(form.elements.description.value || "");
+  const expectedUpdatedAt = String(form.dataset.draftUpdatedAt || "");
   if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
     const message = "タイトルは1〜64文字、説明は10,000文字以内で入力してください。";
     manualDetailState = { ...manualDetailState, status: "loaded", message, messageKind: "error" };
@@ -2619,9 +2656,15 @@ function updateManualDraftFromUi(event) {
     invalidField.focus();
     return;
   }
+  if (!expectedUpdatedAt) {
+    const message = "基本情報を再読み込みしてから保存してください。";
+    manualDetailState = { ...manualDetailState, status: "loaded", message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
   form.elements.title.removeAttribute("aria-invalid");
   form.elements.description.removeAttribute("aria-invalid");
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"] });
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description, expectedUpdatedAt }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"] });
 }
 
 function stepPayloadFromForm(form, isNew) {

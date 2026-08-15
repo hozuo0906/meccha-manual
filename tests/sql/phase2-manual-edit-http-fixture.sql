@@ -41,7 +41,8 @@ create table public.manual_revisions (
   manual_id uuid not null references public.manuals(id),
   state public.manual_revision_state not null,
   title text not null,
-  description text not null default ''
+  description text not null default '',
+  updated_at timestamptz not null default clock_timestamp()
 );
 
 create table public.manual_steps (
@@ -208,8 +209,8 @@ values
   ('55555555-5555-4555-8555-555555555555', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '公開済み手順', null),
   ('66666666-6666-4666-8666-666666666666', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '別領域', '77777777-7777-4777-8777-777777777777');
 
-insert into public.manual_revisions (id, workspace_id, manual_id, state, title, description)
+insert into public.manual_revisions (id, workspace_id, manual_id, state, title, description, updated_at)
 values
-  ('44444444-4444-4444-8444-444444444444', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '33333333-3333-4333-8333-333333333333', 'draft', '旧タイトル', '旧説明'),
-  ('88888888-8888-4888-8888-888888888888', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '55555555-5555-4555-8555-555555555555', 'published', '公開済み手順', ''),
-  ('77777777-7777-4777-8777-777777777777', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '66666666-6666-4666-8666-666666666666', 'draft', '別領域', '');
+  ('44444444-4444-4444-8444-444444444444', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '33333333-3333-4333-8333-333333333333', 'draft', '旧タイトル', '旧説明', '2026-08-14T00:00:01Z'),
+  ('88888888-8888-4888-8888-888888888888', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '55555555-5555-4555-8555-555555555555', 'published', '公開済み手順', '', '2026-08-14T00:00:02Z'),
+  ('77777777-7777-4777-8777-777777777777', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '66666666-6666-4666-8666-666666666666', 'draft', '別領域', '', '2026-08-14T00:00:03Z');

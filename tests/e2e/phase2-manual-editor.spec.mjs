@@ -34,6 +34,12 @@ async function installManualFixture(page, role, options = {}) {
     steps: options.steps ? [...options.steps] : [],
     instructionSeenOnPatch: null,
     expectedUpdatedAtSeen: null,
+    expectedDraftUpdatedAtSeen: null,
+    draftUpdatedAt: "2026-08-14T00:00:01.000Z",
+    manualListGetCount: 0,
+    manualCreateDeferred: null,
+    releaseManualCreate: null,
+    manualCreateResolved: false,
     failNextManualCreate: null,
     failNextStepPatch: null,
     lastManualCreateBody: null,
@@ -43,6 +49,9 @@ async function installManualFixture(page, role, options = {}) {
     currentRole: role,
     canEdit: role !== "viewer"
   };
+  if (options.deferManualCreate) {
+    state.manualCreateDeferred = new Promise((resolve) => { state.releaseManualCreate = resolve; });
+  }
   const session = sessionFor(role);
 
   await page.route("**/api/**", async (route) => {
@@ -61,6 +70,7 @@ async function installManualFixture(page, role, options = {}) {
       });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "GET") {
+      state.manualListGetCount += 1;
       return json(200, { manuals: state.manuals });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "POST") {
@@ -84,6 +94,8 @@ async function installManualFixture(page, role, options = {}) {
         currentPublishedRevisionId: null,
         updatedAt: "2026-08-14T00:00:01.000Z"
       }];
+      if (state.manualCreateDeferred) await state.manualCreateDeferred;
+      state.manualCreateResolved = true;
       return json(201, { manualId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}` && method === "GET") {
@@ -102,7 +114,7 @@ async function installManualFixture(page, role, options = {}) {
           revisionNo: 1,
           title,
           description: "受付担当者向け",
-          updatedAt: "2026-08-14T00:00:01.000Z"
+          updatedAt: state.draftUpdatedAt
         },
         steps: state.steps,
         permissions: { canEdit: state.canEdit }
@@ -111,7 +123,12 @@ async function installManualFixture(page, role, options = {}) {
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/draft` && method === "PATCH") {
       const body = request.postDataJSON();
       state.lastDraftPatchBody = body;
+      state.expectedDraftUpdatedAtSeen = body.expectedUpdatedAt;
+      if (body.expectedUpdatedAt !== state.draftUpdatedAt) {
+        return json(409, { code: "MANUAL_DRAFT_EDIT_CONFLICT", message: "別の更新が先に保存されました。" });
+      }
       state.manuals[0].title = body.title;
+      state.draftUpdatedAt = "2026-08-14T00:00:04.000Z";
       return json(200, { draftId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps` && method === "POST") {
@@ -175,7 +192,7 @@ test("手順書入力はUnicode code point単位の上限を守る", async ({ pa
   await openManualScreen(page);
 
   const title = "𠮷".repeat(64);
-  const description = "𠮷".repeat(10000);
+  const description = "先" + "𠮷".repeat(9998) + "末";
   const createTitle = page.locator("#manual-create-title");
   const createDescription = page.locator("#manual-create-description");
   await createTitle.fill(title);
@@ -187,13 +204,13 @@ test("手順書入力はUnicode code point単位の上限を守る", async ({ pa
   expect(await createDescription.evaluate((element) => ({
     codePoints: Array.from(element.value).length,
     codeUnits: element.value.length
-  }))).toEqual({ codePoints: 10000, codeUnits: 20000 });
+  }))).toEqual({ codePoints: 10000, codeUnits: 19998 });
 
-  await createDescription.evaluate((element) => {
-    element.value += "𠮷";
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  expect(await createDescription.evaluate((element) => Array.from(element.value).length)).toBe(10000);
+  await createDescription.focus();
+  await createDescription.evaluate((element) => element.setSelectionRange(1, 1));
+  await page.keyboard.type("追");
+  await expect(createDescription).toHaveValue(description);
+  expect((await createDescription.inputValue()).endsWith("末")).toBe(true);
 
   await page.getByRole("button", { name: "手順書を作成" }).click();
   await expect(page.locator("#manual-detail-heading")).toHaveText(title);
@@ -205,10 +222,47 @@ test("手順書入力はUnicode code point単位の上限を守る", async ({ pa
   expect(await draftDescription.evaluate((element) => ({
     codePoints: Array.from(element.value).length,
     codeUnits: element.value.length
-  }))).toEqual({ codePoints: 10000, codeUnits: 20000 });
+  }))).toEqual({ codePoints: 10000, codeUnits: 19998 });
   await page.getByRole("button", { name: "基本情報を保存" }).click();
   await expect(page.locator("#manual-detail-message")).toContainText("基本情報を保存しました。");
   expect(Array.from(state.lastDraftPatchBody.description)).toHaveLength(10000);
+  expect(state.expectedDraftUpdatedAtSeen).toBe("2026-08-14T00:00:01.000Z");
+});
+
+test("作成入力の検証エラーでも説明を保持する", async ({ page }) => {
+  await installManualFixture(page, "editor", { empty: true });
+  await openManualScreen(page);
+  const description = page.locator("#manual-create-description");
+  await description.fill("破棄してはいけない説明");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect(description).toHaveValue("破棄してはいけない説明");
+  await expect(page.locator("#manual-create-title")).toBeFocused();
+  await expect(page.locator("#manual-create-title")).toHaveAttribute("aria-invalid", "true");
+});
+
+test("作成成功後に一覧を再取得して新しい手順書を表示する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { empty: true });
+  await openManualScreen(page);
+  const initialListGets = state.manualListGetCount;
+  await page.locator("#manual-create-title").fill("一覧へ追加される手順書");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect(page.locator("#manual-detail-heading")).toHaveText("一覧へ追加される手順書");
+  await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
+  await expect(page.getByRole("button", { name: /一覧へ追加される手順書/ })).toBeVisible();
+  expect(state.manualListGetCount).toBeGreaterThan(initialListGets);
+});
+
+test("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { empty: true, deferManualCreate: true });
+  await openManualScreen(page);
+  await page.locator("#manual-create-title").fill("遅延する作成");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect.poll(() => state.lastManualCreateBody?.title).toBe("遅延する作成");
+  await page.getByRole("button", { name: "メンバー管理", exact: true }).click();
+  state.releaseManualCreate();
+  await expect.poll(() => state.manualCreateResolved).toBe(true);
+  await expect(page.getByRole("heading", { name: "メンバー管理", exact: true })).toBeVisible();
+  await expect(page.locator("#manual-detail-heading")).toHaveCount(0);
 });
 
 test("編集者は手順書作成から手順追加・手修正文保持まで完了できる", async ({ page }) => {
