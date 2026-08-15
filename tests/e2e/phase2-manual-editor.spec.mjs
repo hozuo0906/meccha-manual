@@ -5,6 +5,8 @@ const userId = "22222222-2222-4222-8222-222222222222";
 const manualId = "33333333-3333-4333-8333-333333333333";
 const draftId = "44444444-4444-4444-8444-444444444444";
 const firstStepId = "55555555-5555-4555-8555-555555555555";
+const secondManualId = "66666666-6666-4666-8666-666666666666";
+const secondDraftId = "77777777-7777-4777-8777-777777777777";
 
 function sessionFor(role) {
   return {
@@ -21,16 +23,28 @@ function sessionFor(role) {
 }
 
 async function installManualFixture(page, role, options = {}) {
-  const state = {
-    manuals: options.empty ? [] : [{
-      id: manualId,
+  const initialManuals = options.empty ? [] : [{
+    id: manualId,
+    folderId: null,
+    title: "既存の保存手順",
+    status: "draft",
+    currentDraftRevisionId: draftId,
+    currentPublishedRevisionId: null,
+    updatedAt: "2026-08-14T00:00:00.000Z"
+  }];
+  if (options.secondManual) {
+    initialManuals.push({
+      id: secondManualId,
       folderId: null,
-      title: "既存の保存手順",
+      title: "別の保存手順",
       status: "draft",
-      currentDraftRevisionId: draftId,
+      currentDraftRevisionId: secondDraftId,
       currentPublishedRevisionId: null,
-      updatedAt: "2026-08-14T00:00:00.000Z"
-    }],
+      updatedAt: "2026-08-14T00:00:00.500Z"
+    });
+  }
+  const state = {
+    manuals: initialManuals,
     steps: options.steps ? [...options.steps] : [],
     instructionSeenOnPatch: null,
     expectedUpdatedAtSeen: null,
@@ -40,6 +54,9 @@ async function installManualFixture(page, role, options = {}) {
     manualCreateDeferred: null,
     releaseManualCreate: null,
     manualCreateResolved: false,
+    draftPatchDeferred: null,
+    releaseDraftPatch: null,
+    draftPatchResolved: false,
     failNextManualCreate: null,
     failNextStepPatch: null,
     lastManualCreateBody: null,
@@ -51,6 +68,9 @@ async function installManualFixture(page, role, options = {}) {
   };
   if (options.deferManualCreate) {
     state.manualCreateDeferred = new Promise((resolve) => { state.releaseManualCreate = resolve; });
+  }
+  if (options.deferDraftPatch) {
+    state.draftPatchDeferred = new Promise((resolve) => { state.releaseDraftPatch = resolve; });
   }
   const session = sessionFor(role);
 
@@ -98,25 +118,25 @@ async function installManualFixture(page, role, options = {}) {
       state.manualCreateResolved = true;
       return json(201, { manualId });
     }
-    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}` && method === "GET") {
-      const title = state.manuals[0]?.title || "新しい手順書";
+    if (
+      (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}` ||
+        pathname === `/api/workspaces/${workspaceId}/manuals/${secondManualId}`) &&
+      method === "GET"
+    ) {
+      const requestedManualId = pathname.split("/").at(-1);
+      const manual = state.manuals.find((item) => item.id === requestedManualId);
+      if (!manual) return json(404, { code: "MANUALS_NOT_FOUND", message: "手順書がありません。" });
+      const isPrimary = requestedManualId === manualId;
       return json(200, {
-        manual: {
-          id: manualId,
-          title,
-          status: "draft",
-          currentDraftRevisionId: draftId,
-          currentPublishedRevisionId: null,
-          updatedAt: "2026-08-14T00:00:01.000Z"
-        },
+        manual,
         draft: {
-          id: draftId,
+          id: isPrimary ? draftId : secondDraftId,
           revisionNo: 1,
-          title,
-          description: "受付担当者向け",
-          updatedAt: state.draftUpdatedAt
+          title: manual.title,
+          description: isPrimary ? "受付担当者向け" : "別手順書の説明",
+          updatedAt: isPrimary ? state.draftUpdatedAt : "2026-08-14T00:00:01.500Z"
         },
-        steps: state.steps,
+        steps: isPrimary ? state.steps : [],
         permissions: { canEdit: state.canEdit }
       });
     }
@@ -128,7 +148,10 @@ async function installManualFixture(page, role, options = {}) {
         return json(409, { code: "MANUAL_DRAFT_EDIT_CONFLICT", message: "別の更新が先に保存されました。" });
       }
       state.manuals[0].title = body.title;
+      state.manuals[0].updatedAt = "2026-08-14T00:00:04.000Z";
       state.draftUpdatedAt = "2026-08-14T00:00:04.000Z";
+      if (state.draftPatchDeferred) await state.draftPatchDeferred;
+      state.draftPatchResolved = true;
       return json(200, { draftId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps` && method === "POST") {
@@ -250,6 +273,34 @@ test("作成成功後に一覧を再取得して新しい手順書を表示す�
   await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
   await expect(page.getByRole("button", { name: /一覧へ追加される手順書/ })).toBeVisible();
   expect(state.manualListGetCount).toBeGreaterThan(initialListGets);
+});
+
+test("基本情報保存後に一覧を再取得して更新タイトルを表示する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  const initialListGets = state.manualListGetCount;
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await page.locator("#manual-draft-title").fill("更新された保存手順");
+  await page.getByRole("button", { name: "基本情報を保存" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("基本情報を保存しました。");
+  await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
+  await expect(page.getByRole("button", { name: /更新された保存手順/ })).toBeVisible();
+  expect(state.manualListGetCount).toBeGreaterThan(initialListGets);
+});
+
+test("基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { secondManual: true, deferDraftPatch: true });
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await page.locator("#manual-draft-title").fill("遅延する基本情報保存");
+  await page.getByRole("button", { name: "基本情報を保存" }).click();
+  await expect.poll(() => state.lastDraftPatchBody?.title).toBe("遅延する基本情報保存");
+  await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
+  await page.getByRole("button", { name: /別の保存手順/ }).click();
+  await expect(page.locator("#manual-detail-heading")).toHaveText("別の保存手順");
+  state.releaseDraftPatch();
+  await expect.poll(() => state.draftPatchResolved).toBe(true);
+  await expect(page.locator("#manual-detail-heading")).toHaveText("別の保存手順");
 });
 
 test("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない", async ({ page }) => {

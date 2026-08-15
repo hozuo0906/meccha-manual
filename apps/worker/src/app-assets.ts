@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-490d61b977bb8961";
+export const APP_ASSET_VERSION = "sha256-b523a94b2d7fd189";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2564,6 +2564,13 @@ async function createManualFromUi(event) {
   }
 }
 
+function isCurrentManualDetailContext(workspaceId, manualId) {
+  return currentScreen === "manual-detail" &&
+    currentWorkspaceSelection?.workspaceId === workspaceId &&
+    manualDetailState.workspaceId === workspaceId &&
+    manualDetailState.manualId === manualId;
+}
+
 async function runDetailMutation(operation, successMessage, options = {}) {
   const workspaceId = manualDetailState.workspaceId;
   const manualId = manualDetailState.manualId;
@@ -2576,6 +2583,13 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
       setManualMutationBusyState(false);
       await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (options.invalidateManuals && manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, status: "idle" };
+    }
+    if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+      setManualMutationBusyState(false);
       return;
     }
     await loadManualDetail(workspaceId, manualId, {
@@ -2609,21 +2623,47 @@ async function runDetailMutation(operation, successMessage, options = {}) {
           messageKind: "error"
         };
       }
-      const safeValue = manualDetailState.value
-        ? { ...manualDetailState.value, permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false } }
-        : null;
-      manualDetailState = { ...manualDetailState, status: "loaded", value: safeValue, message: error.message, messageKind: "error" };
-      renderShell(currentSession, "", "notice", "manual-detail-message");
+      const activeManualId =
+        currentScreen === "manual-detail" &&
+        currentWorkspaceSelection?.workspaceId === workspaceId &&
+        manualDetailState.workspaceId === workspaceId
+          ? manualDetailState.manualId
+          : "";
+      if (activeManualId && manualDetailState.value) {
+        const safeValue = {
+          ...manualDetailState.value,
+          permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
+        };
+        manualDetailState = { ...manualDetailState, status: "loaded", value: safeValue, message: error.message, messageKind: "error" };
+      } else if (currentScreen === "manuals" && currentWorkspaceSelection?.workspaceId === workspaceId) {
+        manualsState = { ...manualsState, message: error.message, messageKind: "error" };
+      }
+      const focusId = activeManualId
+        ? "manual-detail-message"
+        : currentScreen === "manuals"
+          ? "manuals-message"
+          : null;
+      renderShell(currentSession, "", "notice", focusId);
       await loadWorkspaceMembers(workspaceId, {
         message: error.message,
         messageKind: "error",
-        focusId: "manual-detail-message",
+        focusId,
         alreadyRendered: true
       });
-      await loadManualDetail(workspaceId, manualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
+      if (activeManualId && isCurrentManualDetailContext(workspaceId, activeManualId)) {
+        await loadManualDetail(workspaceId, activeManualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
+      }
       return;
     }
-    if (manualMutationUnknown(error)) {
+    const resultUnknown = manualMutationUnknown(error);
+    if (resultUnknown && options.invalidateManuals && manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, status: "idle" };
+    }
+    if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+      setManualMutationBusyState(false);
+      return;
+    }
+    if (resultUnknown) {
       await loadManualDetail(workspaceId, manualId, {
         message: "処理結果を詳細で確認してください。重ねて操作しないでください。",
         messageKind: "warning",
@@ -2664,7 +2704,7 @@ function updateManualDraftFromUi(event) {
   }
   form.elements.title.removeAttribute("aria-invalid");
   form.elements.description.removeAttribute("aria-invalid");
-  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description, expectedUpdatedAt }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"] });
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description, expectedUpdatedAt }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"], invalidateManuals: true });
 }
 
 function stepPayloadFromForm(form, isNew) {

@@ -46,6 +46,10 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /expectedUpdatedAt = String\(form\.dataset\.draftUpdatedAt \|\| ""\)/);
   assert.match(source, /error\.status === 403 \|\| error\.status === 404[\s\S]*currentUserRole: null[\s\S]*canEdit: false[\s\S]*loadWorkspaceMembers\(workspaceId[\s\S]*loadManualDetail\(workspaceId, manualId/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
+  assert.match(source, /function isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*currentScreen === "manual-detail"[\s\S]*manualDetailState\.manualId === manualId/);
+  assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);
+  assert.match(source, /!isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*setManualMutationBusyState\(false\);[\s\S]*return;/);
+  assert.match(source, /excludeDraftKeys: \["draft"\], invalidateManuals: true/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
   assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
 });
@@ -78,6 +82,8 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(spec, /手順書入力はUnicode code point単位の上限を守る/);
   assert.match(spec, /作成入力の検証エラーでも説明を保持する/);
   assert.match(spec, /作成成功後に一覧を再取得して新しい手順書を表示する/);
+  assert.match(spec, /基本情報保存後に一覧を再取得して更新タイトルを表示する/);
+  assert.match(spec, /基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない/);
   assert.match(spec, /作成応答の前に画面を移動した場合は遅延成功で詳細を開かない/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
   assert.match(spec, /別フォームの未保存説明/);

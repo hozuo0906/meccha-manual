@@ -54,7 +54,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `create_manual(workspace_id, folder_id, title, description)`
 - `publish_manual(manual_id)`
 - `create_manual_draft(manual_id)`
-- `update_manual_draft(manual_id, title, description)`
+- `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
 - `append_manual_step` / `update_manual_step` / `soft_delete_manual_step` / `reorder_manual_steps`
 - `manuals.title` と `manual_revisions.title` のraw 1〜64文字・ECMAScript空白のみ拒否DB制約
 - draft descriptionとstep本文フィールドの上限DB制約
