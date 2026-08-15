@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-eb2395514e6a2270";
+export const APP_ASSET_VERSION = "sha256-2d499043e47b980e";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2398,7 +2398,23 @@ async function loadManuals(workspaceId, options = {}) {
   const requestGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
-  manualsState = { workspaceId, status: "loading", items: manualsState.workspaceId === workspaceId ? manualsState.items : [], message: "", messageKind: "notice" };
+  const carriedMessage = options.message ?? (
+    manualsState.workspaceId === workspaceId && manualsState.status === "idle"
+      ? manualsState.message
+      : ""
+  );
+  const carriedMessageKind = options.messageKind ?? (
+    manualsState.workspaceId === workspaceId && manualsState.status === "idle"
+      ? manualsState.messageKind
+      : "notice"
+  );
+  manualsState = {
+    workspaceId,
+    status: "loading",
+    items: manualsState.workspaceId === workspaceId ? manualsState.items : [],
+    message: carriedMessage,
+    messageKind: carriedMessageKind
+  };
   renderShell(currentSession, "", "notice", options.focusId || null);
   try {
     const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals");
@@ -2407,7 +2423,7 @@ async function loadManuals(workspaceId, options = {}) {
       sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
     ) return;
     if (!Array.isArray(payload.manuals)) throw new AppRequestError("手順書一覧を確認できませんでした。", 502, "MANUALS_RESPONSE_INVALID");
-    manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: options.message || "", messageKind: options.messageKind || "notice" };
+    manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
     renderShell(currentSession, "", "notice", options.focusId || null);
   } catch (error) {
     if (
@@ -2464,6 +2480,45 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
       setManualMutationBusyState(false);
       return loadSession();
     }
+    if (isManualPermissionRevocation(error)) {
+      setManualMutationBusyState(false);
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
+      if (
+        currentScreen === "manual-detail" &&
+        currentWorkspaceSelection?.workspaceId === workspaceId &&
+        manualDetailState.workspaceId === workspaceId &&
+        manualDetailState.manualId === manualId &&
+        manualDetailState.value
+      ) {
+        manualDetailState = {
+          ...manualDetailState,
+          status: "loaded",
+          value: {
+            ...manualDetailState.value,
+            permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
+          },
+          message: error.message,
+          messageKind: "error"
+        };
+        renderShell(currentSession, "", "notice", "manual-detail-message");
+        await loadWorkspaceMembers(workspaceId, {
+          message: error.message,
+          messageKind: "error",
+          focusId: "manual-detail-message",
+          alreadyRendered: true
+        });
+      }
+      return;
+    }
     if (
       options.preserveDomOnError && currentScreen === "manual-detail" &&
       manualDetailState.workspaceId === workspaceId && manualDetailState.manualId === manualId && manualDetailState.value
@@ -2516,11 +2571,13 @@ async function createManualFromUi(event) {
       await loadSession({ focusId: "workspace-heading" });
       return;
     }
+    if (manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, workspaceId, status: "idle", message: "", messageKind: "notice" };
+    }
     if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
       setManualMutationBusyState(false);
       return;
     }
-    manualsState = { ...manualsState, workspaceId, status: "idle", message: "", messageKind: "notice" };
     setManualMutationBusyState(false);
     openManualDetail(workspaceId, payload.manualId);
   } catch (error) {
@@ -2532,6 +2589,15 @@ async function createManualFromUi(event) {
     if (isTerminalSessionError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
+    }
+    const resultUnknown = manualMutationUnknown(error);
+    if (resultUnknown && manualsState.workspaceId === workspaceId) {
+      manualsState = {
+        ...manualsState,
+        status: "idle",
+        message: "作成結果を一覧で確認してください。重ねて作成しないでください。",
+        messageKind: "warning"
+      };
     }
     if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
       setManualMutationBusyState(false);
@@ -2559,7 +2625,7 @@ async function createManualFromUi(event) {
       });
       return;
     }
-    if (manualMutationUnknown(error)) {
+    if (resultUnknown) {
       setManualMutationBusyState(false);
       await loadManuals(workspaceId, { message: "作成結果を一覧で確認してください。重ねて作成しないでください。", messageKind: "warning", focusId: "manuals-message" });
       return;

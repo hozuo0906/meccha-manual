@@ -47,6 +47,10 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /function isManualPermissionRevocation[\s\S]*MANUAL_EDIT_FORBIDDEN[\s\S]*MANUALS_NOT_FOUND/);
   assert.match(source, /if \(isManualPermissionRevocation\(error\)\)[\s\S]*currentUserRole: null[\s\S]*canEdit: false[\s\S]*loadWorkspaceMembers\(workspaceId/);
   assert.match(source, /if \(error\.status === 404\)[\s\S]*restoreDrafts: retainedDrafts/);
+  assert.match(source, /if \(isManualPermissionRevocation\(error\)\)[\s\S]*options\.preserveDomOnError/);
+  assert.match(source, /const resultUnknown = manualMutationUnknown\(error\)[\s\S]*status: "idle"[\s\S]*重ねて作成しないでください。[\s\S]*currentScreen !== "manuals"/);
+  assert.match(source, /manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"[\s\S]*currentScreen !== "manuals"/);
+  assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
   assert.match(source, /querySelectorAll\('\[data-manual-busy-rendered=\"true\"\]'\)[\s\S]*control\.disabled = false/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
@@ -89,6 +93,8 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(spec, /基本情報保存後に一覧を再取得して更新タイトルを表示する/);
   assert.match(spec, /基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない/);
   assert.match(spec, /作成応答の前に画面を移動した場合は遅延成功で詳細を開かない/);
+  assert.match(spec, /作成結果不明で別画面へ移動しても一覧再取得と重複防止警告を行う/);
+  assert.match(spec, /保存後の詳細再取得で所属喪失した場合も編集UIを閉じる/);
   assert.match(spec, /step不存在404は権限喪失と誤判定せず未保存の基本情報を保持する/);
   assert.match(spec, /基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない/);
   assert.match(spec, /編集者は手順書作成から手順追加・手修正文保持まで完了できる/);
