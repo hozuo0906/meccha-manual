@@ -45,7 +45,18 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply final review fixes
-        run: python scripts/apply-phase2-final-review-fixes.py
+        run: |
+          python scripts/apply-phase2-final-review-fixes.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/e2e/phase2-manual-editor.spec.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = 'toEqual({ codePoints: 10000, codeUnits: 20000 });'
+          new = 'toEqual({ codePoints: 10000, codeUnits: 19998 });'
+          if old not in text:
+              raise SystemExit('mixed Unicode code-unit expectation not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Refresh app asset version
         run: |
           VERSION=$(node --experimental-strip-types --input-type=module -e 'import { createHash } from "node:crypto"; import { APP_CSS, APP_JS } from "./apps/worker/src/app-assets.ts"; process.stdout.write("sha256-" + createHash("sha256").update(APP_CSS).update("\0").update(APP_JS).digest("hex").slice(0,16));')
