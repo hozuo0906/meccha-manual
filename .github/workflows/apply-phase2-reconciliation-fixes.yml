@@ -113,10 +113,10 @@ jobs:
         run: |
           git diff --check
           git diff --check origin/main...HEAD
-      - name: Commit permanent fixes and remove temporary machinery
+      - name: Commit permanent product fixes
         run: |
+          git checkout -- .github/workflows/manual-edit-api.yml
           git rm \
-            .github/workflows/apply-phase2-reconciliation-fixes.yml \
             scripts/apply-phase2-reconciliation-fixes.py \
             scripts/apply-phase2-final-hardening.py
           git add -A
