@@ -53,9 +53,10 @@ jobs:
           text = path.read_text(encoding='utf-8')
           old = 'toEqual({ codePoints: 10000, codeUnits: 20000 });'
           new = 'toEqual({ codePoints: 10000, codeUnits: 19998 });'
-          if old not in text:
-              raise SystemExit('mixed Unicode code-unit expectation not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'expected two mixed Unicode code-unit assertions, found {count}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
           PY
       - name: Refresh app asset version
         run: |
