@@ -120,7 +120,6 @@ jobs:
             scripts/test-phase2-manual-draft-locks.sh \
             scripts/check-phase2-manual-edit-api.mjs \
             scripts/check-phase2-manual-editor-ui.mjs \
-            .github/workflows/manual-edit-api.yml \
             docs/05-api/phase2-manual-edit-api.md \
             docs/02-ux/phase2-manual-editor-ui.md \
             docs/09-delivery/decision-log.md
