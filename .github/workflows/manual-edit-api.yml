@@ -13,6 +13,7 @@ on:
       - "docs/05-api/phase2-manual-edit-api.md"
       - "docs/09-delivery/decision-log.md"
       - "scripts/check-phase2-manual-edit-api.mjs"
+      - "scripts/test-phase2-manual-draft-locks.sh"
       - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
       - "supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql"
@@ -72,6 +73,8 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
       - name: Exercise authenticated edit, permission, and bound checks
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-test.sql
+      - name: Exercise draft metadata lock and optimistic conflict
+        run: bash scripts/test-phase2-manual-draft-locks.sh
       - name: Validate migration safety and ordering
         run: |
           npm run migration:safety:check
