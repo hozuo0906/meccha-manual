@@ -173,16 +173,16 @@ addition2 = '''test("非action手順はaction専用項目を送信しない", as
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
 
+  await page.locator(`#step-type-${firstStepId}`).selectOption("warning");
+  await page.getByRole("button", { name: "手順を保存" }).first().click();
+  expect(state.lastStepPatchBody.actionType).toBeNull();
+  expect(state.lastStepPatchBody.targetText).toBeNull();
+
   await page.locator("#new-step-type").selectOption("note");
   await page.locator("#new-step-title").fill("補足事項");
   await page.getByRole("button", { name: "手順を追加" }).click();
   expect(state.lastStepCreateBody.actionType).toBeNull();
   expect(state.lastStepCreateBody.targetText).toBeNull();
-
-  await page.locator(`#step-type-${firstStepId}`).selectOption("warning");
-  await page.getByRole("button", { name: "手順を保存" }).first().click();
-  expect(state.lastStepPatchBody.actionType).toBeNull();
-  expect(state.lastStepPatchBody.targetText).toBeNull();
 });
 
 '''
