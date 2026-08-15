@@ -23,7 +23,8 @@ Status: Accepted
 - stepは上へ/下へボタンでキーボード操作でき、全active step IDをreorder APIへ送る。
 - mutation結果不明時は自動再送せず、詳細を再取得して確認を案内する。
 - 1フォームの保存中も他フォームの未保存変更は現在タブのメモリで保持し、確定エラーでは送信フォームの入力も残す。
-- 編集mutationが403になった場合は編集UIを安全側で閉じ、詳細を再取得して最新権限を反映する。
+- 未保存stepを詳細再取得後へ復元するときは、その入力値が基にしていたstepの`updatedAt`も同じメモリdraftで保持・復元する。再取得後の新しいversionへ付け替えず、競合時は409で停止する。
+- 編集mutationが403または所属喪失を示す404になった場合は編集UIを安全側で閉じ、詳細を再取得して最新の閲覧可否・権限を反映する。
 
 ## 個人情報・秘密情報
 
@@ -57,8 +58,8 @@ Status: Accepted
 ## テスト
 
 - 静的UI安全契約: `tests/manual-editor-ui.test.mjs`
-- editor作成・追加・手修正文保持、確定エラー時の入力保持、別フォーム未保存変更の保持: `tests/e2e/phase2-manual-editor.spec.mjs`
-- 403権限失効時の編集UI閉鎖と詳細再取得
+- editor作成・追加・手修正文保持、確定エラー時の入力保持、別フォーム未保存変更と元step versionの保持: `tests/e2e/phase2-manual-editor.spec.mjs`
+- 403権限失効・所属喪失404時の編集UI閉鎖と詳細再取得
 - viewer閲覧専用
 - 幅640px・キーボード・aria-live
 - Phase 1ログイン・workspace・メンバーE2E回帰
