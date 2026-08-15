@@ -14,6 +14,8 @@ const requiredApp = [
   'id="manual-create-form"',
   'id="manual-draft-form"',
   'id="manual-step-add-form"',
+  'data-step-updated-at="',
+  'payload.expectedUpdatedAt = String(form.dataset.stepUpdatedAt || "")',
   "loadManuals",
   "loadManualDetail",
   "createManualFromUi",
@@ -52,6 +54,8 @@ for (const snippet of requiredDocs) if (!docs.includes(snippet)) errors.push(`Mi
 for (const snippet of requiredWorkflow) if (!workflow.includes(snippet)) errors.push(`Missing manual editor workflow contract: ${snippet}`);
 if (!staticTest.includes("manual UI does not persist manual content")) errors.push("Missing browser-storage safety regression test");
 if (!e2e.includes("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない")) errors.push("Missing viewer browser flow");
+if (!e2e.includes("手順書作成中の権限失効は作成フォームを閉じて最新権限を取得する")) errors.push("Missing create-permission revocation browser flow");
+if (!e2e.includes("expectedUpdatedAtSeen")) errors.push("Missing displayed-step-version browser assertion");
 if (!config.includes("phase2-manual-editor.spec.mjs")) errors.push("Phase 2 Playwright config does not select the manual editor spec");
 
 const forbidden = [
@@ -70,4 +74,4 @@ if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
-console.log("Phase 2 manual editor UI, privacy, and browser contracts OK.");
+console.log("Phase 2 manual editor UI, privacy, concurrency, and browser contracts OK.");
