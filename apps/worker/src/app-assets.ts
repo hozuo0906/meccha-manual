@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-f91feff418aa728d";
+export const APP_ASSET_VERSION = "sha256-293306e2975dd888";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2058,7 +2058,12 @@ function captureManualDetailDrafts(excludedKeys = []) {
       const value = String(field.value ?? "");
       if (value !== manualDetailBaselineValue(key, field.name)) changed[field.name] = value;
     }
-    if (Object.keys(changed).length > 0) drafts[key] = changed;
+    if (Object.keys(changed).length > 0) {
+      drafts[key] = {
+        values: changed,
+        stepUpdatedAt: key.startsWith("step:") ? String(form.dataset.stepUpdatedAt || "") : ""
+      };
+    }
   }
   return drafts;
 }
@@ -2073,9 +2078,14 @@ function findManualDetailForm(key) {
 
 function restoreManualDetailDrafts(drafts) {
   if (!drafts || typeof drafts !== "object") return;
-  for (const [key, values] of Object.entries(drafts)) {
+  for (const [key, draft] of Object.entries(drafts)) {
     const form = findManualDetailForm(key);
     if (!form) continue;
+    const values = draft && typeof draft === "object" && "values" in draft ? draft.values : draft;
+    const stepUpdatedAt = draft && typeof draft === "object" && "stepUpdatedAt" in draft
+      ? String(draft.stepUpdatedAt || "")
+      : "";
+    if (key.startsWith("step:") && stepUpdatedAt) form.dataset.stepUpdatedAt = stepUpdatedAt;
     for (const [name, value] of Object.entries(values || {})) {
       const field = form.elements.namedItem(name);
       if (field && typeof field.value !== "undefined") field.value = value;
@@ -2519,7 +2529,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       setManualMutationBusyState(false);
       return loadSession();
     }
-    if (error.status === 403) {
+    if (error.status === 403 || error.status === 404) {
       setManualMutationBusyState(false);
       const safeValue = manualDetailState.value
         ? { ...manualDetailState.value, permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false } }

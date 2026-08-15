@@ -130,7 +130,7 @@ async function installManualFixture(page, role, options = {}) {
       if (state.failNextStepPatch) {
         const failure = state.failNextStepPatch;
         state.failNextStepPatch = null;
-        if (failure.status === 403) {
+        if (failure.status === 403 || failure.status === 404) {
           state.currentRole = "viewer";
           state.canEdit = false;
         }
@@ -231,6 +231,28 @@ test("権限失効時は編集UIを閉じて最新権限を再取得する", asy
   await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator(".manual-step-form")).toHaveCount(0);
   await expect(page.getByText("現在の権限では閲覧のみ利用できます。" )).toBeVisible();
+});
+
+test("所属削除の404でも編集UIを閉じる", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", {
+    steps: [{
+      id: firstStepId,
+      position: 0,
+      type: "action",
+      title: "保存する",
+      instruction: "［保存ボタン］をクリックします。",
+      actionType: "click",
+      targetText: "保存ボタン",
+      url: null,
+      updatedAt: "2026-08-14T00:00:02.000Z"
+    }]
+  });
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  state.failNextStepPatch = { status: 404, code: "MANUALS_NOT_FOUND", message: "所属を確認できません。" };
+  await page.getByRole("button", { name: "手順を保存" }).click();
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+  await expect(page.locator(".manual-step-form")).toHaveCount(0);
 });
 
 test("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない", async ({ page }) => {
