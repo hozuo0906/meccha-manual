@@ -46,7 +46,7 @@ Status: Accepted
 | `entitlements` | `workspace_id`, `scope_type`, `scope_id`, `feature_code`, `plan_code`, `state`, `seat_limit`, `viewer_limit`, `browser_run_seconds_limit`, `storage_bytes_limit`, `concurrent_session_limit`, `effective_at`, `expires_at`, `source_subscription_id`, `source_purchase_id` | owner/admin閲覧、課金同期処理のみ更新。manual scopeは同一workspaceのmanualだけを許可 |
 | `usage_counters` | `workspace_id`, `period_start`, `period_end`, `browser_run_seconds`, `storage_bytes`, `active_creator_count`, `active_viewer_count`, `concurrent_session_peak`, `updated_at` | メンバーは自workspace集計を閲覧、更新は計測処理のみ。請求根拠と監査用集計を分離 |
 | `payment_events` | `stripe_event_id`, `type`, `payload_digest`, `status`, `attempts`, `processed_at`, `error` | service role専用、`stripe_event_id` unique |
-| `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | メンバー管理RPCのみ追加、owner/admin閲覧、更新削除禁止 |
+| `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | メンバー管理RPCと公開RPC（`manual.published`）のみ追加、owner/admin閲覧、更新削除禁止 |
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
 | `idempotency_keys` | `scope`, `key_hash`, `request_hash`, `response_ref`, `expires_at` | service role専用 |
 

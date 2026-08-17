@@ -159,8 +159,9 @@ if (!setup.includes("202608180001_phase2_manual_publication.sql")) {
   errors.push("Accepted Phase 2 rollout omits publication migration");
 }
 const memberManagementPosition = setup.indexOf("202608100002_phase1_member_management.sql");
+const workspaceInputHardeningPosition = setup.indexOf("202608100001_phase1_workspace_input_hardening.sql");
 const publicationPosition = setup.indexOf("202608180001_phase2_manual_publication.sql");
-if (memberManagementPosition < 0 || publicationPosition < 0 || memberManagementPosition >= publicationPosition || !setup.includes("`audit_logs`")) {
+if (workspaceInputHardeningPosition < 0 || memberManagementPosition < 0 || publicationPosition < 0 || workspaceInputHardeningPosition >= memberManagementPosition || memberManagementPosition >= publicationPosition || !setup.includes("`normalize_workspace_name`") || !setup.includes("`audit_logs`")) {
   errors.push("Accepted Phase 2 rollout omits the audit_logs prerequisite before publication");
 }
 if (!setup.includes("200 active steps、8 MiB")) {
