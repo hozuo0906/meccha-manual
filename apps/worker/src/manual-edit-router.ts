@@ -198,7 +198,7 @@ function optionalUrl(value: unknown): string | null {
   if (serializedUrlBudgetLength(value) > MAX_STEP_URL_LENGTH) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", `URLは正規化後も${MAX_STEP_URL_LENGTH}文字以内で入力してください。`);
   }
-  if (/[\s\u0000-\u001f\u007f]/u.test(value)) {
+  if (/[\s\u0000-\u001f\u007f]/u.test(value) || value.includes("\\")) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
   }
   let parsed: URL;

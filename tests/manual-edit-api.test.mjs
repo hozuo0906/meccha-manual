@@ -545,6 +545,29 @@ test("WHATWGが除去するURL内の空白・制御文字も入力境界で拒�
   }
 });
 
+test("WHATWGがpath separatorへ変換するbackslashをRPC前に拒否する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "曖昧なURLを開く",
+        actionType: "navigate",
+        targetText: "画面",
+        url: "https://example.com\\path"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "backslash URL must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("punycode hostnameはWorkerとdirect RPCで共通して非対応にする", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])

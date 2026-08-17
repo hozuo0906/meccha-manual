@@ -101,6 +101,7 @@ begin
   if char_length(candidate) > 2048
     or candidate !~* '^https?://'
     or candidate ~ '[[:space:][:cntrl:]]'
+    or position(chr(92) in candidate) > 0
   then
     return false;
   end if;

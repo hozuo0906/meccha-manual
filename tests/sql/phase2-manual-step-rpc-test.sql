@@ -298,6 +298,20 @@ begin
   begin
     perform public.append_manual_step(
       '66666666-6666-4666-8666-666666666666',
+      'action', 'backslash URL', '', 'navigate', '画面',
+      'https://example.com' || chr(92) || 'path',
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted backslash URL'; end if;
+
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
       'action', 'punycode URL', '', 'navigate', '画面', 'https://xn--/',
       null, '{}'::jsonb, '{}'::jsonb
     );

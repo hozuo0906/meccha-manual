@@ -21,7 +21,7 @@ Status: Accepted
 - 詳細のSupabase JSONは、200 active stepsに加えて件数異常を判定する201件目まで、DBで許容される最大フィールド長と1 code pointあたり最大6 byteのJSON制御文字escapeを安全に読める8 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字を上限とする。URLは入力値が2,048文字以内、かつRFC 3986のASCII文字を1、それ以外をUTF-8 byteごとにpercent encodingした共通budgetが2,048以内とする。ただしapostrophe（`'`）はWHATWG serializationに合わせ、query内では`%27`の3文字、path／fragmentでは1文字として数える。WorkerのWHATWG正規化後も2,048文字以内を強制する。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
-- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme host、空port、先行ゼロ付きport、範囲内の10進・8進・16進・省略IPv4を許可）とdirect RPC入力のauthorityを同じ境界で検証する。PostgreSQLだけでWHATWG IDNAを再現して境界差を作らないため、`xn--`から始まるpunycode hostname labelはWorker・direct RPCとも受け付けない。URLをサーバー側から取得・実行しない。
+- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、backslash、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme host、空port、先行ゼロ付きport、範囲内の10進・8進・16進・省略IPv4を許可）とdirect RPC入力のauthorityを同じ境界で検証する。WHATWGがpath separatorへ変換するbackslashは、曖昧な保存を避ける共通subsetとして正規化前に拒否する。PostgreSQLだけでWHATWG IDNAを再現して境界差を作らないため、`xn--`から始まるpunycode hostname labelはWorker・direct RPCとも受け付けない。URLをサーバー側から取得・実行しない。
 
 ## API
 
@@ -192,7 +192,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
-- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字・壊れたauthority・範囲外port・punycode hostnameを含むURLを拒否する。WHATWG URLで有効なunderscore hostは拒否しない。step更新では既存の内部項目を保持する。
+- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字・backslash・壊れたauthority・範囲外port・punycode hostnameを含むURLを拒否する。WHATWG URLで有効なunderscore hostは拒否しない。step更新では既存の内部項目を保持する。
 
 これらのmigrationはrepository内とGitHub Actions内の使い捨てPostgreSQLで検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
 
