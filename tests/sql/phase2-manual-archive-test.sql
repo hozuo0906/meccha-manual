@@ -135,6 +135,18 @@ begin
   ) then
     raise exception 'archived manual remains directly visible to authenticated member';
   end if;
+  if exists (
+    select 1 from public.manual_revisions
+    where manual_id = '33333333-3333-4333-8333-333333333333'
+  ) then
+    raise exception 'archived manual revisions remain directly visible to authenticated member';
+  end if;
+  if exists (
+    select 1 from public.manual_steps
+    where revision_id = '44444444-4444-4444-8444-444444444444'
+  ) then
+    raise exception 'archived manual steps remain directly visible to authenticated member';
+  end if;
 end;
 $$;
 

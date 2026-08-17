@@ -164,7 +164,7 @@ using (
 
 create policy manual_revisions_write_editors
 on public.manual_revisions
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(
@@ -196,7 +196,7 @@ using (
 
 create policy manual_steps_write_editors
 on public.manual_steps
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(

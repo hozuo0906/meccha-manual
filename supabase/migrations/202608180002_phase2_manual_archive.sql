@@ -166,6 +166,41 @@ grant execute on function public.update_manual_step(
 grant execute on function public.soft_delete_manual_step(uuid, uuid) to authenticated;
 grant execute on function public.reorder_manual_steps(uuid, uuid[]) to authenticated;
 
+drop policy if exists manual_revisions_select_members on public.manual_revisions;
+create policy manual_revisions_select_members
+on public.manual_revisions
+for select
+to authenticated
+using (
+  public.is_workspace_member(workspace_id, auth.uid())
+  and exists (
+    select 1
+    from public.manuals m
+    where m.id = manual_revisions.manual_id
+      and m.workspace_id = manual_revisions.workspace_id
+      and m.archived_at is null
+  )
+);
+
+drop policy if exists manual_steps_select_members on public.manual_steps;
+create policy manual_steps_select_members
+on public.manual_steps
+for select
+to authenticated
+using (
+  deleted_at is null
+  and public.is_workspace_member(workspace_id, auth.uid())
+  and exists (
+    select 1
+    from public.manual_revisions mr
+    join public.manuals m on m.id = mr.manual_id
+    where mr.id = manual_steps.revision_id
+      and mr.workspace_id = manual_steps.workspace_id
+      and m.workspace_id = manual_steps.workspace_id
+      and m.archived_at is null
+  )
+);
+
 create or replace function public.archive_manual(
   target_workspace_id uuid,
   target_manual_id uuid,
