@@ -91,7 +91,7 @@ declare
   host text;
   port_text text;
   normalized_port text;
-  safe_url_characters constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,._~%-';
+  safe_url_characters constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&''()*+,;=._~%-';
   serialized_length integer := 0;
   character_index integer;
   url_character text;

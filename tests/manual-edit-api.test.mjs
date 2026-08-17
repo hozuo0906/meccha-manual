@@ -402,6 +402,31 @@ test("WHATWG URLで有効な空portを正規化してstep RPCへ渡す", async (
   }
 });
 
+test("WHATWGが保持するRFC 3986 delimiterをURL budgetで1文字として扱う", async () => {
+  const delimiterUrl = `https://example.com/${";='".repeat(676)}`;
+  assert.equal(Array.from(delimiterUrl).length, 2_048);
+  assert.equal(new URL(delimiterUrl).toString(), delimiterUrl);
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json(STEP_ID)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "境界URLを開く",
+        actionType: "navigate",
+        targetText: "境界画面",
+        url: delimiterUrl
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 201);
+    assert.equal(JSON.parse(String(mock.calls[4].init.body)).step_url, delimiterUrl);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("正規化で短縮されるURLも入力値が2,048文字を超えたらRPC前に拒否する", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])
