@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-対象: GitHub Issue #64 / #74 / #80 / FR-004 / FR-005 / FR-006
+対象: GitHub Issue #64 / #74 / #80 / #82 / FR-004 / FR-005 / FR-006
 
 ## 前提
 
@@ -109,6 +109,20 @@ current draftのtitle/descriptionを更新する。
 - 成功時は`{ "draftRevisionId": "<uuid>" }`を返す。新規作成時は201、既存draft確認時は200。
 - 結果不明時は`MANUAL_DRAFT_CREATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
 
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/archive`
+
+手順書を非破壊でアーカイブし、通常の一覧・詳細から除外する。
+
+- same-origin `Origin`と`Content-Type: application/json`を必須にする。
+- owner/admin/editorのみ。viewerは403、routeのworkspaceとmanualのworkspaceが異なる場合、非member、既にarchivedの場合は404とする。
+- 詳細取得時のmanual `updatedAt`を`expectedUpdatedAt`として必須入力にする。
+- `archive_manual(workspace_id, manual_id, expected_updated_at)` RPCはmanual rowをlockし、workspace、role、未アーカイブ、期待更新時刻を同一transactionで照合する。
+- 成功時は`status = archived`と`archived_at`だけを更新し、下書き・公開版・step・revision pointerは削除・変更しない。
+- 同じtransactionで`manual.archived`を`audit_logs`へ記録する。
+- 古い表示からの操作は`409 MANUAL_ARCHIVE_CONFLICT`とし、先行更新をアーカイブで隠さない。
+- 通信切断、上流5xx、不正な成功本文、返却ID不一致は`MANUAL_ARCHIVE_RESULT_UNKNOWN`とし、自動再送せず一覧再取得で確認する。
+- 復元、物理削除、関連asset・共有・分析・コメントの削除はOQ-028が未解決のため行わない。
+
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps`
 
 current draft末尾へstepを追加する。
@@ -204,10 +218,16 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - `annotation` / `masking` JSON各64 KiB constraint
 - `manuals`と`manual_revisions`のauthenticated direct write revoke
 
+`202608180002_phase2_manual_archive.sql`は次を追加する。
+
+- 表示中manual更新時刻とworkspaceをrow lock内で照合する`archive_manual`
+- revision pointerと内容を保持した非破壊アーカイブ
+- `manual.archived`監査ログとauthenticated限定のRPC実行権限
+
 境界ルール:
 
 - `authenticated`から`manual_steps`への直接`INSERT / UPDATE / DELETE`権限をrevokeする。
-- manual作成、draft更新、公開、draft再作成はSECURITY DEFINER RPCだけを利用する。
+- manual作成、draft更新、公開、draft再作成、アーカイブはSECURITY DEFINER RPCだけを利用する。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
@@ -228,6 +248,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - published/superseded直接変更拒否
 - 公開成功、viewer/越境拒否、返却revision不一致の結果不明化
 - 公開後draft生成と既存draftへの冪等収束
+- アーカイブ成功、viewer/越境/古いversion拒否、revision pointer保持、監査、返却ID不一致の結果不明化
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - authenticated direct RPCでの不正URL拒否

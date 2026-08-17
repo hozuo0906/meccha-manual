@@ -73,6 +73,19 @@ create table public.manual_steps (
   deleted_at timestamptz
 );
 
+create table public.step_targets (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null,
+  step_id uuid not null references public.manual_steps(id),
+  selector_candidates jsonb not null default '[]'::jsonb,
+  frame_path jsonb not null default '[]'::jsonb,
+  rect jsonb not null default '{}'::jsonb,
+  confidence numeric(5, 4) not null default 0,
+  created_by uuid not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null, actor_id uuid not null,
   action text not null, resource_type text not null, resource_id uuid not null,
@@ -109,6 +122,7 @@ alter table public.workspace_members enable row level security;
 alter table public.manuals enable row level security;
 alter table public.manual_revisions enable row level security;
 alter table public.manual_steps enable row level security;
+alter table public.step_targets enable row level security;
 
 create policy workspace_members_select_self
 on public.workspace_members
@@ -121,7 +135,8 @@ on public.manuals
 for select
 to authenticated
 using (
-  exists (
+  archived_at is null
+  and exists (
     select 1 from public.workspace_members wm
     where wm.workspace_id = manuals.workspace_id
       and wm.user_id = auth.uid()
@@ -131,7 +146,7 @@ using (
 
 create policy manuals_write_editors
 on public.manuals
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(
@@ -163,7 +178,7 @@ using (
 
 create policy manual_revisions_write_editors
 on public.manual_revisions
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(
@@ -195,7 +210,7 @@ using (
 
 create policy manual_steps_write_editors
 on public.manual_steps
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(
@@ -212,10 +227,35 @@ with check (
   )
 );
 
+create policy step_targets_select_members
+on public.step_targets
+for select
+to authenticated
+using (
+  public.has_workspace_role(
+    step_targets.workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor', 'viewer']::public.workspace_role[]
+  )
+);
+
+create policy step_targets_insert_editors
+on public.step_targets
+for insert
+to authenticated
+with check (
+  public.has_workspace_role(
+    step_targets.workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor']::public.workspace_role[]
+  )
+  and created_by = auth.uid()
+);
+
 grant usage on schema public, auth to anon, authenticated;
 grant execute on function auth.uid() to anon, authenticated;
 grant execute on function public.has_workspace_role(uuid, uuid, public.workspace_role[]) to authenticated;
-grant select, insert, update, delete on table public.manuals, public.manual_revisions, public.manual_steps to authenticated;
+grant select, insert, update, delete on table public.manuals, public.manual_revisions, public.manual_steps, public.step_targets to authenticated;
 grant select on table public.workspace_members to authenticated;
 
 insert into public.workspace_members (workspace_id, user_id, role)

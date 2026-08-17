@@ -23,10 +23,10 @@ Status: Accepted
 | `workspace_join_codes` | `id`, `user_id`, `token_hash`, `expires_at`, `consumed_at`, `consumed_workspace_id`, `consumed_by`, `revoked_at`, `created_at` | client table access禁止。本人だけがRPCで発行し、owner/adminがRPCで利用する。256 bitコードのSHA-256 digestだけを保存し、10分で失効、1回だけ利用可能 |
 | `workspace_invitations` | `email`, `role`, `token_hash`, `expires_at`, `accepted_at` | owner/admin管理。生トークン保存禁止 |
 | `folders` | `workspace_id`, `parent_id`, `name`, `position`, `created_by` | メンバー閲覧、editor以上で変更 |
-| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧。作成・draft metadata・公開状態変更はSECURITY DEFINER RPCのみ。公開と次draft作成は表示中revision IDをmanual row lock内で照合する。`manuals.title`はraw 1〜64文字、ECMAScript `trim()`相当後に空でないことを`manuals_title_length` / `manuals_title_nonblank`で強制し、authenticated direct writeをrevoke |
+| `manuals` | `workspace_id`, `folder_id`, `title`, `status`, `current_draft_revision_id`, `current_published_revision_id`, `owner_id`, `archived_at` | メンバー閲覧。作成・draft metadata・公開・アーカイブ状態変更はSECURITY DEFINER RPCのみ。公開と次draft作成は表示中revision ID、アーカイブは表示中manual更新時刻をmanual row lock内で照合する。アーカイブ時もrevision pointerと内容を保持し`manual.archived`を監査する。`manuals.title`はraw 1〜64文字、ECMAScript `trim()`相当後に空でないことを`manuals_title_length` / `manuals_title_nonblank`で強制し、authenticated direct writeをrevoke |
 | `manual_revisions` | `workspace_id`, `manual_id`, `revision_no`, `state`, `title`, `description`, `source_url`, `cover_asset_id`, `published_at` | メンバー閲覧、公開版は不変。draft更新・作成・公開は期待revision ID付きRPCのみ。`manual_revisions.title`はraw 1〜64文字・空白のみ拒否を`manual_revisions_title_length` / `manual_revisions_title_nonblank`で強制し、descriptionは`manual_revisions_description_length`で10,000文字以内、authenticated direct writeをrevoke |
 | `manual_steps` | `workspace_id`, `revision_id`, `position`, `type`, `title`, `instruction`, `action_type`, `target_text`, `url`, `asset_id`, `annotation`, `masking` | メンバー閲覧、公開版更新禁止。authenticated direct DMLをrevokeし、同じdraft revision lockを取る4 RPCだけで変更。追加・更新RPCは非公開`manual_step_url_is_valid`でHTTP/HTTPS URLのauthorityとportを検証。`manual_steps_title_*`、`manual_steps_instruction_length`、`manual_steps_target_text_*`、`manual_steps_url_length`、内部JSON各64 KiB、active 200件triggerで上限を強制 |
-| `step_targets` | `workspace_id`, `step_id`, `selector_candidates`, `frame_path`, `rect`, `confidence` | revision権限を継承 |
+| `step_targets` | `workspace_id`, `step_id`, `selector_candidates`, `frame_path`, `rect`, `confidence` | active manualのrevision権限を継承。authenticated direct DMLはrevokeし、アーカイブ後は直接SELECTも不可。将来のBrowser Run書込はmanual→revision lockとarchive version更新を共有する専用RPCが必要 |
 | `tags` | `workspace_id`, `name`, `color` | メンバー閲覧、editor以上で変更 |
 | `manual_tags` | `workspace_id`, `manual_id`, `tag_id` | メンバー閲覧、editor以上で変更 |
 | `favorites` | `workspace_id`, `user_id`, `manual_id`, `created_at` | 本人のみCRUD |
@@ -46,7 +46,7 @@ Status: Accepted
 | `entitlements` | `workspace_id`, `scope_type`, `scope_id`, `feature_code`, `plan_code`, `state`, `seat_limit`, `viewer_limit`, `browser_run_seconds_limit`, `storage_bytes_limit`, `concurrent_session_limit`, `effective_at`, `expires_at`, `source_subscription_id`, `source_purchase_id` | owner/admin閲覧、課金同期処理のみ更新。manual scopeは同一workspaceのmanualだけを許可 |
 | `usage_counters` | `workspace_id`, `period_start`, `period_end`, `browser_run_seconds`, `storage_bytes`, `active_creator_count`, `active_viewer_count`, `concurrent_session_peak`, `updated_at` | メンバーは自workspace集計を閲覧、更新は計測処理のみ。請求根拠と監査用集計を分離 |
 | `payment_events` | `stripe_event_id`, `type`, `payload_digest`, `status`, `attempts`, `processed_at`, `error` | service role専用、`stripe_event_id` unique |
-| `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | メンバー管理RPCと公開RPC（`manual.published`）のみ追加、owner/admin閲覧、更新削除禁止 |
+| `audit_logs` | `workspace_id`, `actor_id`, `action`, `resource_type`, `resource_id`, `metadata`, `ip_hash`, `created_at` | メンバー管理RPC、公開RPC（`manual.published`）、アーカイブRPC（`manual.archived`）のみ追加、owner/admin閲覧、更新削除禁止 |
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
 | `idempotency_keys` | `scope`, `key_hash`, `request_hash`, `response_ref`, `expires_at` | service role専用 |
 

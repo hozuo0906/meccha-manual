@@ -12,6 +12,7 @@ test("manual navigation and editor states are embedded in the app shell", async 
     'id="manual-draft-form"',
     'id="manual-publish-button"',
     'id="manual-create-draft-button"',
+    'id="manual-archive-button"',
     'id="manual-step-add-form"',
     'steps.length >= 200',
     '手順は200件までです',
@@ -61,13 +62,14 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
   assert.match(source, /querySelectorAll\('\[data-manual-busy-rendered=\"true\"\]'\)[\s\S]*control\.disabled = false/);
-  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button"\)[\s\S]*control\.disabled = true/);
+  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button, #manual-archive-button"\)[\s\S]*control\.disabled = true/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /function isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*currentScreen === "manual-detail"[\s\S]*manualDetailState\.manualId === manualId/);
   assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);
   assert.match(source, /!isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*setManualMutationBusyState\(false\);[\s\S]*return;/);
   assert.match(source, /excludeDraftKeys: \["draft"\], invalidateManuals: true/);
   assert.match(source, /function publishManualFromUi[\s\S]*window\.confirm[\s\S]*\/publish[\s\S]*invalidateManuals: true/);
+  assert.match(source, /function archiveManualFromUi[\s\S]*captureManualDetailDrafts[\s\S]*window\.confirm[\s\S]*\/archive[\s\S]*returnToListOnSuccess: true[\s\S]*resultUnknownToList: true/);
   assert.match(source, /function createManualDraftFromUi[\s\S]*\/draft[\s\S]*invalidateManuals: true/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
   assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);

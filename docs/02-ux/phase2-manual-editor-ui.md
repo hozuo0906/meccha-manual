@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-対象: Issue #65 / #80 / FR-004 / FR-005 / FR-006
+対象: Issue #65 / #80 / #82 / FR-004 / FR-005 / FR-006
 
 ## 画面
 
@@ -39,6 +39,9 @@ Status: Accepted
 - viewerには公開・draft生成操作を表示しない。
 - draftがない場合はcurrent published revisionの基本情報とactive stepsを読み取り専用で表示する。
 - 公開・draft生成の結果不明時は自動再送せず詳細を再取得し、current revision pointerで結果を照合する。
+- owner/admin/editorには、下書きの有無にかかわらず確認付きの「手順書をアーカイブ」を表示する。viewerには表示しない。
+- アーカイブ前に、一覧から非表示になること、下書き・公開版・手順は削除されないことを表示する。未保存フォームがある間はアーカイブを拒否する。
+- 成功後は一覧へ戻って再取得し、結果不明時も自動再送せず一覧へ戻して「重ねて操作しない」案内を表示する。
 
 ## 個人情報・秘密情報
 
@@ -79,6 +82,7 @@ Status: Accepted
 - 作成RPC内の権限失効を403へ正規化するAPI境界
 - 非action stepがaction専用項目を送信しないブラウザ境界
 - viewer閲覧専用
+- アーカイブ成功、viewer非表示、未保存変更の保護、結果不明時の一覧照合
 - 幅640px・キーボード・aria-live
 - Phase 1ログイン・workspace・メンバーE2E回帰
 - `npm run check`

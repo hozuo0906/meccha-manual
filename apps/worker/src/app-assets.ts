@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-dc1d2216f37a4a13";
+export const APP_ASSET_VERSION = "sha256-d3ce0bd2bca7a80a";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2126,7 +2126,7 @@ function setManualMutationBusyState(isBusy, messageId = "", message = "") {
       }
     }
   }
-  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button")) {
+  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button")) {
     if (isBusy) {
       if (!control.hasAttribute("data-manual-disabled-before")) {
         control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
@@ -2358,6 +2358,12 @@ function manualDetailHtml(currentWorkspace) {
         '<button id="manual-publish-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>この内容を公開</button>' +
       '</section>'
     : '';
+  const archiveActions = canEdit
+    ? '<section class="workspace-form" aria-labelledby="manual-archive-heading"><h2 id="manual-archive-heading">アーカイブ</h2>' +
+        '<p>手順書を一覧から非表示にします。下書き・公開版・手順は削除せず保持します。</p>' +
+        '<button id="manual-archive-button" class="danger-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>手順書をアーカイブ</button>' +
+      '</section>'
+    : '';
   const stepsHtml = steps.length
     ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit && hasEditableDraft)).join("") + '</div>'
     : '<div class="empty" role="status">手順はまだありません。</div>';
@@ -2374,7 +2380,7 @@ function manualDetailHtml(currentWorkspace) {
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
     '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div></div>' + metadata + '</section>' +
-    '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + '</div>' +
+    '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + archiveActions + '</div>' +
   '</div>';
 }
 
@@ -2420,6 +2426,7 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   document.getElementById("manual-create-form")?.addEventListener("submit", createManualFromUi);
   document.getElementById("manual-draft-form")?.addEventListener("submit", updateManualDraftFromUi);
   document.getElementById("manual-publish-button")?.addEventListener("click", publishManualFromUi);
+  document.getElementById("manual-archive-button")?.addEventListener("click", archiveManualFromUi);
   document.getElementById("manual-create-draft-button")?.addEventListener("click", createManualDraftFromUi);
   document.getElementById("manual-step-add-form")?.addEventListener("submit", addManualStepFromUi);
   for (const form of document.querySelectorAll(".manual-step-form")) form.addEventListener("submit", updateManualStepFromUi);
@@ -2749,6 +2756,11 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       setManualMutationBusyState(false);
       return;
     }
+    if (options.returnToListOnSuccess) {
+      setManualMutationBusyState(false);
+      openManualList(currentWorkspaceSelection, successMessage, "notice");
+      return;
+    }
     await loadManualDetail(workspaceId, manualId, {
       message: successMessage,
       messageKind: "notice",
@@ -2837,6 +2849,11 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       return;
     }
     if (resultUnknown) {
+      if (options.resultUnknownToList) {
+        setManualMutationBusyState(false);
+        openManualList(currentWorkspaceSelection, "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
+        return;
+      }
       await loadManualDetail(workspaceId, manualId, {
         message: "処理結果を詳細で確認してください。重ねて操作しないでください。",
         messageKind: "warning",
@@ -2903,6 +2920,24 @@ function publishManualFromUi() {
     (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/publish", { method: "POST", body: JSON.stringify({ expectedDraftRevisionId, expectedContentVersion, confirmedSensitiveDataReview }) }),
     "手順書を公開しました。",
     { invalidateManuals: true }
+  );
+}
+
+function archiveManualFromUi() {
+  const unsaved = captureManualDetailDrafts();
+  if (Object.keys(unsaved).length > 0) {
+    const message = "未保存の変更があります。すべて保存するか入力を元に戻してからアーカイブしてください。";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  const expectedUpdatedAt = manualDetailState.value?.manual?.updatedAt;
+  if (!expectedUpdatedAt) return;
+  if (!window.confirm("この手順書をアーカイブしますか？ 一覧から非表示になりますが、下書き・公開版・手順は削除されません。")) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/archive", { method: "POST", body: JSON.stringify({ expectedUpdatedAt }) }),
+    "手順書をアーカイブしました。",
+    { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true }
   );
 }
 

@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 
-const [baseRouter, editRouter, entrypoint, migration, publicationMigration, contract, setup, workflow] = await Promise.all([
+const [baseRouter, editRouter, entrypoint, migration, publicationMigration, archiveMigration, contract, setup, workflow] = await Promise.all([
   readFile("apps/worker/src/manual-router.ts", "utf8"),
   readFile("apps/worker/src/manual-edit-router.ts", "utf8"),
   readFile("apps/worker/src/index-phase2.ts", "utf8"),
   readFile("supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql", "utf8"),
   readFile("supabase/migrations/202608180001_phase2_manual_publication.sql", "utf8"),
+  readFile("supabase/migrations/202608180002_phase2_manual_archive.sql", "utf8"),
   readFile("docs/05-api/phase2-manual-edit-api.md", "utf8"),
   readFile("docs/04-data/phase2-manual-core-setup.md", "utf8"),
   readFile(".github/workflows/manual-edit-api.yml", "utf8")
@@ -55,7 +56,8 @@ const requiredEditRouter = [
   "MANUAL_EDIT_FIELD_UNEXPECTED",
   "get_manual_edit_detail",
   "publish_manual_revision",
-  "create_manual_draft_from_published"
+  "create_manual_draft_from_published",
+  "archive_manual"
 ];
 
 const requiredMigration = [
@@ -94,6 +96,7 @@ const requiredContract = [
   "DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/steps/{stepId}",
   "POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps/reorder",
   "POST /api/workspaces/{workspaceId}/manuals/{manualId}/publish",
+  "POST /api/workspaces/{workspaceId}/manuals/{manualId}/archive",
   "200 active steps",
   "64 KiB",
   "8 MiB",
@@ -110,12 +113,14 @@ const requiredWorkflow = [
   '"docs/05-api/phase2-manual-edit-api.md"',
   '"supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql"',
   '"supabase/migrations/202608180001_phase2_manual_publication.sql"',
+  '"supabase/migrations/202608180002_phase2_manual_archive.sql"',
   '"tests/manual-edit-api.test.mjs"',
   "phase2-manual-edit-http-fixture.sql",
   "phase2-manual-edit-http-test.sql",
   "test-phase2-manual-draft-locks.sh",
   "test-phase2-manual-publication-locks.sh",
   "phase2-manual-publication-test.sql",
+  "phase2-manual-archive-test.sql",
   "node scripts/check-phase2-manual-edit-api.mjs",
   "git diff --check \"origin/${GITHUB_BASE_REF}...HEAD\""
 ];
@@ -143,6 +148,17 @@ for (const snippet of [
 ]) {
   if (!publicationMigration.toLowerCase().includes(snippet.toLowerCase())) errors.push(`Missing publication migration contract: ${snippet}`);
 }
+for (const snippet of [
+  "create or replace function public.archive_manual(",
+  "target_workspace_id uuid",
+  "expected_manual_updated_at timestamptz",
+  "for update of m",
+  "manual archive changed concurrently",
+  "'manual.archived'",
+  "grant execute on function public.archive_manual(uuid, uuid, timestamptz) to authenticated"
+]) {
+  if (!archiveMigration.toLowerCase().includes(snippet.toLowerCase())) errors.push(`Missing archive migration contract: ${snippet}`);
+}
 for (const snippet of requiredContract) {
   if (!contract.includes(snippet)) errors.push(`Missing manual edit documentation contract: ${snippet}`);
 }
@@ -161,7 +177,8 @@ if (!setup.includes("202608180001_phase2_manual_publication.sql")) {
 const memberManagementPosition = setup.indexOf("202608100002_phase1_member_management.sql");
 const workspaceInputHardeningPosition = setup.indexOf("202608100001_phase1_workspace_input_hardening.sql");
 const publicationPosition = setup.indexOf("202608180001_phase2_manual_publication.sql");
-if (workspaceInputHardeningPosition < 0 || memberManagementPosition < 0 || publicationPosition < 0 || workspaceInputHardeningPosition >= memberManagementPosition || memberManagementPosition >= publicationPosition || !setup.includes("`normalize_workspace_name`") || !setup.includes("`audit_logs`")) {
+const archivePosition = setup.indexOf("202608180002_phase2_manual_archive.sql");
+if (workspaceInputHardeningPosition < 0 || memberManagementPosition < 0 || publicationPosition < 0 || archivePosition < 0 || workspaceInputHardeningPosition >= memberManagementPosition || memberManagementPosition >= publicationPosition || publicationPosition >= archivePosition || !setup.includes("`normalize_workspace_name`") || !setup.includes("`audit_logs`")) {
   errors.push("Accepted Phase 2 rollout omits the audit_logs prerequisite before publication");
 }
 if (!setup.includes("200 active steps、8 MiB")) {
@@ -177,7 +194,7 @@ const forbidden = [
   "wrangler deploy"
 ];
 for (const snippet of forbidden) {
-  if (`${editRouter}\n${migration}\n${publicationMigration}`.toLowerCase().includes(snippet.toLowerCase())) {
+  if (`${editRouter}\n${migration}\n${publicationMigration}\n${archiveMigration}`.toLowerCase().includes(snippet.toLowerCase())) {
     errors.push(`Forbidden manual edit implementation dependency: ${snippet}`);
   }
 }

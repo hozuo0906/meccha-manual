@@ -20,6 +20,7 @@ Status: Accepted
 | AC-014 | owner、admin、editor、viewerの各ユーザー | SCR-SHELLとSCR-MEMBERSを表示し、URLまたはAPIを直接指定する | UIはロールで許可された操作だけを有効表示し、非表示や無効表示に関係なくAPIとRLSが不許可操作を拒否する |
 | AC-015 | ログイン済みユーザー | ログアウト要求で通信切断または中継側の非JSONエラーとなり、WorkerのCookie削除レスポンスを確認できない | ログイン画面へ遷移せず現在のセッション表示を維持し、ログアウト未完了と再試行を日本語で案内する |
 | AC-016 | 同一ブラウザの複数タブでlogin、logout、workspace作成、一覧更新が並行する | 古い認証・session・作成・一覧応答または失敗が新しい操作より後に到着する | login/logoutは全タブ横断で直列化し、先行loginで認証世代が変わった場合は待機中の古いlogoutを送信せず、後発loginのCookieを削除しない。認証変更時は旧shellを即座に隠し、現在Cookieのユーザーと最新一覧だけを表示して、別ユーザーのworkspace情報・作成前一覧・古い失敗表示で上書きしない。作成POST成功後の一覧再取得失敗は作成済みと明示する |
+| AC-017 | owner/admin/editorが表示中の手順書を開いている | 未保存変更の有無、権限失効、別更新との競合、通信切断を含む条件でアーカイブする | 未保存変更は保護し、viewerと別workspaceは拒否し、表示時versionが一致する場合だけ非破壊アーカイブして一覧から除外する。revision pointerと内容を保持し監査ログを残し、結果不明時は自動再送せず一覧で確認する |
 | AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |
 | AC-022 | 記録中 | 危険URLへ遷移しようとする | SSRF防止で拒否される |

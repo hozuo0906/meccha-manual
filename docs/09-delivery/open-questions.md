@@ -33,3 +33,4 @@ Status: Accepted
 | OQ-025 | chargeback、部分返金、誤購入時の手動復旧権限を誰が持つか | 自動データ削除を禁止し、監査ログ付きの運用者フローを課金公開前に決める | 返金/不正利用対応 |
 | OQ-026 | 未契約作成枠のR2保存容量上限を何GBにするか | 画像圧縮率と1マニュアルあたりの実測後に数値を固定する。決定までは無制限保存を許可せず、課金公開をブロックする | usage metering/課金公開 |
 | OQ-027 | TeamからPersonalへ移行するとき、既存Team subscriptionをどう置換し、owner以外のメンバーをどう扱うか | 自動解約・自動削除・自動降格は行わない。決定まではactive/grace/read_onlyのTeam契約があれば人数に関係なくPersonalのCheckout Session作成を拒否し、二重契約を課金前に止める | pricing/checkout/subscription/membership |
+| OQ-028 | FR-004の「削除」で、アーカイブ後の復元・物理削除をいつ誰に許可し、revision、asset、共有、分析、コメントをどう扱うか | 現段階は非破壊アーカイブだけを提供し、revision pointerと全内容を保持する。復元・物理削除・自動削除は、権限、猶予期間、参照関係、監査、再試行をADRで確定するまで有効化しない | 手順書復元／物理削除 |
