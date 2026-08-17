@@ -36,18 +36,17 @@ $$;
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
 
-select public.append_manual_step(
+select ms.id as archive_conflict_step_id
+from public.manual_steps ms
+where ms.revision_id = '44444444-4444-4444-8444-444444444444'
+  and ms.deleted_at is null
+order by ms.position
+limit 1 \gset
+
+select public.soft_delete_manual_step(
   '44444444-4444-4444-8444-444444444444',
-  'note',
-  'アーカイブ競合テスト',
-  '表示後のstep変更',
-  null,
-  null,
-  null,
-  null,
-  '{}'::jsonb,
-  '{}'::jsonb
-) as archive_conflict_step_id \gset
+  :'archive_conflict_step_id'
+);
 
 do $$
 begin
