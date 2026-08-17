@@ -4,9 +4,9 @@ Status: Accepted
 
 ## 目的
 
-長期開発を特定のChatGPT/Codex会話へ依存させず、新しいセッションがGitHubの実状態から安全に作業を再開できるようにする。
+長期開発を特定のChatGPT/Codex会話へ依存させず、新しいセッションがGitHub上の正本と実状態・証跡を照合して安全に作業を再開できるようにする。
 
-会話履歴は補助情報として扱い、コード、文書、Issue、Pull Request、commit、CI、review threadを正本とする。
+会話履歴は補助情報として扱い、正本の優先順位は `AGENTS.md` に従う。コード、migration、設定、commit、CI、review threadは、正本どおりに実装・検証されているかを確認するための実状態・証跡として扱う。
 
 ## 現在地の正本
 
