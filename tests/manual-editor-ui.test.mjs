@@ -61,6 +61,7 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
   assert.match(source, /querySelectorAll\('\[data-manual-busy-rendered=\"true\"\]'\)[\s\S]*control\.disabled = false/);
+  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button"\)[\s\S]*control\.disabled = true/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /function isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*currentScreen === "manual-detail"[\s\S]*manualDetailState\.manualId === manualId/);
   assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);

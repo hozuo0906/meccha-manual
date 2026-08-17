@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-58de90b820b6a3a3";
+export const APP_ASSET_VERSION = "sha256-dc1d2216f37a4a13";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2124,6 +2124,17 @@ function setManualMutationBusyState(isBusy, messageId = "", message = "") {
         control.disabled = control.getAttribute("data-manual-disabled-before") === "true";
         control.removeAttribute("data-manual-disabled-before");
       }
+    }
+  }
+  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button")) {
+    if (isBusy) {
+      if (!control.hasAttribute("data-manual-disabled-before")) {
+        control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
+      }
+      control.disabled = true;
+    } else if (control.hasAttribute("data-manual-disabled-before")) {
+      control.disabled = control.getAttribute("data-manual-disabled-before") === "true";
+      control.removeAttribute("data-manual-disabled-before");
     }
   }
   if (!isBusy) {
