@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-45cf5203372d6576";
+export const APP_ASSET_VERSION = "sha256-bdbc78d2046526fb";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2332,7 +2332,9 @@ function manualDetailHtml(currentWorkspace) {
           '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
           '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>基本情報を保存</button>' +
         '</form>'
-      : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>権限</dt><dd>閲覧のみ</dd></dl></div>'
+      : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>状態</dt><dd>公開版（読み取り専用）</dd></dl>' +
+          (canEdit && draft.state === "published" ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>編集用下書きを作成</button>' : '') +
+        '</div>'
     : '<div class="empty"><strong>編集できる下書きがありません。</strong><br>' +
         (canEdit && value.manual.currentPublishedRevisionId
           ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>編集用下書きを作成</button>'
