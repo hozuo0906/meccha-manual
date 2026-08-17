@@ -55,5 +55,6 @@ Status: Accepted
 
 | DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
 | DEC-050 | 2026-08-12 | Phase 1 readinessは最新Workers型のstrict typecheck、Wrangler bundle dry-run、重要な失敗条件のproduction code変異、fixture APIを使う実Chromium 4ロールE2Eを必須にする。外部Supabaseのmigration・資格情報・テストデータは使わず、動的RLS検証は承認対象のIssue #38へ分離する | 静的snippetだけの合格を防ぎつつ、外部環境を無承認で変更せずに認証・権限UI・アクセシビリティの実行可能性をPRごとに保証するため |
+| DEC-051 | 2026-08-17 | 長期AI開発のライブな現在地はGitHub Issue #70へ集約し、新しいセッションは `AGENTS.md` の正本優先順位に従ってIssue #70・対象Issue/PR・commit・CI・review threadを照合する。コードやCI等の実状態を正本へ昇格せず、正本との矛盾時は作業を停止して `open-questions.md` へ登録する | 会話上限や端末停止後もGitHubから安全に再開しつつ、実装逸脱を正本として固定化する事故を防ぐため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
