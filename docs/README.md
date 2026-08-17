@@ -27,7 +27,7 @@ Status: Accepted
 - `06-security`: セキュリティ、プライバシー、脅威モデル
 - `07-quality`: テスト戦略、受入条件、レビュー基準
 - `08-operations`: 環境、デリバリー、監視、Runbook
-- `09-delivery`: Issue分解、決定ログ、未決事項、リスク
+- `09-delivery`: Issue分解、決定ログ、未決事項、リスク、PR運用、セッション引き継ぎ
 - `10-records`: サブエージェント成果とクラウドタスク品質監査の時点記録
 
 ## ID規則
@@ -46,6 +46,14 @@ Status: Accepted
 - 関連テーブル/API/画面/テストの正本が存在する。
 - P0/P1扱いの未決事項がない。
 - `issue-map.md` に実装単位と完了条件がある。
+
+## 長期開発とセッション再開
+
+- [セッション引き継ぎ運用](09-delivery/session-handoff.md)
+- [毎日0時・独立セッション用プロンプト](09-delivery/daily-session-prompt.md)
+- ライブな現在地: GitHub Issue #70 `META: 開発現在地・セッション引き継ぎ`
+
+新しいセッションは過去チャットだけに依存せず、上記文書、Issue #70、対象Issue/PR、最新commit、CI、review threadを照合してから作業を開始します。
 
 ## 公開構成
 

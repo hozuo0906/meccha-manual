@@ -58,6 +58,7 @@ Status: Accepted
 | DEC-051 | 2026-08-14 | 手順書一覧のSupabase応答上限は1000件かつ1 MiBとし、その他のSupabase JSON応答は512 KiBを維持する | title最大64 Unicode code pointがJSON制御文字として最大6 byteへ展開しても1000件一覧を取得可能にしつつ、一般応答の無制限buffer拡大を避けるため |
 | DEC-052 | 2026-08-14 | 手順書詳細は200 active steps・8 MiB、draft description 10,000文字、step title 128文字、instruction 4,000文字、target 256文字、URL 2,048文字を上限とし、manual/revision/stepのwriteはSECURITY DEFINER RPCへ集約する | 201件目の件数異常判定を含め、DB有効な最大長文字列がJSON制御文字escapeで1 code pointあたり最大6 byteへ展開しても詳細APIが読める一方、bufferを8 MiBで打ち切り、複数tableの部分更新・Worker境界迂回も防ぐため |
 | DEC-053 | 2026-08-14 | 手順書write body上限を64 KiBとし、step PATCHは取得時のupdatedAtをrevision lock内で照合する楽観的更新にする。使い捨てPostgreSQLでは同じupdatedAtの2更新を同時実行し、1件だけ成功することを必須検証とする | 10,000 Unicode code pointの日本語説明を正当に受理しつつ、同じ旧versionを基にした並行更新が互いの変更を黙って上書きすることを防ぐため |
+| DEC-054 | 2026-08-17 | 長期AI開発のライブな現在地はGitHub Issue #70へ集約し、新しいセッションは `AGENTS.md` の正本優先順位に従ってIssue #70・対象Issue/PR・commit・CI・review threadを照合する。コードやCI等の実状態を正本へ昇格せず、正本との矛盾時は作業を停止して `open-questions.md` へ登録する | 会話上限や端末停止後もGitHubから安全に再開しつつ、実装逸脱を正本として固定化する事故を防ぐため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
 
