@@ -70,6 +70,7 @@ const requiredMigration = [
   "manual step limit exceeded",
   "create or replace function public.get_manual_edit_detail(",
   "security invoker",
+  "'can_edit', public.has_workspace_role(",
   "limit 201",
   "grant execute on function public.get_manual_edit_detail(uuid, uuid) to authenticated",
   "create function public.update_manual_draft(",

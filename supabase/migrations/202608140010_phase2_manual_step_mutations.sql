@@ -26,7 +26,7 @@ begin
   end if;
 
   if authority like '[%' then
-    if authority !~ '^\[[0-9A-Fa-f:.]+\](?::[0-9]{1,5})?$' then
+    if authority !~ '^\[[0-9A-Fa-f:.]+\](?::[0-9]+)?$' then
       return false;
     end if;
     host := substring(authority from '^\[([^]]+)\]');
@@ -36,7 +36,7 @@ begin
       return false;
     end;
   else
-    if authority like '%:%' and authority !~ '^[^:]+:[0-9]{1,5}$' then
+    if authority like '%:%' and authority !~ '^[^:]+:[0-9]+$' then
       return false;
     end if;
     host := split_part(authority, ':', 1);

@@ -39,7 +39,8 @@ const required = [
   "manual step internal fields are not accepted",
   "non-action manual step cannot include action fields",
   "manual step url is invalid",
-  "hostname_label.label like 'xn--%'"
+  "hostname_label.label like 'xn--%'",
+  "authority !~ '^[^:]+:[0-9]+$'"
 ];
 
 const requiredContract = [

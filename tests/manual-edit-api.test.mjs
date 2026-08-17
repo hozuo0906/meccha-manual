@@ -79,8 +79,9 @@ function stepRow(overrides = {}) {
   };
 }
 
-function detailSnapshot(draftId = DRAFT_ID, steps = [stepRow()]) {
+function detailSnapshot(draftId = DRAFT_ID, steps = [stepRow()], canEdit = true) {
   return {
+    can_edit: canEdit,
     manual: manualRow(draftId),
     draft: draftId ? draftRow() : null,
     steps: draftId ? steps : []
@@ -130,8 +131,7 @@ test("viewer can load manual detail without edit permission", async () => {
   const mock = installFetch([
     authOk(),
     memberOk(),
-    editorOk(false),
-    json(detailSnapshot())
+    json(detailSnapshot(DRAFT_ID, [stepRow()], false))
   ]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
@@ -143,9 +143,9 @@ test("viewer can load manual detail without edit permission", async () => {
     assert.equal(body.steps[0].instruction, "手修正済みです。");
     assert.deepEqual(body.permissions, { canEdit: false });
     assert.equal("annotation" in body.steps[0], false);
-    assert.match(mock.calls[3].url, /\/rest\/v1\/rpc\/get_manual_edit_detail$/);
-    assert.equal(mock.calls[3].init.method, "POST");
-    assert.deepEqual(JSON.parse(String(mock.calls[3].init.body)), {
+    assert.match(mock.calls[2].url, /\/rest\/v1\/rpc\/get_manual_edit_detail$/);
+    assert.equal(mock.calls[2].init.method, "POST");
+    assert.deepEqual(JSON.parse(String(mock.calls[2].init.body)), {
       target_workspace_id: WORKSPACE_ID,
       target_manual_id: MANUAL_ID
     });
@@ -155,14 +155,14 @@ test("viewer can load manual detail without edit permission", async () => {
 });
 
 test("manual without a current draft returns an empty editor state", async () => {
-  const mock = installFetch([authOk(), memberOk(), editorOk(false), json(detailSnapshot(null))]);
+  const mock = installFetch([authOk(), memberOk(), json(detailSnapshot(null, [], false))]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
     assert.equal(response?.status, 200);
     const body = await response.json();
     assert.equal(body.draft, null);
     assert.deepEqual(body.steps, []);
-    assert.equal(mock.calls.length, 4);
+    assert.equal(mock.calls.length, 3);
   } finally {
     mock.restore();
   }
@@ -353,6 +353,28 @@ test("WHATWG URLで有効なunderscore hostをstep RPCへ保持する", async ()
     );
     assert.equal(response?.status, 201);
     assert.equal(JSON.parse(String(mock.calls[4].init.body)).step_url, "https://service_name.example/");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("WHATWG URLで有効なゼロ埋めportを正規化してstep RPCへ渡す", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json(STEP_ID)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: "https://example.com:000080/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 201);
+    assert.equal(JSON.parse(String(mock.calls[4].init.body)).step_url, "https://example.com:80/");
   } finally {
     mock.restore();
   }
@@ -589,7 +611,7 @@ test("manual detail accepts 200 DB-valid rows after worst-case JSON escaping", a
   assert.ok(encodedBytes < 8 * 1024 * 1024, "DB-valid maximum rows must remain inside the bounded 8 MiB budget");
 
   const mock = installFetch([
-    authOk(), memberOk(), editorOk(), json(detailSnapshot(DRAFT_ID, steps))
+    authOk(), memberOk(), json(detailSnapshot(DRAFT_ID, steps))
   ]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
@@ -605,7 +627,7 @@ test("manual detail refuses more than 200 active steps", async () => {
     position
   }));
   const mock = installFetch([
-    authOk(), memberOk(), editorOk(), json(detailSnapshot(DRAFT_ID, steps))
+    authOk(), memberOk(), json(detailSnapshot(DRAFT_ID, steps))
   ]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
@@ -662,7 +684,7 @@ test("step RPCのURL検証拒否を決定的な400へ変換する", async () => 
 
 test("manual detail does not request hidden step mutation fields", async () => {
   const mock = installFetch([
-    authOk(), memberOk(), editorOk(), json(detailSnapshot(DRAFT_ID, [{
+    authOk(), memberOk(), json(detailSnapshot(DRAFT_ID, [{
       id: STEP_ID,
       workspace_id: WORKSPACE_ID,
       revision_id: DRAFT_ID,
@@ -679,7 +701,7 @@ test("manual detail does not request hidden step mutation fields", async () => {
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
     assert.equal(response?.status, 200);
-    assert.match(mock.calls[3].url, /\/rest\/v1\/rpc\/get_manual_edit_detail$/);
+    assert.match(mock.calls[2].url, /\/rest\/v1\/rpc\/get_manual_edit_detail$/);
   } finally {
     mock.restore();
   }

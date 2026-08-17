@@ -379,7 +379,7 @@ async function fetchManualDetailSnapshot(
   accessToken: string,
   workspaceId: string,
   manualId: string
-): Promise<{ manual: ManualContext; draft: DraftSummary | null; steps: ManualStep[] }> {
+): Promise<{ manual: ManualContext; draft: DraftSummary | null; steps: ManualStep[]; canEdit: boolean }> {
   let response: Response;
   try {
     response = await supabaseFetch(env, "/rest/v1/rpc/get_manual_edit_detail", accessToken, {
@@ -406,7 +406,7 @@ async function fetchManualDetailSnapshot(
   if (payload === null) {
     throw new ManualError(404, "MANUAL_NOT_FOUND", "指定された手順書が見つかりません。");
   }
-  if (!isPlainObject(payload) || !isPlainObject(payload.manual) || !Array.isArray(payload.steps)) {
+  if (!isPlainObject(payload) || !isPlainObject(payload.manual) || !Array.isArray(payload.steps) || typeof payload.can_edit !== "boolean") {
     throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
   const manual = parseManualContext(payload.manual, workspaceId, manualId);
@@ -417,7 +417,7 @@ async function fetchManualDetailSnapshot(
     if (payload.draft !== null || payload.steps.length !== 0) {
       throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
-    return { manual, draft: null, steps: [] };
+    return { manual, draft: null, steps: [], canEdit: payload.can_edit };
   }
   if (payload.steps.length > MAX_MANUAL_STEPS) {
     throw new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順が多いため編集画面を表示できません。手順を整理してください。");
@@ -438,7 +438,7 @@ async function fetchManualDetailSnapshot(
       throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
   }
-  return { manual, draft, steps: typed };
+  return { manual, draft, steps: typed, canEdit: payload.can_edit };
 }
 
 async function fetchActiveStep(
@@ -492,14 +492,23 @@ async function canEditWorkspace(env: ManualEnv, session: ManualSession, workspac
   );
 }
 
+async function authorizedMemberSession(
+  request: Request,
+  env: ManualEnv,
+  workspaceId: string
+): Promise<ManualSession> {
+  const session = await requireSession(request, env);
+  await assertWorkspaceMember(env, session.accessToken, session.userId, workspaceId);
+  return session;
+}
+
 async function authorizedSession(
   request: Request,
   env: ManualEnv,
   workspaceId: string,
   requireEditor: boolean
 ): Promise<{ session: ManualSession; canEdit: boolean }> {
-  const session = await requireSession(request, env);
-  await assertWorkspaceMember(env, session.accessToken, session.userId, workspaceId);
+  const session = await authorizedMemberSession(request, env, workspaceId);
   const canEdit = await canEditWorkspace(env, session, workspaceId);
   if (requireEditor && !canEdit) {
     throw new ManualError(403, "MANUAL_EDIT_FORBIDDEN", "手順書を編集する権限がありません。管理者に確認してください。");
@@ -626,8 +635,8 @@ async function getManualDetail(
   workspaceId: string,
   manualId: string
 ): Promise<Response> {
-  const { session, canEdit } = await authorizedSession(request, env, workspaceId, false);
-  const { manual, draft, steps } = await fetchManualDetailSnapshot(env, session.accessToken, workspaceId, manualId);
+  const session = await authorizedMemberSession(request, env, workspaceId);
+  const { manual, draft, steps, canEdit } = await fetchManualDetailSnapshot(env, session.accessToken, workspaceId, manualId);
   return jsonResponse({
     manual: {
       id: manual.id,

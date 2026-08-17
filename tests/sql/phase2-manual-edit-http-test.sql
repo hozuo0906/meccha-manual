@@ -228,6 +228,7 @@ begin
     or detail->'draft'->>'id' <> '44444444-4444-4444-8444-444444444444'
     or jsonb_array_length(detail->'steps') <> 1
     or detail->'steps'->0 ?| array['asset_id', 'annotation', 'masking']
+    or (detail->>'can_edit')::boolean is not true
   then
     raise exception 'manual edit detail RPC did not return one coherent public snapshot';
   end if;
@@ -242,6 +243,12 @@ begin
     '33333333-3333-4333-8333-333333333333'
   ) is null then
     raise exception 'same-workspace viewer could not read manual edit detail';
+  end if;
+  if (public.get_manual_edit_detail(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '33333333-3333-4333-8333-333333333333'
+  )->>'can_edit')::boolean is not false then
+    raise exception 'viewer manual edit detail retained stale edit permission';
   end if;
   if public.get_manual_edit_detail(
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -369,6 +376,15 @@ begin
   valid_step_id := public.append_manual_step(
     '44444444-4444-4444-8444-444444444444',
     'action', 'internal host URL', '', 'navigate', '画面', 'https://service_name.example/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.soft_delete_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    valid_step_id
+  );
+  valid_step_id := public.append_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    'action', 'zero-padded port URL', '', 'navigate', '画面', 'https://example.com:000080/',
     null, '{}'::jsonb, '{}'::jsonb
   );
   perform public.soft_delete_manual_step(

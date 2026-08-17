@@ -195,6 +195,11 @@ security invoker
 set search_path = ''
 as $$
   select jsonb_build_object(
+    'can_edit', public.has_workspace_role(
+      m.workspace_id,
+      auth.uid(),
+      array['owner', 'admin', 'editor']::public.workspace_role[]
+    ),
     'manual', jsonb_build_object(
       'id', m.id,
       'workspace_id', m.workspace_id,

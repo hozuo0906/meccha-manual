@@ -307,6 +307,12 @@ begin
   end;
   if not rejected then raise exception 'direct RPC accepted malformed punycode URL'; end if;
 
+  perform public.append_manual_step(
+    '66666666-6666-4666-8666-666666666666',
+    'action', 'zero-padded port URL', '', 'navigate', '画面', 'https://example.com:000080/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+
   select updated_at into protected_updated_at from public.manual_steps where id = protected_step_id;
   perform public.update_manual_step(
     '99999999-9999-4999-8999-999999999999', protected_step_id, protected_updated_at,

@@ -36,6 +36,7 @@ Status: Accepted
 - published/superseded revisionを編集対象として返さない。
 - `annotation`、`masking`、`assetId`など内部更新項目は詳細取得queryにも含めず、レスポンスへ公開しない。step更新時だけ対象1件を取得し、内部JSONは各64 KiB以下をDBで強制する。
 - manual、current draft、active stepsは`get_manual_edit_detail`の単一SQL文で取得し、同一MVCC snapshotの値だけを組み合わせる。公開やmetadata保存が並行しても、旧manualと新draft、または消えたdraftを混在させない。
+- `permissions.canEdit`も同じ`get_manual_edit_detail`文内でロールを判定し、詳細データより古い権限を編集UIへ返さない。
 
 成功例:
 
@@ -176,7 +177,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 `202608140012_phase2_manual_edit_http_contract.sql`は次を追加・強化する。
 
 - optimistic version照合付き`update_manual_draft`
-- manual・draft・stepsを単一MVCC snapshotで読む`get_manual_edit_detail`（SECURITY INVOKER、member RLSを維持）
+- manual・draft・steps・編集可否を単一MVCC snapshotで読む`get_manual_edit_detail`（SECURITY INVOKER、member RLSを維持）
 - draft descriptionとstep本文フィールドの上限constraint
 - step title/targetTextの空白のみ拒否constraint
 - revisionごとのactive step 200件preflightと`manual_steps_active_limit_guard`
