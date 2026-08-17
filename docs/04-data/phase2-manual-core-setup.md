@@ -23,6 +23,7 @@ supabase/migrations/202608140005_phase2_manual_title_length.sql
 supabase/migrations/202608140010_phase2_manual_step_mutations.sql
 supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
 supabase/migrations/202608180001_phase2_manual_publication.sql
+supabase/migrations/202608180002_phase2_manual_archive.sql
 ```
 
 前提migration:
@@ -44,6 +45,8 @@ supabase/migrations/202608100002_phase1_member_management.sql
 
 `202608180001_phase2_manual_publication.sql` は、表示中revision IDをmanual row lock内で照合する公開・次draft作成RPCを追加し、競合時の別revision公開を拒否する。旧公開RPCのauthenticated実行権限は閉じる。
 
+`202608180002_phase2_manual_archive.sql` は、表示中manual更新時刻とworkspaceをmanual row lock内で照合する非破壊アーカイブRPCを追加する。revision pointerと内容を保持し、同じtransactionで`manual.archived`を監査する。
+
 ## Scope
 
 作成・強化される主な要素:
@@ -63,6 +66,7 @@ supabase/migrations/202608100002_phase1_member_management.sql
 - `create_manual(workspace_id, folder_id, title, description)`
 - `publish_manual_revision(manual_id, expected_draft_revision_id, expected_content_version, confirmed_sensitive_data_review)`
 - `create_manual_draft_from_published(manual_id, expected_published_revision_id)`
+- `archive_manual(workspace_id, manual_id, expected_manual_updated_at)`
 - `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
 - `get_manual_edit_detail(workspace_id, manual_id)`（SECURITY INVOKERの単一SQL文でmanual・draft・steps・編集可否を同一MVCC snapshotから取得）
 - `manual_step_ipv4_host_is_valid(host)`（step URL検証内部専用。WHATWG numeric IPv4形式の範囲を検証し、外部roleへ公開しない）
@@ -86,6 +90,7 @@ supabase/migrations/202608100002_phase1_member_management.sql
 - 手順書作成は `create_manual` RPCを使う。
 - 公開処理は表示中draft IDをDB lock内で照合する`publish_manual_revision` RPCを使う。
 - 公開後の再編集は表示中published IDをDB lock内で照合する`create_manual_draft_from_published` RPCを使う。
+- 手順書アーカイブは表示中manual更新時刻をDB lock内で照合する`archive_manual` RPCだけを使い、内容とrevision pointerを保持する。
 - 手順書の公開状態、現在の下書き、現在の公開版はRPC以外で変更しない。
 - manual作成、draft metadata更新、step mutationはSECURITY DEFINER RPCだけを利用し、authenticated direct DMLを許可しない。
 - 詳細APIは200 active steps、8 MiBを上限とし、本文フィールド上限をDBとWorkerで一致させる。
@@ -108,7 +113,9 @@ supabase/migrations/202608100002_phase1_member_management.sql
 13. `supabase/migrations/202608100001_phase1_workspace_input_hardening.sql`、続いて`202608100002_phase1_member_management.sql`が適用済みで、`public.normalize_workspace_name`と`public.audit_logs`が存在することを確認する。未適用ならユーザー承認を得てこの順で適用する。
 14. 公開・次draft作成を利用する全clientが、表示中revision IDを送る新RPCへ切替済みであることを確認する。
 15. `supabase/migrations/202608180001_phase2_manual_publication.sql` の全文を貼り、`Run` を押す。
-16. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
+16. アーカイブを利用する全clientが、表示中manual更新時刻を送るRPCへ切替済みであることを確認する。
+17. `supabase/migrations/202608180002_phase2_manual_archive.sql` の全文を貼り、`Run` を押す。
+18. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
 
 ## Expected result
 

@@ -121,7 +121,8 @@ on public.manuals
 for select
 to authenticated
 using (
-  exists (
+  archived_at is null
+  and exists (
     select 1 from public.workspace_members wm
     where wm.workspace_id = manuals.workspace_id
       and wm.user_id = auth.uid()

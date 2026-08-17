@@ -76,6 +76,7 @@ async function installManualFixture(page, role, options = {}) {
     draftPatchResolved: false,
     failNextManualCreate: null,
     failNextManualDetail: null,
+    failNextManualArchive: null,
     deferNextManualDetail: false,
     manualDetailDeferred: null,
     releaseManualDetail: null,
@@ -85,6 +86,7 @@ async function installManualFixture(page, role, options = {}) {
     lastManualCreateBody: null,
     lastDraftPatchBody: null,
     lastPublishBody: null,
+    lastArchiveBody: null,
     lastDraftCreateBody: null,
     lastStepCreateBody: null,
     lastStepPatchBody: null,
@@ -209,6 +211,18 @@ async function installManualFixture(page, role, options = {}) {
       const publishedRevisionId = state.manuals[0].currentDraftRevisionId;
       state.manuals[0] = { ...state.manuals[0], status: "published", currentDraftRevisionId: null, currentPublishedRevisionId: publishedRevisionId };
       return json(200, { publishedRevisionId });
+    }
+    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/archive` && method === "POST") {
+      const body = request.postDataJSON();
+      const failure = state.failNextManualArchive;
+      state.failNextManualArchive = null;
+      state.lastArchiveBody = body;
+      if (!failure || failure.commitBeforeFailure) {
+        state.manuals = state.manuals.filter((manual) => manual.id !== manualId);
+      }
+      if (failure?.mode === "abort") return route.abort("failed");
+      if (failure) return json(failure.status, { code: failure.code, message: failure.message });
+      return json(200, { archivedManualId: manualId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/draft` && method === "POST") {
       const body = request.postDataJSON();
@@ -387,6 +401,37 @@ test("編集者は確認後に公開し、公開版を変えず編集用下書�
   expect(state.lastDraftCreateBody).toEqual({ expectedPublishedRevisionId: draftId });
   expect(state.manuals[0].currentPublishedRevisionId).toBe(draftId);
   expect(state.manuals[0].currentDraftRevisionId).toBe(nextDraftId);
+});
+
+test("編集者は未保存変更を保護し、確認後に手順書をアーカイブできる", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+
+  await page.locator("#manual-draft-description").fill("未保存の説明");
+  await page.getByRole("button", { name: "手順書をアーカイブ" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("未保存の変更があります");
+  expect(state.lastArchiveBody).toBeNull();
+
+  await page.locator("#manual-draft-description").fill("受付担当者向け");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "手順書をアーカイブ" }).click();
+  await expect(page.locator("#manuals-message")).toContainText("手順書をアーカイブしました");
+  await expect(page.getByRole("button", { name: /既存の保存手順/ })).toHaveCount(0);
+  expect(state.lastArchiveBody).toEqual({ expectedUpdatedAt: "2026-08-14T00:00:00.000Z" });
+});
+
+test("アーカイブ結果不明時は自動再送せず一覧で確認させる", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  state.failNextManualArchive = { mode: "abort", commitBeforeFailure: true };
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "手順書をアーカイブ" }).click();
+  await expect(page.locator("#manuals-message")).toContainText("アーカイブ結果を一覧で確認してください");
+  await expect(page.getByRole("button", { name: /既存の保存手順/ })).toHaveCount(0);
+  expect(state.lastArchiveBody).toEqual({ expectedUpdatedAt: "2026-08-14T00:00:00.000Z" });
 });
 
 test("基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない", async ({ page }) => {
@@ -725,6 +770,7 @@ test("閲覧者は手順書と手順を閲覧できるが編集フォームは�
   await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator("#manual-step-add-form")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "手順を保存" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "手順書をアーカイブ" })).toHaveCount(0);
   await expect(page.getByText("現在の権限では閲覧のみ利用できます。" )).toBeVisible();
 });
 

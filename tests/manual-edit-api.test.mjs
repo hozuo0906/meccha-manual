@@ -247,6 +247,85 @@ test("viewer cannot publish a manual", async () => {
   }
 });
 
+test("editor archives the displayed manual through the workspace-bound RPC", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json(MANUAL_ID)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/archive"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 200);
+    assert.deepEqual(await response.json(), { archivedManualId: MANUAL_ID });
+    const rpc = mock.calls[3];
+    assert.match(rpc.url, /\/rest\/v1\/rpc\/archive_manual$/);
+    assert.deepEqual(JSON.parse(String(rpc.init.body)), {
+      target_workspace_id: WORKSPACE_ID,
+      target_manual_id: MANUAL_ID,
+      expected_manual_updated_at: manualRow().updated_at
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("viewer cannot archive a manual", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(false)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/archive"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 403);
+    assert.equal((await response.json()).code, "MANUAL_EDIT_FORBIDDEN");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("archive rejects a stale displayed manual version", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json({ message: "manual archive changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/archive"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_ARCHIVE_CONFLICT");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("archive requires the displayed manual version", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk()]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/archive"), "POST", JSON.stringify({})),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_ARCHIVE_VERSION_INVALID");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a mismatched archive result is treated as unknown", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json(PUBLISHED_ID)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/archive"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUAL_ARCHIVE_RESULT_UNKNOWN");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("a mismatched publish result is treated as unknown and must be reconciled", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(PUBLISHED_ID)]);
   try {

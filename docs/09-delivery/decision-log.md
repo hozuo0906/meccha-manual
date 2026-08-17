@@ -62,6 +62,18 @@ Status: Accepted
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
 
+## DEC-060: 手順書削除契約は非破壊アーカイブから開始する
+
+- Status: Accepted
+- Date: 2026-08-18
+- Decision:
+  - 現段階のFR-004削除導線は、`status = archived`と`archived_at`だけを更新する非破壊アーカイブとして提供する。
+  - 表示中manualの`updatedAt`とrouteのworkspaceをmanual row lock内で照合し、owner/admin/editorだけが実行できる。
+  - revision pointer、下書き、公開版、step、asset参照は保持し、同じtransactionで`manual.archived`を監査する。
+  - 復元と物理削除はOQ-028を解決するまで実装・有効化しない。
+- Reason: 完全削除の関連資源・猶予・復旧契約が未確定のため、一覧から除外する利用者目的を満たしつつ、不可逆なデータ損失と競合更新の隠蔽を防ぐため。
+- Evidence: Worker/API、RPC権限・workspace・楽観lock・監査SQL、editor/viewer/結果不明Playwright。
+
 ## DEC-059: 公開と次draft作成は表示中revisionをDB lock内で照合する
 
 - Status: Accepted
