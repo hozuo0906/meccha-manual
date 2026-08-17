@@ -21,7 +21,7 @@ Status: Accepted
 - 詳細のSupabase JSONは、200 active stepsに加えて件数異常を判定する201件目まで、DBで許容される最大フィールド長と1 code pointあたり最大6 byteのJSON制御文字escapeを安全に読める8 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
-- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme hostを許可）とdirect RPC入力のauthorityを同じ境界で検証する。URLをサーバー側から取得・実行しない。
+- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme hostを許可）とdirect RPC入力のauthorityを同じ境界で検証する。PostgreSQLだけでWHATWG IDNAを再現して境界差を作らないため、`xn--`から始まるpunycode hostname labelはWorker・direct RPCとも受け付けない。URLをサーバー側から取得・実行しない。
 
 ## API
 
@@ -35,6 +35,7 @@ Status: Accepted
 - stepは`position asc`、`deleted_at is null`だけを返す。
 - published/superseded revisionを編集対象として返さない。
 - `annotation`、`masking`、`assetId`など内部更新項目は詳細取得queryにも含めず、レスポンスへ公開しない。step更新時だけ対象1件を取得し、内部JSONは各64 KiB以下をDBで強制する。
+- manual、current draft、active stepsは`get_manual_edit_detail`の単一SQL文で取得し、同一MVCC snapshotの値だけを組み合わせる。公開やmetadata保存が並行しても、旧manualと新draft、または消えたdraftを混在させない。
 
 成功例:
 
@@ -175,6 +176,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 `202608140012_phase2_manual_edit_http_contract.sql`は次を追加・強化する。
 
 - optimistic version照合付き`update_manual_draft`
+- manual・draft・stepsを単一MVCC snapshotで読む`get_manual_edit_detail`（SECURITY INVOKER、member RLSを維持）
 - draft descriptionとstep本文フィールドの上限constraint
 - step title/targetTextの空白のみ拒否constraint
 - revisionごとのactive step 200件preflightと`manual_steps_active_limit_guard`
@@ -188,7 +190,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
-- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字・壊れたauthority・範囲外portを含むURLを拒否する。WHATWG URLで有効なunderscore hostは拒否しない。step更新では既存の内部項目を保持する。
+- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字・壊れたauthority・範囲外port・punycode hostnameを含むURLを拒否する。WHATWG URLで有効なunderscore hostは拒否しない。step更新では既存の内部項目を保持する。
 
 これらのmigrationはrepository内とGitHub Actions内の使い捨てPostgreSQLで検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
 
@@ -197,6 +199,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 最低限:
 
 - member詳細取得、draftなし、viewerの`canEdit: false`
+- 詳細取得が1つの`get_manual_edit_detail` RPCだけを使い、manual・draft・stepsを別々の時点から合成しないこと
 - viewer mutation 403
 - 非member/別workspace/不正UUID 404
 - draft title/descriptionの原子的更新

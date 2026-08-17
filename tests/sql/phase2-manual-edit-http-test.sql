@@ -217,6 +217,44 @@ select public.append_manual_step(
 
 do $$
 declare
+  detail jsonb;
+begin
+  detail := public.get_manual_edit_detail(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '33333333-3333-4333-8333-333333333333'
+  );
+  if detail is null
+    or detail->'manual'->>'id' <> '33333333-3333-4333-8333-333333333333'
+    or detail->'draft'->>'id' <> '44444444-4444-4444-8444-444444444444'
+    or jsonb_array_length(detail->'steps') <> 1
+    or detail->'steps'->0 ?| array['asset_id', 'annotation', 'masking']
+  then
+    raise exception 'manual edit detail RPC did not return one coherent public snapshot';
+  end if;
+end;
+$$;
+
+select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', false);
+do $$
+begin
+  if public.get_manual_edit_detail(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '33333333-3333-4333-8333-333333333333'
+  ) is null then
+    raise exception 'same-workspace viewer could not read manual edit detail';
+  end if;
+  if public.get_manual_edit_detail(
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    '66666666-6666-4666-8666-666666666666'
+  ) is not null then
+    raise exception 'non-member viewer read cross-workspace manual edit detail';
+  end if;
+end;
+$$;
+select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
+
+do $$
+declare
   rejected boolean := false;
 begin
   begin
@@ -452,6 +490,8 @@ declare
 begin
   foreach candidate in array array[
     'https://%',
+    'https://xn--/',
+    'https://xn--bcher-kva.example/',
     'https://[invalid',
     'https://example.com:abc',
     'https://999.999.999.999'
@@ -481,6 +521,12 @@ begin
   end if;
   if not has_function_privilege('authenticated', 'public.update_manual_draft(uuid,uuid,timestamptz,text,text)', 'EXECUTE') then
     raise exception 'authenticated cannot execute update_manual_draft';
+  end if;
+  if has_function_privilege('anon', 'public.get_manual_edit_detail(uuid,uuid)', 'EXECUTE') then
+    raise exception 'anon can execute get_manual_edit_detail';
+  end if;
+  if not has_function_privilege('authenticated', 'public.get_manual_edit_detail(uuid,uuid)', 'EXECUTE') then
+    raise exception 'authenticated cannot execute get_manual_edit_detail';
   end if;
 end;
 $$;

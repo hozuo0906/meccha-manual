@@ -53,6 +53,13 @@ begin
         return false;
       end;
     end if;
+    if exists (
+      select 1
+      from unnest(string_to_array(lower(host), '.')) as hostname_label(label)
+      where hostname_label.label like 'xn--%'
+    ) then
+      return false;
+    end if;
   end if;
 
   port_text := substring(authority from ':([0-9]+)$');

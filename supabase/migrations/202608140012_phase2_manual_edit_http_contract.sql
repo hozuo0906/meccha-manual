@@ -182,6 +182,85 @@ end $$;
 
 alter table public.manual_steps validate constraint manual_steps_masking_size;
 
+-- Return the editor detail from one PostgreSQL statement and therefore one MVCC snapshot.
+-- SECURITY INVOKER keeps the existing member RLS policies authoritative.
+create or replace function public.get_manual_edit_detail(
+  target_workspace_id uuid,
+  target_manual_id uuid
+)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'manual', jsonb_build_object(
+      'id', m.id,
+      'workspace_id', m.workspace_id,
+      'title', m.title,
+      'status', m.status,
+      'current_draft_revision_id', m.current_draft_revision_id,
+      'current_published_revision_id', m.current_published_revision_id,
+      'updated_at', m.updated_at
+    ),
+    'draft', case
+      when m.current_draft_revision_id is null then null
+      else (
+        select jsonb_build_object(
+          'id', mr.id,
+          'workspace_id', mr.workspace_id,
+          'manual_id', mr.manual_id,
+          'revision_no', mr.revision_no,
+          'state', mr.state,
+          'title', mr.title,
+          'description', mr.description,
+          'updated_at', mr.updated_at
+        )
+        from public.manual_revisions mr
+        where mr.id = m.current_draft_revision_id
+          and mr.workspace_id = m.workspace_id
+          and mr.manual_id = m.id
+          and mr.state = 'draft'
+      )
+    end,
+    'steps', case
+      when m.current_draft_revision_id is null then '[]'::jsonb
+      else (
+        select coalesce(jsonb_agg(to_jsonb(detail_step) order by detail_step.position), '[]'::jsonb)
+        from (
+          select
+            ms.id,
+            ms.workspace_id,
+            ms.revision_id,
+            ms.position,
+            ms.type,
+            ms.title,
+            ms.instruction,
+            ms.action_type,
+            ms.target_text,
+            ms.url,
+            ms.updated_at
+          from public.manual_steps ms
+          where ms.workspace_id = m.workspace_id
+            and ms.revision_id = m.current_draft_revision_id
+            and ms.deleted_at is null
+          order by ms.position
+          limit 201
+        ) detail_step
+      )
+    end
+  )
+  from public.manuals m
+  where m.workspace_id = target_workspace_id
+    and m.id = target_manual_id
+    and m.archived_at is null
+  limit 1;
+$$;
+
+revoke all on function public.get_manual_edit_detail(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.get_manual_edit_detail(uuid, uuid) to authenticated;
+
 create or replace function public.enforce_manual_steps_active_limit()
 returns trigger
 language plpgsql

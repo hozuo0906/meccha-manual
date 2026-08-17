@@ -182,6 +182,9 @@ function optionalUrl(value: unknown): string | null {
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
   }
+  if (!parsed.hostname.startsWith("[") && parsed.hostname.toLowerCase().split(".").some((label) => label.startsWith("xn--"))) {
+    throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
+  }
   const canonical = parsed.toString();
   if (codePointLength(canonical) > MAX_STEP_URL_LENGTH) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", `URLは${MAX_STEP_URL_LENGTH}文字以内で入力してください。`);
@@ -325,39 +328,6 @@ function parseDraft(value: unknown, workspaceId: string, manualId: string, draft
   };
 }
 
-async function fetchDraft(
-  env: ManualEnv,
-  accessToken: string,
-  workspaceId: string,
-  manualId: string,
-  draftId: string
-): Promise<DraftSummary> {
-  const query = [
-    "/rest/v1/manual_revisions?select=id,workspace_id,manual_id,revision_no,state,title,description,updated_at",
-    `workspace_id=eq.${encodeURIComponent(workspaceId)}`,
-    `manual_id=eq.${encodeURIComponent(manualId)}`,
-    `id=eq.${encodeURIComponent(draftId)}`,
-    "state=eq.draft",
-    "limit=2"
-  ].join("&");
-  const { rows } = await fetchArray(
-    env,
-    accessToken,
-    query,
-    "MANUAL_DETAIL_FETCH_FAILED",
-    "MANUAL_DETAIL_RESPONSE_INVALID",
-    "手順書の下書きを確認できませんでした。時間をおいて、もう一度お試しください。"
-  );
-  if (rows.length !== 1) {
-    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書の下書きを確認できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  const draft = parseDraft(rows[0], workspaceId, manualId, draftId);
-  if (!draft) {
-    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書の下書きを確認できませんでした。時間をおいて、もう一度お試しください。");
-  }
-  return draft;
-}
-
 function parseStep(
   value: unknown,
   workspaceId: string,
@@ -404,53 +374,59 @@ function parseStep(
   };
 }
 
-function validateStepCount(response: Response, itemCount: number): void {
-  const contentRange = response.headers.get("content-range") ?? "";
-  const populated = contentRange.match(/^(\d+)-(\d+)\/(\d+)$/);
-  const empty = contentRange.match(/^\*\/(\d+)$/);
-  const total = populated ? Number(populated[3]) : empty ? Number(empty[1]) : null;
-  if (total !== null && Number.isSafeInteger(total) && total > MAX_MANUAL_STEPS) {
-    throw new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順が多いため編集画面を表示できません。手順を整理してください。");
-  }
-  const valid = itemCount === 0
-    ? Boolean(empty && total === 0)
-    : Boolean(
-        populated &&
-        Number(populated[1]) === 0 &&
-        Number(populated[2]) - Number(populated[1]) + 1 === itemCount &&
-        total === itemCount
-      );
-  if (!valid || total === null || !Number.isSafeInteger(total) || itemCount > MAX_MANUAL_STEPS) {
-    throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
-  }
-}
-
-async function fetchSteps(
+async function fetchManualDetailSnapshot(
   env: ManualEnv,
   accessToken: string,
   workspaceId: string,
-  draftId: string
-): Promise<ManualStep[]> {
-  const query = [
-    "/rest/v1/manual_steps?select=id,workspace_id,revision_id,position,type,title,instruction,action_type,target_text,url,updated_at",
-    `workspace_id=eq.${encodeURIComponent(workspaceId)}`,
-    `revision_id=eq.${encodeURIComponent(draftId)}`,
-    "deleted_at=is.null",
-    "order=position.asc",
-    `limit=${MAX_MANUAL_STEPS + 1}`
-  ].join("&");
-  const { response, rows } = await fetchArray(
-    env,
-    accessToken,
-    query,
-    "MANUAL_STEPS_FETCH_FAILED",
-    "MANUAL_STEPS_RESPONSE_INVALID",
-    "手順を確認できませんでした。時間をおいて、もう一度お試しください。",
-    MAX_MANUAL_DETAIL_JSON_BYTES,
-    { method: "GET", headers: { prefer: "count=exact" } }
-  );
-  validateStepCount(response, rows.length);
-  const steps = rows.map((row) => parseStep(row, workspaceId, draftId));
+  manualId: string
+): Promise<{ manual: ManualContext; draft: DraftSummary | null; steps: ManualStep[] }> {
+  let response: Response;
+  try {
+    response = await supabaseFetch(env, "/rest/v1/rpc/get_manual_edit_detail", accessToken, {
+      method: "POST",
+      body: JSON.stringify({ target_workspace_id: workspaceId, target_manual_id: manualId })
+    });
+  } catch {
+    throw new ManualError(502, "MANUAL_DETAIL_FETCH_FAILED", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  if (response.status === 401) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(401, "SESSION_REFRESH_REQUIRED", "ログイン状態を更新してください。");
+  }
+  if (!response.ok) {
+    await cancelUnreadResponseBody(response);
+    throw new ManualError(502, "MANUAL_DETAIL_FETCH_FAILED", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  let payload: unknown;
+  try {
+    payload = await readJsonLimited(response, MAX_MANUAL_DETAIL_JSON_BYTES);
+  } catch {
+    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  if (payload === null) {
+    throw new ManualError(404, "MANUAL_NOT_FOUND", "指定された手順書が見つかりません。");
+  }
+  if (!isPlainObject(payload) || !isPlainObject(payload.manual) || !Array.isArray(payload.steps)) {
+    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const manual = parseManualContext(payload.manual, workspaceId, manualId);
+  if (!manual) {
+    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  if (!manual.currentDraftRevisionId) {
+    if (payload.draft !== null || payload.steps.length !== 0) {
+      throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+    }
+    return { manual, draft: null, steps: [] };
+  }
+  if (payload.steps.length > MAX_MANUAL_STEPS) {
+    throw new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順が多いため編集画面を表示できません。手順を整理してください。");
+  }
+  const draft = parseDraft(payload.draft, workspaceId, manualId, manual.currentDraftRevisionId);
+  if (!draft) {
+    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書の下書きを確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const steps = payload.steps.map((row) => parseStep(row, workspaceId, manual.currentDraftRevisionId!));
   if (steps.some((step) => step === null)) {
     throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
@@ -462,7 +438,7 @@ async function fetchSteps(
       throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
     }
   }
-  return typed;
+  return { manual, draft, steps: typed };
 }
 
 async function fetchActiveStep(
@@ -651,26 +627,7 @@ async function getManualDetail(
   manualId: string
 ): Promise<Response> {
   const { session, canEdit } = await authorizedSession(request, env, workspaceId, false);
-  const manual = await fetchManualContext(env, session.accessToken, workspaceId, manualId);
-  if (!manual.currentDraftRevisionId) {
-    return jsonResponse({
-      manual: {
-        id: manual.id,
-        title: manual.title,
-        status: manual.status,
-        currentDraftRevisionId: null,
-        currentPublishedRevisionId: manual.currentPublishedRevisionId,
-        updatedAt: manual.updatedAt
-      },
-      draft: null,
-      steps: [],
-      permissions: { canEdit }
-    });
-  }
-  const [draft, steps] = await Promise.all([
-    fetchDraft(env, session.accessToken, workspaceId, manualId, manual.currentDraftRevisionId),
-    fetchSteps(env, session.accessToken, workspaceId, manual.currentDraftRevisionId)
-  ]);
+  const { manual, draft, steps } = await fetchManualDetailSnapshot(env, session.accessToken, workspaceId, manualId);
   return jsonResponse({
     manual: {
       id: manual.id,

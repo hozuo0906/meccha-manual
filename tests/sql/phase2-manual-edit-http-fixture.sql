@@ -34,6 +34,7 @@ create table public.manuals (
   status text not null default 'draft',
   current_draft_revision_id uuid,
   current_published_revision_id uuid,
+  updated_at timestamptz not null default clock_timestamp(),
   archived_at timestamptz
 );
 
@@ -41,6 +42,7 @@ create table public.manual_revisions (
   id uuid primary key,
   workspace_id uuid not null,
   manual_id uuid not null references public.manuals(id),
+  revision_no integer not null default 1,
   state public.manual_revision_state not null,
   title text not null,
   description text not null default '',

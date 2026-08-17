@@ -38,7 +38,8 @@ const required = [
   "grant execute on function public.reorder_manual_steps(uuid, uuid[]) to authenticated",
   "manual step internal fields are not accepted",
   "non-action manual step cannot include action fields",
-  "manual step url is invalid"
+  "manual step url is invalid",
+  "hostname_label.label like 'xn--%'"
 ];
 
 const requiredContract = [

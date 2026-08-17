@@ -33,7 +33,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 
 `202608140010_phase2_manual_step_mutations.sql` は、4つのstep mutation RPCを同じdraft revision lockへ統一し、authenticatedの直接step DMLを閉じる。
 
-`202608140012_phase2_manual_edit_http_contract.sql` は、draft metadataの原子的更新RPC、本文フィールド上限、manual/revisionのauthenticated direct write revokeを追加する。既存行を加工せず、上限違反があればconstraint validationで停止する。
+`202608140012_phase2_manual_edit_http_contract.sql` は、draft metadataの原子的更新RPC、manual・draft・stepsを単一MVCC snapshotで読む`get_manual_edit_detail`、本文フィールド上限、manual/revisionのauthenticated direct write revokeを追加する。既存行を加工せず、上限違反があればconstraint validationで停止する。
 
 ## Scope
 
@@ -55,6 +55,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `publish_manual(manual_id)`
 - `create_manual_draft(manual_id)`
 - `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
+- `get_manual_edit_detail(workspace_id, manual_id)`（SECURITY INVOKERの単一SQL文でmanual・draft・stepsを同一MVCC snapshotから取得）
 - `manual_step_url_is_valid(url)`（step mutation RPC内部専用。HTTP/HTTPS URLのauthorityとportを検証し、外部roleへ公開しない）
 - `append_manual_step` / `update_manual_step` / `soft_delete_manual_step` / `reorder_manual_steps`
 - `manuals.title` と `manual_revisions.title` のraw 1〜64文字・ECMAScript空白のみ拒否DB制約
@@ -134,7 +135,7 @@ Phase 2 migration適用後に実行するテスト:
 - 認証済みeditorのRLS経路でも65文字以上、およびタブ・NBSPなどECMAScript空白だけのmanual/revisionタイトルはDB constraintで拒否される。
 - `update_manual_draft`はmanual titleとcurrent draft title/descriptionを同じtransactionで更新する。
 - authenticatedはmanual/revision/stepを直接変更できず、editorは承認済みRPC経由で変更できる。
-- authenticatedがstep追加・更新RPCを直接呼んでも、userinfo、空白、制御文字、壊れたauthority、範囲外portを含むURLは拒否される。
+- authenticatedがstep追加・更新RPCを直接呼んでも、userinfo、空白、制御文字、壊れたauthority、範囲外port、punycode hostnameを含むURLは拒否される。
 - draft revisionの手順ステップは追加・更新・soft delete・並べ替えできる。
 - viewer、anon、別workspaceはmutation RPCを実行できない。
 - 200 active stepsと本文フィールド上限を超える入力・応答を拒否する。201件目はDB triggerで拒否し、内部annotation/maskingは各64 KiB以下とする。

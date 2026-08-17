@@ -51,7 +51,8 @@ const requiredEditRouter = [
   "MANUAL_STEP_DELETE_RESULT_UNKNOWN",
   "MANUAL_STEP_REORDER_RESULT_UNKNOWN",
   "suggestManualInstruction",
-  "MANUAL_EDIT_FIELD_UNEXPECTED"
+  "MANUAL_EDIT_FIELD_UNEXPECTED",
+  "get_manual_edit_detail"
 ];
 
 const requiredMigration = [
@@ -67,6 +68,10 @@ const requiredMigration = [
   "manual step limit preflight failed",
   "manual_steps_active_limit_guard",
   "manual step limit exceeded",
+  "create or replace function public.get_manual_edit_detail(",
+  "security invoker",
+  "limit 201",
+  "grant execute on function public.get_manual_edit_detail(uuid, uuid) to authenticated",
   "create function public.update_manual_draft(",
   "expected_draft_revision_id uuid",
   "expected_draft_updated_at timestamptz",

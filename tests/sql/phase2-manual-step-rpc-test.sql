@@ -294,6 +294,19 @@ begin
   end;
   if not rejected then raise exception 'direct RPC accepted URL userinfo'; end if;
 
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', 'punycode URL', '', 'navigate', '画面', 'https://xn--/',
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted malformed punycode URL'; end if;
+
   select updated_at into protected_updated_at from public.manual_steps where id = protected_step_id;
   perform public.update_manual_step(
     '99999999-9999-4999-8999-999999999999', protected_step_id, protected_updated_at,
