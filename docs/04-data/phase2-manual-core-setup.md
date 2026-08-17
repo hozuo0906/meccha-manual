@@ -55,7 +55,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `can_edit_manual(manual_id, user_id)`
 - `is_draft_revision(revision_id)`
 - `create_manual(workspace_id, folder_id, title, description)`
-- `publish_manual_revision(manual_id, expected_draft_revision_id)`
+- `publish_manual_revision(manual_id, expected_draft_revision_id, expected_content_version, confirmed_sensitive_data_review)`
 - `create_manual_draft_from_published(manual_id, expected_published_revision_id)`
 - `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
 - `get_manual_edit_detail(workspace_id, manual_id)`（SECURITY INVOKERの単一SQL文でmanual・draft・steps・編集可否を同一MVCC snapshotから取得）

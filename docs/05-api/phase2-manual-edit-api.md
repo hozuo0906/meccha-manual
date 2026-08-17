@@ -27,13 +27,13 @@ Status: Accepted
 
 ### `GET /api/workspaces/{workspaceId}/manuals/{manualId}`
 
-現在manual、current draft revision、active steps、編集可否を返す。
+現在manual、表示対象revision（current draftを優先し、無ければcurrent published）、active steps、編集可否を返す。互換性維持のため表示対象revisionはレスポンスの`draft`キーに格納し、`draft.state`で`draft`または`published`を判別する。
 
 - member全ロールが閲覧可能。
 - manualがworkspaceに属さない、archived、非memberの場合は404。
-- draftが無い場合は`draft: null`、`steps: []`を返す。
+- current draftが無くcurrent publishedがある場合は、published revisionとそのactive stepsを読み取り専用の表示対象として返す。両方とも無い場合だけ`draft: null`、`steps: []`を返す。
 - stepは`position asc`、`deleted_at is null`だけを返す。
-- published/superseded revisionを編集対象として返さない。
+- published revisionを返す場合も編集対象にはせず、更新系APIはcurrent draftだけを受け付ける。superseded revisionは返さない。
 - `annotation`、`masking`、`assetId`など内部更新項目は詳細取得queryにも含めず、レスポンスへ公開しない。step更新時だけ対象1件を取得し、内部JSONは各64 KiB以下をDBで強制する。
 - manual、current draft、active stepsは`get_manual_edit_detail`の単一SQL文で取得し、同一MVCC snapshotの値だけを組み合わせる。公開やmetadata保存が並行しても、旧manualと新draft、または消えたdraftを混在させない。
 - `permissions.canEdit`も同じ`get_manual_edit_detail`文内でロールを判定し、詳細データより古い権限を編集UIへ返さない。

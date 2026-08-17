@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-bdbc78d2046526fb";
+export const APP_ASSET_VERSION = "sha256-58de90b820b6a3a3";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2348,7 +2348,7 @@ function manualDetailHtml(currentWorkspace) {
       '</section>'
     : '';
   const stepsHtml = steps.length
-    ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit)).join("") + '</div>'
+    ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit && hasEditableDraft)).join("") + '</div>'
     : '<div class="empty" role="status">手順はまだありません。</div>';
   const addForm = canEdit && hasEditableDraft
     ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +

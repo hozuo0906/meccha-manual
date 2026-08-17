@@ -39,8 +39,8 @@ if grep -Eqi 'deadlock detected|statement timeout|canceling statement' "$update_
   cat "$publish_log" >&2
   exit 1
 fi
-if [[ "$publish_status" -ne 0 ]]; then
-  echo "publication must complete regardless of which operation acquires the manual lock first" >&2
+if [[ "$publish_status" -ne 0 ]] && ! grep -qi 'manual publication content changed concurrently' "$publish_log"; then
+  echo "publication failed for an unexpected reason" >&2
   cat "$update_log" >&2
   cat "$publish_log" >&2
   exit 1
@@ -51,10 +51,14 @@ if [[ "$update_status" -ne 0 ]] && ! grep -Eqi 'draft revision not found|current
   exit 1
 fi
 
-final_state="$("${psql_base[@]}" -At -F '|' -c "select status, coalesce(current_draft_revision_id::text, ''), current_published_revision_id::text from public.manuals where id = '${MANUAL_ID}'::uuid")"
-if [[ "$final_state" != "published||${DRAFT_ID}" ]]; then
+final_state="$("${psql_base[@]}" -At -F '|' -c "select status, coalesce(current_draft_revision_id::text, ''), coalesce(current_published_revision_id::text, '') from public.manuals where id = '${MANUAL_ID}'::uuid")"
+if [[ "$publish_status" -eq 0 && "$final_state" != "published||${DRAFT_ID}" ]]; then
   echo "publication did not leave a consistent manual state: $final_state" >&2
   exit 1
 fi
+if [[ "$publish_status" -ne 0 && ( "$update_status" -ne 0 || "$final_state" != "draft|${DRAFT_ID}|" ) ]]; then
+  echo "update-first content conflict did not preserve the updated draft: $final_state" >&2
+  exit 1
+fi
 
-echo "publish_manual_revision and update_manual_draft share a deadlock-free manual-first lock order: OK"
+echo "publish_manual_revision and update_manual_draft are deadlock-free and reject stale content: OK"
