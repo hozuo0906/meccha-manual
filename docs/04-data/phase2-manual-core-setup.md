@@ -10,11 +10,14 @@ Phase 2では、手順書サービスとして成立するためのDB土台を�
 
 ## Migration
 
-ファイル名順に実行する:
+前提を含め、次の順に実行する:
 
 ```text
+supabase/migrations/202608010001_phase1_identity_workspaces.sql
+supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 supabase/migrations/202608020001_phase2_manual_core.sql
 supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
+supabase/migrations/202608100002_phase1_member_management.sql
 supabase/migrations/202608140005_phase2_manual_title_length.sql
 supabase/migrations/202608140010_phase2_manual_step_mutations.sql
 supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
@@ -26,9 +29,10 @@ supabase/migrations/202608180001_phase2_manual_publication.sql
 ```text
 supabase/migrations/202608010001_phase1_identity_workspaces.sql
 supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
+supabase/migrations/202608100002_phase1_member_management.sql
 ```
 
-`202608010002_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。migrationのファイル名順でもPhase 2より先に並ぶことを静的検査する。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
+`202608010002_phase1_workspace_membership_hardening.sql` を適用せずにPhase 2へ進めてはならない。`202608100002_phase1_member_management.sql` は公開RPCが書き込む`audit_logs`を作成するため、publication migrationより先に必ず適用する。これらの前提と実行順を静的検査する。Phase 1本体だけでは、匿名RPC権限とワークスペース識別子・作成監査項目の不変条件が不足する。
 
 `202608140005_phase2_manual_title_length.sql` は、`manuals.title` と `manual_revisions.title` のraw長を1〜64文字へ固定し、ECMAScript `trim()`相当後に空白だけとなる値を拒否するforward migrationである。既存行を切り詰めたり正規化したりせず、互換性のない既存データがある場合はconstraint validationを失敗させて安全に停止する。
 
@@ -99,9 +103,10 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 10. `supabase/migrations/202608140010_phase2_manual_step_mutations.sql` の全文を貼り、`Run` を押す。
 11. description 10,000文字超、step title 128文字超、instruction 4,000文字超、target 256文字超、URL 2,048文字超の既存行がないことを確認する。
 12. `supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql` の全文を貼り、`Run` を押す。
-13. 公開・次draft作成を利用する全clientが、表示中revision IDを送る新RPCへ切替済みであることを確認する。
-14. `supabase/migrations/202608180001_phase2_manual_publication.sql` の全文を貼り、`Run` を押す。
-15. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
+13. `supabase/migrations/202608100002_phase1_member_management.sql` が適用済みで`public.audit_logs`が存在することを確認する。未適用ならユーザー承認を得て同migrationを適用する。
+14. 公開・次draft作成を利用する全clientが、表示中revision IDを送る新RPCへ切替済みであることを確認する。
+15. `supabase/migrations/202608180001_phase2_manual_publication.sql` の全文を貼り、`Run` を押す。
+16. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
 
 ## Expected result
 

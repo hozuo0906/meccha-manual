@@ -158,6 +158,11 @@ if (!setup.includes("202608140012_phase2_manual_edit_http_contract.sql")) {
 if (!setup.includes("202608180001_phase2_manual_publication.sql")) {
   errors.push("Accepted Phase 2 rollout omits publication migration");
 }
+const memberManagementPosition = setup.indexOf("202608100002_phase1_member_management.sql");
+const publicationPosition = setup.indexOf("202608180001_phase2_manual_publication.sql");
+if (memberManagementPosition < 0 || publicationPosition < 0 || memberManagementPosition >= publicationPosition || !setup.includes("`audit_logs`")) {
+  errors.push("Accepted Phase 2 rollout omits the audit_logs prerequisite before publication");
+}
 if (!setup.includes("200 active steps、8 MiB")) {
   errors.push("Accepted Phase 2 setup does not match the 8 MiB manual detail boundary");
 }
