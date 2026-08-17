@@ -209,6 +209,39 @@ using (
   )
 );
 
+drop policy if exists step_targets_select_members on public.step_targets;
+create policy step_targets_select_members
+on public.step_targets
+for select
+to authenticated
+using (
+  public.has_workspace_role(
+    workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor', 'viewer']::public.workspace_role[]
+  )
+  and exists (
+    select 1
+    from public.manual_steps ms
+    join public.manual_revisions mr on mr.id = ms.revision_id
+    join public.manuals m on m.id = mr.manual_id
+    where ms.id = step_targets.step_id
+      and ms.workspace_id = step_targets.workspace_id
+      and ms.deleted_at is null
+      and mr.workspace_id = step_targets.workspace_id
+      and m.workspace_id = step_targets.workspace_id
+      and m.archived_at is null
+  )
+);
+
+-- No product API currently owns selector-target mutation. Remove the legacy direct
+-- authenticated path so target content cannot race archive. A future Browser Run
+-- writer must be an RPC that takes the same manual -> revision lock/version path.
+drop policy if exists step_targets_insert_editors on public.step_targets;
+drop policy if exists step_targets_update_editors on public.step_targets;
+drop policy if exists step_targets_delete_editors on public.step_targets;
+revoke insert, update, delete on table public.step_targets from authenticated;
+
 create or replace function public.archive_manual(
   target_workspace_id uuid,
   target_manual_id uuid,

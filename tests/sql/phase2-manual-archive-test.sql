@@ -36,6 +36,37 @@ $$;
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
 
+do $$
+begin
+  if has_table_privilege('authenticated', 'public.step_targets', 'INSERT')
+    or has_table_privilege('authenticated', 'public.step_targets', 'UPDATE')
+    or has_table_privilege('authenticated', 'public.step_targets', 'DELETE')
+  then
+    raise exception 'authenticated retains direct step target mutation privileges';
+  end if;
+end;
+$$;
+
+select ms.id as archived_target_step_id
+from public.manual_steps ms
+where ms.revision_id = '44444444-4444-4444-8444-444444444444'
+  and ms.deleted_at is null
+order by ms.position desc
+limit 1 \gset
+
+reset role;
+insert into public.step_targets (
+  id, workspace_id, step_id, selector_candidates, created_by
+) values (
+  '99999999-9999-4999-8999-999999999999',
+  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  :'archived_target_step_id',
+  '[{"type":"text","value":"archived target"}]'::jsonb,
+  '11111111-1111-4111-8111-111111111111'
+);
+set role authenticated;
+select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
+
 select ms.id as archive_conflict_step_id
 from public.manual_steps ms
 where ms.revision_id = '44444444-4444-4444-8444-444444444444'
@@ -146,6 +177,12 @@ begin
     where revision_id = '44444444-4444-4444-8444-444444444444'
   ) then
     raise exception 'archived manual steps remain directly visible to authenticated member';
+  end if;
+  if exists (
+    select 1 from public.step_targets
+    where id = '99999999-9999-4999-8999-999999999999'
+  ) then
+    raise exception 'archived manual step targets remain directly visible to authenticated member';
   end if;
 end;
 $$;
