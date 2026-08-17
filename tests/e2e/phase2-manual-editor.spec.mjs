@@ -87,6 +87,7 @@ async function installManualFixture(page, role, options = {}) {
     lastDraftPatchBody: null,
     lastPublishBody: null,
     lastArchiveBody: null,
+    manualArchiveCallCount: 0,
     lastDraftCreateBody: null,
     lastStepCreateBody: null,
     lastStepPatchBody: null,
@@ -213,6 +214,7 @@ async function installManualFixture(page, role, options = {}) {
       return json(200, { publishedRevisionId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/archive` && method === "POST") {
+      state.manualArchiveCallCount += 1;
       const body = request.postDataJSON();
       const failure = state.failNextManualArchive;
       state.failNextManualArchive = null;
@@ -221,6 +223,9 @@ async function installManualFixture(page, role, options = {}) {
         state.manuals = state.manuals.filter((manual) => manual.id !== manualId);
       }
       if (failure?.mode === "abort") return route.abort("failed");
+      if (failure?.mode === "invalid-json") {
+        return route.fulfill({ status: 200, contentType: "application/json", body: "{" });
+      }
       if (failure) return json(failure.status, { code: failure.code, message: failure.message });
       return json(200, { archivedManualId: manualId });
     }
@@ -425,13 +430,17 @@ test("アーカイブ結果不明時は自動再送せず一覧で確認させ�
   const state = await installManualFixture(page, "editor");
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
-  state.failNextManualArchive = { mode: "abort", commitBeforeFailure: true };
+  // A malformed successful response models a committed operation whose result
+  // cannot be decoded without allowing Chromium to transparently retry an
+  // aborted request inside the test fixture.
+  state.failNextManualArchive = { mode: "invalid-json", commitBeforeFailure: true };
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "手順書をアーカイブ" }).click();
   await expect(page.locator("#manuals-message")).toContainText("アーカイブ結果を一覧で確認してください");
   await expect(page.getByRole("button", { name: /既存の保存手順/ })).toHaveCount(0);
   expect(state.lastArchiveBody).toEqual({ expectedUpdatedAt: "2026-08-14T00:00:00.000Z" });
+  expect(state.manualArchiveCallCount).toBe(1);
 });
 
 test("基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない", async ({ page }) => {
