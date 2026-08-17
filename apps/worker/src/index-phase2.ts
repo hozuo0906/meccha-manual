@@ -1,4 +1,5 @@
 import phase1Worker from "./index.ts";
+import { handleCaptureRoute } from "./capture-router.ts";
 import { handleManualEditRoute } from "./manual-edit-router.ts";
 import { handleManualRoute, type ManualEnv } from "./manual-router.ts";
 
@@ -16,6 +17,8 @@ type Env = ManualEnv & {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const captureResponse = await handleCaptureRoute(request, env);
+    if (captureResponse) return captureResponse;
     const manualEditResponse = await handleManualEditRoute(request, env);
     if (manualEditResponse) return manualEditResponse;
     const manualResponse = await handleManualRoute(request, env);
