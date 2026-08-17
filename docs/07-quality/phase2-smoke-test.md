@@ -31,9 +31,9 @@ npm run test:phase2
 - User Aがアプリ経由でワークスペースを作成できる。
 - User Aが `create_manual` RPCで手順書と下書きrevisionを作成できる。
 - User Aが下書きrevisionへ手順ステップを追加できる。
-- User Aが `publish_manual` RPCで公開版を作成できる。
+- User Aが内容versionと機密情報確認を伴う `publish_manual_revision` RPCで公開版を作成できる。
 - 公開済みrevisionへ直接ステップ追加できない。
-- User Aが `create_manual_draft` RPCで公開版から次の下書きを作成できる。
+- User Aが `create_manual_draft_from_published` RPCで公開版から次の下書きを作成できる。
 - User BがUser Aのワークスペースへ手順書を作成できない。
 - User BがUser Aの手順書、revision、ステップをSupabase RESTから直接読めない。
 

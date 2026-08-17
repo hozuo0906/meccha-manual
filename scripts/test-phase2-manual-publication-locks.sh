@@ -17,6 +17,7 @@ cleanup() { rm -f "$update_log" "$publish_log"; }
 trap cleanup EXIT
 
 expected_updated_at="$("${psql_base[@]}" -At -c "select updated_at from public.manual_revisions where id = '${DRAFT_ID}'::uuid")"
+content_version="$("${psql_base[@]}" -At -c "select md5(mr.updated_at::text || '|' || coalesce((select string_agg(ms.id::text || ':' || ms.updated_at::text, ',' order by ms.position) from public.manual_steps ms where ms.revision_id = mr.id and ms.deleted_at is null), '')) from public.manual_revisions mr where mr.id = '${DRAFT_ID}'::uuid")"
 
 "${psql_base[@]}" -c "begin; select id from public.manuals where id = '${MANUAL_ID}'::uuid for update; select pg_sleep(1.0); commit;" >/dev/null &
 locker_pid=$!
@@ -25,7 +26,7 @@ sleep 0.2
 set +e
 PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.update_manual_draft('${MANUAL_ID}'::uuid, '${DRAFT_ID}'::uuid, '${expected_updated_at}'::timestamptz, 'Concurrent title', 'Concurrent description');" >"$update_log" 2>&1 &
 update_pid=$!
-PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.publish_manual_revision('${MANUAL_ID}'::uuid, '${DRAFT_ID}'::uuid);" >"$publish_log" 2>&1 &
+PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.publish_manual_revision('${MANUAL_ID}'::uuid, '${DRAFT_ID}'::uuid, '${content_version}', true);" >"$publish_log" 2>&1 &
 publish_pid=$!
 wait "$locker_pid"
 wait "$update_pid"; update_status=$?

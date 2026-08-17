@@ -73,6 +73,12 @@ create table public.manual_steps (
   deleted_at timestamptz
 );
 
+create table public.audit_logs (
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null, actor_id uuid not null,
+  action text not null, resource_type text not null, resource_id uuid not null,
+  metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+
 create unique index manual_steps_revision_position_active
   on public.manual_steps (revision_id, position)
   where deleted_at is null;

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-371a506cef89a22e";
+export const APP_ASSET_VERSION = "sha256-45cf5203372d6576";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2323,9 +2323,10 @@ function manualDetailHtml(currentWorkspace) {
   const value = state.value;
   const canEdit = Boolean(value.permissions?.canEdit);
   const draft = value.draft;
+  const hasEditableDraft = draft?.state === "draft";
   const steps = value.steps || [];
   const metadata = draft
-    ? canEdit
+    ? canEdit && hasEditableDraft
       ? '<form id="manual-draft-form" class="manual-detail-form" data-draft-updated-at="' + escapeHtml(draft.updatedAt) + '" novalidate>' +
           '<div class="field"><label for="manual-draft-title">タイトル</label><input id="manual-draft-title" name="title" data-code-point-max="64" required value="' + escapeHtml(draft.title) + '"></div>' +
           '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
@@ -2337,16 +2338,17 @@ function manualDetailHtml(currentWorkspace) {
           ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>編集用下書きを作成</button>'
           : '公開済みの内容は閲覧できます。') +
       '</div>';
-  const publicationActions = canEdit && draft
+  const publicationActions = canEdit && hasEditableDraft
     ? '<section class="workspace-form" aria-labelledby="manual-publication-heading"><h2 id="manual-publication-heading">公開</h2>' +
-        '<p>現在の下書きを変更できない公開版にします。公開後の編集は、新しい下書きを作成して行います。</p>' +
+        '<p>現在の下書きを変更できない公開版にします。公開前に機密情報とマスキングを確認してください。</p>' +
+        '<label><input id="manual-sensitive-review-confirmation" type="checkbox"> 機密情報が含まれず、必要なマスキングが完了していることを確認しました</label>' +
         '<button id="manual-publish-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>この内容を公開</button>' +
       '</section>'
     : '';
   const stepsHtml = steps.length
     ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit)).join("") + '</div>'
     : '<div class="empty" role="status">手順はまだありません。</div>';
-  const addForm = canEdit && draft
+  const addForm = canEdit && hasEditableDraft
     ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +
         '<h2>手順を追加</h2><p>入力した値やパスワードは記録せず、操作対象名だけを入力してください。</p>' +
         '<div class="manual-step-grid"><div class="field"><label for="new-step-type">種類</label><select id="new-step-type" name="type">' + stepTypeOptions("action") + '</select></div><div class="field"><label for="new-step-action">操作</label><select id="new-step-action" name="actionType">' + actionTypeOptions("click") + '</select></div></div>' +
@@ -2866,11 +2868,26 @@ function updateManualDraftFromUi(event) {
 }
 
 function publishManualFromUi() {
-  if (!window.confirm("現在の下書きを公開しますか？ 公開版は後から直接変更できません。")) return;
+  const unsaved = captureManualDetailDrafts();
+  if (Object.keys(unsaved).length > 0) {
+    const message = "未保存の変更があります。すべて保存するか入力を元に戻してから公開してください。";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  const confirmedSensitiveDataReview = document.getElementById("manual-sensitive-review-confirmation")?.checked === true;
+  if (!confirmedSensitiveDataReview) {
+    const message = "機密情報とマスキングの確認にチェックしてください。";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  if (!window.confirm("確認済みの現在の下書きを公開しますか？ 公開版は後から直接変更できません。")) return;
   const expectedDraftRevisionId = manualDetailState.value?.draft?.id;
-  if (!expectedDraftRevisionId) return;
+  const expectedContentVersion = manualDetailState.value?.draft?.contentVersion;
+  if (!expectedDraftRevisionId || !expectedContentVersion) return;
   return runDetailMutation(
-    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/publish", { method: "POST", body: JSON.stringify({ expectedDraftRevisionId }) }),
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/publish", { method: "POST", body: JSON.stringify({ expectedDraftRevisionId, expectedContentVersion, confirmedSensitiveDataReview }) }),
     "手順書を公開しました。",
     { invalidateManuals: true }
   );

@@ -93,11 +93,13 @@ current draftのtitle/descriptionを更新する。
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/publish`
 
 - owner/admin/editorだけが実行できる。viewerは403、別workspace・非memberは404。
-- JSON bodyの`expectedDraftRevisionId`を必須とし、表示中manualのcurrent draftと一致することを確認する。
-- `publish_manual_revision(manual_id, expected_draft_revision_id)` RPCはmanual row lock内で期待IDを再照合し、返却revision IDが期待IDと一致した場合だけ成功とする。
+- JSON bodyの`expectedDraftRevisionId`、詳細取得時の`expectedContentVersion`、`confirmedSensitiveDataReview: true`を必須とする。
+- `publish_manual_revision` RPCはmanual rowとdraft rowをlockし、期待IDとmetadata・active stepsのcontent versionを再照合する。公開と同じtransactionでactor・manual・revisionを監査ログへ記録する。
+- UIは未保存フォームがある間の公開を拒否し、機密情報とマスキング完了の明示確認を要求する。API直呼びも確認値なしでは拒否する。
 - 成功時は`{ "publishedRevisionId": "<uuid>" }`を返す。公開版は以後直接変更できない。
 - 通信切断、上流5xx、不正な成功本文、返却ID不一致は`MANUAL_PUBLISH_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
 - 公開URLや共有リンクは作成しない。
+- current draftがない詳細取得ではcurrent published revisionとactive stepsを読み取り専用で返す。
 
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/draft`
 

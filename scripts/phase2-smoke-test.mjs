@@ -307,8 +307,15 @@ async function main() {
     created_by: directUserA.userId
   });
 
-  const publishedRevisionId = await rpc(supabase, directUserA, "publish_manual", {
+  const contentVersion = await rpc(supabase, directUserA, "get_manual_edit_detail", {
+    target_workspace_id: workspaceId,
     target_manual_id: manualId
+  });
+  const publishedRevisionId = await rpc(supabase, directUserA, "publish_manual_revision", {
+    target_manual_id: manualId,
+    expected_draft_revision_id: draftRevisionId,
+    expected_content_version: contentVersion.draft.content_version,
+    confirmed_sensitive_data_review: true
   });
 
   if (publishedRevisionId !== draftRevisionId) {
@@ -334,8 +341,9 @@ async function main() {
     "insert step into published revision"
   );
 
-  const nextDraftRevisionId = await rpc(supabase, directUserA, "create_manual_draft", {
-    target_manual_id: manualId
+  const nextDraftRevisionId = await rpc(supabase, directUserA, "create_manual_draft_from_published", {
+    target_manual_id: manualId,
+    expected_published_revision_id: publishedRevisionId
   });
   const copiedSteps = await selectRows(
     supabase,

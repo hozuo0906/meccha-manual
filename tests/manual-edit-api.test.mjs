@@ -54,6 +54,7 @@ function draftRow() {
     manual_id: MANUAL_ID,
     revision_no: 1,
     state: "draft",
+    content_version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     title: "保存手順",
     description: "受付担当者向け",
     updated_at: "2026-08-14T00:00:01.000Z"
@@ -84,7 +85,7 @@ function detailSnapshot(draftId = DRAFT_ID, steps = [stepRow()], canEdit = true)
   return {
     can_edit: canEdit,
     manual: manualRow(draftId),
-    draft: draftId ? draftRow() : null,
+    draft: draftId ? draftRow() : { ...draftRow(), id: PUBLISHED_ID, state: "published" },
     steps: draftId ? steps : []
   };
 }
@@ -155,13 +156,14 @@ test("viewer can load manual detail without edit permission", async () => {
   }
 });
 
-test("manual without a current draft returns an empty editor state", async () => {
+test("manual without a current draft returns its published revision read-only", async () => {
   const mock = installFetch([authOk(), memberOk(), json(detailSnapshot(null, [], false))]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
     assert.equal(response?.status, 200);
     const body = await response.json();
-    assert.equal(body.draft, null);
+    assert.equal(body.draft.id, PUBLISHED_ID);
+    assert.equal(body.draft.state, "published");
     assert.deepEqual(body.steps, []);
     assert.equal(mock.calls.length, 3);
   } finally {
@@ -223,12 +225,12 @@ test("editor updates manual and draft metadata through one RPC", async () => {
 test("editor publishes the displayed draft through the publication RPC", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(DRAFT_ID)]);
   try {
-    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID })), ENV);
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
     assert.equal(response?.status, 200);
     assert.deepEqual(await response.json(), { publishedRevisionId: DRAFT_ID });
     const rpc = mock.calls[4];
     assert.match(rpc.url, /\/rest\/v1\/rpc\/publish_manual_revision$/);
-    assert.deepEqual(JSON.parse(String(rpc.init.body)), { target_manual_id: MANUAL_ID, expected_draft_revision_id: DRAFT_ID });
+    assert.deepEqual(JSON.parse(String(rpc.init.body)), { target_manual_id: MANUAL_ID, expected_draft_revision_id: DRAFT_ID, expected_content_version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmed_sensitive_data_review: true });
   } finally {
     mock.restore();
   }
@@ -237,7 +239,7 @@ test("editor publishes the displayed draft through the publication RPC", async (
 test("viewer cannot publish a manual", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(false)]);
   try {
-    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID })), ENV);
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
     assert.equal(response?.status, 403);
     assert.equal((await response.json()).code, "MANUAL_EDIT_FORBIDDEN");
   } finally {
@@ -248,7 +250,7 @@ test("viewer cannot publish a manual", async () => {
 test("a mismatched publish result is treated as unknown and must be reconciled", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(PUBLISHED_ID)]);
   try {
-    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID })), ENV);
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
     assert.equal(response?.status, 502);
     assert.equal((await response.json()).code, "MANUAL_PUBLISH_RESULT_UNKNOWN");
   } finally {
@@ -260,7 +262,7 @@ test("a stale displayed draft cannot publish a newer current draft", async () =>
   const newerDraftId = "77777777-7777-4777-8777-777777777777";
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow(newerDraftId)])]);
   try {
-    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID })), ENV);
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
     assert.equal(response?.status, 409);
     assert.equal((await response.json()).code, "MANUAL_PUBLISH_CONFLICT");
     assert.equal(mock.calls.length, 4);
@@ -315,7 +317,7 @@ test("a publication race maps to a determinate publish conflict", async () => {
     authOk(), memberOk(), editorOk(), json([manualRow()]), json({ message: "manual publication draft changed concurrently" }, 400)
   ]);
   try {
-    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID })), ENV);
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
     assert.equal(response?.status, 409);
     assert.equal((await response.json()).code, "MANUAL_PUBLISH_CONFLICT");
   } finally {

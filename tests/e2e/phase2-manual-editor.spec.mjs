@@ -187,14 +187,16 @@ async function installManualFixture(page, role, options = {}) {
       const isPrimary = requestedManualId === manualId;
       return json(200, {
         manual,
-        draft: manual.currentDraftRevisionId ? {
-          id: manual.currentDraftRevisionId,
+        draft: (manual.currentDraftRevisionId || manual.currentPublishedRevisionId) ? {
+          id: manual.currentDraftRevisionId || manual.currentPublishedRevisionId,
           revisionNo: 1,
+          state: manual.currentDraftRevisionId ? "draft" : "published",
+          contentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           title: manual.title,
           description: isPrimary ? "受付担当者向け" : "別手順書の説明",
           updatedAt: isPrimary ? state.draftUpdatedAt : "2026-08-14T00:00:01.500Z"
         } : null,
-        steps: manual.currentDraftRevisionId && isPrimary ? state.steps : [],
+        steps: (manual.currentDraftRevisionId || manual.currentPublishedRevisionId) && isPrimary ? state.steps : [],
         permissions: { canEdit: state.canEdit }
       });
     }
@@ -370,12 +372,13 @@ test("編集者は確認後に公開し、公開版を変えず編集用下書�
   const state = await installManualFixture(page, "editor");
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await page.locator("#manual-sensitive-review-confirmation").check();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "この内容を公開" }).click();
   await expect(page.locator("#manual-detail-message")).toContainText("手順書を公開しました。");
   await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "編集用下書きを作成" })).toBeVisible();
-  expect(state.lastPublishBody).toEqual({ expectedDraftRevisionId: draftId });
+  expect(state.lastPublishBody).toEqual({ expectedDraftRevisionId: draftId, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true });
   expect(state.manuals[0].currentPublishedRevisionId).toBe(draftId);
 
   await page.getByRole("button", { name: "編集用下書きを作成" }).click();

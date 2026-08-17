@@ -41,9 +41,17 @@ insert into public.manual_steps (
 set role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
 
+select md5(mr.updated_at::text || '|' || coalesce((
+  select string_agg(ms.id::text || ':' || ms.updated_at::text, ',' order by ms.position)
+  from public.manual_steps ms where ms.revision_id = mr.id and ms.deleted_at is null
+), '')) as content_version
+from public.manual_revisions mr where mr.id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' \gset
+
 select public.publish_manual_revision(
   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  :'content_version',
+  true
 ) = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid as published_expected_draft;
 
 do $$
@@ -126,7 +134,9 @@ begin
   begin
     perform public.publish_manual_revision(
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      '00000000000000000000000000000000',
+      true
     );
   exception
     when others then
