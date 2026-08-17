@@ -39,7 +39,7 @@ create table public.manuals (
 );
 
 create table public.manual_revisions (
-  id uuid primary key,
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null,
   manual_id uuid not null references public.manuals(id),
   revision_no integer not null default 1,
