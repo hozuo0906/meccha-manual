@@ -17,8 +17,10 @@ Status: Accepted
 Repository: hozuo0906/meccha-manual
 
 これは、めっちゃマニュアル開発の新しい独立実行です。
-過去チャットの記憶や要約を正本にせず、GitHubの実状態を正本として現在地を復元してください。
-GitHub連携を使って確認し、確認できていない内容を推測で補わないでください。
+過去チャットの記憶や要約を正本にせず、AGENTS.mdに定めた正本の優先順位に従って現在地を復元してください。
+GitHub連携を使い、コード・migration・設定・commit・CI・review threadは正本どおりに実装・検証されているかを確認する実状態・証跡として照合してください。
+正本と実状態が矛盾する場合は、実装側を自動的に正として扱わず、作業を止めて docs/09-delivery/open-questions.md へ登録すべき矛盾として報告してください。
+確認できていない内容を推測で補わないでください。
 
 最初に次を順番に確認してください。
 
@@ -32,7 +34,7 @@ GitHub連携を使って確認し、確認できていない内容を推測で�
 8. 関連するFR、NFR、ADR、AC、API、データ、UX、テスト文書
 9. docs/09-delivery/open-questions.md と risk-register.md
 
-Issue #70の記載をそのまま信用せず、GitHubの実状態と照合してください。
+Issue #70の記載をそのまま信用せず、AGENTS.mdの正本優先順位とGitHubの実状態・証跡を照合してください。
 同じhead branchを異なるbaseへ向けたPull Request、重複Pull Request、古いSHAのCIやレビュー、依存順の矛盾があれば明示してください。
 
 確認後、次の形式で日本語の開始レポートを作成してください。
