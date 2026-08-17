@@ -380,6 +380,51 @@ test("WHATWG URLで有効なゼロ埋めportを正規化してstep RPCへ渡す"
   }
 });
 
+test("WHATWG URLで有効な空portを正規化してstep RPCへ渡す", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json(STEP_ID)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: "HTTPS://example.com:/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 201);
+    assert.equal(JSON.parse(String(mock.calls[4].init.body)).step_url, "https://example.com/");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("WHATWGが除去するURL内の空白・制御文字も入力境界で拒否する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: "https://exa\tmple.com/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "invalid URL must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("punycode hostnameはWorkerとdirect RPCで共通して非対応にする", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])

@@ -21,7 +21,7 @@ Status: Accepted
 - 詳細のSupabase JSONは、200 active stepsに加えて件数異常を判定する201件目まで、DBで許容される最大フィールド長と1 code pointあたり最大6 byteのJSON制御文字escapeを安全に読める8 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
-- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme hostを許可）とdirect RPC入力のauthorityを同じ境界で検証する。PostgreSQLだけでWHATWG IDNAを再現して境界差を作らないため、`xn--`から始まるpunycode hostname labelはWorker・direct RPCとも受け付けない。URLをサーバー側から取得・実行しない。
+- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。WorkerはWHATWG URLでASCII正規形へ変換し、DBは正規化後のhost（underscoreを含む有効なspecial-scheme host、空port、先行ゼロ付きportを許可）とdirect RPC入力のauthorityを同じ境界で検証する。PostgreSQLだけでWHATWG IDNAを再現して境界差を作らないため、`xn--`から始まるpunycode hostname labelはWorker・direct RPCとも受け付けない。URLをサーバー側から取得・実行しない。
 
 ## API
 

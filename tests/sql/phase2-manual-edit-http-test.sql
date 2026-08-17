@@ -391,6 +391,25 @@ begin
     '44444444-4444-4444-8444-444444444444',
     valid_step_id
   );
+  valid_step_id := public.append_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    'action', 'empty port URL', '', 'navigate', '画面', 'HTTPS://example.com:/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.soft_delete_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    valid_step_id
+  );
+  valid_step_id := public.append_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    'action', 'long zero-padded port URL', '', 'navigate', '画面',
+    'https://example.com:' || repeat('0', 100) || '80/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.soft_delete_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    valid_step_id
+  );
 end;
 $$;
 

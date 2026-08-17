@@ -312,6 +312,17 @@ begin
     'action', 'zero-padded port URL', '', 'navigate', '画面', 'https://example.com:000080/',
     null, '{}'::jsonb, '{}'::jsonb
   );
+  perform public.append_manual_step(
+    '66666666-6666-4666-8666-666666666666',
+    'action', 'empty port URL', '', 'navigate', '画面', 'HTTPS://example.com:/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.append_manual_step(
+    '66666666-6666-4666-8666-666666666666',
+    'action', 'long zero-padded port URL', '', 'navigate', '画面',
+    'https://example.com:' || repeat('0', 100) || '80/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
 
   select updated_at into protected_updated_at from public.manual_steps where id = protected_step_id;
   perform public.update_manual_step(

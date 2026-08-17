@@ -12,6 +12,7 @@ declare
   authority text;
   host text;
   port_text text;
+  normalized_port text;
 begin
   if char_length(candidate) > 2048
     or candidate !~* '^https?://'
@@ -20,13 +21,13 @@ begin
     return false;
   end if;
 
-  authority := substring(candidate from '^https?://([^/?#]+)');
+  authority := substring(candidate from '(?i)^https?://([^/?#]+)');
   if authority is null or authority = '' or authority like '%@%' or authority like '%\%%' then
     return false;
   end if;
 
   if authority like '[%' then
-    if authority !~ '^\[[0-9A-Fa-f:.]+\](?::[0-9]+)?$' then
+    if authority !~ '^\[[0-9A-Fa-f:.]+\](?::[0-9]*)?$' then
       return false;
     end if;
     host := substring(authority from '^\[([^]]+)\]');
@@ -36,7 +37,7 @@ begin
       return false;
     end;
   else
-    if authority like '%:%' and authority !~ '^[^:]+:[0-9]+$' then
+    if authority like '%:%' and authority !~ '^[^:]+:[0-9]*$' then
       return false;
     end if;
     host := split_part(authority, ':', 1);
@@ -63,8 +64,12 @@ begin
   end if;
 
   port_text := substring(authority from ':([0-9]+)$');
-  if port_text is not null and port_text::integer > 65535 then
-    return false;
+  if port_text is not null then
+    normalized_port := ltrim(port_text, '0');
+    if normalized_port = '' then normalized_port := '0'; end if;
+    if char_length(normalized_port) > 5 or normalized_port::integer > 65535 then
+      return false;
+    end if;
   end if;
 
   return true;

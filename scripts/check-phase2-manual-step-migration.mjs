@@ -40,7 +40,8 @@ const required = [
   "non-action manual step cannot include action fields",
   "manual step url is invalid",
   "hostname_label.label like 'xn--%'",
-  "authority !~ '^[^:]+:[0-9]+$'"
+  "authority !~ '^[^:]+:[0-9]*$'",
+  "normalized_port := ltrim(port_text, '0')"
 ];
 
 const requiredContract = [

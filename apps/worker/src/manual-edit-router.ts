@@ -173,6 +173,9 @@ function optionalUrl(value: unknown): string | null {
   if (typeof value !== "string") {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
   }
+  if (/[\s\u0000-\u001f\u007f]/u.test(value)) {
+    throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
+  }
   let parsed: URL;
   try {
     parsed = new URL(value);
