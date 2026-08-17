@@ -1,6 +1,76 @@
 -- Phase 2 manual editing: serialize every step mutation through the draft revision lock.
 -- This migration is repository-only until an approved environment migration is executed.
 
+create or replace function public.manual_step_url_is_valid(candidate text)
+returns boolean
+language plpgsql
+immutable
+strict
+set search_path = public
+as $$
+declare
+  authority text;
+  host text;
+  port_text text;
+  label text;
+begin
+  if char_length(candidate) > 2048
+    or candidate !~* '^https?://'
+    or candidate ~ '[[:space:][:cntrl:]]'
+  then
+    return false;
+  end if;
+
+  authority := substring(candidate from '^https?://([^/?#]+)');
+  if authority is null or authority = '' or authority like '%@%' or authority like '%\%%' then
+    return false;
+  end if;
+
+  if authority like '[%' then
+    if authority !~ '^\[[0-9A-Fa-f:.]+\](?::[0-9]{1,5})?$' then
+      return false;
+    end if;
+    host := substring(authority from '^\[([^]]+)\]');
+    begin
+      if family(host::inet) <> 6 then return false; end if;
+    exception when others then
+      return false;
+    end;
+  else
+    if authority !~ '^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$' then
+      return false;
+    end if;
+    host := split_part(authority, ':', 1);
+    if host = '' or host like '.%' or host like '%.' or host like '%..%' then
+      return false;
+    end if;
+    if host ~ '^[0-9.]+$' then
+      begin
+        if family(host::inet) <> 4 then return false; end if;
+      exception when others then
+        return false;
+      end;
+    end if;
+    foreach label in array string_to_array(host, '.') loop
+      if char_length(label) > 63 or label !~ '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$' then
+        return false;
+      end if;
+    end loop;
+  end if;
+
+  port_text := substring(authority from ':([0-9]+)$');
+  if port_text is not null and port_text::integer > 65535 then
+    return false;
+  end if;
+
+  return true;
+exception when others then
+  return false;
+end;
+$$;
+
+revoke all on function public.manual_step_url_is_valid(text) from public, anon, authenticated;
+
 create or replace function public.append_manual_step(
   target_revision_id uuid,
   step_type public.manual_step_type,
@@ -62,13 +132,7 @@ begin
     raise exception 'non-action manual step cannot include action fields';
   end if;
 
-  if step_url is not null
-    and (
-      char_length(step_url) > 2048
-      or step_url !~* '^https?://[^/?#@]+([/?#]|$)'
-      or step_url ~ '[[:space:][:cntrl:]]'
-    )
-  then
+  if step_url is not null and not public.manual_step_url_is_valid(step_url) then
     raise exception 'manual step url is invalid';
   end if;
 
@@ -179,13 +243,7 @@ begin
     raise exception 'non-action manual step cannot include action fields';
   end if;
 
-  if step_url is not null
-    and (
-      char_length(step_url) > 2048
-      or step_url !~* '^https?://[^/?#@]+([/?#]|$)'
-      or step_url ~ '[[:space:][:cntrl:]]'
-    )
-  then
+  if step_url is not null and not public.manual_step_url_is_valid(step_url) then
     raise exception 'manual step url is invalid';
   end if;
 

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
+const secondWorkspaceId = "88888888-8888-4888-8888-888888888888";
 const userId = "22222222-2222-4222-8222-222222222222";
 const manualId = "33333333-3333-4333-8333-333333333333";
 const draftId = "44444444-4444-4444-8444-444444444444";
@@ -8,17 +9,27 @@ const firstStepId = "55555555-5555-4555-8555-555555555555";
 const secondManualId = "66666666-6666-4666-8666-666666666666";
 const secondDraftId = "77777777-7777-4777-8777-777777777777";
 
-function sessionFor(role) {
+function sessionFor(role, options = {}) {
+  const workspaces = [{
+    id: workspaceId,
+    name: "手順書テスト",
+    slug: "manual-editor-test",
+    status: "active",
+    created_at: "2026-08-14T00:00:00.000Z"
+  }];
+  if (options.secondWorkspace) {
+    workspaces.push({
+      id: secondWorkspaceId,
+      name: "別ワークスペース",
+      slug: "manual-editor-second",
+      status: "active",
+      created_at: "2026-08-14T00:00:00.100Z"
+    });
+  }
   return {
     user: { id: userId, email: `${role}@example.invalid` },
     profile: { id: userId, display_name: `${role}ユーザー`, locale: "ja-JP", timezone: "Asia/Tokyo" },
-    workspaces: [{
-      id: workspaceId,
-      name: "手順書テスト",
-      slug: "manual-editor-test",
-      status: "active",
-      created_at: "2026-08-14T00:00:00.000Z"
-    }]
+    workspaces
   };
 }
 
@@ -73,7 +84,7 @@ async function installManualFixture(page, role, options = {}) {
   if (options.deferDraftPatch) {
     state.draftPatchDeferred = new Promise((resolve) => { state.releaseDraftPatch = resolve; });
   }
-  const session = sessionFor(role);
+  const session = sessionFor(role, options);
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -83,12 +94,16 @@ async function installManualFixture(page, role, options = {}) {
 
     if (pathname === "/api/session" && method === "GET") return json(200, session);
     if (pathname === "/api/auth/logout" && method === "POST") return json(200, { status: "ok" });
-    if (pathname === `/api/workspaces/${workspaceId}/members` && method === "GET") {
+    if ((pathname === `/api/workspaces/${workspaceId}/members` || pathname === `/api/workspaces/${secondWorkspaceId}/members`) && method === "GET") {
+      const requestedWorkspaceId = pathname.split("/")[3];
       return json(200, {
-        workspaceId,
+        workspaceId: requestedWorkspaceId,
         currentUserRole: state.currentRole,
         members: [{ userId, displayName: `${state.currentRole}ユーザー`, role: state.currentRole, status: "active", joinedAt: "2026-08-14T00:00:00.000Z" }]
       });
+    }
+    if (pathname === `/api/workspaces/${secondWorkspaceId}/manuals` && method === "GET") {
+      return json(200, { manuals: [] });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "GET") {
       state.manualListGetCount += 1;
@@ -363,6 +378,49 @@ test("作成結果不明で別画面へ移動しても一覧再取得と重複�
   await expect(page.locator("#manuals-message")).toContainText("作成結果を一覧で確認してください。重ねて作成しないでください。");
   await expect(page.getByRole("button", { name: /結果不明の作成/ })).toBeVisible();
   expect(state.manualListGetCount).toBeGreaterThan(listGetsBeforeCompletion);
+});
+
+
+test("別workspaceへ切り替えた後の作成結果不明も元workspaceで警告と再取得を維持する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { empty: true, deferManualCreate: true, secondWorkspace: true });
+  state.failNextManualCreate = {
+    mode: "abort",
+    commitBeforeFailure: true,
+    status: 502,
+    code: "NETWORK_ERROR",
+    message: "通信結果を確認できません。"
+  };
+  await openManualScreen(page);
+  await page.locator("#manual-create-title").fill("workspace越境中の結果不明");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect.poll(() => state.lastManualCreateBody?.title).toBe("workspace越境中の結果不明");
+  await page.locator("#current-workspace").selectOption(secondWorkspaceId);
+  state.releaseManualCreate();
+  await expect.poll(() => state.manualCreateResolved).toBe(true);
+  const listGetsBeforeReturn = state.manualListGetCount;
+  await page.locator("#current-workspace").selectOption(workspaceId);
+  await page.getByRole("button", { name: "手順書", exact: true }).click();
+  await expect(page.locator("#manuals-message")).toContainText("作成結果を一覧で確認してください。重ねて作成しないでください。");
+  await expect(page.getByRole("button", { name: /workspace越境中の結果不明/ })).toBeVisible();
+  expect(state.manualListGetCount).toBeGreaterThan(listGetsBeforeReturn);
+});
+
+
+test("初回詳細読込中に所属を失ってもloadingのまま残さず安全な状態を表示する", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  state.failNextManualDetail = {
+    status: 404,
+    code: "MANUALS_NOT_FOUND",
+    message: "所属を確認できません。"
+  };
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("所属を確認できません。");
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+  await expect(page.locator(".manual-step-form")).toHaveCount(0);
+  await expect(page.getByText("手順書を読み込んでいます")).toHaveCount(0);
+  expect(state.currentRole).toBe("viewer");
+  expect(state.canEdit).toBe(false);
 });
 
 

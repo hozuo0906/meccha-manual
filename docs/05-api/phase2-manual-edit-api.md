@@ -21,7 +21,7 @@ Status: Accepted
 - 詳細のSupabase JSONは、200 active stepsに加えて件数異常を判定する201件目まで、DBで許容される最大フィールド長と1 code pointあたり最大6 byteのJSON制御文字escapeを安全に読める8 MiBで打ち切る。その他のSupabase JSONは512 KiBを維持する（[DEC-052](../09-delivery/decision-log.md)）。
 - draft descriptionは10,000文字、step titleは128文字、instructionは4,000文字、targetTextは256文字、URLは2,048文字を上限とする。
 - title/targetTextはECMAScript `trim()`相当後に空となる値をDBでも拒否する。
-- URLはHTTP/HTTPSのみとし、userinfoを含むURLを拒否する。URLをサーバー側から取得・実行しない。
+- URLはHTTP/HTTPSのみとし、userinfo、空白、制御文字、壊れたauthority、範囲外portを拒否する。Workerを迂回したauthenticated direct RPCでも同じ境界を強制する。URLをサーバー側から取得・実行しない。
 
 ## API
 
@@ -166,6 +166,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 
 `202608140010_phase2_manual_step_mutations.sql`は次を追加する。
 
+- `manual_step_url_is_valid`（step追加・更新RPC専用の非公開URL検証関数）
 - `append_manual_step`
 - `update_manual_step`
 - `soft_delete_manual_step`
@@ -187,7 +188,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
-- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字を含むURLを拒否する。step更新では既存の内部項目を保持する。
+- step追加・更新RPCもHTTP契約と同じ境界を強制し、`asset_id`、`annotation`、`masking`の外部入力、非action手順のaction項目、userinfo・空白・制御文字・壊れたauthority・範囲外portを含むURLを拒否する。step更新では既存の内部項目を保持する。
 
 これらのmigrationはrepository内とGitHub Actions内の使い捨てPostgreSQLで検証するだけで、GitHub PRだけを根拠にstaging/productionへ適用しない。DBへの適用は環境・対象migration・rollback条件を確認した別の明示承認で行う。
 
@@ -203,6 +204,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - published/superseded直接変更拒否
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
+- authenticated direct RPCでの不正URL拒否
 - 4 RPCが同じrevision lockを待つ並行実行試験
 - 同じupdatedAtを持つ2更新のうち1件だけ成功し、もう1件が`MANUAL_STEP_EDIT_CONFLICT`になる並行実行試験
 - step更新時の手修正instruction保持

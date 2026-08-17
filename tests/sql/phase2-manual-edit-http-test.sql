@@ -428,6 +428,34 @@ begin
 end;
 $$;
 
+
+do $$
+declare
+  candidate text;
+  rejected boolean;
+begin
+  foreach candidate in array array[
+    'https://%',
+    'https://[invalid',
+    'https://example.com:abc',
+    'https://999.999.999.999'
+  ] loop
+    rejected := false;
+    begin
+      perform public.append_manual_step(
+        '44444444-4444-4444-8444-444444444444',
+        'action', 'malformed URL', '', 'navigate', '画面', candidate,
+        null, '{}'::jsonb, '{}'::jsonb
+      );
+    exception
+      when others then
+        if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+    end;
+    if not rejected then raise exception 'direct RPC accepted malformed URL: %', candidate; end if;
+  end loop;
+end;
+$$;
+
 reset role;
 
 do $$

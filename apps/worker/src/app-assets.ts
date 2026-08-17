@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-2d499043e47b980e";
+export const APP_ASSET_VERSION = "sha256-6875a19a633614d0";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -867,6 +867,7 @@ let workspaceJoinCodeState = { status: "idle", joinCode: "", expiresAt: "", mess
 
 let currentScreen = "workspace";
 let manualsState = { workspaceId: "", status: "idle", items: [], message: "", messageKind: "notice" };
+const manualCreateReconciliationByWorkspace = new Map();
 let manualDetailState = { workspaceId: "", manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
 let manualRequestSequence = 0;
 let manualMutationInFlight = false;
@@ -895,6 +896,7 @@ const manualActionTypeLabels = {
 function resetManualUiState() {
   currentScreen = "workspace";
   manualsState = { workspaceId: "", status: "idle", items: [], message: "", messageKind: "notice" };
+  manualCreateReconciliationByWorkspace.clear();
   manualDetailState = { workspaceId: "", manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
   manualRequestSequence += 1;
   manualMutationInFlight = false;
@@ -1179,7 +1181,14 @@ function selectCurrentWorkspace(event) {
   currentWorkspaceSelection = { userId: currentSession.user.id, workspaceId: selected.id };
   workspaceMembersState = null;
   workspaceMemberRequestSequence += 1;
-  manualsState = { workspaceId: selected.id, status: "idle", items: [], message: "", messageKind: "notice" };
+  const pendingManualCreate = manualCreateReconciliationByWorkspace.get(selected.id);
+  manualsState = {
+    workspaceId: selected.id,
+    status: "idle",
+    items: [],
+    message: pendingManualCreate?.message || "",
+    messageKind: pendingManualCreate?.messageKind || "notice"
+  };
   manualDetailState = { workspaceId: selected.id, manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
   manualRequestSequence += 1;
   try {
@@ -2398,12 +2407,13 @@ async function loadManuals(workspaceId, options = {}) {
   const requestGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
-  const carriedMessage = options.message ?? (
+  const pendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+  const carriedMessage = options.message ?? pendingManualCreate?.message ?? (
     manualsState.workspaceId === workspaceId && manualsState.status === "idle"
       ? manualsState.message
       : ""
   );
-  const carriedMessageKind = options.messageKind ?? (
+  const carriedMessageKind = options.messageKind ?? pendingManualCreate?.messageKind ?? (
     manualsState.workspaceId === workspaceId && manualsState.status === "idle"
       ? manualsState.messageKind
       : "notice"
@@ -2424,6 +2434,9 @@ async function loadManuals(workspaceId, options = {}) {
     ) return;
     if (!Array.isArray(payload.manuals)) throw new AppRequestError("手順書一覧を確認できませんでした。", 502, "MANUALS_RESPONSE_INVALID");
     manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
+    if (manualCreateReconciliationByWorkspace.get(workspaceId) === pendingManualCreate) {
+      manualCreateReconciliationByWorkspace.delete(workspaceId);
+    }
     renderShell(currentSession, "", "notice", options.focusId || null);
   } catch (error) {
     if (
@@ -2492,23 +2505,33 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
           messageKind: "error"
         };
       }
-      if (
+      const currentDetail =
         currentScreen === "manual-detail" &&
         currentWorkspaceSelection?.workspaceId === workspaceId &&
         manualDetailState.workspaceId === workspaceId &&
-        manualDetailState.manualId === manualId &&
-        manualDetailState.value
-      ) {
-        manualDetailState = {
-          ...manualDetailState,
-          status: "loaded",
-          value: {
-            ...manualDetailState.value,
-            permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
-          },
-          message: error.message,
-          messageKind: "error"
-        };
+        manualDetailState.manualId === manualId;
+      if (currentDetail) {
+        if (manualDetailState.value) {
+          manualDetailState = {
+            ...manualDetailState,
+            status: "loaded",
+            value: {
+              ...manualDetailState.value,
+              permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
+            },
+            message: error.message,
+            messageKind: "error"
+          };
+        } else {
+          manualDetailState = {
+            workspaceId,
+            manualId,
+            status: "error",
+            value: null,
+            message: error.message,
+            messageKind: "error"
+          };
+        }
         renderShell(currentSession, "", "notice", "manual-detail-message");
         await loadWorkspaceMembers(workspaceId, {
           message: error.message,
@@ -2571,6 +2594,7 @@ async function createManualFromUi(event) {
       await loadSession({ focusId: "workspace-heading" });
       return;
     }
+    manualCreateReconciliationByWorkspace.delete(workspaceId);
     if (manualsState.workspaceId === workspaceId) {
       manualsState = { ...manualsState, workspaceId, status: "idle", message: "", messageKind: "notice" };
     }
@@ -2591,13 +2615,15 @@ async function createManualFromUi(event) {
       return loadSession();
     }
     const resultUnknown = manualMutationUnknown(error);
-    if (resultUnknown && manualsState.workspaceId === workspaceId) {
-      manualsState = {
-        ...manualsState,
-        status: "idle",
+    if (resultUnknown) {
+      const warning = {
         message: "作成結果を一覧で確認してください。重ねて作成しないでください。",
         messageKind: "warning"
       };
+      manualCreateReconciliationByWorkspace.set(workspaceId, warning);
+      if (manualsState.workspaceId === workspaceId) {
+        manualsState = { ...manualsState, status: "idle", ...warning };
+      }
     }
     if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
       setManualMutationBusyState(false);

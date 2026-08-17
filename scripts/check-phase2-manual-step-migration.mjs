@@ -10,6 +10,8 @@ const [sql, contract, workflow] = await Promise.all([
 ]);
 
 const required = [
+  "create or replace function public.manual_step_url_is_valid(candidate text)",
+  "revoke all on function public.manual_step_url_is_valid(text) from public, anon, authenticated",
   "create or replace function public.append_manual_step(",
   "create or replace function public.update_manual_step(",
   "expected_step_updated_at timestamptz",
@@ -41,6 +43,7 @@ const required = [
 
 const requiredContract = [
   "`append_manual_step`",
+  "`manual_step_url_is_valid`",
   "`update_manual_step`",
   "`soft_delete_manual_step`",
   "`reorder_manual_steps`",
@@ -49,6 +52,7 @@ const requiredContract = [
   "4 RPCが同じrevision lockを待つ並行実行試験",
   "同じupdatedAtを持つ2更新のうち1件だけ成功",
   "`MANUAL_STEP_EDIT_CONFLICT`",
+  "authenticated direct RPCでの不正URL拒否",
   "`［保存ボタン］をクリックします。`",
   "GitHub PRだけを根拠にstaging/productionへ適用しない"
 ];
