@@ -402,6 +402,29 @@ test("WHATWG URLで有効な空portを正規化してstep RPCへ渡す", async (
   }
 });
 
+test("正規化で短縮されるURLも入力値が2,048文字を超えたらRPC前に拒否する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: `https://example.com:${"0".repeat(2_048)}80/`
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "oversized raw URL must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("WHATWGが除去するURL内の空白・制御文字も入力境界で拒否する", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])
