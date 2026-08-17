@@ -7,6 +7,11 @@ from public.manuals m
 where m.id = '33333333-3333-4333-8333-333333333333' \gset
 
 select set_config('app.test_archive_updated_at', :'archive_expected_updated_at', false);
+select set_config('app.test_archive_status', m.status::text, false),
+  set_config('app.test_archive_draft_id', coalesce(m.current_draft_revision_id::text, ''), false),
+  set_config('app.test_archive_published_id', coalesce(m.current_published_revision_id::text, ''), false)
+from public.manuals m
+where m.id = '33333333-3333-4333-8333-333333333333';
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', false);
@@ -98,8 +103,8 @@ begin
     where m.id = '33333333-3333-4333-8333-333333333333'
       and m.status = 'archived'
       and m.archived_at is not null
-      and m.current_draft_revision_id = '44444444-4444-4444-8444-444444444444'
-      and m.current_published_revision_id is null
+      and coalesce(m.current_draft_revision_id::text, '') = current_setting('app.test_archive_draft_id')
+      and coalesce(m.current_published_revision_id::text, '') = current_setting('app.test_archive_published_id')
   ) then
     raise exception 'archive did not preserve manual data and revision pointers';
   end if;
@@ -110,8 +115,9 @@ begin
       and a.action = 'manual.archived'
       and a.resource_type = 'manual'
       and a.resource_id = '33333333-3333-4333-8333-333333333333'
-      and a.metadata->>'previousStatus' = 'draft'
-      and a.metadata->>'draftRevisionId' = '44444444-4444-4444-8444-444444444444'
+      and a.metadata->>'previousStatus' = current_setting('app.test_archive_status')
+      and coalesce(a.metadata->>'draftRevisionId', '') = current_setting('app.test_archive_draft_id')
+      and coalesce(a.metadata->>'publishedRevisionId', '') = current_setting('app.test_archive_published_id')
   ) then
     raise exception 'archive audit log is missing';
   end if;
