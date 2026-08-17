@@ -307,6 +307,33 @@ begin
   end;
   if not rejected then raise exception 'direct RPC accepted malformed punycode URL'; end if;
 
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', 'out-of-range hexadecimal IPv4', '', 'navigate', '画面', 'https://0x100000000/',
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted out-of-range hexadecimal IPv4'; end if;
+
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', 'oversized serialized URL', '', 'navigate', '画面',
+      'https://example.com/' || repeat('あ', 226),
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted oversized serialized URL'; end if;
+
   perform public.append_manual_step(
     '66666666-6666-4666-8666-666666666666',
     'action', 'zero-padded port URL', '', 'navigate', '画面', 'https://example.com:000080/',

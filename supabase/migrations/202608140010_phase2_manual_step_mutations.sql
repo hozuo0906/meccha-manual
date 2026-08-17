@@ -1,6 +1,84 @@
 -- Phase 2 manual editing: serialize every step mutation through the draft revision lock.
 -- This migration is repository-only until an approved environment migration is executed.
 
+create or replace function public.manual_step_ipv4_host_is_valid(candidate text)
+returns boolean
+language plpgsql
+immutable
+strict
+set search_path = public
+as $$
+declare
+  parts text[] := string_to_array(candidate, '.');
+  part_count integer;
+  part_index integer;
+  digit_index integer;
+  raw_part text;
+  digits text;
+  digit_character text;
+  radix integer;
+  digit_value integer;
+  part_value numeric;
+  last_part_limit numeric;
+begin
+  part_count := cardinality(parts);
+  if part_count > 1 and parts[part_count] = '' then
+    parts := parts[1:part_count - 1];
+    part_count := part_count - 1;
+  end if;
+
+  -- WHATWG treats a host as IPv4 when its final label is an IPv4 number.
+  raw_part := parts[part_count];
+  if raw_part !~ '^[0-9]+$' and raw_part !~* '^0x[0-9a-f]*$' then
+    return true;
+  end if;
+  if part_count < 1 or part_count > 4 then
+    return false;
+  end if;
+
+  for part_index in 1..part_count loop
+    raw_part := parts[part_index];
+    if raw_part ~* '^0x' then
+      radix := 16;
+      digits := substring(raw_part from 3);
+      if digits !~* '^[0-9a-f]*$' then return false; end if;
+    elsif char_length(raw_part) >= 2 and left(raw_part, 1) = '0' then
+      radix := 8;
+      digits := substring(raw_part from 2);
+      if digits !~ '^[0-7]*$' then return false; end if;
+    else
+      radix := 10;
+      digits := raw_part;
+      if digits !~ '^[0-9]+$' then return false; end if;
+    end if;
+
+    part_value := 0;
+    if digits <> '' then
+      for digit_index in 1..char_length(digits) loop
+        digit_character := lower(substring(digits from digit_index for 1));
+        digit_value := case digit_character
+          when 'a' then 10 when 'b' then 11 when 'c' then 12
+          when 'd' then 13 when 'e' then 14 when 'f' then 15
+          else digit_character::integer
+        end;
+        part_value := part_value * radix + digit_value;
+      end loop;
+    end if;
+
+    if part_index < part_count and part_value > 255 then
+      return false;
+    end if;
+  end loop;
+
+  last_part_limit := power(256::numeric, (5 - part_count)::numeric);
+  return part_value < last_part_limit;
+exception when others then
+  return false;
+end;
+$$;
+
+revoke all on function public.manual_step_ipv4_host_is_valid(text) from public, anon, authenticated;
+
 create or replace function public.manual_step_url_is_valid(candidate text)
 returns boolean
 language plpgsql
@@ -13,6 +91,11 @@ declare
   host text;
   port_text text;
   normalized_port text;
+  safe_url_characters constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,._~%-';
+  serialized_length integer := 0;
+  character_index integer;
+  url_character text;
+  character_bytes integer;
 begin
   if char_length(candidate) > 2048
     or candidate !~* '^https?://'
@@ -20,6 +103,16 @@ begin
   then
     return false;
   end if;
+
+  for character_index in 1..char_length(candidate) loop
+    url_character := substring(candidate from character_index for 1);
+    character_bytes := octet_length(url_character);
+    serialized_length := serialized_length + case
+      when character_bytes = 1 and position(url_character in safe_url_characters) > 0 then 1
+      else character_bytes * 3
+    end;
+    if serialized_length > 2048 then return false; end if;
+  end loop;
 
   authority := substring(candidate from '(?i)^https?://([^/?#]+)');
   if authority is null or authority = '' or authority like '%@%' or authority like '%\%%' then
@@ -47,13 +140,7 @@ begin
     then
       return false;
     end if;
-    if host ~ '^[0-9.]*[0-9][0-9.]*$' then
-      begin
-        if family(host::inet) <> 4 then return false; end if;
-      exception when others then
-        return false;
-      end;
-    end if;
+    if not public.manual_step_ipv4_host_is_valid(host) then return false; end if;
     if exists (
       select 1
       from unnest(string_to_array(lower(host), '.')) as hostname_label(label)

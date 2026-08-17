@@ -372,6 +372,7 @@ $$;
 do $$
 declare
   valid_step_id uuid;
+  candidate text;
 begin
   valid_step_id := public.append_manual_step(
     '44444444-4444-4444-8444-444444444444',
@@ -410,6 +411,34 @@ begin
     '44444444-4444-4444-8444-444444444444',
     valid_step_id
   );
+  valid_step_id := public.append_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    'action', 'Unicode URL boundary', '', 'navigate', '画面',
+    'https://example.com/' || repeat('あ', 225),
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.soft_delete_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    valid_step_id
+  );
+  foreach candidate in array array[
+    'https://0xffffffff/',
+    'https://0x7f.1/',
+    'https://0177.1/',
+    'https://127.1/',
+    'https://4294967295/',
+    'https://0x/'
+  ] loop
+    valid_step_id := public.append_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      'action', 'numeric IPv4 URL', '', 'navigate', '画面', candidate,
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+    perform public.soft_delete_manual_step(
+      '44444444-4444-4444-8444-444444444444',
+      valid_step_id
+    );
+  end loop;
 end;
 $$;
 
@@ -529,7 +558,14 @@ begin
     'https://xn--bcher-kva.example/',
     'https://[invalid',
     'https://example.com:abc',
-    'https://999.999.999.999'
+    'https://999.999.999.999',
+    'https://0x100000000/',
+    'https://4294967296/',
+    'https://09/',
+    'https://example.1/',
+    'https://1.2.3.4.5/',
+    'https://1.2.3.256/',
+    'https://example.com/' || repeat('あ', 226)
   ] loop
     rejected := false;
     begin
@@ -562,6 +598,12 @@ begin
   end if;
   if not has_function_privilege('authenticated', 'public.get_manual_edit_detail(uuid,uuid)', 'EXECUTE') then
     raise exception 'authenticated cannot execute get_manual_edit_detail';
+  end if;
+  if has_function_privilege('authenticated', 'public.manual_step_ipv4_host_is_valid(text)', 'EXECUTE') then
+    raise exception 'authenticated can execute private numeric IPv4 validator';
+  end if;
+  if has_function_privilege('authenticated', 'public.manual_step_url_is_valid(text)', 'EXECUTE') then
+    raise exception 'authenticated can execute private step URL validator';
   end if;
 end;
 $$;

@@ -56,6 +56,7 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `create_manual_draft(manual_id)`
 - `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
 - `get_manual_edit_detail(workspace_id, manual_id)`（SECURITY INVOKERの単一SQL文でmanual・draft・steps・編集可否を同一MVCC snapshotから取得）
+- `manual_step_ipv4_host_is_valid(host)`（step URL検証内部専用。WHATWG numeric IPv4形式の範囲を検証し、外部roleへ公開しない）
 - `manual_step_url_is_valid(url)`（step mutation RPC内部専用。HTTP/HTTPS URLのauthorityとportを検証し、外部roleへ公開しない）
 - `append_manual_step` / `update_manual_step` / `soft_delete_manual_step` / `reorder_manual_steps`
 - `manuals.title` と `manual_revisions.title` のraw 1〜64文字・ECMAScript空白のみ拒否DB制約

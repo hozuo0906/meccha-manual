@@ -425,6 +425,52 @@ test("正規化で短縮されるURLも入力値が2,048文字を超えたらRPC
   }
 });
 
+test("WHATWG percent encoding後に2,048文字を超えるUnicode URLをRPC前に拒否する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: `https://example.com/${"あ".repeat(226)}`
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "oversized serialized URL must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("WHATWGで範囲外となる16進IPv4をRPC前に拒否する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: "https://0x100000000/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "invalid numeric IPv4 must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("WHATWGが除去するURL内の空白・制御文字も入力境界で拒否する", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])

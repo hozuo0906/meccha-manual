@@ -77,9 +77,20 @@ const STEP_TYPES = new Set<ManualStepType>(["action", "note", "decision", "warni
 const ACTION_TYPES = new Set<ManualActionType>(["click", "input", "select", "navigate", "wait", "other"]);
 const LABEL_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/u;
 const TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
+const URL_SERIALIZED_SAFE_ASCII = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,._~%-";
 
 function codePointLength(value: string): number {
   return Array.from(value).length;
+}
+
+function serializedUrlBudgetLength(value: string): number {
+  const encoder = new TextEncoder();
+  let length = 0;
+  for (const character of value) {
+    const bytes = encoder.encode(character).byteLength;
+    length += bytes === 1 && URL_SERIALIZED_SAFE_ASCII.includes(character) ? 1 : bytes * 3;
+  }
+  return length;
 }
 
 function canonicalUuidValue(value: unknown): string | null {
@@ -175,6 +186,9 @@ function optionalUrl(value: unknown): string | null {
   }
   if (codePointLength(value) > MAX_STEP_URL_LENGTH) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", `URLは${MAX_STEP_URL_LENGTH}文字以内で入力してください。`);
+  }
+  if (serializedUrlBudgetLength(value) > MAX_STEP_URL_LENGTH) {
+    throw new ManualError(400, "MANUAL_STEP_URL_INVALID", `URLは正規化後も${MAX_STEP_URL_LENGTH}文字以内で入力してください。`);
   }
   if (/[\s\u0000-\u001f\u007f]/u.test(value)) {
     throw new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");

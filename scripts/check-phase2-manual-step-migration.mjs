@@ -11,6 +11,8 @@ const [sql, contract, workflow] = await Promise.all([
 
 const required = [
   "create or replace function public.manual_step_url_is_valid(candidate text)",
+  "create or replace function public.manual_step_ipv4_host_is_valid(candidate text)",
+  "revoke all on function public.manual_step_ipv4_host_is_valid(text) from public, anon, authenticated",
   "revoke all on function public.manual_step_url_is_valid(text) from public, anon, authenticated",
   "create or replace function public.append_manual_step(",
   "create or replace function public.update_manual_step(",
@@ -41,7 +43,9 @@ const required = [
   "manual step url is invalid",
   "hostname_label.label like 'xn--%'",
   "authority !~ '^[^:]+:[0-9]*$'",
-  "normalized_port := ltrim(port_text, '0')"
+  "normalized_port := ltrim(port_text, '0')",
+  "serialized_length := serialized_length + case",
+  "manual_step_ipv4_host_is_valid(host)"
 ];
 
 const requiredContract = [
