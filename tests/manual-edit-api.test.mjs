@@ -324,6 +324,28 @@ test("explicit step instruction is preserved", async () => {
   }
 });
 
+test("WHATWG URLで有効なunderscore hostをstep RPCへ保持する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json(STEP_ID)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "社内画面を開く",
+        actionType: "navigate",
+        targetText: "社内画面",
+        url: "https://service_name.example/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 201);
+    assert.equal(JSON.parse(String(mock.calls[4].init.body)).step_url, "https://service_name.example/");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("step patch requires the version displayed by the editor", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()])]);
   try {
@@ -573,6 +595,29 @@ test("step creation maps the database capacity guard to 409", async () => {
     );
     assert.equal(response?.status, 409);
     assert.equal((await response.json()).code, "MANUAL_STEPS_LIMIT_EXCEEDED");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("step RPCのURL検証拒否を決定的な400へ変換する", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]),
+    json({ message: "manual step url is invalid" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "URL境界確認",
+        actionType: "navigate",
+        targetText: "確認画面",
+        url: "https://example.com/"
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
   } finally {
     mock.restore();
   }

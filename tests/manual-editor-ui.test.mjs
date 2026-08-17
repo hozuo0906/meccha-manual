@@ -52,8 +52,9 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const resultUnknown = manualMutationUnknown\(error\)[\s\S]*manualCreateReconciliationByWorkspace\.set\(workspaceId, warning\)[\s\S]*currentScreen !== "manuals"/);
   assert.match(source, /const pendingManualCreate = manualCreateReconciliationByWorkspace\.get\(selected\.id\)[\s\S]*message: pendingManualCreate\?\.message/);
   assert.match(source, /const pendingManualCreate = manualCreateReconciliationByWorkspace\.get\(workspaceId\)[\s\S]*carriedMessage[\s\S]*manualCreateReconciliationByWorkspace\.get\(workspaceId\) === pendingManualCreate[\s\S]*manualCreateReconciliationByWorkspace\.delete\(workspaceId\)/);
+  assert.match(source, /const currentPendingManualCreate = manualCreateReconciliationByWorkspace\.get\(workspaceId\)[\s\S]*currentPendingManualCreate !== pendingManualCreate[\s\S]*status: "idle"[\s\S]*await loadManuals\(workspaceId/);
   assert.match(source, /manualCreateReconciliationByWorkspace\.clear\(\)/);
-  assert.match(source, /const currentDetail =[\s\S]*manualDetailState\.value[\s\S]*status: "error"[\s\S]*loadWorkspaceMembers\(workspaceId/);
+  assert.match(source, /const currentDetail =[\s\S]*manualDetailState\.value[\s\S]*status: "error"[\s\S]*else if \(currentWorkspaceSelection\?\.workspaceId === workspaceId\)[\s\S]*loadWorkspaceMembers\(workspaceId/);
   assert.match(source, /manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"[\s\S]*currentScreen !== "manuals"/);
   assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
@@ -100,7 +101,9 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(spec, /作成応答の前に画面を移動した場合は遅延成功で詳細を開かない/);
   assert.match(spec, /作成結果不明で別画面へ移動しても一覧再取得と重複防止警告を行う/);
   assert.match(spec, /別workspaceへ切り替えた後の作成結果不明も元workspaceで警告と再取得を維持する/);
+  assert.match(spec, /古い一覧取得が後から完了しても作成結果不明の警告を上書きしない/);
   assert.match(spec, /初回詳細読込中に所属を失ってもloadingのまま残さず安全な状態を表示する/);
+  assert.match(spec, /初回詳細読込中に一覧へ戻ってから所属を失っても作成UIを閉じる/);
   assert.match(spec, /保存後の詳細再取得で所属喪失した場合も編集UIを閉じる/);
   assert.match(spec, /step不存在404は権限喪失と誤判定せず未保存の基本情報を保持する/);
   assert.match(spec, /基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない/);

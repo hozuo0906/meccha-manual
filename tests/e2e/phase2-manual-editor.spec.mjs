@@ -62,6 +62,11 @@ async function installManualFixture(page, role, options = {}) {
     expectedDraftUpdatedAtSeen: null,
     draftUpdatedAt: "2026-08-14T00:00:01.000Z",
     manualListGetCount: 0,
+    deferNextManualList: false,
+    manualListDeferred: null,
+    releaseManualList: null,
+    manualListDeferredStarted: false,
+    manualListDeferredResolved: false,
     manualCreateDeferred: null,
     releaseManualCreate: null,
     manualCreateResolved: false,
@@ -70,6 +75,11 @@ async function installManualFixture(page, role, options = {}) {
     draftPatchResolved: false,
     failNextManualCreate: null,
     failNextManualDetail: null,
+    deferNextManualDetail: false,
+    manualDetailDeferred: null,
+    releaseManualDetail: null,
+    manualDetailDeferredStarted: false,
+    manualDetailDeferredResolved: false,
     failNextStepPatch: null,
     lastManualCreateBody: null,
     lastDraftPatchBody: null,
@@ -107,6 +117,13 @@ async function installManualFixture(page, role, options = {}) {
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "GET") {
       state.manualListGetCount += 1;
+      if (state.deferNextManualList) {
+        state.deferNextManualList = false;
+        state.manualListDeferredStarted = true;
+        state.manualListDeferred = new Promise((resolve) => { state.releaseManualList = resolve; });
+        await state.manualListDeferred;
+        state.manualListDeferredResolved = true;
+      }
       return json(200, { manuals: state.manuals });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals` && method === "POST") {
@@ -148,6 +165,13 @@ async function installManualFixture(page, role, options = {}) {
       if (state.failNextManualDetail) {
         const failure = state.failNextManualDetail;
         state.failNextManualDetail = null;
+        if (state.deferNextManualDetail) {
+          state.deferNextManualDetail = false;
+          state.manualDetailDeferredStarted = true;
+          state.manualDetailDeferred = new Promise((resolve) => { state.releaseManualDetail = resolve; });
+          await state.manualDetailDeferred;
+          state.manualDetailDeferredResolved = true;
+        }
         if (failure.status === 403 || failure.code === "MANUALS_NOT_FOUND") {
           state.currentRole = "viewer";
           state.canEdit = false;
@@ -407,6 +431,35 @@ test("別workspaceへ切り替えた後の作成結果不明も元workspaceで�
 });
 
 
+test("古い一覧取得が後から完了しても作成結果不明の警告を上書きしない", async ({ page }) => {
+  const state = await installManualFixture(page, "editor", { empty: true, deferManualCreate: true });
+  state.failNextManualCreate = {
+    mode: "abort",
+    commitBeforeFailure: true,
+    status: 502,
+    code: "NETWORK_ERROR",
+    message: "通信結果を確認できません。"
+  };
+  await openManualScreen(page);
+  await page.locator("#manual-create-title").fill("逆順完了の結果不明");
+  await page.getByRole("button", { name: "手順書を作成" }).click();
+  await expect.poll(() => state.lastManualCreateBody?.title).toBe("逆順完了の結果不明");
+  state.deferNextManualList = true;
+  await page.getByRole("button", { name: "再読み込み", exact: true }).click();
+  await expect.poll(() => state.manualListDeferredStarted).toBe(true);
+  await page.getByRole("button", { name: "メンバー管理", exact: true }).click();
+  state.releaseManualCreate();
+  await expect.poll(() => state.manualCreateResolved).toBe(true);
+  state.releaseManualList();
+  await expect.poll(() => state.manualListDeferredResolved).toBe(true);
+  const listGetsBeforeReturn = state.manualListGetCount;
+  await page.getByRole("button", { name: "手順書", exact: true }).click();
+  await expect(page.locator("#manuals-message")).toContainText("作成結果を一覧で確認してください。重ねて作成しないでください。");
+  await expect(page.getByRole("button", { name: /逆順完了の結果不明/ })).toBeVisible();
+  expect(state.manualListGetCount).toBeGreaterThan(listGetsBeforeReturn);
+});
+
+
 test("初回詳細読込中に所属を失ってもloadingのまま残さず安全な状態を表示する", async ({ page }) => {
   const state = await installManualFixture(page, "editor");
   await openManualScreen(page);
@@ -420,6 +473,29 @@ test("初回詳細読込中に所属を失ってもloadingのまま残さず安�
   await expect(page.locator("#manual-draft-form")).toHaveCount(0);
   await expect(page.locator(".manual-step-form")).toHaveCount(0);
   await expect(page.getByText("手順書を読み込んでいます")).toHaveCount(0);
+  expect(state.currentRole).toBe("viewer");
+  expect(state.canEdit).toBe(false);
+});
+
+
+test("初回詳細読込中に一覧へ戻ってから所属を失っても作成UIを閉じる", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  state.deferNextManualDetail = true;
+  state.failNextManualDetail = {
+    status: 404,
+    code: "MANUALS_NOT_FOUND",
+    message: "所属を確認できません。"
+  };
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await expect.poll(() => state.manualDetailDeferredStarted).toBe(true);
+  await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
+  await expect(page.locator("#manual-create-form")).toHaveCount(1);
+  state.releaseManualDetail();
+  await expect.poll(() => state.manualDetailDeferredResolved).toBe(true);
+  await expect(page.locator("#manual-create-form")).toHaveCount(0);
+  await expect(page.locator("#manuals-message")).toContainText("所属を確認できません。");
+  await expect(page.getByText("現在の権限では手順書を作成・編集できません。閲覧はできます。")).toBeVisible();
   expect(state.currentRole).toBe("viewer");
   expect(state.canEdit).toBe(false);
 });

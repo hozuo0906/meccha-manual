@@ -433,7 +433,18 @@ do $$
 declare
   candidate text;
   rejected boolean;
+  valid_step_id uuid;
 begin
+  valid_step_id := public.append_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    'action', 'internal host URL', '', 'navigate', '画面', 'https://service_name.example/',
+    null, '{}'::jsonb, '{}'::jsonb
+  );
+  perform public.soft_delete_manual_step(
+    '44444444-4444-4444-8444-444444444444',
+    valid_step_id
+  );
+
   foreach candidate in array array[
     'https://%',
     'https://[invalid',

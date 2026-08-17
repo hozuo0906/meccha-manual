@@ -64,7 +64,9 @@ if (!e2e.includes("作成入力の検証エラーでも説明を保持する")) 
 if (!e2e.includes("作成成功後に一覧を再取得して新しい手順書を表示する")) errors.push("Missing post-create list invalidation browser flow");
 if (!e2e.includes("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない")) errors.push("Missing delayed-create navigation browser flow");
 if (!e2e.includes("別workspaceへ切り替えた後の作成結果不明も元workspaceで警告と再取得を維持する")) errors.push("Missing cross-workspace ambiguous-create reconciliation browser flow");
+if (!e2e.includes("古い一覧取得が後から完了しても作成結果不明の警告を上書きしない")) errors.push("Missing stale-list ambiguous-create reconciliation browser flow");
 if (!e2e.includes("初回詳細読込中に所属を失ってもloadingのまま残さず安全な状態を表示する")) errors.push("Missing initial detail revocation browser flow");
+if (!e2e.includes("初回詳細読込中に一覧へ戻ってから所属を失っても作成UIを閉じる")) errors.push("Missing navigated initial-detail revocation browser flow");
 if (!config.includes("phase2-manual-editor.spec.mjs")) errors.push("Phase 2 Playwright config does not select the manual editor spec");
 
 const forbidden = [

@@ -570,6 +570,9 @@ function knownRpcError(message: string): ManualError | null {
   if (message.includes("manual step limit exceeded")) {
     return new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順は200件まで追加できます。不要な手順を整理してください。");
   }
+  if (message.includes("manual step url is invalid")) {
+    return new ManualError(400, "MANUAL_STEP_URL_INVALID", "URLを確認してください。");
+  }
   if (message.includes("ordered step ids")) {
     return new ManualError(400, "MANUAL_STEP_ORDER_INVALID", "手順の並び順を確認してください。");
   }

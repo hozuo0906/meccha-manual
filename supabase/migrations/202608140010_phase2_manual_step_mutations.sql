@@ -12,7 +12,6 @@ declare
   authority text;
   host text;
   port_text text;
-  label text;
 begin
   if char_length(candidate) > 2048
     or candidate !~* '^https?://'
@@ -37,25 +36,23 @@ begin
       return false;
     end;
   else
-    if authority !~ '^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$' then
+    if authority like '%:%' and authority !~ '^[^:]+:[0-9]{1,5}$' then
       return false;
     end if;
     host := split_part(authority, ':', 1);
-    if host = '' or host like '.%' or host like '%.' or host like '%..%' then
+    if host = ''
+      or host !~ '^[!-~]+$'
+      or host <> translate(host, '#%/:<>?@[\]^|', '')
+    then
       return false;
     end if;
-    if host ~ '^[0-9.]+$' then
+    if host ~ '^[0-9.]*[0-9][0-9.]*$' then
       begin
         if family(host::inet) <> 4 then return false; end if;
       exception when others then
         return false;
       end;
     end if;
-    foreach label in array string_to_array(host, '.') loop
-      if char_length(label) > 63 or label !~ '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$' then
-        return false;
-      end if;
-    end loop;
   end if;
 
   port_text := substring(authority from ':([0-9]+)$');

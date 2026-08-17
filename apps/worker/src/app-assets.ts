@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-6875a19a633614d0";
+export const APP_ASSET_VERSION = "sha256-a08aa0bad85cd54e";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2433,6 +2433,25 @@ async function loadManuals(workspaceId, options = {}) {
       sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
     ) return;
     if (!Array.isArray(payload.manuals)) throw new AppRequestError("手順書一覧を確認できませんでした。", 502, "MANUALS_RESPONSE_INVALID");
+    const currentPendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+    if (currentPendingManualCreate && currentPendingManualCreate !== pendingManualCreate) {
+      manualsState = {
+        workspaceId,
+        status: "idle",
+        items: payload.manuals,
+        message: currentPendingManualCreate.message,
+        messageKind: currentPendingManualCreate.messageKind
+      };
+      if (currentScreen === "manuals") {
+        renderShell(currentSession, "", "notice", options.focusId || null);
+        await loadManuals(workspaceId, {
+          message: currentPendingManualCreate.message,
+          messageKind: currentPendingManualCreate.messageKind,
+          focusId: options.focusId || "manuals-message"
+        });
+      }
+      return;
+    }
     manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
     if (manualCreateReconciliationByWorkspace.get(workspaceId) === pendingManualCreate) {
       manualCreateReconciliationByWorkspace.delete(workspaceId);
@@ -2537,6 +2556,15 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
           message: error.message,
           messageKind: "error",
           focusId: "manual-detail-message",
+          alreadyRendered: true
+        });
+      } else if (currentWorkspaceSelection?.workspaceId === workspaceId) {
+        const focusId = currentScreen === "manuals" ? "manuals-message" : "shell-message";
+        renderShell(currentSession, error.message, "error", focusId);
+        await loadWorkspaceMembers(workspaceId, {
+          message: error.message,
+          messageKind: "error",
+          focusId,
           alreadyRendered: true
         });
       }
