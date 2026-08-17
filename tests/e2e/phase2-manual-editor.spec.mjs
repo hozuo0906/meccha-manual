@@ -394,6 +394,7 @@ test("別workspaceへ切り替えた後の作成結果不明も元workspaceで�
   await page.locator("#manual-create-title").fill("workspace越境中の結果不明");
   await page.getByRole("button", { name: "手順書を作成" }).click();
   await expect.poll(() => state.lastManualCreateBody?.title).toBe("workspace越境中の結果不明");
+  await page.getByRole("button", { name: "ワークスペース", exact: true }).click();
   await page.locator("#current-workspace").selectOption(secondWorkspaceId);
   state.releaseManualCreate();
   await expect.poll(() => state.manualCreateResolved).toBe(true);
