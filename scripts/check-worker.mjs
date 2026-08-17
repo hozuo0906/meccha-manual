@@ -84,7 +84,8 @@ const requiredAppSnippets = [
   "SESSION_INVALID",
   "サービスを読み込めません",
   "ワークスペースを作成",
-  "aria-disabled=\"true\"><span>手順書</span><span class=\"nav-status\">準備中</span>"
+  "id=\"manual-nav-button\"",
+  "aria-disabled=\"true\"><span>操作を記録</span><span class=\"nav-status\">準備中</span>"
 ];
 
 const forbiddenSnippets = [

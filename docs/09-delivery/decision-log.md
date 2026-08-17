@@ -55,6 +55,29 @@ Status: Accepted
 
 | DEC-049 | 2026-08-12 | 既存のIssue起点Codex runnerを維持し、Business OS専用の署名job runnerを別workflowとして並設する。Business OS runnerは`codex/*` branchとdraft PRまでを担当し、production deploy、rollback、DB migration、secret変更は既存のOwner承認工程へ引き渡す（[ADR-0026](../03-architecture/adrs/ADR-0026-business-os-cloud-runner.md)） | 既存運用を壊さず、repository・期限・予算・operation・書込pathをBusiness OSの承認単位で監査するため |
 | DEC-050 | 2026-08-12 | Phase 1 readinessは最新Workers型のstrict typecheck、Wrangler bundle dry-run、重要な失敗条件のproduction code変異、fixture APIを使う実Chromium 4ロールE2Eを必須にする。外部Supabaseのmigration・資格情報・テストデータは使わず、動的RLS検証は承認対象のIssue #38へ分離する | 静的snippetだけの合格を防ぎつつ、外部環境を無承認で変更せずに認証・権限UI・アクセシビリティの実行可能性をPRごとに保証するため |
-| DEC-051 | 2026-08-17 | 長期AI開発のライブな現在地はGitHub Issue #70へ集約し、新しいセッションは `AGENTS.md` の正本優先順位に従ってIssue #70・対象Issue/PR・commit・CI・review threadを照合する。コードやCI等の実状態を正本へ昇格せず、正本との矛盾時は作業を停止して `open-questions.md` へ登録する | 会話上限や端末停止後もGitHubから安全に再開しつつ、実装逸脱を正本として固定化する事故を防ぐため |
+| DEC-051 | 2026-08-14 | 手順書一覧のSupabase応答上限は1000件かつ1 MiBとし、その他のSupabase JSON応答は512 KiBを維持する | title最大64 Unicode code pointがJSON制御文字として最大6 byteへ展開しても1000件一覧を取得可能にしつつ、一般応答の無制限buffer拡大を避けるため |
+| DEC-052 | 2026-08-14 | 手順書詳細は200 active steps・8 MiB、draft description 10,000文字、step title 128文字、instruction 4,000文字、target 256文字、URL 2,048文字を上限とし、manual/revision/stepのwriteはSECURITY DEFINER RPCへ集約する | 201件目の件数異常判定を含め、DB有効な最大長文字列がJSON制御文字escapeで1 code pointあたり最大6 byteへ展開しても詳細APIが読める一方、bufferを8 MiBで打ち切り、複数tableの部分更新・Worker境界迂回も防ぐため |
+| DEC-053 | 2026-08-14 | 手順書write body上限を64 KiBとし、step PATCHは取得時のupdatedAtをrevision lock内で照合する楽観的更新にする。使い捨てPostgreSQLでは同じupdatedAtの2更新を同時実行し、1件だけ成功することを必須検証とする | 10,000 Unicode code pointの日本語説明を正当に受理しつつ、同じ旧versionを基にした並行更新が互いの変更を黙って上書きすることを防ぐため |
+| DEC-054 | 2026-08-17 | 長期AI開発のライブな現在地はGitHub Issue #70へ集約し、新しいセッションは `AGENTS.md` の正本優先順位に従ってIssue #70・対象Issue/PR・commit・CI・review threadを照合する。コードやCI等の実状態を正本へ昇格せず、正本との矛盾時は作業を停止して `open-questions.md` へ登録する | 会話上限や端末停止後もGitHubから安全に再開しつつ、実装逸脱を正本として固定化する事故を防ぐため |
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
+
+## DEC-058: draft metadataと作成UIを競合・遅延応答から保護する
+
+- Status: Accepted
+- Date: 2026-08-15
+- Decision:
+  - draft基本情報のPATCHは表示時の`updatedAt`を必須とし、manual rowとdraft rowのlock取得後に照合する。同じversionからの後続保存は409で拒否する。
+  - 手順書作成の入力エラーではフォームDOMを維持し、説明等の未保存入力を破棄しない。
+  - 作成成功後は一覧キャッシュを無効化し、一覧へ戻る時に再取得する。
+  - 作成応答前に画面またはworkspaceが変わった場合、遅延応答で元workspaceの詳細へ遷移しない。
+  - 作成結果不明は作成元workspace単位のメモリ状態として保持し、workspaceを往復しても元workspaceの再取得と重複作成防止案内を維持する。
+  - 結果不明状態より前に開始した一覧取得は、後発の重複作成防止案内を上書きせず、新しい一覧取得で結果を再照合する。
+  - 初回詳細取得中の権限失効・所属喪失も読込中のまま残さず、安全なエラー状態へ遷移して権限を再取得する。
+  - 初回詳細取得中に一覧やworkspace画面へ移動済みでも、元workspaceの所属喪失が確定したら表示中の権限UIを安全側へ再描画して権限を再取得する。
+  - Unicode code point上限超過時は入力直前の受理済み値へ戻し、途中入力によって既存末尾を削除しない。
+- Evidence:
+  - Worker/API/SQL/Playwrightの競合・入力保持・遅延応答・一覧再取得テスト。
+  - 使い捨てPostgreSQLで同じdraft versionからの2並行更新を実行し、1件だけ成功することを確認する。
+- Boundary:
+  - staging/production migration適用とproduction deployは行わない。

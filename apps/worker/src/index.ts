@@ -1,9 +1,8 @@
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
+import { inspectSupabaseConfig, type SupabaseBindings } from "./server-config.ts";
 
-interface Env {
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
+interface Env extends SupabaseBindings {
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
@@ -163,27 +162,12 @@ const SECURITY_HEADERS = {
   ].join("; ")
 };
 
-function getSupabaseProjectRef(supabaseUrl: string | undefined): string | null {
-  if (!supabaseUrl) return null;
-
-  try {
-    const hostname = new URL(supabaseUrl).hostname;
-    if (!hostname.endsWith(".supabase.co")) return null;
-    return hostname.replace(".supabase.co", "");
-  } catch {
-    return null;
-  }
-}
-
 function ensureSupabaseConfig(env: Env): { url: string; anonKey: string } {
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+  const config = inspectSupabaseConfig(env).config;
+  if (!config) {
     throw new AppError(500, "SUPABASE_NOT_CONFIGURED", "Supabase設定が未完了です。");
   }
-
-  return {
-    url: env.SUPABASE_URL.replace(/\/$/, ""),
-    anonKey: env.SUPABASE_ANON_KEY
-  };
+  return config;
 }
 
 class AppError extends Error {
@@ -1915,8 +1899,8 @@ function logoutRevokeFailureResponse(): Response {
 }
 
 function configHealth(env: Env): Response {
-  const hasUrl = Boolean(env.SUPABASE_URL);
-  const hasAnonKey = Boolean(env.SUPABASE_ANON_KEY);
+  const supabase = inspectSupabaseConfig(env);
+  const { hasUrl, hasAnonKey } = supabase;
   const hasAllowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS).size > 0;
   const hasAllowedChannelIds = splitCsv(env.DISCORD_ALLOWED_CHANNEL_IDS).size > 0;
   const allowUnscopedCommands = allowUnscopedDiscordCommands(env);
@@ -1934,10 +1918,10 @@ function configHealth(env: Env): Response {
     timestamp: new Date().toISOString(),
     config: {
       supabase: {
-        configured: hasUrl && hasAnonKey,
+        configured: supabase.configured,
         hasUrl,
         hasAnonKey,
-        projectRef: getSupabaseProjectRef(env.SUPABASE_URL)
+        projectRef: supabase.projectRef
       },
       discord: {
         issueBridgeConfigured: discordIssueBridgeConfigured,

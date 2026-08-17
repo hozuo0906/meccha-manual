@@ -1,0 +1,88 @@
+import { readFile } from "node:fs/promises";
+
+const [app, docs, staticTest, e2e, config, workflow] = await Promise.all([
+  readFile("apps/worker/src/app-assets.ts", "utf8"),
+  readFile("docs/02-ux/phase2-manual-editor-ui.md", "utf8"),
+  readFile("tests/manual-editor-ui.test.mjs", "utf8"),
+  readFile("tests/e2e/phase2-manual-editor.spec.mjs", "utf8"),
+  readFile("playwright.phase2.config.mjs", "utf8"),
+  readFile(".github/workflows/manual-editor-ui.yml", "utf8")
+]);
+
+const requiredApp = [
+  'id="manual-nav-button"',
+  'id="manual-create-form"',
+  'id="manual-draft-form"',
+  'id="manual-step-add-form"',
+  'data-step-updated-at="',
+  'data-draft-updated-at="',
+  'expectedUpdatedAt = String(form.dataset.draftUpdatedAt || "")',
+  'payload.expectedUpdatedAt = String(form.dataset.stepUpdatedAt || "")',
+  "loadManuals",
+  "loadManualDetail",
+  "createManualFromUi",
+  "updateManualDraftFromUi",
+  "addManualStepFromUi",
+  "updateManualStepFromUi",
+  "deleteManualStepFromUi",
+  "reorderManualStepFromUi",
+  "manualMutationUnknown",
+  "作成結果を一覧で確認してください。重ねて作成しないでください。",
+  "処理結果を詳細で確認してください。重ねて操作しないでください。",
+  "入力した値やパスワードは記録せず",
+  "外部AIは使用しません。"
+];
+const requiredDocs = [
+  "viewerは一覧と詳細を閲覧できる",
+  "自動再送せず",
+  "localStorage/sessionStorageへ保存しない",
+  "保存済みinstruction",
+  "幅640px",
+  "operation recordingはこの画面から起動せず"
+];
+const requiredWorkflow = [
+  '"apps/worker/src/app-assets.ts"',
+  '"docs/02-ux/phase2-manual-editor-ui.md"',
+  '"tests/manual-editor-ui.test.mjs"',
+  '"tests/e2e/phase2-manual-editor.spec.mjs"',
+  "node scripts/check-phase2-manual-editor-ui.mjs",
+  "playwright.phase1.config.mjs",
+  "playwright.phase2.config.mjs",
+  "git diff --check \"origin/${GITHUB_BASE_REF}...HEAD\""
+];
+const errors = [];
+for (const snippet of requiredApp) if (!app.includes(snippet)) errors.push(`Missing manual editor UI contract: ${snippet}`);
+for (const snippet of requiredDocs) if (!docs.includes(snippet)) errors.push(`Missing manual editor UX contract: ${snippet}`);
+for (const snippet of requiredWorkflow) if (!workflow.includes(snippet)) errors.push(`Missing manual editor workflow contract: ${snippet}`);
+if (!staticTest.includes("manual UI does not persist manual content")) errors.push("Missing browser-storage safety regression test");
+if (!app.includes("manualCreateReconciliationByWorkspace")) errors.push("Missing workspace-scoped ambiguous create reconciliation state");
+if (!e2e.includes("閲覧者は手順書と手順を閲覧できるが編集フォームは表示されない")) errors.push("Missing viewer browser flow");
+if (!e2e.includes("手順書作成中の権限失効は作成フォームを閉じて最新権限を取得する")) errors.push("Missing create-permission revocation browser flow");
+if (!e2e.includes("expectedDraftUpdatedAtSeen")) errors.push("Missing displayed-draft-version browser assertion");
+if (!e2e.includes("expectedUpdatedAtSeen")) errors.push("Missing displayed-step-version browser assertion");
+if (!e2e.includes("作成入力の検証エラーでも説明を保持する")) errors.push("Missing create validation draft-preservation browser flow");
+if (!e2e.includes("作成成功後に一覧を再取得して新しい手順書を表示する")) errors.push("Missing post-create list invalidation browser flow");
+if (!e2e.includes("作成応答の前に画面を移動した場合は遅延成功で詳細を開かない")) errors.push("Missing delayed-create navigation browser flow");
+if (!e2e.includes("別workspaceへ切り替えた後の作成結果不明も元workspaceで警告と再取得を維持する")) errors.push("Missing cross-workspace ambiguous-create reconciliation browser flow");
+if (!e2e.includes("古い一覧取得が後から完了しても作成結果不明の警告を上書きしない")) errors.push("Missing stale-list ambiguous-create reconciliation browser flow");
+if (!e2e.includes("初回詳細読込中に所属を失ってもloadingのまま残さず安全な状態を表示する")) errors.push("Missing initial detail revocation browser flow");
+if (!e2e.includes("初回詳細読込中に一覧へ戻ってから所属を失っても作成UIを閉じる")) errors.push("Missing navigated initial-detail revocation browser flow");
+if (!config.includes("phase2-manual-editor.spec.mjs")) errors.push("Phase 2 Playwright config does not select the manual editor spec");
+
+const forbidden = [
+  "manualContentStorageKey",
+  "manualStepStorageKey",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "BROWSER_RENDERING_API_TOKEN",
+  "wrangler deploy"
+];
+for (const snippet of forbidden) {
+  if (`${app}\n${docs}`.includes(snippet)) errors.push(`Forbidden manual editor dependency: ${snippet}`);
+}
+
+if (errors.length > 0) {
+  console.error(errors.join("\n"));
+  process.exit(1);
+}
+console.log("Phase 2 manual editor UI, privacy, concurrency, and browser contracts OK.");
