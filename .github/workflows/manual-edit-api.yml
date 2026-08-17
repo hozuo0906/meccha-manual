@@ -19,11 +19,13 @@ on:
       - "supabase/migrations/202608140005_phase2_manual_title_length.sql"
       - "supabase/migrations/202608140010_phase2_manual_step_mutations.sql"
       - "supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql"
+      - "supabase/migrations/202608180001_phase2_manual_publication.sql"
       - "tests/manual-api.test.mjs"
       - "tests/manual-title-docs.test.mjs"
       - "tests/manual-edit-api.test.mjs"
       - "tests/sql/phase2-manual-edit-http-fixture.sql"
       - "tests/sql/phase2-manual-edit-http-test.sql"
+      - "tests/sql/phase2-manual-publication-test.sql"
       - "tsconfig.worker.json"
       - "wrangler.jsonc"
       - ".github/workflows/manual-edit-api.yml"
@@ -73,12 +75,15 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140005_phase2_manual_title_length.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140010_phase2_manual_step_mutations.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/202608180001_phase2_manual_publication.sql
       - name: Exercise authenticated edit, permission, and bound checks
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-test.sql
       - name: Exercise draft metadata lock and optimistic conflict
         run: bash scripts/test-phase2-manual-draft-locks.sh
       - name: Exercise publication and draft metadata lock order
         run: bash scripts/test-phase2-manual-publication-locks.sh
+      - name: Exercise optimistic publication and next-draft creation
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-publication-test.sql
       - name: Validate migration safety and ordering
         run: |
           npm run migration:safety:check

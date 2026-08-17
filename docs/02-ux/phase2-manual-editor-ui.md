@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-対象: Issue #65 / FR-004 / FR-005 / FR-006
+対象: Issue #65 / #80 / FR-004 / FR-005 / FR-006
 
 ## 画面
 
@@ -34,6 +34,10 @@ Status: Accepted
 - 初回詳細取得中に403または所属喪失を示す404になり、保持できる詳細がまだない場合も、読込中のまま残さずエラー状態へ遷移して権限キャッシュを再取得する。
 - 初回詳細取得の完了前に一覧へ戻った場合も、遅着した所属喪失応答で表示中の作成UIを閉じ、同じworkspaceの権限キャッシュを再取得する。
 - `補足`・`判断`・`注意`などaction以外のstepでは、送信前に`actionType`と`targetText`を`null`へ正規化し、action専用値をAPIへ送らない。
+- owner/admin/editorには、draftがある場合だけ確認付きの「この内容を公開」を表示する。公開版が直接変更できないことを確認文で明示する。
+- 公開済みでdraftが無い場合は「編集用下書きを作成」を表示し、published revisionを変更せず次draftへ複製する。
+- viewerには公開・draft生成操作を表示しない。
+- 公開・draft生成の結果不明時は自動再送せず詳細を再取得し、current revision pointerで結果を照合する。
 
 ## 個人情報・秘密情報
 

@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-対象: GitHub Issue #64 / #74 / FR-004 / FR-005 / FR-006
+対象: GitHub Issue #64 / #74 / #80 / FR-004 / FR-005 / FR-006
 
 ## 前提
 
@@ -89,6 +89,23 @@ current draftのtitle/descriptionを更新する。
 - current draftが無い、またはcurrent draft IDが切り替わった場合は409で、新しいdraft作成フローを案内する。
 - revision stateがdraftでない場合は409。
 - 通信切断、上流5xx、成功本文不正は`MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で確認する。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/publish`
+
+- owner/admin/editorだけが実行できる。viewerは403、別workspace・非memberは404。
+- JSON bodyの`expectedDraftRevisionId`を必須とし、表示中manualのcurrent draftと一致することを確認する。
+- `publish_manual_revision(manual_id, expected_draft_revision_id)` RPCはmanual row lock内で期待IDを再照合し、返却revision IDが期待IDと一致した場合だけ成功とする。
+- 成功時は`{ "publishedRevisionId": "<uuid>" }`を返す。公開版は以後直接変更できない。
+- 通信切断、上流5xx、不正な成功本文、返却ID不一致は`MANUAL_PUBLISH_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
+- 公開URLや共有リンクは作成しない。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/draft`
+
+- JSON bodyの`expectedPublishedRevisionId`を必須とし、current published revisionと一致することを確認する。
+- current published revisionから編集用の次draftを`create_manual_draft_from_published(manual_id, expected_published_revision_id)` RPCで生成する。
+- current draftが既に存在する場合はそのIDを返し、重複draftを作らない。
+- 成功時は`{ "draftRevisionId": "<uuid>" }`を返す。新規作成時は201、既存draft確認時は200。
+- 結果不明時は`MANUAL_DRAFT_CREATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
 
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps`
 
@@ -207,6 +224,8 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - draft title/descriptionの原子的更新
 - 同じdraft `updatedAt`を持つ2更新のうち1件だけ成功し、もう1件が`MANUAL_DRAFT_EDIT_CONFLICT`になる並行実行試験
 - published/superseded直接変更拒否
+- 公開成功、viewer/越境拒否、返却revision不一致の結果不明化
+- 公開後draft生成と既存draftへの冪等収束
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - authenticated direct RPCでの不正URL拒否

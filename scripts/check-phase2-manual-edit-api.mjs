@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 
-const [baseRouter, editRouter, entrypoint, migration, contract, setup, workflow] = await Promise.all([
+const [baseRouter, editRouter, entrypoint, migration, publicationMigration, contract, setup, workflow] = await Promise.all([
   readFile("apps/worker/src/manual-router.ts", "utf8"),
   readFile("apps/worker/src/manual-edit-router.ts", "utf8"),
   readFile("apps/worker/src/index-phase2.ts", "utf8"),
   readFile("supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql", "utf8"),
+  readFile("supabase/migrations/202608180001_phase2_manual_publication.sql", "utf8"),
   readFile("docs/05-api/phase2-manual-edit-api.md", "utf8"),
   readFile("docs/04-data/phase2-manual-core-setup.md", "utf8"),
   readFile(".github/workflows/manual-edit-api.yml", "utf8")
@@ -52,7 +53,9 @@ const requiredEditRouter = [
   "MANUAL_STEP_REORDER_RESULT_UNKNOWN",
   "suggestManualInstruction",
   "MANUAL_EDIT_FIELD_UNEXPECTED",
-  "get_manual_edit_detail"
+  "get_manual_edit_detail",
+  "publish_manual_revision",
+  "create_manual_draft_from_published"
 ];
 
 const requiredMigration = [
@@ -90,6 +93,7 @@ const requiredContract = [
   "PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/steps/{stepId}",
   "DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/steps/{stepId}",
   "POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps/reorder",
+  "POST /api/workspaces/{workspaceId}/manuals/{manualId}/publish",
   "200 active steps",
   "64 KiB",
   "8 MiB",
@@ -105,10 +109,13 @@ const requiredWorkflow = [
   '"apps/worker/src/manual-edit-router.ts"',
   '"docs/05-api/phase2-manual-edit-api.md"',
   '"supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql"',
+  '"supabase/migrations/202608180001_phase2_manual_publication.sql"',
   '"tests/manual-edit-api.test.mjs"',
   "phase2-manual-edit-http-fixture.sql",
   "phase2-manual-edit-http-test.sql",
   "test-phase2-manual-draft-locks.sh",
+  "test-phase2-manual-publication-locks.sh",
+  "phase2-manual-publication-test.sql",
   "node scripts/check-phase2-manual-edit-api.mjs",
   "git diff --check \"origin/${GITHUB_BASE_REF}...HEAD\""
 ];
@@ -123,6 +130,19 @@ for (const snippet of requiredEditRouter) {
 for (const snippet of requiredMigration) {
   if (!migration.toLowerCase().includes(snippet.toLowerCase())) errors.push(`Missing manual edit migration contract: ${snippet}`);
 }
+for (const snippet of [
+  "create or replace function public.publish_manual_revision(",
+  "expected_draft_revision_id uuid",
+  "create or replace function public.create_manual_draft_from_published(",
+  "expected_published_revision_id uuid",
+  "for update of m",
+  "revoke all on function public.publish_manual(uuid) from authenticated",
+  "revoke all on function public.create_manual_draft(uuid) from authenticated",
+  "manual publication draft changed concurrently",
+  "manual draft source changed concurrently"
+]) {
+  if (!publicationMigration.toLowerCase().includes(snippet.toLowerCase())) errors.push(`Missing publication migration contract: ${snippet}`);
+}
 for (const snippet of requiredContract) {
   if (!contract.includes(snippet)) errors.push(`Missing manual edit documentation contract: ${snippet}`);
 }
@@ -134,6 +154,9 @@ if (!entrypoint.includes("handleManualEditRoute")) {
 }
 if (!setup.includes("202608140012_phase2_manual_edit_http_contract.sql")) {
   errors.push("Accepted Phase 2 rollout omits manual edit HTTP migration");
+}
+if (!setup.includes("202608180001_phase2_manual_publication.sql")) {
+  errors.push("Accepted Phase 2 rollout omits publication migration");
 }
 if (!setup.includes("200 active steps、8 MiB")) {
   errors.push("Accepted Phase 2 setup does not match the 8 MiB manual detail boundary");
@@ -148,7 +171,7 @@ const forbidden = [
   "wrangler deploy"
 ];
 for (const snippet of forbidden) {
-  if (`${editRouter}\n${migration}`.toLowerCase().includes(snippet.toLowerCase())) {
+  if (`${editRouter}\n${migration}\n${publicationMigration}`.toLowerCase().includes(snippet.toLowerCase())) {
     errors.push(`Forbidden manual edit implementation dependency: ${snippet}`);
   }
 }

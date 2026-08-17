@@ -11,20 +11,10 @@ MANUAL_ID="33333333-3333-4333-8333-333333333333"
 DRAFT_ID="44444444-4444-4444-8444-444444444444"
 psql_base=(psql -X -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE")
 
-publish_sql="$(mktemp)"
 update_log="$(mktemp)"
 publish_log="$(mktemp)"
-cleanup() { rm -f "$publish_sql" "$update_log" "$publish_log"; }
+cleanup() { rm -f "$update_log" "$publish_log"; }
 trap cleanup EXIT
-
-python - <<'PY' > "$publish_sql"
-from pathlib import Path
-text = Path("supabase/migrations/202608020001_phase2_manual_core.sql").read_text(encoding="utf-8")
-start = text.index("create or replace function public.publish_manual(")
-end = text.index("\n\ncreate or replace function public.create_manual_draft(", start)
-print(text[start:end])
-PY
-"${psql_base[@]}" -f "$publish_sql" >/dev/null
 
 expected_updated_at="$("${psql_base[@]}" -At -c "select updated_at from public.manual_revisions where id = '${DRAFT_ID}'::uuid")"
 
@@ -35,7 +25,7 @@ sleep 0.2
 set +e
 PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.update_manual_draft('${MANUAL_ID}'::uuid, '${DRAFT_ID}'::uuid, '${expected_updated_at}'::timestamptz, 'Concurrent title', 'Concurrent description');" >"$update_log" 2>&1 &
 update_pid=$!
-PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.publish_manual('${MANUAL_ID}'::uuid);" >"$publish_log" 2>&1 &
+PGOPTIONS='-c statement_timeout=8000' "${psql_base[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub', '${EDITOR_ID}', false); select public.publish_manual_revision('${MANUAL_ID}'::uuid, '${DRAFT_ID}'::uuid);" >"$publish_log" 2>&1 &
 publish_pid=$!
 wait "$locker_pid"
 wait "$update_pid"; update_status=$?
@@ -66,4 +56,4 @@ if [[ "$final_state" != "published||${DRAFT_ID}" ]]; then
   exit 1
 fi
 
-echo "publish_manual and update_manual_draft share a deadlock-free manual-first lock order: OK"
+echo "publish_manual_revision and update_manual_draft share a deadlock-free manual-first lock order: OK"

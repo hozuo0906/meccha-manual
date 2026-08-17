@@ -46,6 +46,10 @@ create table public.manual_revisions (
   state public.manual_revision_state not null,
   title text not null,
   description text not null default '',
+  source_url text,
+  cover_asset_id uuid,
+  created_by uuid,
+  created_at timestamptz not null default clock_timestamp(),
   updated_at timestamptz not null default clock_timestamp(),
   published_at timestamptz
 );

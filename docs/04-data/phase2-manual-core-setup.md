@@ -18,6 +18,7 @@ supabase/migrations/202608020002_phase2_manual_create_context_fix.sql
 supabase/migrations/202608140005_phase2_manual_title_length.sql
 supabase/migrations/202608140010_phase2_manual_step_mutations.sql
 supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
+supabase/migrations/202608180001_phase2_manual_publication.sql
 ```
 
 前提migration:
@@ -34,6 +35,8 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 `202608140010_phase2_manual_step_mutations.sql` は、4つのstep mutation RPCを同じdraft revision lockへ統一し、authenticatedの直接step DMLを閉じる。
 
 `202608140012_phase2_manual_edit_http_contract.sql` は、draft metadataの原子的更新RPC、manual・draft・stepsを単一MVCC snapshotで読む`get_manual_edit_detail`、本文フィールド上限、manual/revisionのauthenticated direct write revokeを追加する。既存行を加工せず、上限違反があればconstraint validationで停止する。
+
+`202608180001_phase2_manual_publication.sql` は、表示中revision IDをmanual row lock内で照合する公開・次draft作成RPCを追加し、競合時の別revision公開を拒否する。旧公開RPCのauthenticated実行権限は閉じる。
 
 ## Scope
 
@@ -52,8 +55,8 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `can_edit_manual(manual_id, user_id)`
 - `is_draft_revision(revision_id)`
 - `create_manual(workspace_id, folder_id, title, description)`
-- `publish_manual(manual_id)`
-- `create_manual_draft(manual_id)`
+- `publish_manual_revision(manual_id, expected_draft_revision_id)`
+- `create_manual_draft_from_published(manual_id, expected_published_revision_id)`
 - `update_manual_draft(manual_id, expected_draft_id, expected_draft_updated_at, title, description)`（表示中draftのIDと更新日時をlock内で照合し、古い保存を拒否）
 - `get_manual_edit_detail(workspace_id, manual_id)`（SECURITY INVOKERの単一SQL文でmanual・draft・steps・編集可否を同一MVCC snapshotから取得）
 - `manual_step_ipv4_host_is_valid(host)`（step URL検証内部専用。WHATWG numeric IPv4形式の範囲を検証し、外部roleへ公開しない）
@@ -75,8 +78,8 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 - `published -> superseded` の状態変更だけは、古い公開版を退役させるために許可する。
 - 手順ステップとDOM候補はdraft revisionに対してだけ変更できる。
 - 手順書作成は `create_manual` RPCを使う。
-- 公開処理は `publish_manual` RPCを使う。
-- 公開後の再編集は `create_manual_draft` RPCを使う。
+- 公開処理は表示中draft IDをDB lock内で照合する`publish_manual_revision` RPCを使う。
+- 公開後の再編集は表示中published IDをDB lock内で照合する`create_manual_draft_from_published` RPCを使う。
 - 手順書の公開状態、現在の下書き、現在の公開版はRPC以外で変更しない。
 - manual作成、draft metadata更新、step mutationはSECURITY DEFINER RPCだけを利用し、authenticated direct DMLを許可しない。
 - 詳細APIは200 active steps、8 MiBを上限とし、本文フィールド上限をDBとWorkerで一致させる。
@@ -96,7 +99,9 @@ supabase/migrations/202608010002_phase1_workspace_membership_hardening.sql
 10. `supabase/migrations/202608140010_phase2_manual_step_mutations.sql` の全文を貼り、`Run` を押す。
 11. description 10,000文字超、step title 128文字超、instruction 4,000文字超、target 256文字超、URL 2,048文字超の既存行がないことを確認する。
 12. `supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql` の全文を貼り、`Run` を押す。
-13. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
+13. 公開・次draft作成を利用する全clientが、表示中revision IDを送る新RPCへ切替済みであることを確認する。
+14. `supabase/migrations/202608180001_phase2_manual_publication.sql` の全文を貼り、`Run` を押す。
+15. migration履歴、constraint、function権限を確認し、後述のRLS/RPC回帰テストを実行する。
 
 ## Expected result
 
@@ -141,8 +146,8 @@ Phase 2 migration適用後に実行するテスト:
 - viewer、anon、別workspaceはmutation RPCを実行できない。
 - 200 active stepsと本文フィールド上限を超える入力・応答を拒否する。201件目はDB triggerで拒否し、内部annotation/maskingは各64 KiB以下とする。
 - published revisionの手順ステップは変更できない。
-- `publish_manual` 後、公開版が不変になる。
-- `create_manual_draft` で公開版から次の下書きを作れる。
+- `publish_manual_revision` 後、公開版が不変になり、古い期待draft IDは拒否される。
+- `create_manual_draft_from_published` で公開版から次の下書きを作れ、古い期待published IDは拒否される。
 
 リポジトリではタイトル境界に加え、`tests/sql/phase2-manual-edit-http-fixture.sql`、`tests/sql/phase2-manual-edit-http-test.sql` と `Manual Edit API` workflowが、使い捨てPostgresへstep/draft migrationを実適用してRPC・権限・上限を検証する。
 

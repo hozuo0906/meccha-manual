@@ -10,6 +10,8 @@ test("manual navigation and editor states are embedded in the app shell", async 
     'id="manual-nav-button"',
     'id="manual-create-form"',
     'id="manual-draft-form"',
+    'id="manual-publish-button"',
+    'id="manual-create-draft-button"',
     'id="manual-step-add-form"',
     'steps.length >= 200',
     '手順は200件までです',
@@ -64,6 +66,8 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);
   assert.match(source, /!isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*setManualMutationBusyState\(false\);[\s\S]*return;/);
   assert.match(source, /excludeDraftKeys: \["draft"\], invalidateManuals: true/);
+  assert.match(source, /function publishManualFromUi[\s\S]*window\.confirm[\s\S]*\/publish[\s\S]*invalidateManuals: true/);
+  assert.match(source, /function createManualDraftFromUi[\s\S]*\/draft[\s\S]*invalidateManuals: true/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
   assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);
 });
@@ -94,6 +98,7 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   const spec = await readFile("tests/e2e/phase2-manual-editor.spec.mjs", "utf8");
   assert.match(config, /phase2-manual-editor\.spec\.mjs/);
   assert.match(spec, /手順書入力はUnicode code point単位の上限を守る/);
+  assert.match(spec, /編集者は確認後に公開し、公開版を変えず編集用下書きを作成できる/);
   assert.match(spec, /作成入力の検証エラーでも説明を保持する/);
   assert.match(spec, /作成成功後に一覧を再取得して新しい手順書を表示する/);
   assert.match(spec, /基本情報保存後に一覧を再取得して更新タイトルを表示する/);

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-a08aa0bad85cd54e";
+export const APP_ASSET_VERSION = "sha256-371a506cef89a22e";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2332,7 +2332,17 @@ function manualDetailHtml(currentWorkspace) {
           '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>基本情報を保存</button>' +
         '</form>'
       : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>権限</dt><dd>閲覧のみ</dd></dl></div>'
-    : '<div class="empty"><strong>編集できる下書きがありません。</strong><br>公開済み手順書の下書き作成機能は後続で追加します。</div>';
+    : '<div class="empty"><strong>編集できる下書きがありません。</strong><br>' +
+        (canEdit && value.manual.currentPublishedRevisionId
+          ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>編集用下書きを作成</button>'
+          : '公開済みの内容は閲覧できます。') +
+      '</div>';
+  const publicationActions = canEdit && draft
+    ? '<section class="workspace-form" aria-labelledby="manual-publication-heading"><h2 id="manual-publication-heading">公開</h2>' +
+        '<p>現在の下書きを変更できない公開版にします。公開後の編集は、新しい下書きを作成して行います。</p>' +
+        '<button id="manual-publish-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>この内容を公開</button>' +
+      '</section>'
+    : '';
   const stepsHtml = steps.length
     ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit)).join("") + '</div>'
     : '<div class="empty" role="status">手順はまだありません。</div>';
@@ -2349,7 +2359,7 @@ function manualDetailHtml(currentWorkspace) {
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
     '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div></div>' + metadata + '</section>' +
-    '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + '</div>' +
+    '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + '</div>' +
   '</div>';
 }
 
@@ -2394,6 +2404,8 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   }
   document.getElementById("manual-create-form")?.addEventListener("submit", createManualFromUi);
   document.getElementById("manual-draft-form")?.addEventListener("submit", updateManualDraftFromUi);
+  document.getElementById("manual-publish-button")?.addEventListener("click", publishManualFromUi);
+  document.getElementById("manual-create-draft-button")?.addEventListener("click", createManualDraftFromUi);
   document.getElementById("manual-step-add-form")?.addEventListener("submit", addManualStepFromUi);
   for (const form of document.querySelectorAll(".manual-step-form")) form.addEventListener("submit", updateManualStepFromUi);
   for (const button of document.querySelectorAll(".manual-step-delete")) button.addEventListener("click", deleteManualStepFromUi);
@@ -2851,6 +2863,27 @@ function updateManualDraftFromUi(event) {
   form.elements.title.removeAttribute("aria-invalid");
   form.elements.description.removeAttribute("aria-invalid");
   return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description, expectedUpdatedAt }) }), "基本情報を保存しました。", { excludeDraftKeys: ["draft"], invalidateManuals: true });
+}
+
+function publishManualFromUi() {
+  if (!window.confirm("現在の下書きを公開しますか？ 公開版は後から直接変更できません。")) return;
+  const expectedDraftRevisionId = manualDetailState.value?.draft?.id;
+  if (!expectedDraftRevisionId) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/publish", { method: "POST", body: JSON.stringify({ expectedDraftRevisionId }) }),
+    "手順書を公開しました。",
+    { invalidateManuals: true }
+  );
+}
+
+function createManualDraftFromUi() {
+  const expectedPublishedRevisionId = manualDetailState.value?.manual?.currentPublishedRevisionId;
+  if (!expectedPublishedRevisionId) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "POST", body: JSON.stringify({ expectedPublishedRevisionId }) }),
+    "編集用の下書きを作成しました。",
+    { invalidateManuals: true }
+  );
 }
 
 function stepPayloadFromForm(form, isNew) {
