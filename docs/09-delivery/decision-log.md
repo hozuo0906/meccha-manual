@@ -62,6 +62,17 @@ Status: Accepted
 
 DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機能を初期OFFにする安全境界は継続する。
 
+## DEC-059: 公開と次draft作成は表示中revisionをDB lock内で照合する
+
+- Status: Accepted
+- Date: 2026-08-18
+- Decision:
+  - 公開APIは表示中draft revision ID、次draft作成APIは表示中published revision IDを必須入力とする。
+  - RPCはmanual rowをlockして現在pointerと期待IDを照合し、公開対象の状態変更とpointer更新、または公開版からのmetadata・active steps複製とpointer更新を同一transactionで行う。
+  - 期待IDを受け取らない旧公開・draft作成RPCは`authenticated`から実行できないようにする。
+- Reason: 詳細取得後に別操作でpointerが切り替わっても、古い画面から意図しないrevisionを公開・複製しないため。
+- Boundary: 公開URL、共有リンク、staging/production migration適用、production deployは含めない。
+
 ## DEC-058: draft metadataと作成UIを競合・遅延応答から保護する
 
 - Status: Accepted

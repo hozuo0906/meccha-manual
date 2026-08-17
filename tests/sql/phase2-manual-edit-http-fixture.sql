@@ -39,13 +39,17 @@ create table public.manuals (
 );
 
 create table public.manual_revisions (
-  id uuid primary key,
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null,
   manual_id uuid not null references public.manuals(id),
   revision_no integer not null default 1,
   state public.manual_revision_state not null,
   title text not null,
   description text not null default '',
+  source_url text,
+  cover_asset_id uuid,
+  created_by uuid,
+  created_at timestamptz not null default clock_timestamp(),
   updated_at timestamptz not null default clock_timestamp(),
   published_at timestamptz
 );
@@ -67,6 +71,12 @@ create table public.manual_steps (
   created_by uuid not null,
   updated_at timestamptz not null default clock_timestamp(),
   deleted_at timestamptz
+);
+
+create table public.audit_logs (
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null, actor_id uuid not null,
+  action text not null, resource_type text not null, resource_id uuid not null,
+  metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
 );
 
 create unique index manual_steps_revision_position_active

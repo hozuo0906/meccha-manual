@@ -40,6 +40,8 @@ type DraftSummary = {
   title: string;
   description: string;
   updatedAt: string;
+  state: RevisionState;
+  contentVersion: string;
 };
 
 type ManualStep = {
@@ -342,17 +344,19 @@ function parseDraft(value: unknown, workspaceId: string, manualId: string, draft
   if (
     id !== draftId || rowWorkspaceId !== workspaceId || rowManualId !== manualId ||
     typeof value.revision_no !== "number" || !Number.isSafeInteger(value.revision_no) || value.revision_no < 1 ||
-    typeof value.state !== "string" || !REVISION_STATES.has(value.state as RevisionState) || value.state !== "draft" ||
+    typeof value.state !== "string" || !REVISION_STATES.has(value.state as RevisionState) || !["draft", "published"].includes(value.state) ||
     typeof value.title !== "string" || !value.title.trim() || codePointLength(value.title) > MAX_MANUAL_TITLE_LENGTH ||
     typeof value.description !== "string" || codePointLength(value.description) > MAX_MANUAL_DESCRIPTION_LENGTH ||
-    !updatedAt
+    !updatedAt || typeof value.content_version !== "string" || !/^[a-f0-9]{32}$/.test(value.content_version)
   ) return null;
   return {
     id,
     revisionNo: value.revision_no,
     title: value.title,
     description: value.description,
-    updatedAt
+    updatedAt,
+    state: value.state as RevisionState,
+    contentVersion: value.content_version
   };
 }
 
@@ -441,20 +445,19 @@ async function fetchManualDetailSnapshot(
   if (!manual) {
     throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
-  if (!manual.currentDraftRevisionId) {
-    if (payload.draft !== null || payload.steps.length !== 0) {
-      throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
-    }
-    return { manual, draft: null, steps: [], canEdit: payload.can_edit };
-  }
+  const displayedRevisionId = manual.currentDraftRevisionId ?? manual.currentPublishedRevisionId;
+  if (!displayedRevisionId) return { manual, draft: null, steps: [], canEdit: payload.can_edit };
   if (payload.steps.length > MAX_MANUAL_STEPS) {
     throw new ManualError(409, "MANUAL_STEPS_LIMIT_EXCEEDED", "手順が多いため編集画面を表示できません。手順を整理してください。");
   }
-  const draft = parseDraft(payload.draft, workspaceId, manualId, manual.currentDraftRevisionId);
+  const draft = parseDraft(payload.draft, workspaceId, manualId, displayedRevisionId);
   if (!draft) {
     throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書の下書きを確認できませんでした。時間をおいて、もう一度お試しください。");
   }
-  const steps = payload.steps.map((row) => parseStep(row, workspaceId, manual.currentDraftRevisionId!));
+  if ((manual.currentDraftRevisionId && draft.state !== "draft") || (!manual.currentDraftRevisionId && draft.state !== "published")) {
+    throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
+  }
+  const steps = payload.steps.map((row) => parseStep(row, workspaceId, displayedRevisionId));
   if (steps.some((step) => step === null)) {
     throw new ManualError(502, "MANUAL_STEPS_RESPONSE_INVALID", "手順を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
@@ -551,6 +554,13 @@ function requireDraftId(manual: ManualContext): string {
   return manual.currentDraftRevisionId;
 }
 
+function requirePublishedId(manual: ManualContext): string {
+  if (!manual.currentPublishedRevisionId) {
+    throw new ManualError(409, "MANUAL_PUBLISHED_UNAVAILABLE", "公開済みの版がありません。詳細を再読み込みしてください。");
+  }
+  return manual.currentPublishedRevisionId;
+}
+
 async function upstreamMessage(response: Response): Promise<string> {
   try {
     const payload = await readJsonLimited(response);
@@ -568,8 +578,26 @@ function knownRpcError(message: string): ManualError | null {
   if (message.includes("manual not found")) {
     return new ManualError(404, "MANUAL_NOT_FOUND", "指定された手順書が見つかりません。");
   }
+  if (message.includes("manual publication draft changed concurrently") || message.includes("manual publication pointer changed concurrently")) {
+    return new ManualError(409, "MANUAL_PUBLISH_CONFLICT", "表示後に公開対象が切り替わりました。詳細を再読み込みしてください。");
+  }
+  if (message.includes("manual publication content changed concurrently")) {
+    return new ManualError(409, "MANUAL_PUBLISH_CONTENT_CONFLICT", "確認後に内容が更新されました。詳細を再読み込みして確認してください。");
+  }
+  if (message.includes("sensitive data review confirmation required")) {
+    return new ManualError(400, "MANUAL_PUBLISH_CONFIRMATION_REQUIRED", "機密情報とマスキングを確認してから公開してください。");
+  }
+  if (message.includes("manual draft source changed concurrently")) {
+    return new ManualError(409, "MANUAL_DRAFT_CREATE_CONFLICT", "表示後に公開版が切り替わりました。詳細を再読み込みしてください。");
+  }
   if (message.includes("draft revision not found") || message.includes("current draft revision")) {
     return new ManualError(409, "MANUAL_DRAFT_UNAVAILABLE", "編集できる下書きがありません。詳細を再読み込みしてください。");
+  }
+  if (message.includes("published revision not found")) {
+    return new ManualError(409, "MANUAL_PUBLISHED_UNAVAILABLE", "公開済みの版がありません。詳細を再読み込みしてください。");
+  }
+  if (message.includes("draft revision is not publishable")) {
+    return new ManualError(409, "MANUAL_PUBLISH_CONFLICT", "表示中の下書きは公開できません。詳細を再読み込みしてください。");
   }
   if (message.includes("manual draft changed concurrently")) {
     return new ManualError(409, "MANUAL_DRAFT_EDIT_CONFLICT", "別の更新が先に保存されました。基本情報を再読み込みして、変更内容を確認してください。");
@@ -718,6 +746,79 @@ async function updateDraft(
     throw new ManualError(502, "MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN", "保存結果を確認できませんでした。重ねて保存せず、詳細を再読み込みしてください。");
   }
   return jsonResponse({ draftId });
+}
+
+async function publishManual(
+  request: Request,
+  env: ManualEnv,
+  workspaceId: string,
+  manualId: string
+): Promise<Response> {
+  verifySameOriginWrite(request);
+  const { session } = await authorizedSession(request, env, workspaceId, true);
+  const body = await readRequestJson(request);
+  assertAllowedKeys(body, ["expectedDraftRevisionId", "expectedContentVersion", "confirmedSensitiveDataReview"]);
+  const requestedDraftId = canonicalUuidValue(body.expectedDraftRevisionId);
+  if (!requestedDraftId) {
+    throw new ManualError(400, "MANUAL_PUBLISH_VERSION_INVALID", "公開前に手順書を再読み込みしてください。");
+  }
+  if (typeof body.expectedContentVersion !== "string" || !/^[a-f0-9]{32}$/.test(body.expectedContentVersion) || body.confirmedSensitiveDataReview !== true) {
+    throw new ManualError(400, "MANUAL_PUBLISH_CONFIRMATION_REQUIRED", "機密情報とマスキングを確認してから公開してください。");
+  }
+  const manual = await fetchManualContext(env, session.accessToken, workspaceId, manualId);
+  const expectedDraftId = requireDraftId(manual);
+  if (requestedDraftId !== expectedDraftId) {
+    throw new ManualError(409, "MANUAL_PUBLISH_CONFLICT", "表示後に下書きが切り替わりました。詳細を再読み込みしてください。");
+  }
+  const publishedId = await callMutationRpc(
+    env,
+    session.accessToken,
+    "publish_manual_revision",
+    { target_manual_id: manualId, expected_draft_revision_id: expectedDraftId, expected_content_version: body.expectedContentVersion, confirmed_sensitive_data_review: true },
+    "uuid",
+    "MANUAL_PUBLISH_RESULT_UNKNOWN",
+    "公開結果を確認できませんでした。重ねて公開せず、詳細を再読み込みしてください。",
+    "MANUAL_PUBLISH_UNAVAILABLE"
+  );
+  if (publishedId !== expectedDraftId) {
+    throw new ManualError(502, "MANUAL_PUBLISH_RESULT_UNKNOWN", "公開結果を確認できませんでした。重ねて公開せず、詳細を再読み込みしてください。");
+  }
+  return jsonResponse({ publishedRevisionId: publishedId });
+}
+
+async function createDraftFromPublished(
+  request: Request,
+  env: ManualEnv,
+  workspaceId: string,
+  manualId: string
+): Promise<Response> {
+  verifySameOriginWrite(request);
+  const { session } = await authorizedSession(request, env, workspaceId, true);
+  const body = await readRequestJson(request);
+  assertAllowedKeys(body, ["expectedPublishedRevisionId"]);
+  const requestedPublishedId = canonicalUuidValue(body.expectedPublishedRevisionId);
+  if (!requestedPublishedId) {
+    throw new ManualError(400, "MANUAL_PUBLISHED_VERSION_INVALID", "下書き作成前に手順書を再読み込みしてください。");
+  }
+  const manual = await fetchManualContext(env, session.accessToken, workspaceId, manualId);
+  const expectedPublishedId = requirePublishedId(manual);
+  if (requestedPublishedId !== expectedPublishedId) {
+    throw new ManualError(409, "MANUAL_DRAFT_CREATE_CONFLICT", "表示後に公開版が切り替わりました。詳細を再読み込みしてください。");
+  }
+  if (manual.currentDraftRevisionId) {
+    return jsonResponse({ draftRevisionId: manual.currentDraftRevisionId });
+  }
+  const draftId = await callMutationRpc(
+    env,
+    session.accessToken,
+    "create_manual_draft_from_published",
+    { target_manual_id: manualId, expected_published_revision_id: expectedPublishedId },
+    "uuid",
+    "MANUAL_DRAFT_CREATE_RESULT_UNKNOWN",
+    "下書き作成結果を確認できませんでした。重ねて作成せず、詳細を再読み込みしてください。",
+    "MANUAL_DRAFT_CREATE_UNAVAILABLE"
+  );
+  return jsonResponse({ draftRevisionId: draftId }, 201);
 }
 
 function createStepInput(body: Record<string, unknown>): {
@@ -933,19 +1034,24 @@ function routeIds(workspaceSegment: string, manualSegment: string, stepSegment?:
 export async function handleManualEditRoute(request: Request, env: ManualEnv): Promise<Response | null> {
   const pathname = new URL(request.url).pathname;
   const reorderMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/reorder$/);
+  const publishMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/publish$/);
   const draftMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/draft$/);
   const stepsMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps$/);
   const stepMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/([^/]+)$/);
   const detailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)$/);
-  if (!reorderMatch && !draftMatch && !stepsMatch && !stepMatch && !detailMatch) return null;
+  if (!reorderMatch && !publishMatch && !draftMatch && !stepsMatch && !stepMatch && !detailMatch) return null;
 
   try {
     if (reorderMatch) {
       const ids = routeIds(reorderMatch[1] ?? "", reorderMatch[2] ?? "");
       if (request.method === "POST") return await reorderSteps(request, env, ids.workspaceId, ids.manualId);
+    } else if (publishMatch) {
+      const ids = routeIds(publishMatch[1] ?? "", publishMatch[2] ?? "");
+      if (request.method === "POST") return await publishManual(request, env, ids.workspaceId, ids.manualId);
     } else if (draftMatch) {
       const ids = routeIds(draftMatch[1] ?? "", draftMatch[2] ?? "");
       if (request.method === "PATCH") return await updateDraft(request, env, ids.workspaceId, ids.manualId);
+      if (request.method === "POST") return await createDraftFromPublished(request, env, ids.workspaceId, ids.manualId);
     } else if (stepsMatch) {
       const ids = routeIds(stepsMatch[1] ?? "", stepsMatch[2] ?? "");
       if (request.method === "POST") return await createStep(request, env, ids.workspaceId, ids.manualId);

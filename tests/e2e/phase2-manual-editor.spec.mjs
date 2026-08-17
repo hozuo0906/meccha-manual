@@ -8,6 +8,7 @@ const draftId = "44444444-4444-4444-8444-444444444444";
 const firstStepId = "55555555-5555-4555-8555-555555555555";
 const secondManualId = "66666666-6666-4666-8666-666666666666";
 const secondDraftId = "77777777-7777-4777-8777-777777777777";
+const nextDraftId = "99999999-9999-4999-8999-999999999999";
 
 function sessionFor(role, options = {}) {
   const workspaces = [{
@@ -83,6 +84,8 @@ async function installManualFixture(page, role, options = {}) {
     failNextStepPatch: null,
     lastManualCreateBody: null,
     lastDraftPatchBody: null,
+    lastPublishBody: null,
+    lastDraftCreateBody: null,
     lastStepCreateBody: null,
     lastStepPatchBody: null,
     currentRole: role,
@@ -184,16 +187,37 @@ async function installManualFixture(page, role, options = {}) {
       const isPrimary = requestedManualId === manualId;
       return json(200, {
         manual,
-        draft: {
-          id: isPrimary ? draftId : secondDraftId,
+        draft: (manual.currentDraftRevisionId || manual.currentPublishedRevisionId) ? {
+          id: manual.currentDraftRevisionId || manual.currentPublishedRevisionId,
           revisionNo: 1,
+          state: manual.currentDraftRevisionId ? "draft" : "published",
+          contentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           title: manual.title,
           description: isPrimary ? "受付担当者向け" : "別手順書の説明",
           updatedAt: isPrimary ? state.draftUpdatedAt : "2026-08-14T00:00:01.500Z"
-        },
-        steps: isPrimary ? state.steps : [],
+        } : null,
+        steps: (manual.currentDraftRevisionId || manual.currentPublishedRevisionId) && isPrimary ? state.steps : [],
         permissions: { canEdit: state.canEdit }
       });
+    }
+    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/publish` && method === "POST") {
+      const body = request.postDataJSON();
+      state.lastPublishBody = body;
+      if (body.expectedDraftRevisionId !== state.manuals[0].currentDraftRevisionId) {
+        return json(409, { code: "MANUAL_PUBLISH_CONFLICT", message: "表示後に下書きが切り替わりました。" });
+      }
+      const publishedRevisionId = state.manuals[0].currentDraftRevisionId;
+      state.manuals[0] = { ...state.manuals[0], status: "published", currentDraftRevisionId: null, currentPublishedRevisionId: publishedRevisionId };
+      return json(200, { publishedRevisionId });
+    }
+    if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/draft` && method === "POST") {
+      const body = request.postDataJSON();
+      state.lastDraftCreateBody = body;
+      if (body.expectedPublishedRevisionId !== state.manuals[0].currentPublishedRevisionId) {
+        return json(409, { code: "MANUAL_DRAFT_CREATE_CONFLICT", message: "表示後に公開版が切り替わりました。" });
+      }
+      state.manuals[0] = { ...state.manuals[0], status: "draft", currentDraftRevisionId: nextDraftId };
+      return json(201, { draftRevisionId: nextDraftId });
     }
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/draft` && method === "PATCH") {
       const body = request.postDataJSON();
@@ -342,6 +366,27 @@ test("基本情報保存後に一覧を再取得して更新タイトルを表�
   await page.getByRole("button", { name: "手順書一覧へ戻る" }).click();
   await expect(page.getByRole("button", { name: /更新された保存手順/ })).toBeVisible();
   expect(state.manualListGetCount).toBeGreaterThan(initialListGets);
+});
+
+test("編集者は確認後に公開し、公開版を変えず編集用下書きを作成できる", async ({ page }) => {
+  const state = await installManualFixture(page, "editor");
+  await openManualScreen(page);
+  await page.getByRole("button", { name: /既存の保存手順/ }).click();
+  await page.locator("#manual-sensitive-review-confirmation").check();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この内容を公開" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("手順書を公開しました。");
+  await expect(page.locator("#manual-draft-form")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "編集用下書きを作成" })).toBeVisible();
+  expect(state.lastPublishBody).toEqual({ expectedDraftRevisionId: draftId, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true });
+  expect(state.manuals[0].currentPublishedRevisionId).toBe(draftId);
+
+  await page.getByRole("button", { name: "編集用下書きを作成" }).click();
+  await expect(page.locator("#manual-detail-message")).toContainText("編集用の下書きを作成しました。");
+  await expect(page.locator("#manual-draft-form")).toBeVisible();
+  expect(state.lastDraftCreateBody).toEqual({ expectedPublishedRevisionId: draftId });
+  expect(state.manuals[0].currentPublishedRevisionId).toBe(draftId);
+  expect(state.manuals[0].currentDraftRevisionId).toBe(nextDraftId);
 });
 
 test("基本情報保存中に別の手順書へ移動した場合は遅延完了で元へ戻らない", async ({ page }) => {

@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-対象: GitHub Issue #64 / #74 / FR-004 / FR-005 / FR-006
+対象: GitHub Issue #64 / #74 / #80 / FR-004 / FR-005 / FR-006
 
 ## 前提
 
@@ -27,13 +27,13 @@ Status: Accepted
 
 ### `GET /api/workspaces/{workspaceId}/manuals/{manualId}`
 
-現在manual、current draft revision、active steps、編集可否を返す。
+現在manual、表示対象revision（current draftを優先し、無ければcurrent published）、active steps、編集可否を返す。互換性維持のため表示対象revisionはレスポンスの`draft`キーに格納し、`draft.state`で`draft`または`published`を判別する。
 
 - member全ロールが閲覧可能。
 - manualがworkspaceに属さない、archived、非memberの場合は404。
-- draftが無い場合は`draft: null`、`steps: []`を返す。
+- current draftが無くcurrent publishedがある場合は、published revisionとそのactive stepsを読み取り専用の表示対象として返す。両方とも無い場合だけ`draft: null`、`steps: []`を返す。
 - stepは`position asc`、`deleted_at is null`だけを返す。
-- published/superseded revisionを編集対象として返さない。
+- published revisionを返す場合も編集対象にはせず、更新系APIはcurrent draftだけを受け付ける。superseded revisionは返さない。
 - `annotation`、`masking`、`assetId`など内部更新項目は詳細取得queryにも含めず、レスポンスへ公開しない。step更新時だけ対象1件を取得し、内部JSONは各64 KiB以下をDBで強制する。
 - manual、current draft、active stepsは`get_manual_edit_detail`の単一SQL文で取得し、同一MVCC snapshotの値だけを組み合わせる。公開やmetadata保存が並行しても、旧manualと新draft、または消えたdraftを混在させない。
 - `permissions.canEdit`も同じ`get_manual_edit_detail`文内でロールを判定し、詳細データより古い権限を編集UIへ返さない。
@@ -89,6 +89,25 @@ current draftのtitle/descriptionを更新する。
 - current draftが無い、またはcurrent draft IDが切り替わった場合は409で、新しいdraft作成フローを案内する。
 - revision stateがdraftでない場合は409。
 - 通信切断、上流5xx、成功本文不正は`MANUAL_DRAFT_UPDATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で確認する。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/publish`
+
+- owner/admin/editorだけが実行できる。viewerは403、別workspace・非memberは404。
+- JSON bodyの`expectedDraftRevisionId`、詳細取得時の`expectedContentVersion`、`confirmedSensitiveDataReview: true`を必須とする。
+- `publish_manual_revision` RPCはmanual rowとdraft rowをlockし、期待IDとmetadata・active stepsのcontent versionを再照合する。公開と同じtransactionでactor・manual・revisionを監査ログへ記録する。
+- UIは未保存フォームがある間の公開を拒否し、機密情報とマスキング完了の明示確認を要求する。API直呼びも確認値なしでは拒否する。
+- 成功時は`{ "publishedRevisionId": "<uuid>" }`を返す。公開版は以後直接変更できない。
+- 通信切断、上流5xx、不正な成功本文、返却ID不一致は`MANUAL_PUBLISH_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
+- 公開URLや共有リンクは作成しない。
+- current draftがない詳細取得ではcurrent published revisionとactive stepsを読み取り専用で返す。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/draft`
+
+- JSON bodyの`expectedPublishedRevisionId`を必須とし、current published revisionと一致することを確認する。
+- current published revisionから編集用の次draftを`create_manual_draft_from_published(manual_id, expected_published_revision_id)` RPCで生成する。
+- current draftが既に存在する場合はそのIDを返し、重複draftを作らない。
+- 成功時は`{ "draftRevisionId": "<uuid>" }`を返す。新規作成時は201、既存draft確認時は200。
+- 結果不明時は`MANUAL_DRAFT_CREATE_RESULT_UNKNOWN`とし、自動再送せず詳細再取得で照合する。
 
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps`
 
@@ -207,6 +226,8 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - draft title/descriptionの原子的更新
 - 同じdraft `updatedAt`を持つ2更新のうち1件だけ成功し、もう1件が`MANUAL_DRAFT_EDIT_CONFLICT`になる並行実行試験
 - published/superseded直接変更拒否
+- 公開成功、viewer/越境拒否、返却revision不一致の結果不明化
+- 公開後draft生成と既存draftへの冪等収束
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - authenticated direct RPCでの不正URL拒否

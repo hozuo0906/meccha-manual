@@ -10,6 +10,7 @@ const USER_ID = "22222222-2222-4222-8222-222222222222";
 const MANUAL_ID = "33333333-3333-4333-8333-333333333333";
 const DRAFT_ID = "44444444-4444-4444-8444-444444444444";
 const STEP_ID = "55555555-5555-4555-8555-555555555555";
+const PUBLISHED_ID = "66666666-6666-4666-8666-666666666666";
 const ENV = {
   SUPABASE_URL: SUPABASE_ORIGIN,
   SUPABASE_ANON_KEY: "public-anon-key"
@@ -41,7 +42,7 @@ function manualRow(draftId = DRAFT_ID) {
     title: "保存手順",
     status: draftId ? "draft" : "published",
     current_draft_revision_id: draftId,
-    current_published_revision_id: draftId ? null : "66666666-6666-4666-8666-666666666666",
+    current_published_revision_id: draftId ? null : PUBLISHED_ID,
     updated_at: "2026-08-14T00:00:00.000Z"
   };
 }
@@ -53,6 +54,7 @@ function draftRow() {
     manual_id: MANUAL_ID,
     revision_no: 1,
     state: "draft",
+    content_version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     title: "保存手順",
     description: "受付担当者向け",
     updated_at: "2026-08-14T00:00:01.000Z"
@@ -83,7 +85,7 @@ function detailSnapshot(draftId = DRAFT_ID, steps = [stepRow()], canEdit = true)
   return {
     can_edit: canEdit,
     manual: manualRow(draftId),
-    draft: draftId ? draftRow() : null,
+    draft: draftId ? draftRow() : { ...draftRow(), id: PUBLISHED_ID, state: "published" },
     steps: draftId ? steps : []
   };
 }
@@ -154,13 +156,14 @@ test("viewer can load manual detail without edit permission", async () => {
   }
 });
 
-test("manual without a current draft returns an empty editor state", async () => {
+test("manual without a current draft returns its published revision read-only", async () => {
   const mock = installFetch([authOk(), memberOk(), json(detailSnapshot(null, [], false))]);
   try {
     const response = await handleManualEditRoute(request(detailPath()), ENV);
     assert.equal(response?.status, 200);
     const body = await response.json();
-    assert.equal(body.draft, null);
+    assert.equal(body.draft.id, PUBLISHED_ID);
+    assert.equal(body.draft.state, "published");
     assert.deepEqual(body.steps, []);
     assert.equal(mock.calls.length, 3);
   } finally {
@@ -214,6 +217,122 @@ test("editor updates manual and draft metadata through one RPC", async () => {
       draft_title: "更新後",
       draft_description: "新しい説明"
     });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("editor publishes the displayed draft through the publication RPC", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(DRAFT_ID)]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
+    assert.equal(response?.status, 200);
+    assert.deepEqual(await response.json(), { publishedRevisionId: DRAFT_ID });
+    const rpc = mock.calls[4];
+    assert.match(rpc.url, /\/rest\/v1\/rpc\/publish_manual_revision$/);
+    assert.deepEqual(JSON.parse(String(rpc.init.body)), { target_manual_id: MANUAL_ID, expected_draft_revision_id: DRAFT_ID, expected_content_version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmed_sensitive_data_review: true });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("viewer cannot publish a manual", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(false)]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
+    assert.equal(response?.status, 403);
+    assert.equal((await response.json()).code, "MANUAL_EDIT_FORBIDDEN");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a mismatched publish result is treated as unknown and must be reconciled", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(PUBLISHED_ID)]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUAL_PUBLISH_RESULT_UNKNOWN");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a stale displayed draft cannot publish a newer current draft", async () => {
+  const newerDraftId = "77777777-7777-4777-8777-777777777777";
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow(newerDraftId)])]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_PUBLISH_CONFLICT");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("editor creates the next draft from the current published revision", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow(null)]), json(DRAFT_ID)]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/draft"), "POST", JSON.stringify({ expectedPublishedRevisionId: PUBLISHED_ID })), ENV);
+    assert.equal(response?.status, 201);
+    assert.deepEqual(await response.json(), { draftRevisionId: DRAFT_ID });
+    const rpc = mock.calls[4];
+    assert.match(rpc.url, /\/rest\/v1\/rpc\/create_manual_draft_from_published$/);
+    assert.deepEqual(JSON.parse(String(rpc.init.body)), { target_manual_id: MANUAL_ID, expected_published_revision_id: PUBLISHED_ID });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("draft creation is idempotent when a current draft already exists", async () => {
+  const publishedWithDraft = { ...manualRow(), current_published_revision_id: PUBLISHED_ID };
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([publishedWithDraft])]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/draft"), "POST", JSON.stringify({ expectedPublishedRevisionId: PUBLISHED_ID })), ENV);
+    assert.equal(response?.status, 200);
+    assert.deepEqual(await response.json(), { draftRevisionId: DRAFT_ID });
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a stale displayed published revision cannot create a draft from a newer publication", async () => {
+  const newerPublishedId = "77777777-7777-4777-8777-777777777777";
+  const current = { ...manualRow(null), current_published_revision_id: newerPublishedId };
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json([current])]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/draft"), "POST", JSON.stringify({ expectedPublishedRevisionId: PUBLISHED_ID })), ENV);
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_DRAFT_CREATE_CONFLICT");
+    assert.equal(mock.calls.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a publication race maps to a determinate publish conflict", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()]), json({ message: "manual publication draft changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/publish"), "POST", JSON.stringify({ expectedDraftRevisionId: DRAFT_ID, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", confirmedSensitiveDataReview: true })), ENV);
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_PUBLISH_CONFLICT");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a next-draft race maps to a determinate draft creation conflict", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow(null)]), json({ message: "manual draft source changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/draft"), "POST", JSON.stringify({ expectedPublishedRevisionId: PUBLISHED_ID })), ENV);
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_DRAFT_CREATE_CONFLICT");
   } finally {
     mock.restore();
   }
