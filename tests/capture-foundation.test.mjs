@@ -46,7 +46,9 @@ test("capture start fails closed before any Browser Run call", async () => {
 test("navigate and mobile preview fail closed too", async () => {
   for (const path of [
     `/v1/workspaces/${WORKSPACE_ID}/capture-sessions/${SESSION_ID}/commands`,
-    `/api/workspaces/${WORKSPACE_ID}/mobile-preview-sessions`
+    `/api/workspaces/${WORKSPACE_ID}/capture-sessions/${SESSION_ID}/live-url`,
+    `/api/workspaces/${WORKSPACE_ID}/mobile-preview-sessions`,
+    `/v1/workspaces/${WORKSPACE_ID}/mobile-preview-sessions`
   ]) {
     const mock = installFetch();
     try {
@@ -72,19 +74,29 @@ test("capture normalization drops values, unknown fields, query, and fragment", 
   const events = normalizeCaptureEvents([
     { sequence: 4, type: "scroll", occurredAt: "2026-08-18T00:00:04Z", direction: "down", value: secret },
     { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: " 保存 ", cookie: secret },
-    { sequence: 2, type: "input_complete", occurredAt: "2026-08-18T00:00:02Z", targetText: "password", value: secret },
+    { sequence: 2, type: "input_complete", occurredAt: "2026-08-18T00:00:02Z", targetText: "4111 1111 1111 1111", value: secret },
     { sequence: 3, type: "navigation", occurredAt: "2026-08-18T00:00:03Z", url: `https://example.test/orders?private_value=${secret}#detail` }
   ]);
   assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4]);
   assert.equal(events[1].targetText, "入力欄");
   assert.equal(events[2].location, "https://example.test/orders");
-  assert.doesNotMatch(JSON.stringify(events), /do-not-store|private_value=|#detail|cookie|value/);
+  assert.doesNotMatch(JSON.stringify(events), /do-not-store|private_value=|#detail|cookie|value|4111/);
 
   const steps = generateCaptureDraftSteps(events);
   assert.equal(steps.length, 4);
   assert.equal(steps[1].actionType, "input");
   assert.equal(steps[2].url, "https://example.test/orders");
-  assert.doesNotMatch(JSON.stringify(steps), /do-not-store|private_value=|#detail/);
+  assert.doesNotMatch(JSON.stringify(steps), /do-not-store|private_value=|#detail|4111/);
+});
+
+test("duplicate sequences are all rejected independent of input order", () => {
+  const duplicated = [
+    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: "先の候補" },
+    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:02Z", targetText: "後の候補" },
+    { sequence: 2, type: "click", occurredAt: "2026-08-18T00:00:03Z", targetText: "一意" }
+  ];
+  assert.deepEqual(normalizeCaptureEvents(duplicated), normalizeCaptureEvents([...duplicated].reverse()));
+  assert.deepEqual(normalizeCaptureEvents(duplicated).map((event) => event.sequence), [2]);
 });
 
 test("draft generation is deterministic and collapses consecutive scroll summaries", () => {

@@ -9,8 +9,11 @@ OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`�
 - `/api/workspaces/{workspaceId}/capture-sessions`
 - `/v1/workspaces/{workspaceId}/capture-sessions`
 - `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/live-url`
+- `/v1/workspaces/{workspaceId}/capture-sessions/{sessionId}/live-url`
 - `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/commands`
+- `/v1/workspaces/{workspaceId}/capture-sessions/{sessionId}/commands`
 - `/api/workspaces/{workspaceId}/mobile-preview-sessions`
+- `/v1/workspaces/{workspaceId}/mobile-preview-sessions`
 
 allowlist、承認済みhostname、mobile previewは例外にしない。現在のWorker型と設定にはBrowser Run bindingを追加せず、`capture.browserRun.egressVerified.enabled`を環境変数だけでtrueにできる経路も作らない。
 
@@ -19,7 +22,8 @@ allowlist、承認済みhostname、mobile previewは例外にしない。現在�
 repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`navigation`、`scroll`だけとし、1 batch 200件まで、正の一意な`sequence`で決定的に整列する。
 
 - 共通: `sequence`、`type`、`occurredAt`
-- click／input completion: 最大128文字の`targetText`
+- click: 最大128文字の`targetText`
+- input completion: 入力値由来でないことを証明できないため、`targetText`は常に`入力欄`へ置換
 - navigation: HTTP／HTTPSのoriginとpathだけ。query、fragment、URL資格情報は保存しない
 - scroll: `up`または`down`のsummaryだけ
 

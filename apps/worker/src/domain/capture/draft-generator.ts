@@ -47,11 +47,17 @@ function safeLocation(value: unknown): string | undefined {
 export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
   if (!Array.isArray(input) || input.length > MAX_EVENTS) return [];
   const events: CaptureEvent[] = [];
-  const seen = new Set<number>();
+  const sequenceCounts = new Map<number, number>();
+  for (const candidate of input) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const sequence = Number((candidate as Record<string, unknown>).sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 1) continue;
+    sequenceCounts.set(sequence, (sequenceCounts.get(sequence) ?? 0) + 1);
+  }
   for (const candidate of input) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
     const row = candidate as Record<string, unknown>;
-    if (!Number.isSafeInteger(row.sequence) || Number(row.sequence) < 1 || seen.has(Number(row.sequence))) continue;
+    if (!Number.isSafeInteger(row.sequence) || Number(row.sequence) < 1 || sequenceCounts.get(Number(row.sequence)) !== 1) continue;
     if (typeof row.type !== "string" || !EVENT_TYPES.has(row.type as CaptureEventType)) continue;
     if (typeof row.occurredAt !== "string" || Number.isNaN(Date.parse(row.occurredAt))) continue;
 
@@ -60,13 +66,18 @@ export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
       type: row.type as CaptureEventType,
       occurredAt: new Date(row.occurredAt).toISOString()
     };
-    const targetText = normalizedTarget(row.targetText);
-    if (targetText && (event.type === "click" || event.type === "input_complete")) event.targetText = targetText;
+    if (event.type === "input_complete") {
+      // The capture side cannot prove whether an accessible label was derived
+      // from the entered value. Never copy it across the persistence boundary.
+      event.targetText = "入力欄";
+    } else if (event.type === "click") {
+      const targetText = normalizedTarget(row.targetText);
+      if (targetText) event.targetText = targetText;
+    }
     const location = safeLocation(row.url);
     if (location && event.type === "navigation") event.location = location;
     if (event.type === "scroll" && (row.direction === "up" || row.direction === "down")) event.direction = row.direction;
     events.push(event);
-    seen.add(event.sequence);
   }
   return events.sort((left, right) => left.sequence - right.sequence);
 }
