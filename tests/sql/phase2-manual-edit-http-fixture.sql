@@ -100,6 +100,12 @@ alter table public.manuals enable row level security;
 alter table public.manual_revisions enable row level security;
 alter table public.manual_steps enable row level security;
 
+create policy workspace_members_select_self
+on public.workspace_members
+for select
+to authenticated
+using (user_id = auth.uid() and status = 'active');
+
 create policy manuals_select_members
 on public.manuals
 for select
