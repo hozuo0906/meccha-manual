@@ -12,16 +12,17 @@ Status: Accepted
 
 プロジェクト全体のライブな現在地は、GitHub Issue #70 `META: 開発現在地・セッション引き継ぎ` に集約する。
 
-正本の優先順位は次のとおり。
+正本の優先順位は `AGENTS.md` の文書運用に合わせ、次のとおりとする。
 
-1. 実際のコード、migration、テスト、設定ファイル
-2. ADRと `docs/09-delivery/decision-log.md`
-3. 要件、データ、API、UX、品質文書
-4. 対象Issue、Pull Request、最新head commit、CI、review thread
-5. Issue #70の現在地サマリー
-6. 過去の会話や手作業の要約
+1. ADRと `docs/09-delivery/decision-log.md`
+2. 要件、データ、API仕様
+3. UX仕様
+4. Issue分解・対象Issue・Pull Request
+5. subagent reports、Issue #70の現在地サマリー、過去の会話や手作業の要約
 
-Issue #70とGitHubの実状態が食い違う場合は、実状態を確認してIssue #70を更新する。古い記載を前提に実装を続けない。
+実際のコード、migration、テスト、設定ファイル、commit、CI、review threadは、正本の内容が実装へ反映されているかを確認するための実状態・証跡として必ず照合する。正本と実状態が矛盾する場合は、実装側を自動的に正として扱わず作業を止め、`docs/09-delivery/open-questions.md` に登録して解消する。
+
+Issue #70とGitHubの実状態が食い違う場合は、正本との整合を確認した上でIssue #70を更新する。古い記載を前提に実装を続けない。
 
 ## セッション開始手順
 
