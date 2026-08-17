@@ -83,6 +83,52 @@ Issue #70には最低限、次を残す。
 - 次の1マイルストーン
 - owner承認が必要な操作
 
+## PR #78 実行引き継ぎ（2026-08-17）
+
+この節は、PR #78 `feature/phase2-manual-editor-ui` をowner承認後にmergeできる品質へ仕上げた実行の固定証跡である。最終head SHA、最終CI、最終Codex Review、未解決thread数は、この文書を含むcommit自身では確定できないため、PR #78とIssue #70のライブ状態を確認する。
+
+### 確認済みの基準
+
+- main: `807f3b240c5c476a4e01e8ad4979a12ab66ce468`
+- PR: #78、base `main`、head `feature/phase2-manual-editor-ui`
+- code-validation head: `f287db3f989a655715f14b01c0e8b7afcd06b1ba`
+- mainからのbehind: 0（mainを2-parent merge済み）
+- 一時workflow `.github/workflows/apply-pr78-final-three-fixes.yml`: 削除済み
+- 一時適用script `scripts/apply-pr78-final-three-fixes.py`: 削除済み
+- staging／production migration、deploy、課金、外部AI API、共有リンク、外部ユーザー招待: 未実行
+
+### 恒久修正
+
+- 結果不明のmanual作成状態をworkspace単位で保持し、workspace切替や遅着list GETで警告を失わない。
+- 初回detail取得中の所属・権限失効を、一覧へ戻った後も含めfail closedで再描画・再取得する。
+- manual、current draft、steps、編集可否を`get_manual_edit_detail`の単一SQL／MVCC snapshotから返す。
+- direct step RPCとWorkerで、userinfo、authority、IPv4／IPv6、port、punycode、underscore host、空白・制御文字、入力・serial化後長さのURL境界を一致させる。
+- 追加・更新RPCの不正URLを`400 MANUAL_STEP_URL_INVALID`へ決定的に変換する。
+- FR-004／FR-005の参照をADR-0004／ADR-0005へ修正し、AC-010の公開URLはPR #78ではなくEpic #54の後続範囲として分離する。
+
+### code-validation headの品質証跡
+
+- Manual API: run `32036328711` success
+- Manual Edit API: run `32036328713` success（Unit/API、使い捨てPostgreSQL、RLS、RPC、共有lock、migration safety）
+- Manual Step Migration: run `32036328703` success（direct RPC正常・異常境界を含む）
+- Manual Editor UI: run `32036328750` success（`npm ci`、`npm run check`相当repository checks、Phase 1／2 Playwright、`git diff --check`）
+- Phase 1 Readiness Gate: run `32036328706` success
+- Docs CI: run `32036328709` success
+- Quality Loop Gate: run `32036328700` success
+- R2 Storage Policy: run `32036328719` success
+- Cloud Codex Readiness: run `32036328712` success
+- Business OS Codex Runner: run `32036328701` success
+- code-validation head時点の未解決review thread: 0件
+
+ローカル環境では外部npm取得が制限され、Docker／PostgreSQL／Playwright実行環境もないため、`npm ci`、`npm run check`、DB、browser E2EはGitHub Actionsの同一head証跡を採用した。ローカルでは対象Unit/API、Worker runtime、migration・契約静的検査、機密値、encoding、`git diff --check`を実行した。失敗した検査をskipして成功扱いにはしていない。
+
+### 依存関係と次の操作
+
+- PR #67、#68、#73、#75はopen／未mergeのまま。PR #78への包含確認後も、owner承認なしにcloseしない。
+- Issue #55はADR-0004／ADR-0005、Issue #72は未merge依存関係へ訂正済み。
+- この文書を含む最終headで必須CI成功、Codex Review完了、P0／P1／P2未解決0、review thread 0を再確認する。
+- 次の1マイルストーンはownerによるPR #78のmerge承認とmergeである。merge後のstaging migration／deploy、旧PR整理、公開機能は別マイルストーン・別承認とする。
+
 ## 毎日0時の独立セッション
 
 毎日0時に前日の会話文脈を継続しない実行を開始する場合は、`docs/09-delivery/daily-session-prompt.md` を使用する。
