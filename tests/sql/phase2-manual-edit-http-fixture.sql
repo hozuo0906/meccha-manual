@@ -132,7 +132,7 @@ using (
 
 create policy manuals_write_editors
 on public.manuals
-for all
+for update
 to authenticated
 using (
   public.has_workspace_role(
