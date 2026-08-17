@@ -1,5 +1,171 @@
 -- Phase 2: non-destructive manual archive boundary.
 
+-- Step mutations previously locked only the draft revision. Wrap every public step
+-- RPC so it locks the owning manual first and advances the archive version after a
+-- successful content change. Archive, publication, draft metadata, and step writes
+-- now share the manual -> revision lock order.
+alter function public.append_manual_step(
+  uuid, public.manual_step_type, text, text, public.manual_action_type,
+  text, text, uuid, jsonb, jsonb
+) rename to append_manual_step_archive_impl;
+alter function public.update_manual_step(
+  uuid, uuid, timestamptz, public.manual_step_type, text, text,
+  public.manual_action_type, text, text, uuid, jsonb, jsonb
+) rename to update_manual_step_archive_impl;
+alter function public.soft_delete_manual_step(uuid, uuid)
+  rename to soft_delete_manual_step_archive_impl;
+alter function public.reorder_manual_steps(uuid, uuid[])
+  rename to reorder_manual_steps_archive_impl;
+
+revoke all on function public.append_manual_step_archive_impl(
+  uuid, public.manual_step_type, text, text, public.manual_action_type,
+  text, text, uuid, jsonb, jsonb
+) from public, anon, authenticated;
+revoke all on function public.update_manual_step_archive_impl(
+  uuid, uuid, timestamptz, public.manual_step_type, text, text,
+  public.manual_action_type, text, text, uuid, jsonb, jsonb
+) from public, anon, authenticated;
+revoke all on function public.soft_delete_manual_step_archive_impl(uuid, uuid)
+  from public, anon, authenticated;
+revoke all on function public.reorder_manual_steps_archive_impl(uuid, uuid[])
+  from public, anon, authenticated;
+
+create function public.append_manual_step(
+  target_revision_id uuid,
+  step_type public.manual_step_type,
+  step_title text,
+  step_instruction text default '',
+  step_action_type public.manual_action_type default null,
+  step_target_text text default null,
+  step_url text default null,
+  step_asset_id uuid default null,
+  step_annotation jsonb default '{}'::jsonb,
+  step_masking jsonb default '{}'::jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_manual_id uuid;
+  new_step_id uuid;
+begin
+  select m.id into target_manual_id
+  from public.manual_revisions mr
+  join public.manuals m on m.id = mr.manual_id
+  where mr.id = target_revision_id and m.archived_at is null
+  for update of m;
+  if target_manual_id is null then raise exception 'draft revision not found'; end if;
+
+  new_step_id := public.append_manual_step_archive_impl(
+    target_revision_id, step_type, step_title, step_instruction, step_action_type,
+    step_target_text, step_url, step_asset_id, step_annotation, step_masking
+  );
+  update public.manuals set updated_at = clock_timestamp() where id = target_manual_id;
+  return new_step_id;
+end;
+$$;
+
+create function public.update_manual_step(
+  target_revision_id uuid,
+  target_step_id uuid,
+  expected_step_updated_at timestamptz,
+  step_type public.manual_step_type,
+  step_title text,
+  step_instruction text,
+  step_action_type public.manual_action_type,
+  step_target_text text,
+  step_url text,
+  step_asset_id uuid,
+  step_annotation jsonb,
+  step_masking jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare target_manual_id uuid;
+begin
+  select m.id into target_manual_id
+  from public.manual_revisions mr
+  join public.manuals m on m.id = mr.manual_id
+  where mr.id = target_revision_id and m.archived_at is null
+  for update of m;
+  if target_manual_id is null then raise exception 'draft revision not found'; end if;
+
+  perform public.update_manual_step_archive_impl(
+    target_revision_id, target_step_id, expected_step_updated_at, step_type,
+    step_title, step_instruction, step_action_type, step_target_text, step_url,
+    step_asset_id, step_annotation, step_masking
+  );
+  update public.manuals set updated_at = clock_timestamp() where id = target_manual_id;
+end;
+$$;
+
+create function public.soft_delete_manual_step(target_revision_id uuid, target_step_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare target_manual_id uuid;
+begin
+  select m.id into target_manual_id
+  from public.manual_revisions mr
+  join public.manuals m on m.id = mr.manual_id
+  where mr.id = target_revision_id and m.archived_at is null
+  for update of m;
+  if target_manual_id is null then raise exception 'draft revision not found'; end if;
+
+  perform public.soft_delete_manual_step_archive_impl(target_revision_id, target_step_id);
+  update public.manuals set updated_at = clock_timestamp() where id = target_manual_id;
+end;
+$$;
+
+create function public.reorder_manual_steps(target_revision_id uuid, ordered_step_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare target_manual_id uuid;
+begin
+  select m.id into target_manual_id
+  from public.manual_revisions mr
+  join public.manuals m on m.id = mr.manual_id
+  where mr.id = target_revision_id and m.archived_at is null
+  for update of m;
+  if target_manual_id is null then raise exception 'draft revision not found'; end if;
+
+  perform public.reorder_manual_steps_archive_impl(target_revision_id, ordered_step_ids);
+  update public.manuals set updated_at = clock_timestamp() where id = target_manual_id;
+end;
+$$;
+
+revoke all on function public.append_manual_step(
+  uuid, public.manual_step_type, text, text, public.manual_action_type,
+  text, text, uuid, jsonb, jsonb
+) from public, anon, authenticated;
+revoke all on function public.update_manual_step(
+  uuid, uuid, timestamptz, public.manual_step_type, text, text,
+  public.manual_action_type, text, text, uuid, jsonb, jsonb
+) from public, anon, authenticated;
+revoke all on function public.soft_delete_manual_step(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.reorder_manual_steps(uuid, uuid[]) from public, anon, authenticated;
+
+grant execute on function public.append_manual_step(
+  uuid, public.manual_step_type, text, text, public.manual_action_type,
+  text, text, uuid, jsonb, jsonb
+) to authenticated;
+grant execute on function public.update_manual_step(
+  uuid, uuid, timestamptz, public.manual_step_type, text, text,
+  public.manual_action_type, text, text, uuid, jsonb, jsonb
+) to authenticated;
+grant execute on function public.soft_delete_manual_step(uuid, uuid) to authenticated;
+grant execute on function public.reorder_manual_steps(uuid, uuid[]) to authenticated;
+
 create or replace function public.archive_manual(
   target_workspace_id uuid,
   target_manual_id uuid,

@@ -36,6 +36,51 @@ $$;
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
 
+select public.append_manual_step(
+  '44444444-4444-4444-8444-444444444444',
+  'note',
+  'アーカイブ競合テスト',
+  '表示後のstep変更',
+  null,
+  null,
+  null,
+  null,
+  '{}'::jsonb,
+  '{}'::jsonb
+) as archive_conflict_step_id \gset
+
+do $$
+begin
+  if not exists (
+    select 1 from public.manuals m
+    where m.id = '33333333-3333-4333-8333-333333333333'
+      and m.updated_at > current_setting('app.test_archive_updated_at')::timestamptz
+  ) then
+    raise exception 'step mutation did not advance the manual archive version';
+  end if;
+end;
+$$;
+
+do $$
+declare rejected boolean := false;
+begin
+  begin
+    perform public.archive_manual(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '33333333-3333-4333-8333-333333333333',
+      current_setting('app.test_archive_updated_at')::timestamptz
+    );
+  exception when others then
+    if sqlerrm like '%manual archive changed concurrently%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'step mutation was hidden by archive'; end if;
+end;
+$$;
+
+select set_config('app.test_archive_updated_at', m.updated_at::text, false)
+from public.manuals m
+where m.id = '33333333-3333-4333-8333-333333333333';
+
 do $$
 declare
   rejected boolean := false;
