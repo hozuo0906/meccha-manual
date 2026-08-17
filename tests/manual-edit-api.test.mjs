@@ -427,6 +427,32 @@ test("WHATWGが保持するRFC 3986 delimiterをURL budgetで1文字として扱
   }
 });
 
+test("WHATWGがquery内でpercent encodingするapostropheを3文字として扱う", async () => {
+  const queryUrl = `https://example.com/?q=${"'".repeat(2_025)}`;
+  assert.equal(Array.from(queryUrl).length, 2_048);
+  assert.ok(new URL(queryUrl).toString().length > 2_048);
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json([manualRow()])
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/steps"), "POST", JSON.stringify({
+        type: "action",
+        title: "境界queryを開く",
+        actionType: "navigate",
+        targetText: "境界画面",
+        url: queryUrl
+      })),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_STEP_URL_INVALID");
+    assert.equal(mock.calls.length, 4, "oversized serialized query must not reach the mutation RPC");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("正規化で短縮されるURLも入力値が2,048文字を超えたらRPC前に拒否する", async () => {
   const mock = installFetch([
     authOk(), memberOk(), editorOk(), json([manualRow()])

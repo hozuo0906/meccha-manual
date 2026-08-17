@@ -77,7 +77,7 @@ const STEP_TYPES = new Set<ManualStepType>(["action", "note", "decision", "warni
 const ACTION_TYPES = new Set<ManualActionType>(["click", "input", "select", "navigate", "wait", "other"]);
 const LABEL_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/u;
 const TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
-const URL_SERIALIZED_SAFE_ASCII = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&'()*+,;=._~%-";
+const URL_SERIALIZED_SAFE_ASCII = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,;=._~%-";
 
 function codePointLength(value: string): number {
   return Array.from(value).length;
@@ -86,9 +86,17 @@ function codePointLength(value: string): number {
 function serializedUrlBudgetLength(value: string): number {
   const encoder = new TextEncoder();
   let length = 0;
+  let component: "url" | "query" | "fragment" = "url";
   for (const character of value) {
+    if (character === "#") {
+      component = "fragment";
+    } else if (character === "?" && component === "url") {
+      component = "query";
+    }
     const bytes = encoder.encode(character).byteLength;
-    length += bytes === 1 && URL_SERIALIZED_SAFE_ASCII.includes(character) ? 1 : bytes * 3;
+    const isSerializedAsOne = URL_SERIALIZED_SAFE_ASCII.includes(character)
+      || (character === "'" && component !== "query");
+    length += bytes === 1 && isSerializedAsOne ? 1 : bytes * 3;
   }
   return length;
 }

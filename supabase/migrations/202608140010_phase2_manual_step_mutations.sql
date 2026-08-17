@@ -91,8 +91,9 @@ declare
   host text;
   port_text text;
   normalized_port text;
-  safe_url_characters constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&''()*+,;=._~%-';
+  safe_url_characters constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,;=._~%-';
   serialized_length integer := 0;
+  url_component text := 'url';
   character_index integer;
   url_character text;
   character_bytes integer;
@@ -106,9 +107,16 @@ begin
 
   for character_index in 1..char_length(candidate) loop
     url_character := substring(candidate from character_index for 1);
+    if url_character = '#' then
+      url_component := 'fragment';
+    elsif url_character = '?' and url_component = 'url' then
+      url_component := 'query';
+    end if;
     character_bytes := octet_length(url_character);
     serialized_length := serialized_length + case
-      when character_bytes = 1 and position(url_character in safe_url_characters) > 0 then 1
+      when character_bytes = 1
+        and (position(url_character in safe_url_characters) > 0
+          or (url_character = chr(39) and url_component <> 'query')) then 1
       else character_bytes * 3
     end;
     if serialized_length > 2048 then return false; end if;

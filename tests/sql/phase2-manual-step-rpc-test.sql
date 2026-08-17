@@ -334,6 +334,20 @@ begin
   end;
   if not rejected then raise exception 'direct RPC accepted oversized serialized URL'; end if;
 
+  rejected := false;
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'action', 'oversized serialized query', '', 'navigate', '画面',
+      'https://example.com/?q=' || repeat(chr(39), 2025),
+      null, '{}'::jsonb, '{}'::jsonb
+    );
+  exception
+    when others then
+      if sqlerrm like '%manual step url is invalid%' then rejected := true; else raise; end if;
+  end;
+  if not rejected then raise exception 'direct RPC accepted oversized serialized query'; end if;
+
   perform public.append_manual_step(
     '66666666-6666-4666-8666-666666666666',
     'action', 'zero-padded port URL', '', 'navigate', '画面', 'https://example.com:000080/',
