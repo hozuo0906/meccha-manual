@@ -49,7 +49,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Require expected review head
-        run: test "$(git rev-parse HEAD^)" = "cefb0a160eb23f15f744b89cd99a07840aea0a40"
+        run: test "$(git rev-parse HEAD^^^)" = "cefb0a160eb23f15f744b89cd99a07840aea0a40"
       - name: Apply fixes
         run: python scripts/apply-pr78-final-three-fixes.py
       - name: Install dependencies
