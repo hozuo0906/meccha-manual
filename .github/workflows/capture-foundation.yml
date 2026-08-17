@@ -1,0 +1,46 @@
+name: Capture Foundation
+
+on:
+  pull_request:
+    paths:
+      - "apps/worker/src/capture-router.ts"
+      - "apps/worker/src/domain/capture/draft-generator.ts"
+      - "apps/worker/src/index-phase2.ts"
+      - "docs/01-product/requirements-traceability.md"
+      - "docs/05-api/browser-capture-foundation-api.md"
+      - "docs/07-quality/acceptance-catalog.md"
+      - "docs/09-delivery/decision-log.md"
+      - "tests/capture-foundation.test.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/capture-foundation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test fail-closed capture and deterministic draft boundaries
+        run: npm run capture:test
+      - name: Repository checks
+        run: npm run check
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Phase 1 browser regressions
+        run: npx playwright test --config=playwright.phase1.config.mjs
+      - name: Test Phase 2 browser regressions
+        run: npx playwright test --config=playwright.phase2.config.mjs
+      - name: Diff check
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"

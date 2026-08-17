@@ -104,3 +104,17 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 使い捨てPostgreSQLで同じdraft versionからの2並行更新を実行し、1件だけ成功することを確認する。
 - Boundary:
   - staging/production migration適用とproduction deployは行わない。
+
+## DEC-061: Browser Run実起動よりfail-closed基盤と非保存draft変換を先行する
+
+- Status: Accepted
+- Date: 2026-08-18
+- Decision:
+  - OQ-006のactual-peer P0検証が完了するまで、操作記録開始、Live View、navigate／reload、mobile previewは認証・workspace role確認後に`503 BROWSER_EGRESS_NOT_VERIFIED`で拒否する。
+  - 現段階のWorkerへBrowser Run／Durable Object bindingや、環境変数だけで検証済み状態をtrueにする経路を追加しない。
+  - repo-sideでは保存可能eventのallowlist正規化と、外部AIなしの決定的な日本語draft step生成を先行する。
+  - 入力値、URL query／fragment、未知field、Cookie、Authorization、機密target labelを正規化eventとdraftへ複製しない。
+- Reason:
+  - #57の実Browser E2E完了条件を勝手に緩めず、SSRF P0境界を維持したまま独立検証できる操作記録コアを進めるため。
+- Boundary:
+  - #84をmergeしても#57はcloseしない。Browser Run実起動、Live View、Durable Object、DB永続化、R2、staging／production反映は後続とする。
