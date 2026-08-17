@@ -172,7 +172,11 @@ on public.manual_revisions
 for select
 to authenticated
 using (
-  public.is_workspace_member(workspace_id, auth.uid())
+  public.has_workspace_role(
+    workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor', 'viewer']::public.workspace_role[]
+  )
   and exists (
     select 1
     from public.manuals m
@@ -189,7 +193,11 @@ for select
 to authenticated
 using (
   deleted_at is null
-  and public.is_workspace_member(workspace_id, auth.uid())
+  and public.has_workspace_role(
+    workspace_id,
+    auth.uid(),
+    array['owner', 'admin', 'editor', 'viewer']::public.workspace_role[]
+  )
   and exists (
     select 1
     from public.manual_revisions mr
