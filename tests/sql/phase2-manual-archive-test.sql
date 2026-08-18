@@ -2,6 +2,23 @@
 
 reset role;
 
+do $$
+declare published_id uuid;
+begin
+  select m.current_published_revision_id into published_id
+  from public.manuals m
+  where m.id = '33333333-3333-4333-8333-333333333333'
+    and m.current_draft_revision_id is null;
+  if published_id is not null then
+    perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+    perform public.create_manual_draft_from_published(
+      '33333333-3333-4333-8333-333333333333',
+      published_id
+    );
+  end if;
+end;
+$$;
+
 select m.updated_at as archive_expected_updated_at
 from public.manuals m
 where m.id = '33333333-3333-4333-8333-333333333333' \gset
@@ -49,7 +66,7 @@ $$;
 
 select ms.id as archived_target_step_id
 from public.manual_steps ms
-where ms.revision_id = '44444444-4444-4444-8444-444444444444'
+where ms.revision_id = current_setting('app.test_archive_draft_id')::uuid
   and ms.deleted_at is null
 order by ms.position desc
 limit 1 \gset
@@ -69,13 +86,13 @@ select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111
 
 select ms.id as archive_conflict_step_id
 from public.manual_steps ms
-where ms.revision_id = '44444444-4444-4444-8444-444444444444'
+where ms.revision_id = current_setting('app.test_archive_draft_id')::uuid
   and ms.deleted_at is null
 order by ms.position
 limit 1 \gset
 
 select public.soft_delete_manual_step(
-  '44444444-4444-4444-8444-444444444444',
+  current_setting('app.test_archive_draft_id')::uuid,
   :'archive_conflict_step_id'
 );
 
@@ -174,7 +191,7 @@ begin
   end if;
   if exists (
     select 1 from public.manual_steps
-    where revision_id = '44444444-4444-4444-8444-444444444444'
+    where revision_id = current_setting('app.test_archive_draft_id')::uuid
   ) then
     raise exception 'archived manual steps remain directly visible to authenticated member';
   end if;

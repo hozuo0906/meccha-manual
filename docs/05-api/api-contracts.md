@@ -53,15 +53,15 @@ Status: Proposed
 | `PATCH /v1/manuals/{id}` | 手順書更新 | can_edit_manual |
 | `POST /v1/manuals/{id}/publish` | 公開版作成 | can_edit_manual |
 | `POST /v1/manuals/{id}/exports` | PDF/HTML/Markdown出力を要求 | can_view_manual + active export entitlement |
-| `POST /v1/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 + egress P0検証済みflag |
-| `POST /v1/capture-sessions/{id}/live-url` | Live View URL発行 | session owner + egress P0検証済みflag |
-| `POST /v1/capture-sessions/{id}/commands` | navigate/reload等 | session owner + egress P0検証済みflag |
-| `GET /v1/capture-sessions/{id}/events` | 再接続差分 | session owner |
-| `DELETE /v1/capture-sessions/{id}` | セッション終了 | session owner |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 + egress P0検証済みflag |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url` | Live View URL発行 | session owner + egress P0検証済みflag |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/commands` | navigate/reload等 | session owner + egress P0検証済みflag |
+| `GET /v1/workspaces/{workspaceId}/capture-sessions/{id}/events` | 再接続差分 | session owner |
+| `DELETE /v1/workspaces/{workspaceId}/capture-sessions/{id}` | セッション終了 | session owner |
 | `POST /v1/share-links` | 共有リンク作成 | can_edit_manual |
 | `GET /s/{token}` | 共有閲覧 | token検証 |
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
-| `POST /v1/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 + egress P0検証済みflag |
+| `POST /v1/workspaces/{workspaceId}/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 + egress P0検証済みflag |
 | `GET /v1/billing/summary` | 現在プラン、利用量、上限、購入済みmanualを取得 | member。請求詳細はowner/admin |
 | `POST /v1/billing/checkout-intents` | 短命Checkout Session作成前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
 | `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |

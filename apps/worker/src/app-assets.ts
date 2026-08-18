@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-d3ce0bd2bca7a80a";
+export const APP_ASSET_VERSION = "sha256-39c1cb087bfba340";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1170,6 +1170,14 @@ function resolveCurrentWorkspace(session) {
     // 選択はタブ内メモリでも維持できるため、保存不能を画面全体の失敗にしない。
   }
   return selected;
+}
+
+function selectedActiveWorkspace() {
+  const workspaceId = currentWorkspaceSelection?.workspaceId;
+  if (!workspaceId) return null;
+  return (currentSession?.workspaces || []).find(
+    (workspace) => workspace.id === workspaceId && workspace.status === "active"
+  ) || null;
 }
 
 function selectCurrentWorkspace(event) {
@@ -2758,7 +2766,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     }
     if (options.returnToListOnSuccess) {
       setManualMutationBusyState(false);
-      openManualList(currentWorkspaceSelection, successMessage, "notice");
+      openManualList(selectedActiveWorkspace(), successMessage, "notice");
       return;
     }
     await loadManualDetail(workspaceId, manualId, {
@@ -2851,7 +2859,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     if (resultUnknown) {
       if (options.resultUnknownToList) {
         setManualMutationBusyState(false);
-        openManualList(currentWorkspaceSelection, "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
+        openManualList(selectedActiveWorkspace(), "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
         return;
       }
       await loadManualDetail(workspaceId, manualId, {
