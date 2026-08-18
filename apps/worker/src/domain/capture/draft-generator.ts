@@ -19,19 +19,40 @@ export type CaptureDraftStep = {
 
 const EVENT_TYPES = new Set<CaptureEventType>(["click", "input_complete", "navigation", "scroll"]);
 const MAX_EVENTS = 200;
+const ISO_UTC_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/u;
+
+function normalizeOccurredAt(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = ISO_UTC_PATTERN.exec(value);
+  if (!match) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const milliseconds = Number((match[7] ?? "").padEnd(3, "0"));
+  if (
+    date.getUTCFullYear() !== Number(match[1]) ||
+    date.getUTCMonth() + 1 !== Number(match[2]) ||
+    date.getUTCDate() !== Number(match[3]) ||
+    date.getUTCHours() !== Number(match[4]) ||
+    date.getUTCMinutes() !== Number(match[5]) ||
+    date.getUTCSeconds() !== Number(match[6]) ||
+    date.getUTCMilliseconds() !== milliseconds
+  ) return null;
+  return date.toISOString();
+}
 
 function normalizeCandidate(candidate: unknown): CaptureEvent | null {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
   const row = candidate as Record<string, unknown>;
   if (typeof row.sequence !== "number" || !Number.isSafeInteger(row.sequence) || row.sequence < 1) return null;
   if (typeof row.type !== "string" || !EVENT_TYPES.has(row.type as CaptureEventType)) return null;
-  if (typeof row.occurredAt !== "string" || Number.isNaN(Date.parse(row.occurredAt))) return null;
+  const occurredAt = normalizeOccurredAt(row.occurredAt);
+  if (!occurredAt) return null;
   if (row.type === "scroll" && row.direction !== "up" && row.direction !== "down") return null;
 
   const event: CaptureEvent = {
     sequence: row.sequence,
     type: row.type as CaptureEventType,
-    occurredAt: new Date(row.occurredAt).toISOString()
+    occurredAt
   };
   // The capture side cannot prove whether an accessible label was derived
   // from a displayed or entered sensitive value. Never copy it across the

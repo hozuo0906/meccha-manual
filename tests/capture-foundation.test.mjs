@@ -117,6 +117,15 @@ test("structurally invalid events do not suppress valid duplicate sequences", ()
   assert.deepEqual(events.map((event) => event.sequence), [1]);
 });
 
+test("invalid calendar timestamps do not suppress valid duplicate sequences", () => {
+  const events = normalizeCaptureEvents([
+    { sequence: 1, type: "click", occurredAt: "2026-02-28T00:00:00Z", targetText: "有効" },
+    { sequence: 1, type: "click", occurredAt: "2026-02-30T00:00:00Z", targetText: "無効日付" }
+  ]);
+  assert.deepEqual(events.map((event) => event.sequence), [1]);
+  assert.equal(events[0].occurredAt, "2026-02-28T00:00:00.000Z");
+});
+
 test("scroll events without a valid direction are rejected", () => {
   const events = normalizeCaptureEvents([
     { sequence: 1, type: "scroll", occurredAt: "2026-08-18T00:00:01Z", direction: "down" },
