@@ -108,6 +108,15 @@ test("invalid string sequences do not suppress valid numeric events", () => {
   assert.deepEqual(events.map((event) => event.sequence), [1]);
 });
 
+test("structurally invalid events do not suppress valid duplicate sequences", () => {
+  const events = normalizeCaptureEvents([
+    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: "有効" },
+    { sequence: 1, type: "unknown", occurredAt: "invalid" },
+    { sequence: 2, type: "scroll", occurredAt: "2026-08-18T00:00:02Z" }
+  ]);
+  assert.deepEqual(events.map((event) => event.sequence), [1]);
+});
+
 test("scroll events without a valid direction are rejected", () => {
   const events = normalizeCaptureEvents([
     { sequence: 1, type: "scroll", occurredAt: "2026-08-18T00:00:01Z", direction: "down" },

@@ -20,38 +20,38 @@ export type CaptureDraftStep = {
 const EVENT_TYPES = new Set<CaptureEventType>(["click", "input_complete", "navigation", "scroll"]);
 const MAX_EVENTS = 200;
 
+function normalizeCandidate(candidate: unknown): CaptureEvent | null {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const row = candidate as Record<string, unknown>;
+  if (typeof row.sequence !== "number" || !Number.isSafeInteger(row.sequence) || row.sequence < 1) return null;
+  if (typeof row.type !== "string" || !EVENT_TYPES.has(row.type as CaptureEventType)) return null;
+  if (typeof row.occurredAt !== "string" || Number.isNaN(Date.parse(row.occurredAt))) return null;
+  if (row.type === "scroll" && row.direction !== "up" && row.direction !== "down") return null;
+
+  const event: CaptureEvent = {
+    sequence: row.sequence,
+    type: row.type as CaptureEventType,
+    occurredAt: new Date(row.occurredAt).toISOString()
+  };
+  // The capture side cannot prove whether an accessible label was derived
+  // from a displayed or entered sensitive value. Never copy it across the
+  // persistence boundary without a future provenance-safe extractor.
+  if (event.type === "input_complete") event.targetText = "入力欄";
+  if (event.type === "click") event.targetText = "対象";
+  if (event.type === "scroll" && (row.direction === "up" || row.direction === "down")) event.direction = row.direction;
+  return event;
+}
+
 export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
   if (!Array.isArray(input) || input.length > MAX_EVENTS) return [];
-  const events: CaptureEvent[] = [];
+  const candidates = input.map(normalizeCandidate).filter((event): event is CaptureEvent => event !== null);
   const sequenceCounts = new Map<number, number>();
-  for (const candidate of input) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const sequence = (candidate as Record<string, unknown>).sequence;
-    if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) continue;
-    sequenceCounts.set(sequence, (sequenceCounts.get(sequence) ?? 0) + 1);
+  for (const event of candidates) {
+    sequenceCounts.set(event.sequence, (sequenceCounts.get(event.sequence) ?? 0) + 1);
   }
-  for (const candidate of input) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const row = candidate as Record<string, unknown>;
-    if (!Number.isSafeInteger(row.sequence) || Number(row.sequence) < 1 || sequenceCounts.get(Number(row.sequence)) !== 1) continue;
-    if (typeof row.type !== "string" || !EVENT_TYPES.has(row.type as CaptureEventType)) continue;
-    if (typeof row.occurredAt !== "string" || Number.isNaN(Date.parse(row.occurredAt))) continue;
-    if (row.type === "scroll" && row.direction !== "up" && row.direction !== "down") continue;
-
-    const event: CaptureEvent = {
-      sequence: Number(row.sequence),
-      type: row.type as CaptureEventType,
-      occurredAt: new Date(row.occurredAt).toISOString()
-    };
-    // The capture side cannot prove whether an accessible label was derived
-    // from a displayed or entered sensitive value. Never copy it across the
-    // persistence boundary without a future provenance-safe extractor.
-    if (event.type === "input_complete") event.targetText = "入力欄";
-    if (event.type === "click") event.targetText = "対象";
-    if (event.type === "scroll" && (row.direction === "up" || row.direction === "down")) event.direction = row.direction;
-    events.push(event);
-  }
-  return events.sort((left, right) => left.sequence - right.sequence);
+  return candidates
+    .filter((event) => sequenceCounts.get(event.sequence) === 1)
+    .sort((left, right) => left.sequence - right.sequence);
 }
 
 export function generateCaptureDraftSteps(events: readonly CaptureEvent[]): CaptureDraftStep[] {
