@@ -19,7 +19,7 @@ export type CaptureDraftStep = {
 
 const EVENT_TYPES = new Set<CaptureEventType>(["click", "input_complete", "navigation", "scroll"]);
 const MAX_EVENTS = 200;
-const ISO_UTC_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/u;
+const ISO_UTC_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/u;
 
 function normalizeOccurredAt(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -27,7 +27,7 @@ function normalizeOccurredAt(value: unknown): string | null {
   if (!match) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const milliseconds = Number((match[7] ?? "").padEnd(3, "0"));
+  const milliseconds = Number((match[7] ?? "").slice(0, 3).padEnd(3, "0"));
   if (
     date.getUTCFullYear() !== Number(match[1]) ||
     date.getUTCMonth() + 1 !== Number(match[2]) ||
