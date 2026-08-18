@@ -70,6 +70,8 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /excludeDraftKeys: \["draft"\], invalidateManuals: true/);
   assert.match(source, /function publishManualFromUi[\s\S]*window\.confirm[\s\S]*\/publish[\s\S]*invalidateManuals: true/);
   assert.match(source, /function archiveManualFromUi[\s\S]*captureManualDetailDrafts[\s\S]*window\.confirm[\s\S]*\/archive[\s\S]*returnToListOnSuccess: true[\s\S]*resultUnknownToList: true/);
+  assert.match(source, /function selectedActiveWorkspace\(\)[\s\S]*currentWorkspaceSelection\?\.workspaceId[\s\S]*workspace\.status === "active"/);
+  assert.doesNotMatch(source, /openManualList\(currentWorkspaceSelection,/);
   assert.match(source, /function createManualDraftFromUi[\s\S]*\/draft[\s\S]*invalidateManuals: true/);
   assert.match(source, /authenticationChannel\?\.addEventListener\("message"[\s\S]*manualRequestSequence \+= 1;[\s\S]*renderAuthenticationReload/);
   assert.doesNotMatch(source, /manualMutationInFlight = true;\n  renderShell\(currentSession\);/);

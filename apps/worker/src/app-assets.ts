@@ -1172,6 +1172,14 @@ function resolveCurrentWorkspace(session) {
   return selected;
 }
 
+function selectedActiveWorkspace() {
+  const workspaceId = currentWorkspaceSelection?.workspaceId;
+  if (!workspaceId) return null;
+  return (currentSession?.workspaces || []).find(
+    (workspace) => workspace.id === workspaceId && workspace.status === "active"
+  ) || null;
+}
+
 function selectCurrentWorkspace(event) {
   const workspaceId = event.currentTarget.value;
   const selected = (currentSession?.workspaces || []).find(
@@ -2758,7 +2766,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     }
     if (options.returnToListOnSuccess) {
       setManualMutationBusyState(false);
-      openManualList(currentWorkspaceSelection, successMessage, "notice");
+      openManualList(selectedActiveWorkspace(), successMessage, "notice");
       return;
     }
     await loadManualDetail(workspaceId, manualId, {
@@ -2851,7 +2859,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     if (resultUnknown) {
       if (options.resultUnknownToList) {
         setManualMutationBusyState(false);
-        openManualList(currentWorkspaceSelection, "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
+        openManualList(selectedActiveWorkspace(), "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
         return;
       }
       await loadManualDetail(workspaceId, manualId, {
