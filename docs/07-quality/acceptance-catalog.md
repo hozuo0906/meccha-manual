@@ -27,7 +27,7 @@ Status: Accepted
 | AC-023 | DNS検査ではpublic IPを返す対象host、またはegressを迂回するWebRTC/WebTransport fixture | 承認済みhostへの実接続、subresource、直接通信を開始する | HTTP/TLS/application bytes送信前にactual peerで拒否され、1経路でも拘束不能ならBrowser Run起動・navigateが `BROWSER_EGRESS_NOT_VERIFIED` でfail closedになる |
 | AC-024 | editorユーザーかつegress P0検証未完了 | mobile previewを開始する | Browser Runへ通信せず `BROWSER_EGRESS_NOT_VERIFIED` で拒否される |
 | AC-025 | Browser Runセッション稼働中 | egress迂回発覚により検証済みflagをfalseへ戻す | 既存egressを即時遮断し、Live View失効・再発行拒否・全session終了を行う |
-| AC-026 | click、input completion、navigation、scroll eventに入力値、query／fragment、未知field、機密target labelが含まれる | 保存可能eventを正規化し、日本語draft stepを生成する | sequence順の決定的なstepとなり、生入力値、秘密値、query／fragment、Cookie、Authorizationはeventにもdraftにも含まれず、外部AI APIを呼ばない |
+| AC-026 | click、input completion、navigation、scroll eventに入力値、秘密値を含み得るnavigation URL、未知field、機密target labelが含まれる | 保存可能eventを正規化し、日本語draft stepを生成する | sequence順の決定的なstepとなり、生入力値、秘密値、navigation URLのorigin／path／query／fragment、Cookie、Authorizationはeventにもdraftにも含まれず、外部AI APIを呼ばない |
 | AC-030 | 共有リンクが期限切れ | 閲覧する | 閲覧できない |
 | AC-031 | 共有リンクを失効する | 直後に閲覧する | 閲覧できない |
 | AC-040 | Guide Me風再生中 | 対象DOMが見つからない | 勝手に進まず停止し理由を表示する |
