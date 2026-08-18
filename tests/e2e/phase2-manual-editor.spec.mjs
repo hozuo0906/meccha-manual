@@ -295,7 +295,7 @@ async function installManualFixture(page, role, options = {}) {
     if (pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/steps/reorder` && method === "POST") {
       return json(200, { reordered: true });
     }
-    return json(404, { code: "NOT_FOUND", message: "fixtureに未定義のAPIです。" });
+    return json(404, { code: "NOT_FOUND", message: `fixtureに未定義のAPIです: ${method} ${pathname}` });
   });
 
   return state;
