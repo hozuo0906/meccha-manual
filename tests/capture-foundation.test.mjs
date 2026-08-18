@@ -73,11 +73,12 @@ test("capture normalization drops values, unknown fields, query, and fragment", 
   const secret = "do-not-store-input-value";
   const events = normalizeCaptureEvents([
     { sequence: 4, type: "scroll", occurredAt: "2026-08-18T00:00:04Z", direction: "down", value: secret },
-    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: " 保存 ", cookie: secret },
+    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: "4111 1111 1111 1111", cookie: secret },
     { sequence: 2, type: "input_complete", occurredAt: "2026-08-18T00:00:02Z", targetText: "4111 1111 1111 1111", value: secret },
     { sequence: 3, type: "navigation", occurredAt: "2026-08-18T00:00:03Z", url: `https://example.test/orders?private_value=${secret}#detail` }
   ]);
   assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4]);
+  assert.equal(events[0].targetText, "対象");
   assert.equal(events[1].targetText, "入力欄");
   assert.equal(events[2].location, "https://example.test/orders");
   assert.doesNotMatch(JSON.stringify(events), /do-not-store|private_value=|#detail|cookie|value|4111/);
@@ -97,6 +98,24 @@ test("duplicate sequences are all rejected independent of input order", () => {
   ];
   assert.deepEqual(normalizeCaptureEvents(duplicated), normalizeCaptureEvents([...duplicated].reverse()));
   assert.deepEqual(normalizeCaptureEvents(duplicated).map((event) => event.sequence), [2]);
+});
+
+test("invalid string sequences do not suppress valid numeric events", () => {
+  const events = normalizeCaptureEvents([
+    { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: "有効" },
+    { sequence: "1", type: "click", occurredAt: "2026-08-18T00:00:02Z", targetText: "無効" }
+  ]);
+  assert.deepEqual(events.map((event) => event.sequence), [1]);
+});
+
+test("scroll events without a valid direction are rejected", () => {
+  const events = normalizeCaptureEvents([
+    { sequence: 1, type: "scroll", occurredAt: "2026-08-18T00:00:01Z", direction: "down" },
+    { sequence: 2, type: "scroll", occurredAt: "2026-08-18T00:00:02Z" },
+    { sequence: 3, type: "scroll", occurredAt: "2026-08-18T00:00:03Z", direction: "down" }
+  ]);
+  assert.deepEqual(events.map((event) => event.sequence), [1, 3]);
+  assert.equal(generateCaptureDraftSteps(events).length, 1);
 });
 
 test("draft generation is deterministic and collapses consecutive scroll summaries", () => {

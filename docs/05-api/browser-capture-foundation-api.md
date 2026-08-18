@@ -22,7 +22,7 @@ allowlist、承認済みhostname、mobile previewは例外にしない。現在�
 repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`navigation`、`scroll`だけとし、1 batch 200件まで、正の一意な`sequence`で決定的に整列する。
 
 - 共通: `sequence`、`type`、`occurredAt`
-- click: 最大128文字の`targetText`
+- click: 表示中の秘密値由来でないことを証明できないため、`targetText`は常に`対象`へ置換
 - input completion: 入力値由来でないことを証明できないため、`targetText`は常に`入力欄`へ置換
 - navigation: HTTP／HTTPSのoriginとpathだけ。query、fragment、URL資格情報は保存しない
 - scroll: `up`または`down`のsummaryだけ

@@ -19,19 +19,9 @@ export type CaptureDraftStep = {
 };
 
 const EVENT_TYPES = new Set<CaptureEventType>(["click", "input_complete", "navigation", "scroll"]);
-const SENSITIVE_TARGET_PATTERN = /password|passcode|secret|token|authorization|cookie|card|cvv|cvc|個人番号|暗証|パスワード|カード|トークン/iu;
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/u;
 const MAX_EVENTS = 200;
-const MAX_TARGET_LENGTH = 128;
 const MAX_LOCATION_LENGTH = 2048;
-
-function normalizedTarget(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const target = value.trim().replace(/\s+/gu, " ");
-  if (!target || CONTROL_PATTERN.test(target)) return undefined;
-  if (SENSITIVE_TARGET_PATTERN.test(target)) return "入力欄";
-  return Array.from(target).slice(0, MAX_TARGET_LENGTH).join("");
-}
 
 function safeLocation(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > MAX_LOCATION_LENGTH || CONTROL_PATTERN.test(value)) return undefined;
@@ -50,8 +40,8 @@ export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
   const sequenceCounts = new Map<number, number>();
   for (const candidate of input) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const sequence = Number((candidate as Record<string, unknown>).sequence);
-    if (!Number.isSafeInteger(sequence) || sequence < 1) continue;
+    const sequence = (candidate as Record<string, unknown>).sequence;
+    if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) continue;
     sequenceCounts.set(sequence, (sequenceCounts.get(sequence) ?? 0) + 1);
   }
   for (const candidate of input) {
@@ -60,20 +50,18 @@ export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
     if (!Number.isSafeInteger(row.sequence) || Number(row.sequence) < 1 || sequenceCounts.get(Number(row.sequence)) !== 1) continue;
     if (typeof row.type !== "string" || !EVENT_TYPES.has(row.type as CaptureEventType)) continue;
     if (typeof row.occurredAt !== "string" || Number.isNaN(Date.parse(row.occurredAt))) continue;
+    if (row.type === "scroll" && row.direction !== "up" && row.direction !== "down") continue;
 
     const event: CaptureEvent = {
       sequence: Number(row.sequence),
       type: row.type as CaptureEventType,
       occurredAt: new Date(row.occurredAt).toISOString()
     };
-    if (event.type === "input_complete") {
-      // The capture side cannot prove whether an accessible label was derived
-      // from the entered value. Never copy it across the persistence boundary.
-      event.targetText = "入力欄";
-    } else if (event.type === "click") {
-      const targetText = normalizedTarget(row.targetText);
-      if (targetText) event.targetText = targetText;
-    }
+    // The capture side cannot prove whether an accessible label was derived
+    // from a displayed or entered sensitive value. Never copy it across the
+    // persistence boundary without a future provenance-safe extractor.
+    if (event.type === "input_complete") event.targetText = "入力欄";
+    if (event.type === "click") event.targetText = "対象";
     const location = safeLocation(row.url);
     if (location && event.type === "navigation") event.location = location;
     if (event.type === "scroll" && (row.direction === "up" || row.direction === "down")) event.direction = row.direction;
