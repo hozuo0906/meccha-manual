@@ -24,7 +24,7 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 - 共通: `sequence`、`type`、`occurredAt`
 - click: 表示中の秘密値由来でないことを証明できないため、`targetText`は常に`対象`へ置換
 - input completion: 入力値由来でないことを証明できないため、`targetText`は常に`入力欄`へ置換
-- navigation: HTTP／HTTPSのoriginとpathだけ。query、fragment、URL資格情報は保存しない
+- navigation: pathを含むURLに秘密値が埋め込まれ得るため、URLは保存しない
 - scroll: `up`または`down`のsummaryだけ
 
 未知field、入力値、password、カード番号、token、Cookie、Authorization、座標の生値は出力eventへ複製しない。機密候補を含むtarget labelは`入力欄`へ置換する。
@@ -35,7 +35,7 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 - click: `{target}をクリックします。`
 - input completion: `{target}への入力を完了します。入力値は手順書に保存されません。`
-- navigation: query／fragmentを除いたlocationへ移動
+- navigation: URLを含まない「次のページへ移動」の汎用step
 - 連続する同方向scroll: 1件のnoteへ集約
 
 このPRではDB保存、Browser session、Live View、Durable Object、R2を実装しない。将来の永続化はworkspace RLS、manual→revision lock、archive version、job期限・取消・再試行・監査を同じ縦切りで実装する。

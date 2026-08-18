@@ -69,25 +69,25 @@ test("viewer is rejected without revealing the egress gate", async () => {
   } finally { mock.restore(); }
 });
 
-test("capture normalization drops values, unknown fields, query, and fragment", () => {
+test("capture normalization drops values, unknown fields, and navigation URLs", () => {
   const secret = "do-not-store-input-value";
   const events = normalizeCaptureEvents([
     { sequence: 4, type: "scroll", occurredAt: "2026-08-18T00:00:04Z", direction: "down", value: secret },
     { sequence: 1, type: "click", occurredAt: "2026-08-18T00:00:01Z", targetText: "4111 1111 1111 1111", cookie: secret },
     { sequence: 2, type: "input_complete", occurredAt: "2026-08-18T00:00:02Z", targetText: "4111 1111 1111 1111", value: secret },
-    { sequence: 3, type: "navigation", occurredAt: "2026-08-18T00:00:03Z", url: `https://example.test/orders?private_value=${secret}#detail` }
+    { sequence: 3, type: "navigation", occurredAt: "2026-08-18T00:00:03Z", url: `https://example.test/payments/4111111111111111?private_value=${secret}#detail` }
   ]);
   assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4]);
   assert.equal(events[0].targetText, "対象");
   assert.equal(events[1].targetText, "入力欄");
-  assert.equal(events[2].location, "https://example.test/orders");
-  assert.doesNotMatch(JSON.stringify(events), /do-not-store|private_value=|#detail|cookie|value|4111/);
+  assert.equal(events[2].location, undefined);
+  assert.doesNotMatch(JSON.stringify(events), /do-not-store|private_value=|#detail|cookie|value|4111|example\.test/);
 
   const steps = generateCaptureDraftSteps(events);
   assert.equal(steps.length, 4);
   assert.equal(steps[1].actionType, "input");
-  assert.equal(steps[2].url, "https://example.test/orders");
-  assert.doesNotMatch(JSON.stringify(steps), /do-not-store|private_value=|#detail|4111/);
+  assert.equal(steps[2].url, null);
+  assert.doesNotMatch(JSON.stringify(steps), /do-not-store|private_value=|#detail|4111|example\.test/);
 });
 
 test("duplicate sequences are all rejected independent of input order", () => {

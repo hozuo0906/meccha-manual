@@ -5,7 +5,6 @@ export type CaptureEvent = {
   type: CaptureEventType;
   occurredAt: string;
   targetText?: string;
-  location?: string;
   direction?: "up" | "down";
 };
 
@@ -19,20 +18,7 @@ export type CaptureDraftStep = {
 };
 
 const EVENT_TYPES = new Set<CaptureEventType>(["click", "input_complete", "navigation", "scroll"]);
-const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/u;
 const MAX_EVENTS = 200;
-const MAX_LOCATION_LENGTH = 2048;
-
-function safeLocation(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length > MAX_LOCATION_LENGTH || CONTROL_PATTERN.test(value)) return undefined;
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return undefined;
-    return `${url.origin}${url.pathname}`;
-  } catch {
-    return undefined;
-  }
-}
 
 export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
   if (!Array.isArray(input) || input.length > MAX_EVENTS) return [];
@@ -62,8 +48,6 @@ export function normalizeCaptureEvents(input: unknown): CaptureEvent[] {
     // persistence boundary without a future provenance-safe extractor.
     if (event.type === "input_complete") event.targetText = "入力欄";
     if (event.type === "click") event.targetText = "対象";
-    const location = safeLocation(row.url);
-    if (location && event.type === "navigation") event.location = location;
     if (event.type === "scroll" && (row.direction === "up" || row.direction === "down")) event.direction = row.direction;
     events.push(event);
   }
@@ -83,7 +67,7 @@ export function generateCaptureDraftSteps(events: readonly CaptureEvent[]): Capt
       steps.push({ type: "action", title: `${target}へ入力`, instruction: `${target}への入力を完了します。入力値は手順書に保存されません。`, actionType: "input", targetText: target, url: null });
       previousScrollDirection = undefined;
     } else if (event.type === "navigation") {
-      steps.push({ type: "action", title: "ページを移動", instruction: event.location ? `${event.location}へ移動します。` : "次のページへ移動します。", actionType: "navigate", targetText: null, url: event.location ?? null });
+      steps.push({ type: "action", title: "ページを移動", instruction: "次のページへ移動します。", actionType: "navigate", targetText: null, url: null });
       previousScrollDirection = undefined;
     } else if (event.type === "scroll" && event.direction !== previousScrollDirection) {
       const label = event.direction === "up" ? "上" : "下";
