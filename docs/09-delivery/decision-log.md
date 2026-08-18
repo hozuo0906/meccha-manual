@@ -113,7 +113,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - OQ-006のactual-peer P0検証が完了するまで、操作記録開始、Live View、navigate／reload、mobile previewは認証・workspace role確認後に`503 BROWSER_EGRESS_NOT_VERIFIED`で拒否する。
   - 現段階のWorkerへBrowser Run／Durable Object bindingや、環境変数だけで検証済み状態をtrueにする経路を追加しない。
   - repo-sideでは保存可能eventのallowlist正規化と、外部AIなしの決定的な日本語draft step生成を先行する。
-  - 入力値、URL query／fragment、未知field、Cookie、Authorization、機密target labelを正規化eventとdraftへ複製しない。
+  - 入力値、未知field、Cookie、Authorization、機密target labelを正規化eventとdraftへ複製しない。navigation URLはpathにも秘密値が埋め込まれ得るため、origin／path／query／fragmentを含むURL全体を保存しない。
 - Reason:
   - #57の実Browser E2E完了条件を勝手に緩めず、SSRF P0境界を維持したまま独立検証できる操作記録コアを進めるため。
 - Boundary:

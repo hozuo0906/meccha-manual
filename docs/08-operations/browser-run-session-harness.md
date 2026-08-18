@@ -50,8 +50,8 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 ## 入力値と操作イベント
 
-- 保存するのはevent種別、時刻、連番、マスキング済みselector、遷移先の安全なorigin/path情報です。
-- text、password、カード、token、Cookie、Authorization、個人番号、URL query/fragmentの生値を保存しません。
+- 保存するのはevent種別、時刻、連番、由来安全性を証明できるマスキング済みselectorです。
+- text、password、カード、token、Cookie、Authorization、個人番号、navigation URL全体を保存しません。URLはpathにも秘密値が埋め込まれ得るため、origin/pathを含めevent、draft、payloadへ複製しません。
 - input/changeは「入力が完了した」という事実だけを記録し、値は常に破棄します。
 - 監査ログ、例外、デバッグ出力にも同じ禁止規則を適用します。
 
@@ -71,7 +71,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 ## 監査ログ
 
-`capture.requested`、`capture.started`、`live_view.issued`、`navigation.blocked`、`capture.completed`、`capture.failed`、`capture.expired`、`browser.close_failed` を記録します。workspace ID、session ID、actor ID、結果コード、時刻は記録できますが、入力値、対象URL query、Live View URL、Cookie、スクリーンショット本体は記録しません。
+`capture.requested`、`capture.started`、`live_view.issued`、`navigation.blocked`、`capture.completed`、`capture.failed`、`capture.expired`、`browser.close_failed` を記録します。workspace ID、session ID、actor ID、結果コード、時刻は記録できますが、入力値、対象URL全体、Live View URL、Cookie、スクリーンショット本体は記録しません。
 
 ## 外部設定と承認
 
