@@ -58,7 +58,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 
 ## 容量予約
 
-- 保存要求ごとに推測不能な予約IDと冪等keyを発行し、`current bytes + active reserved bytes + planned bytes`を同一transactionで検証・予約する。
+- クライアントは初回要求前に推測不能なoperation keyを生成・保持する（再送可能な安定asset IDが先に存在する場合はそこから一意に導出する）。サーバーはこのkeyへ予約IDを1対1で固定し、`current bytes + active reserved bytes + planned bytes`を同一transactionで検証・予約する。
 - 同じ冪等keyの結果不明再送は同じ予約を返し、別予約を作らない。予約成功後にWorkerが停止しても、短いlease期限後にreconciliationがobjectの有無を照合し、実使用量へ確定または解放する。
 - R2書込成功とPostgres確定の間で応答が失われた場合はobject metadataとchecksumで同一保存を照合し、二重計上しない。lease延長は所有者と期限を原子的に照合し、無期限に延長しない。
 
