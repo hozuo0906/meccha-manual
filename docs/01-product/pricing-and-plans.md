@@ -60,7 +60,7 @@ Status: Accepted
 ## 利用量の扱い
 
 - Browser Runはセッションの課金対象実行秒数を月次で集計する。
-- Browser Runは開始前に残り時間を原子的に予約し、予約期限以下のprovider TTLとDO alarmを設定する。hard deadlineでLive View失効と期限付きcancel・closeを行い、終了後は実績へ確定して未使用予約を解放する。
+- Browser Runは開始前に残り時間を原子的に予約する。close/DOから独立したprovider保証の絶対失効をP0実証できるまでは起動をfail closedにし、実証後はhard deadlineでLive View失効と期限付きcancel・closeを行い、終了後に実績へ確定して未使用予約を解放する。
 - 保存容量は削除済み扱いでURL発行を止めたobjectを含め、物理削除完了まで実使用量として監視する。
 - R2への書込は予約IDと冪等keyでobject byte数を事前に原子的予約し、`current + active reserved + planned`が上限を超える場合は開始しない。結果不明再送は同じ予約を返し、lease期限後のreconciliationでobjectを照合して実使用量へ確定または解放する。
 - 80%到達時に警告し、100%到達時は新しい操作記録、新規保存、新しいエクスポート生成を停止する。
