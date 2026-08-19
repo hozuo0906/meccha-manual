@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 export const REQUIRED_EGRESS_CHANNELS = Object.freeze([
@@ -88,6 +89,39 @@ export function evaluateEgressEvidence(evidence) {
     ok: failures.length === 0,
     checkedChannels: REQUIRED_EGRESS_CHANNELS.length,
     failures
+  };
+}
+
+export function buildSanitizedEvidenceArtifact(evidence, context) {
+  const commitSha = typeof context?.commitSha === "string" && /^[0-9a-f]{40}$/u.test(context.commitSha)
+    ? context.commitSha
+    : null;
+  const runId = typeof context?.runId === "string" && /^\d+$/u.test(context.runId) ? context.runId : null;
+  const runAttempt = typeof context?.runAttempt === "string" && /^\d+$/u.test(context.runAttempt)
+    ? context.runAttempt
+    : null;
+  if (!commitSha || !runId || !runAttempt) throw new Error("GitHub run/SHA artifact binding is invalid.");
+
+  const byChannel = new Map((evidence?.channels ?? []).map((item) => [item.channel, item]));
+  return {
+    schemaVersion: 1,
+    commitSha,
+    runId,
+    runAttempt,
+    channels: REQUIRED_EGRESS_CHANNELS.map((channel) => {
+      const item = byChannel.get(channel) ?? {};
+      return {
+        channel,
+        decision: item.decision === "blocked_before_bytes" || item.decision === "disabled_before_attempt"
+          ? item.decision
+          : "unproven",
+        applicationBytesObserved: Number.isSafeInteger(item.applicationBytesObserved) && item.applicationBytesObserved >= 0
+          ? item.applicationBytesObserved
+          : null,
+        actualPeerVerifiedBeforeBytes: item.actualPeerVerifiedBeforeBytes === true,
+        disablementVerified: item.disablementVerified === true
+      };
+    })
   };
 }
 
@@ -183,9 +217,20 @@ async function runLiveProof() {
       headers: { authorization: `Bearer ${fixtureToken}` }
     });
     if (!response.ok) throw new Error(`Fixture evidence endpoint failed with HTTP ${response.status}.`);
-    const result = evaluateEgressEvidence(await response.json());
+    const evidence = await response.json();
+    const result = evaluateEgressEvidence(evidence);
     console.log(JSON.stringify({ ok: result.ok, checkedChannels: result.checkedChannels, failures: result.failures }));
     if (!result.ok) throw new Error("Browser Run egress proof remains fail-closed.");
+    const artifact = buildSanitizedEvidenceArtifact(evidence, {
+      commitSha: process.env.GITHUB_SHA,
+      runId: process.env.GITHUB_RUN_ID,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT
+    });
+    await writeFile(
+      process.env.BROWSER_EGRESS_ARTIFACT_PATH || "browser-run-egress-evidence.json",
+      `${JSON.stringify(artifact, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 }
+    );
   } catch (error) {
     primaryError = error;
     throw error;

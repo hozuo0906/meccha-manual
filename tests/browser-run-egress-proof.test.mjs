@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REQUIRED_EGRESS_CHANNELS,
+  buildSanitizedEvidenceArtifact,
   buildGuardedSessionBody,
   cleanupLiveSession,
   evaluateEgressEvidence,
@@ -108,5 +109,37 @@ test("both cleanup failures are retained", async () => {
       async () => { throw new Error("remote DELETE failed"); }
     ),
     (error) => error instanceof AggregateError && error.errors.length === 2
+  );
+});
+
+test("sanitized artifact is run/SHA-bound and excludes fixture secrets", () => {
+  const evidence = {
+    schemaVersion: 1,
+    fixtureToken: "must-not-persist",
+    probeId: "must-not-persist",
+    channels: REQUIRED_EGRESS_CHANNELS.map((channel) => ({
+      channel,
+      decision: "blocked_before_bytes",
+      applicationBytesObserved: 0,
+      actualPeerVerifiedBeforeBytes: true,
+      requestUrl: "https://secret.example.test/path",
+      headers: { authorization: "must-not-persist" }
+    }))
+  };
+  const artifact = buildSanitizedEvidenceArtifact(evidence, {
+    commitSha: "a".repeat(40),
+    runId: "12345",
+    runAttempt: "2"
+  });
+  assert.equal(artifact.commitSha, "a".repeat(40));
+  assert.equal(artifact.runId, "12345");
+  assert.equal(artifact.channels.length, REQUIRED_EGRESS_CHANNELS.length);
+  assert.doesNotMatch(JSON.stringify(artifact), /must-not-persist|secret\.example|requestUrl|headers|probeId/);
+});
+
+test("sanitized artifact rejects missing or malformed GitHub binding", () => {
+  assert.throws(
+    () => buildSanitizedEvidenceArtifact({ channels: [] }, { commitSha: "main", runId: "run", runAttempt: "1" }),
+    /binding is invalid/
   );
 });

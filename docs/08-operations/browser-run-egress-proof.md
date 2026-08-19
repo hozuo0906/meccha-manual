@@ -44,6 +44,7 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 - `disabled_before_attempt`は、試行コードが呼ばれなかったという自己申告ではなく、経路を無効化した構成をfixture外部から検証した証跡を持つ。
 - 経路欠落、timeout、fixture障害、証跡不明、cleanup失敗はすべて不合格とする。
 - 不合格時はBrowser Run起動・navigateを引き続き`BROWSER_EGRESS_NOT_VERIFIED`で拒否する。
+- 合格時はURL、header、token、probe IDを含めず、経路別decision、application bytes数、actual-peer／無効化検証結果だけをcommit SHA、Actions run ID、run attemptへ固定したartifactとして90日保存する。
 
 ## 実行境界
 

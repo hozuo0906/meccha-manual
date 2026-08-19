@@ -66,3 +66,11 @@ jobs:
           BROWSER_EGRESS_FIXTURE_ORIGIN: ${{ vars.BROWSER_EGRESS_FIXTURE_ORIGIN }}
           BROWSER_EGRESS_EVIDENCE_URL: ${{ vars.BROWSER_EGRESS_EVIDENCE_URL }}
           BROWSER_EGRESS_FIXTURE_TOKEN: ${{ secrets.BROWSER_EGRESS_FIXTURE_TOKEN }}
+          BROWSER_EGRESS_ARTIFACT_PATH: browser-run-egress-evidence.json
+      - name: Preserve sanitized run/SHA-bound evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-run-egress-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          path: browser-run-egress-evidence.json
+          if-no-files-found: error
+          retention-days: 90
