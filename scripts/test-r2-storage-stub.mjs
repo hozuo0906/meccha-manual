@@ -148,7 +148,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
       if (currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
-      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline };
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
       return reservation;
     },
@@ -163,7 +163,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
       const reservation = reservations.get(operationKey);
       const stored = await readObject(reservation.objectKey);
       if (reservation.state === "released") {
-        if (stored) {
+        if (stored && stored.reservationId === reservation.reservationId && stored.fencingToken === reservation.fencingToken) {
           await deleteObject(reservation.objectKey);
           reservation.lateObjectDeleted = true;
         }
@@ -176,6 +176,8 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
           [reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256],
           "stored object must match the reserved workspace, key, size, and checksum"
         );
+        assert.equal(stored.reservationId, reservation.reservationId, "stored object reservation ID must match");
+        assert.equal(stored.fencingToken, reservation.fencingToken, "stored object fencing token must match");
         reservation.state = "committed";
         currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
@@ -187,6 +189,11 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
     },
     snapshot() {
       return { currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
+    },
+    async sweepReleased(now) {
+      for (const reservation of reservations.values()) {
+        if (reservation.state === "released") await this.reconcile(reservation.operationKey, now);
+      }
     }
   };
 }
@@ -195,11 +202,14 @@ const reservationBucket = createFakeR2Bucket();
 const readReservationObject = async (objectKey) => {
   const stored = await reservationBucket.get(objectKey);
   if (!stored) return null;
+  const body = new Uint8Array(await stored.arrayBuffer());
   return {
     workspaceId: stored.customMetadata.workspace_id,
     objectKey,
     sizeBytes: stored.size,
-    checksumSha256: stored.customMetadata.checksum_sha256
+    checksumSha256: createHash("sha256").update(body).digest("hex"),
+    reservationId: stored.customMetadata.reservation_id,
+    fencingToken: stored.customMetadata.fencing_token
   };
 };
 const reservationHarness = createUsageReservationHarness(
@@ -214,7 +224,7 @@ const saveRequest = {
   plannedBytes: 6,
   checksumSha256: "a".repeat(64)
 };
-const initialLease = { owner: "worker-001", deadline: 100 };
+const initialLease = { owner: "worker-001", deadline: 100, fencingToken: "fence-001" };
 const firstReservation = reservationHarness.reserve(saveRequest, initialLease);
 assert.strictEqual(reservationHarness.reserve({ ...saveRequest }, initialLease), firstReservation, "lost response retry must reuse one reservation");
 for (const mismatch of [
@@ -226,24 +236,38 @@ for (const mismatch of [
 assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }, initialLease), /limit exceeded/);
 await assert.rejects(reservationHarness.reconcile(saveRequest.operationKey, 99), /active lease/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
-await reservationBucket.put(saveRequest.objectKey, new Uint8Array(saveRequest.plannedBytes), {
+const saveBody = new TextEncoder().encode("stored");
+saveRequest.plannedBytes = saveBody.byteLength;
+saveRequest.checksumSha256 = createHash("sha256").update(saveBody).digest("hex");
+firstReservation.plannedBytes = saveRequest.plannedBytes;
+firstReservation.checksumSha256 = saveRequest.checksumSha256;
+firstReservation.tuple = JSON.stringify([saveRequest.workspaceId, saveRequest.objectKey, saveRequest.plannedBytes, saveRequest.checksumSha256]);
+await reservationBucket.put(saveRequest.objectKey, saveBody, {
   httpMetadata: { contentType: "image/png" },
-  customMetadata: { workspace_id: saveRequest.workspaceId, checksum_sha256: saveRequest.checksumSha256 }
+  customMetadata: { workspace_id: saveRequest.workspaceId, checksum_sha256: saveRequest.checksumSha256, reservation_id: firstReservation.reservationId, fencing_token: firstReservation.fencingToken }
 });
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 99)).state, "committed", "post-write worker stop must reconcile a matching fake R2 object to committed");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 101)).state, "committed", "reconciliation must be idempotent");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
 const abandoned = { ...saveRequest, operationKey: "operation-003", objectKey: "workspace-001/manual/asset-003.png", plannedBytes: 4 };
-reservationHarness.reserve(abandoned, { owner: "worker-003", deadline: 200 });
+const abandonedReservation = reservationHarness.reserve(abandoned, { owner: "worker-003", deadline: 200, fencingToken: "fence-003" });
 await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
 assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 200)).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
 await reservationBucket.put(abandoned.objectKey, new Uint8Array(abandoned.plannedBytes), {
   httpMetadata: { contentType: "image/png" },
-  customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256 }
+  customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256, reservation_id: abandonedReservation.reservationId, fencing_token: abandonedReservation.fencingToken }
 });
-assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 201)).lateObjectDeleted, true, "late object from an expired owner must be deleted");
+await reservationHarness.sweepReleased(201);
+assert.equal(reservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "scheduled sweep must delete a late object from an expired owner");
 assert.equal(await reservationBucket.get(abandoned.objectKey), null);
+await reservationBucket.put(abandoned.objectKey, new Uint8Array(abandoned.plannedBytes), {
+  httpMetadata: { contentType: "image/png" },
+  customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256, reservation_id: "reservation-new-generation", fencing_token: "fence-new" }
+});
+await reservationHarness.sweepReleased(202);
+assert.notEqual(await reservationBucket.get(abandoned.objectKey), null, "old reservation sweep must preserve a newer fenced object");
+await reservationBucket.delete(abandoned.objectKey);
 for (const mismatch of [
   { workspaceId: "workspace-999" },
   { objectKey: "workspace-001/manual/wrong.png" },
@@ -252,7 +276,7 @@ for (const mismatch of [
 ]) {
   const operationKey = `mismatch-${Object.keys(mismatch)[0]}`;
   const request = { ...abandoned, operationKey, objectKey: `workspace-001/manual/${operationKey}.png`, plannedBytes: 4 };
-  reservationHarness.reserve(request, { owner: operationKey, deadline: 300 });
+  const mismatchReservation = reservationHarness.reserve(request, { owner: operationKey, deadline: 300, fencingToken: `fence-${operationKey}` });
   const stored = {
     workspaceId: request.workspaceId,
     objectKey: request.objectKey,
@@ -263,7 +287,7 @@ for (const mismatch of [
   const storedKey = mismatch.objectKey ?? request.objectKey;
   await reservationBucket.put(storedKey, new Uint8Array(stored.sizeBytes), {
     httpMetadata: { contentType: "image/png" },
-    customMetadata: { workspace_id: stored.workspaceId, checksum_sha256: stored.checksumSha256 }
+    customMetadata: { workspace_id: stored.workspaceId, checksum_sha256: stored.checksumSha256, reservation_id: mismatchReservation.reservationId, fencing_token: mismatchReservation.fencingToken }
   });
   if (mismatch.objectKey) {
     assert.equal((await reservationHarness.reconcile(operationKey, 300)).state, "released");
