@@ -41,7 +41,7 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 
 - 全10経路が重複なく1件ずつ存在し、未知の経路がなく、`blocked_before_bytes`か`disabled_before_attempt`である。
 - `blocked_before_bytes`はapplication bytesが0で、actual peer検証が送信前に完了した証跡を持つ。
-- `disabled_before_attempt`は、試行コードが呼ばれなかったという自己申告ではなく、経路を無効化した構成をfixture外部から検証した証跡を持つ。
+- `disabled_before_attempt`は、試行コードが呼ばれなかったという自己申告ではなく、経路を無効化した構成をfixture外部から検証した証跡とapplication bytes 0件を持つ。
 - 経路欠落、timeout、fixture障害、証跡不明、cleanup失敗はすべて不合格とする。
 - 不合格時はBrowser Run起動・navigateを引き続き`BROWSER_EGRESS_NOT_VERIFIED`で拒否する。
 - 合格時はURL、header、token、probe IDを含めず、経路別decision、application bytes数、actual-peer／無効化検証結果だけをcommit SHA、Actions run ID、run attemptへ固定したartifactとして90日保存する。
@@ -50,4 +50,4 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 
 `Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`で手動実行する。GitHub `staging` Environmentに専用tokenとfixture URLが揃わない場合はlive jobを実行しない。fixtureと証跡endpointは同一HTTPS originに限定し、fixture tokenを別originへ送らない。PRでは契約テストだけを実行し、Browser Runを起動しない。
 
-live実行はsessionを60秒keep-aliveで作成し、成功・失敗にかかわらずDELETEを呼び、`closed`または`closing`の応答を確認する。session ID、WebSocket URL、tokenはログへ出さない。
+live実行はsessionを60秒keep-aliveで作成し、成功・失敗にかかわらずDELETEを呼び、`closed`または`closing`の応答を確認する。local browser closeは5秒で打ち切り、hangしてもremote DELETEを独立して試行する。CDP接続失敗は固定文言へ変換し、session ID、WebSocket URL、tokenはログへ出さない。

@@ -77,7 +77,8 @@ export function evaluateEgressEvidence(evidence) {
     }
     const safelyDisabled =
       result.decision === "disabled_before_attempt" &&
-      result.disablementVerified === true;
+      result.disablementVerified === true &&
+      result.applicationBytesObserved === 0;
     const safelyBlocked =
       result.decision === "blocked_before_bytes" &&
       result.applicationBytesObserved === 0 &&
@@ -161,10 +162,10 @@ async function closeSession(accountId, sessionId, token) {
   }
 }
 
-export async function cleanupLiveSession(browser, closeRemoteSession) {
+export async function cleanupLiveSession(browser, closeRemoteSession, browserCloseTimeoutMs = 5000) {
   let browserCloseError;
   try {
-    if (browser) await browser.close();
+    if (browser) await withTimeout(() => browser.close(), browserCloseTimeoutMs, "Browser disconnect timed out.");
   } catch (error) {
     browserCloseError = error;
   }
@@ -181,6 +182,28 @@ export async function cleanupLiveSession(browser, closeRemoteSession) {
   }
   if (browserCloseError) throw browserCloseError;
   if (remoteCloseError) throw remoteCloseError;
+}
+
+export async function withTimeout(operation, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function connectBrowserSafely(connect) {
+  try {
+    return await connect();
+  } catch {
+    throw new Error("Browser Run CDP connection failed; endpoint details were suppressed.");
+  }
 }
 
 async function runLiveProof() {
@@ -211,9 +234,9 @@ async function runLiveProof() {
     if (!sessionId || !created.webSocketDebuggerUrl) throw new Error("Browser Run did not return a usable guarded session.");
 
     const { chromium } = await import("@playwright/test");
-    browser = await chromium.connectOverCDP(created.webSocketDebuggerUrl, {
+    browser = await connectBrowserSafely(() => chromium.connectOverCDP(created.webSocketDebuggerUrl, {
       headers: { authorization: `Bearer ${token}` }
-    });
+    }));
     const context = browser.contexts()[0] ?? await browser.newContext();
     const page = context.pages()[0] ?? await context.newPage();
     const startUrl = new URL("/browser-run-egress/start", fixture);
@@ -271,7 +294,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       channels: REQUIRED_EGRESS_CHANNELS.map((channel) => ({
         channel,
         decision: "disabled_before_attempt",
-        disablementVerified: true
+        disablementVerified: true,
+        applicationBytesObserved: 0
       }))
     });
     if (body.guardrails.allowedDomains.length !== 1 || !synthetic.ok) process.exitCode = 1;

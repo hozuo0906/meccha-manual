@@ -6,6 +6,7 @@ import {
   buildSanitizedEvidenceArtifact,
   buildGuardedSessionBody,
   cleanupLiveSession,
+  connectBrowserSafely,
   evaluateEgressEvidence,
   requireSameOrigin,
   validatedHttpsUrl
@@ -67,7 +68,8 @@ test("claimed disablement requires independent verification", () => {
   const channels = REQUIRED_EGRESS_CHANNELS.map((channel) => ({
     channel,
     decision: "disabled_before_attempt",
-    disablementVerified: true
+    disablementVerified: true,
+    applicationBytesObserved: 0
   }));
   channels.find((item) => item.channel === "download").disablementVerified = false;
   const result = evaluateEgressEvidence({ schemaVersion: 1, channels });
@@ -75,11 +77,25 @@ test("claimed disablement requires independent verification", () => {
   assert.deepEqual(result.failures, ["download:unproven"]);
 });
 
+test("disabled evidence must also prove zero application bytes", () => {
+  const channels = REQUIRED_EGRESS_CHANNELS.map((channel) => ({
+    channel,
+    decision: "disabled_before_attempt",
+    disablementVerified: true,
+    applicationBytesObserved: 0
+  }));
+  channels.find((item) => item.channel === "websocket").applicationBytesObserved = 1;
+  const result = evaluateEgressEvidence({ schemaVersion: 1, channels });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failures, ["websocket:unproven"]);
+});
+
 test("duplicate and unexpected channels invalidate evidence", () => {
   const channels = REQUIRED_EGRESS_CHANNELS.map((channel) => ({
     channel,
     decision: "disabled_before_attempt",
-    disablementVerified: true
+    disablementVerified: true,
+    applicationBytesObserved: 0
   }));
   channels.push({ ...channels[0] }, {
     channel: "future_transport",
@@ -110,6 +126,29 @@ test("both cleanup failures are retained", async () => {
       async () => { throw new Error("remote DELETE failed"); }
     ),
     (error) => error instanceof AggregateError && error.errors.length === 2
+  );
+});
+
+test("a hanging browser close is bounded and cannot suppress remote DELETE", async () => {
+  let remoteCloseCalls = 0;
+  await assert.rejects(
+    cleanupLiveSession(
+      { close: async () => new Promise(() => {}) },
+      async () => { remoteCloseCalls += 1; },
+      10
+    ),
+    /Browser disconnect timed out/
+  );
+  assert.equal(remoteCloseCalls, 1);
+});
+
+test("CDP connection errors suppress debugger endpoint details", async () => {
+  const secretEndpoint = "wss://secret.example.test/cdp/session-token";
+  await assert.rejects(
+    connectBrowserSafely(async () => { throw new Error(`connect failed: ${secretEndpoint}`); }),
+    (error) => error.message === "Browser Run CDP connection failed; endpoint details were suppressed." &&
+      !JSON.stringify(error).includes(secretEndpoint) &&
+      !error.stack.includes(secretEndpoint)
   );
 });
 
