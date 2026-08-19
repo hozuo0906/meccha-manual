@@ -59,7 +59,7 @@ export function evaluateEgressEvidence(evidence) {
       continue;
     }
     if (!REQUIRED_EGRESS_CHANNELS.includes(item.channel)) {
-      failures.push(`${item.channel}:unexpected`);
+      failures.push("channel:unexpected");
       continue;
     }
     if (results.has(item.channel)) {

@@ -109,7 +109,17 @@ test("duplicate and unexpected channels invalidate evidence", () => {
   });
   const result = evaluateEgressEvidence({ schemaVersion: 1, channels });
   assert.equal(result.ok, false);
-  assert.deepEqual(result.failures, ["navigation:duplicate", "future_transport:unexpected"]);
+  assert.deepEqual(result.failures, ["navigation:duplicate", "channel:unexpected"]);
+});
+
+test("unexpected channel values never enter failure logs", () => {
+  const secret = "https://fixture.example.test/private?token=must-not-log";
+  const result = evaluateEgressEvidence({
+    schemaVersion: 1,
+    channels: [{ channel: secret, decision: "blocked_before_bytes" }]
+  });
+  assert.equal(result.ok, false);
+  assert.doesNotMatch(JSON.stringify(result.failures), /fixture|token|must-not-log/);
 });
 
 test("remote DELETE is attempted even when browser close fails", async () => {
