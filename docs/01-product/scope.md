@@ -16,7 +16,7 @@ Status: Accepted
 - スマホ表示確認
 - 分析、コメント、通知、監査ログ
 - Stripe Checkout SessionsとLinkによる課金拡張
-- AI拡張口
+- owner承認後に別途スコープ化するAI拡張（現スコープでは設計・実装しない）
 - 品質ゲート、レビューloop、Runbook
 
 ## 初回公開の考え方
@@ -30,4 +30,4 @@ Status: Accepted
 - 社内intranetへの万能アクセス保証
 - ネイティブアプリ記録
 - 実機Safari/Android OS完全再現
-- 初期状態での外部AI API呼び出し
+- 売上安定の確認とowner明示承認前のAI設計・実装・設定・外部API呼び出し
