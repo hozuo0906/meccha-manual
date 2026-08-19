@@ -41,6 +41,8 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 ## 実装前P0検証
 
+実行契約と証跡形式は `browser-run-egress-proof.md` を正とする。Cloudflareのsession guardrailsはoutbound HTTP/S制限としてのみ扱い、全通信のactual peer拘束が実証されるまで有効化根拠にしない。
+
 - Cloudflare Browser Runが、navigation以外を含む全通信を検証済みegressへ固定できるかをstagingで確認する。
 - 同じhostnameが検査時にpublic IP、接続時にprivate/link-local/metadata IPを返すDNS rebinding fixtureで、実接続前に拒否されることを確認する。
 - redirect、iframe、subresource、WebSocket、Service Worker、download、WebTransport/QUIC、WebRTC ICE/STUN/TURNそれぞれでprivate IPへの迂回をnegative testする。

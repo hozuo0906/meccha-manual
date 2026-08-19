@@ -118,3 +118,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - #57の実Browser E2E完了条件を勝手に緩めず、SSRF P0境界を維持したまま独立検証できる操作記録コアを進めるため。
 - Boundary:
   - #84をmergeしても#57はcloseしない。Browser Run実起動、Live View、Durable Object、DB永続化、R2、staging／production反映は後続とする。
+
+## DEC-062: Browser Run session guardrailsをP0実証候補として隔離評価する
+
+- Status: Proposed
+- Date: 2026-08-19
+- Decision:
+  - Cloudflare公式APIの`guardrails.allowedDomains`はoutbound HTTP/S制限候補として隔離stagingで評価する。
+  - 公式契約だけではWebSocket、Service Worker、download、WebTransport/QUIC、WebRTC ICE/STUN/TURN、DNS rebinding後のactual peer送信前拒否を保証したと扱わない。
+  - Issue #86の全10経路が送信前拒否または起動時無効化を証明するまでOQ-006と製品側fail-closedを維持する。
+- Reason:
+  - hostname allowlistの存在と全通信のactual peer拘束は同義ではなく、未証明経路からのSSRFをP0として防ぐため。
+- Boundary:
+  - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
