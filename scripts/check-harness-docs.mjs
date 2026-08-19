@@ -1,4 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 const requiredDocs = {
   "README.md": [
@@ -218,6 +219,10 @@ for (const [name, spec] of Object.entries(approvedDevDependencies)) {
   if (packageManifest.devDependencies?.[name] !== spec) errors.push(`Approved dependency spec changed: ${name}`);
 }
 const packageLock = JSON.parse(await readFile("package-lock.json", "utf8"));
+const packageLockSha256 = createHash("sha256").update(await readFile("package-lock.json")).digest("hex");
+if (packageLockSha256 !== "d206407a8c85c247f9f6f1f97f677f32d082ad8a257e5650dc65f74755922196") {
+  errors.push("package-lock.json dependency graph or resolution metadata changed without allowlist review.");
+}
 if (JSON.stringify(packageLock.packages?.[""]?.dependencies ?? {}) !== JSON.stringify(packageManifest.dependencies ?? {})) {
   errors.push("package-lock runtime dependencies differ from package.json.");
 }
