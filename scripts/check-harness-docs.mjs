@@ -126,7 +126,7 @@ const requiredDocs = {
     "`BILLING_FEATURE_ENABLED`"
   ],
   "docs/08-operations/r2-storage-harness.md": [
-    "予約IDと冪等key",
+    "初回要求前に推測不能なoperation key",
     "active reserved bytes",
     "lease期限後にreconciliation",
     "結果不明再送",
@@ -198,16 +198,32 @@ const runtimeFiles = [
   "wrangler.brand.jsonc",
   "package.json"
 ];
-for (const file of runtimeFiles) {
-  const content = await readFile(file, "utf8");
-  const normalizedPath = file.toLowerCase();
-  if (
+
+function hasAiRuntimeBoundary(content, path = "") {
+  const normalizedPath = path.toLowerCase();
+  return (
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)/i.test(content) ||
-    /\/api\/(?:v\d+\/)?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
-    /(?:from|require\s*\()['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai)/i.test(content) ||
-    /(?:^|[-_.])(?:ai[-_.]?adapter|openai|anthropic|gemini|llm)(?:[-_.]|$)/i.test(normalizedPath)
-  ) {
+    /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
+    /(?:from\s+|require\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai)['"]/i.test(content) ||
+    /(?:^|[\/\-_.])(?:ai[-_.]?adapter|openai|anthropic|gemini|llm)(?:[\/\-_.]|$)/i.test(normalizedPath)
+  );
+}
+
+for (const fixture of [
+  { content: 'import OpenAI from "openai";', path: "apps/worker/src/generator.ts" },
+  { content: 'router.post("/v1/chat", handler);', path: "apps/worker/src/routes.ts" },
+  { content: 'const client = require("@anthropic-ai/sdk");', path: "apps/worker/src/provider.ts" },
+  { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
+]) {
+  if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
+    errors.push(`AI absence regression fixture was not detected: ${fixture.path}`);
+  }
+}
+
+for (const file of runtimeFiles) {
+  const content = await readFile(file, "utf8");
+  if (hasAiRuntimeBoundary(content, file)) {
     errors.push(`AI runtime boundary must not exist before owner approval: ${file}`);
   }
 }
