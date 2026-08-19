@@ -44,5 +44,5 @@ Status: Accepted
 | AC-060 | 売上安定の確認またはowner明示承認の一方でも揃っていない | repository、runtime設定、Secret、通信経路を検査して手順書を作る | AI adapter、feature flag、Secret、endpointが存在せず、FR-006はローカル決定的処理だけで完了し、外部AI APIを呼ばない |
 | AC-062 | 同じworkspaceでPersonalとTeamの購入を並行開始する | 両方のSession作成とWebhookを順不同で処理する | subscription用の支払い可能Sessionは1件だけとなり、対象自身を競合扱いせず、別契約へ二重entitlementを付与しない |
 | AC-063 | DBへ照合できないsubscription modeの決済が成功する | draft/open/paid invoiceのWebhookを重複・順不同で再送する | entitlementを付与せず、subscription cancelと状態別のdelete/void/refundが冪等に完了して継続請求を残さない |
-| AC-064 | Browser Runの月次残り時間より長い要求または並行開始があり、close失敗・hangまたはWorker/DO再起動が発生する | セッションを開始・継続する | 開始前に残り時間を原子的に予約し、予約不能なら起動しない。予約期限以下のprovider TTLとDO alarmを設定し、deadlineでLive Viewを失効して期限付きcancel・closeを行い、再起動後も期限を延長せずremote sessionを停止する |
+| AC-064 | Browser Runの月次残り時間より長い要求または並行開始があり、close失敗・hangまたはWorker/DO再起動が発生する | セッションを開始・継続する | 開始前に残り時間を原子的に予約する。close/DOから独立したprovider保証の絶対失効を公式契約と障害注入でP0実証できるまでは起動をfail closedにし、実証後は予約期限でremote sessionが停止することを確認する |
 | AC-065 | R2上限付近で複数保存、書込途中のWorker停止、応答消失後の再送、lease期限切れが発生する | objectを書き込む | 予約IDと冪等keyで`current bytes + active reserved bytes + planned bytes`を原子的に検証・予約し、再送は同じ予約を返す。reconciliationがobjectを照合して予約を確定または解放し、二重計上、上限超過、枠の永久消費を防ぐ |
