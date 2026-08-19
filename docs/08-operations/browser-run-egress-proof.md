@@ -35,7 +35,7 @@ fixtureと受信sinkはproduction・実顧客サイトから分離し、合成pr
 9. WebTransport/QUIC
 10. WebRTC ICE/STUN/TURN
 
-DNS rebinding fixtureは検査時public、接続時private/link-local/metadata相当へ変化させる。受信sinkは各経路について、application bytes受信数とactual peer送信前検証の証跡を集約する。URL、header、body、Cookie、token、Live View URLは保存・返却しない。
+DNS rebinding fixtureは検査時public、接続時private/link-local/metadata相当へ変化させる。受信sinkは各経路について、application bytes受信数とactual peer送信前検証の証跡を集約し、要求された現在のprobe IDを応答相関値として返す。runnerは生成したprobe IDとの完全一致を検証してから合否を評価し、不一致・欠落・cache応答を拒否する。URL、header、body、Cookie、token、Live View URLは保存・返却しない。probe IDも照合後の保存artifactから除外する。
 
 ## 合格条件
 

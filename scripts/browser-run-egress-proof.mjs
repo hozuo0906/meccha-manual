@@ -125,6 +125,16 @@ export function buildSanitizedEvidenceArtifact(evidence, context) {
   };
 }
 
+export function assertEvidenceProbe(evidence, expectedProbeId) {
+  if (
+    typeof expectedProbeId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(expectedProbeId) ||
+    evidence?.probeId !== expectedProbeId
+  ) {
+    throw new Error("Fixture evidence does not match the current probe.");
+  }
+}
+
 async function cloudflareRequest(path, init, token) {
   const response = await fetch(`${API_ORIGIN}${path}`, {
     ...init,
@@ -218,6 +228,7 @@ async function runLiveProof() {
     });
     if (!response.ok) throw new Error(`Fixture evidence endpoint failed with HTTP ${response.status}.`);
     const evidence = await response.json();
+    assertEvidenceProbe(evidence, probeId);
     const result = evaluateEgressEvidence(evidence);
     console.log(JSON.stringify({ ok: result.ok, checkedChannels: result.checkedChannels, failures: result.failures }));
     if (!result.ok) throw new Error("Browser Run egress proof remains fail-closed.");

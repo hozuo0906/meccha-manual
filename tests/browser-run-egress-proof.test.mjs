@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REQUIRED_EGRESS_CHANNELS,
+  assertEvidenceProbe,
   buildSanitizedEvidenceArtifact,
   buildGuardedSessionBody,
   cleanupLiveSession,
@@ -142,4 +143,14 @@ test("sanitized artifact rejects missing or malformed GitHub binding", () => {
     () => buildSanitizedEvidenceArtifact({ channels: [] }, { commitSha: "main", runId: "run", runAttempt: "1" }),
     /binding is invalid/
   );
+});
+
+test("evidence must belong to the current probe before evaluation", () => {
+  const currentProbe = "11111111-1111-4111-8111-111111111111";
+  assert.doesNotThrow(() => assertEvidenceProbe({ probeId: currentProbe }, currentProbe));
+  assert.throws(
+    () => assertEvidenceProbe({ probeId: "22222222-2222-4222-8222-222222222222" }, currentProbe),
+    /current probe/
+  );
+  assert.throws(() => assertEvidenceProbe({}, currentProbe), /current probe/);
 });
