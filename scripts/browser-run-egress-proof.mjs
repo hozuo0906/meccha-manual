@@ -146,15 +146,22 @@ async function cloudflareRequest(path, init, token) {
     }
   });
   if (!response.ok) throw new Error(`Cloudflare Browser Run API failed with HTTP ${response.status}.`);
-  return response.json();
+  return unwrapCloudflareResult(await response.json());
 }
 
-async function closeSession(accountId, sessionId, token) {
+export function unwrapCloudflareResult(envelope) {
+  if (!envelope || envelope.success !== true || !envelope.result || typeof envelope.result !== "object") {
+    throw new Error("Cloudflare Browser Run API returned an invalid success envelope.");
+  }
+  return envelope.result;
+}
+
+async function closeSession(accountId, sessionId, token, signal) {
   const encodedAccount = encodeURIComponent(accountId);
   const encodedSession = encodeURIComponent(sessionId);
   const result = await cloudflareRequest(
     `/client/v4/accounts/${encodedAccount}/browser-rendering/devtools/browser/${encodedSession}`,
-    { method: "DELETE" },
+    { method: "DELETE", signal },
     token
   );
   if (result.status !== "closed" && result.status !== "closing") {
@@ -162,7 +169,12 @@ async function closeSession(accountId, sessionId, token) {
   }
 }
 
-export async function cleanupLiveSession(browser, closeRemoteSession, browserCloseTimeoutMs = 5000) {
+export async function cleanupLiveSession(
+  browser,
+  closeRemoteSession,
+  browserCloseTimeoutMs = 5000,
+  remoteCloseTimeoutMs = 10000
+) {
   let browserCloseError;
   try {
     if (browser) await withTimeout(() => browser.close(), browserCloseTimeoutMs, "Browser disconnect timed out.");
@@ -172,7 +184,7 @@ export async function cleanupLiveSession(browser, closeRemoteSession, browserClo
 
   let remoteCloseError;
   try {
-    await closeRemoteSession();
+    await withAbortTimeout(closeRemoteSession, remoteCloseTimeoutMs, "Remote session DELETE timed out.");
   } catch (error) {
     remoteCloseError = error;
   }
@@ -182,6 +194,24 @@ export async function cleanupLiveSession(browser, closeRemoteSession, browserClo
   }
   if (browserCloseError) throw browserCloseError;
   if (remoteCloseError) throw remoteCloseError;
+}
+
+export async function withAbortTimeout(operation, timeoutMs, message) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => operation(controller.signal)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(message));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function withTimeout(operation, timeoutMs, message) {
@@ -272,8 +302,8 @@ async function runLiveProof() {
     try {
       await cleanupLiveSession(
         browser,
-        async () => {
-          if (sessionId) await closeSession(accountId, sessionId, token);
+        async (signal) => {
+          if (sessionId) await closeSession(accountId, sessionId, token, signal);
         }
       );
     } catch (closeError) {

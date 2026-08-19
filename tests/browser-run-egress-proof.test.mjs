@@ -9,6 +9,7 @@ import {
   connectBrowserSafely,
   evaluateEgressEvidence,
   requireSameOrigin,
+  unwrapCloudflareResult,
   validatedHttpsUrl
 } from "../scripts/browser-run-egress-proof.mjs";
 
@@ -142,6 +143,23 @@ test("a hanging browser close is bounded and cannot suppress remote DELETE", asy
   assert.equal(remoteCloseCalls, 1);
 });
 
+test("a hanging remote DELETE is bounded and receives an abort signal", async () => {
+  let receivedSignal;
+  await assert.rejects(
+    cleanupLiveSession(
+      null,
+      async (signal) => {
+        receivedSignal = signal;
+        return new Promise(() => {});
+      },
+      10,
+      10
+    ),
+    /Remote session DELETE timed out/
+  );
+  assert.equal(receivedSignal.aborted, true);
+});
+
 test("CDP connection errors suppress debugger endpoint details", async () => {
   const secretEndpoint = "wss://secret.example.test/cdp/session-token";
   await assert.rejects(
@@ -192,4 +210,12 @@ test("evidence must belong to the current probe before evaluation", () => {
     /current probe/
   );
   assert.throws(() => assertEvidenceProbe({}, currentProbe), /current probe/);
+});
+
+test("Cloudflare v4 success envelopes are unwrapped and malformed responses fail closed", () => {
+  assert.deepEqual(unwrapCloudflareResult({ success: true, result: { sessionId: "session" } }), {
+    sessionId: "session"
+  });
+  assert.throws(() => unwrapCloudflareResult({ success: true }), /invalid success envelope/);
+  assert.throws(() => unwrapCloudflareResult({ success: false, result: {} }), /invalid success envelope/);
 });
