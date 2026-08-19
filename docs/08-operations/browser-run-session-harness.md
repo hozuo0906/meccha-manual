@@ -67,9 +67,9 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 ## 終了・失敗・期限切れ
 
 - 通常終了、取消、idle timeout、最大実行時間、起動失敗を明示状態で扱います。
-- 開始前に月次残り時間を原子的に予約し、provider側TTLを予約期限以下へ設定します。Durable Object alarmも同じ期限へ設定し、Worker/DO再起動後に復元して期限を延長しません。
+- 開始前に月次残り時間を原子的に予約します。closeとDurable Objectから独立したprovider保証の絶対失効を公式契約と隔離stagingの障害注入でP0実証できるまでは、Browser Run起動をfail closedにします。
 - 終了時は未送信eventを期限内でflushし、Browser sessionをcloseし、Cookie、Storage、cache、一時ファイルを破棄します。
-- deadline到達時はLive Viewを即時失効し、cancel/closeを独立した期限付き処理で実行します。close失敗・timeout時もprovider側TTLが上限を強制し、再試行jobと監査イベントを残します。
+- P0実証後、deadline到達時はLive Viewを即時失効し、cancel/closeを独立した期限付き処理で実行します。close失敗・timeout時もproviderの絶対失効が予約期限でremote sessionを停止し、再試行jobと監査イベントを残します。
 - Durable Objectは一時状態を保持できますが、完了後の正本はPostgresとし、Browser credentialを残しません。
 
 ## 監査ログ
@@ -84,5 +84,5 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 - `browser-runtime.md`、ADR-0002/0003、API、security、R2 contractと責務が一致する。
 - DNS検査と実接続先拘束を分け、全通信種別のSSRF、入力値非保存、Live View漏えい、session残留のnegative test項目を実装できる。
-- closeの失敗・hangとWorker/DO再起動を障害注入し、予約期限後にremote sessionが稼働せず、予約が実績または解放へ収束することを検証できる。
+- closeの失敗・hangとWorker/DO再起動を隔離stagingで障害注入し、providerの絶対失効だけで予約期限後にremote sessionが稼働しないことをP0実証できる。未実証なら起動をfail closedにする。
 - 外部binding、Durable Object migration、Browser Run実起動を行っていない。
