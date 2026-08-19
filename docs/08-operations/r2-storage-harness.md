@@ -86,6 +86,5 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。
 - Storage実装にログ出力を追加していない。
-- 並行予約、結果不明再送、Worker停止、lease期限切れを障害注入し、上限超過も予約枠の永久消費も起きない。
 
-`npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。
+`npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。さらに、予約の並行上限、同じoperation keyの要求tuple不一致、初回応答消失後の再送、書込後停止、lease期限切れを障害注入し、上限超過・二重計上・予約枠の永久消費が起きないことを確認する。実R2、secret、実ユーザーの操作内容は使用しない。
