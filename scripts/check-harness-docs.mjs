@@ -198,6 +198,22 @@ const runtimeFiles = [
   "wrangler.brand.jsonc",
   "package.json"
 ];
+const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
+const approvedDependencies = [];
+const approvedDevDependencies = [
+  "@cloudflare/workers-types",
+  "@playwright/test",
+  "parse5",
+  "typescript",
+  "wrangler"
+];
+for (const [group, actual, approved] of [
+  ["dependencies", Object.keys(packageManifest.dependencies ?? {}), approvedDependencies],
+  ["devDependencies", Object.keys(packageManifest.devDependencies ?? {}), approvedDevDependencies]
+]) {
+  const unexpected = actual.filter((name) => !approved.includes(name));
+  if (unexpected.length > 0) errors.push(`Unapproved ${group} may introduce a product runtime boundary: ${unexpected.join(", ")}`);
+}
 
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
@@ -205,8 +221,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
-    /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai)['"]/i.test(content) ||
-    /["'](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai)["']\s*:/i.test(content) ||
+    /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai|@aws-sdk\/client-bedrock-runtime)['"]/i.test(content) ||
+    /["'](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai|@aws-sdk\/client-bedrock-runtime)["']\s*:/i.test(content) ||
     /(?:^|[\/\-_.])(?:ai[-_.]?adapter|openai|anthropic|gemini|llm)(?:[\/\-_.]|$)/i.test(normalizedPath)
   );
 }
@@ -219,6 +235,7 @@ for (const fixture of [
   { content: '{ "dependencies": { "openai": "1.0.0" } }', path: "package.json" },
   { content: 'const sdk = await import("cohere-ai");', path: "apps/worker/src/provider.ts" },
   { content: '{ "dependencies": { "@mistralai/mistralai": "1.0.0" } }', path: "package.json" },
+  { content: '{ "dependencies": { "@aws-sdk/client-bedrock-runtime": "1.0.0" } }', path: "package.json" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
