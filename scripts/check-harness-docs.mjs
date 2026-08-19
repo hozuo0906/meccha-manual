@@ -205,8 +205,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
-    /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai)['"]/i.test(content) ||
-    /["'](?:openai|@anthropic-ai\/sdk|@google\/generative-ai)["']\s*:/i.test(content) ||
+    /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai)['"]/i.test(content) ||
+    /["'](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai)["']\s*:/i.test(content) ||
     /(?:^|[\/\-_.])(?:ai[-_.]?adapter|openai|anthropic|gemini|llm)(?:[\/\-_.]|$)/i.test(normalizedPath)
   );
 }
@@ -217,6 +217,8 @@ for (const fixture of [
   { content: 'const client = require("@anthropic-ai/sdk");', path: "apps/worker/src/provider.ts" },
   { content: 'const sdk = await import("openai");', path: "apps/worker/src/provider.ts" },
   { content: '{ "dependencies": { "openai": "1.0.0" } }', path: "package.json" },
+  { content: 'const sdk = await import("cohere-ai");', path: "apps/worker/src/provider.ts" },
+  { content: '{ "dependencies": { "@mistralai/mistralai": "1.0.0" } }', path: "package.json" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
