@@ -74,6 +74,16 @@ const requiredDocs = {
     "終了・失敗・期限切れ",
     "監査ログ"
   ],
+  "docs/08-operations/browser-run-egress-proof.md": [
+    "guardrails.allowedDomains",
+    "actual peer",
+    "blocked_before_bytes",
+    "disabled_before_attempt",
+    "WebTransport/QUIC",
+    "WebRTC ICE/STUN/TURN",
+    "BROWSER_EGRESS_NOT_VERIFIED",
+    "RUN_ISOLATED_STAGING_P0"
+  ],
   "docs/08-operations/feature-flags.md": [
     "`capture.browserRun.egressVerified.enabled`",
     "AC-023"
