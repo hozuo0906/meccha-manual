@@ -143,5 +143,5 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 - Status: Accepted
 - Date: 2026-08-20
-- Decision: Browser Runは残り時間を開始前に原子的予約し、予約枠以内のhard deadlineでcancel・closeする。R2は`current + reserved + planned bytes`を原子的に検証・予約し、成功時に実績へ確定、失敗時に解放する。
+- Decision: Browser Runは残り時間を開始前に原子的予約し、予約期限以下のprovider TTLとDO alarm、hard deadlineのLive View失効・期限付きcancel/closeで再起動やclose失敗時も上限を強制する。R2は予約ID・冪等key・期限付きleaseで`current + active reserved + planned bytes`を原子的に検証し、結果不明再送を同じ予約へ集約してreconciliationで確定または解放する。
 - Reason: 並行要求が個別の上限検査を通過して原価上限を超える競合と、失敗した予約が利用枠を消費し続ける事故を防ぐため。
