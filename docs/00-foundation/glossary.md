@@ -14,4 +14,3 @@ Status: Accepted
 | 共有リンク | share link | 未ログイン閲覧などに使うトークン付きリンク | 公開URLだけ |
 | スマホ表示確認 | mobile preview | Cloudflare Browser Runで端末条件を変えて表示確認する機能 | 実機シミュレーター |
 | Guide Me風 | guided playback | 手順に沿って次の対象をハイライトする機能 | 自動操作保証 |
-| AI拡張口 | ai adapter | 将来AI機能をONにするための境界 | 初期AI機能 |
