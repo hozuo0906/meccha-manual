@@ -228,11 +228,31 @@ export async function withTimeout(operation, timeoutMs, message) {
   }
 }
 
-export async function connectBrowserSafely(connect) {
+export async function connectBrowserSafely(connect, timeoutMs = 10000) {
   try {
-    return await connect();
+    return await connect(timeoutMs);
   } catch {
     throw new Error("Browser Run CDP connection failed; endpoint details were suppressed.");
+  }
+}
+
+export async function fetchEvidenceSafely(evidenceEndpoint, fixtureToken, fetchImpl = fetch, timeoutMs = 10000) {
+  try {
+    return await withAbortTimeout(
+      async (signal) => {
+        const response = await fetchImpl(evidenceEndpoint, {
+          headers: { authorization: `Bearer ${fixtureToken}` },
+          signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      },
+      timeoutMs,
+      "Fixture evidence retrieval timed out."
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === "Fixture evidence retrieval timed out.") throw error;
+    throw new Error("Fixture evidence retrieval failed; endpoint details were suppressed.");
   }
 }
 
@@ -264,8 +284,9 @@ async function runLiveProof() {
     if (!sessionId || !created.webSocketDebuggerUrl) throw new Error("Browser Run did not return a usable guarded session.");
 
     const { chromium } = await import("@playwright/test");
-    browser = await connectBrowserSafely(() => chromium.connectOverCDP(created.webSocketDebuggerUrl, {
-      headers: { authorization: `Bearer ${token}` }
+    browser = await connectBrowserSafely((timeout) => chromium.connectOverCDP(created.webSocketDebuggerUrl, {
+      headers: { authorization: `Bearer ${token}` },
+      timeout
     }));
     const context = browser.contexts()[0] ?? await browser.newContext();
     const page = context.pages()[0] ?? await context.newPage();
@@ -276,11 +297,7 @@ async function runLiveProof() {
 
     const evidenceEndpoint = new URL(evidenceUrl);
     evidenceEndpoint.searchParams.set("probe", probeId);
-    const response = await fetch(evidenceEndpoint, {
-      headers: { authorization: `Bearer ${fixtureToken}` }
-    });
-    if (!response.ok) throw new Error(`Fixture evidence endpoint failed with HTTP ${response.status}.`);
-    const evidence = await response.json();
+    const evidence = await fetchEvidenceSafely(evidenceEndpoint, fixtureToken);
     assertEvidenceProbe(evidence, probeId);
     const result = evaluateEgressEvidence(evidence);
     console.log(JSON.stringify({ ok: result.ok, checkedChannels: result.checkedChannels, failures: result.failures }));

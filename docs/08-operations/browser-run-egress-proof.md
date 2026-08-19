@@ -50,4 +50,4 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 
 `Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`で手動実行する。GitHub `staging` Environmentに専用tokenとfixture URLが揃わない場合はlive jobを実行しない。fixtureと証跡endpointは同一HTTPS originに限定し、fixture tokenを別originへ送らない。PRでは契約テストだけを実行し、Browser Runを起動しない。
 
-live実行はCloudflare v4 APIのsuccess envelopeを検証して`result`だけを利用し、sessionを60秒keep-aliveで作成する。成功・失敗にかかわらずDELETEを呼び、`closed`または`closing`の応答を確認する。local browser closeは5秒、remote DELETEは10秒で打ち切り、後者は期限到達時にfetchをabortする。CDP接続失敗は固定文言へ変換し、session ID、WebSocket URL、tokenはログへ出さない。
+live実行はCloudflare v4 APIのsuccess envelopeを検証して`result`だけを利用し、sessionを60秒keep-aliveで作成する。CDP接続確立と証跡fetch／body読取は各10秒で打ち切り、証跡取得は期限到達時にabortする。成功・失敗にかかわらずDELETEを呼び、`closed`または`closing`の応答を確認する。local browser closeは5秒、remote DELETEは10秒で打ち切り、後者も期限到達時にfetchをabortする。CDP接続・証跡取得失敗は固定文言へ変換し、session ID、WebSocket URL、fixture URL、tokenはログへ出さない。

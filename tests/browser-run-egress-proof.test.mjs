@@ -8,6 +8,7 @@ import {
   cleanupLiveSession,
   connectBrowserSafely,
   evaluateEgressEvidence,
+  fetchEvidenceSafely,
   requireSameOrigin,
   unwrapCloudflareResult,
   validatedHttpsUrl
@@ -167,6 +168,43 @@ test("CDP connection errors suppress debugger endpoint details", async () => {
     (error) => error.message === "Browser Run CDP connection failed; endpoint details were suppressed." &&
       !JSON.stringify(error).includes(secretEndpoint) &&
       !error.stack.includes(secretEndpoint)
+  );
+});
+
+test("CDP connection receives a finite establishment timeout", async () => {
+  let receivedTimeout;
+  const browser = await connectBrowserSafely(async (timeout) => {
+    receivedTimeout = timeout;
+    return { connected: true };
+  });
+  assert.deepEqual(browser, { connected: true });
+  assert.equal(receivedTimeout, 10000);
+});
+
+test("evidence retrieval aborts a stalled response body", async () => {
+  let receivedSignal;
+  await assert.rejects(
+    fetchEvidenceSafely(
+      new URL("https://fixture.example.test/evidence"),
+      "secret-token",
+      async (_url, init) => {
+        receivedSignal = init.signal;
+        return { ok: true, json: async () => new Promise(() => {}) };
+      },
+      10
+    ),
+    /retrieval timed out/
+  );
+  assert.equal(receivedSignal.aborted, true);
+});
+
+test("evidence retrieval errors suppress endpoint details", async () => {
+  const secretEndpoint = "https://fixture.example.test/private-evidence";
+  await assert.rejects(
+    fetchEvidenceSafely(new URL(secretEndpoint), "secret-token", async () => {
+      throw new Error(`fetch failed: ${secretEndpoint}`);
+    }),
+    (error) => !error.message.includes(secretEndpoint) && !error.stack.includes(secretEndpoint)
   );
 });
 
