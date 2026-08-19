@@ -196,7 +196,7 @@ for (const legacyTerm of [
 const traceability = contents["docs/01-product/requirements-traceability.md"] ?? "";
 const requiredAcceptanceByRequirement = {
   "FR-019": ["AC-050", "AC-052", "AC-054", "AC-055", "AC-056", "AC-057", "AC-059", "AC-062", "AC-063"],
-  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058"]
+  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058", "AC-064", "AC-065"]
 };
 for (const [requirement, acceptanceIds] of Object.entries(requiredAcceptanceByRequirement)) {
   const row = traceability.split("\n").find((line) => line.startsWith(`| ${requirement} |`));
