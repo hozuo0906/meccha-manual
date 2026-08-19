@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 const requiredDocs = {
   "README.md": [
@@ -73,8 +73,8 @@ const requiredDocs = {
     "スクリーンショット",
     "終了・失敗・期限切れ",
     "監査ログ",
-    "provider側TTL",
-    "Durable Object alarm",
+    "provider保証の絶対失効",
+    "未実証なら起動をfail closed",
     "closeの失敗・hangとWorker/DO再起動"
   ],
   "docs/08-operations/browser-run-egress-proof.md": [
@@ -178,6 +178,34 @@ if ((contents["docs/08-operations/feature-flags.md"] ?? "").includes("ai.assisti
 }
 if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes("| `AI_PROVIDER_API_KEY` |")) {
   errors.push("AI provider secret must not be registered before owner approval.");
+}
+
+async function listRuntimeFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const path = `${root}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...await listRuntimeFiles(path));
+    else if (entry.isFile()) files.push(path);
+  }
+  return files;
+}
+
+const runtimeFiles = [
+  ...await listRuntimeFiles("apps"),
+  "wrangler.jsonc",
+  "wrangler.brand.jsonc",
+  "package.json"
+];
+for (const file of runtimeFiles) {
+  const content = await readFile(file, "utf8");
+  const normalizedPath = file.toLowerCase();
+  if (
+    /AI_PROVIDER_API_KEY|ai\.assistiveGeneration|\/api\/(?:v\d+\/)?ai(?:\/|\b)/i.test(content) ||
+    /(?:^|[-_.])ai[-_.]?adapter(?:[-_.]|$)/i.test(normalizedPath)
+  ) {
+    errors.push(`AI runtime boundary must not exist before owner approval: ${file}`);
+  }
 }
 const browserAcceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
 const ac023 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
