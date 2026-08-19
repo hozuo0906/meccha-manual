@@ -8,8 +8,11 @@ import {
   cleanupLiveSession,
   connectBrowserSafely,
   evaluateEgressEvidence,
+  fetchCloudflareResultSafely,
   fetchEvidenceSafely,
+  getProofPageSafely,
   requireSameOrigin,
+  runPageProbeSafely,
   unwrapCloudflareResult,
   validatedHttpsUrl
 } from "../scripts/browser-run-egress-proof.mjs";
@@ -205,6 +208,45 @@ test("evidence retrieval errors suppress endpoint details", async () => {
       throw new Error(`fetch failed: ${secretEndpoint}`);
     }),
     (error) => !error.message.includes(secretEndpoint) && !error.stack.includes(secretEndpoint)
+  );
+});
+
+test("Cloudflare create response parsing is bounded and abortable", async () => {
+  let receivedSignal;
+  await assert.rejects(
+    fetchCloudflareResultSafely(
+      "/client/v4/accounts/account/browser-rendering/devtools/browser",
+      { method: "POST" },
+      "secret-token",
+      async (_url, init) => {
+        receivedSignal = init.signal;
+        return { ok: true, json: async () => new Promise(() => {}) };
+      },
+      10
+    ),
+    /API timed out/
+  );
+  assert.equal(receivedSignal.aborted, true);
+});
+
+test("post-connection CDP setup is bounded", async () => {
+  await assert.rejects(
+    getProofPageSafely({
+      contexts: () => [],
+      newContext: async () => new Promise(() => {})
+    }, 10),
+    /CDP setup failed/
+  );
+});
+
+test("navigation errors suppress fixture and probe URL details", async () => {
+  const secretUrl = new URL("https://fixture.example.test/browser-run-egress/start?probe=secret-probe");
+  await assert.rejects(
+    runPageProbeSafely({
+      goto: async () => { throw new Error(`navigation failed at ${secretUrl.href}`); },
+      waitForFunction: async () => {}
+    }, secretUrl),
+    (error) => !error.message.includes(secretUrl.href) && !error.stack.includes(secretUrl.href)
   );
 });
 

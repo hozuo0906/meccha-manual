@@ -137,16 +137,25 @@ export function assertEvidenceProbe(evidence, expectedProbeId) {
 }
 
 async function cloudflareRequest(path, init, token) {
-  const response = await fetch(`${API_ORIGIN}${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      ...init?.headers
-    }
-  });
-  if (!response.ok) throw new Error(`Cloudflare Browser Run API failed with HTTP ${response.status}.`);
-  return unwrapCloudflareResult(await response.json());
+  return fetchCloudflareResultSafely(path, init, token);
+}
+
+export async function fetchCloudflareResultSafely(path, init, token, fetchImpl = fetch, timeoutMs = 10000) {
+  const execute = async (signal) => {
+    const response = await fetchImpl(`${API_ORIGIN}${path}`, {
+      ...init,
+      signal: init?.signal ?? signal,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        ...init?.headers
+      }
+    });
+    if (!response.ok) throw new Error(`Cloudflare Browser Run API failed with HTTP ${response.status}.`);
+    return unwrapCloudflareResult(await response.json());
+  };
+  if (init?.signal) return execute(init.signal);
+  return withAbortTimeout(execute, timeoutMs, "Cloudflare Browser Run API timed out.");
 }
 
 export function unwrapCloudflareResult(envelope) {
@@ -256,6 +265,27 @@ export async function fetchEvidenceSafely(evidenceEndpoint, fixtureToken, fetchI
   }
 }
 
+export async function getProofPageSafely(browser, timeoutMs = 10000) {
+  try {
+    return await withTimeout(async () => {
+      const context = browser.contexts()[0] ?? await browser.newContext();
+      const page = context.pages()[0] ?? await context.newPage();
+      return page;
+    }, timeoutMs, "Browser Run CDP setup timed out.");
+  } catch {
+    throw new Error("Browser Run CDP setup failed; endpoint details were suppressed.");
+  }
+}
+
+export async function runPageProbeSafely(page, startUrl) {
+  try {
+    await page.goto(startUrl.href, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForFunction(() => globalThis.__MECCHA_EGRESS_PROBE_COMPLETE__ === true, null, { timeout: 45000 });
+  } catch {
+    throw new Error("Browser Run fixture navigation failed; URL details were suppressed.");
+  }
+}
+
 async function runLiveProof() {
   if (process.env.BROWSER_EGRESS_RUN_CONFIRMATION !== LIVE_CONFIRMATION) {
     throw new Error(`Live proof requires BROWSER_EGRESS_RUN_CONFIRMATION=${LIVE_CONFIRMATION}.`);
@@ -288,12 +318,10 @@ async function runLiveProof() {
       headers: { authorization: `Bearer ${token}` },
       timeout
     }));
-    const context = browser.contexts()[0] ?? await browser.newContext();
-    const page = context.pages()[0] ?? await context.newPage();
+    const page = await getProofPageSafely(browser);
     const startUrl = new URL("/browser-run-egress/start", fixture);
     startUrl.searchParams.set("probe", probeId);
-    await page.goto(startUrl.href, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForFunction(() => globalThis.__MECCHA_EGRESS_PROBE_COMPLETE__ === true, null, { timeout: 45000 });
+    await runPageProbeSafely(page, startUrl);
 
     const evidenceEndpoint = new URL(evidenceUrl);
     evidenceEndpoint.searchParams.set("probe", probeId);
