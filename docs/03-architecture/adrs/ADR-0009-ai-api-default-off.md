@@ -15,3 +15,4 @@ Status: Accepted
 - 承認前はAI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。
 - 将来承認された場合は、データ送信範囲、上限、監査、停止条件を別ADRで決定する。
 - 承認は管理画面の操作ではなく、ownerによる開発開始の意思決定を指す。
+- 本ADRの対象は製品runtimeと顧客データ経路であり、ADR-0026の開発automationは分離する。
