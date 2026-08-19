@@ -128,4 +128,70 @@ assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefine
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
+function createUsageReservationHarness(limitBytes) {
+  const reservations = new Map();
+  let currentBytes = 0;
+  const tupleOf = (request) => JSON.stringify([
+    request.workspaceId,
+    request.objectKey,
+    request.plannedBytes,
+    request.checksumSha256
+  ]);
+  return {
+    reserve(request) {
+      const existing = reservations.get(request.operationKey);
+      if (existing) {
+        assert.equal(existing.tuple, tupleOf(request), "operation key reuse must preserve the full save tuple");
+        return existing;
+      }
+      const reservedBytes = [...reservations.values()]
+        .filter((item) => item.state === "reserved")
+        .reduce((sum, item) => sum + item.plannedBytes, 0);
+      if (currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", objectPresent: false };
+      reservations.set(request.operationKey, reservation);
+      return reservation;
+    },
+    markObjectPresent(operationKey) {
+      reservations.get(operationKey).objectPresent = true;
+    },
+    reconcile(operationKey) {
+      const reservation = reservations.get(operationKey);
+      if (reservation.state !== "reserved") return reservation;
+      if (reservation.objectPresent) {
+        reservation.state = "committed";
+        currentBytes += reservation.plannedBytes;
+      } else {
+        reservation.state = "released";
+      }
+      return reservation;
+    },
+    snapshot() {
+      return { currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
+    }
+  };
+}
+
+const reservationHarness = createUsageReservationHarness(10);
+const saveRequest = {
+  operationKey: "operation-001",
+  workspaceId: "workspace-001",
+  objectKey: "workspace-001/manual/asset-001.png",
+  plannedBytes: 6,
+  checksumSha256: "a".repeat(64)
+};
+const firstReservation = reservationHarness.reserve(saveRequest);
+assert.strictEqual(reservationHarness.reserve({ ...saveRequest }), firstReservation, "lost response retry must reuse one reservation");
+assert.throws(() => reservationHarness.reserve({ ...saveRequest, plannedBytes: 1 }), /full save tuple/);
+assert.throws(() => reservationHarness.reserve({ ...saveRequest, objectKey: "workspace-001/manual/asset-002.png" }), /full save tuple/);
+assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }), /limit exceeded/);
+reservationHarness.markObjectPresent(saveRequest.operationKey);
+assert.equal(reservationHarness.reconcile(saveRequest.operationKey).state, "committed", "post-write worker stop must reconcile to committed");
+assert.equal(reservationHarness.reconcile(saveRequest.operationKey).state, "committed", "reconciliation must be idempotent");
+assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
+const abandoned = { ...saveRequest, operationKey: "operation-003", objectKey: "workspace-001/manual/asset-003.png", plannedBytes: 4 };
+reservationHarness.reserve(abandoned);
+assert.equal(reservationHarness.reconcile(abandoned.operationKey).state, "released", "expired reservation without object must release");
+assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
+
 console.log("R2 storage stub contract OK.");
