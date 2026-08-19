@@ -128,7 +128,7 @@ assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefine
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
-function createUsageReservationHarness(limitBytes) {
+function createUsageReservationHarness(limitBytes, inspectObject) {
   const reservations = new Map();
   let currentBytes = 0;
   const tupleOf = (request) => JSON.stringify([
@@ -138,7 +138,7 @@ function createUsageReservationHarness(limitBytes) {
     request.checksumSha256
   ]);
   return {
-    reserve(request) {
+    reserve(request, lease) {
       const existing = reservations.get(request.operationKey);
       if (existing) {
         assert.equal(existing.tuple, tupleOf(request), "operation key reuse must preserve the full save tuple");
@@ -148,21 +148,33 @@ function createUsageReservationHarness(limitBytes) {
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
       if (currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
-      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", objectPresent: false };
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline };
       reservations.set(request.operationKey, reservation);
       return reservation;
     },
-    markObjectPresent(operationKey) {
-      reservations.get(operationKey).objectPresent = true;
+    extendLease(operationKey, owner, expectedDeadline, nextDeadline) {
+      const reservation = reservations.get(operationKey);
+      assert.equal(reservation.leaseOwner, owner, "only the current lease owner may extend");
+      assert.equal(reservation.leaseDeadline, expectedDeadline, "lease extension must compare the current deadline");
+      assert.ok(nextDeadline > expectedDeadline, "lease extension must move forward");
+      reservation.leaseDeadline = nextDeadline;
     },
-    reconcile(operationKey) {
+    reconcile(operationKey, now) {
       const reservation = reservations.get(operationKey);
       if (reservation.state !== "reserved") return reservation;
-      if (reservation.objectPresent) {
+      const stored = inspectObject(reservation.objectKey);
+      if (stored) {
+        assert.deepEqual(
+          [stored.workspaceId, stored.objectKey, stored.sizeBytes, stored.checksumSha256],
+          [reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256],
+          "stored object must match the reserved workspace, key, size, and checksum"
+        );
         reservation.state = "committed";
         currentBytes += reservation.plannedBytes;
-      } else {
+      } else if (now >= reservation.leaseDeadline) {
         reservation.state = "released";
+      } else {
+        throw new Error("active lease cannot be reconciled without an object");
       }
       return reservation;
     },
@@ -172,7 +184,8 @@ function createUsageReservationHarness(limitBytes) {
   };
 }
 
-const reservationHarness = createUsageReservationHarness(10);
+const storedReservationObjects = new Map();
+const reservationHarness = createUsageReservationHarness(10, (objectKey) => storedReservationObjects.get(objectKey));
 const saveRequest = {
   operationKey: "operation-001",
   workspaceId: "workspace-001",
@@ -180,18 +193,51 @@ const saveRequest = {
   plannedBytes: 6,
   checksumSha256: "a".repeat(64)
 };
-const firstReservation = reservationHarness.reserve(saveRequest);
-assert.strictEqual(reservationHarness.reserve({ ...saveRequest }), firstReservation, "lost response retry must reuse one reservation");
-assert.throws(() => reservationHarness.reserve({ ...saveRequest, plannedBytes: 1 }), /full save tuple/);
-assert.throws(() => reservationHarness.reserve({ ...saveRequest, objectKey: "workspace-001/manual/asset-002.png" }), /full save tuple/);
-assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }), /limit exceeded/);
-reservationHarness.markObjectPresent(saveRequest.operationKey);
-assert.equal(reservationHarness.reconcile(saveRequest.operationKey).state, "committed", "post-write worker stop must reconcile to committed");
-assert.equal(reservationHarness.reconcile(saveRequest.operationKey).state, "committed", "reconciliation must be idempotent");
+const initialLease = { owner: "worker-001", deadline: 100 };
+const firstReservation = reservationHarness.reserve(saveRequest, initialLease);
+assert.strictEqual(reservationHarness.reserve({ ...saveRequest }, initialLease), firstReservation, "lost response retry must reuse one reservation");
+for (const mismatch of [
+  { plannedBytes: 1 },
+  { objectKey: "workspace-001/manual/asset-002.png" },
+  { workspaceId: "workspace-002" },
+  { checksumSha256: "b".repeat(64) }
+]) assert.throws(() => reservationHarness.reserve({ ...saveRequest, ...mismatch }, initialLease), /full save tuple/);
+assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }, initialLease), /limit exceeded/);
+assert.throws(() => reservationHarness.reconcile(saveRequest.operationKey, 99), /active lease/);
+assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
+storedReservationObjects.set(saveRequest.objectKey, {
+  workspaceId: saveRequest.workspaceId,
+  objectKey: saveRequest.objectKey,
+  sizeBytes: saveRequest.plannedBytes,
+  checksumSha256: saveRequest.checksumSha256
+});
+assert.equal(reservationHarness.reconcile(saveRequest.operationKey, 99).state, "committed", "post-write worker stop must reconcile a matching object to committed");
+assert.equal(reservationHarness.reconcile(saveRequest.operationKey, 101).state, "committed", "reconciliation must be idempotent");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
 const abandoned = { ...saveRequest, operationKey: "operation-003", objectKey: "workspace-001/manual/asset-003.png", plannedBytes: 4 };
-reservationHarness.reserve(abandoned);
-assert.equal(reservationHarness.reconcile(abandoned.operationKey).state, "released", "expired reservation without object must release");
+reservationHarness.reserve(abandoned, { owner: "worker-003", deadline: 200 });
+assert.throws(() => reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
+assert.equal(reservationHarness.reconcile(abandoned.operationKey, 200).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
+for (const mismatch of [
+  { workspaceId: "workspace-999" },
+  { objectKey: "workspace-001/manual/wrong.png" },
+  { sizeBytes: 3 },
+  { checksumSha256: "c".repeat(64) }
+]) {
+  const operationKey = `mismatch-${Object.keys(mismatch)[0]}`;
+  const request = { ...abandoned, operationKey, objectKey: `workspace-001/manual/${operationKey}.png`, plannedBytes: 4 };
+  reservationHarness.reserve(request, { owner: operationKey, deadline: 300 });
+  storedReservationObjects.set(request.objectKey, {
+    workspaceId: request.workspaceId,
+    objectKey: request.objectKey,
+    sizeBytes: request.plannedBytes,
+    checksumSha256: request.checksumSha256,
+    ...mismatch
+  });
+  assert.throws(() => reservationHarness.reconcile(operationKey, 300), /stored object must match/);
+  storedReservationObjects.delete(request.objectKey);
+  assert.equal(reservationHarness.reconcile(operationKey, 300).state, "released");
+}
 
 console.log("R2 storage stub contract OK.");
