@@ -193,6 +193,7 @@ async function listRuntimeFiles(root) {
 
 const runtimeFiles = [
   ...await listRuntimeFiles("apps"),
+  ...await listRuntimeFiles("supabase"),
   "wrangler.jsonc",
   "wrangler.brand.jsonc",
   "package.json"
@@ -201,8 +202,11 @@ for (const file of runtimeFiles) {
   const content = await readFile(file, "utf8");
   const normalizedPath = file.toLowerCase();
   if (
-    /AI_PROVIDER_API_KEY|ai\.assistiveGeneration|\/api\/(?:v\d+\/)?ai(?:\/|\b)/i.test(content) ||
-    /(?:^|[-_.])ai[-_.]?adapter(?:[-_.]|$)/i.test(normalizedPath)
+    /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
+    /(?:api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)/i.test(content) ||
+    /\/api\/(?:v\d+\/)?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
+    /(?:from|require\s*\()['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai)/i.test(content) ||
+    /(?:^|[-_.])(?:ai[-_.]?adapter|openai|anthropic|gemini|llm)(?:[-_.]|$)/i.test(normalizedPath)
   ) {
     errors.push(`AI runtime boundary must not exist before owner approval: ${file}`);
   }
