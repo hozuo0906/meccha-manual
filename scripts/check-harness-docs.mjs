@@ -72,7 +72,10 @@ const requiredDocs = {
     "入力値",
     "スクリーンショット",
     "終了・失敗・期限切れ",
-    "監査ログ"
+    "監査ログ",
+    "provider側TTL",
+    "Durable Object alarm",
+    "closeの失敗・hangとWorker/DO再起動"
   ],
   "docs/08-operations/browser-run-egress-proof.md": [
     "guardrails.allowedDomains",
@@ -86,7 +89,8 @@ const requiredDocs = {
   ],
   "docs/08-operations/feature-flags.md": [
     "`capture.browserRun.egressVerified.enabled`",
-    "AC-023"
+    "AC-023",
+    "owner明示承認が揃うまでAI用flagを登録しない"
   ],
   "docs/05-api/api-contracts.md": [
     "503 BROWSER_EGRESS_NOT_VERIFIED",
@@ -120,6 +124,13 @@ const requiredDocs = {
     "`STRIPE_PRICE_PERSONAL_MONTHLY`",
     "`STRIPE_PRICE_TEAM_MONTHLY`",
     "`BILLING_FEATURE_ENABLED`"
+  ],
+  "docs/08-operations/r2-storage-harness.md": [
+    "予約IDと冪等key",
+    "active reserved bytes",
+    "lease期限後にreconciliation",
+    "結果不明再送",
+    "予約枠の永久消費"
   ],
   "docs/03-architecture/integrations.md": [
     "`single_export`: 550 JPY",
@@ -162,6 +173,12 @@ for (const [file, terms] of Object.entries(requiredDocs)) {
 }
 
 const combined = Object.values(contents).join("\n");
+if ((contents["docs/08-operations/feature-flags.md"] ?? "").includes("ai.assistiveGeneration.enabled")) {
+  errors.push("AI feature flag must not be registered before owner approval.");
+}
+if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes("| `AI_PROVIDER_API_KEY` |")) {
+  errors.push("AI provider secret must not be registered before owner approval.");
+}
 const browserAcceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
 const ac023 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
 for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {
