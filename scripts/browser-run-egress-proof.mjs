@@ -117,6 +117,28 @@ async function closeSession(accountId, sessionId, token) {
   }
 }
 
+export async function cleanupLiveSession(browser, closeRemoteSession) {
+  let browserCloseError;
+  try {
+    if (browser) await browser.close();
+  } catch (error) {
+    browserCloseError = error;
+  }
+
+  let remoteCloseError;
+  try {
+    await closeRemoteSession();
+  } catch (error) {
+    remoteCloseError = error;
+  }
+
+  if (browserCloseError && remoteCloseError) {
+    throw new AggregateError([browserCloseError, remoteCloseError], "Browser and remote session cleanup both failed.");
+  }
+  if (browserCloseError) throw browserCloseError;
+  if (remoteCloseError) throw remoteCloseError;
+}
+
 async function runLiveProof() {
   if (process.env.BROWSER_EGRESS_RUN_CONFIRMATION !== LIVE_CONFIRMATION) {
     throw new Error(`Live proof requires BROWSER_EGRESS_RUN_CONFIRMATION=${LIVE_CONFIRMATION}.`);
@@ -169,8 +191,12 @@ async function runLiveProof() {
     throw error;
   } finally {
     try {
-      if (browser) await browser.close();
-      if (sessionId) await closeSession(accountId, sessionId, token);
+      await cleanupLiveSession(
+        browser,
+        async () => {
+          if (sessionId) await closeSession(accountId, sessionId, token);
+        }
+      );
     } catch (closeError) {
       if (!primaryError) throw closeError;
       console.error("Browser Run cleanup also failed; session identifier is intentionally omitted.");

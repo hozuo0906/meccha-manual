@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   REQUIRED_EGRESS_CHANNELS,
   buildGuardedSessionBody,
+  cleanupLiveSession,
   evaluateEgressEvidence,
   requireSameOrigin,
   validatedHttpsUrl
@@ -86,4 +87,26 @@ test("duplicate and unexpected channels invalidate evidence", () => {
   const result = evaluateEgressEvidence({ schemaVersion: 1, channels });
   assert.equal(result.ok, false);
   assert.deepEqual(result.failures, ["navigation:duplicate", "future_transport:unexpected"]);
+});
+
+test("remote DELETE is attempted even when browser close fails", async () => {
+  let remoteCloseCalls = 0;
+  await assert.rejects(
+    cleanupLiveSession(
+      { close: async () => { throw new Error("CDP transport lost"); } },
+      async () => { remoteCloseCalls += 1; }
+    ),
+    /CDP transport lost/
+  );
+  assert.equal(remoteCloseCalls, 1);
+});
+
+test("both cleanup failures are retained", async () => {
+  await assert.rejects(
+    cleanupLiveSession(
+      { close: async () => { throw new Error("browser close failed"); } },
+      async () => { throw new Error("remote DELETE failed"); }
+    ),
+    (error) => error instanceof AggregateError && error.errors.length === 2
+  );
 });
