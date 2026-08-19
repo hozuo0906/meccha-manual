@@ -81,7 +81,6 @@ bucket名とbinding名はADR-0018で確定済みとし、staging/productionの�
 
 ## AI
 
-- 初期状態では外部AI APIを呼ばない。
-- 将来のAI adapter境界だけ用意する。
-- 管理者が明示的にONにした場合のみ利用可能にする。
-- 利用上限、利用ログ、概算コスト、監査ログを持つ。
+- 売上安定をownerが確認し実装開始を明示承認するまで、AI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。
+- FR-006は常にローカルの決定的処理とし、外部AI APIへ切り替えない。
+- 承認後のデータ送信範囲、上限、監査、停止条件は別ADRで決定する。
