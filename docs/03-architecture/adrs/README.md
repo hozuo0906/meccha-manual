@@ -12,7 +12,7 @@ Status: Accepted
 | ADR-0006 | Accepted | Storage bucketはprivateを基本にする |
 | ADR-0007 | Accepted | Stripe webhookを課金状態の正本にする |
 | ADR-0008 | Accepted | 共有リンクはデフォルトOFFにする |
-| ADR-0009 | Accepted | AI APIは初期OFFにする |
+| ADR-0009 | Accepted | AI APIは承認条件が揃うまで実装しない |
 | ADR-0010 | Accepted | Worker cookie auth harnessを採用する |
 | ADR-0011 | Accepted | ファイル本体はCloudflare R2を第一候補にする |
 | ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
