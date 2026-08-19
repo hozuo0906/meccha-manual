@@ -200,19 +200,29 @@ const runtimeFiles = [
 ];
 const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
 const approvedDependencies = [];
-const approvedDevDependencies = [
-  "@cloudflare/workers-types",
-  "@playwright/test",
-  "parse5",
-  "typescript",
-  "wrangler"
-];
+const approvedDevDependencies = {
+  "@cloudflare/workers-types": "5.20260812.1",
+  "@playwright/test": "1.62.1",
+  parse5: "^8.0.0",
+  typescript: "7.0.2",
+  wrangler: "4.121.0"
+};
 for (const [group, actual, approved] of [
   ["dependencies", Object.keys(packageManifest.dependencies ?? {}), approvedDependencies],
-  ["devDependencies", Object.keys(packageManifest.devDependencies ?? {}), approvedDevDependencies]
+  ["devDependencies", Object.keys(packageManifest.devDependencies ?? {}), Object.keys(approvedDevDependencies)]
 ]) {
   const unexpected = actual.filter((name) => !approved.includes(name));
   if (unexpected.length > 0) errors.push(`Unapproved ${group} may introduce a product runtime boundary: ${unexpected.join(", ")}`);
+}
+for (const [name, spec] of Object.entries(approvedDevDependencies)) {
+  if (packageManifest.devDependencies?.[name] !== spec) errors.push(`Approved dependency spec changed: ${name}`);
+}
+const packageLock = JSON.parse(await readFile("package-lock.json", "utf8"));
+if (JSON.stringify(packageLock.packages?.[""]?.dependencies ?? {}) !== JSON.stringify(packageManifest.dependencies ?? {})) {
+  errors.push("package-lock runtime dependencies differ from package.json.");
+}
+if (JSON.stringify(packageLock.packages?.[""]?.devDependencies ?? {}) !== JSON.stringify(packageManifest.devDependencies ?? {})) {
+  errors.push("package-lock devDependencies differ from package.json.");
 }
 
 function hasAiRuntimeBoundary(content, path = "") {
