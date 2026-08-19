@@ -56,6 +56,12 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - 短命URL自体をDBや監査ログへ保存しない。
 - object keyへ元ファイル名、画面タイトル、メールアドレスなどのPII/機密情報を入れない。
 
+## 容量予約
+
+- 保存要求ごとに推測不能な予約IDと冪等keyを発行し、`current bytes + active reserved bytes + planned bytes`を同一transactionで検証・予約する。
+- 同じ冪等keyの結果不明再送は同じ予約を返し、別予約を作らない。予約成功後にWorkerが停止しても、短いlease期限後にreconciliationがobjectの有無を照合し、実使用量へ確定または解放する。
+- R2書込成功とPostgres確定の間で応答が失われた場合はobject metadataとchecksumで同一保存を照合し、二重計上しない。lease延長は所有者と期限を原子的に照合し、無期限に延長しない。
+
 ## 削除と保持
 
 - Postgresメタデータをsoft deleteし、URL発行を即時停止してからR2 objectと派生物を非同期削除する。
@@ -80,5 +86,6 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。
 - Storage実装にログ出力を追加していない。
+- 並行予約、結果不明再送、Worker停止、lease期限切れを障害注入し、上限超過も予約枠の永久消費も起きない。
 
 `npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。
