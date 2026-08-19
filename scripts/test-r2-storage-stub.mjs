@@ -128,9 +128,8 @@ assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefine
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
-function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
-  const reservations = new Map();
-  let currentBytes = 0;
+function createUsageReservationHarness(limitBytes, readObject, deleteObject, persistentState = { reservations: new Map(), currentBytes: 0 }) {
+  const reservations = persistentState.reservations;
   const tupleOf = (request) => JSON.stringify([
     request.workspaceId,
     request.objectKey,
@@ -147,7 +146,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
       const reservedBytes = [...reservations.values()]
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
-      if (currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
+      if (persistentState.currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
       const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
       return reservation;
@@ -171,15 +170,20 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
       }
       if (reservation.state !== "reserved") return reservation;
       if (stored) {
-        assert.deepEqual(
-          [stored.workspaceId, stored.objectKey, stored.sizeBytes, stored.checksumSha256],
-          [reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256],
-          "stored object must match the reserved workspace, key, size, and checksum"
-        );
-        assert.equal(stored.reservationId, reservation.reservationId, "stored object reservation ID must match");
-        assert.equal(stored.fencingToken, reservation.fencingToken, "stored object fencing token must match");
+        const sameGeneration = stored.reservationId === reservation.reservationId && stored.fencingToken === reservation.fencingToken;
+        const matchesTuple = JSON.stringify([stored.workspaceId, stored.objectKey, stored.sizeBytes, stored.checksumSha256]) ===
+          JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
+        if (!sameGeneration || !matchesTuple) {
+          if (now >= reservation.leaseDeadline && sameGeneration) {
+            await deleteObject(reservation.objectKey);
+            reservation.state = "released";
+            reservation.mismatchedObjectDeleted = true;
+            return reservation;
+          }
+          throw new Error("stored object must match the reserved generation and save tuple");
+        }
         reservation.state = "committed";
-        currentBytes += reservation.plannedBytes;
+        persistentState.currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
         reservation.state = "released";
       } else {
@@ -188,7 +192,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
       return reservation;
     },
     snapshot() {
-      return { currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
+      return { currentBytes: persistentState.currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
     },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
@@ -199,6 +203,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject) {
 }
 
 const reservationBucket = createFakeR2Bucket();
+const persistentReservationState = { reservations: new Map(), currentBytes: 0 };
 const readReservationObject = async (objectKey) => {
   const stored = await reservationBucket.get(objectKey);
   if (!stored) return null;
@@ -215,7 +220,8 @@ const readReservationObject = async (objectKey) => {
 const reservationHarness = createUsageReservationHarness(
   10,
   readReservationObject,
-  (objectKey) => reservationBucket.delete(objectKey)
+  (objectKey) => reservationBucket.delete(objectKey),
+  persistentReservationState
 );
 const saveRequest = {
   operationKey: "operation-001",
@@ -258,16 +264,18 @@ await reservationBucket.put(abandoned.objectKey, new Uint8Array(abandoned.planne
   httpMetadata: { contentType: "image/png" },
   customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256, reservation_id: abandonedReservation.reservationId, fencing_token: abandonedReservation.fencingToken }
 });
-await reservationHarness.sweepReleased(201);
-assert.equal(reservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "scheduled sweep must delete a late object from an expired owner");
+const restartedReservationHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), persistentReservationState);
+await restartedReservationHarness.sweepReleased(201);
+assert.equal(restartedReservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "restarted scheduled sweep must reload persistent released reservations and delete a late object");
 assert.equal(await reservationBucket.get(abandoned.objectKey), null);
-await reservationBucket.put(abandoned.objectKey, new Uint8Array(abandoned.plannedBytes), {
+const newGenerationKey = "workspace-001/manual/reservation-new-generation/asset-003.png";
+await reservationBucket.put(newGenerationKey, new Uint8Array(abandoned.plannedBytes), {
   httpMetadata: { contentType: "image/png" },
   customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256, reservation_id: "reservation-new-generation", fencing_token: "fence-new" }
 });
 await reservationHarness.sweepReleased(202);
-assert.notEqual(await reservationBucket.get(abandoned.objectKey), null, "old reservation sweep must preserve a newer fenced object");
-await reservationBucket.delete(abandoned.objectKey);
+assert.notEqual(await reservationBucket.get(newGenerationKey), null, "generation-specific object keys prevent old reservation deletion from racing with a newer object");
+await reservationBucket.delete(newGenerationKey);
 for (const mismatch of [
   { workspaceId: "workspace-999" },
   { objectKey: "workspace-001/manual/wrong.png" },
@@ -293,9 +301,10 @@ for (const mismatch of [
     assert.equal((await reservationHarness.reconcile(operationKey, 300)).state, "released");
     await reservationBucket.delete(storedKey);
   } else {
-    await assert.rejects(reservationHarness.reconcile(operationKey, 300), /stored object must match/);
-    await reservationBucket.delete(request.objectKey);
-    assert.equal((await reservationHarness.reconcile(operationKey, 300)).state, "released");
+    const recovered = await reservationHarness.reconcile(operationKey, 300);
+    assert.equal(recovered.state, "released");
+    assert.equal(recovered.mismatchedObjectDeleted, true, "expired same-generation mismatch must be deleted by reconciliation");
+    assert.equal(await reservationBucket.get(request.objectKey), null);
   }
 }
 
