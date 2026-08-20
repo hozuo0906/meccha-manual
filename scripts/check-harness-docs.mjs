@@ -264,21 +264,27 @@ function hasAiRuntimeBoundary(content, path = "") {
     "`https://api.github.com${path}`",
     "`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`"
   ]);
+  const isApprovedDirectFetchArgument = (argument) => {
+    if (argument === "request: Request") return true;
+    if (argument === "`${config.url}${path}`") return ["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path);
+    if (argument.startsWith("`https://api.github.com") || argument.startsWith("`https://discord.com/")) return path === "apps/worker/src/index.ts";
+    return path === "apps/worker/src/app-assets.ts" && argument === "path";
+  };
   const hasUnapprovedDirectFetch = directFetchArguments.some((argument) =>
-    !approvedDirectFetchArguments.has(argument)
-    && !(path === "apps/worker/src/app-assets.ts" && argument === "path")
+    !isApprovedDirectFetchArgument(argument)
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker");
   const hasFetchAlias = /(?:=|:)\s*(?:globalThis\.)?fetch\b(?!\s*\()/m.test(content);
-  const fetchCapabilityRemainder = normalizedContent
+  let fetchCapabilityRemainder = normalizedContent
     .replace(/\basync\s+fetch\s*\(/g, "(")
-    .replace(/\bphase1Worker\.fetch\s*\(/g, "(")
-    .replace(/\bfetch\s*\(\s*`\$\{config\.url\}\$\{path\}`/g, "(")
+    .replace(/\bphase1Worker\.fetch\s*\(/g, "(");
+  if (["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path)) fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*`\$\{config\.url\}\$\{path\}`/g, "(");
+  if (path === "apps/worker/src/index.ts") fetchCapabilityRemainder = fetchCapabilityRemainder
     .replace(/\bfetch\s*\(\s*`https:\/\/api\.github\.com\/repos\/\$\{owner\}\/\$\{repo\}\/issues`/g, "(")
     .replace(/\bfetch\s*\(\s*`https:\/\/api\.github\.com\$\{path\}`/g, "(")
-    .replace(/\bfetch\s*\(\s*`https:\/\/discord\.com\/api\/v10\/webhooks\/\$\{interaction\.application_id\}\/\$\{interaction\.token\}\/messages\/@original`/g, "(")
-    .replace(path === "apps/worker/src/app-assets.ts" ? /\bfetch\s*\(\s*path/g : /$^/, "(");
+    .replace(/\bfetch\s*\(\s*`https:\/\/discord\.com\/api\/v10\/webhooks\/\$\{interaction\.application_id\}\/\$\{interaction\.token\}\/messages\/@original`/g, "(");
+  if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
   const hasUnapprovedOutboundCapability = (
@@ -325,6 +331,7 @@ for (const fixture of [
   { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
+  { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {

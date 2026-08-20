@@ -186,7 +186,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
       if (persistentState.currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
-      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, absoluteDeadline: lease.absoluteDeadline ?? lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
       persistentState.version += 1;
       return reservation;
@@ -209,7 +209,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       }
       if (persistentState.version !== observedVersion) throw new Error("reservation serialization conflict");
       if (observedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
-      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, absoluteDeadline: lease.absoluteDeadline ?? lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
       persistentState.version += 1;
       return reservation;
@@ -219,6 +219,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       assert.equal(reservation.leaseOwner, owner, "only the current lease owner may extend");
       assert.equal(reservation.leaseDeadline, expectedDeadline, "lease extension must compare the current deadline");
       assert.ok(nextDeadline > expectedDeadline, "lease extension must move forward");
+      assert.ok(nextDeadline <= reservation.absoluteDeadline, "lease extension must not exceed the fixed absolute deadline");
       reservation.leaseDeadline = nextDeadline;
     },
     async reconcile(operationKey, now) {
@@ -375,7 +376,7 @@ const saveRequest = {
   plannedBytes: saveBody.byteLength,
   checksumSha256: createHash("sha256").update(saveBody).digest("hex")
 };
-const initialLease = { owner: "worker-001", deadline: 100, fencingToken: "fence-001" };
+const initialLease = { owner: "worker-001", deadline: 100, absoluteDeadline: 120, fencingToken: "fence-001" };
 const firstReservation = reservationHarness.reserve(saveRequest, initialLease);
 assert.strictEqual(reservationHarness.reserve({ ...saveRequest }, initialLease), firstReservation, "lost response retry must reuse one reservation");
 for (const mismatch of [
@@ -387,6 +388,8 @@ for (const mismatch of [
 assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }, initialLease), /limit exceeded/);
 await assert.rejects(reservationHarness.reconcile(saveRequest.operationKey, 99), /active lease/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
+assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 121), /absolute deadline/);
+reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 120);
 await putReservedThroughAdapter(saveRequest, firstReservation, saveBody);
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.reservation_id, firstReservation.reservationId, "adapter must persist reservation metadata");
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.fencing_token, firstReservation.fencingToken, "adapter must persist fencing metadata");
