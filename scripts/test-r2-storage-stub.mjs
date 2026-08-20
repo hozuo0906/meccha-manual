@@ -165,12 +165,13 @@ assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefine
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
-function createUsageReservationHarness(limitBytes, readObject, deleteObject, listGenerationObjects, persistentState = { reservations: new Map(), currentBytes: 0 }) {
+function createUsageReservationHarness(limitBytes, readObject, deleteObject, listGenerationObjects, persistentState = { reservations: new Map(), currentBytes: 0 }, readServerNow = () => { throw new Error("server clock is required"); }) {
   const reservations = persistentState.reservations;
   persistentState.version ??= 0;
   const MAX_LEASE_DURATION = 60;
   const absoluteDeadlineFor = (lease) => {
-    const serverNow = lease.now ?? lease.deadline;
+    const serverNow = readServerNow();
+    if (!Number.isSafeInteger(serverNow) || serverNow < 0) throw new Error("server clock must return a non-negative safe integer");
     const absoluteDeadline = serverNow + MAX_LEASE_DURATION;
     if (lease.deadline > absoluteDeadline) throw new Error("lease deadline exceeds the server maximum duration");
     return absoluteDeadline;
@@ -283,6 +284,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
 const reservationBucket = createFakeR2Bucket();
 const reservationStorage = createR2ObjectStorage({ MANUAL_ASSETS: reservationBucket });
 const persistentReservationState = { reservations: new Map(), currentBytes: 0 };
+const reservationClock = { now: 60 };
 const readReservationObject = async (objectKey) => {
   const stored = await reservationBucket.get(objectKey);
   if (!stored) return null;
@@ -326,10 +328,11 @@ const reservationHarness = createUsageReservationHarness(
   readReservationObject,
   (objectKey) => reservationBucket.delete(objectKey),
   listReservationObjects,
-  persistentReservationState
+  persistentReservationState,
+  () => reservationClock.now
 );
 const concurrentState = { reservations: new Map(), currentBytes: 0 };
-const concurrentHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], concurrentState);
+const concurrentHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], concurrentState, () => 60);
 let concurrentReaders = 0;
 let releaseConcurrentReaders;
 const bothReadersReady = new Promise((resolve) => { releaseConcurrentReaders = resolve; });
@@ -362,7 +365,7 @@ assert.strictEqual(
   "lost response retry on the concurrent path must reuse the existing reservation"
 );
 const retryRaceState = { reservations: new Map(), currentBytes: 0 };
-const retryRaceHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], retryRaceState);
+const retryRaceHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], retryRaceState, () => 60);
 let retryRaceReaders = 0;
 let releaseRetryRace;
 const retryRaceReady = new Promise((resolve) => { releaseRetryRace = resolve; });
@@ -383,7 +386,7 @@ const saveRequest = {
   plannedBytes: saveBody.byteLength,
   checksumSha256: createHash("sha256").update(saveBody).digest("hex")
 };
-const initialLease = { owner: "worker-001", now: 60, deadline: 100, fencingToken: "fence-001" };
+const initialLease = { owner: "worker-001", deadline: 100, fencingToken: "fence-001" };
 const firstReservation = reservationHarness.reserve(saveRequest, initialLease);
 assert.strictEqual(reservationHarness.reserve({ ...saveRequest }, initialLease), firstReservation, "lost response retry must reuse one reservation");
 for (const mismatch of [
@@ -397,8 +400,8 @@ await assert.rejects(reservationHarness.reconcile(saveRequest.operationKey, 99),
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 121), /absolute deadline/);
 reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 120);
-const excessiveLeaseHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => []);
-assert.throws(() => excessiveLeaseHarness.reserve({ ...saveRequest, operationKey: "excessive-lease", plannedBytes: 1 }, { owner: "worker-x", now: 0, deadline: Number.MAX_SAFE_INTEGER, fencingToken: "fence-x" }), /server maximum duration/);
+const excessiveLeaseHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], { reservations: new Map(), currentBytes: 0 }, () => 0);
+assert.throws(() => excessiveLeaseHarness.reserve({ ...saveRequest, operationKey: "excessive-lease", plannedBytes: 1 }, { owner: "worker-x", deadline: Number.MAX_SAFE_INTEGER, fencingToken: "fence-x" }), /server maximum duration/);
 await putReservedThroughAdapter(saveRequest, firstReservation, saveBody);
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.reservation_id, firstReservation.reservationId, "adapter must persist reservation metadata");
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.fencing_token, firstReservation.fencingToken, "adapter must persist fencing metadata");
@@ -413,12 +416,13 @@ const abandoned = {
   plannedBytes: 4,
   checksumSha256: createHash("sha256").update(new Uint8Array(4)).digest("hex")
 };
+reservationClock.now = 140;
 const abandonedReservation = reservationHarness.reserve(abandoned, { owner: "worker-003", deadline: 200, fencingToken: "fence-003" });
 await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
 assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 200)).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
 await putReservedThroughAdapter(abandoned, abandonedReservation, new Uint8Array(abandoned.plannedBytes));
-const restartedReservationHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState);
+const restartedReservationHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState, () => reservationClock.now);
 await restartedReservationHarness.sweepReleased(201);
 assert.equal(restartedReservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "restarted scheduled sweep must reload persistent released reservations and delete a late object");
 assert.equal(await reservationBucket.get(abandoned.objectKey), null);
@@ -436,6 +440,7 @@ for (const [index, mismatch] of [
   { sizeBytes: 3 },
   { checksumSha256: "c".repeat(64) }
 ].entries()) {
+  reservationClock.now = 240;
   const operationKey = `mismatch-${index + 1}`;
   const generationId = `reservation-${operationKey}`;
   const request = {
