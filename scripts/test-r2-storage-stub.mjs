@@ -353,6 +353,19 @@ assert.strictEqual(
   successfulParallelReservation,
   "lost response retry on the concurrent path must reuse the existing reservation"
 );
+const retryRaceState = { reservations: new Map(), currentBytes: 0 };
+const retryRaceHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], retryRaceState);
+let retryRaceReaders = 0;
+let releaseRetryRace;
+const retryRaceReady = new Promise((resolve) => { releaseRetryRace = resolve; });
+const sameOperationRequest = { operationKey: "same-operation", workspaceId: "workspace-001", generationId: "reservation-same-operation", objectKey: "same-operation", plannedBytes: 6, checksumSha256: "c".repeat(64) };
+const sameOperationLease = { owner: "same-operation", deadline: 100, fencingToken: "fence-same-operation" };
+const sameOperationResults = await Promise.all([
+  retryRaceHarness.reserveAfterObservedUsage(sameOperationRequest, sameOperationLease, async () => { retryRaceReaders += 1; if (retryRaceReaders === 2) releaseRetryRace(); await retryRaceReady; }),
+  retryRaceHarness.reserveAfterObservedUsage({ ...sameOperationRequest }, { ...sameOperationLease }, async () => { retryRaceReaders += 1; if (retryRaceReaders === 2) releaseRetryRace(); await retryRaceReady; })
+]);
+assert.strictEqual(sameOperationResults[0], sameOperationResults[1], "concurrent retries with one operation key must converge on one reservation");
+assert.equal(retryRaceState.reservations.size, 1, "concurrent operation-key retry must reserve capacity once");
 const saveBody = new TextEncoder().encode("stored");
 const saveRequest = {
   operationKey: "operation-001",

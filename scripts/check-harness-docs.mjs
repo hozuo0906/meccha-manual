@@ -232,6 +232,12 @@ if (JSON.stringify(packageLock.packages?.[""]?.devDependencies ?? {}) !== JSON.s
 
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
+  let normalizedContent = content;
+  let previousNormalizedContent;
+  do {
+    previousNormalizedContent = normalizedContent;
+    normalizedContent = normalizedContent.replace(/(["'])([^"'\\]*)\1\s*\+\s*(["'])([^"'\\]*)\3/g, (_match, quote, left, _rightQuote, right) => `${quote}${left}${right}${quote}`);
+  } while (normalizedContent !== previousNormalizedContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
     "discord.com",
@@ -240,7 +246,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     "meccha-manual.meccha-iiyatsu.com",
     "meccha-manual.tattoo-studio-crm.workers.dev"
   ]);
-  const literalUrls = content.match(/https?:\/\/[^\s'"`<>)]+/gi) ?? [];
+  const literalUrls = normalizedContent.match(/https?:\/\/[^\s'"`<>)]+/gi) ?? [];
   const hasUnapprovedLiteralEgress = literalUrls.some((literal) => {
     try {
       const parsed = new URL(literal.replace(/\$\{.*$/, ""));
@@ -265,7 +271,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker");
   const hasFetchAlias = /(?:=|:)\s*(?:globalThis\.)?fetch\b(?!\s*\()/m.test(content);
-  const fetchCapabilityRemainder = content
+  const fetchCapabilityRemainder = normalizedContent
     .replace(/\basync\s+fetch\s*\(/g, "(")
     .replace(/\bphase1Worker\.fetch\s*\(/g, "(")
     .replace(/\bfetch\s*\(\s*`\$\{config\.url\}\$\{path\}`/g, "(")
@@ -274,8 +280,9 @@ function hasAiRuntimeBoundary(content, path = "") {
     .replace(/\bfetch\s*\(\s*`https:\/\/discord\.com\/api\/v10\/webhooks\/\$\{interaction\.application_id\}\/\$\{interaction\.token\}\/messages\/@original`/g, "(")
     .replace(path === "apps/worker/src/app-assets.ts" ? /\bfetch\s*\(\s*path/g : /$^/, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
+  const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b/.test(normalizedContent);
   return (
-    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape ||
+    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
@@ -307,6 +314,7 @@ for (const fixture of [
   { content: 'const externalFetch = fetch; await externalFetch(dynamicUrl);', path: "apps/worker/src/provider.ts" },
   { content: 'await globalThis["fetch"]("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'const { fetch: externalFetch } = globalThis; await externalFetch(dynamicUrl);', path: "apps/worker/src/provider.ts" },
+  { content: 'const externalFetch = Reflect.get(globalThis, "fet" + "ch"); await externalFetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
