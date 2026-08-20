@@ -283,11 +283,12 @@ function hasAiRuntimeBoundary(content, path = "") {
     !isApprovedDirectFetchArgument(argument)
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
-  const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker");
+  const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
+    || (memberFetchReceivers.includes("phase1Worker") && (path !== "apps/worker/src/index-phase2.ts" || memberFetchReceivers.filter((receiver) => receiver === "phase1Worker").length !== 1));
   const hasFetchAlias = /(?:=|:)\s*(?:globalThis\.)?fetch\b(?!\s*\()/m.test(content);
   let fetchCapabilityRemainder = normalizedContent
-    .replace(/\basync\s+fetch\s*\(/g, "(")
-    .replace(/\bphase1Worker\.fetch\s*\(/g, "(");
+    .replace(/\basync\s+fetch\s*\(/g, "(");
+  if (path === "apps/worker/src/index-phase2.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bphase1Worker\.fetch\s*\(/g, "(");
   if (["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path)) fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*`\$\{config\.url\}\$\{path\}`/g, "(");
   if (path === "apps/worker/src/index.ts") fetchCapabilityRemainder = fetchCapabilityRemainder
     .replace(/\bfetch\s*\(\s*`https:\/\/api\.github\.com\/repos\/\$\{owner\}\/\$\{repo\}\/issues`/g, "(")
@@ -342,6 +343,7 @@ for (const fixture of [
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
   { content: 'fetch(`${config.url}${path}`); fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
+  { content: 'const phase1Worker = env.AI_PROXY; return phase1Worker.fetch(request);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {

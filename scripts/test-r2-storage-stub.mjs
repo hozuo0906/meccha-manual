@@ -277,7 +277,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
-        if (reservation.state === "released") await this.reconcile(reservation.operationKey, now);
+        if (reservation.state === "released" || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
+          await this.reconcile(reservation.operationKey, now);
+        }
       }
     }
   };
@@ -429,6 +431,12 @@ const abandonedReservation = reservationHarness.reserve(abandoned, { owner: "wor
 await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
 assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 200)).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
+reservationClock.now = 150;
+const sweepAbandoned = { ...abandoned, operationKey: "sweep-abandoned", generationId: "reservation-sweep-abandoned", objectKey: createObjectKey({ area: STORAGE_AREAS.MANUAL_ASSETS, workspaceId: "workspace-001", resourceId: "manual-001", generationId: "reservation-sweep-abandoned", assetId: "asset-sweep-abandoned", extension: "png" }) };
+reservationHarness.reserve(sweepAbandoned, { owner: "worker-sweep", deadline: 210, fencingToken: "fence-sweep" });
+const activeRestartHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState, () => reservationClock.now);
+await activeRestartHarness.sweepReleased(210);
+assert.equal(activeRestartHarness.snapshot().reservations.find((item) => item.operationKey === sweepAbandoned.operationKey).state, "released", "restarted scheduled sweep must enumerate and release expired active reservations");
 await putReservedThroughAdapter(abandoned, abandonedReservation, new Uint8Array(abandoned.plannedBytes));
 const restartedReservationHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState, () => reservationClock.now);
 await restartedReservationHarness.sweepReleased(201);
