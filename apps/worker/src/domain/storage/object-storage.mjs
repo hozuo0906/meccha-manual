@@ -82,7 +82,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     throw new TypeError("SHA-256 checksum does not match the body.");
   }
 
-  const allowedMetadata = new Set(["workspaceId", "resourceId", "generationId", "assetId", "manualId", "stepId"]);
+  const allowedMetadata = new Set(["workspaceId", "resourceId", "generationId", "reservationId", "fencingToken", "assetId", "manualId", "stepId"]);
   if (!metadata || Object.keys(metadata).some((name) => !allowedMetadata.has(name))) {
     throw new TypeError("Metadata contains a prohibited field.");
   }
@@ -92,6 +92,14 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     assetId: requireSafeIdentifier("assetId", metadata?.assetId)
   };
   if (metadata?.generationId !== undefined) safeMetadata.generationId = requireSafeIdentifier("generationId", metadata.generationId);
+  if (metadata?.reservationId !== undefined) safeMetadata.reservationId = requireSafeIdentifier("reservationId", metadata.reservationId);
+  if (metadata?.fencingToken !== undefined) safeMetadata.fencingToken = requireSafeIdentifier("fencingToken", metadata.fencingToken);
+  if ((safeMetadata.reservationId === undefined) !== (safeMetadata.fencingToken === undefined)) {
+    throw new TypeError("Reservation metadata must include reservationId and fencingToken together.");
+  }
+  if (safeMetadata.reservationId !== undefined && safeMetadata.generationId === undefined) {
+    throw new TypeError("Reservation metadata requires a generationId.");
+  }
   if (metadata?.manualId !== undefined) safeMetadata.manualId = requireSafeIdentifier("manualId", metadata.manualId);
   if (metadata?.stepId !== undefined) safeMetadata.stepId = requireSafeIdentifier("stepId", metadata.stepId);
   if (
@@ -134,6 +142,8 @@ export function createStorageReadResult(object) {
     }
   };
   if (object.metadata.generationId !== undefined) result.metadata.generationId = object.metadata.generationId;
+  if (object.metadata.reservationId !== undefined) result.metadata.reservationId = object.metadata.reservationId;
+  if (object.metadata.fencingToken !== undefined) result.metadata.fencingToken = object.metadata.fencingToken;
   return result;
 }
 

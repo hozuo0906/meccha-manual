@@ -18,15 +18,18 @@ export function createR2ObjectStorage(bindings) {
   return assertObjectStorage({
     async put(object) {
       const verified = await createStorageObject(object);
+      const customMetadata = {
+        workspace_id: verified.metadata.workspaceId,
+        asset_id: verified.metadata.assetId,
+        kind: verified.kind,
+        content_type: verified.contentType,
+        checksum_sha256: verified.checksumSha256
+      };
+      if (verified.metadata.reservationId !== undefined) customMetadata.reservation_id = verified.metadata.reservationId;
+      if (verified.metadata.fencingToken !== undefined) customMetadata.fencing_token = verified.metadata.fencingToken;
       await bucket(verified.area).put(verified.key, verified.body, {
         httpMetadata: { contentType: verified.contentType },
-        customMetadata: {
-          workspace_id: verified.metadata.workspaceId,
-          asset_id: verified.metadata.assetId,
-          kind: verified.kind,
-          content_type: verified.contentType,
-          checksum_sha256: verified.checksumSha256
-        }
+        customMetadata
       });
       return { status: "stored" };
     },
@@ -49,6 +52,8 @@ export function createR2ObjectStorage(bindings) {
           workspaceId: metadata.workspace_id,
           resourceId: keySegments[2],
           generationId,
+          reservationId: metadata.reservation_id,
+          fencingToken: metadata.fencing_token,
           assetId: metadata.asset_id
         }
       });

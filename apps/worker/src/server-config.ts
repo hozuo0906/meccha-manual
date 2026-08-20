@@ -27,7 +27,7 @@ export function inspectSupabaseConfig(env: SupabaseBindings): SupabaseConfigInsp
   if (hasUrl) {
     try {
       const parsed = new URL(rawUrl);
-      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname.endsWith(".supabase.co")) {
         throw new Error("invalid Supabase URL");
       }
       url = parsed.origin;

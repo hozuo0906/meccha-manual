@@ -239,6 +239,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
 }
 
 const reservationBucket = createFakeR2Bucket();
+const reservationStorage = createR2ObjectStorage({ MANUAL_ASSETS: reservationBucket });
 const persistentReservationState = { reservations: new Map(), currentBytes: 0 };
 const readReservationObject = async (objectKey) => {
   const stored = await reservationBucket.get(objectKey);
@@ -257,6 +258,27 @@ const listReservationObjects = async (prefix) => {
   const listed = await reservationBucket.list({ prefix });
   return Promise.all(listed.objects.map(({ key: objectKey }) => readReservationObject(objectKey)));
 };
+async function putReservedThroughAdapter(request, reservation, bytes) {
+  const assetId = request.objectKey.slice(request.objectKey.lastIndexOf("/") + 1, request.objectKey.lastIndexOf("."));
+  const storageObject = await createStorageObject({
+    area: STORAGE_AREAS.MANUAL_ASSETS,
+    key: request.objectKey,
+    kind: STORAGE_KINDS.MANUAL_IMAGE,
+    body: bytes,
+    contentType: "image/png",
+    sizeBytes: bytes.byteLength,
+    checksumSha256: request.checksumSha256,
+    metadata: {
+      workspaceId: request.workspaceId,
+      resourceId: "manual-001",
+      generationId: request.generationId,
+      reservationId: reservation.reservationId,
+      fencingToken: reservation.fencingToken,
+      assetId
+    }
+  });
+  await reservationStorage.put(storageObject);
+}
 const reservationHarness = createUsageReservationHarness(
   10,
   readReservationObject,
@@ -285,10 +307,9 @@ for (const mismatch of [
 assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }, initialLease), /limit exceeded/);
 await assert.rejects(reservationHarness.reconcile(saveRequest.operationKey, 99), /active lease/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
-await reservationBucket.put(saveRequest.objectKey, saveBody, {
-  httpMetadata: { contentType: "image/png" },
-  customMetadata: { workspace_id: saveRequest.workspaceId, checksum_sha256: saveRequest.checksumSha256, reservation_id: firstReservation.reservationId, fencing_token: firstReservation.fencingToken }
-});
+await putReservedThroughAdapter(saveRequest, firstReservation, saveBody);
+assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.reservation_id, firstReservation.reservationId, "adapter must persist reservation metadata");
+assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.fencing_token, firstReservation.fencingToken, "adapter must persist fencing metadata");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 99)).state, "committed", "post-write worker stop must reconcile a matching fake R2 object to committed");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 101)).state, "committed", "reconciliation must be idempotent");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
@@ -304,10 +325,7 @@ const abandonedReservation = reservationHarness.reserve(abandoned, { owner: "wor
 await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
 assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 200)).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
-await reservationBucket.put(abandoned.objectKey, new Uint8Array(abandoned.plannedBytes), {
-  httpMetadata: { contentType: "image/png" },
-  customMetadata: { workspace_id: abandoned.workspaceId, checksum_sha256: abandoned.checksumSha256, reservation_id: abandonedReservation.reservationId, fencing_token: abandonedReservation.fencingToken }
-});
+await putReservedThroughAdapter(abandoned, abandonedReservation, new Uint8Array(abandoned.plannedBytes));
 const restartedReservationHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState);
 await restartedReservationHarness.sweepReleased(201);
 assert.equal(restartedReservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "restarted scheduled sweep must reload persistent released reservations and delete a late object");

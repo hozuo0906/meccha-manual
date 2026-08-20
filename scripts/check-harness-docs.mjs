@@ -187,7 +187,7 @@ async function listRuntimeFiles(root) {
   for (const entry of entries) {
     const path = `${root}/${entry.name}`;
     if (entry.isDirectory()) files.push(...await listRuntimeFiles(path));
-    else if (entry.isFile()) files.push(path);
+    else if (entry.isFile() && /\.(?:[cm]?[jt]s|tsx?|jsonc?|html|css|sql)$/i.test(entry.name)) files.push(path);
   }
   return files;
 }
@@ -232,7 +232,23 @@ if (JSON.stringify(packageLock.packages?.[""]?.devDependencies ?? {}) !== JSON.s
 
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
+  const approvedEgressHosts = new Set([
+    "api.github.com",
+    "discord.com",
+    "www.meccha-iiyatsu.com",
+    "meccha-manual.meccha-iiyatsu.com"
+  ]);
+  const literalUrls = content.match(/https:\/\/[^\s'"`<>)]+/gi) ?? [];
+  const hasUnapprovedLiteralEgress = literalUrls.some((literal) => {
+    try {
+      const host = new URL(literal.replace(/\$\{.*$/, "")).hostname.toLowerCase();
+      return !approvedEgressHosts.has(host) && !host.endsWith(".supabase.co") && !host.endsWith(".workers.dev");
+    } catch {
+      return true;
+    }
+  });
   return (
+    hasUnapprovedLiteralEgress ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
@@ -254,6 +270,8 @@ for (const fixture of [
   { content: 'await fetch("https://acme.openai.azure.com/openai/deployments/manual/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://bedrock-runtime.ap-northeast-1.amazonaws.com/model/example/invoke");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://bedrock-runtime.ap-northeast-1.api.aws/model/example/invoke");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://aiplatform.googleapis.com/v1/projects/example/locations/us-central1/publishers/google/models/gemini:generateContent");', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
