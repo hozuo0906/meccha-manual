@@ -266,9 +266,18 @@ function hasAiRuntimeBoundary(content, path = "") {
   ]);
   const isApprovedDirectFetchArgument = (argument) => {
     if (argument === "request: Request") return true;
-    if (argument === "`${config.url}${path}`") return ["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path);
-    if (argument.startsWith("`https://api.github.com") || argument.startsWith("`https://discord.com/")) return path === "apps/worker/src/index.ts";
-    return path === "apps/worker/src/app-assets.ts" && argument === "path";
+    const expectedCounts = {
+      "apps/worker/src/index.ts": new Map([
+        ["`${config.url}${path}`", 1],
+        ["`https://api.github.com/repos/${owner}/${repo}/issues`", 1],
+        ["`https://api.github.com${path}`", 1],
+        ["`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`", 1]
+      ]),
+      "apps/worker/src/manual-router.ts": new Map([["`${config.url}${path}`", 1]]),
+      "apps/worker/src/app-assets.ts": new Map([["path", 1]])
+    };
+    const expected = expectedCounts[path]?.get(argument);
+    return expected !== undefined && directFetchArguments.filter((candidate) => candidate === argument).length === expected;
   };
   const hasUnapprovedDirectFetch = directFetchArguments.some((argument) =>
     !isApprovedDirectFetchArgument(argument)
@@ -332,6 +341,7 @@ for (const fixture of [
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
+  { content: 'fetch(`${config.url}${path}`); fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
