@@ -262,8 +262,11 @@ function hasAiRuntimeBoundary(content, path = "") {
     !approvedDirectFetchArguments.has(argument)
     && !(path === "apps/worker/src/app-assets.ts" && argument === "path")
   );
+  const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
+  const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker");
+  const hasFetchAlias = /(?:=|:)\s*(?:globalThis\.)?fetch\b(?!\s*\()/m.test(content);
   return (
-    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch ||
+    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
@@ -291,6 +294,8 @@ for (const fixture of [
   { content: 'await fetch("http://unapproved-ai-proxy.workers.dev/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://attacker-project.supabase.co/functions/v1/ai-proxy");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'await globalThis.fetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'const externalFetch = fetch; await externalFetch(dynamicUrl);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {

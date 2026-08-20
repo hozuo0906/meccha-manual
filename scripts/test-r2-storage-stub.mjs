@@ -167,6 +167,7 @@ assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
 function createUsageReservationHarness(limitBytes, readObject, deleteObject, listGenerationObjects, persistentState = { reservations: new Map(), currentBytes: 0 }) {
   const reservations = persistentState.reservations;
+  persistentState.version ??= 0;
   const tupleOf = (request) => JSON.stringify([
     request.workspaceId,
     request.objectKey,
@@ -187,14 +188,21 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       if (persistentState.currentBytes + reservedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
       const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
+      persistentState.version += 1;
       return reservation;
     },
     async reserveAfterObservedUsage(request, lease, afterRead) {
       const observedBytes = persistentState.currentBytes + [...reservations.values()]
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
+      const observedVersion = persistentState.version;
       await afterRead(observedBytes);
-      return this.reserve(request, lease);
+      if (persistentState.version !== observedVersion) throw new Error("reservation serialization conflict");
+      if (observedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
+      const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
+      reservations.set(request.operationKey, reservation);
+      persistentState.version += 1;
+      return reservation;
     },
     extendLease(operationKey, owner, expectedDeadline, nextDeadline) {
       const reservation = reservations.get(operationKey);
@@ -320,7 +328,7 @@ const concurrentResults = await Promise.allSettled([
 ]);
 assert.deepEqual(observedConcurrentBytes, [0, 0], "both concurrent reservations must read the same pre-reservation usage snapshot");
 assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1, "atomic reservation boundary must admit only one concurrent request");
-assert.equal(concurrentResults.filter((result) => result.status === "rejected").length, 1, "the competing reservation must fail at the limit");
+assert.equal(concurrentResults.filter((result) => result.status === "rejected" && /serialization conflict/.test(result.reason?.message)).length, 1, "the competing reservation must fail its compare-and-swap");
 const saveBody = new TextEncoder().encode("stored");
 const saveRequest = {
   operationKey: "operation-001",
