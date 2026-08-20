@@ -281,8 +281,12 @@ function hasAiRuntimeBoundary(content, path = "") {
     .replace(path === "apps/worker/src/app-assets.ts" ? /\bfetch\s*\(\s*path/g : /$^/, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
+  const hasUnapprovedOutboundCapability = (
+    /["'](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["']/.test(normalizedContent)
+    || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
+  );
   return (
-    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup ||
+    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
@@ -316,6 +320,9 @@ for (const fixture of [
   { content: 'const { fetch: externalFetch } = globalThis; await externalFetch(dynamicUrl);', path: "apps/worker/src/provider.ts" },
   { content: 'const externalFetch = Reflect.get(globalThis, "fet" + "ch"); await externalFetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'const externalFetch = self["fet" + `ch`]; await externalFetch("https:" + `//api.groq.com/openai/v1/responses`);', path: "apps/worker/src/provider.ts" },
+  { content: 'import { connect } from "cloudflare:sockets"; connect({ hostname: env.REMOTE_HOST, port: 443 }, { secureTransport: "on" });', path: "apps/worker/src/provider.ts" },
+  { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
+  { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
