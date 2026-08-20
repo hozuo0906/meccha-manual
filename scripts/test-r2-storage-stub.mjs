@@ -192,11 +192,21 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       return reservation;
     },
     async reserveAfterObservedUsage(request, lease, afterRead) {
+      const existing = reservations.get(request.operationKey);
+      if (existing) {
+        assert.equal(existing.tuple, tupleOf(request), "operation key reuse must preserve the full save tuple");
+        return existing;
+      }
       const observedBytes = persistentState.currentBytes + [...reservations.values()]
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
       const observedVersion = persistentState.version;
       await afterRead(observedBytes);
+      const concurrentExisting = reservations.get(request.operationKey);
+      if (concurrentExisting) {
+        assert.equal(concurrentExisting.tuple, tupleOf(request), "concurrent operation key reuse must preserve the full save tuple");
+        return concurrentExisting;
+      }
       if (persistentState.version !== observedVersion) throw new Error("reservation serialization conflict");
       if (observedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
       const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
@@ -322,13 +332,27 @@ const waitForBothReaders = async (observedBytes) => {
   if (concurrentReaders === 2) releaseConcurrentReaders();
   await bothReadersReady;
 };
-const concurrentResults = await Promise.allSettled([
-  concurrentHarness.reserveAfterObservedUsage({ operationKey: "parallel-001", workspaceId: "workspace-001", generationId: "reservation-parallel-001", objectKey: "parallel-001", plannedBytes: 6, checksumSha256: "a".repeat(64) }, { owner: "parallel-001", deadline: 100, fencingToken: "fence-parallel-001" }, waitForBothReaders),
-  concurrentHarness.reserveAfterObservedUsage({ operationKey: "parallel-002", workspaceId: "workspace-001", generationId: "reservation-parallel-002", objectKey: "parallel-002", plannedBytes: 6, checksumSha256: "b".repeat(64) }, { owner: "parallel-002", deadline: 100, fencingToken: "fence-parallel-002" }, waitForBothReaders)
-]);
+const parallelRequests = [
+  { operationKey: "parallel-001", workspaceId: "workspace-001", generationId: "reservation-parallel-001", objectKey: "parallel-001", plannedBytes: 6, checksumSha256: "a".repeat(64) },
+  { operationKey: "parallel-002", workspaceId: "workspace-001", generationId: "reservation-parallel-002", objectKey: "parallel-002", plannedBytes: 6, checksumSha256: "b".repeat(64) }
+];
+const parallelLeases = [
+  { owner: "parallel-001", deadline: 100, fencingToken: "fence-parallel-001" },
+  { owner: "parallel-002", deadline: 100, fencingToken: "fence-parallel-002" }
+];
+const concurrentResults = await Promise.allSettled(parallelRequests.map((request, index) =>
+  concurrentHarness.reserveAfterObservedUsage(request, parallelLeases[index], waitForBothReaders)
+));
 assert.deepEqual(observedConcurrentBytes, [0, 0], "both concurrent reservations must read the same pre-reservation usage snapshot");
 assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1, "atomic reservation boundary must admit only one concurrent request");
 assert.equal(concurrentResults.filter((result) => result.status === "rejected" && /serialization conflict/.test(result.reason?.message)).length, 1, "the competing reservation must fail its compare-and-swap");
+const successfulParallelIndex = concurrentResults.findIndex((result) => result.status === "fulfilled");
+const successfulParallelReservation = concurrentResults[successfulParallelIndex].value;
+assert.strictEqual(
+  await concurrentHarness.reserveAfterObservedUsage(parallelRequests[successfulParallelIndex], parallelLeases[successfulParallelIndex], async () => { throw new Error("idempotent retry must not re-enter the reservation race"); }),
+  successfulParallelReservation,
+  "lost response retry on the concurrent path must reuse the existing reservation"
+);
 const saveBody = new TextEncoder().encode("stored");
 const saveRequest = {
   operationKey: "operation-001",
