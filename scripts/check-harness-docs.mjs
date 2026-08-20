@@ -234,7 +234,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   return (
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
-    /(?:api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)/i.test(content) ||
+    /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
     /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai|@aws-sdk\/client-bedrock-runtime)['"]/i.test(content) ||
     /["'](?:openai|@anthropic-ai\/sdk|@google\/generative-ai|cohere-ai|@mistralai\/mistralai|@aws-sdk\/client-bedrock-runtime)["']\s*:/i.test(content) ||
@@ -251,6 +251,9 @@ for (const fixture of [
   { content: 'const sdk = await import("cohere-ai");', path: "apps/worker/src/provider.ts" },
   { content: '{ "dependencies": { "@mistralai/mistralai": "1.0.0" } }', path: "package.json" },
   { content: '{ "dependencies": { "@aws-sdk/client-bedrock-runtime": "1.0.0" } }', path: "package.json" },
+  { content: 'await fetch("https://acme.openai.azure.com/openai/deployments/manual/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://bedrock-runtime.ap-northeast-1.amazonaws.com/model/example/invoke");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://bedrock-runtime.ap-northeast-1.api.aws/model/example/invoke");', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {

@@ -39,17 +39,19 @@ function requireSafeIdentifier(name, value) {
   return value;
 }
 
-export function createObjectKey({ area, workspaceId, resourceId, assetId, extension }) {
+export function createObjectKey({ area, workspaceId, resourceId, generationId, assetId, extension }) {
   const resourceType = RESOURCE_TYPE_BY_AREA[area];
   if (!resourceType) throw new TypeError("Unknown storage area.");
   if (!SAFE_EXTENSION.test(extension ?? "")) throw new TypeError("Invalid file extension.");
 
-  return [
+  const segments = [
     requireSafeIdentifier("workspaceId", workspaceId),
     resourceType,
-    requireSafeIdentifier("resourceId", resourceId),
-    `${requireSafeIdentifier("assetId", assetId)}.${extension}`
-  ].join("/");
+    requireSafeIdentifier("resourceId", resourceId)
+  ];
+  if (generationId !== undefined) segments.push(requireSafeIdentifier("generationId", generationId));
+  segments.push(`${requireSafeIdentifier("assetId", assetId)}.${extension}`);
+  return segments.join("/");
 }
 
 async function sha256Hex(body) {
@@ -80,7 +82,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     throw new TypeError("SHA-256 checksum does not match the body.");
   }
 
-  const allowedMetadata = new Set(["workspaceId", "resourceId", "assetId", "manualId", "stepId"]);
+  const allowedMetadata = new Set(["workspaceId", "resourceId", "generationId", "assetId", "manualId", "stepId"]);
   if (!metadata || Object.keys(metadata).some((name) => !allowedMetadata.has(name))) {
     throw new TypeError("Metadata contains a prohibited field.");
   }
@@ -89,6 +91,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     resourceId: requireSafeIdentifier("resourceId", metadata?.resourceId),
     assetId: requireSafeIdentifier("assetId", metadata?.assetId)
   };
+  if (metadata?.generationId !== undefined) safeMetadata.generationId = requireSafeIdentifier("generationId", metadata.generationId);
   if (metadata?.manualId !== undefined) safeMetadata.manualId = requireSafeIdentifier("manualId", metadata.manualId);
   if (metadata?.stepId !== undefined) safeMetadata.stepId = requireSafeIdentifier("stepId", metadata.stepId);
   if (
@@ -104,6 +107,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
     area,
     workspaceId: safeMetadata.workspaceId,
     resourceId: safeMetadata.resourceId,
+    generationId: safeMetadata.generationId,
     assetId: safeMetadata.assetId,
     extension
   });
@@ -115,7 +119,7 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
 }
 
 export function createStorageReadResult(object) {
-  return {
+  const result = {
     area: object.area,
     key: object.key,
     kind: object.kind,
@@ -129,6 +133,8 @@ export function createStorageReadResult(object) {
       assetId: object.metadata.assetId
     }
   };
+  if (object.metadata.generationId !== undefined) result.metadata.generationId = object.metadata.generationId;
+  return result;
 }
 
 /**

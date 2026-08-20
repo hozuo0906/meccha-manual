@@ -185,6 +185,18 @@ Issue #70には最低限、次を残す。
 - Codex対応では、remote session cleanupの独立実行と全hang境界、Cloudflare v4 envelope、probe相関、0 byte矛盾拒否、run／SHA固定artifact、CDP／fixture URL・未知channelのログ非露出をコード・仕様・回帰テストへ反映した。
 - 本引き継ぎ更新commit後の最終head SHAと最終Review GateはPR #87のライブ状態を正とする。live実証は隔離fixture／GitHub `staging` Environment／専用Secrets未構成のため未実行であり、OQ-006と製品fail closedを維持する。
 
+## PR #88 品質対応引き継ぎ（2026-08-21）
+
+- 対象: branch `agent/docs-cost-guardrails-source-of-truth`、PR #88、base `main`。旧PR #56は同じ目的の古い代替PRであり、#88 merge後に未mergeのままsuperseded closeする。
+- 正本統一: AI拡張は売上安定確認とowner明示承認の両方が揃うまで実装せず、FR-006は常に外部AI APIを使わない決定的ローカル処理とする。Browser Run時間とR2容量は原価機能の有効化前にfail closedで予約・停止する。
+- 最新review対応: 容量予約objectの正規keyへ予約世代segmentを追加し、domainの`createObjectKey`、Storage object検証、memory／R2 read shape、正本文書、fixtureを同じ契約へ統一した。reconcilerは予約世代prefixだけを列挙し、再起動後も予約ID／fencing tokenが一致する誤key・孤立objectを自身で削除する。別世代は削除しない。
+- AI境界: package依存だけでなく、Azure OpenAIとAmazon Bedrockの既知endpointへnative `fetch`する製品runtimeも静的検査で拒否し、各endpointのnegative fixtureを追加した。
+- 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
+- ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
+- 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
+- 最終head SHA、CI、Codex Review、未解決thread数、merge結果は、この文書自身を含むcommitより後に確定するためPR #88とIssue #70のライブ状態を正とする。
+- 次の1マイルストーン: この文書を含む最新headで全必須CI、最新Codex Review、P0／P1／P2未解決0、review thread 0を確定し、owner承認済みの#88をmergeする。包含確認後に#56をsuperseded closeし、Issue #86の隔離staging実証へ戻る。
+
 ## 毎日0時の独立セッション
 
 毎日0時に前日の会話文脈を継続しない実行を開始する場合は、`docs/09-delivery/daily-session-prompt.md` を使用する。
