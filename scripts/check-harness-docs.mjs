@@ -236,7 +236,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   let previousNormalizedContent;
   do {
     previousNormalizedContent = normalizedContent;
-    normalizedContent = normalizedContent.replace(/(["'])([^"'\\]*)\1\s*\+\s*(["'])([^"'\\]*)\3/g, (_match, quote, left, _rightQuote, right) => `${quote}${left}${right}${quote}`);
+    normalizedContent = normalizedContent.replace(/(["'`])([^"'`\\$]*)\1\s*\+\s*(["'`])([^"'`\\$]*)\3/g, (_match, quote, left, _rightQuote, right) => `${quote}${left}${right}${quote}`);
   } while (normalizedContent !== previousNormalizedContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -280,7 +280,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     .replace(/\bfetch\s*\(\s*`https:\/\/discord\.com\/api\/v10\/webhooks\/\$\{interaction\.application_id\}\/\$\{interaction\.token\}\/messages\/@original`/g, "(")
     .replace(path === "apps/worker/src/app-assets.ts" ? /\bfetch\s*\(\s*path/g : /$^/, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
-  const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b/.test(normalizedContent);
+  const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
@@ -315,6 +315,7 @@ for (const fixture of [
   { content: 'await globalThis["fetch"]("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'const { fetch: externalFetch } = globalThis; await externalFetch(dynamicUrl);', path: "apps/worker/src/provider.ts" },
   { content: 'const externalFetch = Reflect.get(globalThis, "fet" + "ch"); await externalFetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'const externalFetch = self["fet" + `ch`]; await externalFetch("https:" + `//api.groq.com/openai/v1/responses`);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
