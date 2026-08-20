@@ -165,13 +165,15 @@ assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefine
 assert.deepEqual(await r2Storage.delete({ area: object.area, key: object.key }), { status: "deleted" });
 assert.equal(await r2Storage.get({ area: object.area, key: object.key }), null);
 
-function createUsageReservationHarness(limitBytes, readObject, deleteObject, listGenerationObjects, persistentState = { reservations: new Map(), currentBytes: 0 }, readServerNow = () => { throw new Error("server clock is required"); }) {
+function createUsageReservationHarness(limitBytes, readObject, deleteObject, listGenerationObjects, persistentState = { reservations: new Map(), currentBytes: 0 }, readServerNow) {
+  if (typeof readServerNow !== "function") throw new TypeError("server clock function is required");
   const reservations = persistentState.reservations;
   persistentState.version ??= 0;
   const MAX_LEASE_DURATION = 60;
   const absoluteDeadlineFor = (lease) => {
     const serverNow = readServerNow();
     if (!Number.isSafeInteger(serverNow) || serverNow < 0) throw new Error("server clock must return a non-negative safe integer");
+    if (!Number.isSafeInteger(lease.deadline) || lease.deadline < serverNow) throw new Error("lease deadline must be a safe integer at or after the server clock");
     const absoluteDeadline = serverNow + MAX_LEASE_DURATION;
     if (lease.deadline > absoluteDeadline) throw new Error("lease deadline exceeds the server maximum duration");
     return absoluteDeadline;
@@ -402,6 +404,12 @@ assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "wo
 reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 120);
 const excessiveLeaseHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], { reservations: new Map(), currentBytes: 0 }, () => 0);
 assert.throws(() => excessiveLeaseHarness.reserve({ ...saveRequest, operationKey: "excessive-lease", plannedBytes: 1 }, { owner: "worker-x", deadline: Number.MAX_SAFE_INTEGER, fencingToken: "fence-x" }), /server maximum duration/);
+assert.throws(() => createUsageReservationHarness(10, async () => null, async () => {}, async () => []), /server clock function/);
+for (const deadline of [undefined, Number.NaN, -1]) {
+  assert.throws(() => excessiveLeaseHarness.reserve({ ...saveRequest, operationKey: `invalid-deadline-${String(deadline)}`, plannedBytes: 1 }, { owner: "worker-x", deadline, fencingToken: "fence-x" }), /safe integer/);
+}
+const futureClockHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], { reservations: new Map(), currentBytes: 0 }, () => 10);
+assert.throws(() => futureClockHarness.reserve({ ...saveRequest, operationKey: "past-deadline", plannedBytes: 1 }, { owner: "worker-x", deadline: 9, fencingToken: "fence-x" }), /at or after/);
 await putReservedThroughAdapter(saveRequest, firstReservation, saveBody);
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.reservation_id, firstReservation.reservationId, "adapter must persist reservation metadata");
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.fencing_token, firstReservation.fencingToken, "adapter must persist fencing metadata");
