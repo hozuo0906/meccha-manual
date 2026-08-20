@@ -189,6 +189,13 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       reservations.set(request.operationKey, reservation);
       return reservation;
     },
+    async reserveAfterObservedUsage(request, lease, afterRead) {
+      const observedBytes = persistentState.currentBytes + [...reservations.values()]
+        .filter((item) => item.state === "reserved")
+        .reduce((sum, item) => sum + item.plannedBytes, 0);
+      await afterRead(observedBytes);
+      return this.reserve(request, lease);
+    },
     extendLease(operationKey, owner, expectedDeadline, nextDeadline) {
       const reservation = reservations.get(operationKey);
       assert.equal(reservation.leaseOwner, owner, "only the current lease owner may extend");
@@ -295,6 +302,25 @@ const reservationHarness = createUsageReservationHarness(
   listReservationObjects,
   persistentReservationState
 );
+const concurrentState = { reservations: new Map(), currentBytes: 0 };
+const concurrentHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], concurrentState);
+let concurrentReaders = 0;
+let releaseConcurrentReaders;
+const bothReadersReady = new Promise((resolve) => { releaseConcurrentReaders = resolve; });
+const observedConcurrentBytes = [];
+const waitForBothReaders = async (observedBytes) => {
+  observedConcurrentBytes.push(observedBytes);
+  concurrentReaders += 1;
+  if (concurrentReaders === 2) releaseConcurrentReaders();
+  await bothReadersReady;
+};
+const concurrentResults = await Promise.allSettled([
+  concurrentHarness.reserveAfterObservedUsage({ operationKey: "parallel-001", workspaceId: "workspace-001", generationId: "reservation-parallel-001", objectKey: "parallel-001", plannedBytes: 6, checksumSha256: "a".repeat(64) }, { owner: "parallel-001", deadline: 100, fencingToken: "fence-parallel-001" }, waitForBothReaders),
+  concurrentHarness.reserveAfterObservedUsage({ operationKey: "parallel-002", workspaceId: "workspace-001", generationId: "reservation-parallel-002", objectKey: "parallel-002", plannedBytes: 6, checksumSha256: "b".repeat(64) }, { owner: "parallel-002", deadline: 100, fencingToken: "fence-parallel-002" }, waitForBothReaders)
+]);
+assert.deepEqual(observedConcurrentBytes, [0, 0], "both concurrent reservations must read the same pre-reservation usage snapshot");
+assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1, "atomic reservation boundary must admit only one concurrent request");
+assert.equal(concurrentResults.filter((result) => result.status === "rejected").length, 1, "the competing reservation must fail at the limit");
 const saveBody = new TextEncoder().encode("stored");
 const saveRequest = {
   operationKey: "operation-001",

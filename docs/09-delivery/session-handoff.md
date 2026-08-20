@@ -192,6 +192,7 @@ Issue #70には最低限、次を残す。
 - 最新review対応: 容量予約objectの正規keyへ予約世代segmentを追加し、domainの`createObjectKey`、Storage object検証、memory／R2 read shape、正本文書、fixtureを同じ契約へ統一した。reconcilerは予約世代prefixだけを列挙し、再起動後も予約ID／fencing tokenが一致する誤key・孤立objectを自身で削除する。別世代は削除しない。
 - AI／egress境界: provider列挙には依存せず、製品runtimeに記述できる外向きURLを承認済みstaging Supabase project、GitHub、Discord、自社domain、自社Workerの完全一致hostへ限定して静的検査する。Groq／Vertex AI／第三者Workers／第三者Supabaseを含む未知hostとHTTPのnative `fetch`をnegative fixtureで拒否し、実行時の`SUPABASE_URL`も現在承認済みstaging hostだけを受理する。production hostは確定・承認後に環境別allowlistへ明示追加する。
 - 予約metadata境界: 容量予約objectの予約世代、`reservation_id`、`fencing_token`は3項目を常に一緒に必須とし、正規Storage adapterがR2 custom metadataへ保存してread時に再検証する。正常系fixtureはfake bucketへの直接注入ではなくadapter経由を使用する。
+- 並行予約fixture: 2要求が同じ使用量snapshotを読むところでbarrier同期して競合させ、原子的な再検査により片方だけが容量予約へ成功することを固定する。
 - 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
 - ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
 - 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
