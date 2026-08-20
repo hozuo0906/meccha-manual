@@ -89,9 +89,18 @@ assert.equal(reservedKey, "workspace-001/manuals/manual-001/reservation-operatio
 const reservedObject = await createStorageObject({
   ...object,
   key: reservedKey,
-  metadata: { ...object.metadata, generationId: "reservation-operation-001" }
+  metadata: { ...object.metadata, generationId: "reservation-operation-001", reservationId: "reservation-operation-001", fencingToken: "fence-operation-001" }
 });
 assert.equal(reservedObject.metadata.generationId, "reservation-operation-001");
+await assert.rejects(createStorageObject({
+  ...object,
+  key: reservedKey,
+  metadata: { ...object.metadata, generationId: "reservation-operation-001" }
+}), /present together/i);
+await assert.rejects(createStorageObject({
+  ...object,
+  metadata: { ...object.metadata, reservationId: "reservation-operation-001", fencingToken: "fence-operation-001" }
+}), /present together/i);
 await assert.rejects(createStorageObject({
   ...reservedObject,
   metadata: { ...reservedObject.metadata, generationId: "reservation-operation-002" }

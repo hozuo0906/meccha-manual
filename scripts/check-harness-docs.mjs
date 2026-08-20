@@ -236,13 +236,14 @@ function hasAiRuntimeBoundary(content, path = "") {
     "api.github.com",
     "discord.com",
     "www.meccha-iiyatsu.com",
-    "meccha-manual.meccha-iiyatsu.com"
+    "meccha-manual.meccha-iiyatsu.com",
+    "meccha-manual.tattoo-studio-crm.workers.dev"
   ]);
   const literalUrls = content.match(/https:\/\/[^\s'"`<>)]+/gi) ?? [];
   const hasUnapprovedLiteralEgress = literalUrls.some((literal) => {
     try {
       const host = new URL(literal.replace(/\$\{.*$/, "")).hostname.toLowerCase();
-      return !approvedEgressHosts.has(host) && !host.endsWith(".supabase.co") && !host.endsWith(".workers.dev");
+      return !approvedEgressHosts.has(host) && !host.endsWith(".supabase.co");
     } catch {
       return true;
     }
@@ -272,6 +273,7 @@ for (const fixture of [
   { content: 'await fetch("https://bedrock-runtime.ap-northeast-1.api.aws/model/example/invoke");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://aiplatform.googleapis.com/v1/projects/example/locations/us-central1/publishers/google/models/gemini:generateContent");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://unapproved-ai-proxy.workers.dev/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {

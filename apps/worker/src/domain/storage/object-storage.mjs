@@ -97,8 +97,8 @@ export async function createStorageObject({ area, key, kind, body, contentType, 
   if ((safeMetadata.reservationId === undefined) !== (safeMetadata.fencingToken === undefined)) {
     throw new TypeError("Reservation metadata must include reservationId and fencingToken together.");
   }
-  if (safeMetadata.reservationId !== undefined && safeMetadata.generationId === undefined) {
-    throw new TypeError("Reservation metadata requires a generationId.");
+  if ((safeMetadata.generationId === undefined) !== (safeMetadata.reservationId === undefined)) {
+    throw new TypeError("Reservation metadata and generationId must be present together.");
   }
   if (metadata?.manualId !== undefined) safeMetadata.manualId = requireSafeIdentifier("manualId", metadata.manualId);
   if (metadata?.stepId !== undefined) safeMetadata.stepId = requireSafeIdentifier("stepId", metadata.stepId);
