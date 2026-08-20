@@ -16,6 +16,8 @@ export interface SupabaseConfigInspection {
   config: SupabaseConfig | null;
 }
 
+const APPROVED_SUPABASE_HOSTS = new Set(["spjowmulvoyxxkfeyjkr.supabase.co"]);
+
 export function inspectSupabaseConfig(env: SupabaseBindings): SupabaseConfigInspection {
   const rawUrl = String(env.SUPABASE_URL ?? "").trim();
   const anonKey = String(env.SUPABASE_ANON_KEY ?? "").trim();
@@ -27,7 +29,7 @@ export function inspectSupabaseConfig(env: SupabaseBindings): SupabaseConfigInsp
   if (hasUrl) {
     try {
       const parsed = new URL(rawUrl);
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname.endsWith(".supabase.co")) {
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || !APPROVED_SUPABASE_HOSTS.has(parsed.hostname)) {
         throw new Error("invalid Supabase URL");
       }
       url = parsed.origin;

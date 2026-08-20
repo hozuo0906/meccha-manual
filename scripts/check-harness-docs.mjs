@@ -235,6 +235,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const approvedEgressHosts = new Set([
     "api.github.com",
     "discord.com",
+    "spjowmulvoyxxkfeyjkr.supabase.co",
     "www.meccha-iiyatsu.com",
     "meccha-manual.meccha-iiyatsu.com",
     "meccha-manual.tattoo-studio-crm.workers.dev"
@@ -244,7 +245,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     try {
       const parsed = new URL(literal.replace(/\$\{.*$/, ""));
       const host = parsed.hostname.toLowerCase();
-      return parsed.protocol !== "https:" || (!approvedEgressHosts.has(host) && !host.endsWith(".supabase.co"));
+      return parsed.protocol !== "https:" || !approvedEgressHosts.has(host);
     } catch {
       return true;
     }
@@ -276,6 +277,7 @@ for (const fixture of [
   { content: 'await fetch("https://aiplatform.googleapis.com/v1/projects/example/locations/us-central1/publishers/google/models/gemini:generateContent");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("https://unapproved-ai-proxy.workers.dev/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'await fetch("http://unapproved-ai-proxy.workers.dev/v1/responses");', path: "apps/worker/src/provider.ts" },
+  { content: 'await fetch("https://attacker-project.supabase.co/functions/v1/ai-proxy");', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
