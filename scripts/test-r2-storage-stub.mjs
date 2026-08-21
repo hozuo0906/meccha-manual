@@ -308,7 +308,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const verified = await verifyProviderEvidence(providerEvidenceId);
       const expectedPrefix = generationPrefixOf(reservation);
       const hasOrderedProviderProof = Number.isSafeInteger(verified?.writeFencedAt) && Number.isSafeInteger(verified?.writesDrainedAt) && Number.isSafeInteger(verified?.lifecycleDeletedAt) &&
-        verified.writeFencedAt <= verified.writesDrainedAt && verified.writesDrainedAt <= verified.lifecycleDeletedAt;
+        verified.writeFencedAt < verified.writesDrainedAt && verified.writesDrainedAt < verified.lifecycleDeletedAt;
       if (verified?.lifecycleDeleted !== true || verified?.writesFenced !== true || verified?.providerEvidenceId !== providerEvidenceId ||
           verified?.inFlightWritesDrained !== true || !hasOrderedProviderProof || verified?.generationId !== reservation.generationId || verified?.generationPrefix !== expectedPrefix) {
         throw new Error("generation-bound ordered fence, write drain, and lifecycle deletion evidence are required");
@@ -531,7 +531,7 @@ const raceHarness = createUsageReservationHarness(
     writesFenced: true,
     inFlightWritesDrained: providerEvidenceId !== "undrained-proof",
     writeFencedAt: 10,
-    writesDrainedAt: providerEvidenceId === "wrong-order-proof" ? 30 : 20,
+    writesDrainedAt: providerEvidenceId === "wrong-order-proof" ? 30 : providerEvidenceId === "same-time-proof" ? 10 : 20,
     lifecycleDeletedAt: 25
   })
 );
@@ -548,6 +548,7 @@ await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "",
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-generation-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-order-proof", 62), /generation-bound ordered/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "same-time-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "undrained-proof", 62), /generation-bound ordered/);
 raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), objectKey: lateRaceKey });
 await raceHarness.sweepReleased(62);
