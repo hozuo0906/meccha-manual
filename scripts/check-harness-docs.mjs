@@ -187,7 +187,7 @@ async function listRuntimeFiles(root) {
   for (const entry of entries) {
     const path = `${root}/${entry.name}`;
     if (entry.isDirectory()) files.push(...await listRuntimeFiles(path));
-    else if (entry.isFile() && /\.(?:[cm]?[jt]s|tsx?|jsonc?|html|css|sql)$/i.test(entry.name)) files.push(path);
+    else if (entry.isFile()) files.push(path);
   }
   return files;
 }
@@ -199,6 +199,7 @@ const runtimeFiles = [
   "wrangler.brand.jsonc",
   "package.json"
 ];
+const runtimeTextFiles = runtimeFiles.filter((path) => /\.(?:[cm]?[jt]s|tsx?|jsonc?|html|css|sql)$/i.test(path) || /\/(?:_headers|_redirects)$/.test(path));
 const runtimeManifestHash = createHash("sha256");
 for (const path of [...runtimeFiles].sort()) {
   runtimeManifestHash.update(path);
@@ -206,7 +207,7 @@ for (const path of [...runtimeFiles].sort()) {
   runtimeManifestHash.update(await readFile(path));
   runtimeManifestHash.update("\0");
 }
-if (runtimeManifestHash.digest("hex") !== "08878b16bd654c2e08f4efa559e14bfd64e90a85062516ab7b222d3c3cf9d749") {
+if (runtimeManifestHash.digest("hex") !== "f4b1ebf3da4414278d6819b5c1b9715a719161693072b69d962f3a9bfdb3b944") {
   errors.push("Product runtime manifest changed without explicit outbound-boundary allowlist review.");
 }
 const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
@@ -558,6 +559,7 @@ for (const fixture of [
   { content: 'return new Response(`<style>body{background-image:url(${env.REMOTE_URL}?workspace=${workspaceId})}</style>`);', path: "apps/worker/src/provider.ts" },
   { content: 'const tag = ["im", "g"].join(""); return new Response(`<${tag} src="${env.REMOTE_URL}">`, { headers: { "content-type": "text/html" } });', path: "apps/worker/src/provider.ts" },
   { content: 'return Response.redirect(`${env.REMOTE_URL}?workspace=${workspaceId}`, 302);', path: "apps/worker/src/provider.ts" },
+  { content: '/* https://api.groq.com/openai/v1/responses 302', path: "apps/brand-site/public/_redirects" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
   { content: "create trigger outbound after insert on public.manuals for each row execute function supabase_functions.http_request(current_setting('app.remote_endpoint'), 'POST', '{}', '{}', '1000');", path: "supabase/migrations/99999999999999-webhook.sql" },
   { content: "select extensions.\"http_post\"(current_setting('app.remote_endpoint')); select \"extensions\".\"http_get\"(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-quoted-outbound.sql" },
@@ -592,7 +594,7 @@ for (const fixture of [
   }
 }
 
-for (const file of runtimeFiles) {
+for (const file of runtimeTextFiles) {
   const content = await readFile(file, "utf8");
   if (hasAiRuntimeBoundary(content, file)) {
     errors.push(`AI runtime boundary must not exist before owner approval: ${file}`);

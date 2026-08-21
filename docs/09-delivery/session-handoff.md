@@ -226,7 +226,7 @@ Issue #70には最低限、次を残す。
 - 固定済みapp-assets以外では、HTML文字列のresource／form／meta／base sinkも拒否し、生HTML応答から外向き読込を起こせないようにする。
 - Worker生HTML／CSSの`url()`、`@import`、`<style>`、inline style属性もresource sinkとして拒否する。
 - 全体SHA固定済みのHTML配信ファイル以外では`text/html`応答自体を拒否し、動的タグ名によるresource sink生成を許可しない。
-- `apps`／`supabase`／Wrangler／package manifestの全runtime対象をpath＋内容の単一SHA-256で固定し、未知のsink追加も明示allowlist reviewなしでは拒否する。
+- `apps`／`supabase`配下の全ファイル（拡張子なし配信設定とバイナリを含む）とWrangler／package manifestをpath＋内容の単一SHA-256で固定し、未知のsink追加も明示allowlist reviewなしでは拒否する。
 - 未固定経路からの`Response.redirect()`もWorker outbound sinkとして拒否する。
 - PostgreSQLの`U&\"...\"` Unicode escaped identifierは承認前のmigrationで全面拒否し、禁止関数名のescape難読化を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
