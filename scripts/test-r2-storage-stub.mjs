@@ -307,9 +307,11 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       if (typeof providerEvidenceId !== "string" || providerEvidenceId.length === 0) throw new Error("non-empty provider evidence ID is required");
       const verified = await verifyProviderEvidence(providerEvidenceId);
       const expectedPrefix = generationPrefixOf(reservation);
+      const hasOrderedProviderProof = Number.isSafeInteger(verified?.writeFencedAt) && Number.isSafeInteger(verified?.writesDrainedAt) && Number.isSafeInteger(verified?.lifecycleDeletedAt) &&
+        verified.writeFencedAt <= verified.writesDrainedAt && verified.writesDrainedAt <= verified.lifecycleDeletedAt;
       if (verified?.lifecycleDeleted !== true || verified?.writesFenced !== true || verified?.providerEvidenceId !== providerEvidenceId ||
-          verified?.generationId !== reservation.generationId || verified?.generationPrefix !== expectedPrefix) {
-        throw new Error("generation-bound provider lifecycle deletion and write fencing evidence are required");
+          verified?.inFlightWritesDrained !== true || !hasOrderedProviderProof || verified?.generationId !== reservation.generationId || verified?.generationPrefix !== expectedPrefix) {
+        throw new Error("generation-bound ordered fence, write drain, and lifecycle deletion evidence are required");
       }
       if (reservation.generationArchived) {
         if (providerEvidenceId !== reservation.providerEvidenceId) throw new Error("archived provider evidence is immutable");
@@ -526,7 +528,11 @@ const raceHarness = createUsageReservationHarness(
     generationId: providerEvidenceId === "wrong-generation-proof" ? "reservation-other" : raceRequest.generationId,
     generationPrefix: providerEvidenceId === "wrong-prefix-proof" ? "workspace-001/manuals/manual-001/reservation-other/" : "workspace-001/manuals/manual-001/reservation-commit-cleanup-race/",
     lifecycleDeleted: true,
-    writesFenced: true
+    writesFenced: true,
+    inFlightWritesDrained: providerEvidenceId !== "undrained-proof",
+    writeFencedAt: 10,
+    writesDrainedAt: providerEvidenceId === "wrong-order-proof" ? 30 : 20,
+    lifecycleDeletedAt: 25
   })
 );
 raceHarness.reserve(raceRequest, { owner: "worker-race", deadline: 30, fencingToken: "fence-race" });
@@ -539,8 +545,13 @@ await raceHarness.sweepReleased(61);
 assert.equal(raceObjects.has(lateRaceKey), false, "persistent generation tombstone must delete a PUT arriving after the former 60-second cutoff");
 assert.ok(raceListCalls >= 3, "completed generation tombstones must remain scheduled until lifecycle-backed retirement is confirmed");
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "", 62), /non-empty provider evidence ID/);
-await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-generation-proof", 62), /generation-bound provider/);
-await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound provider/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-generation-proof", 62), /generation-bound ordered/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound ordered/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-order-proof", 62), /generation-bound ordered/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "undrained-proof", 62), /generation-bound ordered/);
+raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), objectKey: lateRaceKey });
+await raceHarness.sweepReleased(62);
+assert.equal(raceObjects.has(lateRaceKey), false, "rejected undrained evidence must keep the tombstone active to collect a PUT completing after verification");
 raceState.currentBytes = 0;
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62), /must not underflow/);
 assert.equal(raceHarness.snapshot().reservations[0].generationArchived, undefined, "failed usage validation must leave the tombstone active and unmodified");
@@ -575,7 +586,11 @@ const concurrentArchiveHarness = createUsageReservationHarness(
       generationId: concurrentArchiveRequest.generationId,
       generationPrefix: "workspace-001/manuals/manual-001/reservation-concurrent-archive/",
       lifecycleDeleted: true,
-      writesFenced: true
+      writesFenced: true,
+      inFlightWritesDrained: true,
+      writeFencedAt: 10,
+      writesDrainedAt: 20,
+      lifecycleDeletedAt: 30
     };
   }
 );
