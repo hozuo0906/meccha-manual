@@ -294,9 +294,22 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     snapshot() {
       return { currentBytes: persistentState.currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
     },
+    archiveGeneration(operationKey, evidence, now) {
+      const reservation = reservations.get(operationKey);
+      if (!reservation || (reservation.state !== "released" && reservation.state !== "committed")) {
+        throw new Error("only completed generation tombstones may be archived");
+      }
+      if (evidence?.lifecycleDeleted !== true || evidence?.writesFenced !== true || typeof evidence?.providerEvidenceId !== "string" || evidence.providerEvidenceId.length === 0) {
+        throw new Error("provider lifecycle deletion and write fencing evidence are required");
+      }
+      reservation.generationArchived = true;
+      reservation.generationArchivedAt = now;
+      reservation.providerEvidenceId = evidence.providerEvidenceId;
+      return reservation;
+    },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
-        const hasGenerationTombstone = reservation.state === "released" || reservation.state === "committed";
+        const hasGenerationTombstone = !reservation.generationArchived && (reservation.state === "released" || reservation.state === "committed");
         if (hasGenerationTombstone || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
           try {
             await this.reconcile(reservation.operationKey, now);
@@ -496,6 +509,12 @@ raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), object
 await raceHarness.sweepReleased(61);
 assert.equal(raceObjects.has(lateRaceKey), false, "persistent generation tombstone must delete a PUT arriving after the former 60-second cutoff");
 assert.ok(raceListCalls >= 3, "completed generation tombstones must remain scheduled until lifecycle-backed retirement is confirmed");
+assert.throws(() => raceHarness.archiveGeneration(raceRequest.operationKey, { lifecycleDeleted: true, writesFenced: false, providerEvidenceId: "proof-001" }, 62), /lifecycle deletion and write fencing evidence/);
+raceHarness.archiveGeneration(raceRequest.operationKey, { lifecycleDeleted: true, writesFenced: true, providerEvidenceId: "proof-001" }, 62);
+const raceListCallsAtArchive = raceListCalls;
+await raceHarness.sweepReleased(63);
+assert.equal(raceListCalls, raceListCallsAtArchive, "provider-confirmed archived tombstone must leave the active generation LIST set");
+assert.equal(raceHarness.snapshot().reservations[0].providerEvidenceId, "proof-001", "archive transition must retain auditable provider evidence");
 const concurrentReconcileRequest = { ...saveRequest, operationKey: "concurrent-reconcile", generationId: "reservation-concurrent-reconcile", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/canonical.png", plannedBytes: 4 };
 const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
 const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
