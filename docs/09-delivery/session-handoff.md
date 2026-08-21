@@ -205,6 +205,7 @@ Issue #70には最低限、次を残す。
 - 承認前のDB outbound経路として`pg_net`、Database Webhook、HTTP拡張をmigration静的検査で拒否し、動的endpoint指定もfixtureで固定する。
 - migrationの引用SQL識別子を正規化してから検査し、`extensions.\"http_post\"`等の表記差でもDB outbound拒否を迂回できないようにする。
 - `search_path`経由の非修飾`http_post()`等もDB outbound capabilityとして拒否する。
+- JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。

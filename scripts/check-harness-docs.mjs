@@ -244,14 +244,19 @@ for (const [path, expectedSha256] of [
 
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
-  let normalizedContent = content.replace(/\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})/gi, (_match, braced, fixed) => String.fromCodePoint(Number.parseInt(braced ?? fixed, 16)));
+  let normalizedContent = content
+    .replace(/\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})/gi, (_match, braced, fixed) => String.fromCodePoint(Number.parseInt(braced ?? fixed, 16)))
+    .replace(/\\x([0-9a-f]{2})/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
   let previousNormalizedContent;
   do {
     previousNormalizedContent = normalizedContent;
     normalizedContent = normalizedContent.replace(/(["'`])([^"'`\\$]*)\1\s*\+\s*(["'`])([^"'`\\$]*)\3/g, (_match, quote, left, _rightQuote, right) => `${quote}${left}${right}${quote}`);
   } while (normalizedContent !== previousNormalizedContent);
   const capabilityContent = normalizedPath.endsWith(".sql")
-    ? normalizedContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
+    ? normalizedContent
+      .replace(/--[^\n]*/g, " ")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -365,12 +370,14 @@ for (const fixture of [
   { content: 'const externalFetch = Reflect.get(globalThis, "fet" + "ch"); await externalFetch("https:" + "//api.groq.com/openai/v1/responses");', path: "apps/worker/src/provider.ts" },
   { content: 'const externalFetch = self["fet" + `ch`]; await externalFetch("https:" + `//api.groq.com/openai/v1/responses`);', path: "apps/worker/src/provider.ts" },
   { content: 'import { connect } from "cloudflare:sockets"; connect({ hostname: env.REMOTE_HOST, port: 443 }, { secureTransport: "on" });', path: "apps/worker/src/provider.ts" },
+  { content: 'import "cloudflare\\x3asockets";', path: "apps/worker/src/provider.ts" },
   { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
   { content: "create trigger outbound after insert on public.manuals for each row execute function supabase_functions.http_request(current_setting('app.remote_endpoint'), 'POST', '{}', '{}', '1000');", path: "supabase/migrations/99999999999999-webhook.sql" },
   { content: "select extensions.\"http_post\"(current_setting('app.remote_endpoint')); select \"extensions\".\"http_get\"(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-quoted-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-search-path-outbound.sql" },
+  { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
