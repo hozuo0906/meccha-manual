@@ -242,6 +242,8 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async reconcile(operationKey, now) {
       const reservation = reservations.get(operationKey);
+      const trustedNow = readServerNow();
+      if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       const generationPrefix = generationPrefixOf(reservation);
       const generationObjects = await listGenerationObjects(generationPrefix);
       const stored = await readObject(reservation.objectKey);
@@ -264,11 +266,11 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         const matchesTuple = JSON.stringify([stored.workspaceId, stored.objectKey, stored.sizeBytes, stored.checksumSha256]) ===
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
-          if (now >= reservation.leaseDeadline) {
+          if (trustedNow >= reservation.leaseDeadline) {
             await deleteObject(reservation.objectKey);
             if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
-            reservation.releasedAt = now;
+            reservation.releasedAt = trustedNow;
             reservation.mismatchedObjectDeleted = true;
             return reservation;
           }
@@ -279,13 +281,13 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         }
         if (reservation.state !== "reserved") return reservation;
         reservation.state = "committed";
-        reservation.committedAt = now;
+        reservation.committedAt = trustedNow;
         persistentState.currentBytes += reservation.plannedBytes;
-      } else if (now >= reservation.leaseDeadline) {
+      } else if (trustedNow >= reservation.leaseDeadline) {
         for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
         if (reservation.state !== "reserved") return reservation;
         reservation.state = "released";
-        reservation.releasedAt = now;
+        reservation.releasedAt = trustedNow;
         if (generationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
       } else {
         throw new Error("active lease cannot be reconciled without an object");
@@ -334,9 +336,11 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       return reservation;
     },
     async sweepReleased(now) {
+      const trustedNow = readServerNow();
+      if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       for (const reservation of reservations.values()) {
         const hasGenerationTombstone = !reservation.generationArchived && (reservation.state === "released" || reservation.state === "committed");
-        if (hasGenerationTombstone || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
+        if (hasGenerationTombstone || (reservation.state === "reserved" && trustedNow >= reservation.leaseDeadline)) {
           try {
             await this.reconcile(reservation.operationKey, now);
             delete reservation.reconciliationError;
@@ -642,6 +646,7 @@ assert.ok(concurrentReconcileResults.every((reservation) => reservation.state ==
 assert.equal(concurrentReconcileHarness.snapshot().currentBytes, 4, "concurrent reconciliation must commit and count one reservation exactly once");
 const releaseRaceRequest = { ...saveRequest, operationKey: "release-race", generationId: "reservation-release-race", objectKey: "workspace-001/manuals/manual-001/reservation-release-race/canonical.png", plannedBytes: 4 };
 const releaseRaceState = { reservations: new Map(), currentBytes: 0 };
+const releaseRaceClock = { now: 10 };
 const releaseRaceStored = { workspaceId: releaseRaceRequest.workspaceId, objectKey: releaseRaceRequest.objectKey, sizeBytes: 4, checksumSha256: releaseRaceRequest.checksumSha256, reservationId: `reservation-${releaseRaceRequest.operationKey}`, fencingToken: "fence-release-race" };
 const releaseRaceSibling = { ...releaseRaceStored, objectKey: "workspace-001/manuals/manual-001/reservation-release-race/sibling.png" };
 let releaseRaceListCalls = 0;
@@ -656,7 +661,7 @@ const releaseRaceHarness = createUsageReservationHarness(
   async () => { announceReleaseDelete(); await releaseDeleteBarrier; },
   async () => (++releaseRaceListCalls === 1 ? [releaseRaceSibling] : [releaseRaceStored]),
   releaseRaceState,
-  () => 0
+  () => releaseRaceClock.now
 );
 releaseRaceHarness.reserve(releaseRaceRequest, { owner: "worker-release-race", deadline: 10, fencingToken: "fence-release-race" });
 const releasingReconcile = releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10);
@@ -666,6 +671,7 @@ unblockReleaseDelete();
 assert.equal((await releasingReconcile).state, "committed", "stale release reconciliation must not overwrite a concurrent commit");
 assert.equal(releaseRaceHarness.snapshot().currentBytes, 4, "release race must retain the single committed capacity charge");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
+const isolatedFailureClock = { now: 10 };
 const isolatedFailureHarness = createUsageReservationHarness(
   10,
   async () => null,
@@ -675,7 +681,7 @@ const isolatedFailureHarness = createUsageReservationHarness(
     return [];
   },
   isolatedFailureState,
-  () => 0
+  () => isolatedFailureClock.now
 );
 const failedSweepRequest = { ...saveRequest, operationKey: "sweep-failure", generationId: "reservation-sweep-failure", objectKey: "workspace-001/manuals/manual-001/reservation-sweep-failure/asset.png", plannedBytes: 1 };
 const laterSweepRequest = { ...saveRequest, operationKey: "sweep-later", generationId: "reservation-sweep-later", objectKey: "workspace-001/manuals/manual-001/reservation-sweep-later/asset.png", plannedBytes: 1 };
@@ -695,13 +701,15 @@ const abandoned = {
 };
 reservationClock.now = 140;
 const abandonedReservation = reservationHarness.reserve(abandoned, { owner: "worker-003", deadline: 200, fencingToken: "fence-003" });
-await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 199), /active lease/);
+await assert.rejects(reservationHarness.reconcile(abandoned.operationKey, 200), /active lease/, "caller-supplied future time must not expire an active lease before server time");
+reservationClock.now = 200;
 assert.equal((await reservationHarness.reconcile(abandoned.operationKey, 200)).state, "released", "expired reservation without object must release");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "released reservation must not consume capacity");
 reservationClock.now = 150;
 const sweepAbandoned = { ...abandoned, operationKey: "sweep-abandoned", generationId: "reservation-sweep-abandoned", objectKey: createObjectKey({ area: STORAGE_AREAS.MANUAL_ASSETS, workspaceId: "workspace-001", resourceId: "manual-001", generationId: "reservation-sweep-abandoned", assetId: "asset-sweep-abandoned", extension: "png" }) };
 reservationHarness.reserve(sweepAbandoned, { owner: "worker-sweep", deadline: 210, fencingToken: "fence-sweep" });
 const activeRestartHarness = createUsageReservationHarness(10, readReservationObject, (objectKey) => reservationBucket.delete(objectKey), listReservationObjects, persistentReservationState, () => reservationClock.now);
+reservationClock.now = 210;
 await activeRestartHarness.sweepReleased(210);
 assert.equal(activeRestartHarness.snapshot().reservations.find((item) => item.operationKey === sweepAbandoned.operationKey).state, "released", "restarted scheduled sweep must enumerate and release expired active reservations");
 await putReservedThroughAdapter(abandoned, abandonedReservation, new Uint8Array(abandoned.plannedBytes));
@@ -720,6 +728,7 @@ await reservationBucket.put(newGenerationKey, new Uint8Array(abandoned.plannedBy
 await reservationHarness.sweepReleased(202);
 assert.notEqual(await reservationBucket.get(newGenerationKey), null, "generation-specific object keys prevent old reservation deletion from racing with a newer object");
 await reservationBucket.delete(newGenerationKey);
+reservationClock.now = 300;
 for (const [index, mismatch] of [
   { workspaceId: "workspace-999" },
   { objectKey: "wrong" },
@@ -754,6 +763,7 @@ for (const [index, mismatch] of [
     httpMetadata: { contentType: "image/png" },
     customMetadata: { workspace_id: stored.workspaceId, checksum_sha256: stored.checksumSha256, reservation_id: stored.reservationId ?? mismatchReservation.reservationId, fencing_token: stored.fencingToken ?? mismatchReservation.fencingToken }
   });
+  reservationClock.now = 300;
   if (mismatch.objectKey) {
     const recovered = await reservationHarness.reconcile(operationKey, 300);
     assert.equal(recovered.state, "released");
