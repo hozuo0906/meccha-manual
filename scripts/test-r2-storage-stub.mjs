@@ -246,6 +246,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async reconcile(operationKey, now) {
       const reservation = reservations.get(operationKey);
+      if (reservation.canonicalCleanupInProgress) throw new Error("canonical cleanup serialization conflict");
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       const generationPrefix = generationPrefixOf(reservation);
@@ -271,7 +272,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
           if (trustedNow >= reservation.leaseDeadline) {
-            await deleteObject(reservation.objectKey);
+            reservation.canonicalCleanupInProgress = true;
+            try {
+              await deleteObject(reservation.objectKey);
+            } finally {
+              reservation.canonicalCleanupInProgress = false;
+            }
             if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
             reservation.releasedAt = trustedNow;
@@ -675,6 +681,31 @@ assert.equal((await releaseRaceHarness.reconcile(releaseRaceRequest.operationKey
 unblockReleaseDelete();
 assert.equal((await releasingReconcile).state, "committed", "stale release reconciliation must not overwrite a concurrent commit");
 assert.equal(releaseRaceHarness.snapshot().currentBytes, 4, "release race must retain the single committed capacity charge");
+const canonicalRaceRequest = { ...saveRequest, operationKey: "canonical-cleanup-race", generationId: "reservation-canonical-cleanup-race", objectKey: "workspace-001/manuals/manual-001/reservation-canonical-cleanup-race/canonical.png", plannedBytes: 4 };
+const canonicalRaceState = { reservations: new Map(), currentBytes: 0 };
+const canonicalRaceClock = { now: 10 };
+const canonicalReservationId = `reservation-${canonicalRaceRequest.operationKey}`;
+let canonicalRaceStored = { workspaceId: "workspace-wrong", objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
+let releaseCanonicalDelete;
+let announceCanonicalDelete;
+const canonicalDeleteStarted = new Promise((resolve) => { announceCanonicalDelete = resolve; });
+const canonicalDeleteBarrier = new Promise((resolve) => { releaseCanonicalDelete = resolve; });
+const canonicalRaceHarness = createUsageReservationHarness(
+  10,
+  async () => canonicalRaceStored,
+  async () => { announceCanonicalDelete(); await canonicalDeleteBarrier; canonicalRaceStored = null; },
+  async () => canonicalRaceStored ? [canonicalRaceStored] : [],
+  canonicalRaceState,
+  () => canonicalRaceClock.now
+);
+canonicalRaceHarness.reserve(canonicalRaceRequest, { owner: "worker-canonical-race", deadline: 10, fencingToken: "fence-canonical-race" });
+const canonicalCleanup = canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10);
+await canonicalDeleteStarted;
+canonicalRaceStored = { workspaceId: canonicalRaceRequest.workspaceId, objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
+await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /canonical cleanup serialization conflict/, "canonical cleanup claim must prevent concurrent commit of an overwritten object");
+releaseCanonicalDelete();
+assert.equal((await canonicalCleanup).state, "released", "expired canonical cleanup must finish before the generation can transition");
+assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "canonical cleanup race must not account a deleted object as committed usage");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureClock = { now: 10 };
 const isolatedFailureHarness = createUsageReservationHarness(

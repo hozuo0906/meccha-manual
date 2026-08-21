@@ -236,6 +236,7 @@ Issue #70には最低限、次を残す。
 - PostgreSQLの通常文字列と`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`standard_conforming_strings=off`環境でも`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
 - `standard_conforming_strings=off`設定自体を拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
+- `set_config('standard_conforming_strings','off',...)`経由のlegacy escape有効化も拒否する。
 - PostgreSQLの`U&'...'` Unicode escaped stringも全面拒否し、関数bodyの禁止tokenを難読化できないようにする。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
