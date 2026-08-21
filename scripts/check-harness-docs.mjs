@@ -481,10 +481,11 @@ function hasAiRuntimeBoundary(content, path = "") {
   if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
+  const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const hasUnapprovedDomSink = path !== "apps/worker/src/app-assets.ts"
     && !path.endsWith(".html")
-    && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(/.test(normalizedContent)
-      || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use)\b/i.test(normalizedContent));
+    && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(/.test(domSinkRemainder)
+      || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
@@ -542,6 +543,7 @@ for (const fixture of [
   { content: 'open(env.REMOTE_URL); location["href"] = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'const navigate = open; navigate(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'return new Response(`<img src="${env.REMOTE_URL}?workspace=${workspaceId}">`, { headers: { "content-type": "text/html" } });', path: "apps/worker/src/provider.ts" },
+  { content: 'return new Response(`<style>body{background-image:url(${env.REMOTE_URL}?workspace=${workspaceId})}</style>`);', path: "apps/worker/src/provider.ts" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
   { content: "create trigger outbound after insert on public.manuals for each row execute function supabase_functions.http_request(current_setting('app.remote_endpoint'), 'POST', '{}', '{}', '1000');", path: "supabase/migrations/99999999999999-webhook.sql" },
   { content: "select extensions.\"http_post\"(current_setting('app.remote_endpoint')); select \"extensions\".\"http_get\"(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-quoted-outbound.sql" },
