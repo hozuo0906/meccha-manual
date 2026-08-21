@@ -251,6 +251,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         }
         return reservation;
       }
+      if (reservation.state === "committed") {
+        for (const candidate of generationObjects) {
+          if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
+        }
+        return reservation;
+      }
       if (reservation.state !== "reserved") return reservation;
       if (stored) {
         const sameGeneration = stored.reservationId === reservation.reservationId && stored.fencingToken === reservation.fencingToken;
@@ -284,7 +290,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
-        if (reservation.state === "released" || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
+        if (reservation.state === "released" || reservation.state === "committed" || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
           await this.reconcile(reservation.operationKey, now);
         }
       }
@@ -445,6 +451,31 @@ assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 99)).
 assert.equal(await reservationBucket.get(staleSiblingKey), null, "commit reconciliation must delete non-canonical objects from the same reservation generation");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 101)).state, "committed", "reconciliation must be idempotent");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
+const raceRequest = { ...saveRequest, operationKey: "commit-cleanup-race", generationId: "reservation-commit-cleanup-race", objectKey: "workspace-001/manuals/manual-001/reservation-commit-cleanup-race/canonical.png", plannedBytes: 1, checksumSha256: "d".repeat(64) };
+const raceState = { reservations: new Map(), currentBytes: 0 };
+const raceObjects = new Map([[raceRequest.objectKey, { workspaceId: raceRequest.workspaceId, objectKey: raceRequest.objectKey, sizeBytes: raceRequest.plannedBytes, checksumSha256: raceRequest.checksumSha256, reservationId: `reservation-${raceRequest.operationKey}`, fencingToken: "fence-race" }]]);
+const lateRaceKey = "workspace-001/manuals/manual-001/reservation-commit-cleanup-race/late.png";
+let injectLateObject = true;
+const raceHarness = createUsageReservationHarness(
+  10,
+  async (objectKey) => {
+    const stored = raceObjects.get(objectKey) ?? null;
+    if (injectLateObject) {
+      injectLateObject = false;
+      raceObjects.set(lateRaceKey, { ...stored, objectKey: lateRaceKey });
+    }
+    return stored;
+  },
+  async (objectKey) => raceObjects.delete(objectKey),
+  async (prefix) => [...raceObjects.values()].filter((item) => item.objectKey.startsWith(prefix)),
+  raceState,
+  () => 0
+);
+raceHarness.reserve(raceRequest, { owner: "worker-race", deadline: 30, fencingToken: "fence-race" });
+assert.equal((await raceHarness.reconcile(raceRequest.operationKey, 0)).state, "committed");
+assert.equal(raceObjects.has(lateRaceKey), true, "barrier fixture must inject the late object after the first generation listing");
+await raceHarness.sweepReleased(1);
+assert.equal(raceObjects.has(lateRaceKey), false, "scheduled committed-generation cleanup must remove an object that raced with confirmation");
 const abandoned = {
   ...saveRequest,
   operationKey: "operation-003",

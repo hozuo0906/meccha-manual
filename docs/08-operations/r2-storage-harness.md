@@ -62,7 +62,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - 同じ冪等keyの結果不明再送は同じ予約を返し、別予約を作らない。予約成功後にWorkerが停止しても、短いlease期限後にreconciliationがobjectの有無を照合し、実使用量へ確定または解放する。
 - R2書込成功とPostgres確定の間で応答が失われた場合はobject metadataとchecksumで同一保存を照合し、二重計上しない。lease延長は所有者と期限を原子的に照合し、無期限に延長しない。
 - object keyは予約世代を独立path segmentとして含め、正規Storage adapter経由でR2 metadataへ予約IDとfencing tokenを保存する。期限切れ旧ownerの遅着objectは旧世代keyだけを削除し、新しい予約世代とはkeyを共有しない。
-- reconciliation jobはactiveとreleased直後の予約を期限付きで定期走査し、停止・再起動後も再開する。R2本文からchecksumを再計算し、workspace、key、size、checksum、予約ID、fencing tokenが一致したobjectだけを確定する。
+- reconciliation jobはactive、released直後、recent committedの予約を期限付きで定期走査し、停止・再起動後も再開する。R2本文からchecksumを再計算し、workspace、key、size、checksum、予約ID、fencing tokenが一致したobjectだけを確定する。確定時の列挙と競合して遅着した同世代objectは、recent committedの再走査で回収する。
 
 ## 削除と保持
 
