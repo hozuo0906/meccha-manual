@@ -250,7 +250,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const reservation = reservations.get(operationKey);
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
-      if (reservation.reconciliationClaim && reservation.reconciliationClaim.deadline > trustedNow) throw new Error("reconciliation serialization conflict");
+      if (reservation.reconciliationClaim?.destructiveIoPending || (reservation.reconciliationClaim && reservation.reconciliationClaim.deadline > trustedNow)) {
+        throw new Error("reconciliation serialization conflict");
+      }
       const claim = { id: `reconcile-${++persistentState.nextReconciliationClaimId}`, deadline: trustedNow + RECONCILIATION_CLAIM_DURATION };
       reservation.reconciliationClaim = claim;
       try {
@@ -259,8 +261,13 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       };
       const deleteClaimedObject = async (objectKey) => {
         assertClaimCurrent();
-        await deleteObject(objectKey, { claimId: claim.id, assertClaimCurrent });
-        assertClaimCurrent();
+        claim.destructiveIoPending = true;
+        try {
+          await deleteObject(objectKey, { claimId: claim.id, assertClaimCurrent });
+          assertClaimCurrent();
+        } finally {
+          if (reservation.reconciliationClaim?.id === claim.id) claim.destructiveIoPending = false;
+        }
       };
       const generationPrefix = generationPrefixOf(reservation);
       const generationObjects = await listGenerationObjects(generationPrefix);
@@ -714,11 +721,11 @@ await canonicalDeleteStarted;
 canonicalRaceStored = { workspaceId: canonicalRaceRequest.workspaceId, objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
 await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /reconciliation serialization conflict/, "pre-I/O reconciliation claim must prevent concurrent commit of an overwritten object");
 canonicalRaceClock.now = 70;
-assert.equal((await canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 70)).state, "committed", "expired claim takeover must be able to commit the current canonical object");
+await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 70), /reconciliation serialization conflict/, "expired claim must not be taken over while destructive provider I/O is pending");
 releaseCanonicalDelete();
-await assert.rejects(canonicalCleanup, /reconciliation claim fenced/, "old claim owner must be fenced before its delayed delete takes effect");
-assert.notEqual(canonicalRaceStored, null, "fenced old delete must not remove the object committed by the takeover owner");
-assert.equal(canonicalRaceHarness.snapshot().currentBytes, 4, "takeover commit must retain one matching capacity charge");
+assert.equal((await canonicalCleanup).state, "released", "destructive claim owner must finish provider deletion before releasing its claim");
+assert.equal(canonicalRaceStored, null, "expired generation object must be deleted before a later retry uses a new generation");
+assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "destructive cleanup must not account deleted bytes");
 const crashedClaimState = { reservations: new Map(), currentBytes: 0 };
 const crashedClaimClock = { now: 0 };
 const crashedClaimRequest = { ...saveRequest, operationKey: "crashed-reconcile-claim", generationId: "reservation-crashed-reconcile-claim", objectKey: "workspace-001/manuals/manual-001/reservation-crashed-reconcile-claim/canonical.png", plannedBytes: 1 };
