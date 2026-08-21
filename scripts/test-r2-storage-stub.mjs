@@ -170,6 +170,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
   const reservations = persistentState.reservations;
   persistentState.version ??= 0;
   const MAX_LEASE_DURATION = 60;
+  const COMPLETED_SWEEP_RETENTION = 60;
   const absoluteDeadlineFor = (lease) => {
     const serverNow = readServerNow();
     if (!Number.isSafeInteger(serverNow) || serverNow < 0) throw new Error("server clock must return a non-negative safe integer");
@@ -266,6 +267,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           if (now >= reservation.leaseDeadline) {
             await deleteObject(reservation.objectKey);
             reservation.state = "released";
+            reservation.releasedAt = now;
             reservation.mismatchedObjectDeleted = true;
             return reservation;
           }
@@ -275,10 +277,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
         }
         reservation.state = "committed";
+        reservation.committedAt = now;
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
         for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
         reservation.state = "released";
+        reservation.releasedAt = now;
         if (generationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
       } else {
         throw new Error("active lease cannot be reconciled without an object");
@@ -290,7 +294,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
-        if (reservation.state === "released" || reservation.state === "committed" || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
+        const isRecentReleased = reservation.state === "released" && now <= (reservation.releasedAt ?? reservation.leaseDeadline) + COMPLETED_SWEEP_RETENTION;
+        const isRecentCommitted = reservation.state === "committed" && now <= (reservation.committedAt ?? reservation.leaseDeadline) + COMPLETED_SWEEP_RETENTION;
+        if (isRecentReleased || isRecentCommitted || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
           try {
             await this.reconcile(reservation.operationKey, now);
             delete reservation.reconciliationError;
@@ -461,6 +467,7 @@ const raceState = { reservations: new Map(), currentBytes: 0 };
 const raceObjects = new Map([[raceRequest.objectKey, { workspaceId: raceRequest.workspaceId, objectKey: raceRequest.objectKey, sizeBytes: raceRequest.plannedBytes, checksumSha256: raceRequest.checksumSha256, reservationId: `reservation-${raceRequest.operationKey}`, fencingToken: "fence-race" }]]);
 const lateRaceKey = "workspace-001/manuals/manual-001/reservation-commit-cleanup-race/late.png";
 let injectLateObject = true;
+let raceListCalls = 0;
 const raceHarness = createUsageReservationHarness(
   10,
   async (objectKey) => {
@@ -472,7 +479,10 @@ const raceHarness = createUsageReservationHarness(
     return stored;
   },
   async (objectKey) => raceObjects.delete(objectKey),
-  async (prefix) => [...raceObjects.values()].filter((item) => item.objectKey.startsWith(prefix)),
+  async (prefix) => {
+    raceListCalls += 1;
+    return [...raceObjects.values()].filter((item) => item.objectKey.startsWith(prefix));
+  },
   raceState,
   () => 0
 );
@@ -481,6 +491,9 @@ assert.equal((await raceHarness.reconcile(raceRequest.operationKey, 0)).state, "
 assert.equal(raceObjects.has(lateRaceKey), true, "barrier fixture must inject the late object after the first generation listing");
 await raceHarness.sweepReleased(1);
 assert.equal(raceObjects.has(lateRaceKey), false, "scheduled committed-generation cleanup must remove an object that raced with confirmation");
+const raceListCallsWithinRetention = raceListCalls;
+await raceHarness.sweepReleased(61);
+assert.equal(raceListCalls, raceListCallsWithinRetention, "completed reservations must stop listing their generation after the 60-second safety interval");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureHarness = createUsageReservationHarness(
   10,

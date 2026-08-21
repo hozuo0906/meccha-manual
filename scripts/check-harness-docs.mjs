@@ -245,12 +245,46 @@ for (const [path, expectedSha256] of [
 function stripSqlComments(content) {
   let output = "";
   let blockDepth = 0;
+  let quoted = null;
+  let dollarQuote = null;
   for (let index = 0; index < content.length; index += 1) {
+    if (dollarQuote) {
+      if (content.startsWith(dollarQuote, index)) {
+        output += dollarQuote;
+        index += dollarQuote.length - 1;
+        dollarQuote = null;
+      } else output += content[index];
+      continue;
+    }
+    if (quoted) {
+      output += content[index];
+      if (content[index] === quoted) {
+        if (content[index + 1] === quoted) {
+          output += content[index + 1];
+          index += 1;
+        } else quoted = null;
+      }
+      continue;
+    }
     const pair = content.slice(index, index + 2);
     if (pair === "/*") {
       blockDepth += 1;
       index += 1;
       continue;
+    }
+    if (content[index] === "'" || content[index] === '"') {
+      quoted = content[index];
+      output += content[index];
+      continue;
+    }
+    if (content[index] === "$") {
+      const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
+      if (delimiter) {
+        dollarQuote = delimiter;
+        output += delimiter;
+        index += delimiter.length - 1;
+        continue;
+      }
     }
     if (blockDepth > 0) {
       if (pair === "*/") {
@@ -274,7 +308,7 @@ function stripSqlComments(content) {
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
-    .replace(/\\\r?\n/g, "")
+    .replace(/\\(?:\r\n|[\n\r\u2028\u2029])/g, "")
     .replace(/\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})/gi, (_match, braced, fixed) => String.fromCodePoint(Number.parseInt(braced ?? fixed, 16)))
     .replace(/\\x([0-9a-f]{2})/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
   let previousNormalizedContent;
@@ -400,6 +434,7 @@ for (const fixture of [
   { content: 'import { connect } from "cloudflare:sockets"; connect({ hostname: env.REMOTE_HOST, port: 443 }, { secureTransport: "on" });', path: "apps/worker/src/provider.ts" },
   { content: 'import "cloudflare\\x3asockets";', path: "apps/worker/src/provider.ts" },
   { content: 'import "node:h' + "\\" + '\n' + 'ttps";', path: "apps/worker/src/provider.ts" },
+  { content: 'import "node:h' + "\\" + '\u2028' + 'ttps";', path: "apps/worker/src/provider.ts" },
   { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
@@ -408,6 +443,7 @@ for (const fixture of [
   { content: "set search_path = extensions, public; select http_post(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-search-path-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
+  { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
