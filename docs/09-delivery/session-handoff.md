@@ -203,6 +203,7 @@ Issue #70には最低限、次を残す。
 - 承認済みSupabase `fetch`はcallsiteと設定helperを含む実装ファイル全体のSHAを固定し、`config`生成後のURL書換えを含め、既存secretを外部endpointへ転用する変更を明示reviewなしでは拒否する。
 - `app-assets`の相対URL fetchとSupabase設定helperも実装ファイル全体のSHAを固定し、URL生成元の書換えを明示reviewなしでは拒否する。
 - 承認前のDB outbound経路として`pg_net`、Database Webhook、HTTP拡張をmigration静的検査で拒否し、動的endpoint指定もfixtureで固定する。
+- migrationの引用SQL識別子を正規化してから検査し、`extensions.\"http_post\"`等の表記差でもDB outbound拒否を迂回できないようにする。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
