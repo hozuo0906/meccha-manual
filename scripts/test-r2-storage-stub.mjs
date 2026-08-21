@@ -276,6 +276,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         for (const candidate of generationObjects) {
           if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
         }
+        if (reservation.state !== "reserved") return reservation;
         reservation.state = "committed";
         reservation.committedAt = now;
         persistentState.currentBytes += reservation.plannedBytes;
@@ -494,6 +495,32 @@ assert.equal(raceObjects.has(lateRaceKey), false, "scheduled committed-generatio
 const raceListCallsWithinRetention = raceListCalls;
 await raceHarness.sweepReleased(61);
 assert.equal(raceListCalls, raceListCallsWithinRetention, "completed reservations must stop listing their generation after the 60-second safety interval");
+const concurrentReconcileRequest = { ...saveRequest, operationKey: "concurrent-reconcile", generationId: "reservation-concurrent-reconcile", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/canonical.png", plannedBytes: 4 };
+const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
+const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
+const concurrentSibling = { ...concurrentReconcileStored, objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/sibling.png" };
+let concurrentDeletes = 0;
+let releaseConcurrentDeletes;
+const concurrentDeleteBarrier = new Promise((resolve) => { releaseConcurrentDeletes = resolve; });
+const concurrentReconcileHarness = createUsageReservationHarness(
+  10,
+  async (objectKey) => objectKey === concurrentReconcileRequest.objectKey ? concurrentReconcileStored : null,
+  async () => {
+    concurrentDeletes += 1;
+    if (concurrentDeletes === 2) releaseConcurrentDeletes();
+    await concurrentDeleteBarrier;
+  },
+  async () => [concurrentReconcileStored, concurrentSibling],
+  concurrentReconcileState,
+  () => 0
+);
+concurrentReconcileHarness.reserve(concurrentReconcileRequest, { owner: "worker-concurrent", deadline: 30, fencingToken: "fence-concurrent-reconcile" });
+const concurrentReconcileResults = await Promise.all([
+  concurrentReconcileHarness.reconcile(concurrentReconcileRequest.operationKey, 0),
+  concurrentReconcileHarness.reconcile(concurrentReconcileRequest.operationKey, 0)
+]);
+assert.ok(concurrentReconcileResults.every((reservation) => reservation.state === "committed"));
+assert.equal(concurrentReconcileHarness.snapshot().currentBytes, 4, "concurrent reconciliation must commit and count one reservation exactly once");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureHarness = createUsageReservationHarness(
   10,

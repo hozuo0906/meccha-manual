@@ -63,6 +63,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - R2書込成功とPostgres確定の間で応答が失われた場合はobject metadataとchecksumで同一保存を照合し、二重計上しない。lease延長は所有者と期限を原子的に照合し、無期限に延長しない。
 - object keyは予約世代を独立path segmentとして含め、正規Storage adapter経由でR2 metadataへ予約IDとfencing tokenを保存する。期限切れ旧ownerの遅着objectは旧世代keyだけを削除し、新しい予約世代とはkeyを共有しない。
 - reconciliation jobはactiveと、完了時刻から60秒以内のreleased／committed予約を期限付きで定期走査し、停止・再起動後も再開する。60秒経過後の完了予約はgeneration LIST対象から外す。予約単位で失敗を記録・再試行し、1件の失敗で後続予約の走査を中断しない。R2本文からchecksumを再計算し、workspace、key、size、checksum、予約ID、fencing tokenが一致したobjectだけを確定する。確定時の列挙と競合して遅着した同世代objectは、この60秒の再走査期間に回収する。
+- 同じ予約を複数schedulerが同時にreconcileしても、外部I/O後に予約stateをlock／CAS相当で再確認し、確定と`current bytes`加算を一度だけ行う。
 
 ## 削除と保持
 

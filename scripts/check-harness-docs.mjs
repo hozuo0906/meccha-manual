@@ -249,6 +249,13 @@ function stripSqlComments(content) {
   let backslashEscapedQuote = false;
   let dollarQuote = null;
   for (let index = 0; index < content.length; index += 1) {
+    const pair = content.slice(index, index + 2);
+    if (blockDepth > 0) {
+      if (pair === "/*") blockDepth += 1;
+      else if (pair === "*/") blockDepth -= 1;
+      if (pair === "/*" || pair === "*/") index += 1;
+      continue;
+    }
     if (dollarQuote) {
       if (content.startsWith(dollarQuote, index)) {
         output += dollarQuote;
@@ -275,7 +282,6 @@ function stripSqlComments(content) {
       }
       continue;
     }
-    const pair = content.slice(index, index + 2);
     if (pair === "/*") {
       blockDepth += 1;
       index += 1;
@@ -295,13 +301,6 @@ function stripSqlComments(content) {
         index += delimiter.length - 1;
         continue;
       }
-    }
-    if (blockDepth > 0) {
-      if (pair === "*/") {
-        blockDepth -= 1;
-        index += 1;
-      }
-      continue;
     }
     if (pair === "--") {
       const newline = content.indexOf("\n", index + 2);
@@ -543,6 +542,7 @@ for (const fixture of [
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
   { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },
+  { content: "/* ' */ do $$ begin execute format('select extensions.http_get(...)'); end $$; /* ' */", path: "supabase/migrations/99999999999999-comment-quote-outbound.sql" },
   { content: "select E'prefix\\'/*'; select http_post(current_setting('app.remote_endpoint')); select E'*/';", path: "supabase/migrations/99999999999999-e-string-outbound.sql" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
