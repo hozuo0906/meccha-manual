@@ -208,6 +208,7 @@ Issue #70には最低限、次を残す。
 - `search_path`経由の非修飾`http_post()`等もDB outbound capabilityとして拒否する。
 - pgsql-httpの汎用非修飾`http()`も、`search_path`に関係なくDB outbound capabilityとして拒否する。
 - migrationではtrigger用`EXECUTE FUNCTION/PROCEDURE`以外の動的`EXECUTE`を承認前に拒否し、文字列連結による禁止関数名の合成を防ぐ。
+- SQL識別子token列で`EXECUTE`を位置非依存に判定し、`GRANT/REVOKE EXECUTE`とtrigger用`EXECUTE FUNCTION/PROCEDURE`だけを許可する。
 - JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
