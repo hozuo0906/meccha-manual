@@ -199,6 +199,16 @@ const runtimeFiles = [
   "wrangler.brand.jsonc",
   "package.json"
 ];
+const runtimeManifestHash = createHash("sha256");
+for (const path of [...runtimeFiles].sort()) {
+  runtimeManifestHash.update(path);
+  runtimeManifestHash.update("\0");
+  runtimeManifestHash.update(await readFile(path));
+  runtimeManifestHash.update("\0");
+}
+if (runtimeManifestHash.digest("hex") !== "08878b16bd654c2e08f4efa559e14bfd64e90a85062516ab7b222d3c3cf9d749") {
+  errors.push("Product runtime manifest changed without explicit outbound-boundary allowlist review.");
+}
 const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
 const approvedDependencies = [];
 const approvedDevDependencies = {
@@ -492,6 +502,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
     || hasUnapprovedDomSink
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
+    || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
     || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier
   );
@@ -546,6 +557,7 @@ for (const fixture of [
   { content: 'return new Response(`<img src="${env.REMOTE_URL}?workspace=${workspaceId}">`, { headers: { "content-type": "text/html" } });', path: "apps/worker/src/provider.ts" },
   { content: 'return new Response(`<style>body{background-image:url(${env.REMOTE_URL}?workspace=${workspaceId})}</style>`);', path: "apps/worker/src/provider.ts" },
   { content: 'const tag = ["im", "g"].join(""); return new Response(`<${tag} src="${env.REMOTE_URL}">`, { headers: { "content-type": "text/html" } });', path: "apps/worker/src/provider.ts" },
+  { content: 'return Response.redirect(`${env.REMOTE_URL}?workspace=${workspaceId}`, 302);', path: "apps/worker/src/provider.ts" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
   { content: "create trigger outbound after insert on public.manuals for each row execute function supabase_functions.http_request(current_setting('app.remote_endpoint'), 'POST', '{}', '{}', '1000');", path: "supabase/migrations/99999999999999-webhook.sql" },
   { content: "select extensions.\"http_post\"(current_setting('app.remote_endpoint')); select \"extensions\".\"http_get\"(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-quoted-outbound.sql" },
