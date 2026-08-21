@@ -170,7 +170,6 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
   const reservations = persistentState.reservations;
   persistentState.version ??= 0;
   const MAX_LEASE_DURATION = 60;
-  const COMPLETED_SWEEP_RETENTION = 60;
   const absoluteDeadlineFor = (lease) => {
     const serverNow = readServerNow();
     if (!Number.isSafeInteger(serverNow) || serverNow < 0) throw new Error("server clock must return a non-negative safe integer");
@@ -297,9 +296,8 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
-        const isRecentReleased = reservation.state === "released" && now <= (reservation.releasedAt ?? reservation.leaseDeadline) + COMPLETED_SWEEP_RETENTION;
-        const isRecentCommitted = reservation.state === "committed" && now <= (reservation.committedAt ?? reservation.leaseDeadline) + COMPLETED_SWEEP_RETENTION;
-        if (isRecentReleased || isRecentCommitted || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
+        const hasGenerationTombstone = reservation.state === "released" || reservation.state === "committed";
+        if (hasGenerationTombstone || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
           try {
             await this.reconcile(reservation.operationKey, now);
             delete reservation.reconciliationError;
@@ -494,9 +492,10 @@ assert.equal((await raceHarness.reconcile(raceRequest.operationKey, 0)).state, "
 assert.equal(raceObjects.has(lateRaceKey), true, "barrier fixture must inject the late object after the first generation listing");
 await raceHarness.sweepReleased(1);
 assert.equal(raceObjects.has(lateRaceKey), false, "scheduled committed-generation cleanup must remove an object that raced with confirmation");
-const raceListCallsWithinRetention = raceListCalls;
+raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), objectKey: lateRaceKey });
 await raceHarness.sweepReleased(61);
-assert.equal(raceListCalls, raceListCallsWithinRetention, "completed reservations must stop listing their generation after the 60-second safety interval");
+assert.equal(raceObjects.has(lateRaceKey), false, "persistent generation tombstone must delete a PUT arriving after the former 60-second cutoff");
+assert.ok(raceListCalls >= 3, "completed generation tombstones must remain scheduled until lifecycle-backed retirement is confirmed");
 const concurrentReconcileRequest = { ...saveRequest, operationKey: "concurrent-reconcile", generationId: "reservation-concurrent-reconcile", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/canonical.png", plannedBytes: 4 };
 const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
 const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
@@ -592,6 +591,9 @@ const restartedReservationHarness = createUsageReservationHarness(10, readReserv
 await restartedReservationHarness.sweepReleased(201);
 assert.equal(restartedReservationHarness.snapshot().reservations.find((item) => item.operationKey === abandoned.operationKey).lateObjectDeleted, true, "restarted scheduled sweep must reload persistent released reservations and delete a late object");
 assert.equal(await reservationBucket.get(abandoned.objectKey), null);
+await putReservedThroughAdapter(abandoned, abandonedReservation, new Uint8Array(abandoned.plannedBytes));
+await restartedReservationHarness.sweepReleased(261);
+assert.equal(await reservationBucket.get(abandoned.objectKey), null, "released generation tombstone must delete a PUT arriving more than 60 seconds after release");
 const newGenerationKey = createObjectKey({ area: STORAGE_AREAS.MANUAL_ASSETS, workspaceId: "workspace-001", resourceId: "manual-001", generationId: "reservation-new-generation", assetId: "asset-003", extension: "png" });
 await reservationBucket.put(newGenerationKey, new Uint8Array(abandoned.plannedBytes), {
   httpMetadata: { contentType: "image/png" },
