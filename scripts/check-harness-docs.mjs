@@ -290,6 +290,18 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasUnapprovedDirectFetch = directFetchArguments.some((argument) =>
     !isApprovedDirectFetchArgument(argument)
   );
+  const configInitializers = [...content.matchAll(/\bconst\s+config\s*=\s*([^;\n]+)/g)].map((match) => match[1].trim());
+  const approvedConfigInitializers = {
+    "apps/worker/src/index.ts": ["inspectSupabaseConfig(env).config", "ensureSupabaseConfig(env)"],
+    "apps/worker/src/manual-router.ts": ["inspectSupabaseConfig(env).config", "ensureConfig(env)"]
+  };
+  const expectedConfigInitializers = approvedConfigInitializers[path];
+  const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
+  const hasUnapprovedConfigOrigin = usesApprovedConfigFetch && (
+    !expectedConfigInitializers
+    || configInitializers.length !== expectedConfigInitializers.length
+    || configInitializers.some((initializer, index) => initializer !== expectedConfigInitializers[index])
+  );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
     || (memberFetchReceivers.includes("phase1Worker") && (path !== "apps/worker/src/index-phase2.ts" || memberFetchReceivers.filter((receiver) => receiver === "phase1Worker").length !== 1));
@@ -310,7 +322,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
   );
   return (
-    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
+    hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
     /(?:OPENAI|ANTHROPIC|GEMINI|COHERE|MISTRAL)_API_KEY|AI_PROVIDER_API_KEY|ai\.assistiveGeneration/i.test(content) ||
     /(?:api\.openai\.com|[a-z0-9.-]+\.openai\.azure\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|bedrock-runtime\.[a-z0-9-]+\.(?:amazonaws\.com|api\.aws))/i.test(content) ||
     /\/(?:api\/)?v?\d*\/?(?:ai|generate|completions?|chat)(?:\/|\b)/i.test(content) ||
@@ -350,6 +362,7 @@ for (const fixture of [
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = { url: env.DISCORD_PUBLIC_KEY ?? "", anonKey: "" }; return fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: 'fetch(`${config.url}${path}`); fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: 'const phase1Worker = env.AI_PROXY; return phase1Worker.fetch(request);', path: "apps/worker/src/provider.ts" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
