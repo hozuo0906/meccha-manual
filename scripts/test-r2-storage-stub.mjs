@@ -315,13 +315,15 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         if (providerEvidenceId !== reservation.providerEvidenceId) throw new Error("archived provider evidence is immutable");
         return reservation;
       }
+      if (reservation.state === "committed") {
+        assert.ok(persistentState.currentBytes >= reservation.plannedBytes, "committed usage release must not underflow");
+      }
       reservation.generationArchived = true;
       reservation.generationArchivedAt = now;
       reservation.providerEvidenceId = providerEvidenceId;
       reservation.archivedGenerationId = verified.generationId;
       reservation.archivedGenerationPrefix = verified.generationPrefix;
       if (reservation.state === "committed") {
-        assert.ok(persistentState.currentBytes >= reservation.plannedBytes, "committed usage release must not underflow");
         persistentState.currentBytes -= reservation.plannedBytes;
         reservation.usageReleasedAt = now;
       }
@@ -539,6 +541,10 @@ assert.ok(raceListCalls >= 3, "completed generation tombstones must remain sched
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "", 62), /non-empty provider evidence ID/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-generation-proof", 62), /generation-bound provider/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound provider/);
+raceState.currentBytes = 0;
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62), /must not underflow/);
+assert.equal(raceHarness.snapshot().reservations[0].generationArchived, undefined, "failed usage validation must leave the tombstone active and unmodified");
+raceState.currentBytes = raceRequest.plannedBytes;
 await raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62);
 const raceListCallsAtArchive = raceListCalls;
 await raceHarness.sweepReleased(63);
