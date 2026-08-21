@@ -216,6 +216,8 @@ Issue #70には最低限、次を残す。
 - DB outbound禁止関数はcomment／文字列処理済みのSQL token列でも照合し、outer body内の関数名と括弧の間にcommentを挟んでも拒否する。
 - `CREATE FUNCTION ... AS '...'`／`AS E'...'` bodyは文字列値を復号して再帰token化し、動的`EXECUTE`を検査する。
 - JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
+- JavaScript文字列のmodule／URL句読点identity escapeを復号し、`node\\:https`等の禁止module難読化を拒否する。
+- PostgreSQLの`U&\"...\"` Unicode escaped identifierは承認前のmigrationで全面拒否し、禁止関数名のescape難読化を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
 - block comment中はcomment depthをquote状態より先に処理し、comment内quoteで後続の実行SQLを隠せないようにする。
