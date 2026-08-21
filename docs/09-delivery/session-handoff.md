@@ -202,6 +202,7 @@ Issue #70には最低限、次を残す。
 - Phase 2 entrypointも全体SHAを固定し、`phase1Worker`の`./index.ts` import元、handler、唯一の委譲callsiteを一体で保護する。
 - 承認済みSupabase `fetch`はcallsiteと設定helperを含む実装ファイル全体のSHAを固定し、`config`生成後のURL書換えを含め、既存secretを外部endpointへ転用する変更を明示reviewなしでは拒否する。
 - `app-assets`の相対URL fetchとSupabase設定helperも実装ファイル全体のSHAを固定し、URL生成元の書換えを明示reviewなしでは拒否する。
+- Supabase allowlistは承認済みhostのHTTPS標準portだけを許可し、同じhostnameでも非標準portを拒否する。
 - 承認前のDB outbound経路として`pg_net`、Database Webhook、HTTP拡張をmigration静的検査で拒否し、動的endpoint指定もfixtureで固定する。
 - migrationの引用SQL識別子を正規化してから検査し、`extensions.\"http_post\"`等の表記差でもDB outbound拒否を迂回できないようにする。
 - `search_path`経由の非修飾`http_post()`等もDB outbound capabilityとして拒否する。

@@ -245,6 +245,11 @@ test("Supabase bindings are normalized through the single server config module",
       config: { url: "https://spjowmulvoyxxkfeyjkr.supabase.co", anonKey: "key" }
     }
   );
+  assert.equal(
+    inspectSupabaseConfig({ SUPABASE_URL: "https://spjowmulvoyxxkfeyjkr.supabase.co:8443", SUPABASE_ANON_KEY: "key" }).configured,
+    false,
+    "approved Supabase host must reject non-standard HTTPS ports"
+  );
   const [indexSource, manualSource, configSource] = await Promise.all([
     readFile("apps/worker/src/index.ts", "utf8"),
     readFile("apps/worker/src/manual-router.ts", "utf8"),

@@ -236,7 +236,7 @@ for (const [path, expectedSha256] of [
   ["apps/worker/src/index.ts", "5964d4395fcf2fb780e0ba8194113eb5a63b88e1c3d67e3534dc828d4b162a18"],
   ["apps/worker/src/manual-router.ts", "78c289e29ff38c8b4a3e7347e80f5579f15132a83ba116fc62f0654b7fe7ac1d"],
   ["apps/worker/src/app-assets.ts", "203486e44f7a4198b75af245f44319acd1bb40bfa4234820c57708c934f106cc"],
-  ["apps/worker/src/server-config.ts", "dc7aef861ee5386209a83b263e08653b0b7a18170a2ffb759547c66792f520d4"]
+  ["apps/worker/src/server-config.ts", "e02c49a6d9b8a6a2441b1c53b64ff526e7bbd00be69b41e6f361f1124dba6c5d"]
 ]) {
   const actualSha256 = createHash("sha256").update(await readFile(path)).digest("hex");
   if (actualSha256 !== expectedSha256) errors.push(`${path} outbound boundary changed without explicit allowlist review.`);
