@@ -212,6 +212,7 @@ Issue #70には最低限、次を残す。
 - `EXECUTE`許可判定は引用識別子状態を保持し、`"function"`等の変数を非引用keywordの`FUNCTION/PROCEDURE`と誤認しない。
 - SQL token scannerはsingle／E／dollar文字列の内容をtoken列から除外し、文字列内の`function`等を`EXECUTE`許可keywordと誤認しない。
 - outer `DO`／`CREATE FUNCTION ... AS` dollar bodyは実行コードとしてtoken化し、body内の別delimiterによるdollar文字列は内容を除外する。
+- `DO LANGUAGE plpgsql`等もouter実行bodyとして認識し、body内のline／nested block commentはtoken scanner自身が除去する。
 - JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
