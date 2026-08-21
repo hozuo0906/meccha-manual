@@ -326,11 +326,13 @@ function hasAiRuntimeBoundary(content, path = "") {
     previousNormalizedContent = normalizedContent;
     normalizedContent = normalizedContent.replace(/(["'`])([^"'`\\$]*)\1\s*\+\s*(["'`])([^"'`\\$]*)\3/g, (_match, quote, left, _rightQuote, right) => `${quote}${left}${right}${quote}`);
   } while (normalizedContent !== previousNormalizedContent);
+  const sqlLexicalContent = normalizedPath.endsWith(".sql") ? stripSqlComments(normalizedContent) : normalizedContent;
   const capabilityContent = normalizedPath.endsWith(".sql")
-    ? stripSqlComments(normalizedContent)
-      .replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
+    ? sqlLexicalContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
-  const sqlTokens = normalizedPath.endsWith(".sql") ? (capabilityContent.match(/[a-z_][a-z0-9_$]*/gi) ?? []).map((token) => token.toLowerCase()) : [];
+  const sqlTokens = normalizedPath.endsWith(".sql")
+    ? (sqlLexicalContent.match(/"(?:[^"]|"")*"|[a-z_][a-z0-9_$]*/gi) ?? []).map((token) => token.startsWith('"') ? `quoted:${token.toLowerCase()}` : token.toLowerCase())
+    : [];
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -459,6 +461,7 @@ for (const fixture of [
   { content: "set search_path = extensions, public; select http(('POST', current_setting('app.remote_endpoint'), null, null, null)::http_request);", path: "supabase/migrations/99999999999999-generic-http-outbound.sql" },
   { content: "do $$ begin execute 'select extensions.ht' || 'tp((...)::extensions.http_request)'; end $$;", path: "supabase/migrations/99999999999999-dynamic-outbound.sql" },
   { content: "do $$ begin loop execute format('select extensions.%I(%L)', current_setting('app.fn'), current_setting('app.remote_endpoint')); exit; end loop; end $$;", path: "supabase/migrations/99999999999999-loop-dynamic-outbound.sql" },
+  { content: "do $$ declare \"function\" text := 'select extensions.http_get(...)'; begin execute \"function\"; end $$;", path: "supabase/migrations/99999999999999-quoted-execute-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
   { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },
