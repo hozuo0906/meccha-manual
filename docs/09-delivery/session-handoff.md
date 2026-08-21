@@ -239,6 +239,7 @@ Issue #70には最低限、次を残す。
 - `set_config('standard_conforming_strings','off',...)`経由のlegacy escape有効化も拒否する。
 - `pg_catalog.\"set_config\"(...)`を含むschema修飾・quoted identifierも正規化して拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
+- SQL block commentは空白へ置換して字句境界を保持し、コメント直後の隣接文字列も拒否する。
 - PostgreSQLの`U&'...'` Unicode escaped stringも全面拒否し、関数bodyの禁止tokenを難読化できないようにする。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。

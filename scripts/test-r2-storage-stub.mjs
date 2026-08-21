@@ -254,19 +254,29 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const claim = { id: `reconcile-${++persistentState.nextReconciliationClaimId}`, deadline: trustedNow + RECONCILIATION_CLAIM_DURATION };
       reservation.reconciliationClaim = claim;
       try {
+      const assertClaimCurrent = () => {
+        if (reservation.reconciliationClaim?.id !== claim.id) throw new Error("reconciliation claim fenced");
+      };
+      const deleteClaimedObject = async (objectKey) => {
+        assertClaimCurrent();
+        await deleteObject(objectKey, { claimId: claim.id, assertClaimCurrent });
+        assertClaimCurrent();
+      };
       const generationPrefix = generationPrefixOf(reservation);
       const generationObjects = await listGenerationObjects(generationPrefix);
+      assertClaimCurrent();
       const stored = await readObject(reservation.objectKey);
+      assertClaimCurrent();
       if (reservation.state === "released") {
         if (generationObjects.length > 0) {
-          for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
+          for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey);
           reservation.lateObjectDeleted = true;
         }
         return reservation;
       }
       if (reservation.state === "committed") {
         for (const candidate of generationObjects) {
-          if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
+          if (candidate.objectKey !== reservation.objectKey) await deleteClaimedObject(candidate.objectKey);
         }
         return reservation;
       }
@@ -277,7 +287,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
           if (trustedNow >= reservation.leaseDeadline) {
-            await deleteObject(reservation.objectKey);
+            await deleteClaimedObject(reservation.objectKey);
             if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
             reservation.releasedAt = trustedNow;
@@ -287,14 +297,14 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           throw new Error("stored object must match the reserved generation and save tuple");
         }
         for (const candidate of generationObjects) {
-          if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
+          if (candidate.objectKey !== reservation.objectKey) await deleteClaimedObject(candidate.objectKey);
         }
         if (reservation.state !== "reserved") return reservation;
         reservation.state = "committed";
         reservation.committedAt = trustedNow;
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (trustedNow >= reservation.leaseDeadline) {
-        for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
+        for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey);
         if (reservation.state !== "reserved") return reservation;
         reservation.state = "released";
         reservation.releasedAt = trustedNow;
@@ -693,7 +703,7 @@ const canonicalDeleteBarrier = new Promise((resolve) => { releaseCanonicalDelete
 const canonicalRaceHarness = createUsageReservationHarness(
   10,
   async () => canonicalRaceStored,
-  async () => { announceCanonicalDelete(); await canonicalDeleteBarrier; canonicalRaceStored = null; },
+  async (_objectKey, claimContext) => { announceCanonicalDelete(); await canonicalDeleteBarrier; claimContext.assertClaimCurrent(); canonicalRaceStored = null; },
   async () => canonicalRaceStored ? [canonicalRaceStored] : [],
   canonicalRaceState,
   () => canonicalRaceClock.now
@@ -703,9 +713,12 @@ const canonicalCleanup = canonicalRaceHarness.reconcile(canonicalRaceRequest.ope
 await canonicalDeleteStarted;
 canonicalRaceStored = { workspaceId: canonicalRaceRequest.workspaceId, objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
 await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /reconciliation serialization conflict/, "pre-I/O reconciliation claim must prevent concurrent commit of an overwritten object");
+canonicalRaceClock.now = 70;
+assert.equal((await canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 70)).state, "committed", "expired claim takeover must be able to commit the current canonical object");
 releaseCanonicalDelete();
-assert.equal((await canonicalCleanup).state, "released", "expired canonical cleanup must finish before the generation can transition");
-assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "canonical cleanup race must not account a deleted object as committed usage");
+await assert.rejects(canonicalCleanup, /reconciliation claim fenced/, "old claim owner must be fenced before its delayed delete takes effect");
+assert.notEqual(canonicalRaceStored, null, "fenced old delete must not remove the object committed by the takeover owner");
+assert.equal(canonicalRaceHarness.snapshot().currentBytes, 4, "takeover commit must retain one matching capacity charge");
 const crashedClaimState = { reservations: new Map(), currentBytes: 0 };
 const crashedClaimClock = { now: 0 };
 const crashedClaimRequest = { ...saveRequest, operationKey: "crashed-reconcile-claim", generationId: "reservation-crashed-reconcile-claim", objectKey: "workspace-001/manuals/manual-001/reservation-crashed-reconcile-claim/canonical.png", plannedBytes: 1 };
