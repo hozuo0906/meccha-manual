@@ -233,6 +233,7 @@ Issue #70には最低限、次を残す。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
 - block comment中はcomment depthをquote状態より先に処理し、comment内quoteで後続の実行SQLを隠せないようにする。
 - PostgreSQLの`E'...'`文字列はbackslash escapeを字句として消費し、escaped quote後のcomment markerでoutbound呼出を隠せないようにする。
+- PostgreSQLの`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
