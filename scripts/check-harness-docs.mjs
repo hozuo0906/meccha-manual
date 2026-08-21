@@ -232,7 +232,9 @@ if (JSON.stringify(packageLock.packages?.[""]?.devDependencies ?? {}) !== JSON.s
 for (const [path, expectedSha256] of [
   ["wrangler.jsonc", "c01b26083f3fb121933095823d2b4f378b65f2f76920fce174aa28492d7f5879"],
   ["wrangler.brand.jsonc", "65d5a31659bab236cef7648da43b7fd4b1c41b08857040ef161e8f9f96d9a566"],
-  ["apps/worker/src/index-phase2.ts", "5e5c8242320a761412b71c2b42fa5928924b283ce98ee66b39e79d66515b47a7"]
+  ["apps/worker/src/index-phase2.ts", "5e5c8242320a761412b71c2b42fa5928924b283ce98ee66b39e79d66515b47a7"],
+  ["apps/worker/src/index.ts", "5964d4395fcf2fb780e0ba8194113eb5a63b88e1c3d67e3534dc828d4b162a18"],
+  ["apps/worker/src/manual-router.ts", "78c289e29ff38c8b4a3e7347e80f5579f15132a83ba116fc62f0654b7fe7ac1d"]
 ]) {
   const actualSha256 = createHash("sha256").update(await readFile(path)).digest("hex");
   if (actualSha256 !== expectedSha256) errors.push(`${path} outbound boundary changed without explicit allowlist review.`);
