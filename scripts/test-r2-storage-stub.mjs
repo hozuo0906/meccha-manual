@@ -169,7 +169,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
   if (typeof readServerNow !== "function") throw new TypeError("server clock function is required");
   const reservations = persistentState.reservations;
   persistentState.version ??= 0;
+  persistentState.nextReconciliationClaimId ??= 0;
   const MAX_LEASE_DURATION = 60;
+  const RECONCILIATION_CLAIM_DURATION = 60;
   const absoluteDeadlineFor = (lease) => {
     const serverNow = readServerNow();
     if (!Number.isSafeInteger(serverNow) || serverNow < 0) throw new Error("server clock must return a non-negative safe integer");
@@ -246,11 +248,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async reconcile(operationKey, now) {
       const reservation = reservations.get(operationKey);
-      if (reservation.reconciliationInProgress) throw new Error("reconciliation serialization conflict");
-      reservation.reconciliationInProgress = true;
-      try {
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
+      if (reservation.reconciliationClaim && reservation.reconciliationClaim.deadline > trustedNow) throw new Error("reconciliation serialization conflict");
+      const claim = { id: `reconcile-${++persistentState.nextReconciliationClaimId}`, deadline: trustedNow + RECONCILIATION_CLAIM_DURATION };
+      reservation.reconciliationClaim = claim;
+      try {
       const generationPrefix = generationPrefixOf(reservation);
       const generationObjects = await listGenerationObjects(generationPrefix);
       const stored = await readObject(reservation.objectKey);
@@ -301,7 +304,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       }
       return reservation;
       } finally {
-        reservation.reconciliationInProgress = false;
+        if (reservation.reconciliationClaim?.id === claim.id) delete reservation.reconciliationClaim;
       }
     },
     snapshot() {
@@ -703,6 +706,18 @@ await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operati
 releaseCanonicalDelete();
 assert.equal((await canonicalCleanup).state, "released", "expired canonical cleanup must finish before the generation can transition");
 assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "canonical cleanup race must not account a deleted object as committed usage");
+const crashedClaimState = { reservations: new Map(), currentBytes: 0 };
+const crashedClaimClock = { now: 0 };
+const crashedClaimRequest = { ...saveRequest, operationKey: "crashed-reconcile-claim", generationId: "reservation-crashed-reconcile-claim", objectKey: "workspace-001/manuals/manual-001/reservation-crashed-reconcile-claim/canonical.png", plannedBytes: 1 };
+const crashedClaimHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], crashedClaimState, () => crashedClaimClock.now);
+crashedClaimHarness.reserve(crashedClaimRequest, { owner: "worker-crashed-claim", deadline: 0, fencingToken: "fence-crashed-claim" });
+crashedClaimState.reservations.get(crashedClaimRequest.operationKey).reconciliationClaim = { id: "crashed-worker", deadline: 10 };
+await crashedClaimHarness.sweepReleased(10);
+assert.match(crashedClaimHarness.snapshot().reservations[0].reconciliationError, /serialization conflict/, "unexpired crashed claim must not be stolen");
+crashedClaimClock.now = 10;
+await crashedClaimHarness.sweepReleased(10);
+assert.equal(crashedClaimHarness.snapshot().reservations[0].state, "released", "restart sweep must take over an expired reconciliation claim");
+assert.equal(crashedClaimHarness.snapshot().reservations[0].reconciliationClaim, undefined, "successful takeover must release its own reconciliation claim");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureClock = { now: 10 };
 const isolatedFailureHarness = createUsageReservationHarness(
