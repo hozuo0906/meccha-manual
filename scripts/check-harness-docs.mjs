@@ -317,6 +317,7 @@ function stripSqlComments(content) {
 
 function sqlIdentifierTokens(content) {
   const tokens = [];
+  let bodyDelimiter = null;
   for (let index = 0; index < content.length;) {
     if (content[index] === "'") {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
@@ -332,9 +333,18 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "$") {
       const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
       if (delimiter) {
-        // Function/DO bodies are dollar-quoted but contain executable PL/pgSQL,
-        // so ignore only the delimiter and continue tokenizing the body.
-        index += delimiter.length;
+        if (bodyDelimiter === delimiter) {
+          bodyDelimiter = null;
+          index += delimiter.length;
+        } else if (!bodyDelimiter && ["do", "as"].includes(tokens.at(-1))) {
+          // The outer Function/DO body is executable PL/pgSQL.
+          bodyDelimiter = delimiter;
+          index += delimiter.length;
+        } else {
+          // Nested or ordinary dollar quotes are string literals.
+          const end = content.indexOf(delimiter, index + delimiter.length);
+          index = end === -1 ? content.length : end + delimiter.length;
+        }
         continue;
       }
     }
@@ -504,6 +514,7 @@ for (const fixture of [
   { content: "do $$ begin loop execute format('select extensions.%I(%L)', current_setting('app.fn'), current_setting('app.remote_endpoint')); exit; end loop; end $$;", path: "supabase/migrations/99999999999999-loop-dynamic-outbound.sql" },
   { content: "do $$ declare \"function\" text := 'select extensions.http_get(...)'; begin execute \"function\"; end $$;", path: "supabase/migrations/99999999999999-quoted-execute-outbound.sql" },
   { content: "do $$ begin execute '/* function */ select extensions.ht' || 'tp_get(' || quote_literal(current_setting('app.remote_endpoint')) || ')'; end $$;", path: "supabase/migrations/99999999999999-string-keyword-outbound.sql" },
+  { content: "do $$ begin execute $sql$/* function */ $sql$ || $a$select extensions.ht$a$ || $b$tp_get($b$ || quote_literal(current_setting('app.remote_endpoint')) || ')'; end $$;", path: "supabase/migrations/99999999999999-dollar-keyword-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
   { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },
