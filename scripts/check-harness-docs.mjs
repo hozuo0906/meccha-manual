@@ -393,7 +393,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     .replace(/\\(?:\r\n|[\n\r\u2028\u2029])/g, "")
     .replace(/\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})/gi, (_match, braced, fixed) => String.fromCodePoint(Number.parseInt(braced ?? fixed, 16)))
     .replace(/\\x([0-9a-f]{2})/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/\\([:/\.@_-])/g, "$1");
+    .replace(/\\([:/\.@_-])/g, "$1")
+    .replace(/\\([a-z_$])/gi, (match, escaped) => /[nrtbfvux]/i.test(escaped) ? match : escaped);
   let previousNormalizedContent;
   do {
     previousNormalizedContent = normalizedContent;
@@ -524,6 +525,7 @@ for (const fixture of [
   { content: 'import { connect } from "cloudflare:sockets"; connect({ hostname: env.REMOTE_HOST, port: 443 }, { secureTransport: "on" });', path: "apps/worker/src/provider.ts" },
   { content: 'import "cloudflare\\x3asockets";', path: "apps/worker/src/provider.ts" },
   { content: 'import https from "node\\:https";', path: "apps/worker/src/provider.ts" },
+  { content: 'import https from "node:\\https";', path: "apps/worker/src/provider.ts" },
   { content: 'import "node:h' + "\\" + '\n' + 'ttps";', path: "apps/worker/src/provider.ts" },
   { content: 'import "node:h' + "\\" + '\u2028' + 'ttps";', path: "apps/worker/src/provider.ts" },
   { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
