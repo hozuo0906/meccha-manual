@@ -266,6 +266,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         if (!sameGeneration || !matchesTuple) {
           if (now >= reservation.leaseDeadline) {
             await deleteObject(reservation.objectKey);
+            if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
             reservation.releasedAt = now;
             reservation.mismatchedObjectDeleted = true;
@@ -282,6 +283,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
         for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
+        if (reservation.state !== "reserved") return reservation;
         reservation.state = "released";
         reservation.releasedAt = now;
         if (generationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
@@ -521,6 +523,31 @@ const concurrentReconcileResults = await Promise.all([
 ]);
 assert.ok(concurrentReconcileResults.every((reservation) => reservation.state === "committed"));
 assert.equal(concurrentReconcileHarness.snapshot().currentBytes, 4, "concurrent reconciliation must commit and count one reservation exactly once");
+const releaseRaceRequest = { ...saveRequest, operationKey: "release-race", generationId: "reservation-release-race", objectKey: "workspace-001/manuals/manual-001/reservation-release-race/canonical.png", plannedBytes: 4 };
+const releaseRaceState = { reservations: new Map(), currentBytes: 0 };
+const releaseRaceStored = { workspaceId: releaseRaceRequest.workspaceId, objectKey: releaseRaceRequest.objectKey, sizeBytes: 4, checksumSha256: releaseRaceRequest.checksumSha256, reservationId: `reservation-${releaseRaceRequest.operationKey}`, fencingToken: "fence-release-race" };
+const releaseRaceSibling = { ...releaseRaceStored, objectKey: "workspace-001/manuals/manual-001/reservation-release-race/sibling.png" };
+let releaseRaceListCalls = 0;
+let releaseRaceReadCalls = 0;
+let unblockReleaseDelete;
+let announceReleaseDelete;
+const releaseDeleteBlocked = new Promise((resolve) => { announceReleaseDelete = resolve; });
+const releaseDeleteBarrier = new Promise((resolve) => { unblockReleaseDelete = resolve; });
+const releaseRaceHarness = createUsageReservationHarness(
+  10,
+  async () => (++releaseRaceReadCalls === 1 ? null : releaseRaceStored),
+  async () => { announceReleaseDelete(); await releaseDeleteBarrier; },
+  async () => (++releaseRaceListCalls === 1 ? [releaseRaceSibling] : [releaseRaceStored]),
+  releaseRaceState,
+  () => 0
+);
+releaseRaceHarness.reserve(releaseRaceRequest, { owner: "worker-release-race", deadline: 10, fencingToken: "fence-release-race" });
+const releasingReconcile = releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10);
+await releaseDeleteBlocked;
+assert.equal((await releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10)).state, "committed", "competing reconciliation must be able to commit the late canonical object");
+unblockReleaseDelete();
+assert.equal((await releasingReconcile).state, "committed", "stale release reconciliation must not overwrite a concurrent commit");
+assert.equal(releaseRaceHarness.snapshot().currentBytes, 4, "release race must retain the single committed capacity charge");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureHarness = createUsageReservationHarness(
   10,

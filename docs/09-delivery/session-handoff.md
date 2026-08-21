@@ -228,7 +228,7 @@ Issue #70には最低限、次を残す。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
 - 完了予約のgeneration再走査は完了時刻から60秒に限定し、安全期間後は累積履歴へ比例するR2 LISTを行わない。
 - reconciliation sweepは予約単位で失敗を隔離・記録し、先行予約の継続障害でも後続の期限切れ予約を処理する。
-- 同一予約の並行reconcileは外部I/O後にstateを再確認し、確定と容量加算を一度だけ行う。
+- 同一予約の並行reconcileは外部I/O後にstateを再確認し、確定と容量加算を一度だけ行う。解放側も並行確定を`released`で上書きしない。
 - 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
 - ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
 - 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
