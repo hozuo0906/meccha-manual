@@ -320,6 +320,11 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       reservation.providerEvidenceId = providerEvidenceId;
       reservation.archivedGenerationId = verified.generationId;
       reservation.archivedGenerationPrefix = verified.generationPrefix;
+      if (reservation.state === "committed") {
+        assert.ok(persistentState.currentBytes >= reservation.plannedBytes, "committed usage release must not underflow");
+        persistentState.currentBytes -= reservation.plannedBytes;
+        reservation.usageReleasedAt = now;
+      }
       return reservation;
     },
     async sweepReleased(now) {
@@ -541,6 +546,7 @@ assert.equal(raceListCalls, raceListCallsAtArchive, "provider-confirmed archived
 assert.equal(raceHarness.snapshot().reservations[0].providerEvidenceId, "proof-001", "archive transition must retain auditable provider evidence");
 await raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 99);
 assert.equal(raceHarness.snapshot().reservations[0].generationArchivedAt, 62, "idempotent archive retry must preserve the original evidence tuple and timestamp");
+assert.equal(raceHarness.snapshot().currentBytes, 0, "committed tombstone archive must release physically deleted bytes exactly once");
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-002", 100), /evidence is immutable/);
 const concurrentArchiveState = { reservations: new Map(), currentBytes: 0 };
 const concurrentArchiveRequest = { ...raceRequest, operationKey: "concurrent-archive", generationId: "reservation-concurrent-archive", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-archive/canonical.png" };
@@ -576,6 +582,7 @@ await Promise.all([
 const concurrentArchiveSnapshot = concurrentArchiveHarness.snapshot().reservations[0];
 assert.equal(concurrentArchiveSnapshot.generationArchivedAt, 11, "archive CAS must preserve the first completed verification timestamp during a concurrent idempotent retry");
 assert.equal(concurrentArchiveSnapshot.providerEvidenceId, "proof-concurrent", "archive CAS must preserve one immutable evidence tuple");
+assert.equal(concurrentArchiveHarness.snapshot().currentBytes, 0, "concurrent committed archive retries must release usage once without double subtraction");
 const concurrentReconcileRequest = { ...saveRequest, operationKey: "concurrent-reconcile", generationId: "reservation-concurrent-reconcile", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/canonical.png", plannedBytes: 4 };
 const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
 const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
