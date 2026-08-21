@@ -236,6 +236,10 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const reservation = reservations.get(operationKey);
       assert.equal(reservation.leaseOwner, owner, "only the current lease owner may extend");
       assert.equal(reservation.leaseDeadline, expectedDeadline, "lease extension must compare the current deadline");
+      assert.equal(reservation.state, "reserved", "only an active reserved lease may extend");
+      const trustedNow = readServerNow();
+      if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
+      if (trustedNow >= reservation.leaseDeadline) throw new Error("expired lease cannot be extended");
       assert.ok(nextDeadline > expectedDeadline, "lease extension must move forward");
       assert.ok(nextDeadline <= reservation.absoluteDeadline, "lease extension must not exceed the fixed absolute deadline");
       reservation.leaseDeadline = nextDeadline;
@@ -666,6 +670,7 @@ const releaseRaceHarness = createUsageReservationHarness(
 releaseRaceHarness.reserve(releaseRaceRequest, { owner: "worker-release-race", deadline: 10, fencingToken: "fence-release-race" });
 const releasingReconcile = releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10);
 await releaseDeleteBlocked;
+assert.throws(() => releaseRaceHarness.extendLease(releaseRaceRequest.operationKey, "worker-release-race", 10, 20), /expired lease/, "expired owner must not extend while reconciliation deletion I/O is pending");
 assert.equal((await releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10)).state, "committed", "competing reconciliation must be able to commit the late canonical object");
 unblockReleaseDelete();
 assert.equal((await releasingReconcile).state, "committed", "stale release reconciliation must not overwrite a concurrent commit");

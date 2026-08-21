@@ -423,7 +423,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedIdentifier = normalizedPath.endsWith(".sql") && /\bU&"/i.test(sqlLexicalContent);
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
-  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bstandard_conforming_strings\s*=\s*(?:off|'off')/i.test(sqlLexicalContent);
+  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
     "discord.com",
@@ -581,6 +581,7 @@ for (const fixture of [
   { content: "create function public.dynamic_outbound() returns void as E'begin \\105XECUTE \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-octal-body-outbound.sql" },
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin \\105XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-octal-body-outbound.sql" },
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-identity-body-outbound.sql" },
+  { content: "set session \"standard_conforming_strings\" to off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-to-identity-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as U&'begin \\0045XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-unicode-body-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
