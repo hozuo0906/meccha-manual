@@ -246,6 +246,7 @@ function stripSqlComments(content) {
   let output = "";
   let blockDepth = 0;
   let quoted = null;
+  let backslashEscapedQuote = false;
   let dollarQuote = null;
   for (let index = 0; index < content.length; index += 1) {
     if (dollarQuote) {
@@ -258,11 +259,19 @@ function stripSqlComments(content) {
     }
     if (quoted) {
       output += content[index];
+      if (backslashEscapedQuote && content[index] === "\\" && index + 1 < content.length) {
+        output += content[index + 1];
+        index += 1;
+        continue;
+      }
       if (content[index] === quoted) {
         if (content[index + 1] === quoted) {
           output += content[index + 1];
           index += 1;
-        } else quoted = null;
+        } else {
+          quoted = null;
+          backslashEscapedQuote = false;
+        }
       }
       continue;
     }
@@ -274,6 +283,7 @@ function stripSqlComments(content) {
     }
     if (content[index] === "'" || content[index] === '"') {
       quoted = content[index];
+      backslashEscapedQuote = content[index] === "'" && /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       output += content[index];
       continue;
     }
@@ -444,6 +454,7 @@ for (const fixture of [
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
   { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },
+  { content: "select E'prefix\\'/*'; select http_post(current_setting('app.remote_endpoint')); select E'*/';", path: "supabase/migrations/99999999999999-e-string-outbound.sql" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },

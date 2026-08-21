@@ -209,6 +209,7 @@ Issue #70には最低限、次を残す。
 - JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
+- PostgreSQLの`E'...'`文字列はbackslash escapeを字句として消費し、escaped quote後のcomment markerでoutbound呼出を隠せないようにする。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
