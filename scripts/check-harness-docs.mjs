@@ -315,6 +315,49 @@ function stripSqlComments(content) {
   return output;
 }
 
+function sqlIdentifierTokens(content) {
+  const tokens = [];
+  for (let index = 0; index < content.length;) {
+    if (content[index] === "'") {
+      const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
+      index += 1;
+      while (index < content.length) {
+        if (backslashEscapes && content[index] === "\\") index += 2;
+        else if (content[index] === "'" && content[index + 1] === "'") index += 2;
+        else if (content[index] === "'") { index += 1; break; }
+        else index += 1;
+      }
+      continue;
+    }
+    if (content[index] === "$") {
+      const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
+      if (delimiter) {
+        // Function/DO bodies are dollar-quoted but contain executable PL/pgSQL,
+        // so ignore only the delimiter and continue tokenizing the body.
+        index += delimiter.length;
+        continue;
+      }
+    }
+    if (content[index] === '"') {
+      let value = "";
+      index += 1;
+      while (index < content.length) {
+        if (content[index] === '"' && content[index + 1] === '"') { value += '"'; index += 2; }
+        else if (content[index] === '"') { index += 1; break; }
+        else { value += content[index]; index += 1; }
+      }
+      tokens.push(`quoted:${value.toLowerCase()}`);
+      continue;
+    }
+    const identifier = content.slice(index).match(/^[a-z_][a-z0-9_$]*/i)?.[0];
+    if (identifier) {
+      tokens.push(identifier.toLowerCase());
+      index += identifier.length;
+    } else index += 1;
+  }
+  return tokens;
+}
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -330,9 +373,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const capabilityContent = normalizedPath.endsWith(".sql")
     ? sqlLexicalContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
-  const sqlTokens = normalizedPath.endsWith(".sql")
-    ? (sqlLexicalContent.match(/"(?:[^"]|"")*"|[a-z_][a-z0-9_$]*/gi) ?? []).map((token) => token.startsWith('"') ? `quoted:${token.toLowerCase()}` : token.toLowerCase())
-    : [];
+  const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -462,6 +503,7 @@ for (const fixture of [
   { content: "do $$ begin execute 'select extensions.ht' || 'tp((...)::extensions.http_request)'; end $$;", path: "supabase/migrations/99999999999999-dynamic-outbound.sql" },
   { content: "do $$ begin loop execute format('select extensions.%I(%L)', current_setting('app.fn'), current_setting('app.remote_endpoint')); exit; end loop; end $$;", path: "supabase/migrations/99999999999999-loop-dynamic-outbound.sql" },
   { content: "do $$ declare \"function\" text := 'select extensions.http_get(...)'; begin execute \"function\"; end $$;", path: "supabase/migrations/99999999999999-quoted-execute-outbound.sql" },
+  { content: "do $$ begin execute '/* function */ select extensions.ht' || 'tp_get(' || quote_literal(current_setting('app.remote_endpoint')) || ')'; end $$;", path: "supabase/migrations/99999999999999-string-keyword-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* review */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-comment-outbound.sql" },
   { content: "set search_path = extensions, public; select http_post /* outer /* inner */ still outer */ (current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-nested-comment-outbound.sql" },
   { content: "select '/*'; select http_post(current_setting('app.remote_endpoint')); select '*/';", path: "supabase/migrations/99999999999999-string-comment-outbound.sql" },

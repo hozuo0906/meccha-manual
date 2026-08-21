@@ -210,6 +210,7 @@ Issue #70には最低限、次を残す。
 - migrationではtrigger用`EXECUTE FUNCTION/PROCEDURE`以外の動的`EXECUTE`を承認前に拒否し、文字列連結による禁止関数名の合成を防ぐ。
 - SQL識別子token列で`EXECUTE`を位置非依存に判定し、`GRANT/REVOKE EXECUTE`とtrigger用`EXECUTE FUNCTION/PROCEDURE`だけを許可する。
 - `EXECUTE`許可判定は引用識別子状態を保持し、`"function"`等の変数を非引用keywordの`FUNCTION/PROCEDURE`と誤認しない。
+- SQL token scannerはsingle／E／dollar文字列の内容をtoken列から除外し、文字列内の`function`等を`EXECUTE`許可keywordと誤認しない。
 - JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
