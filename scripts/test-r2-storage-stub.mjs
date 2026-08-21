@@ -297,6 +297,8 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async archiveGeneration(operationKey, providerEvidenceId, now) {
       const reservation = reservations.get(operationKey);
+      const trustedNow = readServerNow();
+      if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       if (!reservation || (reservation.state !== "released" && reservation.state !== "committed")) {
         throw new Error("only completed generation tombstones may be archived");
       }
@@ -308,7 +310,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const verified = await verifyProviderEvidence(providerEvidenceId);
       const expectedPrefix = generationPrefixOf(reservation);
       const hasOrderedProviderProof = Number.isSafeInteger(verified?.writeFencedAt) && Number.isSafeInteger(verified?.writesDrainedAt) && Number.isSafeInteger(verified?.lifecycleDeletedAt) &&
-        verified.writeFencedAt >= 0 && verified.writeFencedAt < verified.writesDrainedAt && verified.writesDrainedAt < verified.lifecycleDeletedAt && verified.lifecycleDeletedAt <= now;
+        verified.writeFencedAt >= 0 && verified.writeFencedAt < verified.writesDrainedAt && verified.writesDrainedAt < verified.lifecycleDeletedAt && verified.lifecycleDeletedAt <= trustedNow;
       if (verified?.lifecycleDeleted !== true || verified?.writesFenced !== true || verified?.providerEvidenceId !== providerEvidenceId ||
           verified?.inFlightWritesDrained !== true || !hasOrderedProviderProof || verified?.generationId !== reservation.generationId || verified?.generationPrefix !== expectedPrefix) {
         throw new Error("generation-bound ordered fence, write drain, and lifecycle deletion evidence are required");
@@ -321,13 +323,13 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         assert.ok(persistentState.currentBytes >= reservation.plannedBytes, "committed usage release must not underflow");
       }
       reservation.generationArchived = true;
-      reservation.generationArchivedAt = now;
+      reservation.generationArchivedAt = trustedNow;
       reservation.providerEvidenceId = providerEvidenceId;
       reservation.archivedGenerationId = verified.generationId;
       reservation.archivedGenerationPrefix = verified.generationPrefix;
       if (reservation.state === "committed") {
         persistentState.currentBytes -= reservation.plannedBytes;
-        reservation.usageReleasedAt = now;
+        reservation.usageReleasedAt = trustedNow;
       }
       return reservation;
     },
@@ -504,6 +506,7 @@ const raceRequest = { ...saveRequest, operationKey: "commit-cleanup-race", gener
 const raceState = { reservations: new Map(), currentBytes: 0 };
 const raceObjects = new Map([[raceRequest.objectKey, { workspaceId: raceRequest.workspaceId, objectKey: raceRequest.objectKey, sizeBytes: raceRequest.plannedBytes, checksumSha256: raceRequest.checksumSha256, reservationId: `reservation-${raceRequest.operationKey}`, fencingToken: "fence-race" }]]);
 const lateRaceKey = "workspace-001/manuals/manual-001/reservation-commit-cleanup-race/late.png";
+const raceClock = { now: 0 };
 let injectLateObject = true;
 let raceListCalls = 0;
 const raceHarness = createUsageReservationHarness(
@@ -522,7 +525,7 @@ const raceHarness = createUsageReservationHarness(
     return [...raceObjects.values()].filter((item) => item.objectKey.startsWith(prefix));
   },
   raceState,
-  () => 0,
+  () => raceClock.now,
   async (providerEvidenceId) => ({
     providerEvidenceId,
     generationId: providerEvidenceId === "wrong-generation-proof" ? "reservation-other" : raceRequest.generationId,
@@ -555,6 +558,8 @@ await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "un
 raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), objectKey: lateRaceKey });
 await raceHarness.sweepReleased(62);
 assert.equal(raceObjects.has(lateRaceKey), false, "rejected undrained evidence must keep the tombstone active to collect a PUT completing after verification");
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62), /generation-bound ordered/, "caller-supplied future now must not override the trusted server clock");
+raceClock.now = 62;
 raceState.currentBytes = 0;
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62), /must not underflow/);
 assert.equal(raceHarness.snapshot().reservations[0].generationArchived, undefined, "failed usage validation must leave the tombstone active and unmodified");
@@ -569,6 +574,7 @@ assert.equal(raceHarness.snapshot().reservations[0].generationArchivedAt, 62, "i
 assert.equal(raceHarness.snapshot().currentBytes, 0, "committed tombstone archive must release physically deleted bytes exactly once");
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-002", 100), /evidence is immutable/);
 const concurrentArchiveState = { reservations: new Map(), currentBytes: 0 };
+const concurrentArchiveClock = { now: 0 };
 const concurrentArchiveRequest = { ...raceRequest, operationKey: "concurrent-archive", generationId: "reservation-concurrent-archive", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-archive/canonical.png" };
 let releaseFirstArchiveVerification;
 const firstArchiveVerificationMayFinish = new Promise((resolve) => { releaseFirstArchiveVerification = resolve; });
@@ -579,7 +585,7 @@ const concurrentArchiveHarness = createUsageReservationHarness(
   async () => {},
   async () => [],
   concurrentArchiveState,
-  () => 0,
+  () => concurrentArchiveClock.now,
   async (providerEvidenceId) => {
     archiveVerificationCalls += 1;
     if (archiveVerificationCalls === 1) await firstArchiveVerificationMayFinish;
@@ -599,6 +605,7 @@ const concurrentArchiveHarness = createUsageReservationHarness(
 );
 concurrentArchiveHarness.reserve(concurrentArchiveRequest, { owner: "worker-archive", deadline: 0, fencingToken: "fence-archive" });
 await concurrentArchiveHarness.reconcile(concurrentArchiveRequest.operationKey, 0);
+concurrentArchiveClock.now = 11;
 await Promise.all([
   concurrentArchiveHarness.archiveGeneration(concurrentArchiveRequest.operationKey, "proof-concurrent", 10),
   concurrentArchiveHarness.archiveGeneration(concurrentArchiveRequest.operationKey, "proof-concurrent", 11)
