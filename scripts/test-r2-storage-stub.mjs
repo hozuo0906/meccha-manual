@@ -291,7 +291,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     async sweepReleased(now) {
       for (const reservation of reservations.values()) {
         if (reservation.state === "released" || reservation.state === "committed" || (reservation.state === "reserved" && now >= reservation.leaseDeadline)) {
-          await this.reconcile(reservation.operationKey, now);
+          try {
+            await this.reconcile(reservation.operationKey, now);
+            delete reservation.reconciliationError;
+          } catch (error) {
+            reservation.reconciliationError = error instanceof Error ? error.message : String(error);
+          }
         }
       }
     }
@@ -476,6 +481,26 @@ assert.equal((await raceHarness.reconcile(raceRequest.operationKey, 0)).state, "
 assert.equal(raceObjects.has(lateRaceKey), true, "barrier fixture must inject the late object after the first generation listing");
 await raceHarness.sweepReleased(1);
 assert.equal(raceObjects.has(lateRaceKey), false, "scheduled committed-generation cleanup must remove an object that raced with confirmation");
+const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
+const isolatedFailureHarness = createUsageReservationHarness(
+  10,
+  async () => null,
+  async () => {},
+  async (prefix) => {
+    if (prefix.includes("reservation-sweep-failure")) throw new Error("synthetic list failure");
+    return [];
+  },
+  isolatedFailureState,
+  () => 0
+);
+const failedSweepRequest = { ...saveRequest, operationKey: "sweep-failure", generationId: "reservation-sweep-failure", objectKey: "workspace-001/manuals/manual-001/reservation-sweep-failure/asset.png", plannedBytes: 1 };
+const laterSweepRequest = { ...saveRequest, operationKey: "sweep-later", generationId: "reservation-sweep-later", objectKey: "workspace-001/manuals/manual-001/reservation-sweep-later/asset.png", plannedBytes: 1 };
+isolatedFailureHarness.reserve(failedSweepRequest, { owner: "worker-failure", deadline: 10, fencingToken: "fence-failure" });
+isolatedFailureHarness.reserve(laterSweepRequest, { owner: "worker-later", deadline: 10, fencingToken: "fence-later" });
+await isolatedFailureHarness.sweepReleased(10);
+const isolatedFailureSnapshot = isolatedFailureHarness.snapshot().reservations;
+assert.match(isolatedFailureSnapshot.find((item) => item.operationKey === failedSweepRequest.operationKey).reconciliationError, /synthetic list failure/);
+assert.equal(isolatedFailureSnapshot.find((item) => item.operationKey === laterSweepRequest.operationKey).state, "released", "one reconciliation failure must not block later reservations in the sweep");
 const abandoned = {
   ...saveRequest,
   operationKey: "operation-003",
