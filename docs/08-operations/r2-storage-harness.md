@@ -84,7 +84,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 {workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
 ```
 
-`reservation_generation_id`は予約作成時に一度だけ固定し、operation keyの再送では同じ値を再利用する。reconciliationはこの世代prefix内だけを列挙し、予約IDとfencing tokenが一致する孤立objectを回収する。別世代のprefixは走査・削除しない。
+`reservation_generation_id`は予約作成時に一度だけ固定し、operation keyの再送では同じ値を再利用する。reconciliationはこの世代prefix内だけを列挙する。workspace、key、size、checksum、予約ID、fencing tokenのtuple一致は正規objectの確定条件であり、cleanup条件ではない。正規objectを確定するときは同世代の非正規objectを削除し、期限後は予約ID／fencing tokenの欠落・不一致を含むprefix内の孤立objectを回収する。別世代のprefixは走査・削除しない。
 
 ## 検証
 

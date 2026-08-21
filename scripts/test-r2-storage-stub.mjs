@@ -265,6 +265,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           }
           throw new Error("stored object must match the reserved generation and save tuple");
         }
+        for (const candidate of generationObjects) {
+          if (candidate.objectKey !== reservation.objectKey) await deleteObject(candidate.objectKey);
+        }
         reservation.state = "committed";
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
@@ -431,9 +434,15 @@ for (const deadline of [undefined, Number.NaN, -1]) {
 const futureClockHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], { reservations: new Map(), currentBytes: 0 }, () => 10);
 assert.throws(() => futureClockHarness.reserve({ ...saveRequest, operationKey: "past-deadline", plannedBytes: 1 }, { owner: "worker-x", deadline: 9, fencingToken: "fence-x" }), /at or after/);
 await putReservedThroughAdapter(saveRequest, firstReservation, saveBody);
+const staleSiblingKey = createObjectKey({ area: STORAGE_AREAS.MANUAL_ASSETS, workspaceId: "workspace-001", resourceId: "manual-001", generationId: saveRequest.generationId, assetId: "stale-sibling", extension: "png" });
+await reservationBucket.put(staleSiblingKey, saveBody, {
+  httpMetadata: { contentType: "image/png" },
+  customMetadata: { workspace_id: saveRequest.workspaceId, checksum_sha256: saveRequest.checksumSha256, reservation_id: firstReservation.reservationId, fencing_token: firstReservation.fencingToken }
+});
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.reservation_id, firstReservation.reservationId, "adapter must persist reservation metadata");
 assert.equal(reservationBucket.inspect(saveRequest.objectKey).customMetadata.fencing_token, firstReservation.fencingToken, "adapter must persist fencing metadata");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 99)).state, "committed", "post-write worker stop must reconcile a matching fake R2 object to committed");
+assert.equal(await reservationBucket.get(staleSiblingKey), null, "commit reconciliation must delete non-canonical objects from the same reservation generation");
 assert.equal((await reservationHarness.reconcile(saveRequest.operationKey, 101)).state, "committed", "reconciliation must be idempotent");
 assert.equal(reservationHarness.snapshot().currentBytes, 6, "committed bytes must not be counted twice");
 const abandoned = {

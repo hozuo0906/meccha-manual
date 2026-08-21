@@ -201,7 +201,9 @@ Issue #70には最低限、次を残す。
 - Wrangler設定2ファイルは全体SHAを固定し、未承認service binding／queue等のoutbound binding追加を品質ゲートで拒否する。
 - Phase 2 entrypointも全体SHAを固定し、`phase1Worker`の`./index.ts` import元、handler、唯一の委譲callsiteを一体で保護する。
 - 承認済みSupabase `fetch`はcallsiteと設定helperを含む実装ファイル全体のSHAを固定し、`config`生成後のURL書換えを含め、既存secretを外部endpointへ転用する変更を明示reviewなしでは拒否する。
+- `app-assets`の相対URL fetchとSupabase設定helperも実装ファイル全体のSHAを固定し、URL生成元の書換えを明示reviewなしでは拒否する。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
+- R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
 - ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
 - 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
