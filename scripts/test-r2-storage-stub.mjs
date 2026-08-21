@@ -246,7 +246,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     },
     async reconcile(operationKey, now) {
       const reservation = reservations.get(operationKey);
-      if (reservation.canonicalCleanupInProgress) throw new Error("canonical cleanup serialization conflict");
+      if (reservation.reconciliationInProgress) throw new Error("reconciliation serialization conflict");
+      reservation.reconciliationInProgress = true;
+      try {
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       const generationPrefix = generationPrefixOf(reservation);
@@ -272,12 +274,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
           if (trustedNow >= reservation.leaseDeadline) {
-            reservation.canonicalCleanupInProgress = true;
-            try {
-              await deleteObject(reservation.objectKey);
-            } finally {
-              reservation.canonicalCleanupInProgress = false;
-            }
+            await deleteObject(reservation.objectKey);
             if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
             reservation.releasedAt = trustedNow;
@@ -303,6 +300,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         throw new Error("active lease cannot be reconciled without an object");
       }
       return reservation;
+      } finally {
+        reservation.reconciliationInProgress = false;
+      }
     },
     snapshot() {
       return { currentBytes: persistentState.currentBytes, reservations: [...reservations.values()].map((item) => ({ ...item })) };
@@ -633,26 +633,23 @@ const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
 const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
 const concurrentSibling = { ...concurrentReconcileStored, objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/sibling.png" };
 let concurrentDeletes = 0;
-let releaseConcurrentDeletes;
-const concurrentDeleteBarrier = new Promise((resolve) => { releaseConcurrentDeletes = resolve; });
 const concurrentReconcileHarness = createUsageReservationHarness(
   10,
   async (objectKey) => objectKey === concurrentReconcileRequest.objectKey ? concurrentReconcileStored : null,
   async () => {
     concurrentDeletes += 1;
-    if (concurrentDeletes === 2) releaseConcurrentDeletes();
-    await concurrentDeleteBarrier;
   },
   async () => [concurrentReconcileStored, concurrentSibling],
   concurrentReconcileState,
   () => 0
 );
 concurrentReconcileHarness.reserve(concurrentReconcileRequest, { owner: "worker-concurrent", deadline: 30, fencingToken: "fence-concurrent-reconcile" });
-const concurrentReconcileResults = await Promise.all([
+const concurrentReconcileResults = await Promise.allSettled([
   concurrentReconcileHarness.reconcile(concurrentReconcileRequest.operationKey, 0),
   concurrentReconcileHarness.reconcile(concurrentReconcileRequest.operationKey, 0)
 ]);
-assert.ok(concurrentReconcileResults.every((reservation) => reservation.state === "committed"));
+assert.equal(concurrentReconcileResults.filter((result) => result.status === "fulfilled" && result.value.state === "committed").length, 1);
+assert.equal(concurrentReconcileResults.filter((result) => result.status === "rejected" && /serialization conflict/.test(result.reason?.message)).length, 1);
 assert.equal(concurrentReconcileHarness.snapshot().currentBytes, 4, "concurrent reconciliation must commit and count one reservation exactly once");
 const releaseRaceRequest = { ...saveRequest, operationKey: "release-race", generationId: "reservation-release-race", objectKey: "workspace-001/manuals/manual-001/reservation-release-race/canonical.png", plannedBytes: 4 };
 const releaseRaceState = { reservations: new Map(), currentBytes: 0 };
@@ -677,10 +674,10 @@ releaseRaceHarness.reserve(releaseRaceRequest, { owner: "worker-release-race", d
 const releasingReconcile = releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10);
 await releaseDeleteBlocked;
 assert.throws(() => releaseRaceHarness.extendLease(releaseRaceRequest.operationKey, "worker-release-race", 10, 20), /expired lease/, "expired owner must not extend while reconciliation deletion I/O is pending");
-assert.equal((await releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10)).state, "committed", "competing reconciliation must be able to commit the late canonical object");
+await assert.rejects(releaseRaceHarness.reconcile(releaseRaceRequest.operationKey, 10), /reconciliation serialization conflict/, "reconcile started during cleanup I/O must not commit the same generation");
 unblockReleaseDelete();
-assert.equal((await releasingReconcile).state, "committed", "stale release reconciliation must not overwrite a concurrent commit");
-assert.equal(releaseRaceHarness.snapshot().currentBytes, 4, "release race must retain the single committed capacity charge");
+assert.equal((await releasingReconcile).state, "released", "serialized expired reconciliation must complete before another attempt");
+assert.equal(releaseRaceHarness.snapshot().currentBytes, 0, "serialized release must not account a deleted generation");
 const canonicalRaceRequest = { ...saveRequest, operationKey: "canonical-cleanup-race", generationId: "reservation-canonical-cleanup-race", objectKey: "workspace-001/manuals/manual-001/reservation-canonical-cleanup-race/canonical.png", plannedBytes: 4 };
 const canonicalRaceState = { reservations: new Map(), currentBytes: 0 };
 const canonicalRaceClock = { now: 10 };
@@ -702,7 +699,7 @@ canonicalRaceHarness.reserve(canonicalRaceRequest, { owner: "worker-canonical-ra
 const canonicalCleanup = canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10);
 await canonicalDeleteStarted;
 canonicalRaceStored = { workspaceId: canonicalRaceRequest.workspaceId, objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
-await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /canonical cleanup serialization conflict/, "canonical cleanup claim must prevent concurrent commit of an overwritten object");
+await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /reconciliation serialization conflict/, "pre-I/O reconciliation claim must prevent concurrent commit of an overwritten object");
 releaseCanonicalDelete();
 assert.equal((await canonicalCleanup).state, "released", "expired canonical cleanup must finish before the generation can transition");
 assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "canonical cleanup race must not account a deleted object as committed usage");
