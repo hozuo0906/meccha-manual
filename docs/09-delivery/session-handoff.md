@@ -222,6 +222,7 @@ Issue #70には最低限、次を残す。
 - 承認前の製品runtimeではDOM生成／parser／Image、form submit、location遷移等のブラウザ外向きsinkも拒否する。
 - `location.href`／`window|top|parent.location`直接代入と`window.open()`もブラウザ外向きsinkとして拒否する。
 - 固定済みapp-assets以外では`location`識別子の参照自体とunqualified `open()`を拒否し、computed member／alias表記も許可しない。
+- `open`も呼出形に限らず識別子参照自体を拒否し、別名変数への伝播を許可しない。
 - PostgreSQLの`U&\"...\"` Unicode escaped identifierは承認前のmigrationで全面拒否し、禁止関数名のescape難読化を防ぐ。
 - JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
 - SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。

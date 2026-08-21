@@ -482,7 +482,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
   const hasUnapprovedDomSink = path !== "apps/worker/src/app-assets.ts"
-    && /\b(?:document|DOMParser|Image|location)\b|\b(?:window\.)?open\s*\(|\.(?:submit|requestSubmit)\s*\(/.test(normalizedContent);
+    && /\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(/.test(normalizedContent);
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
@@ -538,6 +538,7 @@ for (const fixture of [
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
   { content: 'open(env.REMOTE_URL); location["href"] = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
+  { content: 'const navigate = open; navigate(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: "create extension if not exists pg_net; select net.http_post(url := current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-outbound.sql" },
   { content: "create trigger outbound after insert on public.manuals for each row execute function supabase_functions.http_request(current_setting('app.remote_endpoint'), 'POST', '{}', '{}', '1000');", path: "supabase/migrations/99999999999999-webhook.sql" },
   { content: "select extensions.\"http_post\"(current_setting('app.remote_endpoint')); select \"extensions\".\"http_get\"(current_setting('app.remote_endpoint'));", path: "supabase/migrations/99999999999999-quoted-outbound.sql" },
