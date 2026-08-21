@@ -532,7 +532,7 @@ const raceHarness = createUsageReservationHarness(
     inFlightWritesDrained: providerEvidenceId !== "undrained-proof",
     writeFencedAt: 10,
     writesDrainedAt: providerEvidenceId === "wrong-order-proof" ? 30 : providerEvidenceId === "same-time-proof" ? 10 : 20,
-    lifecycleDeletedAt: 25
+    lifecycleDeletedAt: providerEvidenceId === "drain-delete-same-time-proof" ? 20 : 25
   })
 );
 raceHarness.reserve(raceRequest, { owner: "worker-race", deadline: 30, fencingToken: "fence-race" });
@@ -549,6 +549,7 @@ await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wr
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-order-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "same-time-proof", 62), /generation-bound ordered/);
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "drain-delete-same-time-proof", 62), /generation-bound ordered/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "undrained-proof", 62), /generation-bound ordered/);
 raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), objectKey: lateRaceKey });
 await raceHarness.sweepReleased(62);
