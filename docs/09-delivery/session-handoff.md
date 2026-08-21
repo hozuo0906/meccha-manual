@@ -236,7 +236,7 @@ Issue #70には最低限、次を残す。
 - R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
 - R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
 - list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
-- 完了予約は永続generation tombstoneとして再走査し、60秒を超える遅着PUTも回収する。provider verifierの証跡をgeneration ID／prefixへ結び付け、別世代証跡を拒否する。確認後のarchiveは一方向・不変とし、同一証跡の再送だけを冪等に受理してactive走査集合から外すfixtureを追加した。
+- 完了予約は永続generation tombstoneとして再走査し、60秒を超える遅着PUTも回収する。provider verifierの空でない証跡をgeneration ID／prefixへ結び付け、別世代証跡を拒否する。検証I/O後にarchive状態を再直列化し、並行再送でも最初に確定した証跡tupleと時刻を不変に保ってactive走査集合から外すfixtureを追加した。
 - reconciliation sweepは予約単位で失敗を隔離・記録し、先行予約の継続障害でも後続の期限切れ予約を処理する。
 - 同一予約の並行reconcileは外部I/O後にstateを再確認し、確定と容量加算を一度だけ行う。解放側も並行確定を`released`で上書きしない。
 - 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。

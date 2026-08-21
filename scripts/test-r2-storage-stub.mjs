@@ -304,11 +304,16 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         if (providerEvidenceId !== reservation.providerEvidenceId) throw new Error("archived provider evidence is immutable");
         return reservation;
       }
+      if (typeof providerEvidenceId !== "string" || providerEvidenceId.length === 0) throw new Error("non-empty provider evidence ID is required");
       const verified = await verifyProviderEvidence(providerEvidenceId);
       const expectedPrefix = generationPrefixOf(reservation);
       if (verified?.lifecycleDeleted !== true || verified?.writesFenced !== true || verified?.providerEvidenceId !== providerEvidenceId ||
           verified?.generationId !== reservation.generationId || verified?.generationPrefix !== expectedPrefix) {
         throw new Error("generation-bound provider lifecycle deletion and write fencing evidence are required");
+      }
+      if (reservation.generationArchived) {
+        if (providerEvidenceId !== reservation.providerEvidenceId) throw new Error("archived provider evidence is immutable");
+        return reservation;
       }
       reservation.generationArchived = true;
       reservation.generationArchivedAt = now;
@@ -526,6 +531,7 @@ raceObjects.set(lateRaceKey, { ...raceObjects.get(raceRequest.objectKey), object
 await raceHarness.sweepReleased(61);
 assert.equal(raceObjects.has(lateRaceKey), false, "persistent generation tombstone must delete a PUT arriving after the former 60-second cutoff");
 assert.ok(raceListCalls >= 3, "completed generation tombstones must remain scheduled until lifecycle-backed retirement is confirmed");
+await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "", 62), /non-empty provider evidence ID/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-generation-proof", 62), /generation-bound provider/);
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "wrong-prefix-proof", 62), /generation-bound provider/);
 await raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62);
@@ -536,6 +542,40 @@ assert.equal(raceHarness.snapshot().reservations[0].providerEvidenceId, "proof-0
 await raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 99);
 assert.equal(raceHarness.snapshot().reservations[0].generationArchivedAt, 62, "idempotent archive retry must preserve the original evidence tuple and timestamp");
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-002", 100), /evidence is immutable/);
+const concurrentArchiveState = { reservations: new Map(), currentBytes: 0 };
+const concurrentArchiveRequest = { ...raceRequest, operationKey: "concurrent-archive", generationId: "reservation-concurrent-archive", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-archive/canonical.png" };
+let releaseFirstArchiveVerification;
+const firstArchiveVerificationMayFinish = new Promise((resolve) => { releaseFirstArchiveVerification = resolve; });
+let archiveVerificationCalls = 0;
+const concurrentArchiveHarness = createUsageReservationHarness(
+  10,
+  async () => null,
+  async () => {},
+  async () => [],
+  concurrentArchiveState,
+  () => 0,
+  async (providerEvidenceId) => {
+    archiveVerificationCalls += 1;
+    if (archiveVerificationCalls === 1) await firstArchiveVerificationMayFinish;
+    else releaseFirstArchiveVerification();
+    return {
+      providerEvidenceId,
+      generationId: concurrentArchiveRequest.generationId,
+      generationPrefix: "workspace-001/manuals/manual-001/reservation-concurrent-archive/",
+      lifecycleDeleted: true,
+      writesFenced: true
+    };
+  }
+);
+concurrentArchiveHarness.reserve(concurrentArchiveRequest, { owner: "worker-archive", deadline: 0, fencingToken: "fence-archive" });
+await concurrentArchiveHarness.reconcile(concurrentArchiveRequest.operationKey, 0);
+await Promise.all([
+  concurrentArchiveHarness.archiveGeneration(concurrentArchiveRequest.operationKey, "proof-concurrent", 10),
+  concurrentArchiveHarness.archiveGeneration(concurrentArchiveRequest.operationKey, "proof-concurrent", 11)
+]);
+const concurrentArchiveSnapshot = concurrentArchiveHarness.snapshot().reservations[0];
+assert.equal(concurrentArchiveSnapshot.generationArchivedAt, 11, "archive CAS must preserve the first completed verification timestamp during a concurrent idempotent retry");
+assert.equal(concurrentArchiveSnapshot.providerEvidenceId, "proof-concurrent", "archive CAS must preserve one immutable evidence tuple");
 const concurrentReconcileRequest = { ...saveRequest, operationKey: "concurrent-reconcile", generationId: "reservation-concurrent-reconcile", objectKey: "workspace-001/manuals/manual-001/reservation-concurrent-reconcile/canonical.png", plannedBytes: 4 };
 const concurrentReconcileState = { reservations: new Map(), currentBytes: 0 };
 const concurrentReconcileStored = { workspaceId: concurrentReconcileRequest.workspaceId, objectKey: concurrentReconcileRequest.objectKey, sizeBytes: 4, checksumSha256: concurrentReconcileRequest.checksumSha256, reservationId: `reservation-${concurrentReconcileRequest.operationKey}`, fencingToken: "fence-concurrent-reconcile" };
