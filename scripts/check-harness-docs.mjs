@@ -484,6 +484,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
+    || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
     || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier
   );
@@ -551,6 +552,7 @@ for (const fixture of [
   { content: "/* ' */ do $$ begin execute format('select extensions.http_get(...)'); end $$; /* ' */", path: "supabase/migrations/99999999999999-comment-quote-outbound.sql" },
   { content: "select E'prefix\\'/*'; select http_post(current_setting('app.remote_endpoint')); select E'*/';", path: "supabase/migrations/99999999999999-e-string-outbound.sql" },
   { content: 'const module = await import(`cloudflare:sockets`); module.connect({ hostname: env.REMOTE_HOST, port: 443 });', path: "apps/worker/src/provider.ts" },
+  { content: 'const module = await import(`node:${["h", "ttps"].join("")}`);', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new Web\\u0053ocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = { url: env.AI_PROXY_URL }; const path = ""; return fetch(`${config.url}${path}`);', path: "apps/worker/src/provider.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = { url: env.DISCORD_PUBLIC_KEY ?? "", anonKey: "" }; return fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
