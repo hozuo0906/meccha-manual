@@ -236,13 +236,10 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const reservation = reservations.get(operationKey);
       const generationPrefix = `${reservation.objectKey.slice(0, reservation.objectKey.lastIndexOf("/") + 1)}`;
       const generationObjects = await listGenerationObjects(generationPrefix);
-      const fencedGenerationObjects = generationObjects.filter((candidate) =>
-        candidate.reservationId === reservation.reservationId && candidate.fencingToken === reservation.fencingToken
-      );
       const stored = await readObject(reservation.objectKey);
       if (reservation.state === "released") {
-        if (fencedGenerationObjects.length > 0) {
-          for (const candidate of fencedGenerationObjects) await deleteObject(candidate.objectKey);
+        if (generationObjects.length > 0) {
+          for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
           reservation.lateObjectDeleted = true;
         }
         return reservation;
@@ -253,7 +250,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         const matchesTuple = JSON.stringify([stored.workspaceId, stored.objectKey, stored.sizeBytes, stored.checksumSha256]) ===
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
-          if (now >= reservation.leaseDeadline && sameGeneration) {
+          if (now >= reservation.leaseDeadline) {
             await deleteObject(reservation.objectKey);
             reservation.state = "released";
             reservation.mismatchedObjectDeleted = true;
@@ -264,9 +261,9 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         reservation.state = "committed";
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (now >= reservation.leaseDeadline) {
-        for (const candidate of fencedGenerationObjects) await deleteObject(candidate.objectKey);
+        for (const candidate of generationObjects) await deleteObject(candidate.objectKey);
         reservation.state = "released";
-        if (fencedGenerationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
+        if (generationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
       } else {
         throw new Error("active lease cannot be reconciled without an object");
       }
@@ -454,7 +451,9 @@ for (const [index, mismatch] of [
   { workspaceId: "workspace-999" },
   { objectKey: "wrong" },
   { sizeBytes: 3 },
-  { checksumSha256: "c".repeat(64) }
+  { checksumSha256: "c".repeat(64) },
+  { reservationId: "reservation-wrong" },
+  { fencingToken: "fence-wrong" }
 ].entries()) {
   reservationClock.now = 240;
   const operationKey = `mismatch-${index + 1}`;
@@ -480,7 +479,7 @@ for (const [index, mismatch] of [
   const storedBody = mismatch.checksumSha256 ? new Uint8Array([1, 2, 3, 4]) : new Uint8Array(stored.sizeBytes);
   await reservationBucket.put(storedKey, storedBody, {
     httpMetadata: { contentType: "image/png" },
-    customMetadata: { workspace_id: stored.workspaceId, checksum_sha256: stored.checksumSha256, reservation_id: mismatchReservation.reservationId, fencing_token: mismatchReservation.fencingToken }
+    customMetadata: { workspace_id: stored.workspaceId, checksum_sha256: stored.checksumSha256, reservation_id: stored.reservationId ?? mismatchReservation.reservationId, fencing_token: stored.fencingToken ?? mismatchReservation.fencingToken }
   });
   if (mismatch.objectKey) {
     const recovered = await reservationHarness.reconcile(operationKey, 300);

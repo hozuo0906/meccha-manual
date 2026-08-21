@@ -229,6 +229,13 @@ if (JSON.stringify(packageLock.packages?.[""]?.dependencies ?? {}) !== JSON.stri
 if (JSON.stringify(packageLock.packages?.[""]?.devDependencies ?? {}) !== JSON.stringify(packageManifest.devDependencies ?? {})) {
   errors.push("package-lock devDependencies differ from package.json.");
 }
+for (const [path, expectedSha256] of [
+  ["wrangler.jsonc", "c01b26083f3fb121933095823d2b4f378b65f2f76920fce174aa28492d7f5879"],
+  ["wrangler.brand.jsonc", "65d5a31659bab236cef7648da43b7fd4b1c41b08857040ef161e8f9f96d9a566"]
+]) {
+  const actualSha256 = createHash("sha256").update(await readFile(path)).digest("hex");
+  if (actualSha256 !== expectedSha256) errors.push(`${path} outbound bindings changed without explicit allowlist review.`);
+}
 
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
