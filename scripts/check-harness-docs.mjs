@@ -643,7 +643,7 @@ function javascriptStructuralTokens(content) {
       index = end;
       continue;
     }
-    if ("{}[]():=.,;?".includes(character)) tokens.push({ type: "symbol", value: character });
+    if ("{}[]():=.,;?<>!".includes(character)) tokens.push({ type: "symbol", value: character });
     index += 1;
   }
   return tokens;
@@ -1130,7 +1130,10 @@ for (const fixture of [
   { content: "create view safe as select \"create\", trusted, language from (values (1,2,3)) as v(\"create\", trusted, language);", path: "supabase/migrations/99999999999999-safe-language-columns.sql" },
   { content: "select ((safe.create).trusted).language from safe;", path: "supabase/migrations/99999999999999-safe-qualified-language-fields.sql" },
   { content: 'if (enabled) [foo] == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
-  { content: 'const same = [foo] === navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
+  { content: 'const same = [foo] === navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'const enough = [foo] >= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'const limited = [foo] <= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'const different = [foo] != navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
