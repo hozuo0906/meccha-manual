@@ -427,7 +427,7 @@ function sqlIdentifierTokens(content) {
   return tokens;
 }
 
-function sqlStructuralTokens(content) {
+function sqlStructuralTokens(content, expandExecutableBodies = true) {
   const tokens = [];
   let statementTokenStart = 0;
   const statementIdentifiers = () => tokens.slice(statementTokenStart)
@@ -471,7 +471,7 @@ function sqlStructuralTokens(content) {
         else if (content[index] === "'") { index += 1; break; }
         else { value += content[index]; index += 1; }
       }
-      if (executableBody) tokens.push(...sqlStructuralTokens(value));
+      if (executableBody && expandExecutableBodies) tokens.push(...sqlStructuralTokens(value));
       else if (isDoLanguageName) tokens.push({ type: "identifier", value: `language:${value.toLowerCase()}` });
       else tokens.push({ type: "string", value });
       continue;
@@ -485,7 +485,7 @@ function sqlStructuralTokens(content) {
         const value = content.slice(start, end);
         const identifiers = statementIdentifiers();
         const isDoLanguageName = identifiers.length === 2 && identifiers[0] === "do" && identifiers[1] === "language";
-        if (isExecutableBodyPrefix(identifiers)) tokens.push(...sqlStructuralTokens(value));
+        if (isExecutableBodyPrefix(identifiers) && expandExecutableBodies) tokens.push(...sqlStructuralTokens(value));
         else if (isDoLanguageName) tokens.push({ type: "identifier", value: `language:${value.toLowerCase()}` });
         else tokens.push({ type: "string", value });
         index = end + delimiter.length;
@@ -626,6 +626,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     : normalizedContent;
   const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
   const sqlStructure = normalizedPath.endsWith(".sql") ? sqlStructuralTokens(sqlLexicalContent) : [];
+  const sqlClauseStructure = normalizedPath.endsWith(".sql") ? sqlStructuralTokens(sqlLexicalContent, false) : [];
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -676,29 +677,43 @@ function hasAiRuntimeBoundary(content, path = "") {
     return false;
   });
   const approvedSqlLanguages = new Set(["sql", "plpgsql"]);
+  const sqlClauseStatements = [];
+  let sqlClauseStatement = [];
+  for (const token of sqlClauseStructure) {
+    if (token.type === "symbol" && token.value === ";") {
+      sqlClauseStatements.push(sqlClauseStatement);
+      sqlClauseStatement = [];
+    } else sqlClauseStatement.push(token);
+  }
+  if (sqlClauseStatement.length > 0) sqlClauseStatements.push(sqlClauseStatement);
+  const hasUnapprovedLanguageClause = sqlClauseStatements.some((statement) => {
+    const identifiers = statement.filter((token) => token.type === "identifier").map((token) => token.value.replace(/^quoted:/, ""));
+    const isFunctionDefinition = identifiers[0] === "create"
+      && (identifiers[1] === "function" || identifiers[1] === "procedure"
+        || (identifiers[1] === "or" && identifiers[2] === "replace" && ["function", "procedure"].includes(identifiers[3])));
+    const isDoStatement = identifiers[0] === "do";
+    if (!isFunctionDefinition && !isDoStatement) return false;
+    return statement.some((token, index) => {
+      if (token.type !== "identifier" || token.value !== "language") return false;
+      const next = statement[index + 1];
+      if (!next || !["identifier", "string"].includes(next.type)) return true;
+      const rawLanguage = next.value;
+      const languageName = rawLanguage.startsWith("language:") ? rawLanguage.slice("language:".length) : rawLanguage.replace(/^quoted:/, "");
+      return !approvedSqlLanguages.has(languageName);
+    });
+  });
   const hasSqlLanguageDefinition = sqlStatements.some((statement) => {
     const identifiers = statement
       .filter((token) => token.type === "identifier")
       .map((token) => token.value.replace(/^quoted:/, ""));
-    for (let index = 0; index < identifiers.length; index += 1) {
-      if (!["create", "alter", "drop"].includes(identifiers[index])) continue;
-      let cursor = index + 1;
-      if (identifiers[cursor] === "or" && identifiers[cursor + 1] === "replace") cursor += 2;
-      while (["trusted", "procedural"].includes(identifiers[cursor])) cursor += 1;
-      if (identifiers[cursor] === "language") return true;
-    }
-    return false;
+    if (!["create", "alter", "drop"].includes(identifiers[0])) return false;
+    let cursor = 1;
+    if (identifiers[cursor] === "or" && identifiers[cursor + 1] === "replace") cursor += 2;
+    while (["trusted", "procedural"].includes(identifiers[cursor])) cursor += 1;
+    return identifiers[cursor] === "language";
   });
   const hasUnapprovedProceduralLanguage = normalizedPath.endsWith(".sql") && (
-    sqlStructure.some((token, index) => {
-      if (token.type !== "identifier" || token.value !== "language" || sqlStructure[index + 1] === undefined) return false;
-      const next = sqlStructure[index + 1];
-      if (!["identifier", "string"].includes(next.type)) return false;
-      const rawLanguage = next.value;
-      const languageName = rawLanguage.startsWith("language:") ? rawLanguage.slice("language:".length) : rawLanguage.replace(/^quoted:/, "");
-      return !approvedSqlLanguages.has(languageName);
-    })
-    || sqlStructure.some((token) => token.type === "identifier" && token.value.startsWith("language:") && !approvedSqlLanguages.has(token.value.slice("language:".length)))
+    hasUnapprovedLanguageClause
     || sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("spi_"))
     || hasSqlLanguageDefinition
   );
@@ -948,7 +963,8 @@ for (const fixture of [
   { content: "copy safe_table (program) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-column.sql" },
   { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" },
   { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" },
-  { content: "create view public.language_alias as select locale as language;", path: "supabase/migrations/99999999999999-safe-language-alias.sql" }
+  { content: "create view public.language_alias as select locale as language;", path: "supabase/migrations/99999999999999-safe-language-alias.sql" },
+  { content: "create view safe as select \"create\", trusted, language from (values (1,2,3)) as v(\"create\", trusted, language);", path: "supabase/migrations/99999999999999-safe-language-columns.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
