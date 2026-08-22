@@ -245,6 +245,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       assert.equal(reservation.leaseOwner, owner, "only the current lease owner may extend");
       assert.equal(reservation.leaseDeadline, expectedDeadline, "lease extension must compare the current deadline");
       assert.equal(reservation.state, "reserved", "only an active reserved lease may extend");
+      if (!Number.isSafeInteger(nextDeadline) || nextDeadline < 0) throw new Error("next lease deadline must be a non-negative safe integer");
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
       if (trustedNow >= reservation.leaseDeadline) throw new Error("expired lease cannot be extended");
@@ -541,6 +542,12 @@ for (const plannedBytes of [undefined, Number.NaN, -1, Number.MAX_SAFE_INTEGER +
 await assert.rejects(reservationHarness.reconcile(saveRequest.operationKey, 99), /active lease/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "stale-worker", 100, 120), /current lease owner/);
 assert.throws(() => reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 121), /absolute deadline/);
+for (const nextDeadline of [undefined, Number.NaN, -1, 110.5, "110", Number.MAX_SAFE_INTEGER + 1]) {
+  assert.throws(
+    () => reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, nextDeadline),
+    /non-negative safe integer/
+  );
+}
 reservationHarness.extendLease(saveRequest.operationKey, "worker-001", 100, 120);
 const excessiveLeaseHarness = createUsageReservationHarness(10, async () => null, async () => {}, async () => [], { reservations: new Map(), currentBytes: 0 }, () => 0);
 assert.throws(() => excessiveLeaseHarness.reserve({ ...saveRequest, operationKey: "excessive-lease", plannedBytes: 1 }, { owner: "worker-x", deadline: Number.MAX_SAFE_INTEGER, fencingToken: "fence-x" }), /server maximum duration/);

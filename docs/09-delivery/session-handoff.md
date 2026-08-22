@@ -196,6 +196,7 @@ Issue #70には最低限、次を残す。
 - 同一operation keyの2要求も同じsnapshotまでbarrier同期し、両方が同じreservation instanceへ収束して容量が1回だけ予約されることを固定する。
 - leaseのabsolute deadlineは要求値を信用せず、harnessへ独立注入した必須server clock＋固定最大期間から導出する。過大な初期期限と、owner／現期限が一致してもabsolute deadlineを超える延長を拒否する。
 - server clock省略はharness生成時に拒否し、lease deadlineは非負safe integerかつserver clock以上・absolute deadline以下だけを許可する。
+- lease延長で永続化する`next_deadline`も非負safe integerに限定し、文字列・小数・範囲外値を状態変更前に拒否する。
 - scheduled sweepは永続状態からreleased予約と期限切れactive予約を列挙し、Worker再起動後も孤立予約を解放する。
 - 予約世代prefixは専用key空間として、期限後は予約ID／fencing token欠落・不一致objectもprefix内だけで回収し、別世代には触れない。
 - Wrangler設定2ファイルは全体SHAを固定し、未承認service binding／queue等のoutbound binding追加を品質ゲートで拒否する。
