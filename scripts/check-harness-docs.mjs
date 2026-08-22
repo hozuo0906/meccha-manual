@@ -409,38 +409,6 @@ function sqlIdentifierTokens(content) {
   return tokens;
 }
 
-function sqlStringLiteralValues(content) {
-  const values = [];
-  for (let index = 0; index < content.length;) {
-    if (content[index] === "'") {
-      const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
-      let value = "";
-      index += 1;
-      while (index < content.length) {
-        if (backslashEscapes && content[index] === "\\" && index + 1 < content.length) { value += content[index + 1]; index += 2; }
-        else if (content[index] === "'" && content[index + 1] === "'") { value += "'"; index += 2; }
-        else if (content[index] === "'") { index += 1; break; }
-        else { value += content[index]; index += 1; }
-      }
-      values.push(value);
-      continue;
-    }
-    if (content[index] === "$") {
-      const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
-      if (delimiter) {
-        const start = index + delimiter.length;
-        const end = content.indexOf(delimiter, start);
-        if (end === -1) break;
-        values.push(content.slice(start, end));
-        index = end + delimiter.length;
-        continue;
-      }
-    }
-    index += 1;
-  }
-  return values;
-}
-
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -459,7 +427,6 @@ function hasAiRuntimeBoundary(content, path = "") {
     ? sqlLexicalContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
   const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
-  const sqlLiteralText = normalizedPath.endsWith(".sql") ? sqlStringLiteralValues(sqlLexicalContent).join("").toLowerCase() : "";
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -468,10 +435,11 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent);
-  const hasLegacySqlSetConfig = normalizedPath.endsWith(".sql")
-    && sqlTokens.some((token) => ["set_config", "quoted:set_config"].includes(token))
-    && sqlLiteralText.includes("standard_conforming_strings")
-    && sqlLiteralText.includes("off");
+  const sqlSetConfigCallCount = sqlTokens.filter((token) => ["set_config", "quoted:set_config"].includes(token)).length;
+  const approvedSqlSetConfigCallCount = normalizedPath.endsWith(".sql")
+    ? (sqlLexicalContent.match(/\bset_config\s*\(\s*'app\.manual_publish_context'\s*,\s*'on'\s*,\s*true\s*\)/gi) ?? []).length
+    : 0;
+  const hasUnapprovedSqlSetConfig = sqlSetConfigCallCount !== approvedSqlSetConfigCallCount;
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -557,7 +525,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
-    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasLegacySqlSetConfig || hasAdjacentSqlStrings
+    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasAdjacentSqlStrings
   );
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
@@ -639,6 +607,7 @@ for (const fixture of [
   { content: "select set_config(E'standard_conforming_strings', E'off', false);", path: "supabase/migrations/99999999999999-legacy-e-set-config.sql" },
   { content: "select set_config($name$standard_conforming_strings$name$, $value$off$value$, false);", path: "supabase/migrations/99999999999999-legacy-dollar-set-config.sql" },
   { content: "select set_config('standard_' || 'conforming_strings', 'o' || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-expression-set-config.sql" },
+  { content: "select set_config('standard_conforming_strings', chr(111) || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-function-set-config.sql" },
   { content: "create function public.dynamic_outbound() returns void as 'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as/**/'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-comment-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as U&'begin \\0045XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-unicode-body-outbound.sql" },
@@ -663,7 +632,8 @@ for (const fixture of [
 
 for (const fixture of [
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
-  { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" }
+  { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
+  { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);

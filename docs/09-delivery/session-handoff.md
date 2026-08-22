@@ -236,7 +236,7 @@ Issue #70には最低限、次を残す。
 - PostgreSQLの通常文字列と`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`standard_conforming_strings=off`環境でも`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
 - `standard_conforming_strings=off`設定自体を拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
-- `standard_conforming_strings=off`を設定する`set_config`はschema修飾・quoted identifier・E文字列・dollar文字列・定数連結をtoken／literal解析して拒否し、承認済みのアプリ内transaction flag設定とは区別する。
+- SQLの`set_config`は承認済みの`app.manual_publish_context=on`完全一致だけを許可し、schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しをtoken countとallowlist countの不一致として拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
 - SQL block commentは空白へ置換して字句境界を保持し、コメント直後の隣接文字列も拒否する。
