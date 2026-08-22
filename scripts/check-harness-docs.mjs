@@ -329,6 +329,13 @@ function stripSqlComments(content) {
 function sqlIdentifierTokens(content) {
   const tokens = [];
   let bodyDelimiter = null;
+  let statementTokenStart = 0;
+  const isExecutableBodyPrefix = (statementTokens, hasEscapePrefixToken = false) => {
+    const prefix = hasEscapePrefixToken ? statementTokens.slice(0, -1) : statementTokens;
+    const isDoBody = prefix[0] === "do" && (prefix.length === 1 || (prefix.length === 3 && prefix[1] === "language"));
+    const isFunctionBody = prefix.at(-1) === "as" && prefix.some((token) => ["function", "procedure"].includes(token));
+    return isDoBody || isFunctionBody;
+  };
   for (let index = 0; index < content.length;) {
     if (content.startsWith("--", index)) {
       const newline = content.indexOf("\n", index + 2);
@@ -348,8 +355,7 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "'") {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       const hasEscapePrefixToken = backslashEscapes && tokens.at(-1) === "e";
-      const executablePrefixTokens = hasEscapePrefixToken ? tokens.slice(0, -1) : tokens;
-      const executableBody = executablePrefixTokens.slice(-4).some((token) => ["as", "do"].includes(token));
+      const executableBody = isExecutableBodyPrefix(tokens.slice(statementTokenStart), hasEscapePrefixToken);
       if (hasEscapePrefixToken) tokens.pop();
       let value = "";
       index += 1;
@@ -368,7 +374,7 @@ function sqlIdentifierTokens(content) {
         if (bodyDelimiter === delimiter) {
           bodyDelimiter = null;
           index += delimiter.length;
-        } else if (!bodyDelimiter && tokens.slice(-4).some((token) => ["do", "as"].includes(token))) {
+        } else if (!bodyDelimiter && isExecutableBodyPrefix(tokens.slice(statementTokenStart))) {
           // The outer Function/DO body is executable PL/pgSQL.
           bodyDelimiter = delimiter;
           index += delimiter.length;
@@ -395,9 +401,44 @@ function sqlIdentifierTokens(content) {
     if (identifier) {
       tokens.push(identifier.toLowerCase());
       index += identifier.length;
-    } else index += 1;
+    } else {
+      if (content[index] === ";") statementTokenStart = tokens.length;
+      index += 1;
+    }
   }
   return tokens;
+}
+
+function sqlStringLiteralValues(content) {
+  const values = [];
+  for (let index = 0; index < content.length;) {
+    if (content[index] === "'") {
+      const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
+      let value = "";
+      index += 1;
+      while (index < content.length) {
+        if (backslashEscapes && content[index] === "\\" && index + 1 < content.length) { value += content[index + 1]; index += 2; }
+        else if (content[index] === "'" && content[index + 1] === "'") { value += "'"; index += 2; }
+        else if (content[index] === "'") { index += 1; break; }
+        else { value += content[index]; index += 1; }
+      }
+      values.push(value);
+      continue;
+    }
+    if (content[index] === "$") {
+      const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
+      if (delimiter) {
+        const start = index + delimiter.length;
+        const end = content.indexOf(delimiter, start);
+        if (end === -1) break;
+        values.push(content.slice(start, end));
+        index = end + delimiter.length;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return values;
 }
 
 function hasAiRuntimeBoundary(content, path = "") {
@@ -418,6 +459,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     ? sqlLexicalContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
   const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
+  const sqlLiteralText = normalizedPath.endsWith(".sql") ? sqlStringLiteralValues(sqlLexicalContent).join("").toLowerCase() : "";
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -426,7 +468,10 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent);
-  const hasLegacySqlSetConfig = normalizedPath.endsWith(".sql") && /\b(?:pg_catalog\s*\.\s*)?set_config\s*\(\s*'standard_conforming_strings'\s*,\s*'off'/i.test(capabilityContent);
+  const hasLegacySqlSetConfig = normalizedPath.endsWith(".sql")
+    && sqlTokens.some((token) => ["set_config", "quoted:set_config"].includes(token))
+    && sqlLiteralText.includes("standard_conforming_strings")
+    && sqlLiteralText.includes("off");
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -591,6 +636,9 @@ for (const fixture of [
   { content: "set session \"standard_conforming_strings\" to off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-to-identity-body-outbound.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
   { content: "select pg_catalog.\"set_config\"('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-quoted-set-config-body-outbound.sql" },
+  { content: "select set_config(E'standard_conforming_strings', E'off', false);", path: "supabase/migrations/99999999999999-legacy-e-set-config.sql" },
+  { content: "select set_config($name$standard_conforming_strings$name$, $value$off$value$, false);", path: "supabase/migrations/99999999999999-legacy-dollar-set-config.sql" },
+  { content: "select set_config('standard_' || 'conforming_strings', 'o' || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-expression-set-config.sql" },
   { content: "create function public.dynamic_outbound() returns void as 'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as/**/'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-comment-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as U&'begin \\0045XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-unicode-body-outbound.sql" },
@@ -610,6 +658,15 @@ for (const fixture of [
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence regression fixture was not detected: ${fixture.path}`);
+  }
+}
+
+for (const fixture of [
+  { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
+  { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" }
+]) {
+  if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
+    errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
   }
 }
 
