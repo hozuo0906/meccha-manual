@@ -250,7 +250,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const reservation = reservations.get(operationKey);
       const trustedNow = readServerNow();
       if (!Number.isSafeInteger(trustedNow) || trustedNow < 0) throw new Error("server clock must return a non-negative safe integer");
-      if (reservation.reconciliationClaim?.destructiveIoPending || (reservation.reconciliationClaim && reservation.reconciliationClaim.deadline > trustedNow)) {
+      if (reservation.reconciliationClaim && reservation.reconciliationClaim.deadline > trustedNow) {
         throw new Error("reconciliation serialization conflict");
       }
       const claim = { id: `reconcile-${++persistentState.nextReconciliationClaimId}`, deadline: trustedNow + RECONCILIATION_CLAIM_DURATION };
@@ -259,16 +259,39 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       const assertClaimCurrent = () => {
         if (reservation.reconciliationClaim?.id !== claim.id) throw new Error("reconciliation claim fenced");
       };
-      const deleteClaimedObject = async (objectKey) => {
+      const deleteClaimedObject = async (objectKey, recoveryMode = "cleanup_only") => {
         assertClaimCurrent();
+        const destructiveRecovery = {
+          objectKey,
+          mode: recoveryMode,
+          state: "pending",
+          startedAt: trustedNow
+        };
+        reservation.destructiveRecovery = destructiveRecovery;
         claim.destructiveIoPending = true;
         try {
           await deleteObject(objectKey, { claimId: claim.id, assertClaimCurrent });
           assertClaimCurrent();
-        } finally {
-          if (reservation.reconciliationClaim?.id === claim.id) claim.destructiveIoPending = false;
+        } catch (error) {
+          if (reservation.destructiveRecovery === destructiveRecovery && reservation.reconciliationClaim?.id === claim.id) {
+            destructiveRecovery.state = "outcome_unknown";
+          }
+          throw error;
         }
+        if (reservation.destructiveRecovery === destructiveRecovery) delete reservation.destructiveRecovery;
+        claim.destructiveIoPending = false;
       };
+      const pendingDestructiveRecovery = reservation.destructiveRecovery;
+      if (pendingDestructiveRecovery) {
+        claim.destructiveIoPending = true;
+        await deleteClaimedObject(pendingDestructiveRecovery.objectKey, pendingDestructiveRecovery.mode);
+        if (pendingDestructiveRecovery.mode === "release_only" && reservation.state === "reserved") {
+          reservation.state = "released";
+          reservation.releasedAt = trustedNow;
+          reservation.destructiveRecoveryCompleted = true;
+          return reservation;
+        }
+      }
       const generationPrefix = generationPrefixOf(reservation);
       const generationObjects = await listGenerationObjects(generationPrefix);
       assertClaimCurrent();
@@ -276,7 +299,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       assertClaimCurrent();
       if (reservation.state === "released") {
         if (generationObjects.length > 0) {
-          for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey);
+          for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey, "release_only");
           reservation.lateObjectDeleted = true;
         }
         return reservation;
@@ -294,7 +317,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           JSON.stringify([reservation.workspaceId, reservation.objectKey, reservation.plannedBytes, reservation.checksumSha256]);
         if (!sameGeneration || !matchesTuple) {
           if (trustedNow >= reservation.leaseDeadline) {
-            await deleteClaimedObject(reservation.objectKey);
+            await deleteClaimedObject(reservation.objectKey, "release_only");
             if (reservation.state !== "reserved") return reservation;
             reservation.state = "released";
             reservation.releasedAt = trustedNow;
@@ -311,7 +334,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         reservation.committedAt = trustedNow;
         persistentState.currentBytes += reservation.plannedBytes;
       } else if (trustedNow >= reservation.leaseDeadline) {
-        for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey);
+        for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey, "release_only");
         if (reservation.state !== "reserved") return reservation;
         reservation.state = "released";
         reservation.releasedAt = trustedNow;
@@ -321,7 +344,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       }
       return reservation;
       } finally {
-        if (reservation.reconciliationClaim?.id === claim.id) delete reservation.reconciliationClaim;
+        if (reservation.reconciliationClaim?.id === claim.id && !reservation.destructiveRecovery) delete reservation.reconciliationClaim;
       }
     },
     snapshot() {
@@ -705,12 +728,21 @@ const canonicalReservationId = `reservation-${canonicalRaceRequest.operationKey}
 let canonicalRaceStored = { workspaceId: "workspace-wrong", objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
 let releaseCanonicalDelete;
 let announceCanonicalDelete;
+let canonicalDeleteCalls = 0;
 const canonicalDeleteStarted = new Promise((resolve) => { announceCanonicalDelete = resolve; });
 const canonicalDeleteBarrier = new Promise((resolve) => { releaseCanonicalDelete = resolve; });
 const canonicalRaceHarness = createUsageReservationHarness(
   10,
   async () => canonicalRaceStored,
-  async (_objectKey, claimContext) => { announceCanonicalDelete(); await canonicalDeleteBarrier; claimContext.assertClaimCurrent(); canonicalRaceStored = null; },
+  async (_objectKey, claimContext) => {
+    canonicalDeleteCalls += 1;
+    if (canonicalDeleteCalls === 1) {
+      announceCanonicalDelete();
+      await canonicalDeleteBarrier;
+      claimContext.assertClaimCurrent();
+    }
+    canonicalRaceStored = null;
+  },
   async () => canonicalRaceStored ? [canonicalRaceStored] : [],
   canonicalRaceState,
   () => canonicalRaceClock.now
@@ -721,11 +753,41 @@ await canonicalDeleteStarted;
 canonicalRaceStored = { workspaceId: canonicalRaceRequest.workspaceId, objectKey: canonicalRaceRequest.objectKey, sizeBytes: 4, checksumSha256: canonicalRaceRequest.checksumSha256, reservationId: canonicalReservationId, fencingToken: "fence-canonical-race" };
 await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 10), /reconciliation serialization conflict/, "pre-I/O reconciliation claim must prevent concurrent commit of an overwritten object");
 canonicalRaceClock.now = 70;
-await assert.rejects(canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 70), /reconciliation serialization conflict/, "expired claim must not be taken over while destructive provider I/O is pending");
+assert.equal((await canonicalRaceHarness.reconcile(canonicalRaceRequest.operationKey, 70)).state, "released", "expired destructive claim must be recovered without committing its generation");
 releaseCanonicalDelete();
-assert.equal((await canonicalCleanup).state, "released", "destructive claim owner must finish provider deletion before releasing its claim");
+await assert.rejects(canonicalCleanup, /reconciliation claim fenced/, "late destructive claim owner must be fenced after recovery takeover");
 assert.equal(canonicalRaceStored, null, "expired generation object must be deleted before a later retry uses a new generation");
 assert.equal(canonicalRaceHarness.snapshot().currentBytes, 0, "destructive cleanup must not account deleted bytes");
+const lostDeleteResponseState = { reservations: new Map(), currentBytes: 0 };
+const lostDeleteResponseClock = { now: 10 };
+const lostDeleteResponseRequest = { ...saveRequest, operationKey: "lost-delete-response", generationId: "reservation-lost-delete-response", objectKey: "workspace-001/manuals/manual-001/reservation-lost-delete-response/canonical.png", plannedBytes: 4 };
+const lostDeleteResponseReservationId = `reservation-${lostDeleteResponseRequest.operationKey}`;
+let lostDeleteResponseStored = { workspaceId: "workspace-wrong", objectKey: lostDeleteResponseRequest.objectKey, sizeBytes: 4, checksumSha256: lostDeleteResponseRequest.checksumSha256, reservationId: lostDeleteResponseReservationId, fencingToken: "fence-lost-delete-response" };
+let lostDeleteResponseCalls = 0;
+const lostDeleteResponseHarness = createUsageReservationHarness(
+  10,
+  async () => lostDeleteResponseStored,
+  async () => {
+    lostDeleteResponseCalls += 1;
+    lostDeleteResponseStored = null;
+    if (lostDeleteResponseCalls === 1) throw new Error("synthetic delete response lost");
+  },
+  async () => lostDeleteResponseStored ? [lostDeleteResponseStored] : [],
+  lostDeleteResponseState,
+  () => lostDeleteResponseClock.now
+);
+lostDeleteResponseHarness.reserve(lostDeleteResponseRequest, { owner: "worker-lost-delete-response", deadline: 10, fencingToken: "fence-lost-delete-response" });
+await assert.rejects(lostDeleteResponseHarness.reconcile(lostDeleteResponseRequest.operationKey, 10), /delete response lost/);
+const unknownDeleteSnapshot = lostDeleteResponseHarness.snapshot().reservations[0];
+assert.equal(unknownDeleteSnapshot.state, "reserved", "unknown delete result must not commit or release before recovery");
+assert.equal(unknownDeleteSnapshot.destructiveRecovery.mode, "release_only", "unknown canonical delete must persist a commit-disabled recovery transition");
+assert.equal(unknownDeleteSnapshot.reconciliationClaim.destructiveIoPending, true, "unknown delete result must retain the destructive claim until its deadline");
+await assert.rejects(lostDeleteResponseHarness.reconcile(lostDeleteResponseRequest.operationKey, 10), /reconciliation serialization conflict/);
+lostDeleteResponseStored = { workspaceId: lostDeleteResponseRequest.workspaceId, objectKey: lostDeleteResponseRequest.objectKey, sizeBytes: 4, checksumSha256: lostDeleteResponseRequest.checksumSha256, reservationId: lostDeleteResponseReservationId, fencingToken: "fence-lost-delete-response" };
+lostDeleteResponseClock.now = 70;
+assert.equal((await lostDeleteResponseHarness.reconcile(lostDeleteResponseRequest.operationKey, 70)).state, "released", "delete-result recovery must stay release-only even if a canonical object appears later");
+assert.equal(lostDeleteResponseStored, null, "delete-result recovery must idempotently remove the generation object");
+assert.equal(lostDeleteResponseHarness.snapshot().currentBytes, 0, "delete-result recovery must never account a commit-disabled generation");
 const crashedClaimState = { reservations: new Map(), currentBytes: 0 };
 const crashedClaimClock = { now: 0 };
 const crashedClaimRequest = { ...saveRequest, operationKey: "crashed-reconcile-claim", generationId: "reservation-crashed-reconcile-claim", objectKey: "workspace-001/manuals/manual-001/reservation-crashed-reconcile-claim/canonical.png", plannedBytes: 1 };
@@ -738,6 +800,40 @@ crashedClaimClock.now = 10;
 await crashedClaimHarness.sweepReleased(10);
 assert.equal(crashedClaimHarness.snapshot().reservations[0].state, "released", "restart sweep must take over an expired reconciliation claim");
 assert.equal(crashedClaimHarness.snapshot().reservations[0].reconciliationClaim, undefined, "successful takeover must release its own reconciliation claim");
+const crashedDestructiveState = { reservations: new Map(), currentBytes: 0 };
+const crashedDestructiveClock = { now: 0 };
+const crashedDestructiveRequest = { ...saveRequest, operationKey: "crashed-destructive-claim", generationId: "reservation-crashed-destructive-claim", objectKey: "workspace-001/manuals/manual-001/reservation-crashed-destructive-claim/canonical.png", plannedBytes: 1 };
+let crashedDestructiveStored = { workspaceId: crashedDestructiveRequest.workspaceId, objectKey: crashedDestructiveRequest.objectKey, sizeBytes: 1, checksumSha256: crashedDestructiveRequest.checksumSha256, reservationId: `reservation-${crashedDestructiveRequest.operationKey}`, fencingToken: "fence-crashed-destructive" };
+const crashedDestructiveHarness = createUsageReservationHarness(
+  10,
+  async () => crashedDestructiveStored,
+  async () => { crashedDestructiveStored = null; },
+  async () => crashedDestructiveStored ? [crashedDestructiveStored] : [],
+  crashedDestructiveState,
+  () => crashedDestructiveClock.now
+);
+crashedDestructiveHarness.reserve(crashedDestructiveRequest, { owner: "worker-crashed-destructive", deadline: 0, fencingToken: "fence-crashed-destructive" });
+const crashedDestructiveReservation = crashedDestructiveState.reservations.get(crashedDestructiveRequest.operationKey);
+crashedDestructiveReservation.reconciliationClaim = { id: "crashed-destructive-worker", deadline: 10, destructiveIoPending: true };
+crashedDestructiveReservation.destructiveRecovery = { objectKey: crashedDestructiveRequest.objectKey, mode: "release_only", state: "outcome_unknown", startedAt: 0 };
+const restartedDestructiveHarness = createUsageReservationHarness(
+  10,
+  async () => crashedDestructiveStored,
+  async () => { crashedDestructiveStored = null; },
+  async () => crashedDestructiveStored ? [crashedDestructiveStored] : [],
+  crashedDestructiveState,
+  () => crashedDestructiveClock.now
+);
+await restartedDestructiveHarness.sweepReleased(0);
+assert.match(restartedDestructiveHarness.snapshot().reservations[0].reconciliationError, /serialization conflict/, "restart must not steal an unexpired destructive claim");
+crashedDestructiveClock.now = 10;
+await restartedDestructiveHarness.sweepReleased(10);
+const recoveredDestructiveSnapshot = restartedDestructiveHarness.snapshot().reservations[0];
+assert.equal(recoveredDestructiveSnapshot.state, "released", "restart must recover an expired destructive claim into a commit-disabled release");
+assert.equal(recoveredDestructiveSnapshot.destructiveRecovery, undefined, "successful destructive recovery must clear its persistent operation record");
+assert.equal(recoveredDestructiveSnapshot.reconciliationClaim, undefined, "successful destructive recovery must clear its takeover claim");
+assert.equal(crashedDestructiveStored, null, "restart recovery must idempotently finish the pending provider delete");
+assert.equal(restartedDestructiveHarness.snapshot().currentBytes, 0, "restart recovery must not leak reserved capacity");
 const isolatedFailureState = { reservations: new Map(), currentBytes: 0 };
 const isolatedFailureClock = { now: 10 };
 const isolatedFailureHarness = createUsageReservationHarness(
