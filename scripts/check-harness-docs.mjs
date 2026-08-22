@@ -375,6 +375,15 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "$") {
       const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
       if (delimiter) {
+        const statementTokens = tokens.slice(statementTokenStart);
+        if (!bodyDelimiter && statementTokens.length === 2 && statementTokens[0] === "do" && statementTokens[1] === "language") {
+          const start = index + delimiter.length;
+          const end = content.indexOf(delimiter, start);
+          if (end === -1) break;
+          tokens.push(`language:${content.slice(start, end).toLowerCase()}`);
+          index = end + delimiter.length;
+          continue;
+        }
         if (bodyDelimiter === delimiter) {
           bodyDelimiter = null;
           index += delimiter.length;
@@ -469,7 +478,10 @@ function sqlStructuralTokens(content) {
         const end = content.indexOf(delimiter, start);
         if (end === -1) break;
         const value = content.slice(start, end);
-        if (isExecutableBodyPrefix(statementIdentifiers())) tokens.push(...sqlStructuralTokens(value));
+        const identifiers = statementIdentifiers();
+        const isDoLanguageName = identifiers.length === 2 && identifiers[0] === "do" && identifiers[1] === "language";
+        if (isExecutableBodyPrefix(identifiers)) tokens.push(...sqlStructuralTokens(value));
+        else if (isDoLanguageName) tokens.push({ type: "identifier", value: `language:${value.toLowerCase()}` });
         else tokens.push({ type: "string", value });
         index = end + delimiter.length;
         continue;
@@ -709,6 +721,7 @@ for (const fixture of [
   { content: "do E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end';", path: "supabase/migrations/99999999999999-e-string-do-outbound.sql" },
   { content: "do language plpgsql 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-language-single-quoted-do-outbound.sql" },
   { content: "do language 'plpgsql' 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-quoted-language-do-outbound.sql" },
+  { content: "do language $lang$plpgsql$lang$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-dollar-language-do-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
