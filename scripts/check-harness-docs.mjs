@@ -703,15 +703,18 @@ function hasAiRuntimeBoundary(content, path = "") {
     });
   });
   const hasSqlLanguageDefinition = sqlStatements.some((statement) => {
-    const identifiers = statement
-      .filter((token) => token.type === "identifier")
-      .map((token) => token.value);
-    return identifiers.some((identifier, index) => {
-      if (!["create", "alter", "drop"].includes(identifier)) return false;
+    const blockStatementPrefixes = new Set(["begin", "then", "else", "loop"]);
+    const identifierAt = (index) => statement[index]?.type === "identifier" ? statement[index].value : null;
+    return statement.some((token, index) => {
+      if (token.type !== "identifier" || !["create", "alter", "drop"].includes(token.value)) return false;
+      const previous = statement[index - 1];
+      const atStatementStart = index === 0
+        || (previous?.type === "identifier" && blockStatementPrefixes.has(previous.value));
+      if (!atStatementStart) return false;
       let cursor = index + 1;
-      if (identifiers[cursor] === "or" && identifiers[cursor + 1] === "replace") cursor += 2;
-      while (["trusted", "procedural"].includes(identifiers[cursor])) cursor += 1;
-      return identifiers[cursor] === "language";
+      if (identifierAt(cursor) === "or" && identifierAt(cursor + 1) === "replace") cursor += 2;
+      while (["trusted", "procedural"].includes(identifierAt(cursor))) cursor += 1;
+      return identifierAt(cursor) === "language";
     });
   });
   const hasUnapprovedProceduralLanguage = normalizedPath.endsWith(".sql") && (
@@ -967,7 +970,8 @@ for (const fixture of [
   { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" },
   { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" },
   { content: "create view public.language_alias as select locale as language;", path: "supabase/migrations/99999999999999-safe-language-alias.sql" },
-  { content: "create view safe as select \"create\", trusted, language from (values (1,2,3)) as v(\"create\", trusted, language);", path: "supabase/migrations/99999999999999-safe-language-columns.sql" }
+  { content: "create view safe as select \"create\", trusted, language from (values (1,2,3)) as v(\"create\", trusted, language);", path: "supabase/migrations/99999999999999-safe-language-columns.sql" },
+  { content: "select ((safe.create).trusted).language from safe;", path: "supabase/migrations/99999999999999-safe-qualified-language-fields.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
