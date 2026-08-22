@@ -254,7 +254,7 @@ for (const [path, expectedSha256] of [
 }
 
 function sqlDollarDelimiterAt(content, index) {
-  return content.slice(index).match(/^\$(?:[^\s$]+)?\$/u)?.[0];
+  return content.slice(index).match(/^\$(?:[A-Z_\u0080-\u{10FFFF}][A-Z0-9_\u0080-\u{10FFFF}]*)?\$/iu)?.[0];
 }
 
 function stripSqlComments(content) {
@@ -565,8 +565,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && (
-    /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent)
-    || /\balter\s+(?:role|database)\b[^;]*\bset\s+"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent)
+    /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:(?:off|false|no|0)|'(?:off|false|no|0)')/i.test(sqlLexicalContent)
+    || /\balter\s+(?:role|database)\b[^;]*\bset\s+"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:(?:off|false|no|0)|'(?:off|false|no|0)')/i.test(sqlLexicalContent)
   );
   const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
@@ -728,6 +728,7 @@ for (const fixture of [
   { content: "do language $lang$plpgsql$lang$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-dollar-language-do-outbound.sql" },
   { content: "do language $言語$plpgsql$言語$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-unicode-dollar-language-do-outbound.sql" },
   { content: "do language $😀$plpgsql$😀$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-symbol-dollar-language-do-outbound.sql" },
+  { content: "create function public.dynamic_outbound(x text) returns void as $body$ begin x := $1; execute 'select extensions.ht' || 'tp_get(...)'; x := $$x$$; end $body$ language plpgsql;", path: "supabase/migrations/99999999999999-positional-parameter-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
@@ -735,6 +736,9 @@ for (const fixture of [
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin \\105XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-octal-body-outbound.sql" },
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-identity-body-outbound.sql" },
   { content: "set session \"standard_conforming_strings\" to off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-to-identity-body-outbound.sql" },
+  { content: "set standard_conforming_strings = false;", path: "supabase/migrations/99999999999999-legacy-false-setting.sql" },
+  { content: "set standard_conforming_strings to no;", path: "supabase/migrations/99999999999999-legacy-no-setting.sql" },
+  { content: "set standard_conforming_strings = 0;", path: "supabase/migrations/99999999999999-legacy-zero-setting.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
