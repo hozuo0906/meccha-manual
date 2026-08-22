@@ -698,9 +698,6 @@ function hasAliasedComputedCapabilityLookup(content) {
   const bindingPattern = (start) => {
     const opening = tokens[start]?.value;
     if (!["[", "{"].includes(opening)) return null;
-    const previous = tokens[start - 1];
-    if (previous && !(previous.type === "identifier" && ["const", "let", "var"].includes(previous.value))
-      && !["(", ",", ";", "{"].includes(previous.value)) return null;
     const stack = [opening];
     const pairs = { "]": "[", "}": "{" };
     let end = start + 1;
@@ -1009,6 +1006,7 @@ for (const fixture of [
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = (null, navigator); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const nav = (null, navigator); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'if (enabled) [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
