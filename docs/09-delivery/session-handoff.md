@@ -234,7 +234,7 @@ Issue #70には最低限、次を残す。
 - block comment中はcomment depthをquote状態より先に処理し、comment内quoteで後続の実行SQLを隠せないようにする。
 - PostgreSQLの`E'...'`文字列はbackslash escapeを字句として消費し、escaped quote後のcomment markerでoutbound呼出を隠せないようにする。
 - PostgreSQLの通常文字列と`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`standard_conforming_strings=off`環境でも`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
-- `standard_conforming_strings`設定は通常・E・dollar文字列を構造tokenで復号し、単一値の明示的true（`on`／`true`／`yes`／`1`）だけを許可する。false省略形・式・未知値はfail closedで拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
+- `standard_conforming_strings`設定はDO bodyを含む各statementの構造tokenで通常・E・dollar文字列を復号し、単一値の明示的true（`on`／`true`／`yes`／`1`）だけを許可する。false省略形・式・未知値はfail closedで拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
 - `ALTER ROLE`／`ALTER DATABASE`経由の`standard_conforming_strings=off`も拒否し、後続sessionの既定値変更を許さない。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。

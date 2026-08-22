@@ -553,7 +553,7 @@ function hasSqlFalseGucSetting(content) {
   return statements.some((tokens) => tokens.some((token, index) => {
     if (token.type !== "identifier" || !["standard_conforming_strings", "quoted:standard_conforming_strings"].includes(token.value)) return false;
     const identifiersBefore = tokens.slice(0, index).filter((candidate) => candidate.type === "identifier").map((candidate) => candidate.value);
-    const isSetStatement = identifiersBefore[0] === "set";
+    const isSetStatement = identifiersBefore.includes("set");
     const isAlterStatement = identifiersBefore[0] === "alter"
       && ["role", "user", "database", "system"].includes(identifiersBefore[1])
       && identifiersBefore.includes("set");
@@ -773,6 +773,7 @@ for (const fixture of [
   { content: "set standard_conforming_strings = f;", path: "supabase/migrations/99999999999999-legacy-f-prefix-setting.sql" },
   { content: "set standard_conforming_strings = n;", path: "supabase/migrations/99999999999999-legacy-n-prefix-setting.sql" },
   { content: "set standard_conforming_strings = of;", path: "supabase/migrations/99999999999999-legacy-of-prefix-setting.sql" },
+  { content: "do $$ begin set standard_conforming_strings = off; end $$;", path: "supabase/migrations/99999999999999-do-legacy-setting.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
@@ -809,7 +810,8 @@ for (const fixture of [
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
   { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
-  { content: "set standard_conforming_strings = on;", path: "supabase/migrations/99999999999999-safe-standard-strings.sql" }
+  { content: "set standard_conforming_strings = on;", path: "supabase/migrations/99999999999999-safe-standard-strings.sql" },
+  { content: "do $$ begin set standard_conforming_strings = on; end $$;", path: "supabase/migrations/99999999999999-safe-do-standard-strings.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
