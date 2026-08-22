@@ -597,6 +597,9 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && hasSqlFalseGucSetting(sqlLexicalContent);
   const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
+  const hasPgSettingsMutation = normalizedPath.endsWith(".sql")
+    && sqlTokens.some((token) => ["pg_settings", "quoted:pg_settings"].includes(token))
+    && sqlTokens.some((token) => ["update", "insert", "delete"].includes(token));
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -682,7 +685,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
-    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasAdjacentSqlStrings
+    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsMutation || hasAdjacentSqlStrings
   );
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
@@ -774,6 +777,7 @@ for (const fixture of [
   { content: "set standard_conforming_strings = n;", path: "supabase/migrations/99999999999999-legacy-n-prefix-setting.sql" },
   { content: "set standard_conforming_strings = of;", path: "supabase/migrations/99999999999999-legacy-of-prefix-setting.sql" },
   { content: "do $$ begin set standard_conforming_strings = off; end $$;", path: "supabase/migrations/99999999999999-do-legacy-setting.sql" },
+  { content: "update pg_catalog.pg_settings set setting = 'off' where name = 'standard_conforming_strings';", path: "supabase/migrations/99999999999999-pg-settings-mutation.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
