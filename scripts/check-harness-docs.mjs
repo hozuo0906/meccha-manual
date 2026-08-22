@@ -743,7 +743,15 @@ function hasAliasedComputedCapabilityLookup(content) {
     const opening = enclosingBraceStart(cursor);
     if (opening === null) return false;
     if (["=", "(", "[", ",", "return"].includes(tokens[opening - 1]?.value)) return true;
-    if (tokens[opening - 1]?.value === ":") return isObjectOrClassBody(opening - 1);
+    if (tokens[opening - 1]?.value === ":") {
+      let nestedColons = 0;
+      for (let index = opening - 2; index >= 0 && ![";", "{", "}"].includes(tokens[index].value); index -= 1) {
+        if (tokens[index].value === ":") nestedColons += 1;
+        else if (tokens[index].value === "?" && nestedColons === 0) return true;
+        else if (tokens[index].value === "?") nestedColons -= 1;
+      }
+      return isObjectOrClassBody(opening - 1);
+    }
     for (let index = opening - 1; index >= 0 && ![";", "{", "}"].includes(tokens[index].value); index -= 1) {
       if (tokens[index].value === "class") return true;
     }
@@ -805,7 +813,7 @@ function hasAliasedComputedCapabilityLookup(content) {
           cursor = methodEnd - 1;
           continue;
         }
-        if (tokens[cursor].value === "return" && expressionReferencesCapability(cursor + 1, bodyEnd - 1)
+        if (["return", "yield"].includes(tokens[cursor].value) && expressionReferencesCapability(cursor + 1, bodyEnd - 1)
           && !capabilityAliases.has(functionName)) {
           capabilityAliases.add(functionName);
           changed = true;
@@ -1105,6 +1113,7 @@ for (const fixture of [
   { content: 'function getNavigator() { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator({ value }) { return navigator; } const nav = getNavigator({}); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(options = {}) { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function* getNavigator() { yield navigator; } const nav = getNavigator().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { logger()\n{ return navigator; } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { label: { logger()\n{ return navigator; } } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1240,7 +1249,8 @@ for (const fixture of [
   { content: 'function safe() { const inner = () => { return navigator; }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe() { const helper = { method() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe() { const helper = { async method() { return navigator; }, get value() { return navigator; }, [key]() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
-  { content: 'function safe() { class Helper { static method() { return navigator; } } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" }
+  { content: 'function safe() { class Helper { static method() { return navigator; } } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
