@@ -539,6 +539,35 @@ function hasUnapprovedSqlSetConfigCall(content) {
   });
 }
 
+function hasSqlFalseGucSetting(content) {
+  const falseValues = new Set(["off", "false", "no", "0"]);
+  const statements = [];
+  let statement = [];
+  for (const token of sqlStructuralTokens(content)) {
+    if (token.type === "symbol" && token.value === ";") {
+      statements.push(statement);
+      statement = [];
+    } else statement.push(token);
+  }
+  statements.push(statement);
+  return statements.some((tokens) => tokens.some((token, index) => {
+    if (token.type !== "identifier" || !["standard_conforming_strings", "quoted:standard_conforming_strings"].includes(token.value)) return false;
+    const identifiersBefore = tokens.slice(0, index).filter((candidate) => candidate.type === "identifier").map((candidate) => candidate.value);
+    const isSetStatement = identifiersBefore[0] === "set";
+    const isAlterStatement = identifiersBefore[0] === "alter"
+      && ["role", "user", "database", "system"].includes(identifiersBefore[1])
+      && identifiersBefore.includes("set");
+    if (!isSetStatement && !isAlterStatement) return false;
+    const separator = tokens[index + 1];
+    const value = tokens[index + 2];
+    const hasAssignment = (separator?.type === "operator" && separator.value === "=")
+      || (separator?.type === "identifier" && separator.value === "to");
+    if (!hasAssignment || !value) return false;
+    return (value.type === "identifier" || value.type === "string" || value.type === "operator")
+      && falseValues.has(value.value.toLowerCase());
+  }));
+}
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -564,10 +593,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedIdentifier = normalizedPath.endsWith(".sql") && /\bU&"/i.test(sqlLexicalContent);
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
-  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && (
-    /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:(?:off|false|no|0)|'(?:off|false|no|0)')/i.test(sqlLexicalContent)
-    || /\balter\s+(?:role|database)\b[^;]*\bset\s+"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:(?:off|false|no|0)|'(?:off|false|no|0)')/i.test(sqlLexicalContent)
-  );
+  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && hasSqlFalseGucSetting(sqlLexicalContent);
   const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -739,6 +765,9 @@ for (const fixture of [
   { content: "set standard_conforming_strings = false;", path: "supabase/migrations/99999999999999-legacy-false-setting.sql" },
   { content: "set standard_conforming_strings to no;", path: "supabase/migrations/99999999999999-legacy-no-setting.sql" },
   { content: "set standard_conforming_strings = 0;", path: "supabase/migrations/99999999999999-legacy-zero-setting.sql" },
+  { content: "set standard_conforming_strings = E'false';", path: "supabase/migrations/99999999999999-legacy-e-false-setting.sql" },
+  { content: "set standard_conforming_strings = $$off$$;", path: "supabase/migrations/99999999999999-legacy-dollar-off-setting.sql" },
+  { content: "alter role current_user set standard_conforming_strings to E'no';", path: "supabase/migrations/99999999999999-alter-role-e-no-setting.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
