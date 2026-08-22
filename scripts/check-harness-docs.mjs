@@ -684,7 +684,7 @@ function hasAiRuntimeBoundary(content, path = "") {
       if (!["create", "alter", "drop"].includes(identifiers[index])) continue;
       let cursor = index + 1;
       if (identifiers[cursor] === "or" && identifiers[cursor + 1] === "replace") cursor += 2;
-      if (identifiers[cursor] === "procedural") cursor += 1;
+      while (["trusted", "procedural"].includes(identifiers[cursor])) cursor += 1;
       if (identifiers[cursor] === "language") return true;
     }
     return false;
@@ -899,6 +899,7 @@ for (const fixture of [
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language E'plperl';", path: "supabase/migrations/99999999999999-e-string-language-outbound.sql" },
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language $lang$plperl$lang$;", path: "supabase/migrations/99999999999999-dollar-language-outbound.sql" },
   { content: "create or replace procedural language plpgsql handler plpython3_call_handler;", path: "supabase/migrations/99999999999999-language-handler-redefinition.sql" },
+  { content: "create or replace trusted procedural language plpgsql handler plpython3_call_handler;", path: "supabase/migrations/99999999999999-trusted-language-handler-redefinition.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
