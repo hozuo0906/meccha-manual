@@ -348,7 +348,8 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "'") {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       const hasEscapePrefixToken = backslashEscapes && tokens.at(-1) === "e";
-      const executableBody = ["as", "do"].includes(tokens.at(-1)) || (hasEscapePrefixToken && ["as", "do"].includes(tokens.at(-2)));
+      const executablePrefixTokens = hasEscapePrefixToken ? tokens.slice(0, -1) : tokens;
+      const executableBody = executablePrefixTokens.slice(-4).some((token) => ["as", "do"].includes(token));
       if (hasEscapePrefixToken) tokens.pop();
       let value = "";
       index += 1;
@@ -580,6 +581,7 @@ for (const fixture of [
   { content: "do language plpgsql $body$ begin execute 'select extensions.http_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-do-language-outbound.sql" },
   { content: "do 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-single-quoted-do-outbound.sql" },
   { content: "do E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end';", path: "supabase/migrations/99999999999999-e-string-do-outbound.sql" },
+  { content: "do language plpgsql 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-language-single-quoted-do-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
