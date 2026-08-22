@@ -288,7 +288,6 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         if (pendingDestructiveRecovery.mode === "release_only" && reservation.state === "reserved") {
           reservation.state = "released";
           reservation.releasedAt = trustedNow;
-          reservation.destructiveRecoveryCompleted = true;
           return reservation;
         }
       }
