@@ -637,9 +637,11 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && hasSqlFalseGucSetting(sqlLexicalContent);
   const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
   const hasPgSettingsReference = normalizedPath.endsWith(".sql")
-    && sqlTokens.some((token) => ["pg_settings", "quoted:pg_settings"].includes(token));
+    && (sqlTokens.some((token) => ["pg_settings", "quoted:pg_settings"].includes(token))
+      || sqlStructure.some((token) => token.type === "identifier" && ["pg_settings", "quoted:pg_settings"].includes(token.value)));
   const hasPgLanguageReference = normalizedPath.endsWith(".sql")
-    && sqlTokens.some((token) => ["pg_language", "quoted:pg_language"].includes(token));
+    && (sqlTokens.some((token) => ["pg_language", "quoted:pg_language"].includes(token))
+      || sqlStructure.some((token) => token.type === "identifier" && ["pg_language", "quoted:pg_language"].includes(token.value)));
   const hasSqlSchedulingCapability = normalizedPath.endsWith(".sql") && (
     sqlTokens.some((token) => ["pg_cron", "quoted:pg_cron"].includes(token))
     || sqlTokens.some((token) => ["cron", "quoted:cron"].includes(token))
@@ -907,6 +909,7 @@ for (const fixture of [
   { content: "update pg_catalog.pg_settings set setting = 'off' where name = 'standard_conforming_strings';", path: "supabase/migrations/99999999999999-pg-settings-mutation.sql" },
   { content: "create view public.guc_proxy as select * from pg_catalog.pg_settings;", path: "supabase/migrations/99999999999999-pg-settings-view.sql" },
   { content: "update pg_catalog.pg_language set lanplcallfoid = 123, laninline = 456, lanvalidator = 789 where lanname = 'plpgsql';", path: "supabase/migrations/99999999999999-pg-language-mutation.sql" },
+  { content: "create function outer_fn() returns void as $outer$ begin create function inner_fn() returns void as $inner$ update pg_catalog.pg_language set lanplcallfoid = 123 where lanname = 'plpgsql'; $inner$ language sql; end $outer$ language plpgsql;", path: "supabase/migrations/99999999999999-nested-pg-language-mutation.sql" },
   { content: "create extension pg_cron; select cron.schedule('* * * * *', 'select extensions.ht' || 'tp_get(...)');", path: "supabase/migrations/99999999999999-cron-command-outbound.sql" },
   { content: "select cron.schedule_in_database('hidden-egress', '* * * * *', 'select extensions.ht' || 'tp_get(...)', current_database());", path: "supabase/migrations/99999999999999-cron-database-command-outbound.sql" },
   { content: "set search_path to 'cron', 'public'; select schedule_in_database('hidden-egress', '* * * * *', 'select extensions.ht' || 'tp_get(...)', current_database());", path: "supabase/migrations/99999999999999-cron-search-path-command-outbound.sql" },

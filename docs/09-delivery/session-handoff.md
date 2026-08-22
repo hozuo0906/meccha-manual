@@ -238,8 +238,8 @@ Issue #70には最低限、次を残す。
 - `standard_conforming_strings`設定はDO bodyを含む各statementの構造tokenで通常・E・dollar文字列を復号し、単一値の明示的true（`on`／`true`／`yes`／`1`）だけを許可する。false省略形・式・未知値はfail closedで拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
 - `ALTER ROLE`／`ALTER DATABASE`経由の`standard_conforming_strings=off`も拒否し、後続sessionの既定値変更を許さない。
-- `pg_catalog.pg_settings`参照自体を拒否し、直接DML・更新可能view・関数などSET系以外のGUC変更経路を許さない。
-- `pg_catalog.pg_language`参照自体を拒否し、直接DML・更新可能view・関数による許可言語handler差し替えを許さない。
+- `pg_catalog.pg_settings`参照自体をidentifier tokenと再帰展開済み構造tokenの両方で拒否し、直接DML・更新可能view・ネスト関数などSET系以外のGUC変更経路を許さない。
+- `pg_catalog.pg_language`参照自体をidentifier tokenと再帰展開済み構造tokenの両方で拒否し、直接DML・更新可能view・ネスト関数による許可言語handler差し替えを許さない。
 - `pg_cron` token／`cron` schema参照／文字列値`cron`と未修飾を含むジョブAPI名を拒否し、search_path・直接DML・API名の違いに依存せず、後から実行されるcommand文字列へ外部通信SQLを隠せないようにする。
 - `dblink*` と `postgres_fdw*` identifier（handler／validatorを含む）および同名C共有ライブラリ／symbol文字列を拒否し、別名再登録やURL形式でない接続文字列を使う外部DB通信も許さない。
 - SQLの構造tokenで括弧深度を追い、top-levelまたはDO／Function bodyのstatement内にある `COPY` の `TO`／`FROM` 直後の `PROGRAM` だけを拒否する。同名／quoted columnや無関係な後続statementを誤検知せず、DB server上のOS command経由で外部通信を開始できないようにする。
