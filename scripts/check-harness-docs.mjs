@@ -678,18 +678,21 @@ function hasComputedCapabilityBinding(content) {
 function hasAliasedComputedCapabilityLookup(content) {
   const tokens = javascriptStructuralTokens(content);
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
-  const expressionReferencesCapability = (start) => {
+  const expressionReferencesCapability = (start, endExclusive = tokens.length) => {
     let parentheses = 0;
     let brackets = 0;
     let braces = 0;
-    for (let cursor = start; cursor < tokens.length; cursor += 1) {
+    for (let cursor = start; cursor < endExclusive; cursor += 1) {
       const token = tokens[cursor];
       if (token.value === "(") parentheses += 1;
       else if (token.value === ")") parentheses = Math.max(0, parentheses - 1);
       else if (token.value === "[") brackets += 1;
       else if (token.value === "]") brackets = Math.max(0, brackets - 1);
       else if (token.value === "{") braces += 1;
-      else if (token.value === "}") braces = Math.max(0, braces - 1);
+      else if (token.value === "}") {
+        if (parentheses === 0 && brackets === 0 && braces === 0) break;
+        braces = Math.max(0, braces - 1);
+      }
       if (parentheses === 0 && brackets === 0 && braces === 0 && [",", ";"].includes(token.value)) break;
       if (token.type === "identifier" && capabilityAliases.has(token.value)) return true;
     }
@@ -721,14 +724,47 @@ function hasAliasedComputedCapabilityLookup(content) {
     for (let index = 0; index < tokens.length - 2; index += 1) {
       if (tokens[index].value !== "function" || tokens[index + 1]?.type !== "identifier") continue;
       const functionName = tokens[index + 1].value;
-      let bodyStart = index + 2;
+      let paramsStart = index + 2;
+      while (paramsStart < tokens.length && tokens[paramsStart].value !== "(") paramsStart += 1;
+      if (paramsStart >= tokens.length) continue;
+      let parentheses = 1;
+      let afterParams = paramsStart + 1;
+      for (; afterParams < tokens.length && parentheses > 0; afterParams += 1) {
+        if (tokens[afterParams].value === "(") parentheses += 1;
+        else if (tokens[afterParams].value === ")") parentheses -= 1;
+      }
+      let bodyStart = afterParams;
       while (bodyStart < tokens.length && tokens[bodyStart].value !== "{") bodyStart += 1;
-      if (bodyStart >= tokens.length) continue;
+      if (parentheses > 0 || bodyStart >= tokens.length) continue;
       let braceDepth = 1;
-      for (let cursor = bodyStart + 1; cursor < tokens.length && braceDepth > 0; cursor += 1) {
-        if (tokens[cursor].value === "{") { braceDepth += 1; continue; }
-        if (tokens[cursor].value === "}") { braceDepth -= 1; continue; }
-        if (braceDepth > 0 && tokens[cursor].value === "return" && expressionReferencesCapability(cursor + 1)
+      let bodyEnd = bodyStart + 1;
+      for (; bodyEnd < tokens.length && braceDepth > 0; bodyEnd += 1) {
+        if (tokens[bodyEnd].value === "{") braceDepth += 1;
+        else if (tokens[bodyEnd].value === "}") braceDepth -= 1;
+      }
+      for (let cursor = bodyStart + 1; cursor < bodyEnd - 1; cursor += 1) {
+        if (tokens[cursor].value === "function") {
+          let nestedParams = cursor + 1;
+          while (nestedParams < bodyEnd - 1 && tokens[nestedParams].value !== "(") nestedParams += 1;
+          let nestedParentheses = 1;
+          let nestedBody = nestedParams + 1;
+          for (; nestedBody < bodyEnd - 1 && nestedParentheses > 0; nestedBody += 1) {
+            if (tokens[nestedBody].value === "(") nestedParentheses += 1;
+            else if (tokens[nestedBody].value === ")") nestedParentheses -= 1;
+          }
+          while (nestedBody < bodyEnd - 1 && tokens[nestedBody].value !== "{") nestedBody += 1;
+          if (nestedBody >= bodyEnd - 1) continue;
+          let nestedDepth = 1;
+          nestedBody += 1;
+          while (nestedBody < bodyEnd - 1 && nestedDepth > 0) {
+            if (tokens[nestedBody].value === "{") nestedDepth += 1;
+            else if (tokens[nestedBody].value === "}") nestedDepth -= 1;
+            nestedBody += 1;
+          }
+          cursor = nestedBody - 1;
+          continue;
+        }
+        if (tokens[cursor].value === "return" && expressionReferencesCapability(cursor + 1, bodyEnd - 1)
           && !capabilityAliases.has(functionName)) {
           capabilityAliases.add(functionName);
           changed = true;
@@ -1026,6 +1062,8 @@ for (const fixture of [
   { content: 'const [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'if (enabled) [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator({ value }) { return navigator; } const nav = getNavigator({}); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator(options = {}) { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
@@ -1153,7 +1191,8 @@ for (const fixture of [
   { content: 'const enough = [foo] >= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
   { content: 'const limited = [foo] <= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
   { content: 'const different = [foo] != navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
-  { content: 'const same = foo == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
+  { content: 'const same = foo == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'function safe() { function inner() { return navigator; } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
