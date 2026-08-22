@@ -540,7 +540,7 @@ function hasUnapprovedSqlSetConfigCall(content) {
 }
 
 function hasSqlFalseGucSetting(content) {
-  const falseValues = new Set(["off", "false", "no", "0"]);
+  const explicitTrueValues = new Set(["on", "true", "yes", "1"]);
   const statements = [];
   let statement = [];
   for (const token of sqlStructuralTokens(content)) {
@@ -559,12 +559,14 @@ function hasSqlFalseGucSetting(content) {
       && identifiersBefore.includes("set");
     if (!isSetStatement && !isAlterStatement) return false;
     const separator = tokens[index + 1];
-    const value = tokens[index + 2];
+    const assignedValues = tokens.slice(index + 2);
+    const value = assignedValues[0];
     const hasAssignment = (separator?.type === "operator" && separator.value === "=")
       || (separator?.type === "identifier" && separator.value === "to");
-    if (!hasAssignment || !value) return false;
-    return (value.type === "identifier" || value.type === "string" || value.type === "operator")
-      && falseValues.has(value.value.toLowerCase());
+    if (!hasAssignment || !value) return true;
+    const isSingleLiteralValue = assignedValues.length === 1
+      && (value.type === "identifier" || value.type === "string" || value.type === "operator");
+    return !isSingleLiteralValue || !explicitTrueValues.has(value.value.toLowerCase());
   }));
 }
 
@@ -768,6 +770,9 @@ for (const fixture of [
   { content: "set standard_conforming_strings = E'false';", path: "supabase/migrations/99999999999999-legacy-e-false-setting.sql" },
   { content: "set standard_conforming_strings = $$off$$;", path: "supabase/migrations/99999999999999-legacy-dollar-off-setting.sql" },
   { content: "alter role current_user set standard_conforming_strings to E'no';", path: "supabase/migrations/99999999999999-alter-role-e-no-setting.sql" },
+  { content: "set standard_conforming_strings = f;", path: "supabase/migrations/99999999999999-legacy-f-prefix-setting.sql" },
+  { content: "set standard_conforming_strings = n;", path: "supabase/migrations/99999999999999-legacy-n-prefix-setting.sql" },
+  { content: "set standard_conforming_strings = of;", path: "supabase/migrations/99999999999999-legacy-of-prefix-setting.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
@@ -803,7 +808,8 @@ for (const fixture of [
 for (const fixture of [
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
-  { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" }
+  { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
+  { content: "set standard_conforming_strings = on;", path: "supabase/migrations/99999999999999-safe-standard-strings.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
