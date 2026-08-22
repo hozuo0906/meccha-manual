@@ -729,6 +729,25 @@ function hasAliasedComputedCapabilityLookup(content) {
     return depth === 0 ? cursor : null;
   };
   const afterBody = (bodyStart, limit = tokens.length) => afterMatching(bodyStart, "{", "}", limit);
+  const enclosingBraceStart = (cursor) => {
+    let depth = 0;
+    for (let index = cursor - 1; index >= 0; index -= 1) {
+      if (tokens[index].value === "}") { depth += 1; continue; }
+      if (tokens[index].value !== "{") continue;
+      if (depth > 0) { depth -= 1; continue; }
+      return index;
+    }
+    return null;
+  };
+  const isObjectOrClassBody = (cursor) => {
+    const opening = enclosingBraceStart(cursor);
+    if (opening === null) return false;
+    if (["=", "(", "[", ",", ":", "return"].includes(tokens[opening - 1]?.value)) return true;
+    for (let index = opening - 1; index >= 0 && ![";", "{", "}"].includes(tokens[index].value); index -= 1) {
+      if (tokens[index].value === "class") return true;
+    }
+    return false;
+  };
   let changed = true;
   while (changed) {
     changed = false;
@@ -771,12 +790,14 @@ function hasAliasedComputedCapabilityLookup(content) {
           cursor = arrowEnd - 1;
           continue;
         }
-        const methodPrevious = tokens[cursor - 1]?.value;
-        const methodAfterParams = tokens[cursor].type === "identifier"
-          && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[cursor].value)
-          && ["{", "}", ",", ";"].includes(methodPrevious)
-          ? afterMatching(cursor + 1, "(", ")", bodyEnd - 1)
-          : null;
+        let methodAfterParams = null;
+        if (isObjectOrClassBody(cursor) && tokens[cursor].type === "identifier"
+          && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[cursor].value)) {
+          methodAfterParams = afterMatching(cursor + 1, "(", ")", bodyEnd - 1);
+        } else if (isObjectOrClassBody(cursor) && tokens[cursor].value === "[") {
+          const afterName = afterMatching(cursor, "[", "]", bodyEnd - 1);
+          methodAfterParams = afterName === null ? null : afterMatching(afterName, "(", ")", bodyEnd - 1);
+        }
         if (methodAfterParams !== null && tokens[methodAfterParams]?.value === "{") {
           const methodEnd = afterBody(methodAfterParams, bodyEnd - 1);
           if (methodEnd === null) continue;
@@ -1084,6 +1105,7 @@ for (const fixture of [
   { content: 'function getNavigator({ value }) { return navigator; } const nav = getNavigator({}); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(options = {}) { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator() { logger()\n{ return navigator; } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
@@ -1214,7 +1236,9 @@ for (const fixture of [
   { content: 'const same = foo == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
   { content: 'function safe() { function inner() { return navigator; } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe() { const inner = () => { return navigator; }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
-  { content: 'function safe() { const helper = { method() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" }
+  { content: 'function safe() { const helper = { method() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'function safe() { const helper = { async method() { return navigator; }, get value() { return navigator; }, [key]() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'function safe() { class Helper { static method() { return navigator; } } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
