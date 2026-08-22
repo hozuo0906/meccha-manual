@@ -672,10 +672,13 @@ function hasComputedNavigatorBinding(content) {
     }
     if (!computedBinding || braceDepth !== 0) continue;
     const assignment = tokens[end];
-    const receiver = tokens[end + 1];
-    if (assignment?.value !== "=" || receiver?.type !== "identifier") continue;
+    if (assignment?.value !== "=") continue;
+    let receiverIndex = end + 1;
+    while (tokens[receiverIndex]?.value === "(") receiverIndex += 1;
+    const receiver = tokens[receiverIndex];
+    if (receiver?.type !== "identifier") continue;
     if (receiver.value === "navigator") return true;
-    if (receiver.value === "Navigator" && tokens[end + 2]?.value === "." && tokens[end + 3]?.value === "prototype") return true;
+    if (receiver.value === "Navigator" && tokens[receiverIndex + 1]?.value === "." && tokens[receiverIndex + 2]?.value === "prototype") return true;
   }
   return false;
 }
@@ -939,6 +942,7 @@ for (const fixture of [
   { content: 'Navigator.prototype.sendBeacon.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = ((navigator)); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
