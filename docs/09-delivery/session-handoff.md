@@ -241,8 +241,8 @@ Issue #70には最低限、次を残す。
 - `pg_catalog.pg_settings`参照自体を拒否し、直接DML・更新可能view・関数などSET系以外のGUC変更経路を許さない。
 - `pg_cron` token／`cron` schema参照／文字列値`cron`と未修飾を含むジョブAPI名を拒否し、search_path・直接DML・API名の違いに依存せず、後から実行されるcommand文字列へ外部通信SQLを隠せないようにする。
 - `dblink*` と `postgres_fdw*` identifier（handler／validatorを含む）および同名C共有ライブラリ／symbol文字列を拒否し、別名再登録やURL形式でない接続文字列を使う外部DB通信も許さない。
-- SQLの `COPY ... PROGRAM` を拒否し、DB server上のOS command経由で外部通信を開始できないようにする。
-- 静的HTMLではscript、form、iframe等のactive contentとmeta refreshを拒否し、query等から組み立てたbrowser egress sinkを持ち込めないようにする。
+- SQLの同一statement内にある `COPY ... PROGRAM` を拒否し、無関係な後続statementを誤検知せず、DB server上のOS command経由で外部通信を開始できないようにする。
+- 静的HTMLを構造解析し、script等のactive content、event handler、meta refresh、未承認host／protocol-relativeのresource URLを拒否する。既存の相対URLと承認済みHTTPS resourceだけを許可する。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
