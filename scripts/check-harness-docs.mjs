@@ -355,7 +355,10 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "'") {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       const hasEscapePrefixToken = backslashEscapes && tokens.at(-1) === "e";
-      const executableBody = isExecutableBodyPrefix(tokens.slice(statementTokenStart), hasEscapePrefixToken);
+      const statementTokens = tokens.slice(statementTokenStart);
+      const bodyPrefix = hasEscapePrefixToken ? statementTokens.slice(0, -1) : statementTokens;
+      const executableBody = isExecutableBodyPrefix(statementTokens, hasEscapePrefixToken);
+      const isDoLanguageName = bodyPrefix.length === 2 && bodyPrefix[0] === "do" && bodyPrefix[1] === "language";
       if (hasEscapePrefixToken) tokens.pop();
       let value = "";
       index += 1;
@@ -366,6 +369,7 @@ function sqlIdentifierTokens(content) {
         else { value += content[index]; index += 1; }
       }
       if (executableBody) tokens.push(...sqlIdentifierTokens(value));
+      else if (isDoLanguageName) tokens.push(`language:${value.toLowerCase()}`);
       continue;
     }
     if (content[index] === "$") {
@@ -441,7 +445,9 @@ function sqlStructuralTokens(content) {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       const identifiers = statementIdentifiers();
       const hasEscapePrefixToken = backslashEscapes && identifiers.at(-1) === "e";
+      const bodyPrefix = hasEscapePrefixToken ? identifiers.slice(0, -1) : identifiers;
       const executableBody = isExecutableBodyPrefix(identifiers, hasEscapePrefixToken);
+      const isDoLanguageName = bodyPrefix.length === 2 && bodyPrefix[0] === "do" && bodyPrefix[1] === "language";
       if (hasEscapePrefixToken && tokens.at(-1)?.type === "identifier" && tokens.at(-1)?.value === "e") tokens.pop();
       let value = "";
       index += 1;
@@ -452,6 +458,7 @@ function sqlStructuralTokens(content) {
         else { value += content[index]; index += 1; }
       }
       if (executableBody) tokens.push(...sqlStructuralTokens(value));
+      else if (isDoLanguageName) tokens.push({ type: "identifier", value: `language:${value.toLowerCase()}` });
       else tokens.push({ type: "string", value });
       continue;
     }
@@ -541,7 +548,10 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedIdentifier = normalizedPath.endsWith(".sql") && /\bU&"/i.test(sqlLexicalContent);
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
-  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent);
+  const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && (
+    /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent)
+    || /\balter\s+(?:role|database)\b[^;]*\bset\s+"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent)
+  );
   const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -698,6 +708,7 @@ for (const fixture of [
   { content: "do 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-single-quoted-do-outbound.sql" },
   { content: "do E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end';", path: "supabase/migrations/99999999999999-e-string-do-outbound.sql" },
   { content: "do language plpgsql 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-language-single-quoted-do-outbound.sql" },
+  { content: "do language 'plpgsql' 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-quoted-language-do-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
@@ -705,6 +716,8 @@ for (const fixture of [
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin \\105XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-octal-body-outbound.sql" },
   { content: "set standard_conforming_strings = off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-identity-body-outbound.sql" },
   { content: "set session \"standard_conforming_strings\" to off; create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-to-identity-body-outbound.sql" },
+  { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
+  { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
   { content: "select pg_catalog.\"set_config\"('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-quoted-set-config-body-outbound.sql" },
   { content: "select set_config(E'standard_conforming_strings', E'off', false);", path: "supabase/migrations/99999999999999-legacy-e-set-config.sql" },

@@ -236,9 +236,11 @@ Issue #70には最低限、次を残す。
 - PostgreSQLの通常文字列と`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`standard_conforming_strings=off`環境でも`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
 - `standard_conforming_strings=off`設定自体を拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
+- `ALTER ROLE`／`ALTER DATABASE`経由の`standard_conforming_strings=off`も拒否し、後続sessionの既定値変更を許さない。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
+- `DO LANGUAGE 'plpgsql' 'body'`のようにlanguage名も引用文字列で指定する構文では、language名と後続code bodyを区別してbodyだけを再帰検査する。
 - SQL block commentは空白へ置換して字句境界を保持し、コメント直後の隣接文字列も拒否する。
 - R2 reconciliation claimはprovider delete開始前に対象object key、destructive I/O pending、commit禁止のrelease-only回収遷移を永続化する。削除応答喪失やWorker停止時は記録を保持し、claim期限後に再起動したreconcilerが同じkeyの削除を冪等に再実行して、予約をcommitへ戻さず解放する。予約解放とcommitted archiveのbyte減算は容量versionも原子的に進め、古い使用量snapshotの並行予約を再試行させる。破壊的I/O中断も永久保持せず安全に回収する。
 - PostgreSQLの`U&'...'` Unicode escaped stringも全面拒否し、関数bodyの禁止tokenを難読化できないようにする。
