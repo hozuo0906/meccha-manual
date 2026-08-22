@@ -703,7 +703,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     });
   });
   const hasSqlLanguageDefinition = sqlStatements.some((statement) => {
-    const blockStatementPrefixes = new Set(["begin", "then", "else", "loop"]);
+    const blockStatementPrefixes = new Set(["as", "begin", "then", "else", "loop"]);
     const identifierAt = (index) => statement[index]?.type === "identifier" ? statement[index].value : null;
     return statement.some((token, index) => {
       if (token.type !== "identifier" || !["create", "alter", "drop"].includes(token.value)) return false;
@@ -921,6 +921,7 @@ for (const fixture of [
   { content: "create or replace procedural language plpgsql handler plpython3_call_handler;", path: "supabase/migrations/99999999999999-language-handler-redefinition.sql" },
   { content: "create or replace trusted procedural language plpgsql handler plpython3_call_handler;", path: "supabase/migrations/99999999999999-trusted-language-handler-redefinition.sql" },
   { content: "do $$ begin create or replace trusted procedural language plpgsql handler plpython3_call_handler; end $$;", path: "supabase/migrations/99999999999999-do-language-handler-redefinition.sql" },
+  { content: "create function hidden_language_ddl() returns void as $$create or replace trusted procedural language plpgsql handler plpython3_call_handler;$$ language sql;", path: "supabase/migrations/99999999999999-sql-body-language-handler-redefinition.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
