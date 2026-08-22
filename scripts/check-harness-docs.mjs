@@ -678,30 +678,65 @@ function hasComputedCapabilityBinding(content) {
 function hasAliasedComputedCapabilityLookup(content) {
   const tokens = javascriptStructuralTokens(content);
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
+  const expressionReferencesCapability = (start) => {
+    let parentheses = 0;
+    let brackets = 0;
+    let braces = 0;
+    for (let cursor = start; cursor < tokens.length; cursor += 1) {
+      const token = tokens[cursor];
+      if (token.value === "(") parentheses += 1;
+      else if (token.value === ")") parentheses = Math.max(0, parentheses - 1);
+      else if (token.value === "[") brackets += 1;
+      else if (token.value === "]") brackets = Math.max(0, brackets - 1);
+      else if (token.value === "{") braces += 1;
+      else if (token.value === "}") braces = Math.max(0, braces - 1);
+      if (parentheses === 0 && brackets === 0 && braces === 0 && [",", ";"].includes(token.value)) break;
+      if (token.type === "identifier" && capabilityAliases.has(token.value)) return true;
+    }
+    return false;
+  };
+  const bindingPattern = (start) => {
+    const opening = tokens[start]?.value;
+    if (!["[", "{"].includes(opening)) return null;
+    const previous = tokens[start - 1];
+    if (previous && !(previous.type === "identifier" && ["const", "let", "var"].includes(previous.value))
+      && !["(", ",", ";", "{"].includes(previous.value)) return null;
+    const stack = [opening];
+    const pairs = { "]": "[", "}": "{" };
+    let end = start + 1;
+    for (; end < tokens.length && stack.length > 0; end += 1) {
+      const value = tokens[end].value;
+      if (["[", "{"].includes(value)) stack.push(value);
+      else if (["]", "}"].includes(value)) {
+        if (stack.at(-1) !== pairs[value]) return null;
+        stack.pop();
+      }
+    }
+    if (stack.length > 0 || tokens[end]?.value !== "=") return null;
+    const names = tokens.slice(start + 1, end - 1)
+      .filter((token) => token.type === "identifier" && !["const", "let", "var"].includes(token.value))
+      .map((token) => token.value);
+    return { end, names };
+  };
   let changed = true;
   while (changed) {
     changed = false;
     for (let index = 0; index < tokens.length - 2; index += 1) {
       const target = tokens[index];
       if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "." || tokens[index + 1]?.value !== "=") continue;
-      let parentheses = 0;
-      let brackets = 0;
-      let braces = 0;
-      let referencesCapability = false;
-      for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
-        const token = tokens[cursor];
-        if (token.value === "(" ) parentheses += 1;
-        else if (token.value === ")") parentheses = Math.max(0, parentheses - 1);
-        else if (token.value === "[") brackets += 1;
-        else if (token.value === "]") brackets = Math.max(0, brackets - 1);
-        else if (token.value === "{") braces += 1;
-        else if (token.value === "}") braces = Math.max(0, braces - 1);
-        if (parentheses === 0 && brackets === 0 && braces === 0 && [",", ";"].includes(token.value)) break;
-        if (token.type === "identifier" && capabilityAliases.has(token.value)) referencesCapability = true;
-      }
-      if (referencesCapability) {
+      if (expressionReferencesCapability(index + 2)) {
         capabilityAliases.add(target.value);
         changed = true;
+      }
+    }
+    for (let index = 0; index < tokens.length; index += 1) {
+      const pattern = bindingPattern(index);
+      if (!pattern || !expressionReferencesCapability(pattern.end + 1)) continue;
+      for (const name of pattern.names) {
+        if (!capabilityAliases.has(name)) {
+          capabilityAliases.add(name);
+          changed = true;
+        }
       }
     }
   }
@@ -973,6 +1008,7 @@ for (const fixture of [
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = ((navigator)); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = (null, navigator); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const nav = (null, navigator); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
