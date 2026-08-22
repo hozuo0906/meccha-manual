@@ -188,6 +188,12 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
     request.checksumSha256
   ]);
   const generationPrefixOf = (reservation) => reservation.objectKey.slice(0, reservation.objectKey.lastIndexOf("/") + 1);
+  const releaseReservation = (reservation, releasedAt) => {
+    assert.equal(reservation.state, "reserved", "only an active reservation may transition to released");
+    reservation.state = "released";
+    reservation.releasedAt = releasedAt;
+    persistentState.version += 1;
+  };
   const validateReservationRequest = (request) => {
     if (!Number.isSafeInteger(request.plannedBytes) || request.plannedBytes < 0) {
       throw new Error("planned bytes must be a non-negative safe integer");
@@ -286,8 +292,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         claim.destructiveIoPending = true;
         await deleteClaimedObject(pendingDestructiveRecovery.objectKey, pendingDestructiveRecovery.mode);
         if (pendingDestructiveRecovery.mode === "release_only" && reservation.state === "reserved") {
-          reservation.state = "released";
-          reservation.releasedAt = trustedNow;
+          releaseReservation(reservation, trustedNow);
           return reservation;
         }
       }
@@ -318,8 +323,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
           if (trustedNow >= reservation.leaseDeadline) {
             await deleteClaimedObject(reservation.objectKey, "release_only");
             if (reservation.state !== "reserved") return reservation;
-            reservation.state = "released";
-            reservation.releasedAt = trustedNow;
+            releaseReservation(reservation, trustedNow);
             reservation.mismatchedObjectDeleted = true;
             return reservation;
           }
@@ -335,8 +339,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       } else if (trustedNow >= reservation.leaseDeadline) {
         for (const candidate of generationObjects) await deleteClaimedObject(candidate.objectKey, "release_only");
         if (reservation.state !== "reserved") return reservation;
-        reservation.state = "released";
-        reservation.releasedAt = trustedNow;
+        releaseReservation(reservation, trustedNow);
         if (generationObjects.length > 0) reservation.mismatchedObjectDeleted = true;
       } else {
         throw new Error("active lease cannot be reconciled without an object");
@@ -782,9 +785,31 @@ assert.equal(unknownDeleteSnapshot.state, "reserved", "unknown delete result mus
 assert.equal(unknownDeleteSnapshot.destructiveRecovery.mode, "release_only", "unknown canonical delete must persist a commit-disabled recovery transition");
 assert.equal(unknownDeleteSnapshot.reconciliationClaim.destructiveIoPending, true, "unknown delete result must retain the destructive claim until its deadline");
 await assert.rejects(lostDeleteResponseHarness.reconcile(lostDeleteResponseRequest.operationKey, 10), /reconciliation serialization conflict/);
+const afterRecoveryRequest = { ...saveRequest, operationKey: "after-delete-recovery", generationId: "reservation-after-delete-recovery", objectKey: "workspace-001/manuals/manual-001/reservation-after-delete-recovery/canonical.png", plannedBytes: 7 };
+let announceRecoveryUsageRead;
+let releaseRecoveryUsageRead;
+const recoveryUsageRead = new Promise((resolve) => { announceRecoveryUsageRead = resolve; });
+const recoveryUsageMayContinue = new Promise((resolve) => { releaseRecoveryUsageRead = resolve; });
+const staleRecoveryReservation = lostDeleteResponseHarness.reserveAfterObservedUsage(
+  afterRecoveryRequest,
+  { owner: "worker-after-delete-recovery", deadline: 100, fencingToken: "fence-after-delete-recovery" },
+  async (observedBytes) => {
+    assert.equal(observedBytes, 4, "concurrent reservation must initially observe the still-reserved recovery bytes");
+    announceRecoveryUsageRead();
+    await recoveryUsageMayContinue;
+  }
+);
+await recoveryUsageRead;
 lostDeleteResponseStored = { workspaceId: lostDeleteResponseRequest.workspaceId, objectKey: lostDeleteResponseRequest.objectKey, sizeBytes: 4, checksumSha256: lostDeleteResponseRequest.checksumSha256, reservationId: lostDeleteResponseReservationId, fencingToken: "fence-lost-delete-response" };
 lostDeleteResponseClock.now = 70;
 assert.equal((await lostDeleteResponseHarness.reconcile(lostDeleteResponseRequest.operationKey, 70)).state, "released", "delete-result recovery must stay release-only even if a canonical object appears later");
+releaseRecoveryUsageRead();
+await assert.rejects(staleRecoveryReservation, /reservation serialization conflict/, "release-only recovery must invalidate a concurrent stale usage snapshot");
+assert.equal((await lostDeleteResponseHarness.reserveAfterObservedUsage(
+  afterRecoveryRequest,
+  { owner: "worker-after-delete-recovery", deadline: 100, fencingToken: "fence-after-delete-recovery" },
+  async (observedBytes) => assert.equal(observedBytes, 0, "retry must observe capacity released by destructive recovery")
+)).state, "reserved", "retry after version conflict must reserve against current capacity");
 assert.equal(lostDeleteResponseStored, null, "delete-result recovery must idempotently remove the generation object");
 assert.equal(lostDeleteResponseHarness.snapshot().currentBytes, 0, "delete-result recovery must never account a commit-disabled generation");
 const crashedClaimState = { reservations: new Map(), currentBytes: 0 };
