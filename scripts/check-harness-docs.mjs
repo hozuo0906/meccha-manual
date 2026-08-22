@@ -676,16 +676,31 @@ function hasAiRuntimeBoundary(content, path = "") {
     return false;
   });
   const approvedSqlLanguages = new Set(["sql", "plpgsql"]);
+  const hasSqlLanguageDefinition = sqlStatements.some((statement) => {
+    const identifiers = statement
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value.replace(/^quoted:/, ""));
+    for (let index = 0; index < identifiers.length; index += 1) {
+      if (!["create", "alter", "drop"].includes(identifiers[index])) continue;
+      let cursor = index + 1;
+      if (identifiers[cursor] === "or" && identifiers[cursor + 1] === "replace") cursor += 2;
+      if (identifiers[cursor] === "procedural") cursor += 1;
+      if (identifiers[cursor] === "language") return true;
+    }
+    return false;
+  });
   const hasUnapprovedProceduralLanguage = normalizedPath.endsWith(".sql") && (
     sqlStructure.some((token, index) => {
       if (token.type !== "identifier" || token.value !== "language" || sqlStructure[index + 1] === undefined) return false;
       const next = sqlStructure[index + 1];
+      if (!["identifier", "string"].includes(next.type)) return false;
       const rawLanguage = next.value;
       const languageName = rawLanguage.startsWith("language:") ? rawLanguage.slice("language:".length) : rawLanguage.replace(/^quoted:/, "");
       return !approvedSqlLanguages.has(languageName);
     })
     || sqlStructure.some((token) => token.type === "identifier" && token.value.startsWith("language:") && !approvedSqlLanguages.has(token.value.slice("language:".length)))
     || sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("spi_"))
+    || hasSqlLanguageDefinition
   );
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -883,6 +898,7 @@ for (const fixture of [
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language 'plperl';", path: "supabase/migrations/99999999999999-string-language-outbound.sql" },
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language E'plperl';", path: "supabase/migrations/99999999999999-e-string-language-outbound.sql" },
   { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query('select 1'); $fn$ language $lang$plperl$lang$;", path: "supabase/migrations/99999999999999-dollar-language-outbound.sql" },
+  { content: "create or replace procedural language plpgsql handler plpython3_call_handler;", path: "supabase/migrations/99999999999999-language-handler-redefinition.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
@@ -930,7 +946,8 @@ for (const fixture of [
   { content: "copy safe_table to stdout; select program from allowed_table;", path: "supabase/migrations/99999999999999-safe-copy-stdout.sql" },
   { content: "copy safe_table (program) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-column.sql" },
   { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" },
-  { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" }
+  { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" },
+  { content: "create view public.language_alias as select locale as language;", path: "supabase/migrations/99999999999999-safe-language-alias.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
