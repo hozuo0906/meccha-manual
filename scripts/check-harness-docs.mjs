@@ -600,7 +600,7 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
       if (name.startsWith("on")) rejected = true;
       if (name === "style") rejected = true;
       if (urlAttributes.has(name) && !isApprovedResource(attribute.value)) rejected = true;
-      if (name === "srcset" && !resourceListIsApproved(attribute.value)) rejected = true;
+      if (["srcset", "imagesrcset"].includes(name) && !resourceListIsApproved(attribute.value)) rejected = true;
       if (name === "ping" && !spaceSeparatedResourceListIsApproved(attribute.value)) rejected = true;
     }
     for (const child of node.childNodes ?? []) visit(child);
@@ -810,7 +810,7 @@ function hasAiRuntimeBoundary(content, path = "") {
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
-    || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest)\b|\bnavigator\.sendBeacon\b/.test(normalizedContent)
+    || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest|sendBeacon)\b/.test(normalizedContent)
     || hasUnapprovedDomSink
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
@@ -862,6 +862,9 @@ for (const fixture of [
   { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
   { content: 'navigator["sendBeacon"](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'navigator?.sendBeacon(env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const { sendBeacon } = navigator; sendBeacon(env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'Navigator.prototype.sendBeacon.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
@@ -961,6 +964,7 @@ for (const fixture of [
   { content: '<img src="//attacker.example/pixel">', path: "apps/brand-site/public/protocol-relative-egress.html" },
   { content: '<img src="/\\\\api.groq.com/openai/v1/pixel">', path: "apps/brand-site/public/backslash-resource-egress.html" },
   { content: '<a href="/safe" ping="//api.groq.com/pixel">safe</a>', path: "apps/brand-site/public/ping-egress.html" },
+  { content: '<link rel="preload" as="image" href="/safe.png" imagesrcset="//api.groq.com/pixel 1x">', path: "apps/brand-site/public/imagesrcset-egress.html" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
