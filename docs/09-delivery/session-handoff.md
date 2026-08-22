@@ -247,7 +247,7 @@ Issue #70には最低限、次を残す。
 - 静的HTMLを構造解析し、script等のactive content、event handler、meta refresh、inline style、未承認host／protocol-relativeのresource URLを拒否する。resource URLは実配信originをbaseにWHATWG正規化した後で判定し、既存の相対URLと承認済みHTTPS resourceだけを許可する。
 - 静的HTMLの`ping`属性は空白区切りURL一覧として同じresource allowlistで検査し、未承認host／protocol-relativeの監査POSTを拒否する。
 - 静的HTMLの`imagesrcset`属性も`srcset`と同じURL候補一覧として検査し、preload経路の未承認resource取得を拒否する。
-- 承認前runtimeでは`sendBeacon` capability名を表記に関係なく拒否し、optional chaining、computed member、分割代入、prototype呼出しで外向きPOSTを隠せないようにする。動的keyを使うcomputed分割代入はJavaScript構造tokenで括弧深度を追跡し、ネストした添字式や括弧で包んだreceiverでも`navigator`／`Navigator.prototype`からのcapability取得として拒否する。
+- 承認前runtimeでは`sendBeacon` capability名を表記に関係なく拒否し、optional chaining、computed member、分割代入、prototype呼出しで外向きPOSTを隠せないようにする。receiver式のalias、括弧、comma、条件式を静的に列挙せず、JavaScript構造tokenでcomputed分割代入そのものをfail closedにして動的capability取得を拒否する。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。

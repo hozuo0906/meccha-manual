@@ -649,7 +649,7 @@ function javascriptStructuralTokens(content) {
   return tokens;
 }
 
-function hasComputedNavigatorBinding(content) {
+function hasComputedCapabilityBinding(content) {
   const tokens = javascriptStructuralTokens(content);
   for (let start = 0; start < tokens.length; start += 1) {
     if (tokens[start].value !== "{") continue;
@@ -670,15 +670,7 @@ function hasComputedNavigatorBinding(content) {
       if (bracketDepth === 0 && tokens[cursor]?.value === ":" && tokens[cursor + 1]?.type === "identifier") computedBinding = true;
       end = cursor - 1;
     }
-    if (!computedBinding || braceDepth !== 0) continue;
-    const assignment = tokens[end];
-    if (assignment?.value !== "=") continue;
-    let receiverIndex = end + 1;
-    while (tokens[receiverIndex]?.value === "(") receiverIndex += 1;
-    const receiver = tokens[receiverIndex];
-    if (receiver?.type !== "identifier") continue;
-    if (receiver.value === "navigator") return true;
-    if (receiver.value === "Navigator" && tokens[receiverIndex + 1]?.value === "." && tokens[receiverIndex + 2]?.value === "prototype") return true;
+    if (computedBinding && braceDepth === 0 && tokens[end]?.value === "=") return true;
   }
   return false;
 }
@@ -874,7 +866,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window|navigator)\s*\[/.test(normalizedContent)
-    || hasComputedNavigatorBinding(normalizedContent);
+    || hasComputedCapabilityBinding(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
   const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html")
@@ -943,6 +935,7 @@ for (const fixture of [
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = ((navigator)); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = (null, navigator); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
