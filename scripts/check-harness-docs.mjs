@@ -643,7 +643,7 @@ function javascriptStructuralTokens(content) {
       index = end;
       continue;
     }
-    if ("{}[]():=.".includes(character)) tokens.push({ type: "symbol", value: character });
+    if ("{}[]():=.,;?".includes(character)) tokens.push({ type: "symbol", value: character });
     index += 1;
   }
   return tokens;
@@ -673,6 +673,41 @@ function hasComputedCapabilityBinding(content) {
     if (computedBinding && braceDepth === 0 && tokens[end]?.value === "=") return true;
   }
   return false;
+}
+
+function hasAliasedComputedCapabilityLookup(content) {
+  const tokens = javascriptStructuralTokens(content);
+  const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let index = 0; index < tokens.length - 2; index += 1) {
+      const target = tokens[index];
+      if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "." || tokens[index + 1]?.value !== "=") continue;
+      let parentheses = 0;
+      let brackets = 0;
+      let braces = 0;
+      let referencesCapability = false;
+      for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
+        const token = tokens[cursor];
+        if (token.value === "(" ) parentheses += 1;
+        else if (token.value === ")") parentheses = Math.max(0, parentheses - 1);
+        else if (token.value === "[") brackets += 1;
+        else if (token.value === "]") brackets = Math.max(0, brackets - 1);
+        else if (token.value === "{") braces += 1;
+        else if (token.value === "}") braces = Math.max(0, braces - 1);
+        if (parentheses === 0 && brackets === 0 && braces === 0 && [",", ";"].includes(token.value)) break;
+        if (token.type === "identifier" && capabilityAliases.has(token.value)) referencesCapability = true;
+      }
+      if (referencesCapability) {
+        capabilityAliases.add(target.value);
+        changed = true;
+      }
+    }
+  }
+  return tokens.some((token, index) => token.type === "identifier" && capabilityAliases.has(token.value)
+    && (tokens[index + 1]?.value === "["
+      || (tokens[index + 1]?.value === "?" && tokens[index + 2]?.value === "." && tokens[index + 3]?.value === "[")));
 }
 
 function hasAiRuntimeBoundary(content, path = "") {
@@ -866,7 +901,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window|navigator)\s*\[/.test(normalizedContent)
-    || hasComputedCapabilityBinding(normalizedContent);
+    || hasComputedCapabilityBinding(normalizedContent)
+    || hasAliasedComputedCapabilityLookup(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
   const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html")
@@ -936,6 +972,7 @@ for (const fixture of [
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = ((navigator)); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = (null, navigator); transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const nav = (null, navigator); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
