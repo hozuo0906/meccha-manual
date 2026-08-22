@@ -34,7 +34,7 @@ Pull Request: #<番号または未作成>
 - secret、共有トークン、個人情報、実ユーザー操作内容をdocs、ログ、PRへ入れない。
 - production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。
 - Chrome拡張を第一方式にしない。
-- AI APIは初期OFF。
+- 売上安定とowner明示承認までAI固有の実装・設定を作らない。
 - UI、文言、docsは日本語専用。
 
 実行:

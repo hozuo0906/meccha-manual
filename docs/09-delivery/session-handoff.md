@@ -185,6 +185,88 @@ Issue #70には最低限、次を残す。
 - Codex対応では、remote session cleanupの独立実行と全hang境界、Cloudflare v4 envelope、probe相関、0 byte矛盾拒否、run／SHA固定artifact、CDP／fixture URL・未知channelのログ非露出をコード・仕様・回帰テストへ反映した。
 - 本引き継ぎ更新commit後の最終head SHAと最終Review GateはPR #87のライブ状態を正とする。live実証は隔離fixture／GitHub `staging` Environment／専用Secrets未構成のため未実行であり、OQ-006と製品fail closedを維持する。
 
+## PR #88 品質対応引き継ぎ（2026-08-21）
+
+- 対象: branch `agent/docs-cost-guardrails-source-of-truth`、PR #88、base `main`。旧PR #56は同じ目的の古い代替PRであり、#88 merge後に未mergeのままsuperseded closeする。
+- 正本統一: AI拡張は売上安定確認とowner明示承認の両方が揃うまで実装せず、FR-006は常に外部AI APIを使わない決定的ローカル処理とする。Browser Run時間とR2容量は原価機能の有効化前にfail closedで予約・停止する。
+- 最新review対応: 容量予約objectの正規keyへ予約世代segmentを追加し、domainの`createObjectKey`、Storage object検証、memory／R2 read shape、正本文書、fixtureを同じ契約へ統一した。reconcilerは予約世代prefixだけを列挙し、再起動後も予約ID／fencing tokenが一致する誤key・孤立objectを自身で削除する。別世代は削除しない。
+- AI／egress境界: provider列挙には依存せず、製品runtimeに記述できる外向きURLを承認済みstaging Supabase project、GitHub、Discord、自社domain、自社Workerの完全一致hostへ限定して静的検査する。Groq／Vertex AI／第三者Workers／第三者Supabaseを含む未知hostとHTTPのnative `fetch`をnegative fixtureで拒否し、実行時の`SUPABASE_URL`も現在承認済みstaging hostだけを受理する。production hostは確定・承認後に環境別allowlistへ明示追加する。
+- 予約metadata境界: 容量予約objectの予約世代、`reservation_id`、`fencing_token`は3項目を常に一緒に必須とし、正規Storage adapterがR2 custom metadataへ保存してread時に再検証する。正常系fixtureはfake bucketへの直接注入ではなくadapter経由を使用する。
+- 並行予約fixture: 2要求が同じ使用量snapshotとversionを読むところでbarrier同期して競合させ、version CASにより片方だけが容量予約へ成功し、他方がserialization conflictになることを固定する。同じoperation keyの結果不明再送はCAS transaction内でtuple一致を確認して既存予約へ集約する。
+- 同一operation keyの2要求も同じsnapshotまでbarrier同期し、両方が同じreservation instanceへ収束して容量が1回だけ予約されることを固定する。
+- leaseのabsolute deadlineは要求値を信用せず、harnessへ独立注入した必須server clock＋固定最大期間から導出する。過大な初期期限と、owner／現期限が一致してもabsolute deadlineを超える延長を拒否する。
+- server clock省略はharness生成時に拒否し、lease deadlineは非負safe integerかつserver clock以上・absolute deadline以下だけを許可する。
+- lease延長で永続化する`next_deadline`も非負safe integerに限定し、文字列・小数・範囲外値を状態変更前に拒否する。
+- scheduled sweepは永続状態からreleased予約と期限切れactive予約を列挙し、Worker再起動後も孤立予約を解放する。
+- 予約世代prefixは専用key空間として、期限後は予約ID／fencing token欠落・不一致objectもprefix内だけで回収し、別世代には触れない。
+- Wrangler設定2ファイルは全体SHAを固定し、未承認service binding／queue等のoutbound binding追加を品質ゲートで拒否する。
+- Phase 2 entrypointも全体SHAを固定し、`phase1Worker`の`./index.ts` import元、handler、唯一の委譲callsiteを一体で保護する。
+- 承認済みSupabase `fetch`はcallsiteと設定helperを含む実装ファイル全体のSHAを固定し、`config`生成後のURL書換えを含め、既存secretを外部endpointへ転用する変更を明示reviewなしでは拒否する。
+- `app-assets`の相対URL fetchとSupabase設定helperも実装ファイル全体のSHAを固定し、URL生成元の書換えを明示reviewなしでは拒否する。
+- Supabase allowlistは承認済みhostのHTTPS標準portだけを許可し、同じhostnameでも非標準portを拒否する。
+- 承認前のDB outbound経路として`pg_net`、Database Webhook、HTTP拡張をmigration静的検査で拒否し、動的endpoint指定もfixtureで固定する。
+- migrationの引用SQL識別子を正規化してから検査し、`extensions.\"http_post\"`等の表記差でもDB outbound拒否を迂回できないようにする。
+- `search_path`経由の非修飾`http_post()`等もDB outbound capabilityとして拒否する。
+- pgsql-httpの汎用非修飾`http()`も、`search_path`に関係なくDB outbound capabilityとして拒否する。
+- migrationではtrigger用`EXECUTE FUNCTION/PROCEDURE`以外の動的`EXECUTE`を承認前に拒否し、文字列連結による禁止関数名の合成を防ぐ。
+- SQL識別子token列で`EXECUTE`を位置非依存に判定し、`GRANT/REVOKE EXECUTE`とtrigger用`EXECUTE FUNCTION/PROCEDURE`だけを許可する。
+- `EXECUTE`許可判定は引用識別子状態を保持し、`"function"`等の変数を非引用keywordの`FUNCTION/PROCEDURE`と誤認しない。
+- SQL token scannerはsingle／E／dollar文字列の内容をtoken列から除外し、文字列内の`function`等を`EXECUTE`許可keywordと誤認しない。
+- outer `DO`／`CREATE FUNCTION ... AS` dollar bodyは実行コードとしてtoken化し、body内の別delimiterによるdollar文字列は内容を除外する。
+- `DO LANGUAGE plpgsql`等もouter実行bodyとして認識し、body内のline／nested block commentはtoken scanner自身が除去する。
+- DB outbound禁止関数はcomment／文字列処理済みのSQL token列でも照合し、outer body内の関数名と括弧の間にcommentを挟んでも拒否する。
+- `CREATE FUNCTION ... AS '...'`／`AS E'...'` bodyは文字列値を復号して再帰token化し、動的`EXECUTE`を検査する。
+- JavaScript文字列の`\\xNN` escapeを復号し、SQLコメントを除去してから検査することで、表記難読化によるoutbound拒否の迂回を防ぐ。
+- JavaScript文字列のmodule／URL句読点identity escapeを復号し、`node\\:https`等の禁止module難読化を拒否する。
+- JavaScriptの既知escape接頭文字以外の識別子文字identity escapeも復号し、`node:\\https`等を実行時specifierと同じ値で検査する。
+- 承認前の製品runtimeでは動的`import()`／`require()`を全面拒否し、templateや配列結合で禁止module specifierを合成できないようにする。
+- 承認前の製品runtimeではDOM生成／parser／Image、form submit、location遷移等のブラウザ外向きsinkも拒否する。
+- `location.href`／`window|top|parent.location`直接代入と`window.open()`もブラウザ外向きsinkとして拒否する。
+- 固定済みapp-assets以外では`location`識別子の参照自体とunqualified `open()`を拒否し、computed member／alias表記も許可しない。
+- `open`も呼出形に限らず識別子参照自体を拒否し、別名変数への伝播を許可しない。
+- 固定済みapp-assets以外では、HTML文字列のresource／form／meta／base sinkも拒否し、生HTML応答から外向き読込を起こせないようにする。
+- Worker生HTML／CSSの`url()`、`@import`、`<style>`、inline style属性もresource sinkとして拒否する。
+- 全体SHA固定済みのHTML配信ファイル以外では`text/html`応答自体を拒否し、動的タグ名によるresource sink生成を許可しない。
+- `apps`／`supabase`配下の全ファイル（拡張子なし配信設定とバイナリを含む）とWrangler／package manifestをpath＋内容の単一SHA-256で固定し、未知のsink追加も明示allowlist reviewなしでは拒否する。
+- 未固定経路からの`Response.redirect()`もWorker outbound sinkとして拒否する。
+- PostgreSQLの`U&\"...\"` Unicode escaped identifierは承認前のmigrationで全面拒否し、禁止関数名のescape難読化を防ぐ。
+- JavaScript文字列のline continuationを除去し、PostgreSQLのネスト可能block commentは深さを追跡して除去してからoutbound capabilityを判定する。
+- SQL scannerはsingle quote、quoted identifier、dollar quote内のcomment markerを字句として保持し、実コメントだけを除去する。JSはCR/LF/U+2028/U+2029全line terminatorのcontinuationを正規化する。
+- block comment中はcomment depthをquote状態より先に処理し、comment内quoteで後続の実行SQLを隠せないようにする。
+- PostgreSQLの`E'...'`文字列はbackslash escapeを字句として消費し、escaped quote後のcomment markerでoutbound呼出を隠せないようにする。
+- PostgreSQLの通常文字列と`E'...'`内のoctal／hex／Unicode numeric escapeは拒否し、`standard_conforming_strings=off`環境でも`EXECUTE`等の禁止tokenをescapeで難読化できないようにする。
+- `standard_conforming_strings`設定はDO bodyを含む各statementの構造tokenで通常・E・dollar文字列を復号し、単一値の明示的true（`on`／`true`／`yes`／`1`）だけを許可する。false省略形・式・未知値はfail closedで拒否し、通常SQL文字列のidentity escapeでも禁止tokenを難読化できないようにする。
+- `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
+- `ALTER ROLE`／`ALTER DATABASE`経由の`standard_conforming_strings=off`も拒否し、後続sessionの既定値変更を許さない。
+- `pg_catalog.pg_settings`参照自体をidentifier tokenと再帰展開済み構造tokenの両方で拒否し、直接DML・更新可能view・ネスト関数などSET系以外のGUC変更経路を許さない。
+- `pg_catalog.pg_language`参照自体をidentifier tokenと再帰展開済み構造tokenの両方で拒否し、直接DML・更新可能view・ネスト関数による許可言語handler差し替えを許さない。
+- `pg_cron` token／`cron` schema参照／文字列値`cron`と未修飾を含むジョブAPI名を拒否し、search_path・直接DML・API名の違いに依存せず、後から実行されるcommand文字列へ外部通信SQLを隠せないようにする。
+- `dblink*` と `postgres_fdw*` identifier（handler／validatorを含む）および同名C共有ライブラリ／symbol文字列を拒否し、別名再登録やURL形式でない接続文字列を使う外部DB通信も許さない。
+- SQLの構造tokenで括弧深度を追い、top-levelまたはDO／Function bodyのstatement内にある `COPY` の `TO`／`FROM` 直後の `PROGRAM` だけを拒否する。同名／quoted columnや無関係な後続statementを誤検知せず、DB server上のOS command経由で外部通信を開始できないようにする。
+- migrationで許可する手続き言語を `sql`／`plpgsql` に固定し、通常identifier・通常文字列・E文字列・dollar文字列のLANGUAGE値を構造tokenで照合する。展開後のDO／Function bodyを含め、statement先頭またはAS／BEGIN／THEN／ELSE／LOOP直後のunquoted予約語だけを `CREATE [OR REPLACE] [TRUSTED] [PROCEDURAL] LANGUAGE`／`ALTER`／`DROP LANGUAGE`定義操作として拒否し、quoted列名や複合fieldに現れるcreate／trusted／languageを誤検知しない。plperl等の未承認言語と `spi_*` 能力も拒否する。
+- 静的HTMLを構造解析し、script等のactive content、event handler、meta refresh、inline style、未承認host／protocol-relativeのresource URLを拒否する。resource URLは実配信originをbaseにWHATWG正規化した後で判定し、既存の相対URLと承認済みHTTPS resourceだけを許可する。
+- 静的HTMLの`ping`属性は空白区切りURL一覧として同じresource allowlistで検査し、未承認host／protocol-relativeの監査POSTを拒否する。
+- 静的HTMLの`imagesrcset`属性も`srcset`と同じURL候補一覧として検査し、preload経路の未承認resource取得を拒否する。
+- 承認前runtimeでは`sendBeacon` capability名を表記に関係なく拒否し、optional chaining、computed member、分割代入、prototype呼出しで外向きPOSTを隠せないようにする。JavaScript構造tokenでcomputed分割代入そのものをfail closedにし、`navigator`等を代入したaliasは式の括弧深度とcomma境界を追跡して伝播させ、alias経由のcomputed memberも拒否する。
+- SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
+- PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
+- PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
+- `DO LANGUAGE 'plpgsql' 'body'`や非ASCII dollar tagのlanguage名を使う構文では、language名と後続code bodyを区別してbodyだけを再帰検査し、positional parameterの`$1`はdelimiterと誤認しない。
+- SQL block commentは空白へ置換して字句境界を保持し、コメント直後の隣接文字列も拒否する。
+- R2 reconciliation claimはprovider delete開始前に対象object key、destructive I/O pending、commit禁止のrelease-only回収遷移を永続化する。削除応答喪失やWorker停止時は記録を保持し、claim期限後に再起動したreconcilerが同じkeyの削除を冪等に再実行して、予約をcommitへ戻さず解放する。予約解放とcommitted archiveのbyte減算は容量versionも原子的に進め、古い使用量snapshotの並行予約を再試行させる。破壊的I/O中断も永久保持せず安全に回収する。
+- PostgreSQLの`U&'...'` Unicode escaped stringも全面拒否し、関数bodyの禁止tokenを難読化できないようにする。
+- R2予約の`plannedBytes`は予約処理の入口で非負safe integerを必須とし、欠落、`NaN`、負数、上限超過値が容量計算を汚染できないことをfixtureで固定する。
+- R2の正規object確定時にも同一予約世代prefixの非正規objectを回収し、期限後cleanupは予約metadata不一致objectも対象とする正本契約へ統一する。
+- list後の遅着PUTが確定時snapshotをすり抜けても、recent committed予約の定期再走査で同世代の非正規objectを回収する。
+- 完了予約は永続generation tombstoneとして再走査し、60秒を超える遅着PUTも回収する。provider verifierで対象generationのwrite fence、進行中PUT drain、lifecycle削除確認の時刻が厳密に増加することを検証し、同時刻・未drain・順序不正・別世代証跡を拒否する。拒否後にPUTが完了してもactive tombstoneが回収するfixtureを追加した。検証I/O後はarchive状態を再直列化し、使用量underflow検証、初回だけのbyte減算、archive tuple保存を同じ原子的遷移にする。
+- reconciliation sweepは予約単位で失敗を隔離・記録し、先行予約の継続障害でも後続の期限切れ予約を処理する。
+- 同一予約の並行reconcileは外部I/O後にstateを再確認し、確定と容量加算を一度だけ行う。解放側も並行確定を`released`で上書きしない。
+- 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
+- ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
+- 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
+- 最終head SHA、CI、Codex Review、未解決thread数、merge結果は、この文書自身を含むcommitより後に確定するためPR #88とIssue #70のライブ状態を正とする。
+- 次の1マイルストーン: この文書を含む最新headで全必須CI、最新Codex Review、P0／P1／P2未解決0、review thread 0を確定し、owner承認済みの#88をmergeする。包含確認後に#56をsuperseded closeし、Issue #86の隔離staging実証へ戻る。
+
 ## 毎日0時の独立セッション
 
 毎日0時に前日の会話文脈を継続しない実行を開始する場合は、`docs/09-delivery/daily-session-prompt.md` を使用する。

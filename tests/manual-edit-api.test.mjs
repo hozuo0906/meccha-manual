@@ -4,7 +4,7 @@ import test from "node:test";
 import { handleManualEditRoute } from "../apps/worker/src/manual-edit-router.ts";
 
 const APP_ORIGIN = "https://app.example.test";
-const SUPABASE_ORIGIN = "https://project.supabase.co";
+const SUPABASE_ORIGIN = "https://spjowmulvoyxxkfeyjkr.supabase.co";
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
 const MANUAL_ID = "33333333-3333-4333-8333-333333333333";

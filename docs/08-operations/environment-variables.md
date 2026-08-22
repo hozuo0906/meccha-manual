@@ -39,7 +39,6 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `STRIPE_PRICE_PERSONAL_MONTHLY` | server | パーソナル月額3,300円のPrice ID | phase8 | no |
 | `STRIPE_PRICE_TEAM_MONTHLY` | server | チーム月額9,900円のPrice ID | phase8 | no |
 | `BILLING_FEATURE_ENABLED` | server | 課金導線とStripe外部通信の機能フラグ | yes | no |
-| `AI_PROVIDER_API_KEY` | secret | 将来AI API | phase9 | no |
 | `DISCORD_WEBHOOK_URL` | secret | 通常CIからDiscordへ開発報告を通知 | harness | no |
 | `MECCHA_DISCORD_WEBHOOK_URL` | secret | 通常CI用Discord通知URLの代替名 | harness | no |
 | `DISCORD_DEVELOPMENT_WEBHOOK_URL` | secret | 開発用Discord通知URL | harness | no |

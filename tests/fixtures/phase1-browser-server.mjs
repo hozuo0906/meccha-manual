@@ -5,7 +5,7 @@ import worker from "../../apps/worker/src/index.ts";
 const hostname = "127.0.0.1";
 const port = 4173;
 const env = {
-  SUPABASE_URL: "https://example.supabase.co",
+  SUPABASE_URL: "https://spjowmulvoyxxkfeyjkr.supabase.co",
   SUPABASE_ANON_KEY: "public-anon-key"
 };
 const ctx = { waitUntil() {} };
