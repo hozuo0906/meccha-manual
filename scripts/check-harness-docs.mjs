@@ -254,7 +254,7 @@ for (const [path, expectedSha256] of [
 }
 
 function sqlDollarDelimiterAt(content, index) {
-  return content.slice(index).match(/^\$(?:[\p{L}_][\p{L}\p{M}\p{N}_]*)?\$/u)?.[0];
+  return content.slice(index).match(/^\$(?:[^\s$]+)?\$/u)?.[0];
 }
 
 function stripSqlComments(content) {
@@ -727,6 +727,7 @@ for (const fixture of [
   { content: "do language 'plpgsql' 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-quoted-language-do-outbound.sql" },
   { content: "do language $lang$plpgsql$lang$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-dollar-language-do-outbound.sql" },
   { content: "do language $言語$plpgsql$言語$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-unicode-dollar-language-do-outbound.sql" },
+  { content: "do language $😀$plpgsql$😀$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-symbol-dollar-language-do-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
