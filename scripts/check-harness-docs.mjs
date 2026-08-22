@@ -609,6 +609,77 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
   return rejected;
 }
 
+function javascriptStructuralTokens(content) {
+  const tokens = [];
+  for (let index = 0; index < content.length;) {
+    const character = content[index];
+    const next = content[index + 1];
+    if (/\s/.test(character)) { index += 1; continue; }
+    if (character === "/" && next === "/") {
+      index += 2;
+      while (index < content.length && !/[\r\n\u2028\u2029]/.test(content[index])) index += 1;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      index += 2;
+      while (index < content.length && !(content[index] === "*" && content[index + 1] === "/")) index += 1;
+      index = Math.min(content.length, index + 2);
+      continue;
+    }
+    if (["'", '"', "`"].includes(character)) {
+      const quote = character;
+      index += 1;
+      while (index < content.length) {
+        if (content[index] === "\\") { index += 2; continue; }
+        if (content[index] === quote) { index += 1; break; }
+        index += 1;
+      }
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(character)) {
+      let end = index + 1;
+      while (end < content.length && /[\w$]/.test(content[end])) end += 1;
+      tokens.push({ type: "identifier", value: content.slice(index, end) });
+      index = end;
+      continue;
+    }
+    if ("{}[]():=.".includes(character)) tokens.push({ type: "symbol", value: character });
+    index += 1;
+  }
+  return tokens;
+}
+
+function hasComputedNavigatorBinding(content) {
+  const tokens = javascriptStructuralTokens(content);
+  for (let start = 0; start < tokens.length; start += 1) {
+    if (tokens[start].value !== "{") continue;
+    let braceDepth = 1;
+    let computedBinding = false;
+    let end = start + 1;
+    for (; end < tokens.length && braceDepth > 0; end += 1) {
+      const token = tokens[end];
+      if (token.value === "{") { braceDepth += 1; continue; }
+      if (token.value === "}") { braceDepth -= 1; continue; }
+      if (token.value !== "[") continue;
+      let bracketDepth = 1;
+      let cursor = end + 1;
+      for (; cursor < tokens.length && bracketDepth > 0; cursor += 1) {
+        if (tokens[cursor].value === "[") bracketDepth += 1;
+        else if (tokens[cursor].value === "]") bracketDepth -= 1;
+      }
+      if (bracketDepth === 0 && tokens[cursor]?.value === ":" && tokens[cursor + 1]?.type === "identifier") computedBinding = true;
+      end = cursor - 1;
+    }
+    if (!computedBinding || braceDepth !== 0) continue;
+    const assignment = tokens[end];
+    const receiver = tokens[end + 1];
+    if (assignment?.value !== "=" || receiver?.type !== "identifier") continue;
+    if (receiver.value === "navigator") return true;
+    if (receiver.value === "Navigator" && tokens[end + 2]?.value === "." && tokens[end + 3]?.value === "prototype") return true;
+  }
+  return false;
+}
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -800,7 +871,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   if (path === "apps/worker/src/app-assets.ts") fetchCapabilityRemainder = fetchCapabilityRemainder.replace(/\bfetch\s*\(\s*path/g, "(");
   const hasFetchCapabilityEscape = /\bfetch\b|["']fetch["']/.test(fetchCapabilityRemainder);
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window|navigator)\s*\[/.test(normalizedContent)
-    || /\{\s*\[[^\]]+\]\s*:\s*[A-Za-z_$][\w$]*\s*\}\s*=\s*(?:navigator\b|Navigator\.prototype\b)/.test(normalizedContent);
+    || hasComputedNavigatorBinding(normalizedContent);
   const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
   const hasUnapprovedHtmlActiveContent = normalizedPath.endsWith(".html")
@@ -867,6 +938,7 @@ for (const fixture of [
   { content: 'const { sendBeacon } = navigator; sendBeacon(env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'Navigator.prototype.sendBeacon.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const key = ["send", "Beacon"].join(""); const { [key]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'const keys = [["send", "Beacon"].join("")]; const { [keys[0]]: transmit } = navigator; transmit.call(navigator, env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
