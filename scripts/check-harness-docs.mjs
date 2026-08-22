@@ -719,8 +719,26 @@ function hasAliasedComputedCapabilityLookup(content) {
   while (changed) {
     changed = false;
     for (let index = 0; index < tokens.length - 2; index += 1) {
+      if (tokens[index].value !== "function" || tokens[index + 1]?.type !== "identifier") continue;
+      const functionName = tokens[index + 1].value;
+      let bodyStart = index + 2;
+      while (bodyStart < tokens.length && tokens[bodyStart].value !== "{") bodyStart += 1;
+      if (bodyStart >= tokens.length) continue;
+      let braceDepth = 1;
+      for (let cursor = bodyStart + 1; cursor < tokens.length && braceDepth > 0; cursor += 1) {
+        if (tokens[cursor].value === "{") { braceDepth += 1; continue; }
+        if (tokens[cursor].value === "}") { braceDepth -= 1; continue; }
+        if (braceDepth > 0 && tokens[cursor].value === "return" && expressionReferencesCapability(cursor + 1)
+          && !capabilityAliases.has(functionName)) {
+          capabilityAliases.add(functionName);
+          changed = true;
+        }
+      }
+    }
+    for (let index = 0; index < tokens.length - 2; index += 1) {
       const target = tokens[index];
-      if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "." || tokens[index + 1]?.value !== "=") continue;
+      if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "."
+        || tokens[index + 1]?.value !== "=" || tokens[index + 2]?.value === "=") continue;
       if (expressionReferencesCapability(index + 2)) {
         capabilityAliases.add(target.value);
         changed = true;
@@ -1007,6 +1025,7 @@ for (const fixture of [
   { content: 'const nav = (null, navigator); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'if (enabled) [nav] = [navigator]; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator() { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
@@ -1133,7 +1152,8 @@ for (const fixture of [
   { content: 'const same = [foo] === navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
   { content: 'const enough = [foo] >= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
   { content: 'const limited = [foo] <= navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
-  { content: 'const different = [foo] != navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
+  { content: 'const different = [foo] != navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'const same = foo == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
