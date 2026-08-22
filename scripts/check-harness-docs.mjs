@@ -488,6 +488,8 @@ function sqlStructuralTokens(content) {
     if ("(),.;".includes(content[index])) {
       tokens.push({ type: "symbol", value: content[index] });
       if (content[index] === ";") statementTokenStart = tokens.length;
+    } else if (!/\s/.test(content[index])) {
+      tokens.push({ type: "operator", value: content[index] });
     }
     index += 1;
   }
@@ -710,6 +712,7 @@ for (const fixture of [
   { content: "select set_config('standard_' || 'conforming_strings', 'o' || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-expression-set-config.sql" },
   { content: "select set_config('standard_conforming_strings', chr(111) || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-function-set-config.sql" },
   { content: "select set_config('standard_conforming_strings', chr(111) || 'ff', false), $$set_config('app.manual_publish_context', 'on', true)$$;", path: "supabase/migrations/99999999999999-set-config-decoy.sql" },
+  { content: "select set_config(@@ 'app.manual_publish_context', @@ 'on', true);", path: "supabase/migrations/99999999999999-set-config-prefix-operator.sql" },
   { content: "create function public.dynamic_outbound() returns void as 'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as/**/'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-comment-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as U&'begin \\0045XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-unicode-body-outbound.sql" },
