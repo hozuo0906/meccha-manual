@@ -238,7 +238,7 @@ Issue #70には最低限、次を残す。
 - `SET [LOCAL|SESSION] [\"standard_conforming_strings\"] {=|TO} off`の各構文を拒否する。
 - `ALTER ROLE`／`ALTER DATABASE`経由の`standard_conforming_strings=off`も拒否し、後続sessionの既定値変更を許さない。
 - `pg_catalog.pg_settings`参照自体を拒否し、直接DML・更新可能view・関数などSET系以外のGUC変更経路を許さない。
-- `pg_cron` token／`cron` schema参照と未修飾を含むジョブAPI名を拒否し、文字列search_pathやAPI名の違いに依存せず、後から実行されるcommand文字列へ外部通信SQLを隠せないようにする。
+- `pg_cron` token／`cron` schema参照／文字列値`cron`と未修飾を含むジョブAPI名を拒否し、search_path・直接DML・API名の違いに依存せず、後から実行されるcommand文字列へ外部通信SQLを隠せないようにする。
 - SQLの`set_config`はcalleeと3引数を、演算子を捨てない構造tokenで照合し、承認済みの`app.manual_publish_context=on`完全一致だけを許可する。schema修飾・quoted identifier・E文字列・dollar文字列・定数式を含む他の呼出しや、文字列内のallowlist風decoyは拒否する。
 - PostgreSQLの改行で連結される隣接文字列を拒否し、関数bodyの禁止tokenを文字列境界へ分割できないようにする。
 - PostgreSQLの単一引用符／E文字列形式の`DO` bodyも復号して再帰検査し、動的`EXECUTE`によるDB outbound通信を拒否する。
