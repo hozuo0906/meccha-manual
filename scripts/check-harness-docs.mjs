@@ -409,6 +409,111 @@ function sqlIdentifierTokens(content) {
   return tokens;
 }
 
+function sqlStructuralTokens(content) {
+  const tokens = [];
+  let statementTokenStart = 0;
+  const statementIdentifiers = () => tokens.slice(statementTokenStart)
+    .filter((token) => token.type === "identifier")
+    .map((token) => token.value);
+  const isExecutableBodyPrefix = (identifiers, hasEscapePrefixToken = false) => {
+    const prefix = hasEscapePrefixToken ? identifiers.slice(0, -1) : identifiers;
+    const isDoBody = prefix[0] === "do" && (prefix.length === 1 || (prefix.length === 3 && prefix[1] === "language"));
+    const isFunctionBody = prefix.at(-1) === "as" && prefix.some((token) => ["function", "procedure"].includes(token));
+    return isDoBody || isFunctionBody;
+  };
+  for (let index = 0; index < content.length;) {
+    if (content.startsWith("--", index)) {
+      const newline = content.indexOf("\n", index + 2);
+      index = newline === -1 ? content.length : newline + 1;
+      continue;
+    }
+    if (content.startsWith("/*", index)) {
+      let depth = 1;
+      index += 2;
+      while (index < content.length && depth > 0) {
+        if (content.startsWith("/*", index)) { depth += 1; index += 2; }
+        else if (content.startsWith("*/", index)) { depth -= 1; index += 2; }
+        else index += 1;
+      }
+      continue;
+    }
+    if (content[index] === "'") {
+      const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
+      const identifiers = statementIdentifiers();
+      const hasEscapePrefixToken = backslashEscapes && identifiers.at(-1) === "e";
+      const executableBody = isExecutableBodyPrefix(identifiers, hasEscapePrefixToken);
+      if (hasEscapePrefixToken && tokens.at(-1)?.type === "identifier" && tokens.at(-1)?.value === "e") tokens.pop();
+      let value = "";
+      index += 1;
+      while (index < content.length) {
+        if (backslashEscapes && content[index] === "\\" && index + 1 < content.length) { value += content[index + 1]; index += 2; }
+        else if (content[index] === "'" && content[index + 1] === "'") { value += "'"; index += 2; }
+        else if (content[index] === "'") { index += 1; break; }
+        else { value += content[index]; index += 1; }
+      }
+      if (executableBody) tokens.push(...sqlStructuralTokens(value));
+      else tokens.push({ type: "string", value });
+      continue;
+    }
+    if (content[index] === "$") {
+      const delimiter = content.slice(index).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
+      if (delimiter) {
+        const start = index + delimiter.length;
+        const end = content.indexOf(delimiter, start);
+        if (end === -1) break;
+        const value = content.slice(start, end);
+        if (isExecutableBodyPrefix(statementIdentifiers())) tokens.push(...sqlStructuralTokens(value));
+        else tokens.push({ type: "string", value });
+        index = end + delimiter.length;
+        continue;
+      }
+    }
+    if (content[index] === '"') {
+      let value = "";
+      index += 1;
+      while (index < content.length) {
+        if (content[index] === '"' && content[index + 1] === '"') { value += '"'; index += 2; }
+        else if (content[index] === '"') { index += 1; break; }
+        else { value += content[index]; index += 1; }
+      }
+      tokens.push({ type: "identifier", value: `quoted:${value.toLowerCase()}` });
+      continue;
+    }
+    const identifier = content.slice(index).match(/^[a-z_][a-z0-9_$]*/i)?.[0];
+    if (identifier) {
+      tokens.push({ type: "identifier", value: identifier.toLowerCase() });
+      index += identifier.length;
+      continue;
+    }
+    if ("(),.;".includes(content[index])) {
+      tokens.push({ type: "symbol", value: content[index] });
+      if (content[index] === ";") statementTokenStart = tokens.length;
+    }
+    index += 1;
+  }
+  return tokens;
+}
+
+function hasUnapprovedSqlSetConfigCall(content) {
+  const tokens = sqlStructuralTokens(content);
+  const setConfigIndexes = tokens
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.type === "identifier" && ["set_config", "quoted:set_config"].includes(token.value));
+  return setConfigIndexes.some(({ token, index }) => {
+    const call = tokens.slice(index, index + 9);
+    const isApproved = token.value === "set_config"
+      && tokens[index - 1]?.value !== "."
+      && call[1]?.type === "symbol" && call[1]?.value === "("
+      && call[2]?.type === "string" && call[2]?.value === "app.manual_publish_context"
+      && call[3]?.type === "symbol" && call[3]?.value === ","
+      && call[4]?.type === "string" && call[4]?.value === "on"
+      && call[5]?.type === "symbol" && call[5]?.value === ","
+      && call[6]?.type === "identifier" && call[6]?.value === "true"
+      && call[7]?.type === "symbol" && call[7]?.value === ")";
+    return !isApproved;
+  });
+}
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -435,11 +540,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
   const hasSqlNumericEscape = normalizedPath.endsWith(".sql") && /\\(?:[0-7]{1,3}|x[0-9a-f]+|u[0-9a-f]{4}|U[0-9a-f]{8})/i.test(content);
   const hasLegacySqlBackslashEscapes = normalizedPath.endsWith(".sql") && /\bset\s+(?:(?:local|session)\s+)?"?standard_conforming_strings"?\s*(?:=|\bto\b)\s*(?:off|'off')/i.test(sqlLexicalContent);
-  const sqlSetConfigCallCount = sqlTokens.filter((token) => ["set_config", "quoted:set_config"].includes(token)).length;
-  const approvedSqlSetConfigCallCount = normalizedPath.endsWith(".sql")
-    ? (sqlLexicalContent.match(/\bset_config\s*\(\s*'app\.manual_publish_context'\s*,\s*'on'\s*,\s*true\s*\)/gi) ?? []).length
-    : 0;
-  const hasUnapprovedSqlSetConfig = sqlSetConfigCallCount !== approvedSqlSetConfigCallCount;
+  const hasUnapprovedSqlSetConfig = normalizedPath.endsWith(".sql") && hasUnapprovedSqlSetConfigCall(sqlLexicalContent);
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
     "api.github.com",
@@ -608,6 +709,7 @@ for (const fixture of [
   { content: "select set_config($name$standard_conforming_strings$name$, $value$off$value$, false);", path: "supabase/migrations/99999999999999-legacy-dollar-set-config.sql" },
   { content: "select set_config('standard_' || 'conforming_strings', 'o' || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-expression-set-config.sql" },
   { content: "select set_config('standard_conforming_strings', chr(111) || 'ff', false);", path: "supabase/migrations/99999999999999-legacy-function-set-config.sql" },
+  { content: "select set_config('standard_conforming_strings', chr(111) || 'ff', false), $$set_config('app.manual_publish_context', 'on', true)$$;", path: "supabase/migrations/99999999999999-set-config-decoy.sql" },
   { content: "create function public.dynamic_outbound() returns void as 'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as/**/'begin EX'\n'ECUTE ''select extensions.http_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-comment-adjacent-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as U&'begin \\0045XECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-unicode-body-outbound.sql" },
