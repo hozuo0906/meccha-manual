@@ -742,7 +742,8 @@ function hasAliasedComputedCapabilityLookup(content) {
   const isObjectOrClassBody = (cursor) => {
     const opening = enclosingBraceStart(cursor);
     if (opening === null) return false;
-    if (["=", "(", "[", ",", ":", "return"].includes(tokens[opening - 1]?.value)) return true;
+    if (["=", "(", "[", ",", "return"].includes(tokens[opening - 1]?.value)) return true;
+    if (tokens[opening - 1]?.value === ":") return isObjectOrClassBody(opening - 1);
     for (let index = opening - 1; index >= 0 && ![";", "{", "}"].includes(tokens[index].value); index -= 1) {
       if (tokens[index].value === "class") return true;
     }
@@ -1106,6 +1107,7 @@ for (const fixture of [
   { content: 'function getNavigator(options = {}) { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { logger()\n{ return navigator; } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator() { label: { logger()\n{ return navigator; } } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
