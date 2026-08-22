@@ -601,8 +601,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     && sqlTokens.some((token) => ["pg_settings", "quoted:pg_settings"].includes(token));
   const hasSqlSchedulingCapability = normalizedPath.endsWith(".sql") && (
     sqlTokens.some((token) => ["pg_cron", "quoted:pg_cron"].includes(token))
-    || (sqlTokens.some((token) => ["cron", "quoted:cron"].includes(token))
-      && sqlTokens.some((token) => ["schedule", "quoted:schedule"].includes(token)))
+    || sqlTokens.some((token) => ["cron", "quoted:cron"].includes(token))
   );
   const hasAdjacentSqlStrings = normalizedPath.endsWith(".sql") && /(?:^|[\s(])(?:E|U&)?'(?:[^']|'')*'\s*(?:\r?\n|\r)[ \t]*(?:E|U&)?'/im.test(sqlLexicalContent);
   const approvedEgressHosts = new Set([
@@ -784,6 +783,7 @@ for (const fixture of [
   { content: "update pg_catalog.pg_settings set setting = 'off' where name = 'standard_conforming_strings';", path: "supabase/migrations/99999999999999-pg-settings-mutation.sql" },
   { content: "create view public.guc_proxy as select * from pg_catalog.pg_settings;", path: "supabase/migrations/99999999999999-pg-settings-view.sql" },
   { content: "create extension pg_cron; select cron.schedule('* * * * *', 'select extensions.ht' || 'tp_get(...)');", path: "supabase/migrations/99999999999999-cron-command-outbound.sql" },
+  { content: "select cron.schedule_in_database('hidden-egress', '* * * * *', 'select extensions.ht' || 'tp_get(...)', current_database());", path: "supabase/migrations/99999999999999-cron-database-command-outbound.sql" },
   { content: "alter role current_user set standard_conforming_strings to off;", path: "supabase/migrations/99999999999999-alter-role-legacy-escape.sql" },
   { content: "alter database meccha_manual set standard_conforming_strings = 'off';", path: "supabase/migrations/99999999999999-alter-database-legacy-escape.sql" },
   { content: "select set_config('standard_conforming_strings', 'off', false); create function public.dynamic_outbound() returns void as 'begin EX\\ECUTE ''select extensions.ht'' || ''tp_get(...)''; end' language plpgsql;", path: "supabase/migrations/99999999999999-legacy-set-config-body-outbound.sql" },
