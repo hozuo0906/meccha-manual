@@ -709,7 +709,7 @@ function hasAliasedComputedCapabilityLookup(content) {
         stack.pop();
       }
     }
-    if (stack.length > 0 || tokens[end]?.value !== "=") return null;
+    if (stack.length > 0 || tokens[end]?.value !== "=" || tokens[end + 1]?.value === "=") return null;
     const names = tokens.slice(start + 1, end - 1)
       .filter((token) => token.type === "identifier" && !["const", "let", "var"].includes(token.value))
       .map((token) => token.value);
@@ -1128,10 +1128,12 @@ for (const fixture of [
   { content: "copy safe_table (\"to\", \"program\") to stdout;", path: "supabase/migrations/99999999999999-safe-copy-quoted-columns.sql" },
   { content: "create view public.language_alias as select locale as language;", path: "supabase/migrations/99999999999999-safe-language-alias.sql" },
   { content: "create view safe as select \"create\", trusted, language from (values (1,2,3)) as v(\"create\", trusted, language);", path: "supabase/migrations/99999999999999-safe-language-columns.sql" },
-  { content: "select ((safe.create).trusted).language from safe;", path: "supabase/migrations/99999999999999-safe-qualified-language-fields.sql" }
+  { content: "select ((safe.create).trusted).language from safe;", path: "supabase/migrations/99999999999999-safe-qualified-language-fields.sql" },
+  { content: 'if (enabled) [foo] == navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" },
+  { content: 'const same = [foo] === navigator; foo[key]();', path: "apps/worker/src/safe-comparison.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
-    errors.push(`AI absence safe SQL fixture was rejected: ${fixture.path}`);
+    errors.push(`AI absence safe fixture was rejected: ${fixture.path}`);
   }
 }
 
