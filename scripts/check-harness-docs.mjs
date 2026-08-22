@@ -348,7 +348,7 @@ function sqlIdentifierTokens(content) {
     if (content[index] === "'") {
       const backslashEscapes = /[eE]/.test(content[index - 1] ?? "") && !/[a-z0-9_$]/i.test(content[index - 2] ?? "");
       const hasEscapePrefixToken = backslashEscapes && tokens.at(-1) === "e";
-      const executableBody = tokens.at(-1) === "as" || (hasEscapePrefixToken && tokens.at(-2) === "as");
+      const executableBody = ["as", "do"].includes(tokens.at(-1)) || (hasEscapePrefixToken && ["as", "do"].includes(tokens.at(-2)));
       if (hasEscapePrefixToken) tokens.pop();
       let value = "";
       index += 1;
@@ -578,6 +578,8 @@ for (const fixture of [
   { content: "do $$ begin execute '/* function */ select extensions.ht' || 'tp_get(' || quote_literal(current_setting('app.remote_endpoint')) || ')'; end $$;", path: "supabase/migrations/99999999999999-string-keyword-outbound.sql" },
   { content: "do $$ begin execute $sql$/* function */ $sql$ || $a$select extensions.ht$a$ || $b$tp_get($b$ || quote_literal(current_setting('app.remote_endpoint')) || ')'; end $$;", path: "supabase/migrations/99999999999999-dollar-keyword-outbound.sql" },
   { content: "do language plpgsql $body$ begin execute 'select extensions.http_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-do-language-outbound.sql" },
+  { content: "do 'begin execute ''select extensions.ht'' || ''tp_get(...)''; end';", path: "supabase/migrations/99999999999999-single-quoted-do-outbound.sql" },
+  { content: "do E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end';", path: "supabase/migrations/99999999999999-e-string-do-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },

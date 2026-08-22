@@ -386,6 +386,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       reservation.archivedGenerationPrefix = verified.generationPrefix;
       if (reservation.state === "committed") {
         persistentState.currentBytes -= reservation.plannedBytes;
+        persistentState.version += 1;
         reservation.usageReleasedAt = trustedNow;
       }
       return reservation;
@@ -623,7 +624,29 @@ raceState.currentBytes = 0;
 await assert.rejects(raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62), /must not underflow/);
 assert.equal(raceHarness.snapshot().reservations[0].generationArchived, undefined, "failed usage validation must leave the tombstone active and unmodified");
 raceState.currentBytes = raceRequest.plannedBytes;
+const afterArchiveRequest = { ...saveRequest, operationKey: "after-archive-capacity-release", generationId: "reservation-after-archive-capacity-release", objectKey: "workspace-001/manuals/manual-001/reservation-after-archive-capacity-release/canonical.png", plannedBytes: 5 };
+let announceArchiveUsageRead;
+let releaseArchiveUsageRead;
+const archiveUsageRead = new Promise((resolve) => { announceArchiveUsageRead = resolve; });
+const archiveUsageMayContinue = new Promise((resolve) => { releaseArchiveUsageRead = resolve; });
+const staleArchiveReservation = raceHarness.reserveAfterObservedUsage(
+  afterArchiveRequest,
+  { owner: "worker-after-archive", deadline: 100, fencingToken: "fence-after-archive" },
+  async (observedBytes) => {
+    assert.equal(observedBytes, raceRequest.plannedBytes, "concurrent reservation must initially observe committed bytes awaiting archive");
+    announceArchiveUsageRead();
+    await archiveUsageMayContinue;
+  }
+);
+await archiveUsageRead;
 await raceHarness.archiveGeneration(raceRequest.operationKey, "proof-001", 62);
+releaseArchiveUsageRead();
+await assert.rejects(staleArchiveReservation, /reservation serialization conflict/, "committed archive must invalidate a concurrent stale usage snapshot");
+assert.equal((await raceHarness.reserveAfterObservedUsage(
+  afterArchiveRequest,
+  { owner: "worker-after-archive", deadline: 100, fencingToken: "fence-after-archive" },
+  async (observedBytes) => assert.equal(observedBytes, 0, "retry must observe capacity released by committed archive")
+)).state, "reserved", "retry after archive version conflict must reserve against current capacity");
 const raceListCallsAtArchive = raceListCalls;
 await raceHarness.sweepReleased(63);
 assert.equal(raceListCalls, raceListCallsAtArchive, "provider-confirmed archived tombstone must leave the active generation LIST set");
