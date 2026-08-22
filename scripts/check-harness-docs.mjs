@@ -678,6 +678,7 @@ function hasComputedCapabilityBinding(content) {
 function hasAliasedComputedCapabilityLookup(content) {
   const tokens = javascriptStructuralTokens(content);
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
+  const capabilityMethodAliases = new Set();
   const expressionReferencesCapability = (start, endExclusive = tokens.length) => {
     let parentheses = 0;
     let brackets = 0;
@@ -695,6 +696,14 @@ function hasAliasedComputedCapabilityLookup(content) {
       }
       if (parentheses === 0 && brackets === 0 && braces === 0 && [",", ";"].includes(token.value)) break;
       if (token.type === "identifier" && capabilityAliases.has(token.value)) return true;
+    }
+    return false;
+  };
+  const expressionCallsCapabilityMethod = (start, endExclusive = tokens.length) => {
+    for (let cursor = start; cursor < endExclusive; cursor += 1) {
+      if (tokens[cursor].type === "identifier" && capabilityMethodAliases.has(tokens[cursor].value)
+        && tokens[cursor - 1]?.value === "." && tokens[cursor + 1]?.value === "(") return true;
+      if ([",", ";"].includes(tokens[cursor].value)) break;
     }
     return false;
   };
@@ -747,8 +756,10 @@ function hasAliasedComputedCapabilityLookup(content) {
       let nestedColons = 0;
       for (let index = opening - 2; index >= 0 && ![";", "{", "}"].includes(tokens[index].value); index -= 1) {
         if (tokens[index].value === ":") nestedColons += 1;
-        else if (tokens[index].value === "?" && nestedColons === 0) return true;
-        else if (tokens[index].value === "?") nestedColons -= 1;
+        else if (tokens[index].value === "?" && tokens[index + 1]?.value !== "." && tokens[index + 1]?.value !== "?"
+          && tokens[index - 1]?.value !== "?" && nestedColons === 0) return true;
+        else if (tokens[index].value === "?" && tokens[index + 1]?.value !== "." && tokens[index + 1]?.value !== "?"
+          && tokens[index - 1]?.value !== "?") nestedColons -= 1;
       }
       return isObjectOrClassBody(opening - 1);
     }
@@ -821,10 +832,25 @@ function hasAliasedComputedCapabilityLookup(content) {
       }
     }
     for (let index = 0; index < tokens.length - 2; index += 1) {
+      if (tokens[index].type !== "identifier" || !isObjectOrClassBody(index)) continue;
+      const afterParams = afterMatching(index + 1, "(", ")");
+      if (afterParams === null || tokens[afterParams]?.value !== "{") continue;
+      const bodyEnd = afterBody(afterParams);
+      if (bodyEnd === null || capabilityMethodAliases.has(tokens[index].value)) continue;
+      for (let cursor = afterParams + 1; cursor < bodyEnd - 1; cursor += 1) {
+        if (["return", "yield"].includes(tokens[cursor].value)
+          && expressionReferencesCapability(cursor + 1, bodyEnd - 1)) {
+          capabilityMethodAliases.add(tokens[index].value);
+          changed = true;
+          break;
+        }
+      }
+    }
+    for (let index = 0; index < tokens.length - 2; index += 1) {
       const target = tokens[index];
       if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "."
         || tokens[index + 1]?.value !== "=" || tokens[index + 2]?.value === "=") continue;
-      if (expressionReferencesCapability(index + 2)) {
+      if (expressionReferencesCapability(index + 2) || expressionCallsCapabilityMethod(index + 2)) {
         capabilityAliases.add(target.value);
         changed = true;
       }
@@ -1114,9 +1140,11 @@ for (const fixture of [
   { content: 'function getNavigator({ value }) { return navigator; } const nav = getNavigator({}); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(options = {}) { return navigator; } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function* getNavigator() { yield navigator; } const nav = getNavigator().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { logger()\n{ return navigator; } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { label: { logger()\n{ return navigator; } } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'function getNavigator(obj) { obj?.value\nlabel: { logger()\n{ return navigator; } } } const nav = getNavigator({}); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'const form = document.createElement("form"); form.action = env.REMOTE_URL; form.submit();', path: "apps/worker/src/provider.ts" },
   { content: 'const image = new Image(); image.src = env.REMOTE_URL;', path: "apps/worker/src/provider.ts" },
   { content: 'location.href = ["https:", "//api.groq.com/openai/v1/responses"].join("");', path: "apps/worker/src/provider.ts" },
