@@ -60,6 +60,15 @@ test("legacy generic endpoint marker fails without logging its value", () => {
   assert.doesNotMatch(output, /AI_ENDPOINT/);
 });
 
+test("underscore-delimited legacy endpoint marker fails without logging its value", () => {
+  const result = runFixture("legacy-endpoint-underscore-marker");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /provider-config\.ts/);
+  assert.doesNotMatch(output, /PUBLIC_AI_ENDPOINT_URL/);
+});
+
 test("AI-specific migration objects fail", () => {
   const result = runFixture("product-migration");
   assert.notEqual(result.status, 0, result.stdout);
