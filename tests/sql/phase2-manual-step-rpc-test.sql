@@ -208,10 +208,10 @@ begin
       '66666666-6666-4666-8666-666666666666',
       array[
         local_id,
-        :'step_a'::uuid,
-        :'step_b'::uuid,
-        :'admin_step'::uuid,
-        :'owner_step'::uuid,
+        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '保存'),
+        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足'),
+        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '管理者追記'),
+        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '所有者追記'),
         foreign_id
       ]
     );
