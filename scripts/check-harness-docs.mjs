@@ -215,7 +215,7 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /\bREPLICATE_API_TOKEN\b/i
   ]),
   aiSchemaObjects: Object.freeze([
-    /\b(?:create|alter|drop)\s+(?:or\s+replace\s+)?(?:table|index|view|function|type|policy)\s+(?:if\s+not\s+exists\s+)?(?:["`']?[a-z0-9_]+["`']?\s*\.\s*)?["`']?ai_[a-z0-9_]+\b/i,
+    /\b(?:create|alter|drop)\s+(?:table|index|view|type|policy)\s+(?:if\s+not\s+exists\s+)?(?:["`']?[a-z0-9_]+["`']?\s*\.\s*)?["`']?ai_[a-z0-9_]+\b/i,
     /\bai_(?:[a-z0-9]+_)*(?:settings?|providers?|logs?|generations?|requests?|usage|prompts?)\b/i,
     /\b(?:llm|embedding|inference|prompt)_(?:[a-z0-9]+_)*(?:settings?|configs?|logs?|generations?|requests?|usage)\b/i,
     /\bmodel_(?:settings?|configs?|providers?)\b/i
@@ -293,6 +293,81 @@ function hasDependencyDeclaration(source) {
   return false;
 }
 
+function readSqlIdentifier(source, start) {
+  if (source[start] === '"') {
+    let index = start + 1;
+    let value = "";
+    while (index < source.length) {
+      if (source[index] !== '"') {
+        value += source[index];
+        index += 1;
+        continue;
+      }
+      if (source[index + 1] === '"') {
+        value += '"';
+        index += 2;
+        continue;
+      }
+      return { value, next: index + 1 };
+    }
+    return null;
+  }
+
+  const match = source.slice(start).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+  if (!match) return null;
+  return { value: match[0], next: start + match[0].length };
+}
+
+function skipSqlWhitespace(source, start) {
+  let index = start;
+  while (index < source.length && /\s/.test(source[index])) index += 1;
+  return index;
+}
+
+function readSqlKeyword(source, start) {
+  const identifier = readSqlIdentifier(source, start);
+  if (!identifier || identifier.value.includes('"')) return null;
+  return identifier;
+}
+
+function hasAiFunctionDeclaration(source) {
+  const createPattern = /\bcreate\b/gi;
+  let match;
+  while ((match = createPattern.exec(source))) {
+    let index = skipSqlWhitespace(source, match.index + match[0].length);
+    let keyword = readSqlKeyword(source, index);
+    if (!keyword) continue;
+    index = skipSqlWhitespace(source, keyword.next);
+    if (keyword.value.toLowerCase() === "or") {
+      keyword = readSqlKeyword(source, index);
+      if (!keyword || keyword.value.toLowerCase() !== "replace") continue;
+      index = skipSqlWhitespace(source, keyword.next);
+      keyword = readSqlKeyword(source, index);
+      if (!keyword || keyword.value.toLowerCase() !== "function") continue;
+      index = skipSqlWhitespace(source, keyword.next);
+    } else if (keyword.value.toLowerCase() === "function") {
+      index = skipSqlWhitespace(source, keyword.next);
+    } else {
+      continue;
+    }
+
+    const firstIdentifier = readSqlIdentifier(source, index);
+    if (!firstIdentifier) return true;
+    index = skipSqlWhitespace(source, firstIdentifier.next);
+    let objectName = firstIdentifier.value;
+    if (source[index] === ".") {
+      index = skipSqlWhitespace(source, index + 1);
+      const objectIdentifier = readSqlIdentifier(source, index);
+      if (!objectIdentifier) return true;
+      objectName = objectIdentifier.value;
+      index = skipSqlWhitespace(source, objectIdentifier.next);
+    }
+    if (source[index] !== "(") return true;
+    if (objectName.toLowerCase().startsWith("ai_")) return true;
+  }
+  return false;
+}
+
 function findAiProhibitionRule(source, rules) {
   if (rules.includes("dependency-declarations")) {
     if (hasDependencyDeclaration(source)) return "dependency-declarations";
@@ -308,7 +383,8 @@ function findAiProhibitionRule(source, rules) {
   ) return "provider-bindings";
   if (
     rules.includes("ai-schema-objects") &&
-    AI_PROHIBITION_SCAN_CONTRACT.aiSchemaObjects.some((pattern) => pattern.test(source))
+    (hasAiFunctionDeclaration(source) ||
+      AI_PROHIBITION_SCAN_CONTRACT.aiSchemaObjects.some((pattern) => pattern.test(source)))
   ) return "ai-schema-objects";
   return null;
 }

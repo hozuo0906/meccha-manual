@@ -106,6 +106,22 @@ test("quoted qualified AI function migrations are rejected", () => {
   assert.doesNotMatch(output, /ai_vectorize/);
 });
 
+for (const [fixture, marker] of [
+  ["product-quoted-hyphen-function-migration", "ai_vectorize"],
+  ["product-quoted-space-function-migration", "ai_vectorize"],
+  ["product-quoted-doubled-function-migration", "ai_vectorize"],
+  ["product-malformed-function-migration", "ai_bad"],
+  ["product-unknown-function-header", "calculate_manual_total"]
+]) {
+  test(`${fixture} fails closed with rule ID/path-only diagnostics`, () => {
+    const result = runFixture(fixture);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(output, /product-db-migrations\/ai-schema-objects/);
+    assert.doesNotMatch(output, new RegExp(marker));
+  });
+}
+
 test("ordinary product code passes", () => {
   const result = runFixture("allowed-product");
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
