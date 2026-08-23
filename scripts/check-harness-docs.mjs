@@ -318,10 +318,27 @@ function readSqlIdentifier(source, start) {
   return { value: match[0], next: start + match[0].length };
 }
 
-function skipSqlWhitespace(source, start) {
+function skipSqlSeparators(source, start) {
   let index = start;
-  while (index < source.length && /\s/.test(source[index])) index += 1;
-  return index;
+  while (index < source.length) {
+    if (/\s/.test(source[index])) {
+      index += 1;
+      continue;
+    }
+    if (source.startsWith("--", index)) {
+      const newline = source.indexOf("\n", index + 2);
+      index = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      const close = source.indexOf("*/", index + 2);
+      if (close === -1) return { index: source.length, valid: false };
+      index = close + 2;
+      continue;
+    }
+    break;
+  }
+  return { index, valid: true };
 }
 
 function readSqlKeyword(source, start) {
@@ -334,33 +351,49 @@ function hasAiFunctionDeclaration(source) {
   const createPattern = /\bcreate\b/gi;
   let match;
   while ((match = createPattern.exec(source))) {
-    let index = skipSqlWhitespace(source, match.index + match[0].length);
+    let separators = skipSqlSeparators(source, match.index + match[0].length);
+    if (!separators.valid) return true;
+    let index = separators.index;
     let keyword = readSqlKeyword(source, index);
     if (!keyword) continue;
-    index = skipSqlWhitespace(source, keyword.next);
+    separators = skipSqlSeparators(source, keyword.next);
+    if (!separators.valid) return true;
+    index = separators.index;
     if (keyword.value.toLowerCase() === "or") {
       keyword = readSqlKeyword(source, index);
       if (!keyword || keyword.value.toLowerCase() !== "replace") continue;
-      index = skipSqlWhitespace(source, keyword.next);
+      separators = skipSqlSeparators(source, keyword.next);
+      if (!separators.valid) return true;
+      index = separators.index;
       keyword = readSqlKeyword(source, index);
       if (!keyword || keyword.value.toLowerCase() !== "function") continue;
-      index = skipSqlWhitespace(source, keyword.next);
+      separators = skipSqlSeparators(source, keyword.next);
+      if (!separators.valid) return true;
+      index = separators.index;
     } else if (keyword.value.toLowerCase() === "function") {
-      index = skipSqlWhitespace(source, keyword.next);
+      separators = skipSqlSeparators(source, keyword.next);
+      if (!separators.valid) return true;
+      index = separators.index;
     } else {
       continue;
     }
 
     const firstIdentifier = readSqlIdentifier(source, index);
     if (!firstIdentifier) return true;
-    index = skipSqlWhitespace(source, firstIdentifier.next);
+    separators = skipSqlSeparators(source, firstIdentifier.next);
+    if (!separators.valid) return true;
+    index = separators.index;
     let objectName = firstIdentifier.value;
     if (source[index] === ".") {
-      index = skipSqlWhitespace(source, index + 1);
+      separators = skipSqlSeparators(source, index + 1);
+      if (!separators.valid) return true;
+      index = separators.index;
       const objectIdentifier = readSqlIdentifier(source, index);
       if (!objectIdentifier) return true;
       objectName = objectIdentifier.value;
-      index = skipSqlWhitespace(source, objectIdentifier.next);
+      separators = skipSqlSeparators(source, objectIdentifier.next);
+      if (!separators.valid) return true;
+      index = separators.index;
     }
     if (source[index] !== "(") return true;
     if (objectName.toLowerCase().startsWith("ai_")) return true;

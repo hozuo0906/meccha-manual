@@ -111,7 +111,9 @@ for (const [fixture, marker] of [
   ["product-quoted-space-function-migration", "ai_vectorize"],
   ["product-quoted-doubled-function-migration", "ai_vectorize"],
   ["product-malformed-function-migration", "ai_bad"],
-  ["product-unknown-function-header", "calculate_manual_total"]
+  ["product-unknown-function-header", "calculate_manual_total"],
+  ["product-commented-function-migration", "ai_vectorize"],
+  ["product-unterminated-comment-function-migration", "calculate_manual_total"]
 ]) {
   test(`${fixture} fails closed with rule ID/path-only diagnostics`, () => {
     const result = runFixture(fixture);
