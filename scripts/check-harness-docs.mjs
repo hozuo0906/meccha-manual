@@ -2063,6 +2063,11 @@ function hasAiRuntimeBoundary(content, path = "") {
       }
     }
   }
+  const hasConfigOwnerEscape = ["config"].some((owner) => {
+    const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const wholeOwner = `\\b${escapedOwner}\\b(?!\\s*[.\\[])`;
+    return new RegExp(`(?:[:[,]\\s*${wholeOwner}\\s*[,}\\]]|\\(\\s*${wholeOwner}\\s*[,)]|,\\s*${wholeOwner}\\s*[,)]|(?:^|[;{])\\s*[A-Za-z_$][\\w$]*(?:\\s*[.[][^=;]+)?\\s*=\\s*${wholeOwner}\\s*(?:[;,)]|$))`).test(normalizedContent);
+  });
   const hasApprovedConfigMutation = [...configOwnerAliases].some((owner) => {
     const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const property = `(?:\\.\\s*url|\\[\\s*["'\`]url["'\`]\\s*\\])`;
@@ -2074,7 +2079,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     !expectedConfigInitializers
     || configInitializers.length !== expectedConfigInitializers.length
     || configInitializers.some((initializer, index) => initializer !== expectedConfigInitializers[index])
-    || hasApprovedConfigMutation
+    || hasApprovedConfigMutation || hasConfigOwnerEscape
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
@@ -2445,6 +2450,8 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = config; const forwarded = alias; forwarded["url"] &&= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = env.SUPABASE_URL ? config : config; alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = (observe(), config); alias["url"] = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = { value: config }; holder.value.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = [config]; holder[0].url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
