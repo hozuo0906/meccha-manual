@@ -86,7 +86,8 @@ const requiredDocs = {
   ],
   "docs/08-operations/feature-flags.md": [
     "`capture.browserRun.egressVerified.enabled`",
-    "AC-023"
+    "AC-023",
+    "owner明示承認が揃うまでAI用flagを登録しない"
   ],
   "docs/05-api/api-contracts.md": [
     "503 BROWSER_EGRESS_NOT_VERIFIED",
@@ -162,6 +163,17 @@ for (const [file, terms] of Object.entries(requiredDocs)) {
 }
 
 const combined = Object.values(contents).join("\n");
+if ((contents["docs/08-operations/feature-flags.md"] ?? "").includes("ai.assistiveGeneration.enabled")) {
+  errors.push("AI feature flag must not be registered before owner approval.");
+}
+if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes("| `AI_PROVIDER_API_KEY` |")) {
+  errors.push("AI provider secret must not be registered before owner approval.");
+}
+for (const endpointLiteral of ["| `AI_PROVIDER_ENDPOINT` |", "| `AI_API_ENDPOINT` |"]) {
+  if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes(endpointLiteral)) {
+    errors.push(`AI endpoint must not be registered before owner approval: ${endpointLiteral}`);
+  }
+}
 const browserAcceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
 const ac023 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
 for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {

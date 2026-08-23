@@ -13,7 +13,7 @@
 - 認証/DB: Supabase Auth / Postgres / RLS
 - ファイル保存: Cloudflare R2を第一候補（Supabase Storageは第一保存先にしない）
 - 課金拡張: Stripe Checkout Sessions / Link / Webhook
-- AI API: 初期OFF。将来ONにできる設計のみ用意する
+- AI API: 売上安定とowner明示承認まで設計・実装・設定を行わない
 - Chrome拡張: 第一方式にしない
 - 共有リンク: デフォルトOFF
 - ロゴ: ひらがなの「め」+ 折り返した紙 + 手順番号の方向で暫定制作
