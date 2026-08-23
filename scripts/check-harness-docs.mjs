@@ -268,6 +268,63 @@ for (const [acceptanceId, columns] of Object.entries(requiredAcceptanceOutcomes)
   }
 }
 
+const requiredFencingContracts = [
+  {
+    file: "docs/09-delivery/decision-log.md",
+    marker: "- Decision: Browser Runは残り時間を開始前に原子的に予約する",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/01-product/pricing-and-plans.md",
+    marker: "- R2への書込",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/07-quality/acceptance-catalog.md",
+    marker: "| AC-065 |",
+    terms: [
+      "result-unknownはreconciliationまで予約を保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  },
+  {
+    file: "docs/09-delivery/risk-register.md",
+    marker: "| RISK-019 |",
+    terms: [
+      "result-unknownはreconciliationまで保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  }
+];
+for (const { file, marker, terms } of requiredFencingContracts) {
+  const line = contents[file]?.split("\n").find((candidate) => candidate.includes(marker)) ?? "";
+  if (!line) {
+    errors.push("Missing fencing contract line in " + file + ": " + marker);
+    continue;
+  }
+  for (const term of terms) {
+    if (!line.includes(term)) {
+      errors.push("Fencing contract is missing in " + file + ": " + term);
+    }
+  }
+}
+
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 for (const [environment, config] of [["default", wrangler], ...Object.entries(wrangler.env ?? {})]) {
   const billingFlag = config?.vars?.BILLING_FEATURE_ENABLED;
