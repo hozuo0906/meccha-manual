@@ -836,8 +836,8 @@ function hasAliasedComputedCapabilityLookup(content) {
             let typeReferenceCanAcceptArguments = false;
             let lastComma = null;
             const primitiveTypeNames = new Set([
-              "any", "bigint", "boolean", "never", "null", "number", "object", "string",
-              "symbol", "undefined", "unknown", "void"
+              "any", "bigint", "boolean", "const", "false", "never", "null", "number", "object",
+              "string", "symbol", "this", "true", "undefined", "unknown", "void"
             ]);
             for (let receiverIndex = 0; receiverIndex < receiver.length; receiverIndex += 1) {
               const value = receiver[receiverIndex]?.value;
@@ -854,6 +854,10 @@ function hasAliasedComputedCapabilityLookup(content) {
                 typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
               } else if (value === "<" && (angleDepth > 0
                 || (inTypeAssertion && typeReferenceCanAcceptArguments))) angleDepth += 1;
+              else if (value === "<" && inTypeAssertion) {
+                inTypeAssertion = false;
+                typeReferenceCanAcceptArguments = false;
+              }
               else if (value === ">" && angleDepth > 0 && receiver[receiverIndex - 1]?.value !== "=") {
                 angleDepth -= 1;
                 if (angleDepth === 0) typeReferenceCanAcceptArguments = false;
@@ -1667,6 +1671,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as number, Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as number < 1, () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as const < Number(Source.getNavigator), () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
