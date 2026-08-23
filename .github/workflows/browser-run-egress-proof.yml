@@ -48,7 +48,6 @@ jobs:
 
   live-proof-preflight:
     if: github.event_name == 'workflow_dispatch'
-    needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

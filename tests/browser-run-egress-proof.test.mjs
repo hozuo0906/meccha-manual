@@ -54,14 +54,15 @@ test("live proof rejects an unready staging, branch, mismatched candidate, malfo
 
 test("every manual dispatch reaches credential-free preflight even when confirmation is invalid", async () => {
   const workflow = await readFile(".github/workflows/browser-run-egress-proof.yml", "utf8");
+  const preflight = workflow.match(/  live-proof-preflight:\n([\s\S]*?)\n  live-proof:/u)?.[1] ?? "";
+  const liveProof = workflow.match(/  live-proof:\n([\s\S]*)/u)?.[1] ?? "";
   assert.match(
-    workflow,
-    /live-proof-preflight:\n\s+if: github\.event_name == 'workflow_dispatch'\n/u
+    preflight,
+    /^\s+if: github\.event_name == 'workflow_dispatch'$/mu
   );
-  assert.doesNotMatch(
-    workflow,
-    /live-proof-preflight:\n\s+if:[^\n]*inputs\.confirmation/u
-  );
+  assert.doesNotMatch(preflight, /^\s+needs:/mu);
+  assert.doesNotMatch(preflight, /always\(\)/u);
+  assert.match(liveProof, /^\s+needs:\n\s+- contract\n\s+- live-proof-preflight$/mu);
 });
 
 test("guarded session uses one exact fixture hostname and disables recording", () => {

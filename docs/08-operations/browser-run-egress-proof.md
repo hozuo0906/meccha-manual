@@ -53,7 +53,7 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 
 ## 実行境界
 
-`Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`と検証対象mainの40文字commit SHAで手動実行する。すべての手動dispatchはcredential-free preflightを通り、確認文字列が不正な場合もgreen skipではなく失敗する。preflightは`workflow_dispatch`、`refs/heads/main`、実行SHAと入力SHAの完全一致、初回run attempt、repo-level readiness markerの完全一致だけを受理する。preflightに合格するまで`staging` Environmentを要求せず、live runnerもCloudflare資格情報を読む前に同じ条件を再検証する。再実行では外部通信せず、新しいworkflow dispatchと新しい証跡を要求する。
+`Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`と検証対象mainの40文字commit SHAで手動実行する。すべての手動dispatchはcredential-free preflightを通り、確認文字列が不正な場合もgreen skipではなく失敗する。preflightはcontract jobから独立して実行するため、`npm ci`などの契約検査が失敗しても暗黙skipされない。live jobだけがcontractとpreflightの両方の成功を要求する。preflightは`workflow_dispatch`、`refs/heads/main`、実行SHAと入力SHAの完全一致、初回run attempt、repo-level readiness markerの完全一致だけを受理する。preflightに合格するまで`staging` Environmentを要求せず、live runnerもCloudflare資格情報を読む前に同じ条件を再検証する。再実行では外部通信せず、新しいworkflow dispatchと新しい証跡を要求する。
 
 GitHub `staging` Environmentに専用tokenとfixture URLが揃わない場合はlive jobを実行しない。GitHubはworkflowが存在しないEnvironmentを参照した場合に保護ルールやsecretのないEnvironmentを自動作成し得るため、管理者が次の構成を完了するまではdispatchしない。
 
