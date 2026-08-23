@@ -687,7 +687,9 @@ function hasAliasedComputedCapabilityLookup(content) {
   }
   const isGroupingOpening = (opening) => {
     const previous = tokens[opening - 1];
-    return previous?.type !== "identifier" && ![")", "]", "."].includes(previous?.value);
+    const prefixKeywords = new Set(["await", "yield", "return", "throw", "typeof", "void", "delete"]);
+    return (previous?.type !== "identifier" || prefixKeywords.has(previous.value))
+      && ![")", "]", "."].includes(previous?.value);
   };
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
   const capabilityMethodAliases = new Set();
@@ -740,7 +742,8 @@ function hasAliasedComputedCapabilityLookup(content) {
                 while (tokens[callStart]?.value === "!") { callStart += 1; normalizing = true; }
                 if (tokens[callStart]?.value === "as") {
                   callStart += 1;
-                  while (callStart < endExclusive && tokens[callStart]?.value !== ")") callStart += 1;
+                  while (callStart < endExclusive && !(tokens[callStart]?.value === ")"
+                    && closingToOpeningParenthesis.get(callStart) < cursor)) callStart += 1;
                   normalizing = true;
                 }
                 if (tokens[callStart]?.value === ")") {
@@ -1234,6 +1237,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator as any))?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator as any)!)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator!) as any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } async function run() { const nav = await (Source.getNavigator)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload); }', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator) as { (): any })?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator!?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator(flag) { const helper = { function: null }; if (flag) { return navigator; } return null; } } const nav = Source.getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
