@@ -90,6 +90,14 @@ test("AI function migrations fail across create modifiers and whitespace", () =>
   assert.doesNotMatch(output, /ai_summarize|ai_generate/);
 });
 
+test("qualified AI function migrations reject whitespace around schema dots", () => {
+  const result = runFixture("product-qualified-function-migration");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.doesNotMatch(output, /ai_vectorize/);
+});
+
 test("ordinary product code passes", () => {
   const result = runFixture("allowed-product");
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
