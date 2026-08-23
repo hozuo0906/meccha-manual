@@ -2044,17 +2044,20 @@ function hasAiRuntimeBoundary(content, path = "") {
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
   const configOwnerAliases = new Set(["config"]);
-  const configAliasAssignments = [
-    ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*(?:\(\s*)*([A-Za-z_$][\w$]*)\b/g)]
-      .map((match) => ({ target: match[1], source: match[2] })),
-    ...[...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*(?:\(\s*)*([A-Za-z_$][\w$]*)\s*(?:\)*\s*)?[;,)\]]/g)]
-      .map((match) => ({ target: match[1], source: match[2] }))
+  const configAliasInitializers = [
+    ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*([^;\n]+)/g)]
+      .map((match) => ({ target: match[1], expression: match[2] })),
+    ...[...normalizedContent.matchAll(/(?<![.\w])([A-Za-z_$][\w$]*)\s*=(?!=)\s*([^;\n]+)/g)]
+      .map((match) => ({ target: match[1], expression: match[2] }))
   ];
   let propagatedConfigOwnerAlias = true;
   while (propagatedConfigOwnerAlias) {
     propagatedConfigOwnerAlias = false;
-    for (const { target, source } of configAliasAssignments) {
-      if (configOwnerAliases.has(source) && !configOwnerAliases.has(target)) {
+    for (const { target, expression } of configAliasInitializers) {
+      const referencesOwner = [...configOwnerAliases].some((owner) =>
+        new RegExp(`\\b${owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(expression)
+      );
+      if (referencesOwner && !configOwnerAliases.has(target)) {
         configOwnerAliases.add(target);
         propagatedConfigOwnerAlias = true;
       }
@@ -2440,6 +2443,8 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); ({ url: config.url } = { url: new URL(request.url).searchParams.get("target") ?? config.url }); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = config; alias.url = new URL(request.url).searchParams.get("target") ?? alias.url; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = config; const forwarded = alias; forwarded["url"] &&= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = env.SUPABASE_URL ? config : config; alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = (observe(), config); alias["url"] = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
