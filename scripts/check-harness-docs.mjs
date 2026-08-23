@@ -704,7 +704,26 @@ function hasAliasedComputedCapabilityLookup(content) {
       if (tokens[cursor].type === "identifier" && capabilityMethodAliases.has(tokens[cursor].value)
         && tokens[cursor - 1]?.value === ".") {
         let callStart = cursor + 1;
-        while (tokens[callStart]?.value === ")") callStart += 1;
+        if (!["(", "?"].includes(tokens[callStart]?.value)) {
+          let opening = null;
+          let depth = 0;
+          for (let index = cursor - 1; index >= start; index -= 1) {
+            if (tokens[index].value === ")") depth += 1;
+            else if (tokens[index].value === "(" && depth > 0) depth -= 1;
+            else if (tokens[index].value === "(") { opening = index; break; }
+          }
+          const beforeOpening = opening === null ? null : tokens[opening - 1];
+          if (opening !== null && beforeOpening?.type !== "identifier"
+            && ![")", "]", "."].includes(beforeOpening?.value)) {
+            let closingDepth = 1;
+            let closing = opening + 1;
+            for (; closing < endExclusive && closingDepth > 0; closing += 1) {
+              if (tokens[closing].value === "(") closingDepth += 1;
+              else if (tokens[closing].value === ")") closingDepth -= 1;
+            }
+            if (closingDepth === 0 && closing > cursor) callStart = closing;
+          }
+        }
         if (tokens[callStart]?.value === "(" || (tokens[callStart]?.value === "?"
           && tokens[callStart + 1]?.value === "." && tokens[callStart + 2]?.value === "(")) return true;
       }
@@ -1181,6 +1200,7 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = (Source.getNavigator)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = (Source.getNavigator as any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator(flag) { const helper = { function: null }; if (flag) { return navigator; } return null; } } const nav = Source.getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator() { logger()\n{ return navigator; } } const nav = getNavigator(); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1320,6 +1340,7 @@ for (const fixture of [
   { content: 'function safe() { const helper = { async method() { return navigator; }, get value() { return navigator; }, [key]() { return navigator; } }; return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe() { class Helper { static method() { return navigator; } } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static safe() { function inner() { return navigator; } return null; } } const value = Source.safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function safeWrapper(value) { return () => null; } const value = safeWrapper(Source.getNavigator)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
