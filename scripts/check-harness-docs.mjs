@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 
 const requiredDocs = {
   "README.md": [
@@ -147,6 +148,40 @@ const forbiddenLegacyR2Names = [
 
 const errors = [];
 const contents = {};
+
+// AC-060 covers product runtime/source/config, not the separately governed
+// ADR-0026 development automation. Keep this scan deliberately limited to
+// product roots so Codex/Business OS runner credentials remain out of scope.
+const productScanRoots = ["apps", "package.json", "wrangler.jsonc", "wrangler.brand.jsonc"];
+const forbiddenProductAiPatterns = [
+  /AI_PROVIDER_API_KEY/i,
+  /AI_(?:API_)?ENDPOINT/i,
+  /ai\.assistiveGeneration\.enabled/i,
+  /(?:from|require\s*\()\s*["'](?:openai|@anthropic-ai|@google\/generative-ai)/i
+];
+async function listProductFiles(entry) {
+  const info = await readdir(entry, { withFileTypes: true }).catch(() => null);
+  if (!Array.isArray(info)) return [entry];
+  const files = [];
+  for (const item of info) {
+    const child = path.join(entry, item.name);
+    if (item.isDirectory()) files.push(...await listProductFiles(child));
+    else files.push(child);
+  }
+  return files;
+}
+
+for (const root of productScanRoots) {
+  for (const file of await listProductFiles(root)) {
+    const source = await readFile(file, "utf8").catch(() => "");
+    for (const pattern of forbiddenProductAiPatterns) {
+      if (pattern.test(source)) {
+        errors.push(`AI implementation marker remains in product runtime/config: ${file}`);
+        break;
+      }
+    }
+  }
+}
 
 for (const [file, terms] of Object.entries(requiredDocs)) {
   try {
