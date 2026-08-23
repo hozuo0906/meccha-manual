@@ -2066,6 +2066,9 @@ function hasAiRuntimeBoundary(content, path = "") {
   };
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
+  const configOwnerReturnCount = [...normalizedContent.matchAll(/\breturn\s+(?:\(\s*)*config(?:\s*!)*(?:\s+(?:as|satisfies)\s+[^;\n)]+)*(?:\s*\))*\s*;/g)].length;
+  const configOwnerArrowReturnCount = [...normalizedContent.matchAll(/=>\s*(?:\(\s*)*config(?:\s*!)*(?:\s+(?:as|satisfies)\s+[^,;\n)]+)*(?:\s*\))*(?:\s*[,;)])/g)].length;
+  const expectedConfigOwnerReturnCount = ["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path) ? 1 : 0;
   const configOwnerAliases = new Set(["config"]);
   const configAliasInitializers = [
     ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*([^;\n]+)/g)]
@@ -2104,6 +2107,7 @@ function hasAiRuntimeBoundary(content, path = "") {
     || configInitializers.length !== expectedConfigInitializers.length
     || configInitializers.some((initializer, index) => initializer !== expectedConfigInitializers[index])
     || hasApprovedConfigMutation || hasConfigOwnerEscape
+    || configOwnerReturnCount !== expectedConfigOwnerReturnCount || configOwnerArrowReturnCount !== 0
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
@@ -2138,7 +2142,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasUnapprovedDomSink = !domSinkPinnedFiles.has(path)
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
-      || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
+      || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|(?:-webkit-)?image-set\s*\(|@import\b/i.test(domSinkRemainder));
   const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location|link)["'`]?|\[\s*["'`](?:refresh|location|link)["'`]\s*\])\s*:/i.test(normalizedContent)
     || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location|link)["'`]/i.test(normalizedContent)
     || /\[\s*["'`](?:refresh|location|link)["'`]\s*,/i.test(normalizedContent);
@@ -2481,10 +2485,13 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = { wrappedConfig: config as typeof config }; holder.wrappedConfig.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = [config satisfies SupabaseConfig]; holder[0].url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); mutate(config!); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; function existingConfigReturn() { return config; } const config = ensureConfig(env); function getConfig() { return config; } const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const getConfig = () => config; const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: 'body { background: u\\\\72l(//api.groq.com/pixel); }', path: "apps/brand-site/public/css-escape-egress.css" },
+  { content: 'body { background-image: image-set("//api.groq.com/pixel" 1x); }', path: "apps/brand-site/public/image-set-egress.css" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {

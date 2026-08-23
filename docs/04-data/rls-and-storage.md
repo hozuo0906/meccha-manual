@@ -52,6 +52,14 @@ staging 4 bucketは作成済みとのユーザー申告があるが、bindingと
 
 ## Path規則
 
+通常object:
+
+```text
+{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
+```
+
+容量予約object:
+
 ```text
 {workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
 ```
@@ -59,9 +67,9 @@ staging 4 bucketは作成済みとのユーザー申告があるが、bindingと
 例:
 
 ```text
+workspace-id/avatars/user-id/asset-id.webp
 workspace-id/manuals/manual-id/reservation-operation-id/asset-id.png
 workspace-id/captures/capture-session-id/reservation-operation-id/asset-id.webp
-workspace-id/exports/manual-id/reservation-operation-id/export-id.pdf
 ```
 
 ## メタデータ
