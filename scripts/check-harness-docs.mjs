@@ -833,18 +833,12 @@ function hasAliasedComputedCapabilityLookup(content) {
             let braceDepth = 0;
             let angleDepth = 0;
             let inTypeAssertion = false;
+            let typeReferenceCanAcceptArguments = false;
             let lastComma = null;
-            const hasClosingTypeAngle = (opening) => {
-              let depth = 1;
-              for (let index = opening + 1; index < receiver.length; index += 1) {
-                if (receiver[index]?.value === "<") depth += 1;
-                else if (receiver[index]?.value === ">" && receiver[index - 1]?.value !== "=") {
-                  depth -= 1;
-                  if (depth === 0) return true;
-                }
-              }
-              return false;
-            };
+            const primitiveTypeNames = new Set([
+              "any", "bigint", "boolean", "never", "null", "number", "object", "string",
+              "symbol", "undefined", "unknown", "void"
+            ]);
             for (let receiverIndex = 0; receiverIndex < receiver.length; receiverIndex += 1) {
               const value = receiver[receiverIndex]?.value;
               if (value === "(") parenthesesDepth += 1;
@@ -853,15 +847,21 @@ function hasAliasedComputedCapabilityLookup(content) {
               else if (value === "]") bracketDepth = Math.max(0, bracketDepth - 1);
               else if (value === "{") braceDepth += 1;
               else if (value === "}") braceDepth = Math.max(0, braceDepth - 1);
-              else if (["as", "satisfies"].includes(value)) inTypeAssertion = true;
-              else if (value === "<" && (inTypeAssertion || angleDepth > 0)
-                && hasClosingTypeAngle(receiverIndex)) angleDepth += 1;
+              else if (["as", "satisfies"].includes(value)) {
+                inTypeAssertion = true;
+                typeReferenceCanAcceptArguments = false;
+              } else if (inTypeAssertion && angleDepth === 0 && receiver[receiverIndex]?.type === "identifier") {
+                typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
+              } else if (value === "<" && (angleDepth > 0
+                || (inTypeAssertion && typeReferenceCanAcceptArguments))) angleDepth += 1;
               else if (value === ">" && angleDepth > 0 && receiver[receiverIndex - 1]?.value !== "=") {
                 angleDepth -= 1;
+                if (angleDepth === 0) typeReferenceCanAcceptArguments = false;
               } else if (value === "," && parenthesesDepth === 0 && bracketDepth === 0
                 && braceDepth === 0 && angleDepth === 0) {
                 lastComma = receiverIndex;
                 inTypeAssertion = false;
+                typeReferenceCanAcceptArguments = false;
               }
             }
             if (lastComma !== null) {
@@ -1666,6 +1666,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((() => null) as Replacement<string, () => any>, []); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as number, Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as number < 1, () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
