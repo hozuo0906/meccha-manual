@@ -47,7 +47,7 @@ jobs:
         run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
 
   live-proof-preflight:
-    if: github.event_name == 'workflow_dispatch' && inputs.confirmation == 'RUN_ISOLATED_STAGING_P0'
+    if: github.event_name == 'workflow_dispatch'
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 2

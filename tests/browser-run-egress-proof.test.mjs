@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   REQUIRED_EGRESS_CHANNELS,
@@ -49,6 +50,18 @@ test("live proof rejects an unready staging, branch, mismatched candidate, malfo
       (error) => error.message === "Live proof workflow context is invalid."
     );
   }
+});
+
+test("every manual dispatch reaches credential-free preflight even when confirmation is invalid", async () => {
+  const workflow = await readFile(".github/workflows/browser-run-egress-proof.yml", "utf8");
+  assert.match(
+    workflow,
+    /live-proof-preflight:\n\s+if: github\.event_name == 'workflow_dispatch'\n/u
+  );
+  assert.doesNotMatch(
+    workflow,
+    /live-proof-preflight:\n\s+if:[^\n]*inputs\.confirmation/u
+  );
 });
 
 test("guarded session uses one exact fixture hostname and disables recording", () => {
