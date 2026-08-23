@@ -832,6 +832,7 @@ function hasAliasedComputedCapabilityLookup(content) {
             let bracketDepth = 0;
             let braceDepth = 0;
             let angleDepth = 0;
+            let inTypeAssertion = false;
             let lastComma = null;
             for (let receiverIndex = 0; receiverIndex < receiver.length; receiverIndex += 1) {
               const value = receiver[receiverIndex]?.value;
@@ -841,7 +842,8 @@ function hasAliasedComputedCapabilityLookup(content) {
               else if (value === "]") bracketDepth = Math.max(0, bracketDepth - 1);
               else if (value === "{") braceDepth += 1;
               else if (value === "}") braceDepth = Math.max(0, braceDepth - 1);
-              else if (value === "<") angleDepth += 1;
+              else if (["as", "satisfies"].includes(value)) inTypeAssertion = true;
+              else if (value === "<" && (inTypeAssertion || angleDepth > 0)) angleDepth += 1;
               else if (value === ">" && angleDepth > 0 && receiver[receiverIndex - 1]?.value !== "=") {
                 angleDepth -= 1;
               } else if (value === "," && parenthesesDepth === 0 && bracketDepth === 0
@@ -1649,6 +1651,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.bind(() => null)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply(() => () => ({ safe() {} }), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((() => null) as Replacement<string, () => any>, []); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
