@@ -42,6 +42,24 @@ test("known provider endpoint and binding fail without logging values", () => {
   assert.doesNotMatch(output, /api\.openai\.com|OPENAI_API_KEY/);
 });
 
+test("legacy assistive-generation marker fails without logging its value", () => {
+  const result = runFixture("legacy-assistive-marker");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /feature-flag\.ts/);
+  assert.doesNotMatch(output, /ai\.assistiveGeneration\.enabled/);
+});
+
+test("legacy generic endpoint marker fails without logging its value", () => {
+  const result = runFixture("legacy-endpoint-marker");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /provider-config\.ts/);
+  assert.doesNotMatch(output, /AI_ENDPOINT/);
+});
+
 test("AI-specific migration objects fail", () => {
   const result = runFixture("product-migration");
   assert.notEqual(result.status, 0, result.stdout);

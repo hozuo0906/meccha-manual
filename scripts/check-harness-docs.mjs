@@ -208,6 +208,8 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /\bAI_API_KEY\b/i,
     /\bAI_PROVIDER_ENDPOINT\b/i,
     /\bAI_API_ENDPOINT\b/i,
+    /\bAI_ENDPOINT\b/i,
+    /\bai\.assistiveGeneration\.enabled\b/i,
     /\b(?:OPENAI|ANTHROPIC|GOOGLE|GEMINI|COHERE|MISTRAL|GROQ)_API_KEY\b/i,
     /\b(?:OPENAI|ANTHROPIC)_BASE_URL\b/i,
     /\bREPLICATE_API_TOKEN\b/i
