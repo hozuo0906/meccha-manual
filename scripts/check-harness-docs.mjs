@@ -2181,7 +2181,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|(?:-webkit-)?image-set\s*\(|@import\b/i.test(domSinkRemainder));
-  const cspHeaderNames = javascriptStructuralTokens(normalizedContent)
+  const responseStructuralTokens = javascriptStructuralTokens(normalizedContent);
+  const cspHeaderNames = responseStructuralTokens
     .filter((token) => token.type === "string")
     .map((token) => token.value.toLowerCase())
     .filter((value) => ["content-security-policy", "content-security-policy-report-only"].includes(value));
@@ -2199,9 +2200,34 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
     || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent)
     || /\bHeaders\s*(?:\.\s*prototype\b|\[\s*["'`]prototype["'`]\s*\])/i.test(normalizedContent);
+  const dynamicTemplateHeadersInitAliases = new Set();
+  let hasDynamicTemplateDirectHeadersInit = false;
+  for (let index = 0; index < responseStructuralTokens.length - 2; index += 1) {
+    if (responseStructuralTokens[index]?.value !== "["
+      || responseStructuralTokens[index + 1]?.value !== "["
+      || responseStructuralTokens[index + 2]?.type !== "template") continue;
+    const directHeadersProperty = responseStructuralTokens[index - 1]?.value === ":"
+      && responseStructuralTokens[index - 2]?.value.toLowerCase() === "headers";
+    const directHeadersConstructor = responseStructuralTokens[index - 1]?.value === "("
+      && responseStructuralTokens[index - 2]?.value === "Headers"
+      && responseStructuralTokens[index - 3]?.value === "new";
+    if (directHeadersProperty || directHeadersConstructor) hasDynamicTemplateDirectHeadersInit = true;
+    if (responseStructuralTokens[index - 1]?.value !== "=") continue;
+    let declaredAlias;
+    for (let cursor = index - 2; cursor >= 0 && ![";", "{", "}"].includes(responseStructuralTokens[cursor]?.value); cursor -= 1) {
+      if (!["const", "let", "var"].includes(responseStructuralTokens[cursor]?.value)) continue;
+      if (responseStructuralTokens[cursor + 1]?.type === "identifier") declaredAlias = responseStructuralTokens[cursor + 1].value;
+      break;
+    }
+    const assignedAlias = responseStructuralTokens[index - 2]?.type === "identifier"
+      ? responseStructuralTokens[index - 2].value
+      : undefined;
+    if (declaredAlias ?? assignedAlias) dynamicTemplateHeadersInitAliases.add(declaredAlias ?? assignedAlias);
+  }
   const computedHeadersInitAliases = new Set([
     ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1]),
-    ...[...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1])
+    ...[...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1]),
+    ...dynamicTemplateHeadersInitAliases
   ]);
   const headersInitAliasAssignments = [...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*(?:[;,)])/g)]
     .map((match) => ({ target: match[1], source: match[2] }));
@@ -2231,11 +2257,22 @@ function hasAiRuntimeBoundary(content, path = "") {
     [...normalizedContent.matchAll(new RegExp(`\\b${alias}\\.(set|append)\\s*\\((?!\\s*["'\`])\\s*([A-Za-z_$][\\w$]*)`, "g"))]
       .map((match) => ({ alias, method: match[1], argument: match[2] }))
   );
-  const hasUnapprovedDynamicHeadersMutation = dynamicHeadersMutations.length > 0
-    && !(path === "apps/worker/src/index.ts" && dynamicHeadersMutations.length === 1
-      && dynamicHeadersMutations[0].alias === "headers" && dynamicHeadersMutations[0].method === "set"
-      && dynamicHeadersMutations[0].argument === "key");
+  const hasDynamicTemplateHeadersMutation = responseStructuralTokens.some((token, index) => {
+    if (token.type !== "template" || responseStructuralTokens[index - 1]?.value !== "("
+      || !["set", "append"].includes(responseStructuralTokens[index - 2]?.value)
+      || responseStructuralTokens[index - 3]?.value !== ".") return false;
+    let receiverIndex = index - 4;
+    if (responseStructuralTokens[receiverIndex]?.value === "?") receiverIndex -= 1;
+    const receiver = responseStructuralTokens[receiverIndex];
+    return receiver?.type === "identifier" && headersObjectAliases.has(receiver.value);
+  });
+  const hasUnapprovedDynamicHeadersMutation = hasDynamicTemplateHeadersMutation
+    || (dynamicHeadersMutations.length > 0
+      && !(path === "apps/worker/src/index.ts" && dynamicHeadersMutations.length === 1
+        && dynamicHeadersMutations[0].alias === "headers" && dynamicHeadersMutations[0].method === "set"
+        && dynamicHeadersMutations[0].argument === "key"));
   const hasComputedHeadersInit = /(?:\bheaders\s*:|\bnew\s+Headers\s*\()\s*\[\s*\[(?!\s*["'`])\s*/i.test(normalizedContent)
+    || hasDynamicTemplateDirectHeadersInit
     || [...computedHeadersInitAliases].some((alias) => new RegExp(`(?:\\bheaders\\s*:\\s*|\\bnew\\s+Headers\\s*\\(\\s*)${alias}\\b`).test(normalizedContent));
   const hasComputedResponseHeader = /\bheaders\s*:\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
     || /\bnew\s+Headers\s*\(\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
@@ -2549,6 +2586,9 @@ for (const fixture of [
   { content: 'const headers = new Headers(); headers.set("Content-Security-Policy-Report-Only", `default-src none; report-to ${env.REMOTE_URL}`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const policy = `default-src none; report-uri ${env.REMOTE_URL}`; return new Response("", { headers: { "Content-Security-Policy-Report-Only": policy } });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const policy = createPolicy(env); const headers = new Headers(); headers.set("Content-Security-Policy", policy); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const policy = `default-src none; report-uri ${env.REMOTE_URL}`; return new Response("", { headers: [[`Content-Security-Policy${"-Report-Only"}`, policy]] });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const policy = createPolicy(env); const init = [[`Content-Security-Policy${suffix}`, policy]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const policy = createPolicy(env); const headers = new Headers(); headers.set(`Content-Security-Policy${suffix}`, policy); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: 'body { background: u\\\\72l(//api.groq.com/pixel); }', path: "apps/brand-site/public/css-escape-egress.css" },
   { content: 'body { background-image: image-set("//api.groq.com/pixel" 1x); }', path: "apps/brand-site/public/image-set-egress.css" },
@@ -2562,6 +2602,7 @@ for (const fixture of [
 
 for (const fixture of [
   { content: 'return new Response("ok", { headers: [[ "Content-Type", "text/plain" ]] });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'return new Response("ok", { headers: [[`Content-Type`, "text/plain"]] });', path: "apps/worker/src/capture-router.ts" },
   { content: approvedIndexSecurityHeadersDeclaration, path: "apps/worker/src/index.ts" },
   { content: "create trigger audit_insert after insert on public.manuals for each row execute function public.audit_manual();", path: "supabase/migrations/99999999999999-safe-trigger.sql" },
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
