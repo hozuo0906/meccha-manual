@@ -693,6 +693,16 @@ function hasAliasedComputedCapabilityLookup(content) {
   };
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
   const capabilityMethodAliases = new Set();
+  const afterTypeArguments = (start, limit = tokens.length) => {
+    if (tokens[start]?.value !== "<") return start;
+    let depth = 1;
+    let cursor = start + 1;
+    for (; cursor < limit && depth > 0; cursor += 1) {
+      if (tokens[cursor].value === "<") depth += 1;
+      else if (tokens[cursor].value === ">") depth -= 1;
+    }
+    return depth === 0 ? cursor : start;
+  };
   const expressionReferencesCapability = (start, endExclusive = tokens.length) => {
     let parentheses = 0;
     let brackets = 0;
@@ -719,6 +729,7 @@ function hasAliasedComputedCapabilityLookup(content) {
         && tokens[cursor - 1]?.value === ".") {
         let callStart = cursor + 1;
         while (tokens[callStart]?.value === "!") callStart += 1;
+        callStart = afterTypeArguments(callStart, endExclusive);
         if (!["(", "?"].includes(tokens[callStart]?.value)) {
           let opening = null;
           let depth = 0;
@@ -740,7 +751,7 @@ function hasAliasedComputedCapabilityLookup(content) {
               while (normalizing) {
                 normalizing = false;
                 while (tokens[callStart]?.value === "!") { callStart += 1; normalizing = true; }
-                if (tokens[callStart]?.value === "as") {
+                if (["as", "satisfies"].includes(tokens[callStart]?.value)) {
                   callStart += 1;
                   while (callStart < endExclusive && !(tokens[callStart]?.value === ")"
                     && closingToOpeningParenthesis.get(callStart) < cursor)) callStart += 1;
@@ -871,7 +882,8 @@ function hasAliasedComputedCapabilityLookup(content) {
         let methodAfterParams = null;
         if (isObjectOrClassBody(cursor) && tokens[cursor].type === "identifier"
           && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[cursor].value)) {
-          methodAfterParams = afterMatching(cursor + 1, "(", ")", bodyEnd - 1);
+          const paramsStart = afterTypeArguments(cursor + 1, bodyEnd - 1);
+          methodAfterParams = afterMatching(paramsStart, "(", ")", bodyEnd - 1);
         } else if (isObjectOrClassBody(cursor) && tokens[cursor].value === "[") {
           const afterName = afterMatching(cursor, "[", "]", bodyEnd - 1);
           methodAfterParams = afterName === null ? null : afterMatching(afterName, "(", ")", bodyEnd - 1);
@@ -891,7 +903,8 @@ function hasAliasedComputedCapabilityLookup(content) {
     }
     for (let index = 0; index < tokens.length - 2; index += 1) {
       if (tokens[index].type !== "identifier" || !isObjectOrClassBody(index)) continue;
-      const afterParams = afterMatching(index + 1, "(", ")");
+      const paramsStart = afterTypeArguments(index + 1);
+      const afterParams = afterMatching(paramsStart, "(", ")");
       if (afterParams === null || tokens[afterParams]?.value !== "{") continue;
       const bodyEnd = afterBody(afterParams);
       if (bodyEnd === null || capabilityMethodAliases.has(tokens[index].value)) continue;
@@ -917,7 +930,8 @@ function hasAliasedComputedCapabilityLookup(content) {
         let nestedMethodAfterParams = null;
         if (isObjectOrClassBody(cursor) && tokens[cursor].type === "identifier"
           && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[cursor].value)) {
-          nestedMethodAfterParams = afterMatching(cursor + 1, "(", ")", bodyEnd - 1);
+          const nestedParamsStart = afterTypeArguments(cursor + 1, bodyEnd - 1);
+          nestedMethodAfterParams = afterMatching(nestedParamsStart, "(", ")", bodyEnd - 1);
         } else if (isObjectOrClassBody(cursor) && tokens[cursor].value === "[") {
           const afterName = afterMatching(cursor, "[", "]", bodyEnd - 1);
           nestedMethodAfterParams = afterName === null ? null : afterMatching(afterName, "(", ")", bodyEnd - 1);
@@ -1239,6 +1253,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator!) as any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } async function run() { const nav = await (Source.getNavigator)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload); }', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator) as { (): any })?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator) satisfies any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator<any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator!?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator(flag) { const helper = { function: null }; if (flag) { return navigator; } return null; } } const nav = Source.getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
