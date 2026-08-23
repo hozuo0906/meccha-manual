@@ -770,19 +770,26 @@ function hasAliasedComputedCapabilityLookup(content) {
           return depth === 0 ? closing : null;
         };
         const memberAt = (index) => {
-          if (tokens[index]?.value === ".") {
-            return { name: tokens[index + 1]?.value, after: index + 2 };
-          }
-          if (tokens[index]?.value === "[" && tokens[index + 1]?.type === "string"
-            && tokens[index + 2]?.value === "]") {
-            return { name: tokens[index + 1].value, after: index + 3 };
-          }
-          if (tokens[index]?.value === "?" && tokens[index + 1]?.value === ".") {
-            if (tokens[index + 2]?.value === "[" && tokens[index + 3]?.type === "string"
-              && tokens[index + 4]?.value === "]") {
-              return { name: tokens[index + 3].value, after: index + 5 };
+          const bracketMemberAt = (opening) => {
+            if (tokens[opening]?.value !== "[") return null;
+            if (tokens[opening + 1]?.type === "string" && tokens[opening + 2]?.value === "]") {
+              return { name: tokens[opening + 1].value, after: opening + 3, dynamic: false };
             }
-            return { name: tokens[index + 2]?.value, after: index + 3 };
+            let depth = 1;
+            let closing = opening + 1;
+            for (; closing < endExclusive && depth > 0; closing += 1) {
+              if (tokens[closing]?.value === "[") depth += 1;
+              else if (tokens[closing]?.value === "]") depth -= 1;
+            }
+            return depth === 0 ? { name: null, after: closing, dynamic: true } : null;
+          };
+          if (tokens[index]?.value === ".") {
+            return { name: tokens[index + 1]?.value, after: index + 2, dynamic: false };
+          }
+          if (tokens[index]?.value === "[") return bracketMemberAt(index);
+          if (tokens[index]?.value === "?" && tokens[index + 1]?.value === ".") {
+            if (tokens[index + 2]?.value === "[") return bracketMemberAt(index + 2);
+            return { name: tokens[index + 2]?.value, after: index + 3, dynamic: false };
           }
           return null;
         };
@@ -793,6 +800,7 @@ function hasAliasedComputedCapabilityLookup(content) {
             if (isInvocationAt(execution)) return true;
             const member = memberAt(execution);
             if (member === null) return false;
+            if (member.dynamic) return isInvocationAt(member.after);
             if (["call", "apply"].includes(member.name)) return isInvocationAt(member.after);
             if (member.name !== "bind") return false;
             const afterBind = afterInvocationAt(member.after);
@@ -1395,6 +1403,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)["apply"](null, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator["bi" + "nd"](Source)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator[`bind`](Source)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const member = "bind"; const nav = Source.getNavigator[`${member}`](Source)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const member = "bind"; const nav = Source.getNavigator?.[member]?.(Source)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind?.(Source)?.call?.(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
