@@ -262,6 +262,10 @@ Issue #70には最低限、次を残す。
 - reconciliation sweepは予約単位で失敗を隔離・記録し、先行予約の継続障害でも後続の期限切れ予約を処理する。
 - 同一予約の並行reconcileは外部I/O後にstateを再確認し、確定と容量加算を一度だけ行う。解放側も並行確定を`released`で上書きしない。
 - 再送境界: 保存body、byte数、checksum、workspace、object key、予約世代を予約前に確定し、予約後のtuple書換えをfixtureから除去した。
+- SQLの動的`EXECUTE`免除は、同一statement内の`CREATE [OR REPLACE] [CONSTRAINT] TRIGGER ... EXECUTE FUNCTION|PROCEDURE`だけに限定した。PL/pgSQL変数名が`function`／`procedure`の場合は動的実行として拒否する。
+- standalone CSSはCSS escapeを復号してから`url()`／`@import`等のresource sinkを検査し、HTML inline styleとは独立した回帰fixtureで固定した。
+- R2予約世代と正規object keyは全operation key間で一意にし、同じoperation keyの冪等再送だけに再利用を許可する。別operation keyの衝突は予約作成と同じ原子的境界で拒否する。
+- `assets`のPostgres正本へ容量予約objectの`reservation_id`／`fencing_token`を追加し、Storage契約、RLS/Storage文書、table定義、policy検査を一致させた。
 - ローカル検証: docs、harness、R2 policy／stub、Worker静的検査、typecheck、Worker runtime 59件／mutation 3件、capture 11件、Browser egress 23件、accessibility 45件、migration、workflow、runtime boundary、quality loop、機密値、encoding、`git diff --check`が成功。`npm run check`とbundle dry-runは実行環境のコマンド承認境界で起動前に遮断されたため、GitHub Actionsの`npm ci`と同一head全CIで補完する。
 - 安全境界: production、deploy、DB migration、secret、課金、外部AI API、共有リンク、Browser Run live実証は実行していない。
 - 最終head SHA、CI、Codex Review、未解決thread数、merge結果は、この文書自身を含むcommitより後に確定するためPR #88とIssue #70のライブ状態を正とする。

@@ -199,6 +199,13 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
       throw new Error("planned bytes must be a non-negative safe integer");
     }
   };
+  const assertGenerationAvailable = (request) => {
+    const conflict = [...reservations.entries()].find(([operationKey, reservation]) =>
+      operationKey !== request.operationKey
+      && (reservation.generationId === request.generationId || reservation.objectKey === request.objectKey)
+    );
+    if (conflict) throw new Error("reservation generation and object key must be globally unique");
+  };
   return {
     reserve(request, lease) {
       validateReservationRequest(request);
@@ -207,6 +214,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         assert.equal(existing.tuple, tupleOf(request), "operation key reuse must preserve the full save tuple");
         return existing;
       }
+      assertGenerationAvailable(request);
       const reservedBytes = [...reservations.values()]
         .filter((item) => item.state === "reserved")
         .reduce((sum, item) => sum + item.plannedBytes, 0);
@@ -234,6 +242,7 @@ function createUsageReservationHarness(limitBytes, readObject, deleteObject, lis
         return concurrentExisting;
       }
       if (persistentState.version !== observedVersion) throw new Error("reservation serialization conflict");
+      assertGenerationAvailable(request);
       if (observedBytes + request.plannedBytes > limitBytes) throw new Error("storage limit exceeded");
       const reservation = { ...request, tuple: tupleOf(request), state: "reserved", leaseOwner: lease.owner, leaseDeadline: lease.deadline, absoluteDeadline: absoluteDeadlineFor(lease), reservationId: `reservation-${request.operationKey}`, fencingToken: lease.fencingToken };
       reservations.set(request.operationKey, reservation);
@@ -518,13 +527,29 @@ const saveRequest = {
 const initialLease = { owner: "worker-001", deadline: 100, fencingToken: "fence-001" };
 const firstReservation = reservationHarness.reserve(saveRequest, initialLease);
 assert.strictEqual(reservationHarness.reserve({ ...saveRequest }, initialLease), firstReservation, "lost response retry must reuse one reservation");
+assert.throws(
+  () => reservationHarness.reserve({ ...saveRequest, operationKey: "generation-reuse", plannedBytes: 1 }, initialLease),
+  /globally unique/,
+  "distinct operation keys must not reuse a reservation generation or canonical object key"
+);
+assert.throws(
+  () => reservationHarness.reserve({ ...saveRequest, operationKey: "generation-reuse-key", generationId: "reservation-other", plannedBytes: 1 }, initialLease),
+  /globally unique/,
+  "distinct reservation generations must not share a canonical object key"
+);
 for (const mismatch of [
   { plannedBytes: 1 },
   { objectKey: "workspace-001/manual/asset-002.png" },
   { workspaceId: "workspace-002" },
   { checksumSha256: "b".repeat(64) }
 ]) assert.throws(() => reservationHarness.reserve({ ...saveRequest, ...mismatch }, initialLease), /full save tuple/);
-assert.throws(() => reservationHarness.reserve({ ...saveRequest, operationKey: "operation-002", plannedBytes: 5 }, initialLease), /limit exceeded/);
+assert.throws(() => reservationHarness.reserve({
+  ...saveRequest,
+  operationKey: "operation-002",
+  generationId: "reservation-operation-002",
+  objectKey: createObjectKey({ area: STORAGE_AREAS.MANUAL_ASSETS, workspaceId: "workspace-001", resourceId: "manual-001", generationId: "reservation-operation-002", assetId: "asset-002", extension: "png" }),
+  plannedBytes: 5
+}, initialLease), /limit exceeded/);
 for (const plannedBytes of [undefined, Number.NaN, -1, Number.MAX_SAFE_INTEGER + 1]) {
   assert.throws(
     () => reservationHarness.reserve({ ...saveRequest, operationKey: `invalid-bytes-${String(plannedBytes)}`, plannedBytes }, initialLease),

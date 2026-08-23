@@ -81,6 +81,7 @@ secret、共有トークン、個人情報、入力値、実ユーザーの操�
 - 保存要求は用途、object key、kind、content type、byte size、SHA-256 checksum、許可済みmetadataだけを受け付ける。checksumは形式だけでなく受信bodyから再計算して一致を確認する。
 - `manual_id` と `step_id` は認可・DB連携に使うサーバー側metadataとして扱えるが、R2 custom metadataには複製しない。
 - サーバー内部の保存要求metadataは `workspace_id`、object keyの第3要素と一致する `resource_id`、`asset_id`、予約時に必須の `generation_id`、`reservation_id`、`fencing_token`、任意の `manual_id`、`step_id` だけを受け付ける。予約世代、予約ID、fencing tokenは必ず3項目を一緒に指定し、通常objectでは3項目とも禁止する。`resource_id`と`generation_id`はkey検証用の一時値でPostgres/R2へ汎用列として保存しない。R2 custom metadataへは予約objectの `reservation_id` と `fencing_token` だけを世代照合用に複製し、`resource_id`、`generation_id`、`manual_id`、`step_id` は複製しない。read時のresourceと予約世代は検証済みobject keyから導出する。
+- 予約世代と正規object keyは全operation key間で一意にする。同じoperation keyの冪等再送だけが同じ予約世代を再利用でき、別operation keyによる`generation_id`または正規object keyの再利用は原子的に拒否する。
 - Storage adapterは`put`境界でbodyを再snapshotし、byte sizeとSHA-256を再検証してから保存する。検証済みobjectの公開bodyが後から変更されても、不一致のまま保存しない。
 - object keyの各要素は元ファイル名や表示名ではなく、不透明な小文字識別子に限定する。
 - key全体をmetadataから再構築して完全一致を確認する。workspace、resource、予約世代、assetのいずれかが異なるkeyや、余分・空のpath segmentを拒否する。

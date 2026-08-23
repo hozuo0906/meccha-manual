@@ -43,6 +43,8 @@ const requiredTerms = [
   "bodyから再計算",
   "完全一致",
   "同じdomain shape",
+  "別operation key",
+  "原子的",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}",
   "{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}"
 ];
@@ -125,6 +127,11 @@ if (vocabularies.domain.length === 0 || vocabularies.contract.length === 0 || vo
       errors.push(`Asset kind vocabulary differs between domain and ${source}.`);
     }
   }
+}
+
+const assetsRow = contents[tableDefinitionsPath]?.match(/^\| `assets` \|([^\n]+)$/m)?.[1] ?? "";
+for (const field of ["reservation_id", "fencing_token"]) {
+  if (!assetsRow.includes(`\`${field}\``)) errors.push(`Assets table definition must include ${field}.`);
 }
 
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));

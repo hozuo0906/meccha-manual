@@ -53,15 +53,15 @@ staging 4 bucketは作成済みとのユーザー申告があるが、bindingと
 ## Path規則
 
 ```text
-{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
+{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
 ```
 
 例:
 
 ```text
-workspace-id/manuals/manual-id/asset-id.png
-workspace-id/captures/capture-session-id/asset-id.webp
-workspace-id/exports/manual-id/export-id.pdf
+workspace-id/manuals/manual-id/reservation-operation-id/asset-id.png
+workspace-id/captures/capture-session-id/reservation-operation-id/asset-id.webp
+workspace-id/exports/manual-id/reservation-operation-id/export-id.pdf
 ```
 
 ## メタデータ
@@ -75,6 +75,8 @@ Postgresに保存するもの:
 - `content_type`
 - `byte_size`
 - `checksum`
+- `reservation_id`（容量予約objectだけ）
+- `fencing_token`（容量予約objectだけ）
 - `created_by`
 - `created_at`
 - `deleted_at`

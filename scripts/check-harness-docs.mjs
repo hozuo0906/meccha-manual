@@ -658,6 +658,16 @@ function javascriptStructuralTokens(content) {
   return tokens;
 }
 
+function decodeCssEscapes(content) {
+  return content
+    .replace(/\\([0-9a-f]{1,6})(?:\r\n|[\t\n\f\r ])?/gi, (_match, hex) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return codePoint === 0 || codePoint > 0x10ffff ? "\uFFFD" : String.fromCodePoint(codePoint);
+    })
+    .replace(/\\(?:\r\n|[\n\f\r])/g, "")
+    .replace(/\\(.)/gs, "$1");
+}
+
 function hasDestructuringPropertyAssignment(content, objectName, propertyName) {
   const tokens = javascriptStructuralTokens(content);
   const isPropertyReferenceAt = (index) => tokens[index]?.value === objectName
@@ -1892,9 +1902,22 @@ function hasAiRuntimeBoundary(content, path = "") {
   const sqlTokens = normalizedPath.endsWith(".sql") ? sqlIdentifierTokens(sqlLexicalContent) : [];
   const sqlStructure = normalizedPath.endsWith(".sql") ? sqlStructuralTokens(sqlLexicalContent) : [];
   const sqlClauseStructure = normalizedPath.endsWith(".sql") ? sqlStructuralTokens(sqlLexicalContent, false) : [];
-  const hasDynamicSqlExecute = sqlTokens.some((token, index) => token === "execute"
-    && !["grant", "revoke"].includes(sqlTokens[index - 1])
-    && !["function", "procedure"].includes(sqlTokens[index + 1]));
+  const hasDynamicSqlExecute = sqlStructure.some((token, index) => {
+    if (token.type !== "identifier" || token.value !== "execute") return false;
+    let statementStart = index;
+    while (statementStart > 0 && sqlStructure[statementStart - 1]?.value !== ";") statementStart -= 1;
+    const prefix = sqlStructure.slice(statementStart, index)
+      .filter((candidate) => candidate.type === "identifier")
+      .map((candidate) => candidate.value.replace(/^quoted:/, ""));
+    if (["grant", "revoke"].includes(prefix.at(-1))) return false;
+    const createIndex = prefix.lastIndexOf("create");
+    let cursor = createIndex + 1;
+    if (prefix[cursor] === "or" && prefix[cursor + 1] === "replace") cursor += 2;
+    if (prefix[cursor] === "constraint") cursor += 1;
+    const isCreateTrigger = createIndex >= 0 && prefix[cursor] === "trigger";
+    const next = sqlStructure[index + 1];
+    return !(isCreateTrigger && next?.type === "identifier" && ["function", "procedure"].includes(next.value));
+  });
   const hasSqlOutboundToken = sqlTokens.some((token) => ["pg_net", "http", "http_get", "http_post", "http_put", "http_delete", "http_head", "http_request"].includes(token));
   const hasSqlUnicodeEscapedIdentifier = normalizedPath.endsWith(".sql") && /\bU&"/i.test(sqlLexicalContent);
   const hasSqlUnicodeEscapedString = normalizedPath.endsWith(".sql") && /\bU&'/i.test(sqlLexicalContent);
@@ -2099,7 +2122,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasDynamicCapabilityLookup = /\b(?:globalThis|Reflect|eval|Function)\b|\b(?:self|window|navigator)\s*\[/.test(normalizedContent)
     || hasComputedCapabilityBinding(normalizedContent)
     || hasAliasedComputedCapabilityLookup(normalizedContent);
-  const domSinkRemainder = normalizedContent.replace(/\bnew\s+URL\s*\(/g, "(");
+  const domSinkContent = normalizedPath.endsWith(".css") ? decodeCssEscapes(normalizedContent) : normalizedContent;
+  const domSinkRemainder = domSinkContent.replace(/\bnew\s+URL\s*\(/g, "(");
   const domSinkPinnedFiles = new Set(["apps/worker/src/app-assets.ts", "apps/worker/src/index.ts"]);
   const responseCapabilityPinnedFiles = new Set([
     "apps/worker/src/app-assets.ts",
@@ -2359,6 +2383,7 @@ for (const fixture of [
   { content: "do language $😀$plpgsql$😀$ $body$ begin execute 'select extensions.ht' || 'tp_get(...)'; end $body$;", path: "supabase/migrations/99999999999999-symbol-dollar-language-do-outbound.sql" },
   { content: "create function public.dynamic_outbound(x text) returns void as $body$ begin x := $1; execute 'select extensions.ht' || 'tp_get(...)'; x := $$x$$; end $body$ language plpgsql;", path: "supabase/migrations/99999999999999-positional-parameter-outbound.sql" },
   { content: "do $$ begin execute /* function */ \"dynamic_sql\"; end $$;", path: "supabase/migrations/99999999999999-body-comment-outbound.sql" },
+  { content: "do $$ declare function text := 'select extensions.ht' || 'tp_get(...)'; begin execute function; end $$;", path: "supabase/migrations/99999999999999-unquoted-function-variable-outbound.sql" },
   { content: "do language plpgsql $body$ begin perform http_post /* review */ (current_setting('app.remote_endpoint')); end $body$;", path: "supabase/migrations/99999999999999-body-direct-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin execute \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-single-body-outbound.sql" },
   { content: "create function public.dynamic_outbound() returns void as E'begin \\105XECUTE \\'select extensions.ht\\' || \\'tp_get(...)\\'; end' language plpgsql;", path: "supabase/migrations/99999999999999-octal-body-outbound.sql" },
@@ -2459,6 +2484,7 @@ for (const fixture of [
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
+  { content: 'body { background: u\\\\72l(//api.groq.com/pixel); }', path: "apps/brand-site/public/css-escape-egress.css" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
 ]) {
@@ -2469,6 +2495,7 @@ for (const fixture of [
 
 for (const fixture of [
   { content: 'return new Response("ok", { headers: [[ "Content-Type", "text/plain" ]] });', path: "apps/worker/src/capture-router.ts" },
+  { content: "create trigger audit_insert after insert on public.manuals for each row execute function public.audit_manual();", path: "supabase/migrations/99999999999999-safe-trigger.sql" },
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
   { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
