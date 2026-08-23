@@ -658,6 +658,38 @@ function javascriptStructuralTokens(content) {
   return tokens;
 }
 
+function hasDestructuringPropertyAssignment(content, objectName, propertyName) {
+  const tokens = javascriptStructuralTokens(content);
+  const isPropertyReferenceAt = (index) => tokens[index]?.value === objectName
+    && ((tokens[index + 1]?.value === "." && tokens[index + 2]?.value === propertyName)
+      || (tokens[index + 1]?.value === "[" && tokens[index + 2]?.type === "string"
+        && tokens[index + 2]?.value === propertyName && tokens[index + 3]?.value === "]"));
+  const matchingOpening = (closingIndex) => {
+    const closing = tokens[closingIndex]?.value;
+    const opening = closing === "}" ? "{" : closing === "]" ? "[" : null;
+    if (opening === null) return null;
+    let depth = 1;
+    for (let index = closingIndex - 1; index >= 0; index -= 1) {
+      if (tokens[index].value === closing) depth += 1;
+      else if (tokens[index].value === opening) depth -= 1;
+      if (depth === 0) return index;
+    }
+    return null;
+  };
+  for (let equals = 1; equals < tokens.length; equals += 1) {
+    if (tokens[equals].value !== "=" || tokens[equals - 1]?.value === "="
+      || ["=", ">"].includes(tokens[equals + 1]?.value)) continue;
+    const closing = equals - 1;
+    if (!["}", "]"].includes(tokens[closing]?.value)) continue;
+    const opening = matchingOpening(closing);
+    if (opening === null) continue;
+    for (let index = opening + 1; index < closing; index += 1) {
+      if (isPropertyReferenceAt(index)) return true;
+    }
+  }
+  return false;
+}
+
 function hasComputedCapabilityBinding(content) {
   const tokens = javascriptStructuralTokens(content);
   for (let start = 0; start < tokens.length; start += 1) {
@@ -2011,7 +2043,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   };
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
-  const hasApprovedConfigMutation = /(?:\bconfig\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])\s*(?:\*\*=|>>>=|<<=|>>=|&&=|\|\|=|\?\?=|[+\-*/%&|^]=|=(?!=)|\+\+|--)|\bdelete\s+config\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])|\bObject\.(?:assign|defineProperty)\s*\(\s*config\b|\bReflect\.set\s*\(\s*config\s*,\s*["'`]url["'`])/i.test(normalizedContent);
+  const hasApprovedConfigMutation = /(?:\bconfig\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])\s*(?:\*\*=|>>>=|<<=|>>=|&&=|\|\|=|\?\?=|[+\-*/%&|^]=|=(?!=)|\+\+|--)|\bdelete\s+config\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])|\bObject\.(?:assign|defineProperty)\s*\(\s*config\b|\bReflect\.set\s*\(\s*config\s*,\s*["'`]url["'`])/i.test(normalizedContent)
+    || hasDestructuringPropertyAssignment(normalizedContent, "config", "url");
   const hasUnapprovedConfigOrigin = usesApprovedConfigFetch && (
     !expectedConfigInitializers
     || configInitializers.length !== expectedConfigInitializers.length
@@ -2056,7 +2089,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     || /\[\s*["'`](?:refresh|location|link)["'`]\s*,/i.test(normalizedContent);
   const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
-    || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent);
+    || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent)
+    || /\bHeaders\s*(?:\.\s*prototype\b|\[\s*["'`]prototype["'`]\s*\])/i.test(normalizedContent);
   const computedHeadersInitAliases = new Set([
     ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1]),
     ...[...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1])
@@ -2381,6 +2415,9 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url &&= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config["url"] ||= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url ??= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); ({ url: config.url } = { url: new URL(request.url).searchParams.get("target") ?? config.url }); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
