@@ -2071,6 +2071,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     .filter((match) => referencesBareConfigOwner(match[1])).length;
   const configOwnerArrowReturnCount = [...normalizedContent.matchAll(/=>\s*([^;{\n]+)(?:[;,\n]|$)/g)]
     .filter((match) => referencesBareConfigOwner(match[1])).length;
+  const configOwnerYieldCount = [...normalizedContent.matchAll(/\byield(?:\s*\*)?\s+([^;]+);/gs)]
+    .filter((match) => referencesBareConfigOwner(match[1])).length;
   const expectedConfigOwnerReturnCount = ["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path) ? 1 : 0;
   const configOwnerAliases = new Set(["config"]);
   const configAliasInitializers = [
@@ -2110,7 +2112,8 @@ function hasAiRuntimeBoundary(content, path = "") {
     || configInitializers.length !== expectedConfigInitializers.length
     || configInitializers.some((initializer, index) => initializer !== expectedConfigInitializers[index])
     || hasApprovedConfigMutation || hasConfigOwnerEscape
-    || configOwnerReturnCount !== expectedConfigOwnerReturnCount || configOwnerArrowReturnCount !== 0
+    || configOwnerReturnCount !== expectedConfigOwnerReturnCount
+    || configOwnerArrowReturnCount !== 0 || configOwnerYieldCount !== 0
   );
   const memberFetchReceivers = [...content.matchAll(/\b([A-Za-z_$][\w$]*)\.fetch\s*\(/g)].map((match) => match[1]);
   const hasUnapprovedMemberFetch = memberFetchReceivers.some((receiver) => receiver !== "phase1Worker")
@@ -2146,9 +2149,12 @@ function hasAiRuntimeBoundary(content, path = "") {
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|(?:-webkit-)?image-set\s*\(|@import\b/i.test(domSinkRemainder));
-  const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location|link)["'`]?|\[\s*["'`](?:refresh|location|link)["'`]\s*\])\s*:/i.test(normalizedContent)
-    || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location|link)["'`]/i.test(normalizedContent)
-    || /\[\s*["'`](?:refresh|location|link)["'`]\s*,/i.test(normalizedContent);
+  const browserOutboundHeaderName = "(?:refresh|location|link|report-to|nel|reporting-endpoints)";
+  const hasNavigationHeaderSink = new RegExp(`\\bheaders\\s*:\\s*\\{[^}]*?(?:["'\`]?${browserOutboundHeaderName}["'\`]?|\\[\\s*["'\`]${browserOutboundHeaderName}["'\`]\\s*\\])\\s*:`, "i").test(normalizedContent)
+    || new RegExp(`\\.(?:set|append)\\s*\\(\\s*["'\`]${browserOutboundHeaderName}["'\`]`, "i").test(normalizedContent)
+    || new RegExp(`\\[\\s*["'\`]${browserOutboundHeaderName}["'\`]\\s*,`, "i").test(normalizedContent)
+    || /["'`]content-security-policy["'`][\s\S]{0,300}?\breport-(?:uri|to)\b/i.test(normalizedContent)
+    || /\.(?:set|append)\s*\(\s*["'`]content-security-policy["'`][^)]*\breport-(?:uri|to)\b/i.test(normalizedContent);
   const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
     || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent)
@@ -2490,10 +2496,14 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); mutate(config!); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; function existingConfigReturn() { return config; } const config = ensureConfig(env); function getConfig() { return config; } const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; function existingConfigReturn() { return config; } const config = ensureConfig(env); function getConfig() { return (true ? config : config); } const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); function* getConfig() { yield config; } const alias = getConfig().next().value; alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const getConfig = () => config; const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const key: "url" = ("u" + "rl") as "url"; config[key] = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'return new Response("", { headers: { "Report-To": `{"group":"remote","endpoints":[{"url":"${env.REMOTE_URL}"}]}`, NEL: `{"report_to":"remote"}` } });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'return new Response("", { headers: { "Reporting-Endpoints": `remote="${env.REMOTE_URL}"`, "Content-Security-Policy": "default-src none; report-to remote" } });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'return new Response("", { headers: { "Content-Security-Policy": `default-src none; report-uri ${env.REMOTE_URL}` } });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: 'body { background: u\\\\72l(//api.groq.com/pixel); }', path: "apps/brand-site/public/css-escape-egress.css" },
   { content: 'body { background-image: image-set("//api.groq.com/pixel" 1x); }', path: "apps/brand-site/public/image-set-egress.css" },

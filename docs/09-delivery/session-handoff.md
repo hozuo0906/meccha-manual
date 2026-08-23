@@ -266,6 +266,7 @@ Issue #70には最低限、次を残す。
 - standalone CSSはCSS escapeを復号してから`url()`／`@import`等のresource sinkを検査し、HTML inline styleとは独立した回帰fixtureで固定した。
 - standalone CSSの`image-set()`／`-webkit-image-set()`もresource sinkとして拒否する。config ownerを返すnamed function／arrow functionは既存の許可済みreturn数を超えた時点で拒否する。
 - config ownerのcomputed bracket mutationはkey内容に関係なく拒否し、named／arrow functionのreturn式は条件式・論理式・sequence式を含む式全体からbare owner参照を数える。
+- generatorの`yield`によるconfig owner escapeも拒否する。Responseの`Report-To`／`NEL`／`Reporting-Endpoints`とCSP `report-uri`／`report-to`をbrowser outbound header sinkとして拒否する。
 - R2予約世代と正規object keyは全operation key間で一意にし、同じoperation keyの冪等再送だけに再利用を許可する。別operation keyの衝突は予約作成と同じ原子的境界で拒否する。
 - `assets`のPostgres正本へ容量予約objectの`reservation_id`／`fencing_token`を追加し、Storage契約、RLS/Storage文書、table定義、policy検査を一致させた。
 - RLS/Storageのpath正本は通常objectの4-segment形式と容量予約objectの5-segment形式を分けて併記し、通常objectを禁止しない。
