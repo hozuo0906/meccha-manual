@@ -12,7 +12,6 @@ Status: Proposed
 - Stripe webhook failure
 - Share link access denial
 - PDF/export failure
-- AI adapter calls
 
 ## ログ方針
 

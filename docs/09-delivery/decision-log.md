@@ -9,7 +9,7 @@ Status: Accepted
 | DEC-003 | 2026-07-31 | Supabaseを使う | ユーザー指定。Auth/DB/RLSを一体で扱える |
 | DEC-004 | 2026-07-31 | Cloudflareを使う | ユーザー指定。Workers/Browser Run/R2を使える |
 | DEC-005 | 2026-07-31 | Chrome拡張を第一方式にしない | システム内ブラウザ方式を核にする |
-| DEC-006 | 2026-07-31 | AI APIは初期OFF | 従量課金と機密情報送信リスクを避ける |
+| DEC-006 | 2026-07-31 | AI APIは初期OFF（DEC-063で承認前は未実装へ強化） | 従量課金と機密情報送信リスクを避ける |
 | DEC-007 | 2026-07-31 | 共有リンクはデフォルトOFF | 情報漏えいリスクを下げる |
 | DEC-008 | 2026-07-31 | 個人利用ではなくワークスペース所属を前提にする | 課金、権限、監査を一貫させる |
 | DEC-009 | 2026-07-31 | 設計は全部入り、開発は段階的に進める | 品質ゲートを通しながら進める |
@@ -131,3 +131,10 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - hostname allowlistの存在と全通信のactual peer拘束は同義ではなく、未証明経路からのSSRFをP0として防ぐため。
 - Boundary:
   - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
+
+## DEC-063: AI拡張は売上安定とowner承認まで実装しない
+
+- Status: Accepted
+- Date: 2026-08-20
+- Decision: 売上安定をownerが確認し、実装開始を明示承認するまで、AI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。FR-006は常にローカルの決定的処理とする。
+- Reason: OFF設定だけでは実装・Secret・誤有効化による費用とデータ送信リスクが残るため。

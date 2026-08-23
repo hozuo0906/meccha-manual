@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 
 const requiredDocs = {
   "README.md": [
@@ -86,7 +87,8 @@ const requiredDocs = {
   ],
   "docs/08-operations/feature-flags.md": [
     "`capture.browserRun.egressVerified.enabled`",
-    "AC-023"
+    "AC-023",
+    "owner明示承認が揃うまでAI用flagを登録しない"
   ],
   "docs/05-api/api-contracts.md": [
     "503 BROWSER_EGRESS_NOT_VERIFIED",
@@ -147,6 +149,40 @@ const forbiddenLegacyR2Names = [
 const errors = [];
 const contents = {};
 
+// AC-060 covers product runtime/source/config, not the separately governed
+// ADR-0026 development automation. Keep this scan deliberately limited to
+// product roots so Codex/Business OS runner credentials remain out of scope.
+const productScanRoots = ["apps", "package.json", "wrangler.jsonc", "wrangler.brand.jsonc"];
+const forbiddenProductAiPatterns = [
+  /AI_PROVIDER_API_KEY/i,
+  /AI_(?:API_)?ENDPOINT/i,
+  /ai\.assistiveGeneration\.enabled/i,
+  /(?:from|require\s*\()\s*["'](?:openai|@anthropic-ai|@google\/generative-ai)/i
+];
+async function listProductFiles(entry) {
+  const info = await readdir(entry, { withFileTypes: true }).catch(() => null);
+  if (!Array.isArray(info)) return [entry];
+  const files = [];
+  for (const item of info) {
+    const child = path.join(entry, item.name);
+    if (item.isDirectory()) files.push(...await listProductFiles(child));
+    else files.push(child);
+  }
+  return files;
+}
+
+for (const root of productScanRoots) {
+  for (const file of await listProductFiles(root)) {
+    const source = await readFile(file, "utf8").catch(() => "");
+    for (const pattern of forbiddenProductAiPatterns) {
+      if (pattern.test(source)) {
+        errors.push(`AI implementation marker remains in product runtime/config: ${file}`);
+        break;
+      }
+    }
+  }
+}
+
 for (const [file, terms] of Object.entries(requiredDocs)) {
   try {
     const content = await readFile(file, "utf8");
@@ -162,6 +198,17 @@ for (const [file, terms] of Object.entries(requiredDocs)) {
 }
 
 const combined = Object.values(contents).join("\n");
+if ((contents["docs/08-operations/feature-flags.md"] ?? "").includes("ai.assistiveGeneration.enabled")) {
+  errors.push("AI feature flag must not be registered before owner approval.");
+}
+if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes("| `AI_PROVIDER_API_KEY` |")) {
+  errors.push("AI provider secret must not be registered before owner approval.");
+}
+for (const endpointLiteral of ["| `AI_PROVIDER_ENDPOINT` |", "| `AI_API_ENDPOINT` |"]) {
+  if ((contents["docs/08-operations/environment-variables.md"] ?? "").includes(endpointLiteral)) {
+    errors.push(`AI endpoint must not be registered before owner approval: ${endpointLiteral}`);
+  }
+}
 const browserAcceptanceCatalog = contents["docs/07-quality/acceptance-catalog.md"] ?? "";
 const ac023 = browserAcceptanceCatalog.split("\n").find((line) => line.startsWith("| AC-023 |")) ?? "";
 for (const term of ["application bytes送信前", "actual peerで拒否", "1経路でも拘束不能", "BROWSER_EGRESS_NOT_VERIFIED", "fail closed"]) {

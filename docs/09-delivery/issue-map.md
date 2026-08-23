@@ -137,10 +137,24 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - 可観測性
 - ロールバック
 
-## EPIC-14: AI拡張口
+## EPIC-14: AI拡張口 — Deferred
 
-- AI feature flag
-- AI利用OFF既定
+GitHub Issue #62を正本とし、収益が安定したとownerが確認し、ownerが実装開始を明示承認するまで着手しない。
+
+着手前に必要なこと:
+
+- AIで増える利用価値と概算API費用を比較する
+- 月額上限、停止条件、kill switchを設計する
+- 外部送信データとマスキング境界を確認する
+- ownerの実装開始に対する明示承認を記録する
+
+それまでは次を実装しない:
+
+- AI専用feature flag
 - 管理者ON/OFF
-- 利用ログ
-- コスト上限
+- AI adapter
+- AI API key/Secret
+- AI runtime call
+- AI専用利用ログ・コスト計測
+
+AIがなくても基本導線がすべて成立することを維持する。

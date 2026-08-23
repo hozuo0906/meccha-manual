@@ -35,7 +35,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - checkout intentとCheckout Sessionが1対1で、期限切れ・別Session・消費済みintentの支払いを二重付与せず自動返金queueへ送ること。
 - Checkout Session作成の応答消失、API再送、並行送信で、intent由来のStripe idempotency keyにより同じSessionだけが返ること。
 - TeamからPersonalへの移行はOQ-027が決まるまで、active/grace/read_onlyのTeam契約があれば人数に関係なく課金前に拒否すること。
-- AI初期OFFで外部APIを呼ばない。
+- AI承認条件が揃うまではadapter、flag、Secret、endpointが存在せず、FR-006が外部APIなしで完了すること。
 
 ## 課金テストデータ
 

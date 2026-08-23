@@ -9,7 +9,7 @@ Status: Accepted
 | RISK-003 | 入力値や個人情報が保存される | P0情報漏えい | 入力値非保存、マスキング、公開前確認 |
 | RISK-004 | RLS抜け | P0テナント越境 | deny-by-default、negative test |
 | RISK-005 | 共有リンク失効が遅れる | P0情報漏えい | Worker検証、キャッシュ制御 |
-| RISK-006 | AI APIコストが発生する | 予期せぬ請求 | 初期OFF、feature flag、利用上限 |
+| RISK-006 | AI APIコストが発生する | 予期せぬ請求 | 売上安定とowner明示承認までAI固有の実装・設定を作らない |
 | RISK-007 | サブエージェントが矛盾した実装をする | 品質低下 | 文書正本、Issue分解、統合担当固定 |
 | RISK-008 | 定数/設定が散らばる | 保守不能 | coding-guidelines、リファクタリングレビュー |
 | RISK-009 | PDF/HTML出力でぼかしが外れる | 情報漏えい | golden test、目視確認 |
