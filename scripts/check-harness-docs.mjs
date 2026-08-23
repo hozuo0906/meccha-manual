@@ -1492,7 +1492,7 @@ function hasAliasedComputedCapabilityLookup(content) {
     let factoryCursor = factoryReferenceEnd(factoryStart, endExclusive);
     let factoryState = factoryCursor === null ? null : "factory";
     let deferredInvoker = false;
-    const invocationHasFactoryReceiver = (opening, afterInvocation) => {
+    const invocationFirstArgumentRange = (opening, afterInvocation) => {
       let parentheses = 0;
       let brackets = 0;
       let braces = 0;
@@ -1507,7 +1507,17 @@ function hasAliasedComputedCapabilityLookup(content) {
         else if (value === "}") braces = Math.max(0, braces - 1);
         else if (value === "," && parentheses === 0 && brackets === 0 && braces === 0) break;
       }
-      return factoryReferenceEnd(opening + 1, argumentEnd) === argumentEnd;
+      return { start: opening + 1, end: argumentEnd };
+    };
+    const invocationHasFactoryReceiver = (opening, afterInvocation) => {
+      const argument = invocationFirstArgumentRange(opening, afterInvocation);
+      return factoryReferenceEnd(argument.start, argument.end) === argument.end;
+    };
+    const invocationHasStandardInvokerReceiver = (opening, afterInvocation) => {
+      const argument = invocationFirstArgumentRange(opening, afterInvocation);
+      const values = tokens.slice(argument.start, argument.end).map((token) => token.value);
+      return values.length === 5 && values[0] === "Function" && values[1] === "."
+        && values[2] === "prototype" && values[3] === "." && ["call", "apply"].includes(values[4]);
     };
     while (factoryCursor !== null && factoryCursor < endExclusive) {
       while (tokens[factoryCursor]?.value === "!") factoryCursor += 1;
@@ -1518,6 +1528,7 @@ function hasAliasedComputedCapabilityLookup(content) {
       if (tokens[invocation]?.value === "(") {
         const afterInvocation = afterMatching(invocation, "(", ")", endExclusive);
         if (afterInvocation === null) break;
+        if (factoryState === "indirect" && !invocationHasFactoryReceiver(invocation, afterInvocation)) break;
         factoryState = "owner";
         factoryCursor = afterInvocation;
         continue;
@@ -1543,7 +1554,13 @@ function hasAliasedComputedCapabilityLookup(content) {
         deferredInvoker = true;
         continue;
       }
-      if (deferredInvoker && !invocationHasFactoryReceiver(factoryCursor, afterInvocation)) break;
+      if (deferredInvoker && !invocationHasFactoryReceiver(factoryCursor, afterInvocation)) {
+        if (member !== "bind" || !invocationHasStandardInvokerReceiver(factoryCursor, afterInvocation)) break;
+        factoryState = "indirect";
+        deferredInvoker = false;
+        factoryCursor = afterInvocation;
+        continue;
+      }
       factoryState = member === "bind" ? "factory" : "owner";
       deferredInvoker = false;
       factoryCursor = afterInvocation;
@@ -1981,6 +1998,9 @@ function hasAiRuntimeBoundary(content, path = "") {
       "apps/worker/src/manual-router.ts": new Map([["`${config.url}${path}`", 1]]),
       "apps/worker/src/app-assets.ts": new Map([["path", 1]])
     };
+Warning: truncated output (original token count: 9679)
+Total output lines: 200
+
     const expected = expectedCounts[path]?.get(argument);
     return expected !== undefined && directFetchArguments.filter((candidate) => candidate === argument).length === expected;
   };
@@ -2113,14 +2133,7 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const { getNavigator: method } = Source; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } async function getSource() { return Source; } const Alias = await getSource(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = (getSource)(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call(null); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.apply(null, []); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.bind(null)(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call.call(getSource, null); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.apply.call(getSource, null, []); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
-  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call.bind(getSource)(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } async function getSource() { return Source; } const Alias = await getSource(); const { getNavigator: method } = Alias; const nav = metho…679 tokens truncated…etSource.call.bind(Function.prototype.call)(getSource, null); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const factory = getSource; const Alias = factory(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const getSource = () => Source; const Alias = getSource(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias: typeof Source = Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
