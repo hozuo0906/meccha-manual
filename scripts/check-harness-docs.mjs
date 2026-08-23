@@ -2043,6 +2043,7 @@ function hasAiRuntimeBoundary(content, path = "") {
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
+    || /\bHTMLRewriter\b/.test(normalizedContent)
     || /\b(?:WebSocket|WebTransport|RTCPeerConnection|EventSource|XMLHttpRequest|sendBeacon)\b/.test(normalizedContent)
     || hasUnapprovedDomSink
     || /\b(?:import|require)\s*\(/.test(normalizedContent)
@@ -2301,6 +2302,7 @@ for (const fixture of [
   { content: '<img src="/\\\\api.groq.com/openai/v1/pixel">', path: "apps/brand-site/public/backslash-resource-egress.html" },
   { content: '<a href="/safe" ping="//api.groq.com/pixel">safe</a>', path: "apps/brand-site/public/ping-egress.html" },
   { content: '<link rel="preload" as="image" href="/safe.png" imagesrcset="//api.groq.com/pixel 1x">', path: "apps/brand-site/public/imagesrcset-egress.html" },
+  { content: 'return new HTMLRewriter().on("img", { element(element) { element.setAttribute("src", env.REMOTE_URL); } }).transform(response);', path: "apps/worker/src/provider.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
