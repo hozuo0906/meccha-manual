@@ -10,7 +10,7 @@ const USER_ID = "22222222-2222-4222-8222-222222222222";
 const MANUAL_ID = "33333333-3333-4333-8333-333333333333";
 const DRAFT_ID = "44444444-4444-4444-8444-444444444444";
 const APP_ORIGIN = "https://app.example.test";
-const SUPABASE_ORIGIN = "https://project.supabase.co";
+const SUPABASE_ORIGIN = "https://spjowmulvoyxxkfeyjkr.supabase.co";
 const ENV = {
   SUPABASE_URL: SUPABASE_ORIGIN,
   SUPABASE_ANON_KEY: "public-anon-key"
@@ -236,14 +236,19 @@ test("create upstream 5xx is result-unknown and does not invite immediate retry"
 
 test("Supabase bindings are normalized through the single server config module", async () => {
   assert.deepEqual(
-    inspectSupabaseConfig({ SUPABASE_URL: " https://project.supabase.co/// ", SUPABASE_ANON_KEY: " key " }),
+    inspectSupabaseConfig({ SUPABASE_URL: " https://spjowmulvoyxxkfeyjkr.supabase.co/// ", SUPABASE_ANON_KEY: " key " }),
     {
       configured: true,
       hasUrl: true,
       hasAnonKey: true,
-      projectRef: "project",
-      config: { url: "https://project.supabase.co", anonKey: "key" }
+      projectRef: "spjowmulvoyxxkfeyjkr",
+      config: { url: "https://spjowmulvoyxxkfeyjkr.supabase.co", anonKey: "key" }
     }
+  );
+  assert.equal(
+    inspectSupabaseConfig({ SUPABASE_URL: "https://spjowmulvoyxxkfeyjkr.supabase.co:8443", SUPABASE_ANON_KEY: "key" }).configured,
+    false,
+    "approved Supabase host must reject non-standard HTTPS ports"
   );
   const [indexSource, manualSource, configSource] = await Promise.all([
     readFile("apps/worker/src/index.ts", "utf8"),

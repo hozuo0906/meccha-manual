@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import worker from "../apps/worker/src/index.ts";
 
 const env = {
-  SUPABASE_URL: "https://example.supabase.co",
+  SUPABASE_URL: "https://spjowmulvoyxxkfeyjkr.supabase.co",
   SUPABASE_ANON_KEY: "public-anon-key"
 };
 const ctx = { waitUntil() {} };

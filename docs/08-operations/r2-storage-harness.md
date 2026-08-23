@@ -56,6 +56,15 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - 短命URL自体をDBや監査ログへ保存しない。
 - object keyへ元ファイル名、画面タイトル、メールアドレスなどのPII/機密情報を入れない。
 
+## 容量予約
+
+- クライアントは初回要求前に推測不能なoperation keyを生成・保持する（再送可能な安定asset IDが先に存在する場合はそこから一意に導出する）。サーバーはこのkeyへ予約IDを1対1で固定し、`current bytes + active reserved bytes + planned bytes`を同一transactionで検証・予約する。
+- 同じ冪等keyの結果不明再送は同じ予約を返し、別予約を作らない。予約成功後にWorkerが停止しても、短いlease期限後にreconciliationがobjectの有無を照合し、実使用量へ確定または解放する。
+- R2書込成功とPostgres確定の間で応答が失われた場合はobject metadataとchecksumで同一保存を照合し、二重計上しない。lease延長は所有者と期限を原子的に照合し、無期限に延長しない。
+- object keyは予約世代を独立path segmentとして含め、正規Storage adapter経由でR2 metadataへ予約IDとfencing tokenを保存する。期限切れ旧ownerの遅着objectは旧世代keyだけを削除し、新しい予約世代とはkeyを共有しない。
+- reconciliation jobはactive予約と、released／committed予約ごとの永続generation tombstoneを定期走査し、停止・再起動後も再開する。固定時間では打ち切らず、60秒を超えて遅着するPUTも同世代prefixから回収する。tombstoneを走査集合から外せるのは、対象generationでwrite fence確立、進行中PUT drain完了、R2 lifecycle削除確認の順に完了したことをprovider証跡で確認した後だけとする。archive遷移は空でない証跡IDを必須とし、provider verifierが返す3段階の時刻が厳密に増加すること、provider evidence ID、generation ID、generation prefixを予約と照合する。同時刻・未drain・順序不正・別世代・別prefixの証跡は拒否し、tombstoneをactiveに保つ。検証I/O後にarchive状態をCAS相当で再確認し、committed使用量のunderflow検証、初回だけのbyte減算、archive tuple保存を同じ原子的遷移として行う。失敗時は未archiveを維持する。同じ証跡の再送だけを冪等に受理して、並行要求でも最初に確定した証跡tupleと時刻を上書きしない。確認済みtombstoneをactive sweepから外してLISTを累積履歴へ比例させない。予約単位で失敗を記録・再試行し、1件の失敗で後続予約の走査を中断しない。R2本文からchecksumを再計算し、workspace、key、size、checksum、予約ID、fencing tokenが一致したobjectだけを確定する。
+- 同じ予約を複数schedulerが同時にreconcileしても、外部I/O後に予約stateをlock／CAS相当で再確認し、確定と`current bytes`加算を一度だけ行う。期限切れ解放側も削除I/O後にstateを再確認し、並行確定を`released`で上書きしない。予約解放とcommitted generation archiveのbyte減算は容量versionも同じ原子的遷移で進め、解放前の使用量を読んだ並行予約をversion conflictで再試行させる。削除開始前に対象object keyとcommit禁止のrelease-only遷移を永続化し、削除応答を失った場合は破壊的I/O pendingと回収記録を保持する。claim期限後は再起動したreconcilerが同じkeyの削除を冪等に再実行し、release-only予約を確定へ戻さず解放へ収束させる。これにより遅延削除後のobject欠落と容量計上の不一致、および中断claimによる予約枠の永久保持を防ぐ。
+
 ## 削除と保持
 
 - Postgresメタデータをsoft deleteし、URL発行を即時停止してからR2 objectと派生物を非同期削除する。
@@ -64,9 +73,19 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 
 ## object key
 
+通常のobject:
+
 ```text
 {workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
 ```
+
+容量予約を伴うobject:
+
+```text
+{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
+```
+
+`reservation_generation_id`は予約作成時に一度だけ固定し、operation keyの再送では同じ値を再利用する。別operation keyによる同じ予約世代または正規object keyの再利用は、予約作成と同じ原子的境界で拒否する。reconciliationはこの世代prefix内だけを列挙する。workspace、key、size、checksum、予約ID、fencing tokenのtuple一致は正規objectの確定条件であり、cleanup条件ではない。正規objectを確定するときは同世代の非正規objectを削除し、期限後は予約ID／fencing tokenの欠落・不一致を含むprefix内の孤立objectを回収する。別世代のprefixは走査・削除しない。
 
 ## 検証
 
@@ -81,4 +100,4 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。
 - Storage実装にログ出力を追加していない。
 
-`npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。実R2、secret、実ユーザーの操作内容は使用しない。
+`npm run test:r2-storage` はローカルstubとfake R2 bindingだけを使い、保存・取得・削除、両adapterのread shape一致、bodyとSHA-256の一致、keyとworkspace/resource/asset metadataの完全一致、byte列の分離、禁止metadataと個人情報を含み得るkeyの拒否を確認する。さらに、予約の並行上限、同じoperation keyの要求tuple不一致、初回応答消失後の再送、書込後停止、lease期限切れを障害注入し、上限超過・二重計上・予約枠の永久消費が起きないことを確認する。実R2、secret、実ユーザーの操作内容は使用しない。

@@ -1,10 +1,10 @@
-# ADR-0009: AI APIは初期OFFにする
+# ADR-0009: AI APIは承認条件が揃うまで実装しない
 
 Status: Accepted
 
 ## 決定
 
-初期状態では外部AI APIを呼ばない。手順文はDOMターゲットと操作種別から日本語テンプレートで生成する。AI機能は将来管理者が明示的にONにした場合だけ利用する。
+手順文はDOMターゲットと操作種別からローカルで決定的に生成し、FR-006を外部AIへ切り替えない。AI拡張は、売上の安定をownerが確認し、実装開始を明示承認するまで着手しない。
 
 ## 理由
 
@@ -12,7 +12,7 @@ Status: Accepted
 
 ## 影響
 
-- AI adapter境界は用意する。
-- feature flagの既定値はOFF。
-- AI APIキーはCloudflare Secretで管理し、クライアントへ出さない。
-- AI利用ログ、概算コスト、上限、監査ログを設計する。
+- 承認前はAI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。
+- 将来承認された場合は、データ送信範囲、上限、監査、停止条件を別ADRで決定する。
+- 承認は管理画面の操作ではなく、ownerによる開発開始の意思決定を指す。
+- 本ADRの対象は製品runtimeと顧客データ経路であり、ADR-0026の開発automationは分離する。

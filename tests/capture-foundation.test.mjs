@@ -5,7 +5,7 @@ import { handleCaptureRoute } from "../apps/worker/src/capture-router.ts";
 import { generateCaptureDraftSteps, normalizeCaptureEvents } from "../apps/worker/src/domain/capture/draft-generator.ts";
 
 const ORIGIN = "https://app.example.test";
-const SUPABASE = "https://project.supabase.co";
+const SUPABASE = "https://spjowmulvoyxxkfeyjkr.supabase.co";
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
