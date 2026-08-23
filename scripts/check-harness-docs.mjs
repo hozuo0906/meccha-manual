@@ -2041,9 +2041,9 @@ function hasAiRuntimeBoundary(content, path = "") {
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
-  const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["']?(?:refresh|location)["']?|\[\s*["'](?:refresh|location)["']\s*\])\s*:/i.test(normalizedContent)
-    || /\.(?:set|append)\s*\(\s*["'](?:refresh|location)["']/i.test(normalizedContent)
-    || /\[\s*["'](?:refresh|location)["']\s*,/i.test(normalizedContent);
+  const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location)["'`]?|\[\s*["'`](?:refresh|location)["'`]\s*\])\s*:/i.test(normalizedContent)
+    || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location)["'`]/i.test(normalizedContent)
+    || /\[\s*["'`](?:refresh|location)["'`]\s*,/i.test(normalizedContent);
   const hasUnapprovedOutboundCapability = (
     /["'`](?:cloudflare:sockets|node:(?:http|https|http2|net|tls|dgram|dns)|(?:http|https|http2|net|tls|dgram|dns))["'`]/.test(normalizedContent)
     || /\bHTMLRewriter\b/.test(normalizedContent)
@@ -2309,6 +2309,7 @@ for (const fixture of [
   { content: 'return new HTMLRewriter().on("img", { element(element) { element.setAttribute("src", env.REMOTE_URL); } }).transform(response);', path: "apps/worker/src/provider.ts" },
   { content: 'return new Response("", { headers: { Refresh: `0; url=${env.REMOTE_URL}?data=${secret}` } });', path: "apps/worker/src/provider.ts" },
   { content: 'return new Response("", { headers: [["Refresh", `0; url=${env.REMOTE_URL}?data=${secret}`]] });', path: "apps/worker/src/provider.ts" },
+  { content: 'return new Response("", { headers: [[`Refresh`, `0; url=${env.REMOTE_URL}?data=${secret}`]] });', path: "apps/worker/src/provider.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
