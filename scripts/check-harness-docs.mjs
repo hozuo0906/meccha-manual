@@ -703,6 +703,7 @@ function hasAliasedComputedCapabilityLookup(content) {
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
   const capabilityMethodAliases = new Set();
   const capabilityMethodReferenceAliases = new Set();
+  const capabilityMethodOwnerAliases = new Set();
   const afterTypeArguments = (start, limit = tokens.length) => {
     if (tokens[start]?.value !== "<") return start;
     let depth = 1;
@@ -1188,20 +1189,91 @@ function hasAliasedComputedCapabilityLookup(content) {
     return null;
   };
   const finalSequenceOperand = (expressionStart) => {
-    let expressionEnd = expressionStart;
-    let parentheses = 0;
-    let brackets = 0;
-    let braces = 0;
-    for (; expressionEnd < tokens.length; expressionEnd += 1) {
-      const value = tokens[expressionEnd]?.value;
-      if (value === "(") parentheses += 1;
-      else if (value === ")") parentheses = Math.max(0, parentheses - 1);
-      else if (value === "[") brackets += 1;
-      else if (value === "]") brackets = Math.max(0, brackets - 1);
-      else if (value === "{") braces += 1;
-      else if (value === "}") braces = Math.max(0, braces - 1);
-      if ([",", ";"].includes(value) && parentheses === 0 && brackets === 0 && braces === 0) break;
-    }
+    const primitiveTypeNames = new Set([
+      "any", "bigint", "boolean", "const", "false", "never", "null", "number", "object",
+      "string", "symbol", "this", "true", "undefined", "unknown", "void"
+    ]);
+    const topLevelRuntimeCommas = (start, endExclusive, stopAtFirstComma = false) => {
+      let parentheses = 0;
+      let brackets = 0;
+      let braces = 0;
+      let angles = 0;
+      let inTypeAssertion = false;
+      let typeReferenceCanAcceptArguments = false;
+      let typeAssertionDepths = null;
+      const commas = [];
+      const isGenericFunctionTypeOpening = (opening) => {
+        let depth = 1;
+        for (let cursor = opening + 1; cursor < endExclusive; cursor += 1) {
+          if (tokens[cursor]?.value === "<") depth += 1;
+          else if (tokens[cursor]?.value === ">" && tokens[cursor - 1]?.value !== "=") {
+            depth -= 1;
+            if (depth !== 0) continue;
+            if (tokens[cursor + 1]?.value !== "(") return false;
+            const afterParameters = afterMatching(cursor + 1, "(", ")", endExclusive);
+            return afterParameters !== null && tokens[afterParameters]?.value === "="
+              && tokens[afterParameters + 1]?.value === ">";
+          }
+        }
+        return false;
+      };
+      for (let cursor = start; cursor < endExclusive; cursor += 1) {
+        const value = tokens[cursor]?.value;
+        if (value === "(") parentheses += 1;
+        else if (value === ")") {
+          parentheses = Math.max(0, parentheses - 1);
+          if (typeAssertionDepths !== null && parentheses < typeAssertionDepths.parentheses) {
+            inTypeAssertion = false;
+            typeReferenceCanAcceptArguments = false;
+            typeAssertionDepths = null;
+          }
+        } else if (value === "[") brackets += 1;
+        else if (value === "]") {
+          brackets = Math.max(0, brackets - 1);
+          if (typeAssertionDepths !== null && brackets < typeAssertionDepths.brackets) {
+            inTypeAssertion = false;
+            typeReferenceCanAcceptArguments = false;
+            typeAssertionDepths = null;
+          }
+        } else if (value === "{") braces += 1;
+        else if (value === "}") {
+          braces = Math.max(0, braces - 1);
+          if (typeAssertionDepths !== null && braces < typeAssertionDepths.braces) {
+            inTypeAssertion = false;
+            typeReferenceCanAcceptArguments = false;
+            typeAssertionDepths = null;
+          }
+        } else if (["as", "satisfies"].includes(value)) {
+          inTypeAssertion = true;
+          typeReferenceCanAcceptArguments = false;
+          typeAssertionDepths = { parentheses, brackets, braces };
+        } else if (inTypeAssertion && angles === 0 && tokens[cursor]?.type === "identifier") {
+          typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
+        } else if (value === "<" && tokens[cursor + 1]?.value !== "="
+          && (angles > 0 || (inTypeAssertion
+            && (typeReferenceCanAcceptArguments || isGenericFunctionTypeOpening(cursor))))) {
+          angles += 1;
+        } else if (value === "<" && inTypeAssertion) {
+          inTypeAssertion = false;
+          typeReferenceCanAcceptArguments = false;
+          typeAssertionDepths = null;
+        } else if (value === ">" && angles > 0 && tokens[cursor - 1]?.value !== "=") {
+          angles -= 1;
+          if (angles === 0) typeReferenceCanAcceptArguments = false;
+        } else if (value === ";" && parentheses === 0 && brackets === 0 && braces === 0 && angles === 0) {
+          return { commas, end: cursor };
+        } else if (value === "," && parentheses === 0 && brackets === 0 && braces === 0 && angles === 0) {
+          commas.push(cursor);
+          if (stopAtFirstComma) return { commas, end: cursor };
+          inTypeAssertion = false;
+          typeReferenceCanAcceptArguments = false;
+          typeAssertionDepths = null;
+        }
+      }
+      return { commas, end: endExclusive };
+    };
+    const expressionScan = topLevelRuntimeCommas(expressionStart, tokens.length, true);
+    const expressionEnd = expressionScan.end;
     let start = expressionStart;
     let end = expressionEnd;
     let normalizing = true;
@@ -1216,28 +1288,51 @@ function hasAliasedComputedCapabilityLookup(content) {
           continue;
         }
       }
-      let nestedParentheses = 0;
-      let nestedBrackets = 0;
-      let nestedBraces = 0;
-      let lastComma = null;
-      for (let cursor = start; cursor < end; cursor += 1) {
-        const value = tokens[cursor]?.value;
-        if (value === "(") nestedParentheses += 1;
-        else if (value === ")") nestedParentheses = Math.max(0, nestedParentheses - 1);
-        else if (value === "[") nestedBrackets += 1;
-        else if (value === "]") nestedBrackets = Math.max(0, nestedBrackets - 1);
-        else if (value === "{") nestedBraces += 1;
-        else if (value === "}") nestedBraces = Math.max(0, nestedBraces - 1);
-        else if (value === "," && nestedParentheses === 0 && nestedBrackets === 0 && nestedBraces === 0) {
-          lastComma = cursor;
-        }
-      }
+      const commas = topLevelRuntimeCommas(start, end).commas;
+      const lastComma = commas.at(-1) ?? null;
       if (lastComma !== null) {
         start = lastComma + 1;
         normalizing = true;
       }
     }
     return { start, end };
+  };
+  const objectCapabilityMethodBindings = (patternStart, patternEnd) => {
+    if (tokens[patternStart]?.value !== "{") return [];
+    const initializer = finalSequenceOperand(patternEnd + 1);
+    const referencesCapabilityMethodOwner = tokens.slice(initializer.start, initializer.end)
+      .some((token) => token.type === "identifier" && capabilityMethodOwnerAliases.has(token.value));
+    if (!referencesCapabilityMethodOwner) return [];
+    const bindings = [];
+    let cursor = patternStart + 1;
+    while (cursor < patternEnd - 1) {
+      const key = tokens[cursor];
+      if ((key?.type === "identifier" || key?.type === "string")
+        && capabilityMethodAliases.has(key.value)) {
+        if (tokens[cursor + 1]?.value === ":" && tokens[cursor + 2]?.type === "identifier") {
+          bindings.push(tokens[cursor + 2].value);
+        } else if (key.type === "identifier") {
+          bindings.push(key.value);
+        }
+      }
+      let parentheses = 0;
+      let brackets = 0;
+      let braces = 0;
+      for (; cursor < patternEnd - 1; cursor += 1) {
+        const value = tokens[cursor]?.value;
+        if (value === "(") parentheses += 1;
+        else if (value === ")") parentheses = Math.max(0, parentheses - 1);
+        else if (value === "[") brackets += 1;
+        else if (value === "]") brackets = Math.max(0, brackets - 1);
+        else if (value === "{") braces += 1;
+        else if (value === "}") braces = Math.max(0, braces - 1);
+        else if (value === "," && parentheses === 0 && brackets === 0 && braces === 0) {
+          cursor += 1;
+          break;
+        }
+      }
+    }
+    return bindings;
   };
   let changed = true;
   while (changed) {
@@ -1352,6 +1447,14 @@ function hasAliasedComputedCapabilityLookup(content) {
         if (["return", "yield"].includes(tokens[cursor].value)
           && expressionReferencesCapability(cursor + 1, bodyEnd - 1)) {
           capabilityMethodAliases.add(tokens[index].value);
+          const ownerBody = enclosingBraceStart(index);
+          if (ownerBody !== null && tokens[ownerBody - 1]?.type === "identifier"
+            && tokens[ownerBody - 2]?.value === "class") {
+            capabilityMethodOwnerAliases.add(tokens[ownerBody - 1].value);
+          } else if (ownerBody !== null && tokens[ownerBody - 1]?.value === "="
+            && tokens[ownerBody - 2]?.type === "identifier") {
+            capabilityMethodOwnerAliases.add(tokens[ownerBody - 2].value);
+          }
           changed = true;
           break;
         }
@@ -1380,10 +1483,19 @@ function hasAliasedComputedCapabilityLookup(content) {
     }
     for (let index = 0; index < tokens.length; index += 1) {
       const pattern = bindingPattern(index);
-      if (!pattern || !expressionReferencesCapability(pattern.end + 1)) continue;
-      for (const name of pattern.names) {
-        if (!capabilityAliases.has(name)) {
-          capabilityAliases.add(name);
+      if (!pattern) continue;
+      if (expressionReferencesCapability(pattern.end + 1)) {
+        for (const name of pattern.names) {
+          if (!capabilityAliases.has(name)) {
+            capabilityAliases.add(name);
+            changed = true;
+          }
+        }
+      }
+      for (const name of objectCapabilityMethodBindings(index, pattern.end)) {
+        if (!capabilityMethodAliases.has(name) || !capabilityMethodReferenceAliases.has(name)) {
+          capabilityMethodAliases.add(name);
+          capabilityMethodReferenceAliases.add(name);
           changed = true;
         }
       }
@@ -1680,6 +1792,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source[`getNavigator`]``.next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const method = Source.getNavigator; const alias = method; const nav = alias().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const method: typeof Source.getNavigator = Source.getNavigator; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const method = (Source.getNavigator as Replacement<string, () => any>); const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const { getNavigator: method } = Source; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function safe() { return null; } const method = (safe, Source.getNavigator); const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator<() => any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator?.<any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1881,6 +1995,8 @@ for (const fixture of [
   { content: 'class Source { static safe() { return { value() {} }; } } const value = Source["safe"](); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static safe() { return { value() {} }; } } const method = Source.safe; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } function safe() { return { value() {} }; } const method = (Source.getNavigator, safe); const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } function safe() { return { value() {} }; } const method = ((Source.getNavigator as Replacement<string, () => any>), safe); const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } static safe() { return { value() {} }; } } const { safe: method } = Source; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
