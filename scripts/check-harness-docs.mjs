@@ -677,6 +677,18 @@ function hasComputedCapabilityBinding(content) {
 
 function hasAliasedComputedCapabilityLookup(content) {
   const tokens = javascriptStructuralTokens(content);
+  const closingToOpeningParenthesis = new Map();
+  const parenthesisStack = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].value === "(") parenthesisStack.push(index);
+    else if (tokens[index].value === ")" && parenthesisStack.length > 0) {
+      closingToOpeningParenthesis.set(index, parenthesisStack.pop());
+    }
+  }
+  const isGroupingOpening = (opening) => {
+    const previous = tokens[opening - 1];
+    return previous?.type !== "identifier" && ![")", "]", "."].includes(previous?.value);
+  };
   const capabilityAliases = new Set(["navigator", "Navigator", "self", "window", "globalThis"]);
   const capabilityMethodAliases = new Set();
   const expressionReferencesCapability = (start, endExclusive = tokens.length) => {
@@ -713,9 +725,7 @@ function hasAliasedComputedCapabilityLookup(content) {
             else if (tokens[index].value === "(" && depth > 0) depth -= 1;
             else if (tokens[index].value === "(") { opening = index; break; }
           }
-          const beforeOpening = opening === null ? null : tokens[opening - 1];
-          if (opening !== null && beforeOpening?.type !== "identifier"
-            && ![")", "]", "."].includes(beforeOpening?.value)) {
+          if (opening !== null && isGroupingOpening(opening)) {
             let closingDepth = 1;
             let closing = opening + 1;
             for (; closing < endExclusive && closingDepth > 0; closing += 1) {
@@ -724,7 +734,23 @@ function hasAliasedComputedCapabilityLookup(content) {
             }
             if (closingDepth === 0 && closing > cursor) {
               callStart = closing;
-              while ([")", "!"].includes(tokens[callStart]?.value)) callStart += 1;
+              let normalizing = true;
+              while (normalizing) {
+                normalizing = false;
+                while (tokens[callStart]?.value === "!") { callStart += 1; normalizing = true; }
+                if (tokens[callStart]?.value === "as") {
+                  callStart += 1;
+                  while (callStart < endExclusive && tokens[callStart]?.value !== ")") callStart += 1;
+                  normalizing = true;
+                }
+                if (tokens[callStart]?.value === ")") {
+                  const matchedOpening = closingToOpeningParenthesis.get(callStart);
+                  if (matchedOpening !== undefined && isGroupingOpening(matchedOpening)) {
+                    callStart += 1;
+                    normalizing = true;
+                  }
+                }
+              }
             }
           }
         }
@@ -1207,6 +1233,7 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = (Source.getNavigator as any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator as any))?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator as any)!)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator!) as any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator!?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator(flag) { const helper = { function: null }; if (flag) { return navigator; } return null; } } const nav = Source.getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'function getNavigator(flag) { logger.function(); if (flag) { return navigator; } return null; } const nav = getNavigator(true); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1348,6 +1375,7 @@ for (const fixture of [
   { content: 'function safe() { class Helper { static method() { return navigator; } } return null; } const value = safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static safe() { function inner() { return navigator; } return null; } } const value = Source.safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function safeWrapper(value) { return () => null; } const value = safeWrapper(Source.getNavigator)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function safeWrapper(value) { return () => null; } const result = safeWrapper((Source.getNavigator))?.(); result[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
