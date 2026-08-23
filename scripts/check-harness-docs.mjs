@@ -795,6 +795,7 @@ function hasAliasedComputedCapabilityLookup(content) {
         };
         const executesFunctionAt = (index) => {
           let execution = index;
+          let callApplyReceiverMustRemainCapability = false;
           while (execution < endExclusive) {
             while (tokens[execution]?.value === "!") execution += 1;
             if (isInvocationAt(execution)) return true;
@@ -808,9 +809,37 @@ function hasAliasedComputedCapabilityLookup(content) {
             if (["call", "apply"].includes(member.name)) {
               if (member.after <= execution) return false;
               execution = member.after;
+              callApplyReceiverMustRemainCapability = true;
               continue;
             }
             if (member.name !== "bind") return false;
+            if (callApplyReceiverMustRemainCapability) {
+              const opening = invocationOpeningAt(member.after);
+              if (opening === null) return false;
+              let parentheses = 0;
+              let brackets = 0;
+              let braces = 0;
+              let argumentEnd = opening + 1;
+              for (; argumentEnd < endExclusive; argumentEnd += 1) {
+                const value = tokens[argumentEnd]?.value;
+                if (value === "(") parentheses += 1;
+                else if (value === ")" && parentheses > 0) parentheses -= 1;
+                else if (value === ")" && brackets === 0 && braces === 0) break;
+                else if (value === "[") brackets += 1;
+                else if (value === "]") brackets = Math.max(0, brackets - 1);
+                else if (value === "{") braces += 1;
+                else if (value === "}") braces = Math.max(0, braces - 1);
+                else if (value === "," && parentheses === 0 && brackets === 0 && braces === 0) break;
+              }
+              const receiver = tokens.slice(opening + 1, argumentEnd);
+              const isExplicitFunction = receiver.some((token) => token.value === "function")
+                || receiver.some((token, receiverIndex) => token.value === "="
+                  && receiver[receiverIndex + 1]?.value === ">");
+              const referencesCapability = receiver.some((token) => token.type === "identifier"
+                && (capabilityAliases.has(token.value) || capabilityMethodAliases.has(token.value)));
+              if (isExplicitFunction && !referencesCapability) return false;
+              callApplyReceiverMustRemainCapability = false;
+            }
             const afterBind = afterInvocationAt(member.after);
             if (afterBind === null || afterBind <= execution) return false;
             execution = afterBind;
@@ -1570,6 +1599,7 @@ for (const fixture of [
   { content: 'class Source { static empty() {} static safe() { return null; } } const value = Source.safe(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function safeWrapper(value) { return () => null; } const value = safeWrapper(Source.getNavigator)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function safeWrapper(value) { return () => null; } const result = safeWrapper((Source.getNavigator))?.(); result[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.bind(() => null)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
