@@ -206,7 +206,14 @@ begin
   begin
     perform public.reorder_manual_steps(
       '66666666-6666-4666-8666-666666666666',
-      array[local_id, foreign_id]
+      array[
+        local_id,
+        :'step_a'::uuid,
+        :'step_b'::uuid,
+        :'admin_step'::uuid,
+        :'owner_step'::uuid,
+        foreign_id
+      ]
     );
     raise exception 'expected cross revision rejection';
   exception
