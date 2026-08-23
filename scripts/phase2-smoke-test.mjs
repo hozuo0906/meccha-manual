@@ -216,7 +216,9 @@ async function selectRows(supabase, actor, table, query) {
   return payload;
 }
 
-async function assertCannotReadManualGraph(supabase, actor, manualId, revisionId, stepId) {
+async function assertCannotReadManualGraph(supabase, actor, manualId, revisionIds, stepIds) {
+  const revisions = Array.isArray(revisionIds) ? revisionIds : [revisionIds];
+  const steps = Array.isArray(stepIds) ? stepIds : [stepIds];
   const manualRows = await selectRows(
     supabase,
     actor,
@@ -227,13 +229,13 @@ async function assertCannotReadManualGraph(supabase, actor, manualId, revisionId
     supabase,
     actor,
     "manual_revisions",
-    `select=id&id=eq.${encodeURIComponent(revisionId)}`
+    `select=id&id=in.(${revisions.map((id) => encodeURIComponent(id)).join(",")})`
   );
   const stepRows = await selectRows(
     supabase,
     actor,
     "manual_steps",
-    `select=id&id=eq.${encodeURIComponent(stepId)}`
+    `select=id&id=in.(${steps.map((id) => encodeURIComponent(id)).join(",")})`
   );
 
   if (manualRows.length !== 0) {
@@ -465,7 +467,13 @@ async function main() {
     throw new Error("archived manual remained visible through the list API");
   }
 
-  await assertCannotReadManualGraph(supabase, directUserA, manualId, publishedRevisionId, stepId);
+  await assertCannotReadManualGraph(
+    supabase,
+    directUserA,
+    manualId,
+    [publishedRevisionId, nextDraftRevisionId],
+    [stepId, copiedStep.id]
+  );
 
   const archiveAuditRows = await selectRows(
     supabase,
