@@ -769,15 +769,20 @@ function hasAliasedComputedCapabilityLookup(content) {
           if (tokens[index]?.value === "?" && tokens[index + 1]?.value === ".") return index + 2;
           return null;
         };
-        const executesFunctionAt = (index, depth = 0) => {
-          if (depth > 8) return false;
-          if (isInvocationAt(index)) return true;
-          const member = memberIndexAt(index);
-          if (member === null) return false;
-          if (["call", "apply"].includes(tokens[member]?.value)) return isInvocationAt(member + 1);
-          if (tokens[member]?.value !== "bind") return false;
-          const afterBind = afterInvocationAt(member + 1);
-          return afterBind !== null && executesFunctionAt(afterBind, depth + 1);
+        const executesFunctionAt = (index) => {
+          let execution = index;
+          while (execution < endExclusive) {
+            while (tokens[execution]?.value === "!") execution += 1;
+            if (isInvocationAt(execution)) return true;
+            const member = memberIndexAt(execution);
+            if (member === null) return false;
+            if (["call", "apply"].includes(tokens[member]?.value)) return isInvocationAt(member + 1);
+            if (tokens[member]?.value !== "bind") return false;
+            const afterBind = afterInvocationAt(member + 1);
+            if (afterBind === null || afterBind <= execution) return false;
+            execution = afterBind;
+          }
+          return false;
         };
         if (executesFunctionAt(callStart)) return true;
         for (let opening = cursor - 1; opening >= start && ![",", ";"].includes(tokens[opening].value); opening -= 1) {
@@ -1366,7 +1371,9 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)!().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).call(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).apply(null, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source)!.call(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind?.(Source)?.call?.(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Reflect.apply((Source.getNavigator), Source, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Reflect.apply?.(Source.getNavigator, Source, []).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
