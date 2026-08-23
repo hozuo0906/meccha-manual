@@ -834,6 +834,7 @@ function hasAliasedComputedCapabilityLookup(content) {
             let angleDepth = 0;
             let inTypeAssertion = false;
             let typeReferenceCanAcceptArguments = false;
+            let typeAssertionDepths = null;
             let lastComma = null;
             const primitiveTypeNames = new Set([
               "any", "bigint", "boolean", "const", "false", "never", "null", "number", "object",
@@ -862,14 +863,40 @@ function hasAliasedComputedCapabilityLookup(content) {
             for (let receiverIndex = 0; receiverIndex < receiver.length; receiverIndex += 1) {
               const value = receiver[receiverIndex]?.value;
               if (value === "(") parenthesesDepth += 1;
-              else if (value === ")") parenthesesDepth = Math.max(0, parenthesesDepth - 1);
+              else if (value === ")") {
+                parenthesesDepth = Math.max(0, parenthesesDepth - 1);
+                if (typeAssertionDepths !== null && parenthesesDepth < typeAssertionDepths.parentheses) {
+                  inTypeAssertion = false;
+                  typeReferenceCanAcceptArguments = false;
+                  typeAssertionDepths = null;
+                }
+              }
               else if (value === "[") bracketDepth += 1;
-              else if (value === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+              else if (value === "]") {
+                bracketDepth = Math.max(0, bracketDepth - 1);
+                if (typeAssertionDepths !== null && bracketDepth < typeAssertionDepths.brackets) {
+                  inTypeAssertion = false;
+                  typeReferenceCanAcceptArguments = false;
+                  typeAssertionDepths = null;
+                }
+              }
               else if (value === "{") braceDepth += 1;
-              else if (value === "}") braceDepth = Math.max(0, braceDepth - 1);
+              else if (value === "}") {
+                braceDepth = Math.max(0, braceDepth - 1);
+                if (typeAssertionDepths !== null && braceDepth < typeAssertionDepths.braces) {
+                  inTypeAssertion = false;
+                  typeReferenceCanAcceptArguments = false;
+                  typeAssertionDepths = null;
+                }
+              }
               else if (["as", "satisfies"].includes(value)) {
                 inTypeAssertion = true;
                 typeReferenceCanAcceptArguments = false;
+                typeAssertionDepths = {
+                  parentheses: parenthesesDepth,
+                  brackets: bracketDepth,
+                  braces: braceDepth
+                };
               } else if (inTypeAssertion && angleDepth === 0 && receiver[receiverIndex]?.type === "identifier") {
                 typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
               } else if (value === "<" && (angleDepth > 0 || (inTypeAssertion
@@ -879,6 +906,7 @@ function hasAliasedComputedCapabilityLookup(content) {
               else if (value === "<" && inTypeAssertion) {
                 inTypeAssertion = false;
                 typeReferenceCanAcceptArguments = false;
+                typeAssertionDepths = null;
               }
               else if (value === ">" && angleDepth > 0 && receiver[receiverIndex - 1]?.value !== "=") {
                 angleDepth -= 1;
@@ -888,6 +916,7 @@ function hasAliasedComputedCapabilityLookup(content) {
                 lastComma = receiverIndex;
                 inTypeAssertion = false;
                 typeReferenceCanAcceptArguments = false;
+                typeAssertionDepths = null;
               }
             }
             if (lastComma !== null) {
@@ -1715,6 +1744,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as number, Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as number < 1, () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as const < Number(Source.getNavigator), () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'type Box = number; class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply(((Number(Source.getNavigator) as Box) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
