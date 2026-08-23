@@ -2066,8 +2066,11 @@ function hasAiRuntimeBoundary(content, path = "") {
   };
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
-  const configOwnerReturnCount = [...normalizedContent.matchAll(/\breturn\s+(?:\(\s*)*config(?:\s*!)*(?:\s+(?:as|satisfies)\s+[^;\n)]+)*(?:\s*\))*\s*;/g)].length;
-  const configOwnerArrowReturnCount = [...normalizedContent.matchAll(/=>\s*(?:\(\s*)*config(?:\s*!)*(?:\s+(?:as|satisfies)\s+[^,;\n)]+)*(?:\s*\))*(?:\s*[,;)])/g)].length;
+  const referencesBareConfigOwner = (expression) => /\bconfig\b(?!\s*[.\[:])/.test(expression);
+  const configOwnerReturnCount = [...normalizedContent.matchAll(/\breturn\s+([^;]+);/gs)]
+    .filter((match) => referencesBareConfigOwner(match[1])).length;
+  const configOwnerArrowReturnCount = [...normalizedContent.matchAll(/=>\s*([^;{\n]+)(?:[;,\n]|$)/g)]
+    .filter((match) => referencesBareConfigOwner(match[1])).length;
   const expectedConfigOwnerReturnCount = ["apps/worker/src/index.ts", "apps/worker/src/manual-router.ts"].includes(path) ? 1 : 0;
   const configOwnerAliases = new Set(["config"]);
   const configAliasInitializers = [
@@ -2097,8 +2100,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   });
   const hasApprovedConfigMutation = [...configOwnerAliases].some((owner) => {
     const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const property = `(?:\\.\\s*url|\\[\\s*["'\`]url["'\`]\\s*\\])`;
-    const mutation = new RegExp(`(?:\\b${escapedOwner}\\s*${property}\\s*(?:\\*\\*=|>>>=|<<=|>>=|&&=|\\|\\|=|\\?\\?=|[+\\-*/%&|^]=|=(?!=)|\\+\\+|--)|\\bdelete\\s+${escapedOwner}\\s*${property}|\\bObject\\.(?:assign|defineProperty)\\s*\\(\\s*${escapedOwner}\\b|\\bReflect\\.set\\s*\\(\\s*${escapedOwner}\\s*,\\s*["'\`]url["'\`])`, "i");
+    const property = `(?:\\.\\s*url|\\[\\s*[^\\]\\n]+\\s*\\])`;
+    const mutation = new RegExp(`(?:\\b${escapedOwner}\\s*${property}\\s*(?:\\*\\*=|>>>=|<<=|>>=|&&=|\\|\\|=|\\?\\?=|[+\\-*/%&|^]=|=(?!=)|\\+\\+|--)|\\bdelete\\s+${escapedOwner}\\s*${property}|\\bObject\\.(?:assign|defineProperty)\\s*\\(\\s*${escapedOwner}\\b|\\bReflect\\.set\\s*\\(\\s*${escapedOwner}\\s*,)`, "i");
     return mutation.test(normalizedContent)
       || hasDestructuringPropertyAssignment(normalizedContent, owner, "url");
   });
@@ -2486,7 +2489,9 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = [config satisfies SupabaseConfig]; holder[0].url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); mutate(config!); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; function existingConfigReturn() { return config; } const config = ensureConfig(env); function getConfig() { return config; } const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; function existingConfigReturn() { return config; } const config = ensureConfig(env); function getConfig() { return (true ? config : config); } const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const getConfig = () => config; const alias = getConfig(); alias.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const key: "url" = ("u" + "rl") as "url"; config[key] = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
