@@ -1491,6 +1491,24 @@ function hasAliasedComputedCapabilityLookup(content) {
     while (["await", "yield"].includes(tokens[factoryStart]?.value)) factoryStart += 1;
     let factoryCursor = factoryReferenceEnd(factoryStart, endExclusive);
     let factoryState = factoryCursor === null ? null : "factory";
+    let deferredInvoker = false;
+    const invocationHasFactoryReceiver = (opening, afterInvocation) => {
+      let parentheses = 0;
+      let brackets = 0;
+      let braces = 0;
+      let argumentEnd = opening + 1;
+      for (; argumentEnd < afterInvocation - 1; argumentEnd += 1) {
+        const value = tokens[argumentEnd]?.value;
+        if (value === "(") parentheses += 1;
+        else if (value === ")") parentheses = Math.max(0, parentheses - 1);
+        else if (value === "[") brackets += 1;
+        else if (value === "]") brackets = Math.max(0, brackets - 1);
+        else if (value === "{") braces += 1;
+        else if (value === "}") braces = Math.max(0, braces - 1);
+        else if (value === "," && parentheses === 0 && brackets === 0 && braces === 0) break;
+      }
+      return factoryReferenceEnd(opening + 1, argumentEnd) === argumentEnd;
+    };
     while (factoryCursor !== null && factoryCursor < endExclusive) {
       while (tokens[factoryCursor]?.value === "!") factoryCursor += 1;
       factoryCursor = afterTypeArguments(factoryCursor, endExclusive);
@@ -1521,8 +1539,13 @@ function hasAliasedComputedCapabilityLookup(content) {
       if (tokens[factoryCursor]?.value === "?" && tokens[factoryCursor + 1]?.value === ".") factoryCursor += 2;
       factoryCursor = afterTypeArguments(factoryCursor, endExclusive);
       const afterInvocation = afterMatching(factoryCursor, "(", ")", endExclusive);
-      if (afterInvocation === null) break;
+      if (afterInvocation === null) {
+        deferredInvoker = true;
+        continue;
+      }
+      if (deferredInvoker && !invocationHasFactoryReceiver(factoryCursor, afterInvocation)) break;
       factoryState = member === "bind" ? "factory" : "owner";
+      deferredInvoker = false;
       factoryCursor = afterInvocation;
     }
     while (tokens[factoryCursor]?.value === "!") factoryCursor += 1;
@@ -2095,6 +2118,9 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call(null); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.apply(null, []); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.bind(null)(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call.call(getSource, null); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.apply.call(getSource, null, []); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const Alias = getSource.call.bind(getSource)(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } function getSource() { return Source; } const factory = getSource; const Alias = factory(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const getSource = () => Source; const Alias = getSource(); const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias: typeof Source = Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -2313,6 +2339,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = (Source, Safe); const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } function getSafe() { return Safe; } const Alias = getSafe(); const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } async function getSafe() { return Safe; } const Alias = await getSafe(); const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } function getSource() { return Source; } function getSafe() { return Safe; } const Alias = getSource.call.bind(getSafe)(); const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const getSafe = () => Safe; const Alias = getSafe(); const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const { getNavigator: method }: typeof Safe = Safe; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = Source && Safe; const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
