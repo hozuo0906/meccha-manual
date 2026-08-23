@@ -215,7 +215,7 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /\bREPLICATE_API_TOKEN\b/i
   ]),
   aiSchemaObjects: Object.freeze([
-    /\b(?:create|alter|drop)\s+(?:table|index|view|function|type|policy)\s+(?:if\s+not\s+exists\s+)?(?:[a-z0-9_]+\.)?["`']?ai_[a-z0-9_]+\b/i,
+    /\b(?:create|alter|drop)\s+(?:or\s+replace\s+)?(?:table|index|view|function|type|policy)\s+(?:if\s+not\s+exists\s+)?(?:[a-z0-9_]+\.)?["`']?ai_[a-z0-9_]+\b/i,
     /\bai_(?:[a-z0-9]+_)*(?:settings?|providers?|logs?|generations?|requests?|usage|prompts?)\b/i,
     /\b(?:llm|embedding|inference|prompt)_(?:[a-z0-9]+_)*(?:settings?|configs?|logs?|generations?|requests?|usage)\b/i,
     /\bmodel_(?:settings?|configs?|providers?)\b/i

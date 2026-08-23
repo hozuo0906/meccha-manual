@@ -82,6 +82,14 @@ test("arbitrary AI migration object names fail", () => {
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /ai_models|ai_credentials/);
 });
 
+test("AI function migrations fail across create modifiers and whitespace", () => {
+  const result = runFixture("product-function-migration");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.doesNotMatch(output, /ai_summarize|ai_generate/);
+});
+
 test("ordinary product code passes", () => {
   const result = runFixture("allowed-product");
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
