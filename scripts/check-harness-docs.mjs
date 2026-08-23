@@ -1882,6 +1882,23 @@ function hasAliasedComputedCapabilityLookup(content) {
       || (tokens[index + 1]?.value === "?" && tokens[index + 2]?.value === "." && tokens[index + 3]?.value === "[")));
 }
 
+const approvedIndexSecurityHeadersDeclaration = `const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "same-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "content-security-policy": [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "connect-src 'self'",
+    "font-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data:",
+    "script-src 'self'",
+    "style-src 'self'"
+  ].join("; ")
+};`;
+
 function hasAiRuntimeBoundary(content, path = "") {
   const normalizedPath = path.toLowerCase();
   let normalizedContent = content
@@ -2164,12 +2181,20 @@ function hasAiRuntimeBoundary(content, path = "") {
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|(?:-webkit-)?image-set\s*\(|@import\b/i.test(domSinkRemainder));
+  const cspHeaderNames = javascriptStructuralTokens(normalizedContent)
+    .filter((token) => token.type === "string")
+    .map((token) => token.value.toLowerCase())
+    .filter((value) => ["content-security-policy", "content-security-policy-report-only"].includes(value));
+  const hasApprovedIndexCspHeader = path === "apps/worker/src/index.ts"
+    && cspHeaderNames.length === 1
+    && cspHeaderNames[0] === "content-security-policy"
+    && normalizedContent.includes(approvedIndexSecurityHeadersDeclaration);
+  const hasUnapprovedCspHeaderCapability = cspHeaderNames.length > 0 && !hasApprovedIndexCspHeader;
   const browserOutboundHeaderName = "(?:refresh|location|link|report-to|nel|reporting-endpoints)";
   const hasNavigationHeaderSink = new RegExp(`\\bheaders\\s*:\\s*\\{[^}]*?(?:["'\`]?${browserOutboundHeaderName}["'\`]?|\\[\\s*["'\`]${browserOutboundHeaderName}["'\`]\\s*\\])\\s*:`, "i").test(normalizedContent)
     || new RegExp(`\\.(?:set|append)\\s*\\(\\s*["'\`]${browserOutboundHeaderName}["'\`]`, "i").test(normalizedContent)
     || new RegExp(`\\[\\s*["'\`]${browserOutboundHeaderName}["'\`]\\s*,`, "i").test(normalizedContent)
-    || /["'`]content-security-policy(?:-report-only)?["'`][\s\S]{0,300}?\breport-(?:uri|to)\b/i.test(normalizedContent)
-    || /\.(?:set|append)\s*\(\s*["'`]content-security-policy(?:-report-only)?["'`][^)]*\breport-(?:uri|to)\b/i.test(normalizedContent);
+    || hasUnapprovedCspHeaderCapability;
   const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
     || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent)
@@ -2522,6 +2547,8 @@ for (const fixture of [
   { content: 'return new Response("", { headers: { "Content-Security-Policy": `default-src none; report-uri ${env.REMOTE_URL}` } });', path: "apps/worker/src/capture-router.ts" },
   { content: 'return new Response("", { headers: { "Content-Security-Policy-Report-Only": `default-src none; report-uri ${env.REMOTE_URL}` } });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const headers = new Headers(); headers.set("Content-Security-Policy-Report-Only", `default-src none; report-to ${env.REMOTE_URL}`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const policy = `default-src none; report-uri ${env.REMOTE_URL}`; return new Response("", { headers: { "Content-Security-Policy-Report-Only": policy } });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const policy = createPolicy(env); const headers = new Headers(); headers.set("Content-Security-Policy", policy); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: 'body { background: u\\\\72l(//api.groq.com/pixel); }', path: "apps/brand-site/public/css-escape-egress.css" },
   { content: 'body { background-image: image-set("//api.groq.com/pixel" 1x); }', path: "apps/brand-site/public/image-set-egress.css" },
@@ -2535,6 +2562,7 @@ for (const fixture of [
 
 for (const fixture of [
   { content: 'return new Response("ok", { headers: [[ "Content-Type", "text/plain" ]] });', path: "apps/worker/src/capture-router.ts" },
+  { content: approvedIndexSecurityHeadersDeclaration, path: "apps/worker/src/index.ts" },
   { content: "create trigger audit_insert after insert on public.manuals for each row execute function public.audit_manual();", path: "supabase/migrations/99999999999999-safe-trigger.sql" },
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
