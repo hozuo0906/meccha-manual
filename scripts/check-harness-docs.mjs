@@ -72,7 +72,10 @@ const requiredDocs = {
     "入力値",
     "スクリーンショット",
     "終了・失敗・期限切れ",
-    "監査ログ"
+    "監査ログ",
+    "provider保証の絶対失効",
+    "未実証なら起動をfail closed",
+    "closeの失敗・hangとWorker/DO再起動"
   ],
   "docs/08-operations/browser-run-egress-proof.md": [
     "guardrails.allowedDomains",
@@ -100,7 +103,9 @@ const requiredDocs = {
   "docs/07-quality/acceptance-catalog.md": [
     "| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み |",
     "| AC-024 | editorユーザーかつegress P0検証未完了 |",
-    "| AC-025 | Browser Runセッション稼働中 |"
+    "| AC-025 | Browser Runセッション稼働中 |",
+    "| AC-064 | Browser Runの月次残り時間より長い要求または並行開始があり",
+    "| AC-065 | R2上限付近で複数保存、初回応答消失"
   ],
   "docs/09-delivery/decision-log.md": [
     "DEC-032",
@@ -196,7 +201,7 @@ for (const legacyTerm of [
 const traceability = contents["docs/01-product/requirements-traceability.md"] ?? "";
 const requiredAcceptanceByRequirement = {
   "FR-019": ["AC-050", "AC-052", "AC-054", "AC-055", "AC-056", "AC-057", "AC-059", "AC-062", "AC-063"],
-  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058"]
+  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058", "AC-064", "AC-065"]
 };
 for (const [requirement, acceptanceIds] of Object.entries(requiredAcceptanceByRequirement)) {
   const row = traceability.split("\n").find((line) => line.startsWith(`| ${requirement} |`));
