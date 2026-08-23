@@ -1336,14 +1336,18 @@ function hasAliasedComputedCapabilityLookup(content) {
     let inTypeAssertion = false;
     let typeReferenceCanAcceptArguments = false;
     let angleDepth = 0;
+    let conditionalTypePending = false;
+    let conditionalTypeDepth = 0;
     for (let cursor = start; cursor < endExclusive; cursor += 1) {
       const value = tokens[cursor]?.value;
       if (angleDepth > 0) typeArgumentTokens.add(cursor);
       if (["as", "satisfies"].includes(value) && angleDepth === 0) {
         inTypeAssertion = true;
         typeReferenceCanAcceptArguments = false;
+        conditionalTypePending = false;
       } else if (inTypeAssertion && angleDepth === 0 && tokens[cursor]?.type === "identifier") {
         typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
+        if (value === "extends") conditionalTypePending = true;
       } else if (value === "<" && tokens[cursor + 1]?.value !== "="
         && (angleDepth > 0 || (inTypeAssertion && typeReferenceCanAcceptArguments))) {
         angleDepth += 1;
@@ -1355,6 +1359,13 @@ function hasAliasedComputedCapabilityLookup(content) {
         angleDepth -= 1;
         typeArgumentTokens.add(cursor);
         if (angleDepth === 0) typeReferenceCanAcceptArguments = false;
+      } else if (value === "?" && inTypeAssertion && angleDepth === 0 && conditionalTypePending) {
+        conditionalTypeDepth += 1;
+        conditionalTypePending = false;
+        typeArgumentTokens.add(cursor);
+      } else if (value === ":" && inTypeAssertion && angleDepth === 0 && conditionalTypeDepth > 0) {
+        conditionalTypeDepth -= 1;
+        typeArgumentTokens.add(cursor);
       }
     }
     const topLevelOperatorPositions = (operators) => {
@@ -1953,6 +1964,7 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias: typeof Source = Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = Source || Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = Source as Pick<unknown extends true ? Foo : Bar>; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = Source as unknown extends true ? typeof Source : typeof Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = Source ?? Source; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const Alias = enabled ? Source : {}; const { getNavigator: method } = Alias; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const { getNavigator: method }: typeof Source = Source; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -2163,6 +2175,7 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const { getNavigator: method }: typeof Safe = Safe; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = Source && Safe; const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = Safe as Pick<unknown extends true ? Foo : Bar>; const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = Safe as unknown extends true ? typeof Safe : typeof Safe; const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } class Safe { static getNavigator() { return { value() {} }; } } const Alias = enabled ? Safe : Safe; const { getNavigator: method } = Alias; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
