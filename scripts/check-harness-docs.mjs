@@ -271,6 +271,7 @@ for (const [acceptanceId, columns] of Object.entries(requiredAcceptanceOutcomes)
 const requiredFencingContracts = [
   {
     file: "docs/09-delivery/decision-log.md",
+    sectionHeading: "## DEC-064: 外部原価を伴う利用は実行前に原子的予約する",
     marker: "- Decision: Browser Runは残り時間を開始前に原子的に予約する",
     terms: [
       "original writerがterminal/fenced",
@@ -312,8 +313,16 @@ const requiredFencingContracts = [
     ]
   }
 ];
-for (const { file, marker, terms } of requiredFencingContracts) {
-  const line = contents[file]?.split("\n").find((candidate) => candidate.includes(marker)) ?? "";
+for (const { file, sectionHeading, marker, terms } of requiredFencingContracts) {
+  const content = contents[file] ?? "";
+  const sectionStart = sectionHeading ? content.indexOf(sectionHeading) : 0;
+  if (sectionHeading && sectionStart < 0) {
+    errors.push("Missing fencing contract section in " + file + ": " + sectionHeading);
+    continue;
+  }
+  const sectionEnd = sectionHeading ? content.indexOf("\n## ", sectionStart + sectionHeading.length) : -1;
+  const section = content.slice(sectionStart, sectionEnd < 0 ? content.length : sectionEnd);
+  const line = section.split("\n").find((candidate) => candidate.includes(marker)) ?? "";
   if (!line) {
     errors.push("Missing fencing contract line in " + file + ": " + marker);
     continue;
