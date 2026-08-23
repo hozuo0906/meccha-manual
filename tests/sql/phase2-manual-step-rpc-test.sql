@@ -198,21 +198,87 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
 declare
+  active_ids uuid[];
+  ordered_ids uuid[];
+  active_count bigint;
+  ordered_count bigint;
+  distinct_count bigint;
   local_id uuid;
   foreign_id uuid;
+  foreign_count bigint;
+  local_set_mismatch_count bigint;
+  extra_id_count bigint;
 begin
-  select id into local_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足';
+  select
+    coalesce(array_agg(id order by position, id), '{}'::uuid[]),
+    count(*)
+  into active_ids, active_count
+  from public.manual_steps
+  where revision_id = '66666666-6666-4666-8666-666666666666'
+    and deleted_at is null;
+
   select id into foreign_id from public.manual_steps where revision_id = '77777777-7777-4777-8777-777777777777' and title = 'Foreign';
+
+  if foreign_id is null then
+    raise exception 'cross revision fixture did not create a foreign active step';
+  end if;
+  if active_count < 2 or cardinality(active_ids) <> active_count then
+    raise exception 'cross revision fixture active set cardinality mismatch';
+  end if;
+  if foreign_id = any(active_ids) then
+    raise exception 'cross revision fixture foreign step leaked into local active set';
+  end if;
+
+  local_id := active_ids[1];
+  select array_agg(
+    case when step_id = local_id then foreign_id else step_id end
+    order by ordinal
+  )
+  into ordered_ids
+  from unnest(active_ids) with ordinality as active(step_id, ordinal);
+
+  ordered_count := cardinality(ordered_ids);
+  select count(distinct step_id) into distinct_count
+  from unnest(ordered_ids) as ordered(step_id);
+  select count(*) into foreign_count
+  from unnest(ordered_ids) as ordered(step_id)
+  where step_id = foreign_id;
+  select count(*) into local_set_mismatch_count
+  from unnest(active_ids) as expected(step_id)
+  where step_id <> local_id
+    and (
+      select count(*)
+      from unnest(ordered_ids) as actual(step_id)
+      where actual.step_id = expected.step_id
+    ) <> 1;
+  select count(*) into extra_id_count
+  from unnest(ordered_ids) as actual(step_id)
+  where actual.step_id <> foreign_id
+    and not (actual.step_id = any(active_ids));
+
+  if ordered_count <> active_count then
+    raise exception 'cross revision fixture ordered array cardinality mismatch';
+  end if;
+  if distinct_count <> active_count then
+    raise exception 'cross revision fixture ordered array contains duplicates';
+  end if;
+  if local_id = any(ordered_ids) then
+    raise exception 'cross revision fixture replacement local ID is still present';
+  end if;
+  if foreign_count <> 1 then
+    raise exception 'cross revision fixture foreign ID replacement count mismatch';
+  end if;
+  if local_set_mismatch_count <> 0 then
+    raise exception 'cross revision fixture omitted a local active ID';
+  end if;
+  if extra_id_count <> 0 then
+    raise exception 'cross revision fixture contains an extra ID';
+  end if;
+
   begin
     perform public.reorder_manual_steps(
       '66666666-6666-4666-8666-666666666666',
-      array[
-        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '保存'),
-        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足'),
-        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '管理者追記'),
-        (select id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '所有者追記'),
-        foreign_id
-      ]
+      ordered_ids
     );
     raise exception 'expected cross revision rejection';
   exception
