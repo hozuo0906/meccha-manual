@@ -44,5 +44,5 @@ Status: Accepted
 | AC-062 | 同じworkspaceでPersonalとTeamの購入を並行開始する | 両方のSession作成とWebhookを順不同で処理する | subscription用の支払い可能Sessionは1件だけとなり、対象自身を競合扱いせず、別契約へ二重entitlementを付与しない |
 | AC-063 | DBへ照合できないsubscription modeの決済が成功する | draft/open/paid invoiceのWebhookを重複・順不同で再送する | entitlementを付与せず、subscription cancelと状態別のdelete/void/refundが冪等に完了して継続請求を残さない |
 | AC-064 | Browser Runの月次残り時間より長い要求または並行開始があり、close失敗・hangまたはWorker/DO再起動が発生する | セッションを開始・継続する | 開始前に残り時間を原子的に予約する。close/DOから独立したprovider保証の絶対失効を公式契約と障害注入でP0実証できるまでは起動をfail closedにし、実証後は予約期限でremote sessionが停止することを確認する |
-| AC-065 | R2上限付近で複数保存、初回応答消失、書込途中のWorker停止、再送、lease期限切れが発生する | 初回要求前に保持したoperation keyでobjectを書き込む | operation keyへ予約IDを1対1で固定して`current bytes + active reserved bytes + planned bytes`を原子的に検証・予約し、再送は同じ予約を返す。reconciliationがobjectを照合して予約を確定または解放し、二重計上、上限超過、枠の永久消費を防ぐ |
+| AC-065 | R2上限付近で複数保存、初回応答消失、書込途中のWorker停止、再送、lease期限切れが発生する | 初回要求前に保持したoperation keyでobjectを書き込む | operation keyへ予約IDを1対1で固定して`current bytes + active reserved bytes + planned bytes`を原子的に検証・予約し、再送は同じ予約を返す。result-unknownはreconciliationまで予約を保持し、confirmed non-start/nonexistenceだけ即時解放する。expiredでobject不在でもoriginal writerのterminal/fenced（lease generation/fencingまたはprovider-terminal proof）を確認してからreconciliationがobjectを照合し、予約を確定または解放することで、二重計上、上限超過、枠の永久消費を防ぐ |
 | AC-060 | AI feature flagがOFF | 手順書を作る | 外部AI APIが呼ばれない |

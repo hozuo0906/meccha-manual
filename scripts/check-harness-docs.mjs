@@ -224,6 +224,50 @@ if (duplicateAcceptanceIds.length > 0) {
   errors.push(`Duplicate acceptance criteria IDs: ${[...new Set(duplicateAcceptanceIds)].join(", ")}`);
 }
 
+const requiredAcceptanceOutcomes = {
+  "AC-064": {
+    action: ["セッションを開始・継続する"],
+    result: [
+      "残り時間を原子的に予約する",
+      "provider保証の絶対失効",
+      "起動をfail closed",
+      "予約期限でremote sessionが停止"
+    ]
+  },
+  "AC-065": {
+    action: ["初回要求前に保持したoperation key"],
+    result: [
+      "operation keyへ予約IDを1対1で固定",
+      "原子的に検証・予約",
+      "再送は同じ予約を返す",
+      "result-unknownはreconciliationまで予約を保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "reconciliationがobjectを照合"
+    ]
+  }
+};
+for (const [acceptanceId, columns] of Object.entries(requiredAcceptanceOutcomes)) {
+  const row = acceptanceCatalog.split("\n").find((line) => line.startsWith(`| ${acceptanceId} |`));
+  const cells = row?.split("|").slice(1, -1).map((cell) => cell.trim()) ?? [];
+  if (cells.length !== 4) {
+    errors.push(`Acceptance criteria row must have four cells: ${acceptanceId}`);
+    continue;
+  }
+  for (const term of columns.action) {
+    if (!cells[2].includes(term)) {
+      errors.push(`${acceptanceId} action is missing outcome term: ${term}`);
+    }
+  }
+  for (const term of columns.result) {
+    if (!cells[3].includes(term)) {
+      errors.push(`${acceptanceId} result is missing outcome term: ${term}`);
+    }
+  }
+}
+
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 for (const [environment, config] of [["default", wrangler], ...Object.entries(wrangler.env ?? {})]) {
   const billingFlag = config?.vars?.BILLING_FEATURE_ENABLED;
