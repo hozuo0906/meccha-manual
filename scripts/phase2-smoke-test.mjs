@@ -97,7 +97,7 @@ async function assertOk(response, label) {
   const payload = await readJson(response);
   if (response.ok) return payload;
 
-  throw new Error(`${label} failed: HTTP ${response.status} ${JSON.stringify(payload)}`);
+  throw new Error(`${label} failed: HTTP ${response.status}`);
 }
 
 async function assertFails(responseOrPromise, label) {
@@ -105,7 +105,7 @@ async function assertFails(responseOrPromise, label) {
   const payload = await readJson(response);
   if (!response.ok) return payload;
 
-  throw new Error(`${label} unexpectedly succeeded: ${JSON.stringify(payload)}`);
+  throw new Error(`${label} unexpectedly succeeded: HTTP ${response.status}`);
 }
 
 async function appLogin(appOrigin, email, password) {
@@ -117,11 +117,11 @@ async function appLogin(appOrigin, email, password) {
     },
     body: JSON.stringify({ email, password })
   });
-  const payload = await assertOk(response, `app login ${email}`);
+  const payload = await assertOk(response, "app login");
   const cookie = extractCookies(response.headers);
 
   if (!cookie.includes("__Host-mm_access=") || !cookie.includes("__Host-mm_refresh=")) {
-    throw new Error(`app login ${email} did not return session cookies`);
+    throw new Error("app login did not return session cookies");
   }
 
   return {
@@ -141,10 +141,10 @@ async function supabaseLogin(supabase, email, password) {
     },
     body: JSON.stringify({ email, password })
   });
-  const payload = await assertOk(response, `supabase login ${email}`);
+  const payload = await assertOk(response, "Supabase login");
 
   if (!payload.access_token || !payload.user?.id) {
-    throw new Error(`supabase login ${email} did not return an access token`);
+    throw new Error("Supabase login did not return an access token");
   }
 
   return {
@@ -164,7 +164,23 @@ async function createWorkspace(appOrigin, actor, name, slug) {
     },
     body: JSON.stringify({ name, slug })
   });
-  return assertOk(response, `create workspace ${actor.email}`);
+  return assertOk(response, "create workspace");
+}
+
+async function archiveManual(appOrigin, actor, workspaceId, manualId, expectedUpdatedAt) {
+  const response = await fetch(
+    `${appOrigin}/api/workspaces/${encodeURIComponent(workspaceId)}/manuals/${encodeURIComponent(manualId)}/archive`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": appOrigin,
+        "cookie": actor.cookie
+      },
+      body: JSON.stringify({ expectedUpdatedAt })
+    }
+  );
+  return assertOk(response, "archive manual");
 }
 
 async function supabaseRequest(supabase, actor, path, options = {}) {
@@ -184,37 +200,20 @@ async function rpc(supabase, actor, functionName, body) {
     method: "POST",
     body: JSON.stringify(body)
   });
-  return assertOk(response, `rpc ${functionName} ${actor.email}`);
+  return assertOk(response, `rpc ${functionName}`);
 }
 
 async function selectRows(supabase, actor, table, query) {
   const response = await supabaseRequest(supabase, actor, `/rest/v1/${table}?${query}`, {
     method: "GET"
   });
-  const payload = await assertOk(response, `select ${table} ${actor.email}`);
+  const payload = await assertOk(response, `select ${table}`);
 
   if (!Array.isArray(payload)) {
     throw new Error(`select ${table} did not return an array`);
   }
 
   return payload;
-}
-
-async function insertRow(supabase, actor, table, row) {
-  const response = await supabaseRequest(supabase, actor, `/rest/v1/${table}`, {
-    method: "POST",
-    headers: {
-      "prefer": "return=representation"
-    },
-    body: JSON.stringify(row)
-  });
-  const payload = await assertOk(response, `insert ${table} ${actor.email}`);
-
-  if (!Array.isArray(payload) || payload.length !== 1) {
-    throw new Error(`insert ${table} did not return one inserted row`);
-  }
-
-  return payload[0];
 }
 
 async function assertCannotReadManualGraph(supabase, actor, manualId, revisionId, stepId) {
@@ -293,18 +292,17 @@ async function main() {
   }
 
   const draftRevisionId = manual.current_draft_revision_id;
-  const step = await insertRow(supabase, directUserA, "manual_steps", {
-    workspace_id: workspaceId,
-    revision_id: draftRevisionId,
-    position: 1,
-    type: "action",
-    title: "ログイン画面を開く",
-    instruction: "ログイン画面を開きます。",
-    action_type: "navigate",
-    target_text: "ログイン",
-    url: "https://example.com/login",
-    masking: { inputValueStored: false },
-    created_by: directUserA.userId
+  const stepId = await rpc(supabase, directUserA, "append_manual_step", {
+    target_revision_id: draftRevisionId,
+    step_type: "action",
+    step_title: "ログイン画面を開く",
+    step_instruction: "ログイン画面を開きます。",
+    step_action_type: "navigate",
+    step_target_text: "ログイン",
+    step_url: "https://example.com/login",
+    step_asset_id: null,
+    step_annotation: {},
+    step_masking: {}
   });
 
   const contentVersion = await rpc(supabase, directUserA, "get_manual_edit_detail", {
@@ -320,6 +318,22 @@ async function main() {
 
   if (publishedRevisionId !== draftRevisionId) {
     throw new Error("publish_manual returned a revision different from the current draft.");
+  }
+
+  const publishedRevisionBeforeDraftEdit = await selectRows(
+    supabase,
+    directUserA,
+    "manual_revisions",
+    `select=id,state,title,description&id=eq.${encodeURIComponent(publishedRevisionId)}&limit=1`
+  );
+  const publishedStepBeforeDraftEdit = await selectRows(
+    supabase,
+    directUserA,
+    "manual_steps",
+    `select=id,type,title,instruction,action_type,target_text,url&revision_id=eq.${encodeURIComponent(publishedRevisionId)}&deleted_at=is.null&limit=2`
+  );
+  if (publishedRevisionBeforeDraftEdit.length !== 1 || publishedStepBeforeDraftEdit.length !== 1) {
+    throw new Error("published manual snapshot was not available");
   }
 
   await assertFails(
@@ -349,11 +363,63 @@ async function main() {
     supabase,
     directUserA,
     "manual_steps",
-    `select=id&revision_id=eq.${encodeURIComponent(nextDraftRevisionId)}`
+    `select=id,updated_at,type,title,instruction,action_type,target_text,url&revision_id=eq.${encodeURIComponent(nextDraftRevisionId)}&deleted_at=is.null`
   );
 
   if (copiedSteps.length !== 1) {
     throw new Error("create_manual_draft did not copy the published step into the new draft.");
+  }
+
+  const copiedStep = copiedSteps[0];
+  if (!copiedStep?.id || typeof copiedStep.updated_at !== "string") {
+    throw new Error("copied draft step did not return an editable version");
+  }
+
+  await rpc(supabase, directUserA, "update_manual_step", {
+    target_revision_id: nextDraftRevisionId,
+    target_step_id: copiedStep.id,
+    expected_step_updated_at: copiedStep.updated_at,
+    step_type: copiedStep.type,
+    step_title: "ログイン画面を開く（下書き編集）",
+    step_instruction: "ログイン画面を開いて確認します。",
+    step_action_type: copiedStep.action_type,
+    step_target_text: copiedStep.target_text,
+    step_url: copiedStep.url,
+    step_asset_id: null,
+    step_annotation: {},
+    step_masking: {}
+  });
+
+  const detailAfterDraftEdit = await rpc(supabase, directUserA, "get_manual_edit_detail", {
+    target_workspace_id: workspaceId,
+    target_manual_id: manualId
+  });
+  if (
+    !detailAfterDraftEdit?.manual?.updated_at
+    || detailAfterDraftEdit.draft?.id !== nextDraftRevisionId
+    || detailAfterDraftEdit.steps?.length !== 1
+    || detailAfterDraftEdit.steps[0]?.title !== "ログイン画面を開く（下書き編集）"
+  ) {
+    throw new Error("next draft RPC edit was not reflected in the current detail");
+  }
+
+  const publishedRevisionAfterDraftEdit = await selectRows(
+    supabase,
+    directUserA,
+    "manual_revisions",
+    `select=id,state,title,description&id=eq.${encodeURIComponent(publishedRevisionId)}&limit=1`
+  );
+  const publishedStepAfterDraftEdit = await selectRows(
+    supabase,
+    directUserA,
+    "manual_steps",
+    `select=id,type,title,instruction,action_type,target_text,url&revision_id=eq.${encodeURIComponent(publishedRevisionId)}&deleted_at=is.null&limit=2`
+  );
+  if (
+    JSON.stringify(publishedRevisionAfterDraftEdit) !== JSON.stringify(publishedRevisionBeforeDraftEdit)
+    || JSON.stringify(publishedStepAfterDraftEdit) !== JSON.stringify(publishedStepBeforeDraftEdit)
+  ) {
+    throw new Error("editing the next draft changed the published revision");
   }
 
   await assertFails(
@@ -368,11 +434,55 @@ async function main() {
     }),
     "user B create manual in user A workspace"
   );
-  await assertCannotReadManualGraph(supabase, directUserB, manualId, publishedRevisionId, step.id);
+  await assertCannotReadManualGraph(supabase, directUserB, manualId, publishedRevisionId, stepId);
+
+  const archiveResult = await archiveManual(
+    appOrigin,
+    appUserA,
+    workspaceId,
+    manualId,
+    detailAfterDraftEdit.manual.updated_at
+  );
+  if (archiveResult?.archivedManualId !== manualId) {
+    throw new Error("archive_manual returned an unexpected result");
+  }
+
+  const archivedDetailResponse = await fetch(
+    `${appOrigin}/api/workspaces/${encodeURIComponent(workspaceId)}/manuals/${encodeURIComponent(manualId)}`,
+    { headers: { "cookie": appUserA.cookie } }
+  );
+  await readJson(archivedDetailResponse);
+  if (archivedDetailResponse.status !== 404) {
+    throw new Error("archived manual remained visible through the detail API");
+  }
+
+  const archivedListResponse = await fetch(
+    `${appOrigin}/api/workspaces/${encodeURIComponent(workspaceId)}/manuals`,
+    { headers: { "cookie": appUserA.cookie } }
+  );
+  const archivedList = await assertOk(archivedListResponse, "list manuals after archive");
+  if (!Array.isArray(archivedList.manuals) || archivedList.manuals.some((row) => row?.id === manualId)) {
+    throw new Error("archived manual remained visible through the list API");
+  }
+
+  await assertCannotReadManualGraph(supabase, directUserA, manualId, publishedRevisionId, stepId);
+
+  const archiveAuditRows = await selectRows(
+    supabase,
+    directUserA,
+    "audit_logs",
+    `select=action,resource_id,metadata&workspace_id=eq.${encodeURIComponent(workspaceId)}&resource_id=eq.${encodeURIComponent(manualId)}&action=eq.manual.archived&limit=2`
+  );
+  if (
+    archiveAuditRows.length !== 1
+    || archiveAuditRows[0]?.metadata?.draftRevisionId !== nextDraftRevisionId
+    || archiveAuditRows[0]?.metadata?.publishedRevisionId !== publishedRevisionId
+  ) {
+    throw new Error("archive audit did not preserve revision pointers");
+  }
 
   console.log(JSON.stringify({
     status: "ok",
-    appOrigin,
     checks: {
       userALogin: true,
       userBLogin: true,
@@ -382,11 +492,16 @@ async function main() {
       publishManual: true,
       publishedRevisionImmutable: true,
       createDraftFromPublished: true,
+      editDraftThroughRpc: true,
+      publishedRevisionUnchangedAfterDraftEdit: true,
+      archiveNonDestructivePointersRecorded: true,
+      archivedManualHiddenFromDetail: true,
+      archivedManualExcludedFromList: true,
+      archivedManualGraphHiddenFromDirectReads: true,
       userBCannotCreateInUserAWorkspace: true,
       userBCannotReadUserAManualGraph: true
     },
     created: {
-      workspaceSlug,
       workspaceIdPresent: Boolean(workspaceId),
       manualIdPresent: Boolean(manualId),
       publishedRevisionIdPresent: Boolean(publishedRevisionId),

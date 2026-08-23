@@ -5,6 +5,8 @@
 \set workspace_lock 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 \set editor_id '11111111-1111-4111-8111-111111111111'
 \set viewer_id '22222222-2222-4222-8222-222222222222'
+\set admin_id 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01'
+\set owner_id 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02'
 \set manual_a '33333333-3333-4333-8333-333333333333'
 \set manual_b '44444444-4444-4444-8444-444444444444'
 \set manual_lock '55555555-5555-4555-8555-555555555555'
@@ -29,6 +31,8 @@ insert into public.manual_revisions (id, workspace_id, manual_id, state) values
 insert into public.workspace_members (workspace_id, user_id, role, status) values
   (:'workspace_a', :'editor_id', 'editor', 'active'),
   (:'workspace_a', :'viewer_id', 'viewer', 'active'),
+  (:'workspace_a', :'admin_id', 'admin', 'active'),
+  (:'workspace_a', :'owner_id', 'owner', 'active'),
   (:'workspace_b', :'editor_id', 'editor', 'active'),
   (:'workspace_lock', :'editor_id', 'editor', 'active');
 
@@ -64,6 +68,23 @@ begin
   end if;
 end;
 $$;
+
+-- The mutation boundary is intentionally role-based: editor, admin, and owner
+-- may use the RPC, while viewer is rejected below. This keeps the matrix
+-- credential-free and exercises the same predicate used by every mutation.
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'admin_id', false);
+select public.append_manual_step(
+  :'revision_a', 'note', '管理者追記', '管理者が追記します。',
+  null, null, null, null, '{}'::jsonb, '{}'::jsonb
+) as admin_step \gset
+
+select set_config('request.jwt.claim.sub', :'owner_id', false);
+select public.append_manual_step(
+  :'revision_a', 'note', '所有者追記', '所有者が追記します。',
+  null, null, null, null, '{}'::jsonb, '{}'::jsonb
+) as owner_step \gset
+reset role;
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
@@ -103,7 +124,15 @@ begin
   end if;
 end;
 $$;
-select public.reorder_manual_steps(:'revision_a', array[:'step_b'::uuid, :'step_a'::uuid]);
+select public.reorder_manual_steps(
+  :'revision_a',
+  array[
+    :'step_b'::uuid,
+    :'step_a'::uuid,
+    :'admin_step'::uuid,
+    :'owner_step'::uuid
+  ]
+);
 reset role;
 
 do $$
@@ -443,6 +472,36 @@ $$;
 set role anon;
 do $$
 begin
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666', 'note', 'anonymous insert', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
+    raise exception 'expected anonymous append denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.update_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-0000-4000-8000-000000000001',
+      null, 'action', 'anonymous update', '', 'click', null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
+    raise exception 'expected anonymous update denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.soft_delete_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-0000-4000-8000-000000000001'
+    );
+    raise exception 'expected anonymous soft delete denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
   begin
     perform public.reorder_manual_steps(
       '66666666-6666-4666-8666-666666666666',
