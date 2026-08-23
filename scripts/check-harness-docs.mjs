@@ -2066,7 +2066,8 @@ function hasAiRuntimeBoundary(content, path = "") {
   const hasConfigOwnerEscape = ["config"].some((owner) => {
     const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const wholeOwner = `\\b${escapedOwner}\\b(?!\\s*[.\\[])`;
-    return new RegExp(`(?:[:[,]\\s*${wholeOwner}\\s*[,}\\]]|\\(\\s*${wholeOwner}\\s*[,)]|,\\s*${wholeOwner}\\s*[,)]|(?:^|[;{])\\s*[A-Za-z_$][\\w$]*(?:\\s*[.[][^=;]+)?\\s*=\\s*${wholeOwner}\\s*(?:[;,)]|$))`).test(normalizedContent);
+    const wrappedOwner = `${wholeOwner}(?:\\s*!)*(?:\\s+(?:as|satisfies)\\s+[^,}\\]\\n;]+)*(?:\\s*!)*`;
+    return new RegExp(`(?:[:[,]\\s*${wrappedOwner}\\s*[,}\\]]|\\(\\s*${wrappedOwner}\\s*[,)]|,\\s*${wrappedOwner}\\s*[,)]|(?:^|[;{])\\s*[A-Za-z_$][\\w$]*(?:\\s*[.[][^=;]+)?\\s*=\\s*${wrappedOwner}\\s*(?:[;,)]|$))`).test(normalizedContent);
   });
   const hasApprovedConfigMutation = [...configOwnerAliases].some((owner) => {
     const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -2452,6 +2453,9 @@ for (const fixture of [
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const alias = (observe(), config); alias["url"] = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = { value: config }; holder.value.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = [config]; holder[0].url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = { wrappedConfig: config as typeof config }; holder.wrappedConfig.url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); const holder = [config satisfies SupabaseConfig]; holder[0].url = dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); mutate(config!); return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Headers.prototype.set.call(headers, name, `<${env.REMOTE_URL}>; rel=preload; as=font`); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const headers = new Headers(); Reflect.apply(Headers["prototype"]["append"], headers, [name, `<${env.REMOTE_URL}>; rel=preload; as=font`]); return new Response("", { headers });', path: "apps/worker/src/capture-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
