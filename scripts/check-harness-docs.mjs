@@ -638,7 +638,11 @@ function javascriptStructuralTokens(content) {
         literal += content[index];
         index += 1;
       }
-      if (isStatic) tokens.push({ type: "string", value: literal });
+      if (quote === "`") {
+        tokens.push(isStatic
+          ? { type: "string", value: literal, template: true }
+          : { type: "template", value: "", template: true });
+      } else if (isStatic) tokens.push({ type: "string", value: literal });
       continue;
     }
     if (/[A-Za-z_$]/.test(character)) {
@@ -899,8 +903,9 @@ function hasAliasedComputedCapabilityLookup(content) {
                 };
               } else if (inTypeAssertion && angleDepth === 0 && receiver[receiverIndex]?.type === "identifier") {
                 typeReferenceCanAcceptArguments = !primitiveTypeNames.has(value);
-              } else if (value === "<" && (angleDepth > 0 || (inTypeAssertion
-                && (typeReferenceCanAcceptArguments || isGenericFunctionTypeOpening(receiverIndex))))) {
+              } else if (value === "<" && receiver[receiverIndex + 1]?.value !== "="
+                && (angleDepth > 0 || (inTypeAssertion
+                  && (typeReferenceCanAcceptArguments || isGenericFunctionTypeOpening(receiverIndex))))) {
                 angleDepth += 1;
               }
               else if (value === "<" && inTypeAssertion) {
@@ -955,6 +960,7 @@ function hasAliasedComputedCapabilityLookup(content) {
           let callApplyDepth = 0;
           while (execution < endExclusive) {
             while (tokens[execution]?.value === "!") execution += 1;
+            if (tokens[execution]?.template === true) return true;
             if (isInvocationAt(execution)) {
               return callApplyDepth < 2 || !hasExplicitSafeReceiver(execution);
             }
@@ -1550,6 +1556,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator) as { (): any })?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = ((Source.getNavigator) satisfies any)?.().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator<any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source.getNavigator``.next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const marker = "x"; const nav = Source.getNavigator`${marker}`.next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator<() => any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator?.<any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.call(Source).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1745,6 +1753,8 @@ for (const fixture of [
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as number < 1, () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((0 as const < Number(Source.getNavigator), () => () => (1 > 0 ? safeA : safeB)), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'type Box = number; class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply(((Number(Source.getNavigator) as Box) < 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'type Box = number; class Source { static getNavigator() { return navigator; } } const value = Source.getNavigator.call.apply((Number(Source.getNavigator) as Box <= 1, () => () => safeValue), [])(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static safeTag() { return { value() {} }; } } const value = Source.safeTag``; value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
