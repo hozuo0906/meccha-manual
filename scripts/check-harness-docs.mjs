@@ -1163,6 +1163,82 @@ function hasAliasedComputedCapabilityLookup(content) {
     }
     return false;
   };
+  const assignmentInitializerAt = (target) => {
+    if (tokens[target + 1]?.value === "=" && tokens[target + 2]?.value !== "=") return target + 2;
+    if (tokens[target + 1]?.value !== ":") return null;
+    let parentheses = 0;
+    let brackets = 0;
+    let braces = 0;
+    let angles = 0;
+    for (let cursor = target + 2; cursor < tokens.length; cursor += 1) {
+      const value = tokens[cursor]?.value;
+      if (value === "(") parentheses += 1;
+      else if (value === ")") parentheses = Math.max(0, parentheses - 1);
+      else if (value === "[") brackets += 1;
+      else if (value === "]") brackets = Math.max(0, brackets - 1);
+      else if (value === "{") braces += 1;
+      else if (value === "}") braces = Math.max(0, braces - 1);
+      else if (value === "<") angles += 1;
+      else if (value === ">" && angles > 0 && tokens[cursor - 1]?.value !== "=") angles -= 1;
+      else if (value === "=" && tokens[cursor + 1]?.value !== ">"
+        && parentheses === 0 && brackets === 0 && braces === 0 && angles === 0) return cursor + 1;
+      if ([",", ";"].includes(value)
+        && parentheses === 0 && brackets === 0 && braces === 0 && angles === 0) return null;
+    }
+    return null;
+  };
+  const finalSequenceOperand = (expressionStart) => {
+    let expressionEnd = expressionStart;
+    let parentheses = 0;
+    let brackets = 0;
+    let braces = 0;
+    for (; expressionEnd < tokens.length; expressionEnd += 1) {
+      const value = tokens[expressionEnd]?.value;
+      if (value === "(") parentheses += 1;
+      else if (value === ")") parentheses = Math.max(0, parentheses - 1);
+      else if (value === "[") brackets += 1;
+      else if (value === "]") brackets = Math.max(0, brackets - 1);
+      else if (value === "{") braces += 1;
+      else if (value === "}") braces = Math.max(0, braces - 1);
+      if ([",", ";"].includes(value) && parentheses === 0 && brackets === 0 && braces === 0) break;
+    }
+    let start = expressionStart;
+    let end = expressionEnd;
+    let normalizing = true;
+    while (normalizing && start < end) {
+      normalizing = false;
+      if (tokens[start]?.value === "(") {
+        const afterGrouping = afterMatching(start, "(", ")", end);
+        if (afterGrouping === end) {
+          start += 1;
+          end -= 1;
+          normalizing = true;
+          continue;
+        }
+      }
+      let nestedParentheses = 0;
+      let nestedBrackets = 0;
+      let nestedBraces = 0;
+      let lastComma = null;
+      for (let cursor = start; cursor < end; cursor += 1) {
+        const value = tokens[cursor]?.value;
+        if (value === "(") nestedParentheses += 1;
+        else if (value === ")") nestedParentheses = Math.max(0, nestedParentheses - 1);
+        else if (value === "[") nestedBrackets += 1;
+        else if (value === "]") nestedBrackets = Math.max(0, nestedBrackets - 1);
+        else if (value === "{") nestedBraces += 1;
+        else if (value === "}") nestedBraces = Math.max(0, nestedBraces - 1);
+        else if (value === "," && nestedParentheses === 0 && nestedBrackets === 0 && nestedBraces === 0) {
+          lastComma = cursor;
+        }
+      }
+      if (lastComma !== null) {
+        start = lastComma + 1;
+        normalizing = true;
+      }
+    }
+    return { start, end };
+  };
   let changed = true;
   while (changed) {
     changed = false;
@@ -1283,10 +1359,13 @@ function hasAliasedComputedCapabilityLookup(content) {
     }
     for (let index = 0; index < tokens.length - 2; index += 1) {
       const target = tokens[index];
-      if (target.type !== "identifier" || capabilityAliases.has(target.value) || tokens[index - 1]?.value === "."
-        || tokens[index + 1]?.value !== "=" || tokens[index + 2]?.value === "=") continue;
-      const callsCapabilityMethod = expressionCallsCapabilityMethod(index + 2);
-      if (expressionReferencesCapabilityMethod(index + 2) && !callsCapabilityMethod) {
+      if (target.type !== "identifier" || capabilityAliases.has(target.value)
+        || tokens[index - 1]?.value === ".") continue;
+      const initializer = assignmentInitializerAt(index);
+      if (initializer === null) continue;
+      const finalOperand = finalSequenceOperand(initializer);
+      const callsCapabilityMethod = expressionCallsCapabilityMethod(finalOperand.start, finalOperand.end);
+      if (expressionReferencesCapabilityMethod(finalOperand.start, finalOperand.end) && !callsCapabilityMethod) {
         if (!capabilityMethodAliases.has(target.value) || !capabilityMethodReferenceAliases.has(target.value)) {
           capabilityMethodAliases.add(target.value);
           capabilityMethodReferenceAliases.add(target.value);
@@ -1294,7 +1373,7 @@ function hasAliasedComputedCapabilityLookup(content) {
         }
         continue;
       }
-      if (expressionReferencesCapability(index + 2) || callsCapabilityMethod) {
+      if (expressionReferencesCapability(finalOperand.start, finalOperand.end) || callsCapabilityMethod) {
         capabilityAliases.add(target.value);
         changed = true;
       }
@@ -1600,6 +1679,8 @@ for (const fixture of [
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source["getNavigator"]().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const nav = Source[`getNavigator`]``.next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator() { yield navigator; } } const method = Source.getNavigator; const alias = method; const nav = alias().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } const method: typeof Source.getNavigator = Source.getNavigator; const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
+  { content: 'class Source { static *getNavigator() { yield navigator; } } function safe() { return null; } const method = (safe, Source.getNavigator); const nav = method().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator<() => any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>() { yield navigator; } } const nav = Source.getNavigator?.<any>().next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
   { content: 'class Source { static *getNavigator<T>(): Generator<any, any, any> { yield navigator; } } const nav = Source.getNavigator.call(Source).next().value; const key = ["send", "Beacon"].join(""); nav[key](env.REMOTE_URL, payload);', path: "apps/worker/src/provider.ts" },
@@ -1799,6 +1880,7 @@ for (const fixture of [
   { content: 'class Source { static safeTag() { return { value() {} }; } } const value = Source.safeTag``; value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static safe() { return { value() {} }; } } const value = Source["safe"](); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'class Source { static safe() { return { value() {} }; } } const method = Source.safe; const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
+  { content: 'class Source { static getNavigator() { return navigator; } } function safe() { return { value() {} }; } const method = (Source.getNavigator, safe); const value = method(); value[key]();', path: "apps/worker/src/safe-function.ts" },
   { content: 'function safe(flag) { const helper = flag ? null : { method() { return navigator; } }; return null; } const value = safe(false); value[key]();', path: "apps/worker/src/safe-function.ts" }
 ]) {
   if (hasAiRuntimeBoundary(fixture.content, fixture.path)) {
