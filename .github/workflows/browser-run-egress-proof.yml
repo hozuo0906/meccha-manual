@@ -17,6 +17,10 @@ on:
         description: "隔離staging P0実証を開始する確認文字列"
         required: true
         type: string
+      candidate_sha:
+        description: "検証対象となるmainの40文字commit SHA"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -42,15 +46,43 @@ jobs:
         if: github.event_name == 'pull_request'
         run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
 
-  live-proof:
+  live-proof-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.confirmation == 'RUN_ISOLATED_STAGING_P0'
     needs: contract
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: staging
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
+      - name: Verify immutable main candidate before requesting staging
+        run: node scripts/browser-run-egress-proof.mjs --preflight
+        env:
+          BROWSER_EGRESS_RUN_CONFIRMATION: ${{ inputs.confirmation }}
+          BROWSER_EGRESS_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY: ${{ vars.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY }}
+
+  live-proof:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.confirmation == 'RUN_ISOLATED_STAGING_P0' &&
+      github.ref == 'refs/heads/main' &&
+      github.sha == inputs.candidate_sha &&
+      github.run_attempt == 1 &&
+      vars.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY == 'v1'
+    needs:
+      - contract
+      - live-proof-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      group: browser-run-egress-proof-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -61,11 +93,13 @@ jobs:
         run: npm run browser-run:egress:run
         env:
           BROWSER_EGRESS_RUN_CONFIRMATION: ${{ inputs.confirmation }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_BROWSER_RUN_API_TOKEN: ${{ secrets.CLOUDFLARE_BROWSER_RUN_API_TOKEN }}
-          BROWSER_EGRESS_FIXTURE_ORIGIN: ${{ vars.BROWSER_EGRESS_FIXTURE_ORIGIN }}
-          BROWSER_EGRESS_EVIDENCE_URL: ${{ vars.BROWSER_EGRESS_EVIDENCE_URL }}
-          BROWSER_EGRESS_FIXTURE_TOKEN: ${{ secrets.BROWSER_EGRESS_FIXTURE_TOKEN }}
+          BROWSER_EGRESS_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY: ${{ vars.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_ACCOUNT_ID }}
+          CLOUDFLARE_BROWSER_RUN_API_TOKEN: ${{ secrets.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_API_TOKEN }}
+          BROWSER_EGRESS_FIXTURE_ORIGIN: ${{ vars.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_FIXTURE_ORIGIN }}
+          BROWSER_EGRESS_EVIDENCE_URL: ${{ vars.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_EVIDENCE_URL }}
+          BROWSER_EGRESS_FIXTURE_TOKEN: ${{ secrets.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_FIXTURE_TOKEN }}
           BROWSER_EGRESS_ARTIFACT_PATH: browser-run-egress-evidence.json
       - name: Preserve sanitized run/SHA-bound evidence
         uses: actions/upload-artifact@v4

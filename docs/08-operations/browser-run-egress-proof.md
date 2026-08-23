@@ -10,15 +10,20 @@ Cloudflare Browser Runのsession作成APIは、`guardrails.allowedDomains`と`al
 
 ## 公式仕様として確認した範囲
 
+確認日: 2026-08-23
+
 - `POST /accounts/{account_id}/browser-rendering/devtools/browser`はguardrails付きsessionを作成できる。
 - `allowedDomains`は最大50件のhostname pattern、`allowedDomainSets`は最大4件のpresetまたはHTTPSリストを受ける。
 - API説明が保証する制限対象はoutbound HTTP/Sである。
 - sessionはDELETE APIで明示closeできる。
+- Browser Runの`keep_alive`はidle timeoutである。session作成API referenceは10,000〜1,200,000ms、Limitsは最大10分と記載が一致しないが、後者はactiveなsessionにprovider固定の最大寿命がないことを明記している。
 
 参照:
 
 - https://developers.cloudflare.com/api/resources/browser_rendering/subresources/devtools/subresources/browser/methods/create
 - https://developers.cloudflare.com/api/resources/browser_rendering/subresources/devtools/subresources/browser/methods/delete
+- https://developers.cloudflare.com/browser-run/limits/
+- https://developers.cloudflare.com/browser-run/reference/browser-close-reasons/
 
 ## 外部fixture契約
 
@@ -48,6 +53,40 @@ DNS rebinding fixtureは検査時public、接続時private/link-local/metadata�
 
 ## 実行境界
 
-`Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`で手動実行する。GitHub `staging` Environmentに専用tokenとfixture URLが揃わない場合はlive jobを実行しない。fixtureと証跡endpointは同一HTTPS originに限定し、fixture tokenを別originへ送らない。PRでは契約テストだけを実行し、Browser Runを起動しない。
+`Browser Run Egress Proof` workflowを`RUN_ISOLATED_STAGING_P0`と検証対象mainの40文字commit SHAで手動実行する。preflightは`workflow_dispatch`、`refs/heads/main`、実行SHAと入力SHAの完全一致、初回run attempt、repo-level readiness markerの完全一致だけを受理する。preflightに合格するまで`staging` Environmentを要求せず、live runnerもCloudflare資格情報を読む前に同じ条件を再検証する。再実行では外部通信せず、新しいworkflow dispatchと新しい証跡を要求する。
+
+GitHub `staging` Environmentに専用tokenとfixture URLが揃わない場合はlive jobを実行しない。GitHubはworkflowが存在しないEnvironmentを参照した場合に保護ルールやsecretのないEnvironmentを自動作成し得るため、管理者が次の構成を完了するまではdispatchしない。
+
+| 種別 | 名前／設定 | 必須条件 |
+|---|---|---|
+| Environment | `staging` | deployment branch/tagを`main`だけに限定し、利用可能ならrequired reviewerとadmin bypass禁止を設定する |
+| repository variable | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY=v1` | 本表のEnvironment保護・専用値・fixture labを管理者が確認した最後に作る。organization／Environment levelには同名を作らない |
+| Environment secret | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_ACCOUNT_ID` | 隔離検証用Cloudflare accountだけを参照する |
+| Environment secret | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_API_TOKEN` | account-scopedの専用token、`Browser Rendering Write`だけを付与する |
+| Environment secret | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_FIXTURE_TOKEN` | 合成probeの証跡取得だけに使い、ログやartifactへ出さない |
+| Environment variable | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_FIXTURE_ORIGIN` | production・実顧客から分離したfixtureのcredential-free HTTPS origin |
+| Environment variable | `MECCHA_MANUAL_BROWSER_EGRESS_STAGING_EVIDENCE_URL` | fixtureと同一originの証跡endpoint |
+
+readiness markerはEnvironment-levelに置かない。Environment-level variableはjob開始後まで利用できず、不存在Environmentを要求する前の`if`を閉じられないためである。GitHubは同名secretがorganization／repository／Environmentにある場合に最下位levelを優先するため、Environment側の専用secretが欠けると同名のrepository／organization secretが参照され得る。共通deploy資格情報へのfallbackを避けるため、本workflowは用途固有名だけを参照する。管理者は本表のEnvironment secret／variableと同名の値をrepository／organization levelへ作らず、Environment設定変更前にmarkerを削除し、再確認後だけ`v1`を復元する。
+
+fixtureと証跡endpointは同一HTTPS originに限定し、fixture tokenを別originへ送らない。HTTP requestを数えるだけのWorker fixtureは、DNS rebinding後のactual peerをapplication bytes送信前に独立検証できず、WebTransport/QUICとWebRTC ICE/STUN/TURNのraw transport証跡も満たさない。したがって、権威DNS／再束縛制御と接続層の受信観測、または同等の独立検証境界を持つ非production labを別途用意する。PRでは契約テストだけを実行し、Browser Runを起動しない。
+
+GitHub Environmentの設定仕様:
+
+- https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
+- https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions
+- https://docs.github.com/en/actions/reference/security/secrets
+- https://docs.github.com/en/actions/reference/workflows-and-actions/variables
 
 live実行はCloudflare v4 APIのsuccess envelopeを検証して`result`だけを利用し、sessionを60秒keep-aliveで作成する。session作成POST／body読取、CDP接続確立、接続後context／page作成、証跡fetch／body読取は各10秒の境界を持ち、HTTP境界は期限到達時にabortする。navigation／probe完了待ちはPlaywright timeoutを使う。成功・失敗にかかわらずDELETEを呼び、`closed`または`closing`の応答を確認する。local browser closeは5秒、remote DELETEは10秒で打ち切り、後者も期限到達時にfetchをabortする。CDP接続・setup・navigation・証跡取得失敗は固定文言へ変換し、session ID、WebSocket URL、fixture URL、probe ID、tokenはログへ出さない。
+
+## AC-064との独立性
+
+AC-064のhard expiryは#86のegress実証とは別のsession lifecycle要件である。Cloudflare公式契約にはactiveなBrowser Run sessionのprovider固定最大寿命がなく、`keep_alive`はidle timeoutに過ぎない。上限値もsession作成API referenceの20分とLimitsの10分で一致しないため、provider設定だけでAC-064を満たしたとは扱わない。
+
+Durable Object alarmはat-least-onceで実行され、失敗時は2秒からの指数backoffで最大6回retryされる。これは終了処理の起動・再試行には使えるが、Browser Run側の固定最大寿命にはならない。将来の製品実装ではDurable Object側の絶対deadline、alarm／command時の再検証、期限到達時のegress短命credential／kill switch・Live View失効・remote DELETE再試行を組み合わせ、外部停止失敗も監査してfail closedにする。期限後のapplication bytesが0であるstaging negative proofを別途要求し、#86合格だけでこの要件を完了扱いにしない。
+
+参照:
+
+- https://developers.cloudflare.com/durable-objects/api/alarms/
+- https://developers.cloudflare.com/browser-run/cdp/session-management/
