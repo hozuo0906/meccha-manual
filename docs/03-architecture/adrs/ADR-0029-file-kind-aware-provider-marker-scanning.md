@@ -13,7 +13,7 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 
 ### 1. 検査面とfile-kind inventory
 
-拡張子だけでなく、既存のproduct-root、binary判定、generated/vendor除外を先に適用し、対象ファイルを次の契約へdispatchする。除外条件は既存の単一contractを再利用し、検査箇所ごとの散在した除外を追加しない。
+拡張子だけでなく、既存のproduct-rootとbinary判定、現行contractのroot-only/nested exclusionを先に適用し、対象ファイルを次の契約へdispatchする。除外条件は現行contractをそのまま再利用し、`vendor`を含む新規または散在した除外を追加しない。
 
 | file kind | 代表拡張子 | コメント | 文字列・URLの扱い | parse/lex error |
 |---|---|---|---|---|
