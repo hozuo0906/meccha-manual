@@ -268,6 +268,161 @@ for (const [acceptanceId, columns] of Object.entries(requiredAcceptanceOutcomes)
   }
 }
 
+const exactDecisionHeading = "## DEC-064: 外部原価を伴う利用は実行前に原子的予約する";
+function extractExactMarkdownSection(markdown, expectedHeading) {
+  const lines = markdown.split(/\r?\n/);
+  const headingIndexes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] === expectedHeading) headingIndexes.push(index);
+  }
+  if (headingIndexes.length === 0) {
+    return { ok: false, error: "missing exact heading" };
+  }
+  if (headingIndexes.length > 1) {
+    return { ok: false, error: "duplicate exact heading" };
+  }
+  const start = headingIndexes[0];
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^## /.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return { ok: true, section: lines.slice(start, end).join("\n") };
+}
+
+const sectionExtractionFixtures = [
+  {
+    name: "exact heading with adjacent section",
+    valid: true,
+    markdown: "## Before\nold\n" + exactDecisionHeading + "\nterminal/fenced\n## Adjacent\nadjacent-only",
+    includes: ["terminal/fenced"],
+    excludes: ["adjacent-only"]
+  },
+  {
+    name: "heading prefix",
+    valid: false,
+    markdown: "## P1: DEC-064: 外部原価を伴う利用は実行前に原子的予約する\nterminal/fenced"
+  },
+  {
+    name: "heading suffix",
+    valid: false,
+    markdown: exactDecisionHeading + "（改名）\nterminal/fenced"
+  },
+  {
+    name: "heading renumber",
+    valid: false,
+    markdown: exactDecisionHeading.replace("DEC-064", "DEC-065") + "\nterminal/fenced"
+  },
+  {
+    name: "moved sentence in adjacent section",
+    valid: true,
+    markdown: exactDecisionHeading + "\nreservation stays here\n## Adjacent\nterminal/fenced moved here",
+    includes: ["reservation stays here"],
+    excludes: ["terminal/fenced moved here"]
+  },
+  {
+    name: "missing heading",
+    valid: false,
+    markdown: "## DEC-063: 外部原価を伴う利用は実行前に原子的予約する\nterminal/fenced"
+  },
+  {
+    name: "duplicate heading",
+    valid: false,
+    markdown: exactDecisionHeading + "\nfirst\n## Neighbor\nneighbor\n" + exactDecisionHeading + "\nsecond"
+  }
+];
+for (const fixture of sectionExtractionFixtures) {
+  const result = extractExactMarkdownSection(fixture.markdown, exactDecisionHeading);
+  if (!fixture.valid) {
+    if (result.ok) {
+      errors.push("Section fixture should be rejected: " + fixture.name);
+    }
+    continue;
+  }
+  if (!result.ok) {
+    errors.push("Section fixture should pass: " + fixture.name + " (" + result.error + ")");
+    continue;
+  }
+  for (const term of fixture.includes ?? []) {
+    if (!result.section.includes(term)) {
+      errors.push("Section fixture is missing expected text: " + fixture.name + ": " + term);
+    }
+  }
+  for (const term of fixture.excludes ?? []) {
+    if (result.section.includes(term)) {
+      errors.push("Section fixture included adjacent text: " + fixture.name + ": " + term);
+    }
+  }
+}
+
+const requiredFencingContracts = [
+  {
+    file: "docs/09-delivery/decision-log.md",
+    sectionHeading: exactDecisionHeading,
+    marker: "- Decision: Browser Runは残り時間を開始前に原子的に予約する",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/01-product/pricing-and-plans.md",
+    marker: "- R2への書込",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/07-quality/acceptance-catalog.md",
+    marker: "| AC-065 |",
+    terms: [
+      "result-unknownはreconciliationまで予約を保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  },
+  {
+    file: "docs/09-delivery/risk-register.md",
+    marker: "| RISK-019 |",
+    terms: [
+      "result-unknownはreconciliationまで保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  }
+];
+for (const { file, sectionHeading, marker, terms } of requiredFencingContracts) {
+  const content = contents[file] ?? "";
+  const extraction = sectionHeading
+    ? extractExactMarkdownSection(content, sectionHeading)
+    : { ok: true, section: content };
+  if (!extraction.ok) {
+    errors.push("Invalid fencing contract section in " + file + ": " + extraction.error);
+    continue;
+  }
+  const line = extraction.section.split("\n").find((candidate) => candidate.includes(marker)) ?? "";
+  if (!line) {
+    errors.push("Missing fencing contract line in " + file + ": " + marker);
+    continue;
+  }
+  for (const term of terms) {
+    if (!line.includes(term)) {
+      errors.push("Fencing contract is missing in " + file + ": " + term);
+    }
+  }
+}
+
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 for (const [environment, config] of [["default", wrangler], ...Object.entries(wrangler.env ?? {})]) {
   const billingFlag = config?.vars?.BILLING_FEATURE_ENABLED;

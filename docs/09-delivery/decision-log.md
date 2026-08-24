@@ -136,5 +136,5 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 - Status: Accepted
 - Date: 2026-08-20
-- Decision: Browser Runは残り時間を開始前に原子的に予約するが、close/DOから独立したprovider保証の絶対失効を公式契約と障害注入でP0実証できるまで起動をfail closedにする。R2は初回要求前に保持するoperation keyへ予約IDを1対1で固定し、期限付きleaseで`current + active reserved + planned bytes`を原子的に検証して、結果不明再送を同じ予約へ集約しreconciliationで確定または解放する。
+- Decision: Browser Runは残り時間を開始前に原子的に予約するが、close/DOから独立したprovider保証の絶対失効を公式契約と障害注入でP0実証できるまで起動をfail closedにする。R2は初回要求前に保持するoperation keyへ予約IDを1対1で固定し、期限付きleaseで`current + active reserved + planned bytes`を原子的に検証して、結果不明再送を同じ予約へ集約する。original writerがterminal/fenced（lease generation/fencingまたはprovider-terminal proof）と確認されるまでabsent objectのexpired reservationを解放せず、reconciliationで確定または解放する。
 - Reason: 並行要求が個別の上限検査を通過して原価上限を超える競合と、失敗した予約が利用枠を消費し続ける事故を防ぐため。
