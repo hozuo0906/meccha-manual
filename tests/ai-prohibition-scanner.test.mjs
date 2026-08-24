@@ -12,7 +12,11 @@ const fixturesRoot = path.join(repositoryRoot, "tests/fixtures/ai-prohibition");
 const parserCorpusRoot = path.join(fixturesRoot, "parser-adoption");
 
 function runFixture(name) {
-  return spawnSync(process.execPath, [scannerPath, "--ai-scan-root", path.join(fixturesRoot, name)], {
+  return runScanRoot(path.join(fixturesRoot, name));
+}
+
+function runScanRoot(root) {
+  return spawnSync(process.execPath, [scannerPath, "--ai-scan-root", root], {
     cwd: repositoryRoot,
     encoding: "utf8"
   });
@@ -31,6 +35,30 @@ test("nested product dependency declarations fail with rule and path only", () =
   assert.match(output, /dependency-manifests\/dependency-declarations/);
   assert.match(output, /apps\/manual-editor\/package\.json/);
   assert.doesNotMatch(output, /openai|@ai-sdk|anthropic|\"ai\"/i);
+});
+
+test("each dependency declaration field is independently rejected", async () => {
+  const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ai-prohibition-dependency-fields-"));
+  try {
+    for (const field of fields) {
+      const manifestDirectory = path.join(temporaryRoot, "apps", field);
+      await mkdir(manifestDirectory, { recursive: true });
+      await writeFile(
+        path.join(manifestDirectory, "package.json"),
+        JSON.stringify({ [field]: { openai: "1.0.0" } })
+      );
+      const result = runScanRoot(temporaryRoot);
+      const output = `${result.stdout}${result.stderr}`;
+      assert.notEqual(result.status, 0, `${field}: ${output}`);
+      assert.match(output, /dependency-manifests\/dependency-declarations/);
+      assert.match(output, new RegExp(`apps/${field}/package\\.json`));
+      assert.doesNotMatch(output, /openai/i);
+      await rm(manifestDirectory, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("ordinary nested dependency manifest passes", () => {
