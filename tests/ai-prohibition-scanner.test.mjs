@@ -22,6 +22,19 @@ function runScanRoot(root) {
   });
 }
 
+async function runSingleMigrationFixture(fixtureName, filename) {
+  const fixturePath = path.join(fixturesRoot, fixtureName, "supabase/migrations", filename);
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ai-prohibition-single-migration-"));
+  try {
+    const migrationRoot = path.join(temporaryRoot, "supabase/migrations");
+    await mkdir(migrationRoot, { recursive: true });
+    await writeFile(path.join(migrationRoot, filename), await readFile(fixturePath));
+    return runScanRoot(temporaryRoot);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 test("AI SDK dependency declarations fail", () => {
   const result = runFixture("dependency-declaration");
   assert.notEqual(result.status, 0, result.stdout);
@@ -211,15 +224,21 @@ test("ordinary materialized views and comment or literal text pass", () => {
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
-test("AI-prefixed rename targets are rejected through the PostgreSQL AST", () => {
-  const result = runFixture("product-rename-target");
-  const output = `${result.stdout}${result.stderr}`;
-  assert.notEqual(result.status, 0, result.stdout);
-  assert.match(output, /product-db-migrations\/ai-schema-objects/);
-  assert.match(output, /ai_materialized_view_rename\.sql/);
-  assert.match(output, /ai_table_rename\.sql/);
-  assert.match(output, /quoted_ai_materialized_view_rename\.sql/);
-  assert.doesNotMatch(output, /ai_summaries|Ai_Records/i);
+test("each AI-prefixed rename target has an exact diagnostic", async () => {
+  const cases = [
+    "202608240009_ai_materialized_view_rename.sql",
+    "202608240010_ai_table_rename.sql",
+    "202608240011_quoted_ai_materialized_view_rename.sql"
+  ];
+  for (const filename of cases) {
+    const result = await runSingleMigrationFixture("product-rename-target", filename);
+    const output = `${result.stdout}${result.stderr}`.trim();
+    assert.equal(result.status, 1, `${filename}: ${output}`);
+    assert.equal(
+      output,
+      `AI prohibition violation [product-db-migrations/ai-schema-objects]: supabase/migrations/${filename}`
+    );
+  }
 });
 
 test("ordinary rename targets and comment or literal text pass", () => {
