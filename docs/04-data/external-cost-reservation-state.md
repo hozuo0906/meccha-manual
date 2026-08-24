@@ -17,7 +17,7 @@ AC-064/065の開始前予約を、Browser RunとR2 providerの応答順・再起
 | `resource_type` | enum: `browser_run` / `r2_write` | 秒予約とbyte予約を混同しない識別子 |
 | `operation_key` | opaque text、`workspace_id + resource_type`内でunique | 初回要求前から再送まで同じ操作を指すキー。変更要求で差し替えない |
 | `request_fingerprint` | SHA-256 digest、not null、immutable | operation keyを除くcanonical requestの同一性。変更retry拒否に使う |
-| `resource_ref` | opaqueな内部参照、resource typeごとに必須 | `browser_run`ではcapture sessionまたはmobile preview session、`r2_write`ではPostgres object metadataへ再取得できる参照。provider URL・secret・生操作内容は含めない |
+| `resource_ref` | resource typeごとに必須 | `browser_run`では`kind`（`capture_session`または`mobile_preview_session`）とopaqueな`value`を持つdiscriminated object、`r2_write`ではPostgres object metadataへ再取得できるopaqueな内部参照。provider URL・secret・生操作内容は含めない |
 | `provider_operation_ref` | opaque参照、not null、immutable | reservation確定時にdispatch前のidempotency/operation参照として生成・永続化し、Browser session/provider operationまたはstorage attemptを特定する。同じoperation keyの同一fingerprint retryでは同じ参照を返し、provider URLやcredentialを保存しない |
 | `status` | enum: `reserved`, `in_progress`, `result_unknown`, `reconciling`, `committed`, `released` | 予約の現在状態。未確認状態を成功・解放へ暗黙変換しない |
 | `lease_generation` | monotonic integer、compare-and-swap必須 | writer/reconcilerは期待世代と現在世代が一致したときだけ遷移し、成功時に世代を増やす。古いwriterの状態を上書きしないためのfence |
@@ -33,7 +33,7 @@ AC-064/065の開始前予約を、Browser RunとR2 providerの応答順・再起
 
 `planned_*`は要求時のimmutableな見積り、`reserved_*`は現在の上限へ保持する量、`committed_*`はproviderまたはメタデータ照合で確定した実績量である。R2の予約判定は候補の`planned_bytes`を含め、確定後は同じ量を`reserved_bytes`として一度だけ数える。`expected_size_bytes`と`expected_checksum_sha256`はobject照合に必須であり、Browser Runではresource type制約によりnullとする。Browser Runも同じ関係を秒単位で適用する。
 
-`resource_type = browser_run`のcanonical identityは`workspace_id + resource_type + operation_key`であり、この組に複数のreservationを作らない。capture session startとmobile preview session startはroute kindとして監査できるが、一意性のresource typeを分けない。`request_fingerprint`はoperation keyを除くimmutableな要求比較値であり、同じkeyで相違する要求を`409 RESERVATION_REQUEST_MISMATCH`として拒否するためにだけ使う。`resource_ref`はrouteに対応するcapture sessionまたはmobile preview sessionのopaqueな内部参照で、provider URL、secret、Cookie、Authorization、生payloadを含めない。
+`resource_type = browser_run`のcanonical identityは`workspace_id + resource_type + operation_key`であり、この組に複数のreservationを作らない。capture session startとmobile preview session startはroute kindとして監査できるが、一意性のresource typeを分けない。`request_fingerprint`はoperation keyを除くimmutableな要求比較値であり、同じkeyで相違する要求を`409 RESERVATION_REQUEST_MISMATCH`として拒否するためにだけ使う。`browser_run`の`resource_ref`は`kind`と`value`だけを持ち、capture routeでは`kind=capture_session`、mobile preview routeでは`kind=mobile_preview_session`に固定する。`value`はrouteに対応するopaqueな内部参照であり、provider URL、secret、Cookie、Authorization、生payloadを含めない。
 
 ## 状態遷移と不変条件
 
@@ -62,7 +62,7 @@ in_progress -> result_unknown -> reconciling -> committed
 
 | 分岐 | HTTP結果 | durable state / reservation |
 |---|---|---|
-| 同一`workspace_id`、`resource_type=browser_run`、`operation_key`のcommitted retry | `200` | 同じreservationを返し、新規dispatch・quota candidateを作らない |
+| 同一`workspace_id`、`resource_type=browser_run`、`operation_key`のcommittedまたはreleased（terminal）retry | `200` | 同じreservationを返し、新規dispatch・quota candidateを作らない |
 | 同一keyのin-flightまたは`result_unknown` retry | `202 RESERVATION_RESULT_UNKNOWN` | 同じreservationをreconciliationまで保持する |
 | 同じkeyで`request_fingerprint`が相違 | `409 RESERVATION_REQUEST_MISMATCH` | 既存reservationを変更・解放しない |
 | 新規keyのegress/P0 gate disabled・未完了 | `503 BROWSER_EGRESS_NOT_VERIFIED` | reservation/provider operationを作らない |

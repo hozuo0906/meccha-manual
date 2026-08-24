@@ -13,7 +13,7 @@ OQ-006／DEC-032のP0 egress検証が完了していないため、Browser Run *
 - `/api/workspaces/{workspaceId}/mobile-preview-sessions`
 - `/v1/workspaces/{workspaceId}/mobile-preview-sessions`
 
-captureとmobile previewはどちらも`resourceType=browser_run`として扱う。予約のcanonical identityは`workspaceId + resourceType + opaque operationKey`であり、route kindは一意性の列にしない。capture-startのkeyをmobile previewへ流用せず、`requestFingerprint`はoperation keyを除くimmutableな要求比較値として保存する。同じkeyでfingerprintが一致すれば既存stateを返し、相違は409で拒否する。capture sessionまたはmobile preview sessionを指す`resourceRef`はopaqueなrepo-side参照とし、URL、secret、Cookie、Authorization、provider payloadを含めない。
+captureとmobile previewはどちらも`resourceType=browser_run`として扱う。予約のcanonical identityは`workspaceId + resourceType + opaque operationKey`であり、route kindは一意性の列にしない。capture-startのkeyをmobile previewへ流用せず、`requestFingerprint`はoperation keyを除くimmutableな要求比較値として保存する。同じkeyでfingerprintが一致すれば既存stateを返し、相違は409で拒否する。`resourceRef`は`kind`と`value`だけを持つdiscriminated objectとし、capture sessionは`kind=capture_session`、mobile preview sessionは`kind=mobile_preview_session`、`value`はopaqueなrepo-side参照に固定する。URL、secret、Cookie、Authorization、provider payloadを含めない。
 
 ### start reservationから除外するroute
 
