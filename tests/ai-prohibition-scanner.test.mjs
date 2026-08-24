@@ -211,6 +211,20 @@ test("ordinary materialized views and comment or literal text pass", () => {
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
+test("AI-prefixed rename targets are rejected through the PostgreSQL AST", () => {
+  const result = runFixture("product-rename-target");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.match(output, /ai_materialized_view_rename\.sql/);
+  assert.doesNotMatch(output, /ai_summaries|Ai_Records/i);
+});
+
+test("ordinary rename targets and comment or literal text pass", () => {
+  const result = runFixture("allowed-rename-target");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
 test("parser adoption corpus is enforced by the production scanner", async () => {
   const expectedStatus = new Map([
     ["001_plain.sql", false],
