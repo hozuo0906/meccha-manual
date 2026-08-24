@@ -14,7 +14,7 @@ Status: Accepted
 | FR-008 | SCR-CAPTURE-START | 保存可能event正規化 | capture_events（後続） | ADR-0003 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
 | FR-010 | SCR-CAPTURE-START | 入力値非保存境界 | capture_events（後続） | ADR-0003 | AC-021, AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
 | FR-011 | SCR-MANUAL-EDITOR | 決定的draft step生成（永続化は後続） | manual_revisions, manual_steps（後続RPC） | ADR-0003, ADR-0009 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
-| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions（後続） | ADR-0002 | AC-024, AC-025, `tests/capture-foundation.test.mjs`, `tests/browser-run-egress-proof.test.mjs` | #57, #84, #86, EPIC-04 |
+| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session createはcapture-startとは別の`mobilePreviewOperationKey`とreservationで時間・同時実行数をatomicに確保し、terminal retry=200、in-flight／`result_unknown`=202、fingerprint mismatch=409、新規かつP0未完了=503とする。navigate/reloadは別契約がAcceptedになるまで未実装・fail closed（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions（後続） | ADR-0002, DEC-064, OQ-005 | AC-024, AC-025, `tests/capture-foundation.test.mjs`, `tests/browser-run-egress-proof.test.mjs` | #57, #84, #86, #131, EPIC-04 |
 | FR-012 | SCR-SHARE | share APIs | share_links | ADR-0008 | AC-030 | EPIC-08 |
 | FR-019 | SCR-BILLING | billing APIs, webhook | billing_customers, checkout_intents, billing_purchases, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | EPIC-10 |
 | FR-020 | SCR-AI-SETTINGS | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | EPIC-14 |
