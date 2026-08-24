@@ -116,7 +116,9 @@ function checkEvidence(errors, evidence, candidateSha, representedCollectionPass
     if (!isCanonicalUtcTimestamp(event.timestamp)) {
       fail(errors, "evidence event: timestamp is not a canonical UTC instant");
     }
-    if (event.verdict === "PASS" && representedCollectionPass?.[event.collection] !== true) {
+    if (event.verdict === "PASS"
+      && Object.hasOwn(representedCollectionPass ?? {}, event.collection)
+      && representedCollectionPass[event.collection] !== true) {
       fail(errors, "evidence event: PASS verdict is not supported by represented checks");
     }
   }

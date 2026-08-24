@@ -30,3 +30,22 @@ test("rejects PASS evidence when represented checks are not all PASS", async () 
     }
   }
 });
+
+test("preserves PASS evidence for an allowed collection outside this correlation scope", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "phase2-evidence-safety-"));
+  const copiedFixtures = path.join(directory, "fixtures");
+  await cp(FIXTURE_DIR, copiedFixtures, { recursive: true });
+  const file = path.join(copiedFixtures, "valid-blocked.json");
+  const fixture = JSON.parse(await readFile(file, "utf8"));
+  fixture.evidence.events = fixture.evidence.events.map((event) => ({ ...event, collection: "evidence-safety", verdict: "PASS" }));
+  await writeFile(file, JSON.stringify(fixture), "utf8");
+  try {
+    assert.doesNotThrow(() => execFileSync(process.execPath, [CHECKER, `--fixtures-dir=${copiedFixtures}`], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: "pipe"
+    }));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
