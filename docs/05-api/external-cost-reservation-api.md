@@ -14,11 +14,11 @@ Status: Accepted
 
 | 項目 | 契約 |
 |---|---|
-| `operationKey` | 最初の要求前に確保する不透明な操作キー。`workspaceId`、`resourceType`、キーの組で予約IDへ1対1に固定し、再送で新しい予約を作らない。ログや画面には生のキーを記録しない |
+| `operationKey` | 最初の要求前に確保する不透明な操作キー。`workspaceId`、`resourceType`、キーの組で予約IDへ1対1に固定し、captureとmobile previewではroute固有keyを発行する。再送で新しい予約を作らず、ログや画面には生のキーを記録しない |
 | `requestFingerprint` | operation keyを除く、変更不能な要求項目のcanonical JSONをSHA-256化した値。workspace、resource、予定量、対象、checksumなどを含み、秘密値・入力値・provider応答本文は含めない |
 | `reservationId` | サーバーが発行するUUID。operation keyの最初の確定時にだけ作成し、同じkey・同じfingerprintの再送では同じIDを返す |
 | `resourceType` | `browser_run` または `r2_write`。異なるresource typeの予約を同じ状態として扱わない |
-| `resourceRef` | 予約対象を再取得するためのopaqueな内部参照。`browser_run`ではcapture session、`r2_write`ではPostgresのobject metadataを指し、provider URL、secret、実ユーザー操作内容を含めない |
+| `resourceRef` | 予約対象を再取得するための参照。`browser_run`では`{"kind":"capture_session"|"mobile_preview_session","value":"<opaque-repo-side-ref>"}`のdiscriminated shapeを使い、`r2_write`ではPostgresのobject metadataを指すopaqueな内部参照を使う。provider URL、secret、実ユーザー操作内容を含めない |
 | `providerOperationRef` | providerへ渡すidempotency/operation参照としてdispatch前に生成・永続化し、Browser session/provider operationまたはstorage attemptを相関するopaqueな参照。provider URL、credential、生レスポンスを保存しない |
 | `expectedSizeBytes` / `expectedChecksumSha256` | `r2_write`で必須のimmutableな予定byte数とchecksum。照合対象を一意にし、`browser_run`ではnullとする |
 | `deadlineAt` | サーバーが計算するUTCの絶対期限。Browser Runではproviderの絶対失効証跡に対応し、DOのclose、Workerのalarm、クライアントのtimeoutだけを期限の根拠にしない |
@@ -27,22 +27,26 @@ Status: Accepted
 
 同じ`operationKey`で`requestFingerprint`が異なる要求は`409 RESERVATION_REQUEST_MISMATCH`で拒否する。同じkey・同じfingerprintの再送は現在のreservation stateを決定的に返し、providerへ新しい開始・putを送らない。結果不明の要求は別keyで再試行してはならない。
 
+Browser Runのroute kind（capture session startまたはmobile preview session start）は監査上の分類であり、`resourceType=browser_run`の一意性を分けない。canonical identityは`workspaceId + resourceType + opaque operationKey`、`requestFingerprint`はoperation keyを除くimmutableな比較値である。`browser_run`の`resourceRef`は`kind`と`value`だけを持つdiscriminated objectとし、capture routeは`kind=capture_session`、mobile preview routeは`kind=mobile_preview_session`に固定する。`value`はrouteに対応するopaqueなrepo-side参照であり、provider URL、secret、Cookie、Authorization、生payloadを保存しない。
+
 ## Browser Run開始・予約API
 
-既存の`POST /v1/workspaces/{workspaceId}/capture-sessions`は、Browser Run providerへ通信する前に、次の一つのserver側予約境界を通過する。予約を作成しないprovider起動経路を設けない。
+`POST /v1/workspaces/{workspaceId}/capture-sessions`と`POST /v1/workspaces/{workspaceId}/mobile-preview-sessions`（同等の`/api` routeを含む）は、Browser Run providerへ通信する前に、同じserver側予約境界を通過する。captureとmobile previewを別のresource typeや別のquotaとして扱わず、予約を作成しないprovider起動経路を設けない。
 
 ### 要求と原子的予約
 
-要求は`manualId`、`operationKey`、`requestedSeconds`を持つ。serverはcapture sessionに対応する`resourceRef`を発行し、`requestedSeconds`はserver側のplan、残り時間、同時実行数、hard maximumで検証する。clientが渡す期限や上限を信頼しない。
+capture startの要求は`manualId`、`operationKey`、`requestedSeconds`を持つ。mobile preview startはroute固有のopaqueな`mobilePreviewTargetRef`、`mobilePreviewOperationKey`、`requestedSeconds`を持ち、serverは後者をcanonicalな`operationKey`へ正規化する。`mobilePreviewTargetRef`はserverが認可済みworkspace内で解決したrepo-side targetの参照であり、URL、secret、Cookie、Authorization、生payloadを含めない。serverはrouteに対応するcapture sessionまたはmobile preview sessionのdiscriminated `resourceRef`（`kind`と`value`）を発行し、`requestedSeconds`はserver側のplan、残り時間、同時実行数、hard maximumで検証する。clientが渡す期限や上限を信頼しない。
 
 予約transactionは次の順序を原子的に実行する。
 
 1. authentication、workspace role、tenant entitlement、request envelopeを確認する。ここでは既存reservationのretryを拒否するegress gateを評価しない。
-2. 同じworkspaceのlock境界で同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintならegress、quota、capacityを再評価せず既存stateを返し、`requestedSeconds`をcandidateへ加算しない。terminalは`200`、in-flightと`result_unknown`は`202`で現在stateを決定的に返し、いずれも新規provider dispatchを行わない。異なるfingerprintはegress状態に依存せず`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
+2. 同じworkspaceのlock境界で`resourceType=browser_run`の同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintならegress、quota、capacityを再評価せず既存stateを返し、`requestedSeconds`をcandidateへ加算しない。terminalは`200`、in-flightと`result_unknown`は`202`で現在stateを決定的に返し、いずれも新規provider dispatchを行わない。異なるfingerprintはegress状態に依存せず`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
 3. 新規keyだけ、egress enablementを確認する。egressが無効またはP0証跡未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`で停止し、新規reservationやprovider operationを開始しない。egressを通過した新規keyだけ、他のoperation keyによる`active reserved`を含む`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。既存keyの量を新規candidateへ二重計上しない。
-4. 新規ならreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。reservation確定時にprovider-supported idempotency/operation参照を生成して永続化し、dispatch後も同じ参照でlookupできるようにする。
+4. 新規ならrouteに対応する`resourceRef`を含むreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。reservation確定時にprovider-supported idempotency/operation参照を生成して永続化し、dispatch後も同じ参照でlookupできるようにする。provider operation refなしのreservationを確定しない。
 5. server計算の`deadlineAt`、`leaseGeneration`、`leaseExpiresAt`、request fingerprint、reservation ID、`resourceRef`、dispatch前に固定した`providerOperationRef`を応答へ含める。
 6. reservation確定後だけprovider起動へ進む。transaction失敗、上限超過、権限不足ではproviderへ通信しない。
+
+live-url、capture commands（navigate/reload）、mobile preview navigate/reloadはBrowser Run start reservation APIの対象外である。これらはstart reservationのlookup・作成・再送mappingを行わず、既存のegress/P0 fail-closed境界を維持する。URI、method、request、正常2xx shapeを定義する別契約がAcceptedになるまでproviderへ通信しない。
 
 P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証するまでは、egress gateによりprovider起動を`503 BROWSER_EGRESS_NOT_VERIFIED`で拒否する。実証後も`deadlineAt`到達時にLive Viewを失効させ、providerの絶対失効、cancel、closeを期限付きで記録する。closeやDOが停止しても予約期限を越えてremote sessionが稼働できないことを証跡にする。
 
@@ -59,7 +63,10 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
   "plannedSeconds": 120,
   "reservedSeconds": 120,
   "committedSeconds": 0,
-  "resourceRef": "<opaque-capture-session-ref>",
+  "resourceRef": {
+    "kind": "capture_session",
+    "value": "<opaque-repo-side-ref>"
+  },
   "providerOperationRef": "<opaque-provider-operation-ref>",
   "leaseGeneration": 1,
   "deadlineAt": "<absolute-utc>",
@@ -69,6 +76,15 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
 }
 ```
 
+`resourceType=browser_run`のstart reservationは、routeごとに次のopaque参照を返す。
+
+| route kind | `resourceType` | `resourceRef` |
+|---|---|---|
+| capture session start | `browser_run` | `{"kind":"capture_session","value":"<opaque-repo-side-ref>"}` |
+| mobile preview session start | `browser_run` | `{"kind":"mobile_preview_session","value":"<opaque-repo-side-ref>"}` |
+
+`browser_run`の参照は表の`kind`をrouteと一致させ、`value`をopaqueなrepo-side参照として固定する。いずれの参照にもprovider URL、secret、Cookie、Authorization、生payloadを含めない。
+
 | 状況 | 契約応答 | 予約の扱い |
 |---|---|---|
 | 新しい要求を原子的に予約できた | `201` と`status=reserved` | provider起動前のreservedを保持 |
@@ -77,7 +93,7 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
 | key再利用で要求が変わった | `409 RESERVATION_REQUEST_MISMATCH` | 既存予約を変更・解放しない |
 | 上限または同時実行数を超えた | `409 USAGE_RESERVATION_LIMIT_EXCEEDED` | reservationを作らずproviderへ通信しない |
 | provider呼出し後に応答・結果が確認できない | `202 RESERVATION_RESULT_UNKNOWN` と同じreservation ID・dispatch前に固定した`providerOperationRef` | その参照でprovider/sessionをlookupし、`result_unknown`としてlease期限後のreconciliationまで保持 |
-| provider絶対失効P0未実証のため起動を止めた | `503 BROWSER_EGRESS_NOT_VERIFIED` | providerへ通信せず、confirmed non-startとして未使用予約だけ解放 |
+| provider絶対失効P0未実証のため起動を止めた | `503 BROWSER_EGRESS_NOT_VERIFIED` | providerへ通信せず、reservation/provider operationを作成せず、利用枠を消費しない |
 
 ## R2書込reservation port
 
