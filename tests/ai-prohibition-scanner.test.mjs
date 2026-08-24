@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { parse } from "pgsql-parser";
 
 const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const scannerPath = path.join(repositoryRoot, "scripts/check-harness-docs.mjs");
 const fixturesRoot = path.join(repositoryRoot, "tests/fixtures/ai-prohibition");
 const parserCorpusRoot = path.join(fixturesRoot, "parser-adoption");
+const renameTargetKindsRoot = path.join(fixturesRoot, "product-rename-target-kinds");
 
 function runFixture(name) {
   return runScanRoot(path.join(fixturesRoot, name));
@@ -20,6 +22,19 @@ function runScanRoot(root) {
     cwd: repositoryRoot,
     encoding: "utf8"
   });
+}
+
+async function runSingleMigrationFixture(fixtureName, filename) {
+  const fixturePath = path.join(fixturesRoot, fixtureName, "supabase/migrations", filename);
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ai-prohibition-single-migration-"));
+  try {
+    const migrationRoot = path.join(temporaryRoot, "supabase/migrations");
+    await mkdir(migrationRoot, { recursive: true });
+    await writeFile(path.join(migrationRoot, filename), await readFile(fixturePath));
+    return runScanRoot(temporaryRoot);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 test("AI SDK dependency declarations fail", () => {
@@ -209,6 +224,69 @@ test("AI materialized views are rejected through the PostgreSQL AST", () => {
 test("ordinary materialized views and comment or literal text pass", () => {
   const result = runFixture("allowed-materialized-view");
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
+test("each AI-prefixed rename target has an exact diagnostic", async () => {
+  const cases = [
+    "202608240009_ai_materialized_view_rename.sql",
+    "202608240010_ai_table_rename.sql",
+    "202608240011_quoted_ai_materialized_view_rename.sql"
+  ];
+  for (const filename of cases) {
+    const result = await runSingleMigrationFixture("product-rename-target", filename);
+    const expectedDiagnostic =
+      `AI prohibition violation [product-db-migrations/ai-schema-objects]: supabase/migrations/${filename}`;
+    assert.equal(result.status, 1, `${filename}: ${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, "", `${filename}: unexpected stdout`);
+    assert.equal(result.stderr, `${expectedDiagnostic}\n`, `${filename}: unexpected diagnostic stream`);
+  }
+});
+
+test("ordinary rename targets and comment or literal text pass", () => {
+  const result = runFixture("allowed-rename-target");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
+// pgsql-parser 18.2.6 inventory: every governed PostgreSQL rename form below
+// is a RenameStmt. There are no N/A forms in this contract.
+const renameTargetKindInventory = [
+  { kind: "TABLE", renameType: "OBJECT_TABLE", filename: "001_table.sql" },
+  { kind: "MATERIALIZED VIEW", renameType: "OBJECT_MATVIEW", filename: "002_materialized_view.sql" },
+  { kind: "VIEW", renameType: "OBJECT_VIEW", filename: "003_view.sql" },
+  { kind: "INDEX", renameType: "OBJECT_INDEX", filename: "004_index.sql" },
+  { kind: "FUNCTION", renameType: "OBJECT_FUNCTION", filename: "005_function.sql" },
+  { kind: "TYPE", renameType: "OBJECT_TYPE", filename: "006_type.sql" },
+  { kind: "POLICY", renameType: "OBJECT_POLICY", filename: "007_policy.sql" }
+];
+
+test("pgsql-parser inventory covers every governed rename target kind", async () => {
+  for (const { kind, renameType, filename } of renameTargetKindInventory) {
+    const source = await readFile(path.join(renameTargetKindsRoot, "supabase/migrations", filename), "utf8");
+    const ast = await parse(source);
+    const renameStatements = ast.stmts
+      .map(({ stmt }) => stmt.RenameStmt)
+      .filter(Boolean);
+    assert.equal(renameStatements.length, 1, `${kind}: expected one RenameStmt`);
+    assert.equal(renameStatements[0].renameType, renameType, `${kind}: AST renameType mismatch`);
+  }
+});
+
+test("each governed AI rename target is independently rejected", async () => {
+  for (const { filename } of renameTargetKindInventory) {
+    const result = await runSingleMigrationFixture("product-rename-target-kinds", filename);
+    const expectedDiagnostic =
+      `AI prohibition violation [product-db-migrations/ai-schema-objects]: supabase/migrations/${filename}`;
+    assert.equal(result.status, 1, `${filename}: ${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, "", `${filename}: unexpected stdout`);
+    assert.equal(result.stderr, `${expectedDiagnostic}\n`, `${filename}: unexpected diagnostic stream`);
+  }
+});
+
+test("each governed ordinary rename target remains allowed", async () => {
+  for (const { filename } of renameTargetKindInventory) {
+    const result = await runSingleMigrationFixture("allowed-rename-target-kinds", filename);
+    assert.equal(result.status, 0, `${filename}: ${result.stdout}${result.stderr}`);
+  }
 });
 
 test("parser adoption corpus is enforced by the production scanner", async () => {
