@@ -205,6 +205,7 @@ function checkFixture(fixture) {
   const prerequisitesPass = prerequisiteValues.every((value) => value === "PASS");
   if (fixture.internalAlphaVerdict === "PASS" && (matrixMeta.unimplemented || !matrixMeta.allPass)) fail(errors, "matrix: alpha PASS requires implemented cells with executed PASS verdicts");
   if (!prerequisitesPass && fixture.internalAlphaVerdict === "PASS") fail(errors, "fixture: blocked preflight cannot claim internal alpha PASS");
+  if (!prerequisitesPass && fixture.internalAlphaVerdict === "FAIL") fail(errors, "fixture: declared internal alpha FAIL cannot be downgraded to BLOCKED");
   if (prerequisitesPass && fixture.internalAlphaVerdict !== "PASS") fail(errors, "fixture: internal alpha PASS is missing");
   const status = errors.length > 0 ? "FAIL" : prerequisitesPass ? "PASS" : "BLOCKED";
   return { errors, status };
