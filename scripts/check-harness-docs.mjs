@@ -227,13 +227,15 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
   ])
 });
 
-async function listProductFiles(entry) {
+async function listProductFiles(entry, scanRoot) {
   const info = await readdir(entry, { withFileTypes: true }).catch(() => null);
   if (!Array.isArray(info)) return [entry];
   const files = [];
   for (const item of info) {
     const child = path.join(entry, item.name);
-    if (item.isDirectory()) files.push(...await listProductFiles(child));
+    const relativeChild = path.relative(scanRoot, child).split(path.sep).join("/");
+    if (isExcluded(relativeChild)) continue;
+    if (item.isDirectory()) files.push(...await listProductFiles(child, scanRoot));
     else files.push(child);
   }
   return files;
@@ -345,11 +347,12 @@ async function findAiProhibitionRule(source, rules) {
 
 async function scanAiProhibition(rootDir) {
   const violations = [];
+  const resolvedRootDir = path.resolve(rootDir);
   for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
     for (const root of surface.roots) {
-      const absoluteRoot = path.resolve(rootDir, root);
-      for (const file of await listProductFiles(absoluteRoot)) {
-        const relativeFile = path.relative(rootDir, file).split(path.sep).join("/");
+      const absoluteRoot = path.resolve(resolvedRootDir, root);
+      for (const file of await listProductFiles(absoluteRoot, resolvedRootDir)) {
+        const relativeFile = path.relative(resolvedRootDir, file).split(path.sep).join("/");
         if (isExcluded(relativeFile)) continue;
         if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
         const source = await readFile(file, "utf8").catch(() => "");
@@ -374,10 +377,12 @@ if (aiScanRoot) {
   process.exit(0);
 }
 
+const scanRoot = process.cwd();
 for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
   for (const root of surface.roots) {
-    for (const file of await listProductFiles(root)) {
-      const relativeFile = path.relative(process.cwd(), file).split(path.sep).join("/");
+    const absoluteRoot = path.resolve(scanRoot, root);
+    for (const file of await listProductFiles(absoluteRoot, scanRoot)) {
+      const relativeFile = path.relative(scanRoot, file).split(path.sep).join("/");
       if (isExcluded(relativeFile)) continue;
       if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
       const source = await readFile(file, "utf8").catch(() => "");
