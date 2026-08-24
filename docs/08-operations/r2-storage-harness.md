@@ -64,9 +64,19 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 
 ## object key
 
+通常のobject:
+
 ```text
 {workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
 ```
+
+容量予約を伴うobject:
+
+```text
+{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
+```
+
+`reservation_generation_id`は予約作成時に一度だけ固定し、operation keyの再送では同じ値を再利用する。別operation keyによる同じ予約世代または正規object keyの再利用は、予約作成と同じ原子的境界で拒否する。reconciliationはこの世代prefix内だけを列挙する。workspace、key、size、checksum、予約ID、fencing tokenのtuple一致は正規objectの確定条件であり、cleanup条件ではない。
 
 ## 検証
 
