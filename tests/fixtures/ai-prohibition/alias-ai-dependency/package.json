@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "dependencies": {
+    "ai-client": "npm:openai@4.0.0"
+  },
+  "devDependencies": {
+    "provider-core": "npm:@openai/core@4.0.0"
+  }
+}
