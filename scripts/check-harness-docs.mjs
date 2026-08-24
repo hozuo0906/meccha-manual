@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import npmPackageArg from "npm-package-arg";
 import { parse } from "pgsql-parser";
 
 const requiredDocs = {
@@ -259,6 +260,46 @@ function isKnownProviderPackage(specifier) {
   return AI_PROHIBITION_SCAN_CONTRACT.knownProviderPackages.some((pattern) => pattern.test(specifier));
 }
 
+const INVALID_NPM_ALIAS = Symbol("invalid-npm-alias");
+
+function npmAliasTargetPackage(specifier) {
+  if (typeof specifier !== "string" || !/^npm:/i.test(specifier)) return null;
+  try {
+    const parsed = npmPackageArg(specifier);
+    if (parsed.type !== "alias" || typeof parsed.subSpec?.name !== "string") {
+      return INVALID_NPM_ALIAS;
+    }
+    return parsed.subSpec.name;
+  } catch {
+    return INVALID_NPM_ALIAS;
+  }
+}
+
+function isKnownProviderDependency(dependencyName, declaration) {
+  if (isKnownProviderPackage(dependencyName)) return true;
+  if (typeof declaration === "string") {
+    const aliasTarget = npmAliasTargetPackage(declaration);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
+  }
+  if (declaration && typeof declaration === "object") {
+    if (isKnownProviderPackage(declaration.name)) return true;
+    const dependencyMaps = [
+      declaration.dependencies,
+      declaration.devDependencies,
+      declaration.optionalDependencies,
+      declaration.peerDependencies
+    ];
+    if (dependencyMaps.some((dependencies) =>
+      dependencies && Object.entries(dependencies).some(([name, specifier]) =>
+        isKnownProviderDependency(name, specifier)
+      )
+    )) return true;
+    const aliasTarget = npmAliasTargetPackage(declaration.version);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
+  }
+  return false;
+}
+
 function hasKnownProviderImport(source) {
   const staticImports = source.matchAll(/\bimport\s+(?:(?:[\s\S]*?)\s+from\s+)?["']([^"']+)["']/g);
   for (const [, specifier] of staticImports) {
@@ -289,15 +330,20 @@ function hasDependencyDeclaration(source) {
       manifest.peerDependencies
     ];
     for (const dependencies of dependencyMaps) {
-      if (dependencies && Object.keys(dependencies).some(isKnownProviderPackage)) return true;
+      if (
+        dependencies &&
+        Object.entries(dependencies).some(([dependencyName, declaration]) =>
+          isKnownProviderDependency(dependencyName, declaration)
+        )
+      ) return true;
     }
     if (manifest.packages && typeof manifest.packages === "object") {
-      for (const packagePath of Object.keys(manifest.packages)) {
+      for (const [packagePath, packageInfo] of Object.entries(manifest.packages)) {
         const packagePathParts = packagePath.replace(/^node_modules\//, "").split("/node_modules/").pop().split("/");
         const packageName = packagePathParts[0]?.startsWith("@")
           ? packagePathParts.slice(0, 2).join("/")
           : packagePathParts[0];
-        if (isKnownProviderPackage(packageName)) return true;
+        if (isKnownProviderDependency(packageName, packageInfo)) return true;
       }
     }
   } catch {

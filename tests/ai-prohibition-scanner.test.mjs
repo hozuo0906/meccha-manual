@@ -80,6 +80,38 @@ test("nested product scripts remain inside the scan surface", () => {
   assert.doesNotMatch(output, /AI_ENDPOINT/);
 });
 
+test("npm aliases to unscoped and scoped AI packages fail without logging specs", () => {
+  const result = runFixture("alias-ai-dependency");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /dependency-manifests\/dependency-declarations/);
+  assert.match(output, /package\.json/);
+  assert.doesNotMatch(output, /npm:openai|@openai|4\.0\.0/i);
+});
+
+test("npm aliases in lockfile metadata fail without logging specs", () => {
+  const result = runFixture("alias-ai-lockfile");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /dependency-manifests\/dependency-declarations/);
+  assert.match(output, /package-lock\.json/);
+  assert.doesNotMatch(output, /npm:openai|4\.0\.0/i);
+});
+
+test("invalid npm aliases fail closed without logging specs", () => {
+  const result = runFixture("alias-invalid-dependency");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /dependency-manifests\/dependency-declarations/);
+  assert.match(output, /package\.json/);
+  assert.doesNotMatch(output, /npm:|@openai/i);
+});
+
+test("non-AI npm aliases pass even when the dependency key is descriptive", () => {
+  const result = runFixture("alias-ordinary-dependency");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
 test("static, dynamic, and side-effect provider imports fail", () => {
   const result = runFixture("imports");
   assert.notEqual(result.status, 0, result.stdout);
