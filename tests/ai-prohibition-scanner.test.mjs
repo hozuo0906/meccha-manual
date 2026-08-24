@@ -12,7 +12,11 @@ const fixturesRoot = path.join(repositoryRoot, "tests/fixtures/ai-prohibition");
 const parserCorpusRoot = path.join(fixturesRoot, "parser-adoption");
 
 function runFixture(name) {
-  return spawnSync(process.execPath, [scannerPath, "--ai-scan-root", path.join(fixturesRoot, name)], {
+  return runScanRoot(path.join(fixturesRoot, name));
+}
+
+function runScanRoot(root) {
+  return spawnSync(process.execPath, [scannerPath, "--ai-scan-root", root], {
     cwd: repositoryRoot,
     encoding: "utf8"
   });
@@ -22,6 +26,58 @@ test("AI SDK dependency declarations fail", () => {
   const result = runFixture("dependency-declaration");
   assert.notEqual(result.status, 0, result.stdout);
   assert.match(`${result.stdout}${result.stderr}`, /dependency-manifests\/dependency-declarations/);
+});
+
+test("nested product dependency declarations fail with rule and path only", () => {
+  const result = runFixture("nested-ai-dependency");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /dependency-manifests\/dependency-declarations/);
+  assert.match(output, /apps\/manual-editor\/package\.json/);
+  assert.doesNotMatch(output, /openai|@ai-sdk|anthropic|\"ai\"/i);
+});
+
+test("each dependency declaration field is independently rejected", async () => {
+  const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ai-prohibition-dependency-fields-"));
+  try {
+    for (const field of fields) {
+      const manifestDirectory = path.join(temporaryRoot, "apps", field);
+      await mkdir(manifestDirectory, { recursive: true });
+      await writeFile(
+        path.join(manifestDirectory, "package.json"),
+        JSON.stringify({ [field]: { openai: "1.0.0" } })
+      );
+      const result = runScanRoot(temporaryRoot);
+      const output = `${result.stdout}${result.stderr}`;
+      assert.notEqual(result.status, 0, `${field}: ${output}`);
+      assert.match(output, /dependency-manifests\/dependency-declarations/);
+      assert.match(output, new RegExp(`apps/${field}/package\\.json`));
+      assert.doesNotMatch(output, /openai/i);
+      await rm(manifestDirectory, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("ordinary nested dependency manifest passes", () => {
+  const result = runFixture("nested-ordinary-manifest");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
+test("nested generated and development-only manifests remain excluded", () => {
+  const result = runFixture("nested-exclusions");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
+test("nested product scripts remain inside the scan surface", () => {
+  const result = runFixture("nested-product-scripts");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /apps\/manual-editor\/scripts\/provider-config\.ts/);
+  assert.doesNotMatch(output, /AI_ENDPOINT/);
 });
 
 test("static, dynamic, and side-effect provider imports fail", () => {

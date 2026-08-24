@@ -162,7 +162,7 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     }),
     Object.freeze({
       id: "dependency-manifests",
-      roots: Object.freeze(["package.json", "package-lock.json"]),
+      roots: Object.freeze(["package.json", "package-lock.json", "apps"]),
       rules: Object.freeze(["dependency-declarations"])
     }),
     Object.freeze({
@@ -174,11 +174,12 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
   // Development-only automation (including ADR-0026) is intentionally not a
   // product surface. Keep this list explicit so a future surface cannot
   // accidentally absorb its credentials or provider configuration.
-  exclusions: Object.freeze([
-    "scripts",
+  rootOnlyExclusions: Object.freeze([
     ".github/workflows/business-os-codex.yml",
+    "scripts",
     "docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md"
   ]),
+  nestedExclusions: Object.freeze(["node_modules", "dist", "build", "generated"]),
   knownProviderPackages: Object.freeze([
     /^openai$/i,
     /^@openai\//i,
@@ -223,13 +224,15 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
   ])
 });
 
-async function listProductFiles(entry) {
+async function listProductFiles(entry, scanRoot) {
   const info = await readdir(entry, { withFileTypes: true }).catch(() => null);
   if (!Array.isArray(info)) return [entry];
   const files = [];
   for (const item of info) {
     const child = path.join(entry, item.name);
-    if (item.isDirectory()) files.push(...await listProductFiles(child));
+    const relativeChild = path.relative(scanRoot, child).split(path.sep).join("/");
+    if (isExcluded(relativeChild)) continue;
+    if (item.isDirectory()) files.push(...await listProductFiles(child, scanRoot));
     else files.push(child);
   }
   return files;
@@ -237,9 +240,19 @@ async function listProductFiles(entry) {
 
 function isExcluded(relativeFile) {
   const normalized = relativeFile.split(path.sep).join("/");
-  return AI_PROHIBITION_SCAN_CONTRACT.exclusions.some(
+  const segments = normalized.split("/");
+  const rootOnlyExcluded = AI_PROHIBITION_SCAN_CONTRACT.rootOnlyExclusions.some(
     (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`)
   );
+  const nestedExcluded = AI_PROHIBITION_SCAN_CONTRACT.nestedExclusions.some(
+    (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`) || segments.includes(excluded)
+  );
+  return rootOnlyExcluded || nestedExcluded;
+}
+
+function isDependencyManifest(relativeFile) {
+  const fileName = relativeFile.split(path.sep).join("/").split("/").at(-1);
+  return fileName === "package.json" || fileName === "package-lock.json";
 }
 
 function isKnownProviderPackage(specifier) {
@@ -335,12 +348,14 @@ async function findAiProhibitionRule(source, rules) {
 
 async function scanAiProhibition(rootDir) {
   const violations = [];
+  const resolvedRootDir = path.resolve(rootDir);
   for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
     for (const root of surface.roots) {
-      const absoluteRoot = path.resolve(rootDir, root);
-      for (const file of await listProductFiles(absoluteRoot)) {
-        const relativeFile = path.relative(rootDir, file).split(path.sep).join("/");
+      const absoluteRoot = path.resolve(resolvedRootDir, root);
+      for (const file of await listProductFiles(absoluteRoot, resolvedRootDir)) {
+        const relativeFile = path.relative(resolvedRootDir, file).split(path.sep).join("/");
         if (isExcluded(relativeFile)) continue;
+        if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
         const source = await readFile(file, "utf8").catch(() => "");
         const rule = await findAiProhibitionRule(source, surface.rules);
         if (rule) violations.push({ surface: surface.id, rule, file: relativeFile });
@@ -363,11 +378,14 @@ if (aiScanRoot) {
   process.exit(0);
 }
 
+const scanRoot = process.cwd();
 for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
   for (const root of surface.roots) {
-    for (const file of await listProductFiles(root)) {
-      const relativeFile = path.relative(process.cwd(), file).split(path.sep).join("/");
+    const absoluteRoot = path.resolve(scanRoot, root);
+    for (const file of await listProductFiles(absoluteRoot, scanRoot)) {
+      const relativeFile = path.relative(scanRoot, file).split(path.sep).join("/");
       if (isExcluded(relativeFile)) continue;
+      if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
       const source = await readFile(file, "utf8").catch(() => "");
       const rule = await findAiProhibitionRule(source, surface.rules);
       if (rule) errors.push(`AI implementation marker remains in ${surface.id}/${rule}: ${relativeFile}`);
