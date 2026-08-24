@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const scannerPath = path.join(repositoryRoot, "scripts/check-harness-docs.mjs");
 const fixturesRoot = path.join(repositoryRoot, "tests/fixtures/ai-prohibition");
+const parserCorpusRoot = path.join(fixturesRoot, "parser-adoption");
 
 function runFixture(name) {
   return spawnSync(process.execPath, [scannerPath, "--ai-scan-root", path.join(fixturesRoot, name)], {
@@ -80,6 +83,82 @@ test("arbitrary AI migration object names fail", () => {
   assert.notEqual(result.status, 0, result.stdout);
   assert.match(`${result.stdout}${result.stderr}`, /product-db-migrations\/ai-schema-objects/);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /ai_models|ai_credentials/);
+});
+
+test("AI function migrations fail across create modifiers and whitespace", () => {
+  const result = runFixture("product-function-migration");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.doesNotMatch(output, /ai_summarize|ai_generate/);
+});
+
+test("qualified AI function migrations reject whitespace around schema dots", () => {
+  const result = runFixture("product-qualified-function-migration");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.doesNotMatch(output, /ai_vectorize/);
+});
+
+test("quoted qualified AI function migrations are rejected", () => {
+  const result = runFixture("product-quoted-qualified-function-migration");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.doesNotMatch(output, /ai_vectorize/);
+});
+
+test("parser adoption corpus is enforced by the production scanner", async () => {
+  const expectedStatus = new Map([
+    ["001_plain.sql", false],
+    ["002_or_replace.sql", false],
+    ["003_qualified_spaced.sql", false],
+    ["004_quoted_schema.sql", false],
+    ["005_quoted_hyphen.sql", false],
+    ["006_quoted_space.sql", false],
+    ["007_doubled_quote.sql", false],
+    ["008_line_comment.sql", false],
+    ["009_block_comment.sql", false],
+    ["010_nested_comment.sql", false],
+    ["011_unterminated_comment.sql", false],
+    ["012_malformed_header.sql", false],
+    ["013_unknown_header.sql", false],
+    ["014_ordinary_function.sql", true]
+  ]);
+  const fixtureFiles = (await readdir(parserCorpusRoot)).filter((file) => file.endsWith(".sql")).sort();
+  assert.deepEqual(fixtureFiles, [...expectedStatus.keys()]);
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ai-prohibition-parser-corpus-"));
+  try {
+    const migrationRoot = path.join(temporaryRoot, "supabase/migrations");
+    await mkdir(migrationRoot, { recursive: true });
+    for (const file of fixtureFiles) {
+      await writeFile(path.join(migrationRoot, file), await readFile(path.join(parserCorpusRoot, file)));
+    }
+    const result = spawnSync(process.execPath, [scannerPath, "--ai-scan-root", temporaryRoot], {
+      cwd: repositoryRoot,
+      encoding: "utf8"
+    });
+    const output = `${result.stdout}${result.stderr}`;
+    assert.notEqual(result.status, 0, "AI parser corpus must be rejected");
+    assert.match(output, /product-db-migrations\/ai-schema-objects/);
+    for (const file of fixtureFiles.filter((name) => !expectedStatus.get(name))) {
+      assert.match(output, new RegExp(`supabase/migrations/${file.replace(".", "\\.")}`), `${file} must be rejected`);
+    }
+    assert.doesNotMatch(output, /ai_summarize|ai_generate|ai_vectorize|tenant-prod|tenant prod|tenant""prod/);
+
+    const ordinaryRoot = path.join(temporaryRoot, "ordinary");
+    const ordinaryMigrations = path.join(ordinaryRoot, "supabase/migrations");
+    await mkdir(ordinaryMigrations, { recursive: true });
+    await writeFile(path.join(ordinaryMigrations, "014_ordinary_function.sql"), await readFile(path.join(parserCorpusRoot, "014_ordinary_function.sql")));
+    const ordinaryResult = spawnSync(process.execPath, [scannerPath, "--ai-scan-root", ordinaryRoot], {
+      cwd: repositoryRoot,
+      encoding: "utf8"
+    });
+    assert.equal(ordinaryResult.status, 0, `${ordinaryResult.stdout}${ordinaryResult.stderr}`);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("ordinary product code passes", () => {

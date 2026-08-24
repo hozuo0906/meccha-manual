@@ -1,0 +1,6 @@
+CREATE OR REPLACE FUNCTION "public"
+  .
+  ai_vectorize(input_text text)
+RETURNS text
+LANGUAGE sql
+AS $$ SELECT input_text $$;
