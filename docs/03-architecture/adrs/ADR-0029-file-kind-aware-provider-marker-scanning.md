@@ -27,7 +27,7 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 | extensionless product asset | `_headers`（および将来の既知extensionless file） | 形式固有のcommentを推測しない | URLを保持し、未知形式として安全側に扱う | fail closed |
 | unknown/binary | 未知拡張子またはbinary | 推測でstripしない | raw dataを解釈して迂回させない | fail closed |
 
-現行contractのroot-only exclusionは`.github/workflows/business-os-codex.yml`、`scripts`、ADR-0026文書であり、nested exclusionは`node_modules`、`dist`、`build`、`generated`だけである。`vendor`やbinary専用の除外・classifierは現存しないため、このADRで追加しない。除外に一致しないunknown、binary、または形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
+現行contractのroot-only exclusionは`.github/workflows/business-os-codex.yml`、`scripts`、ADR-0026文書であり、nested exclusionは`node_modules`、`dist`、`build`、`generated`だけである。`vendor`や広域binaryをpathで除外するcontractは現存せず、このADRでも追加しない。Issue #160で定義するallowlisted inert binary判定は、現在inventoryにある2つのPNGのexact pathだけに適用する狭い例外である。それ以外のunknown、binary、または形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
 
 ### 2. comment/string semantics
 
@@ -70,14 +70,19 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 
 ### 6. Binary asset classification（Issue #160）
 
-現時点で`apps/**`に存在するbinary product assetは、`apps/brand-site/public/assets/`配下のPNG 2件だけである。inventoryには値、URL、画像内容を記録せず、repo-relative path、拡張子、magic判定だけを証跡にする。fontや他のmediaは現在のinventoryに存在しないが、後続追加時の分類契約を先に固定する。
+現時点で`apps/**`に存在するbinary product assetは次のPNG 2件だけである。inventoryはrepo-relative exact path、期待拡張子、magic、byte size、SHA-256 digestだけを記録し、値、URL、画像内容は記録しない。
 
-- known inert media/fontは、許可された拡張子と形式固有magic byteが一致した場合だけ、binary marker scanの対象外としてpassする。対象候補はPNG、JPEG、GIF、WebP、WOFF/WOFF2、TrueType/OpenTypeであり、SVGはtext fileとして扱う。拡張子だけではpassさせない。
-- 拡張子とmagic byteのmismatch、unknown binary、archive（zip/tar/gzip等）、executable、config-like binaryはinert扱いせず、`product-source-runtime-config/binary-assets`のruleでfail closedする。`vendor`のような広域directory除外や新しいroot exclusionは導入しない。
-- binary判定はread前のmetadataだけで成功扱いにせず、read failure、truncated header、decode/metadata検査failureも同じruleでfail closedにする。後続実装の上限は1ファイル8 MiB、画像decoded pixel 8192×8192以内とし、fontも8 MiB以内とする。上限値超過は内容を診断へ出さずfail closedする。
-- diagnosticsは既存どおりrule IDとrepo-relative pathだけとし、magic、bytes、画像値、URL、secret、絶対pathを出力しない。
+| exact path | extension | expected magic | byte size | SHA-256 |
+|---|---|---|---:|---|
+| `apps/brand-site/public/assets/meccha-manual-logo-mark.png` | `.png` | `89 50 4e 47 0d 0a 1a 0a` | 909259 | `37eedc60e1d2b9be2a6cddc45c2d15f45361cc47c8113d177af9664445a1eedb` |
+| `apps/brand-site/public/assets/meccha-manual-mascot.png` | `.png` | `89 50 4e 47 0d 0a 1a 0a` | 1373413 | `aae49f0c73321999f9d25ecc2878fcae949aae5b9f421356c7009ac3708d4c88` |
 
-後続production接続Issueは、既存PNG clean pass、magic mismatch、unknown binary、media拡張子へ改名したtext、archive/executable control、read failure、size/decode上限を独立fixtureで固定する。rollbackはbinary policyを直前のADR/実装headへ戻し、production接続と新しい除外追加を行わない。
+- 上記2 pathだけをknown inert binaryとしてpassする。拡張子、先頭magic、exact byte size、streamed SHA-256 digestを全て一致させる。digest計算はstreamingとし、画像decoderは使わずmetadata-onlyで扱う。
+- extension変更、magic mismatch、size mismatch、digest mismatch、rename/new asset、unknown binary、archive（zip/tar/gzip等）、executable、config-like binary、read/hash failure、trailing/polyglot payloadは`product-source-runtime-config/binary-assets`のruleでfail closedとする。JPEG、GIF、WebP、WOFF/WOFF2、TrueType/OpenType、SVGはinventory外として後続Issueへdeferする。
+- `vendor`のような広域directory除外や新しいroot exclusionは導入しない。allowlistは個別pathのdigest manifestであり、binary全体の除外ではない。
+- diagnosticsは既存どおりrule IDとrepo-relative pathだけとし、magic、bytes、digest、画像値、URL、secret、絶対pathを出力しない。
+
+後続production接続Issueは、2件のPNG個別clean pass、byte mutation/digest mismatch、magic mismatch、size mismatch、unknown binary、media拡張子へ改名したtext、archive/executable、trailing/polyglot、read/hash failureを独立fixtureで固定する。rollbackはdigest manifestを直前のADR/実装headへ戻し、production接続と新しい除外追加を行わない。
 
 ### 7. Boundary and recovery
 
