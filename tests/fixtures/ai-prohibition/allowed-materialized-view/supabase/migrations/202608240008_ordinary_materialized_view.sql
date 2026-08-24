@@ -1,0 +1,3 @@
+-- CREATE MATERIALIZED VIEW public.ai_commented AS SELECT 1;
+CREATE MATERIALIZED VIEW public.manual_summaries AS
+SELECT 'CREATE MATERIALIZED VIEW public.ai_literal AS SELECT 1';
