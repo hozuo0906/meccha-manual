@@ -217,6 +217,8 @@ test("AI-prefixed rename targets are rejected through the PostgreSQL AST", () =>
   assert.notEqual(result.status, 0, result.stdout);
   assert.match(output, /product-db-migrations\/ai-schema-objects/);
   assert.match(output, /ai_materialized_view_rename\.sql/);
+  assert.match(output, /ai_table_rename\.sql/);
+  assert.match(output, /quoted_ai_materialized_view_rename\.sql/);
   assert.doesNotMatch(output, /ai_summaries|Ai_Records/i);
 });
 
