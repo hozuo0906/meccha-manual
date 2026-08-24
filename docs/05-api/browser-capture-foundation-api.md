@@ -4,18 +4,26 @@ Status: Accepted
 
 ## 現在の安全境界
 
-OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`は認証、same-origin、workspaceのowner／admin／editor権限、tenant entitlement、request envelopeを確認した後、同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintのterminal retryは`200`、in-flightまたは`result_unknown` retryは`202 RESERVATION_RESULT_UNKNOWN`で同じreservation stateを返し、Cloudflare Browser Runへ通信しない。異なるfingerprintは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。既存reservationに該当しない新しい開始だけはCloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
+OQ-006／DEC-032のP0 egress検証が完了していないため、Browser Run **start**だけが次の予約state machineを通る。start routeでは認証、same-origin、workspaceのowner／admin／editor権限、tenant entitlement、request envelopeを確認した後、同じ`resourceType=browser_run`の`operationKey`に紐づく既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintのterminal retryは`200`、in-flightまたは`result_unknown` retryは`202 RESERVATION_RESULT_UNKNOWN`で同じreservation stateを返し、Cloudflare Browser Runへ通信しない。異なるfingerprintは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。既存reservationに該当しない新しい開始だけはCloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
+
+### Browser Run start route
 
 - `/api/workspaces/{workspaceId}/capture-sessions`
 - `/v1/workspaces/{workspaceId}/capture-sessions`
-- `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/live-url`
-- `/v1/workspaces/{workspaceId}/capture-sessions/{sessionId}/live-url`
-- `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/commands`
-- `/v1/workspaces/{workspaceId}/capture-sessions/{sessionId}/commands`
 - `/api/workspaces/{workspaceId}/mobile-preview-sessions`
 - `/v1/workspaces/{workspaceId}/mobile-preview-sessions`
 
-allowlist、承認済みhostname、mobile previewは例外にしない。現在のWorker型と設定にはBrowser Run bindingを追加せず、`capture.browserRun.egressVerified.enabled`を環境変数だけでtrueにできる経路も作らない。
+captureとmobile previewはどちらも`resourceType=browser_run`として扱う。予約のcanonical identityは`workspaceId + resourceType + opaque operationKey`であり、route kindは一意性の列にしない。capture-startのkeyをmobile previewへ流用せず、`requestFingerprint`はoperation keyを除くimmutableな要求比較値として保存する。同じkeyでfingerprintが一致すれば既存stateを返し、相違は409で拒否する。capture sessionまたはmobile preview sessionを指す`resourceRef`はopaqueなrepo-side参照とし、URL、secret、Cookie、Authorization、provider payloadを含めない。
+
+### start reservationから除外するroute
+
+- `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/live-url`および`/v1/.../live-url`
+- `/api/workspaces/{workspaceId}/capture-sessions/{sessionId}/commands`および`/v1/.../commands`
+- mobile previewのnavigate/reload route
+
+live-url、capture commands、mobile preview navigate/reloadはBrowser Run start reservation state machineの対象外であり、start用の`operationKey` lookup、reservation作成、provider startを行わない。これらは既存の認証・tenant・egress/P0 fail-closed境界を維持し、URI、method、request、正常2xx shapeを定義する別契約がAcceptedになるまで外部providerへ通信しない。
+
+allowlist、承認済みhostname、mobile preview startは例外にしない。現在のWorker型と設定にはBrowser Run bindingを追加せず、`capture.browserRun.egressVerified.enabled`を環境変数だけでtrueにできる経路も作らない。
 
 ## 保存可能な操作イベント
 
