@@ -31,3 +31,4 @@ Status: Accepted
 | ADR-0025 | Accepted | 同意ベースの短命・単回使用参加コードでメンバーを追加する |
 | ADR-0026 | Accepted | Business OS cloud runnerを既存Issue runnerと並設する |
 | ADR-0027 | Accepted | prelaunch期間の公開リポジトリとstaging接続境界を固定する |
+| ADR-0028 | Accepted | npm alias package-spec parserをAI禁止scannerへ接続する |
