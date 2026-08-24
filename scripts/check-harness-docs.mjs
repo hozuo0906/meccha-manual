@@ -174,15 +174,12 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
   // Development-only automation (including ADR-0026) is intentionally not a
   // product surface. Keep this list explicit so a future surface cannot
   // accidentally absorb its credentials or provider configuration.
-  exclusions: Object.freeze([
-    "scripts",
-    "node_modules",
-    "dist",
-    "build",
-    "generated",
+  rootOnlyExclusions: Object.freeze([
     ".github/workflows/business-os-codex.yml",
+    "scripts",
     "docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md"
   ]),
+  nestedExclusions: Object.freeze(["node_modules", "dist", "build", "generated"]),
   knownProviderPackages: Object.freeze([
     /^openai$/i,
     /^@openai\//i,
@@ -244,9 +241,13 @@ async function listProductFiles(entry, scanRoot) {
 function isExcluded(relativeFile) {
   const normalized = relativeFile.split(path.sep).join("/");
   const segments = normalized.split("/");
-  return AI_PROHIBITION_SCAN_CONTRACT.exclusions.some(
+  const rootOnlyExcluded = AI_PROHIBITION_SCAN_CONTRACT.rootOnlyExclusions.some(
+    (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`)
+  );
+  const nestedExcluded = AI_PROHIBITION_SCAN_CONTRACT.nestedExclusions.some(
     (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`) || segments.includes(excluded)
   );
+  return rootOnlyExcluded || nestedExcluded;
 }
 
 function isDependencyManifest(relativeFile) {
