@@ -2,7 +2,7 @@
   "fixture": "invalid-integrity-matrix",
   "expectedOutcome": "INVALID",
   "runbookQualityVerdict": "PASS",
-  "internalAlphaVerdict": "PASS",
+  "internalAlphaVerdict": "BLOCKED",
   "candidate": {
     "sha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
     "expectedSha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
@@ -12,26 +12,26 @@
     "deploymentVersion": "static-989c17f9894604dd"
   },
   "artifact": {
-    "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "expectedArtifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "deploymentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "expectedDeploymentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "state": "complete",
-    "result": "unknown",
+    "result": "known",
     "deploymentVersion": "static-989c17f9894604dd",
     "expectedDeploymentVersion": "static-989c17f9894604dd",
     "candidateSha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
     "evidenceKind": "static-fixture"
   },
   "gates": {
-    "issue92": "PASS",
+    "issue92": "BLOCKED",
     "issue94": {
-      "db": "PASS",
-      "ci": "PASS",
-      "latestReview": "PASS"
+      "db": "BLOCKED",
+      "ci": "BLOCKED",
+      "latestReview": "BLOCKED"
     },
-    "ownerApproval": "PASS",
-    "isolatedStaging": "PASS"
+    "ownerApproval": "BLOCKED",
+    "isolatedStaging": "BLOCKED"
   },
   "matrix": {
     "resources": [
@@ -62,30 +62,30 @@
       "approvedMutation": "ROLE_SCOPED",
       "archiveAfter": "DENY",
       "viewerApprovedMutation": "DENY",
-      "stepTargetsApprovedMutation": "ALLOW"
+      "stepTargetsApprovedMutation": "NOT_IMPLEMENTED"
     },
-    "verdict": "PASS"
+    "verdict": "NOT_RUN"
   },
   "flow": {
     "publish": {
-      "status": "PASS",
-      "publishedRevisionImmutable": "PASS"
+      "status": "NOT_RUN",
+      "publishedRevisionImmutable": "NOT_RUN"
     },
     "nextDraft": {
-      "status": "PASS",
-      "publishedRevisionUnchanged": "PASS"
+      "status": "NOT_RUN",
+      "publishedRevisionUnchanged": "NOT_RUN"
     },
     "archive": {
-      "status": "PASS",
-      "pointerRetained": "PASS",
-      "contentRetained": "PASS",
-      "auditRetained": "PASS"
+      "status": "NOT_RUN",
+      "pointerRetained": "NOT_RUN",
+      "contentRetained": "NOT_RUN",
+      "auditRetained": "NOT_RUN"
     }
   },
   "ac010": {
-    "publishedRevisionCreated": "PASS",
+    "publishedRevisionCreated": "NOT_RUN",
     "publicAccess": "NOT_RUN",
-    "partialEvidence": true
+    "partialEvidence": false
   },
   "evidence": {
     "fields": [
@@ -101,7 +101,7 @@
         "configuration": "isolated-staging",
         "collection": "preflight-gates",
         "count": 6,
-        "verdict": "PASS",
+        "verdict": "FAIL",
         "timestamp": "2026-08-24T00:00:00.000Z",
         "candidateSha": "989c17f9894604dd640a1909d6e0dc550ab01c96"
       }

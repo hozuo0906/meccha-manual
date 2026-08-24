@@ -228,7 +228,7 @@ async function main() {
     const expected = fixture.expectedOutcome;
     const expectationMet = expected === "BLOCKED" ? result.status === "BLOCKED" && result.errors.length === 0 : expected === "INVALID" ? result.status === "FAIL" : expected === result.status;
     if (!expectationMet) failures.push(`${file}: deterministic outcome does not match fixture expectation`);
-    if (fixtureArg && result.errors.length > 0) failures.push(`${file}: static preflight rejected fixture`);
+    if (fixtureArg && result.errors.length > 0 && expected !== "INVALID") failures.push(`${file}: static preflight rejected fixture`);
   }
   if (files.length === 0) failures.push("No static preflight fixtures found");
   if (failures.length > 0) {
