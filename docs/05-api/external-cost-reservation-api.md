@@ -37,9 +37,9 @@ Status: Accepted
 
 予約transactionは次の順序を原子的に実行する。
 
-1. session、workspace role、entitlement、egress gateを確認する。
-2. 同じworkspaceの確定済み使用量とactive reservationをlock境界で読み、同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintなら既存stateを返し、`requestedSeconds`をquota candidateへ加算しない。異なるfingerprintはproviderやquota判定へ進めず拒否する。
-3. 新規keyだけ、`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。同じkeyの既存reservationをactive reservedへ含める場合も、その既存量をcandidateとして二重計上しない。
+1. authentication、workspace role、tenant entitlement、request envelopeを確認する。ここでは既存reservationのretryを拒否するegress gateを評価しない。
+2. 同じworkspaceのlock境界で同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintならegress、quota、capacityを再評価せず既存stateを返し、`requestedSeconds`をcandidateへ加算しない。terminal、in-flight、`result_unknown`のretryはそれぞれ現在stateを決定的な`200`または`202`で返し、新規provider dispatchを行わない。異なるfingerprintはegress状態に依存せず`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
+3. 新規keyだけ、egress enablementを確認する。egressが無効またはP0証跡未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`で停止し、新規reservationやprovider operationを開始しない。egressを通過した新規keyだけ、他のoperation keyによる`active reserved`を含む`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。既存keyの量を新規candidateへ二重計上しない。
 4. 新規ならreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。reservation確定時にprovider-supported idempotency/operation参照を生成して永続化し、dispatch後も同じ参照でlookupできるようにする。
 5. server計算の`deadlineAt`、`leaseGeneration`、`leaseExpiresAt`、request fingerprint、reservation ID、`resourceRef`、dispatch前に固定した`providerOperationRef`を応答へ含める。
 6. reservation確定後だけprovider起動へ進む。transaction失敗、上限超過、権限不足ではproviderへ通信しない。
