@@ -173,6 +173,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - JavaScript/TypeScript、JSON/JSONC、shell/env、YAML/TOML、Markdown/plain、HTML、CSS、既知のextensionless product asset、unknown/binaryをfile kindとして分け、言語ごとのcomment/string境界を適用する。汎用comment stripperを全fileへ適用しない。
   - JavaScript/TypeScript以外ではURLの`//`をcomment markerと扱わず、文字列・assignment・mapping・attributeのdataを保持する。shellのunquoted `#`はword先頭だけ、`.env`は別grammarとして扱う。unknownまたはparse/lex不能なtextはAI禁止ruleの違反側へ倒す。
   - 現行のroot-only（business-os workflow、`scripts`、ADR-0026文書）とnested（`node_modules`、`dist`、`build`、`generated`）除外だけを再利用する。`vendor`やbinary専用の除外・classifierは追加せず、非除外binaryはfail closedとする。diagnosticはrule IDとrepo-relative pathだけにする。
+  - Issue #160では、現在の`apps/**`にあるPNG 2件を含むknown inert media/fontを、許可拡張子とmagic byte一致時だけpassする。PNG/JPEG/GIF/WebP/WOFF/WOFF2/TrueType/OpenTypeを候補とし、SVGはtextとして扱う。mismatch、unknown、archive、executable、config-like binary、read/decode/size failureは`product-source-runtime-config/binary-assets`でfail closedとする。
+  - binary policyの後続実装は1ファイル8 MiB、画像decoded pixel 8192×8192、font 8 MiBを上限とし、path+rule ID以外を診断に出さない。broad `vendor`除外や新root exclusionは追加しない。
   - `pgsql-parser`はSQL専用のためsource file検査へ流用しない。後続Issueで形式ごとのsyntax-aware lexer/parser候補をlicense/version/ESM/error/perf/fixture証跡と比較し、production dependencyはその小PRでのみ追加する。
-- Reason: PR #145でJavaScript用の`//`除去がshell URLの`https://`を壊し、Azure endpoint markerを迂回できたため。PR #145は`acc7dc8b795fe6d2b215fa84e41cbe42da3c33d6`でfreezeし、production接続を後続Issueへ分離する。
-- Evidence: Issue #158、PR #145 recovery head、ADR-0029、後続Issueのfixture matrix（JS/TS comment、shell/JSON/YAML/TOML/env URL、ordinary Azure、suffix spoof、unknown/malformed fail-closed）。
+- Reason: PR #145でJavaScript用の`//`除去がshell URLの`https://`を壊し、Azure endpoint markerを迂回できたうえ、PR #158で既存PNGを無条件binary fail-closedにするとclean treeを常時failさせることが判明したため。PR #158は`c01afebbb6e4d4123e23fada89556ebdbbca3c0c`でfreezeし、binary policyをIssue #160へ分離する。
+- Evidence: Issue #158/#160、PR #158 recovery head、ADR-0029、後続Issueのfixture matrix（既存PNG clean pass、magic mismatch、unknown binary、renamed text、archive/executable、read/size/decode failure、JS/TS comment、shell/JSON/YAML/TOML/env URL、ordinary Azure、suffix spoof）。
