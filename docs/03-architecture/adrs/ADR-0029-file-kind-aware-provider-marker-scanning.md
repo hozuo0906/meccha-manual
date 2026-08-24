@@ -68,9 +68,20 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 | suffix spoof | pass | `openai.azure.com.attacker.example`等を許可しない誤検出にしない |
 | unknown/malformed | fail closed | 推測でpassせずrule/path-only診断 |
 
-### 6. Boundary and recovery
+### 6. Binary asset classification（Issue #160）
 
-本ADRは設計文書のみを対象にし、PR #145のproduction scanner、既存fixture、Azure markerの実装、他DDL、nested manifest、runtime/docs以外の変更を含めない。production接続は後続の単一Issueで行う。回収元はPR #145のfreeze head `acc7dc8b795fe6d2b215fa84e41cbe42da3c33d6`、親は非main feature branchとする。main、production、deploy、DB、credential、実データには接続しない。
+現時点で`apps/**`に存在するbinary product assetは、`apps/brand-site/public/assets/`配下のPNG 2件だけである。inventoryには値、URL、画像内容を記録せず、repo-relative path、拡張子、magic判定だけを証跡にする。fontや他のmediaは現在のinventoryに存在しないが、後続追加時の分類契約を先に固定する。
+
+- known inert media/fontは、許可された拡張子と形式固有magic byteが一致した場合だけ、binary marker scanの対象外としてpassする。対象候補はPNG、JPEG、GIF、WebP、WOFF/WOFF2、TrueType/OpenTypeであり、SVGはtext fileとして扱う。拡張子だけではpassさせない。
+- 拡張子とmagic byteのmismatch、unknown binary、archive（zip/tar/gzip等）、executable、config-like binaryはinert扱いせず、`product-source-runtime-config/binary-assets`のruleでfail closedする。`vendor`のような広域directory除外や新しいroot exclusionは導入しない。
+- binary判定はread前のmetadataだけで成功扱いにせず、read failure、truncated header、decode/metadata検査failureも同じruleでfail closedにする。後続実装の上限は1ファイル8 MiB、画像decoded pixel 8192×8192以内とし、fontも8 MiB以内とする。上限値超過は内容を診断へ出さずfail closedする。
+- diagnosticsは既存どおりrule IDとrepo-relative pathだけとし、magic、bytes、画像値、URL、secret、絶対pathを出力しない。
+
+後続production接続Issueは、既存PNG clean pass、magic mismatch、unknown binary、media拡張子へ改名したtext、archive/executable control、read failure、size/decode上限を独立fixtureで固定する。rollbackはbinary policyを直前のADR/実装headへ戻し、production接続と新しい除外追加を行わない。
+
+### 7. Boundary and recovery
+
+本ADRは設計文書のみを対象にし、PR #145のproduction scanner、既存fixture、Azure markerの実装、binary classifier実装、他DDL、nested manifest、runtime/docs以外の変更を含めない。binary policyはIssue #160としてPR #158 freeze head `c01afebbb6e4d4123e23fada89556ebdbbca3c0c`から分離し、production接続はさらに後続の単一Issueで行う。親は非main feature branchとする。main、production、deploy、DB、credential、実データには接続しない。
 
 ## Consequences
 
