@@ -94,7 +94,7 @@ function checkMatrix(errors, matrix, internalAlphaVerdict) {
   return meta;
 }
 
-function checkEvidence(errors, evidence, candidateSha) {
+function checkEvidence(errors, evidence, candidateSha, representedCollectionPass) {
   checkExactKeys(errors, evidence, new Set(["fields", "events"]), "evidence");
   if (!evidence || typeof evidence !== "object") return;
   const fields = evidence.fields;
@@ -115,6 +115,11 @@ function checkEvidence(errors, evidence, candidateSha) {
     if (event.candidateSha !== candidateSha) fail(errors, "evidence event: candidate SHA does not match");
     if (!isCanonicalUtcTimestamp(event.timestamp)) {
       fail(errors, "evidence event: timestamp is not a canonical UTC instant");
+    }
+    if (event.verdict === "PASS"
+      && Object.hasOwn(representedCollectionPass ?? {}, event.collection)
+      && representedCollectionPass[event.collection] !== true) {
+      fail(errors, "evidence event: PASS verdict is not supported by represented checks");
     }
   }
 }
@@ -194,8 +199,6 @@ function checkFixture(fixture) {
       fail(errors, "ac010: only published-revision partial evidence is allowed");
     }
   }
-  checkEvidence(errors, fixture.evidence, candidate?.sha);
-
   const prerequisiteValues = [
     gates?.issue92, gates?.issue94?.db, gates?.issue94?.ci, gates?.issue94?.latestReview,
     gates?.ownerApproval, gates?.isolatedStaging
@@ -203,6 +206,13 @@ function checkFixture(fixture) {
   if (prerequisiteValues.some((value) => !GATE_VALUES.has(value))) fail(errors, "gates: unknown status enum");
   if (fixture.runbookQualityVerdict !== "PASS") errors.push("runbook: quality PASS is not separate and explicit");
   const prerequisitesPass = prerequisiteValues.every((value) => value === "PASS");
+  const flowPass = [flow?.publish, flow?.nextDraft, flow?.archive]
+    .every((value) => value && Object.values(value).every((item) => item === "PASS"));
+  checkEvidence(errors, fixture.evidence, candidate?.sha, {
+    "preflight-gates": prerequisitesPass,
+    "manual-core-matrix": matrixMeta.allPass && !matrixMeta.unimplemented,
+    "publication-flow": flowPass
+  });
   if (fixture.internalAlphaVerdict === "PASS" && (matrixMeta.unimplemented || !matrixMeta.allPass)) fail(errors, "matrix: alpha PASS requires implemented cells with executed PASS verdicts");
   if (!prerequisitesPass && fixture.internalAlphaVerdict === "PASS") fail(errors, "fixture: blocked preflight cannot claim internal alpha PASS");
   if (!prerequisitesPass && fixture.internalAlphaVerdict === "FAIL") fail(errors, "fixture: declared internal alpha FAIL cannot be downgraded to BLOCKED");
