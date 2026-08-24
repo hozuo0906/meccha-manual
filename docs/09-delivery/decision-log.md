@@ -151,3 +151,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 採用候補の本番scanner統合、production runtime、migration適用、DB接続はこのspikeに含めず、次の小PRでparser ASTからrule ID/path-only violationへ接続する。parse errorは必ず禁止側へ倒す。
 - Reason: nested PostgreSQL commentの同一根因がPR #112で2回再発したため、コメント・quoted identifier・DDL headerの契約を独自lexerの局所修正で再実装せず、PostgreSQL本体parserの構文エラーとASTを正本候補にするため。
 - Evidence: Issue #114、PR #112 recovery head `f0646b29a31b9d3b5c6b88694b75ca992a4565f8`、base `agent/issue104-ai-ddl-modifiers` @ `f120583780ea4e747e9b8610230a4e49cf6b3f06`、`scripts/sql-parser-adoption-spike.mjs`、`tests/fixtures/ai-prohibition/parser-adoption/`、targeted/full checks。
+
+
+## DEC-066: npm alias package-spec parserはnpm-package-argを候補に固定する
+
+- Status: Proposed
+- Date: 2026-08-24
+- Decision:
+  - Issue #130のread-only spikeでは、npm-package-arg 13.0.2を唯一のpackage-spec parser候補とする。npmが受理するlowercase/uppercase/mixed-caseのnpm: protocol、unscoped/scoped target、version/tag/rangeあり・なし、invalid aliasのfail-closedを構造化して扱える。
+  - ISCライセンス、CommonJS main、npm-package-arg自身の4依存を確認した。現行repoのdirect dependencyではないため、実装PRで採用する場合だけexact pinned devDependencyとlockfile差分を同時に追加する。
+  - standard package-lock v3のpackageInfo.nameとroot dependency declarationは別の検査面として保持し、Worker/runtime bundleへparserを接続しない。
+  - handwritten npmAliasTargetPackage regexは拡張せず、採用PRでparser呼出しへ置換する。
+- Reason: PR #129で同じalias package-spec根因が2 review cycle再発したため、protocol normalization・optional spec・invalid specのsemanticsを局所regexで再実装しない。
+- Evidence: Issue #130、PR #129 recovery head d4c46da76dbc7f95bb9f5cc22ea8123380ebf153、ADR-0028、npm bundled npm-package-arg 13.0.2 read-only probe。
