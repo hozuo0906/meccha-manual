@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import npmPackageArg from "npm-package-arg";
 import { parse } from "pgsql-parser";
 
 const requiredDocs = {
@@ -259,17 +260,26 @@ function isKnownProviderPackage(specifier) {
   return AI_PROHIBITION_SCAN_CONTRACT.knownProviderPackages.some((pattern) => pattern.test(specifier));
 }
 
+const INVALID_NPM_ALIAS = Symbol("invalid-npm-alias");
+
 function npmAliasTargetPackage(specifier) {
-  if (typeof specifier !== "string" || !specifier.startsWith("npm:")) return null;
-  const target = specifier.slice("npm:".length);
-  const match = target.match(/^(@[^/\s]+\/[^@/\s]+|[^@/\s]+)(?:@[^\s]+)?$/);
-  return match?.[1] ?? null;
+  if (typeof specifier !== "string" || !/^npm:/i.test(specifier)) return null;
+  try {
+    const parsed = npmPackageArg(specifier);
+    if (parsed.type !== "alias" || typeof parsed.subSpec?.name !== "string") {
+      return INVALID_NPM_ALIAS;
+    }
+    return parsed.subSpec.name;
+  } catch {
+    return INVALID_NPM_ALIAS;
+  }
 }
 
 function isKnownProviderDependency(dependencyName, declaration) {
   if (isKnownProviderPackage(dependencyName)) return true;
   if (typeof declaration === "string") {
-    return isKnownProviderPackage(npmAliasTargetPackage(declaration));
+    const aliasTarget = npmAliasTargetPackage(declaration);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
   }
   if (declaration && typeof declaration === "object") {
     if (isKnownProviderPackage(declaration.name)) return true;
@@ -284,7 +294,8 @@ function isKnownProviderDependency(dependencyName, declaration) {
         isKnownProviderDependency(name, specifier)
       )
     )) return true;
-    return isKnownProviderPackage(npmAliasTargetPackage(declaration.version));
+    const aliasTarget = npmAliasTargetPackage(declaration.version);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
   }
   return false;
 }
