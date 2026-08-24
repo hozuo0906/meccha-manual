@@ -110,7 +110,7 @@ function checkFixture(fixture) {
     "artifact", "gates", "matrix", "flow", "ac010", "evidence"
   ]), "fixture");
   if (!fixture || typeof fixture !== "object") return { errors, status: "FAIL" };
-  if (!new Set(["valid-blocked", "invalid-value-exposure", "invalid-integrity-matrix"]).has(fixture.fixture)) fail(errors, "fixture: unknown fixture enum");
+  if (!new Set(["valid-blocked", "invalid-value-exposure", "invalid-integrity-matrix", "invalid-configuration-enum", "invalid-blocked-flow", "invalid-blocked-ac010"]).has(fixture.fixture)) fail(errors, "fixture: unknown fixture enum");
   if (!new Set(["BLOCKED", "INVALID", "PASS"]).has(fixture.expectedOutcome)) fail(errors, "fixture: unknown expected outcome");
   if (!["PASS", "FAIL"].includes(fixture.runbookQualityVerdict)) fail(errors, "fixture: unknown runbook verdict");
   if (!["PASS", "BLOCKED", "FAIL"].includes(fixture.internalAlphaVerdict)) fail(errors, "fixture: unknown alpha verdict");

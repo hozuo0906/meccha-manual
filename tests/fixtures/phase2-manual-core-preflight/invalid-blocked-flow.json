@@ -1,5 +1,5 @@
 {
-  "fixture": "invalid-value-exposure",
+  "fixture": "invalid-blocked-flow",
   "expectedOutcome": "INVALID",
   "runbookQualityVerdict": "PASS",
   "internalAlphaVerdict": "BLOCKED",
@@ -68,7 +68,7 @@
   },
   "flow": {
     "publish": {
-      "status": "NOT_RUN",
+      "status": "PASS",
       "publishedRevisionImmutable": "NOT_RUN"
     },
     "nextDraft": {
@@ -91,7 +91,7 @@
     "fields": [
       "configuration",
       "collection",
-      "collection",
+      "count",
       "verdict",
       "timestamp",
       "candidateSha"

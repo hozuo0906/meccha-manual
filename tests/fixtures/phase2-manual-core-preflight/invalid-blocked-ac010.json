@@ -1,5 +1,5 @@
 {
-  "fixture": "invalid-value-exposure",
+  "fixture": "invalid-blocked-ac010",
   "expectedOutcome": "INVALID",
   "runbookQualityVerdict": "PASS",
   "internalAlphaVerdict": "BLOCKED",
@@ -83,15 +83,15 @@
     }
   },
   "ac010": {
-    "publishedRevisionCreated": "NOT_RUN",
+    "publishedRevisionCreated": "PASS",
     "publicAccess": "NOT_RUN",
-    "partialEvidence": false
+    "partialEvidence": true
   },
   "evidence": {
     "fields": [
       "configuration",
       "collection",
-      "collection",
+      "count",
       "verdict",
       "timestamp",
       "candidateSha"
