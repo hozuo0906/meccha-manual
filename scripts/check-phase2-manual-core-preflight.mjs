@@ -4,15 +4,15 @@ import path from "node:path";
 const EXPECTED_SHA = "989c17f9894604dd640a1909d6e0dc550ab01c96";
 const RUNBOOK = "docs/08-operations/phase2-manual-core-staging-alpha.md";
 const DEFAULT_FIXTURE_DIR = "tests/fixtures/phase2-manual-core-preflight";
-const EXPECTED_FIXTURE_FILES = new Map([
-  ["valid-blocked.json", "valid-blocked"],
-  ["invalid-integrity-matrix.json", "invalid-integrity-matrix"],
-  ["invalid-value-exposure.json", "invalid-value-exposure"],
-  ["invalid-configuration-enum.json", "invalid-configuration-enum"],
-  ["invalid-blocked-flow.json", "invalid-blocked-flow"],
-  ["invalid-blocked-ac010.json", "invalid-blocked-ac010"]
+const EXPECTED_FIXTURES = new Map([
+  ["valid-blocked.json", { identity: "valid-blocked", expectedOutcome: "BLOCKED" }],
+  ["invalid-integrity-matrix.json", { identity: "invalid-integrity-matrix", expectedOutcome: "INVALID" }],
+  ["invalid-value-exposure.json", { identity: "invalid-value-exposure", expectedOutcome: "INVALID" }],
+  ["invalid-configuration-enum.json", { identity: "invalid-configuration-enum", expectedOutcome: "INVALID" }],
+  ["invalid-blocked-flow.json", { identity: "invalid-blocked-flow", expectedOutcome: "INVALID" }],
+  ["invalid-blocked-ac010.json", { identity: "invalid-blocked-ac010", expectedOutcome: "INVALID" }]
 ]);
-const EXPECTED_FIXTURE_IDENTITIES = new Set(EXPECTED_FIXTURE_FILES.values());
+const EXPECTED_FIXTURE_IDENTITIES = new Set([...EXPECTED_FIXTURES.values()].map(({ identity }) => identity));
 const RESOURCES = ["manuals", "manual_revisions", "manual_steps", "step_targets"];
 const ROLES = ["owner", "admin", "editor", "viewer"];
 const MATRIX_PHASES = ["sameTenant", "crossTenant", "anon", "directDml", "approvedMutation", "archiveAfter"];
@@ -222,8 +222,8 @@ function checkDirectoryFixtureManifest(files, loadedFixtures) {
   const nameCounts = new Map();
   for (const name of names) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
 
-  const missingFiles = [...EXPECTED_FIXTURE_FILES.keys()].filter((name) => !nameCounts.has(name));
-  const extraFiles = names.filter((name) => !EXPECTED_FIXTURE_FILES.has(name));
+  const missingFiles = [...EXPECTED_FIXTURES.keys()].filter((name) => !nameCounts.has(name));
+  const extraFiles = names.filter((name) => !EXPECTED_FIXTURES.has(name));
   const duplicateFiles = [...nameCounts.entries()].filter(([, count]) => count > 1).map(([name]) => name);
   if (missingFiles.length > 0) fail(errors, "fixture directory: required fixture identity is missing");
   if (extraFiles.length > 0) fail(errors, "fixture directory: unknown fixture identity is present");
@@ -237,8 +237,9 @@ function checkDirectoryFixtureManifest(files, loadedFixtures) {
     }
     const name = path.basename(file);
     const identity = fixture.fixture;
-    const expectedIdentity = EXPECTED_FIXTURE_FILES.get(name);
-    if (expectedIdentity && identity !== expectedIdentity) fail(errors, "fixture directory: filename and fixture identity do not match");
+    const expectedFixture = EXPECTED_FIXTURES.get(name);
+    if (expectedFixture && identity !== expectedFixture.identity) fail(errors, "fixture directory: filename and fixture identity do not match");
+    if (expectedFixture && fixture.expectedOutcome !== expectedFixture.expectedOutcome) fail(errors, "fixture directory: fixture identity and expected outcome do not match");
     if (typeof identity === "string") identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
   }
   const missingIdentities = [...EXPECTED_FIXTURE_IDENTITIES].filter((identity) => !identityCounts.has(identity));
