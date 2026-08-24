@@ -4,6 +4,15 @@ import path from "node:path";
 const EXPECTED_SHA = "989c17f9894604dd640a1909d6e0dc550ab01c96";
 const RUNBOOK = "docs/08-operations/phase2-manual-core-staging-alpha.md";
 const DEFAULT_FIXTURE_DIR = "tests/fixtures/phase2-manual-core-preflight";
+const EXPECTED_FIXTURE_FILES = new Map([
+  ["valid-blocked.json", "valid-blocked"],
+  ["invalid-integrity-matrix.json", "invalid-integrity-matrix"],
+  ["invalid-value-exposure.json", "invalid-value-exposure"],
+  ["invalid-configuration-enum.json", "invalid-configuration-enum"],
+  ["invalid-blocked-flow.json", "invalid-blocked-flow"],
+  ["invalid-blocked-ac010.json", "invalid-blocked-ac010"]
+]);
+const EXPECTED_FIXTURE_IDENTITIES = new Set(EXPECTED_FIXTURE_FILES.values());
 const RESOURCES = ["manuals", "manual_revisions", "manual_steps", "step_targets"];
 const ROLES = ["owner", "admin", "editor", "viewer"];
 const MATRIX_PHASES = ["sameTenant", "crossTenant", "anon", "directDml", "approvedMutation", "archiveAfter"];
@@ -110,7 +119,7 @@ function checkFixture(fixture) {
     "artifact", "gates", "matrix", "flow", "ac010", "evidence"
   ]), "fixture");
   if (!fixture || typeof fixture !== "object") return { errors, status: "FAIL" };
-  if (!new Set(["valid-blocked", "invalid-value-exposure", "invalid-integrity-matrix", "invalid-configuration-enum", "invalid-blocked-flow", "invalid-blocked-ac010"]).has(fixture.fixture)) fail(errors, "fixture: unknown fixture enum");
+  if (!EXPECTED_FIXTURE_IDENTITIES.has(fixture.fixture)) fail(errors, "fixture: unknown fixture enum");
   if (!new Set(["BLOCKED", "INVALID", "PASS"]).has(fixture.expectedOutcome)) fail(errors, "fixture: unknown expected outcome");
   if (!["PASS", "FAIL"].includes(fixture.runbookQualityVerdict)) fail(errors, "fixture: unknown runbook verdict");
   if (!["PASS", "BLOCKED", "FAIL"].includes(fixture.internalAlphaVerdict)) fail(errors, "fixture: unknown alpha verdict");
@@ -207,18 +216,53 @@ async function loadFixture(file) {
   }
 }
 
+function checkDirectoryFixtureManifest(files, loadedFixtures) {
+  const errors = [];
+  const names = files.map((file) => path.basename(file));
+  const nameCounts = new Map();
+  for (const name of names) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+
+  const missingFiles = [...EXPECTED_FIXTURE_FILES.keys()].filter((name) => !nameCounts.has(name));
+  const extraFiles = names.filter((name) => !EXPECTED_FIXTURE_FILES.has(name));
+  const duplicateFiles = [...nameCounts.entries()].filter(([, count]) => count > 1).map(([name]) => name);
+  if (missingFiles.length > 0) fail(errors, "fixture directory: required fixture identity is missing");
+  if (extraFiles.length > 0) fail(errors, "fixture directory: unknown fixture identity is present");
+  if (duplicateFiles.length > 0) fail(errors, "fixture directory: duplicate fixture identity is present");
+
+  const identityCounts = new Map();
+  for (const { file, fixture } of loadedFixtures) {
+    if (!fixture || typeof fixture !== "object" || Array.isArray(fixture)) {
+      fail(errors, "fixture directory: every expected identity must contain valid JSON");
+      continue;
+    }
+    const name = path.basename(file);
+    const identity = fixture.fixture;
+    const expectedIdentity = EXPECTED_FIXTURE_FILES.get(name);
+    if (expectedIdentity && identity !== expectedIdentity) fail(errors, "fixture directory: filename and fixture identity do not match");
+    if (typeof identity === "string") identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
+  }
+  const missingIdentities = [...EXPECTED_FIXTURE_IDENTITIES].filter((identity) => !identityCounts.has(identity));
+  const duplicateIdentities = [...identityCounts.entries()].filter(([, count]) => count > 1).map(([identity]) => identity);
+  if (missingIdentities.length > 0) fail(errors, "fixture directory: required fixture identity is missing");
+  if (duplicateIdentities.length > 0) fail(errors, "fixture directory: duplicate fixture identity is present");
+  return errors;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const fixtureArg = args.find((arg) => arg.startsWith("--fixture="));
   const fixtureDir = args.find((arg) => arg.startsWith("--fixtures-dir="))?.slice("--fixtures-dir=".length) ?? DEFAULT_FIXTURE_DIR;
+  const directoryMode = !fixtureArg;
   const runbookErrors = await checkRunbook().catch(() => ["runbook file is missing"]);
   const files = fixtureArg
     ? [fixtureArg.slice("--fixture=".length)]
     : (await readdir(fixtureDir)).filter((file) => file.endsWith(".json")).sort().map((file) => path.join(fixtureDir, file));
   const failures = [...runbookErrors.map(() => "runbook: required quality term missing")];
   const results = [];
+  const loadedFixtures = [];
   for (const file of files) {
     const fixture = await loadFixture(file);
+    loadedFixtures.push({ file, fixture });
     if (!fixture) {
       failures.push(`${file}: fixture is not valid JSON`);
       continue;
@@ -230,6 +274,7 @@ async function main() {
     if (!expectationMet) failures.push(`${file}: deterministic outcome does not match fixture expectation`);
     if (fixtureArg && result.errors.length > 0 && expected !== "INVALID") failures.push(`${file}: static preflight rejected fixture`);
   }
+  if (directoryMode) failures.push(...checkDirectoryFixtureManifest(files, loadedFixtures));
   if (files.length === 0) failures.push("No static preflight fixtures found");
   if (failures.length > 0) {
     console.error(`Phase 2 manual core static preflight FAILED: ${failures.length} assertion(s)`);
