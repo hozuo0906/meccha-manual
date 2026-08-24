@@ -27,7 +27,7 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 | extensionless product asset | `_headers`（および将来の既知extensionless file） | 形式固有のcommentを推測しない | URLを保持し、未知形式として安全側に扱う | fail closed |
 | unknown/binary | 未知拡張子またはbinary | 推測でstripしない | raw dataを解釈して迂回させない | fail closed |
 
-現行contractのroot-only exclusionは`.github/workflows/business-os-codex.yml`、`scripts`、ADR-0026文書であり、nested exclusionは`node_modules`、`dist`、`build`、`generated`だけである。`vendor`やbinary専用の除外・classifierは現存しないため、このADRで追加しない。除外に一致しないunknown、binary、または形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
+現行contractのroot-only exclusionは`.github/workflows/business-os-codex.yml`、`scripts`、ADR-0026文書であり、nested exclusionは`node_modules`、`dist`、`build`、`generated`だけである。`vendor`や広域binaryをpathで除外するcontractは現存せず、このADRでも追加しない。Issue #160で定義するallowlisted inert binary判定は、現在inventoryにある2つのPNGのexact pathだけに適用する狭い例外である。それ以外のunknown、binary、または形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
 
 ### 2. comment/string semantics
 
@@ -68,9 +68,25 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 | suffix spoof | pass | `openai.azure.com.attacker.example`等を許可しない誤検出にしない |
 | unknown/malformed | fail closed | 推測でpassせずrule/path-only診断 |
 
-### 6. Boundary and recovery
+### 6. Binary asset classification（Issue #160）
 
-本ADRは設計文書のみを対象にし、PR #145のproduction scanner、既存fixture、Azure markerの実装、他DDL、nested manifest、runtime/docs以外の変更を含めない。production接続は後続の単一Issueで行う。回収元はPR #145のfreeze head `acc7dc8b795fe6d2b215fa84e41cbe42da3c33d6`、親は非main feature branchとする。main、production、deploy、DB、credential、実データには接続しない。
+現時点で`apps/**`に存在するbinary product assetは次のPNG 2件だけである。inventoryはrepo-relative exact path、期待拡張子、magic、byte size、SHA-256 digestだけを記録し、値、URL、画像内容は記録しない。
+
+| exact path | extension | expected magic | byte size | SHA-256 |
+|---|---|---|---:|---|
+| `apps/brand-site/public/assets/meccha-manual-logo-mark.png` | `.png` | `89 50 4e 47 0d 0a 1a 0a` | 909259 | `37eedc60e1d2b9be2a6cddc45c2d15f45361cc47c8113d177af9664445a1eedb` |
+| `apps/brand-site/public/assets/meccha-manual-mascot.png` | `.png` | `89 50 4e 47 0d 0a 1a 0a` | 1373413 | `aae49f0c73321999f9d25ecc2878fcae949aae5b9f421356c7009ac3708d4c88` |
+
+- 上記2 pathだけをknown inert binaryとしてpassする。拡張子、先頭magic、exact byte size、streamed SHA-256 digestを全て一致させる。digest計算はstreamingとし、画像decoderは使わずmetadata-onlyで扱う。
+- extension変更、magic mismatch、size mismatch、digest mismatch、rename/new asset、unknown binary、archive（zip/tar/gzip等）、executable、config-like binary、read/hash failure、trailing/polyglot payloadは`product-source-runtime-config/binary-assets`のruleでfail closedとする。JPEG、GIF、WebP、WOFF/WOFF2、TrueType/OpenType、SVGはinventory外として後続Issueへdeferする。
+- `vendor`のような広域directory除外や新しいroot exclusionは導入しない。allowlistは個別pathのdigest manifestであり、binary全体の除外ではない。
+- diagnosticsは既存どおりrule IDとrepo-relative pathだけとし、magic、bytes、digest、画像値、URL、secret、絶対pathを出力しない。
+
+後続production接続Issueは、2件のPNG個別clean pass、byte mutation/digest mismatch、magic mismatch、size mismatch、unknown binary、media拡張子へ改名したtext、archive/executable、trailing/polyglot、read/hash failureを独立fixtureで固定する。rollbackはdigest manifestを直前のADR/実装headへ戻し、production接続と新しい除外追加を行わない。
+
+### 7. Boundary and recovery
+
+本ADRは設計文書のみを対象にし、PR #145のproduction scanner、既存fixture、Azure markerの実装、binary classifier実装、他DDL、nested manifest、runtime/docs以外の変更を含めない。binary policyはIssue #160としてPR #158 freeze head `c01afebbb6e4d4123e23fada89556ebdbbca3c0c`から分離し、production接続はさらに後続の単一Issueで行う。親は非main feature branchとする。main、production、deploy、DB、credential、実データには接続しない。
 
 ## Consequences
 
