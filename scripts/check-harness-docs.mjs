@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { parse } from "pgsql-parser";
 
 const requiredDocs = {
   "README.md": [
@@ -293,7 +294,23 @@ function hasDependencyDeclaration(source) {
   return false;
 }
 
-function findAiProhibitionRule(source, rules) {
+async function hasAiFunctionDeclaration(source) {
+  if (source.trim() === "") return false;
+  let ast;
+  try {
+    ast = await parse(source);
+  } catch {
+    return true;
+  }
+  return ast.stmts.some(({ stmt }) => {
+    const functionStatement = stmt.CreateFunctionStmt;
+    if (!functionStatement) return false;
+    const functionName = functionStatement.funcname.at(-1)?.String?.sval;
+    return typeof functionName === "string" && /^ai_/i.test(functionName);
+  });
+}
+
+async function findAiProhibitionRule(source, rules) {
   if (rules.includes("dependency-declarations")) {
     if (hasDependencyDeclaration(source)) return "dependency-declarations";
   }
@@ -310,6 +327,9 @@ function findAiProhibitionRule(source, rules) {
     rules.includes("ai-schema-objects") &&
     AI_PROHIBITION_SCAN_CONTRACT.aiSchemaObjects.some((pattern) => pattern.test(source))
   ) return "ai-schema-objects";
+  if (rules.includes("ai-schema-objects") && await hasAiFunctionDeclaration(source)) {
+    return "ai-schema-objects";
+  }
   return null;
 }
 
@@ -322,7 +342,7 @@ async function scanAiProhibition(rootDir) {
         const relativeFile = path.relative(rootDir, file).split(path.sep).join("/");
         if (isExcluded(relativeFile)) continue;
         const source = await readFile(file, "utf8").catch(() => "");
-        const rule = findAiProhibitionRule(source, surface.rules);
+        const rule = await findAiProhibitionRule(source, surface.rules);
         if (rule) violations.push({ surface: surface.id, rule, file: relativeFile });
       }
     }
@@ -349,7 +369,7 @@ for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
       const relativeFile = path.relative(process.cwd(), file).split(path.sep).join("/");
       if (isExcluded(relativeFile)) continue;
       const source = await readFile(file, "utf8").catch(() => "");
-      const rule = findAiProhibitionRule(source, surface.rules);
+      const rule = await findAiProhibitionRule(source, surface.rules);
       if (rule) errors.push(`AI implementation marker remains in ${surface.id}/${rule}: ${relativeFile}`);
     }
   }
