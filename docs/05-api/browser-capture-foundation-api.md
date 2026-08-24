@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 現在の安全境界
 
-OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`は認証、same-origin、workspaceのowner／admin／editor権限、tenant entitlement、request envelopeを確認した後、同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintのterminal retryは`200`、in-flightまたは`result_unknown` retryは`202 RESERVATION_RESULT_UNKNOWN`で同じreservation stateを返し、Cloudflare Browser Runへ通信しない。異なるfingerprintは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。既存reservationに該当しない新しい開始だけはCloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
+OQ-006／DEC-032のP0 egress検証が完了していないため、認証、same-origin、workspaceのowner／admin／editor権限、tenant entitlement、request envelopeを確認する。同じ`operationKey`の既存reservationをfingerprint/state照合する例外はcapture-session createだけに限定し、同じkey・同じfingerprintのterminal retryは`200`、in-flightまたは`result_unknown` retryは`202 RESERVATION_RESULT_UNKNOWN`で同じreservation stateを返す。異なるfingerprintのcapture-session createは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。live-url、commands、mobile previewの各routeはcapture-startの`operationKey` lookupを行わず、Cloudflare Browser Runへ通信する前に`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。capture-session createの新しいoperationも、既存reservationに該当しなければCloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
 
 - `/api/workspaces/{workspaceId}/capture-sessions`
 - `/v1/workspaces/{workspaceId}/capture-sessions`
@@ -16,6 +16,18 @@ OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`�
 - `/v1/workspaces/{workspaceId}/mobile-preview-sessions`
 
 allowlist、承認済みhostname、mobile previewは例外にしない。現在のWorker型と設定にはBrowser Run bindingを追加せず、`capture.browserRun.egressVerified.enabled`を環境変数だけでtrueにできる経路も作らない。
+
+## Route別state boundary
+
+| route | same-key reservation lookup | egress / provider boundary | quota・capacity | disabled mapping |
+|---|---|---|---|---|
+| capture-session create | あり。terminal=200、in-flight/`result_unknown`=202、fingerprint mismatch=409 | 既存retryは再評価せず、新規reservation確定後にgateを通過したときだけproviderへ通信 | 新規operationだけcandidateを計算 | 新規で`503 BROWSER_EGRESS_NOT_VERIFIED`、reservation/provider dispatchなし |
+| capture live-url issuance | なし。session ownerと対象sessionを認可 | provider通信前に常時egress/P0 gate | reservation candidateなし | `503 BROWSER_EGRESS_NOT_VERIFIED`、capture-start retry mappingなし |
+| capture commands（navigate/reload等） | なし。session ownerと対象sessionを認可 | provider通信前に常時egress/P0 gate | reservation candidateなし | `503 BROWSER_EGRESS_NOT_VERIFIED`、capture-start retry mappingなし |
+| mobile preview session create | なし。editor以上とworkspace/tenantを認可 | provider通信前に常時egress/P0 gate | reservation candidateなし | `503 BROWSER_EGRESS_NOT_VERIFIED`、capture-start retry mappingなし |
+| mobile preview navigate/reload | なし。active preview sessionとworkspace/tenantを認可 | provider通信前に常時egress/P0 gate | reservation candidateなし | `503 BROWSER_EGRESS_NOT_VERIFIED`、capture-start retry mappingなし |
+
+enabled時のlive-url、commands、mobile previewの正常2xx shapeは各routeの既存契約に委ね、この文書で新しいprovider operationやstatus codeを追加しない。
 
 ## 保存可能な操作イベント
 
