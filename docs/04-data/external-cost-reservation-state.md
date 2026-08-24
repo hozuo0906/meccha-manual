@@ -18,7 +18,7 @@ AC-064/065の開始前予約を、Browser RunとR2 providerの応答順・再起
 | `operation_key` | opaque text、`workspace_id + resource_type`内でunique | 初回要求前から再送まで同じ操作を指すキー。変更要求で差し替えない |
 | `request_fingerprint` | SHA-256 digest、not null、immutable | operation keyを除くcanonical requestの同一性。変更retry拒否に使う |
 | `resource_ref` | opaqueな内部参照、resource typeごとに必須 | `browser_run`ではcapture session、`r2_write`ではPostgres object metadataへ再取得できる参照。provider URL・secret・生操作内容は含めない |
-| `provider_operation_ref` | nullableなopaque参照 | reservation確定時にdispatch前のidempotency/operation参照として生成・固定し、Browser session/provider operationまたはstorage attemptを特定する。provider URLやcredentialを保存しない |
+| `provider_operation_ref` | opaque参照、not null、immutable | reservation確定時にdispatch前のidempotency/operation参照として生成・永続化し、Browser session/provider operationまたはstorage attemptを特定する。同じoperation keyの同一fingerprint retryでは同じ参照を返し、provider URLやcredentialを保存しない |
 | `status` | enum: `reserved`, `in_progress`, `result_unknown`, `reconciling`, `committed`, `released` | 予約の現在状態。未確認状態を成功・解放へ暗黙変換しない |
 | `lease_generation` | monotonic integer、compare-and-swap必須 | writer/reconcilerは期待世代と現在世代が一致したときだけ遷移し、成功時に世代を増やす。古いwriterの状態を上書きしないためのfence |
 | `lease_expires_at` | UTC `timestamptz`、not null | reconciliation開始可能時刻。expiredだけでは解放条件を満たさない |
@@ -50,8 +50,9 @@ in_progress -> result_unknown -> reconciling -> committed
 - `committed_* <= reserved_* <= planned_*`をresource typeごとに維持し、解放量は`reserved - committed`だけとする。再送、reconciliation、job再実行は同じreservation IDの一度きりの状態遷移にする。
 - 同じ`workspace_id`、`resource_type`、`operation_key`に複数のreservationを作らない。同じkeyでfingerprintが違う要求は拒否する。
 - `current committed usage + sum(active reserved) + candidate planned`がplan上限を超えるtransactionは、どの並行要求もproviderへ進めない。
-- `resource_type = r2_write`では`resource_ref`、`expected_size_bytes`、`expected_checksum_sha256`をすべて必須にし、`expected_size_bytes = planned_bytes`を検証する。R2の`planned_bytes`、`reserved_bytes`、`committed_bytes`はすべて非nullの非負値とし、秒用の`planned_seconds`、`reserved_seconds`、`committed_seconds`はすべてnullにする。`browser_run`では`resource_ref`とdispatch前に固定した`provider_operation_ref`を必須にし、`planned_seconds`、`reserved_seconds`、`committed_seconds`はすべて非nullの非負値、byte用の`planned_bytes`、`reserved_bytes`、`committed_bytes`と`expected_size_bytes`、`expected_checksum_sha256`はすべてnullにする。片側だけをnullにする組み合わせは受け付けない。
+- `resource_type = r2_write`では`resource_ref`、dispatch前に固定した`provider_operation_ref`、`expected_size_bytes`、`expected_checksum_sha256`をすべて必須にし、`expected_size_bytes = planned_bytes`を検証する。R2の`planned_bytes`、`reserved_bytes`、`committed_bytes`はすべて非nullの非負値とし、秒用の`planned_seconds`、`reserved_seconds`、`committed_seconds`はすべてnullにする。`browser_run`では`resource_ref`とdispatch前に固定した`provider_operation_ref`を必須にし、`planned_seconds`、`reserved_seconds`、`committed_seconds`はすべて非nullの非負値、byte用の`planned_bytes`、`reserved_bytes`、`committed_bytes`と`expected_size_bytes`、`expected_checksum_sha256`はすべてnullにする。片側だけをnullにする組み合わせは受け付けない。
 - R2のprovider write intentまたはobject locatorには`reservation_id`、`resource_ref`、`lease_generation`を拘束し、古い世代のwriterが外部objectをcommitできないことを確認する。providerが世代fenceを強制できない場合は、state CASだけで不在を確定せず、`provider_operation_ref`によるlookupとoriginal writerのprovider-terminal proofが揃うまで`held_result_unknown`として保持する。
+- `r2_write`の`result_unknown`は、not nullの`provider_operation_ref`でoriginal storage attemptをlookupし、terminal proofまたは世代fenceが確認できるまで`held_result_unknown`として保持する。`confirmed_non_start`へ遷移する場合も、未使用の参照をterminal/audit相関として保持し、別のprovider operationへ再利用しない。同じoperation keyの同一fingerprint retryだけが同じimmutable参照を再利用でき、異なるfingerprintや別operation keyへ付け替えない。
 
 ## 認可・公開境界
 
