@@ -369,6 +369,22 @@ async function hasAiFunctionDeclaration(source) {
   });
 }
 
+async function hasAiMaterializedViewDeclaration(source) {
+  if (source.trim() === "") return false;
+  let ast;
+  try {
+    ast = await parse(source);
+  } catch {
+    return true;
+  }
+  return ast.stmts.some(({ stmt }) => {
+    const materializedViewStatement = stmt.CreateTableAsStmt;
+    if (materializedViewStatement?.objtype !== "OBJECT_MATVIEW") return false;
+    const relation = materializedViewStatement.into?.rel;
+    return typeof relation?.relname === "string" && /^ai_/i.test(relation.relname);
+  });
+}
+
 async function findAiProhibitionRule(source, rules) {
   if (rules.includes("dependency-declarations")) {
     if (hasDependencyDeclaration(source)) return "dependency-declarations";
@@ -387,6 +403,9 @@ async function findAiProhibitionRule(source, rules) {
     AI_PROHIBITION_SCAN_CONTRACT.aiSchemaObjects.some((pattern) => pattern.test(source))
   ) return "ai-schema-objects";
   if (rules.includes("ai-schema-objects") && await hasAiFunctionDeclaration(source)) {
+    return "ai-schema-objects";
+  }
+  if (rules.includes("ai-schema-objects") && await hasAiMaterializedViewDeclaration(source)) {
     return "ai-schema-objects";
   }
   return null;
