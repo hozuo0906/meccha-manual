@@ -153,14 +153,14 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Evidence: Issue #114、PR #112 recovery head `f0646b29a31b9d3b5c6b88694b75ca992a4565f8`、base `agent/issue104-ai-ddl-modifiers` @ `f120583780ea4e747e9b8610230a4e49cf6b3f06`、`scripts/sql-parser-adoption-spike.mjs`、`tests/fixtures/ai-prohibition/parser-adoption/`、targeted/full checks。
 
 
-## DEC-066: npm alias package-spec parserはnpm-package-argを候補に固定する
+## DEC-066: npm alias package-spec parserはnpm-package-argを採用する
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-24
 - Decision:
-  - Issue #130のread-only spikeでは、npm-package-arg 13.0.2を唯一のpackage-spec parser候補とする。npmが受理するlowercase/uppercase/mixed-caseのnpm: protocol、unscoped/scoped target、version/tag/rangeあり・なし、invalid aliasのfail-closedを構造化して扱える。
-  - ISCライセンス、CommonJS main、npm-package-arg自身の4依存を確認した。現行repoのdirect dependencyではないため、実装PRで採用する場合だけexact pinned devDependencyとlockfile差分を同時に追加する。
+  - Issue #134では、npm-package-arg 13.0.2をpackage-spec parserとして採用する。npmが受理するlowercase/uppercase/mixed-caseのnpm: protocol、unscoped/scoped target、version/tag/rangeあり・なし、invalid aliasのfail-closedを構造化して扱う。
+  - ISCライセンス、CommonJS main、実lockfile treeのnpm-package-arg、hosted-git-info、lru-cache、proc-log、validate-npm-package-nameを確認し、exact pinned direct devDependencyとして追加した。
   - standard package-lock v3のpackageInfo.nameとroot dependency declarationは別の検査面として保持し、Worker/runtime bundleへparserを接続しない。
-  - handwritten npmAliasTargetPackage regexは拡張せず、採用PRでparser呼出しへ置換する。
+  - handwritten npmAliasTargetPackage regexは拡張せず、parser呼出しへ置換した。Worker/runtime bundleへは接続しない。
 - Reason: PR #129で同じalias package-spec根因が2 review cycle再発したため、protocol normalization・optional spec・invalid specのsemanticsを局所regexで再実装しない。
-- Evidence: Issue #130、PR #129 recovery head d4c46da76dbc7f95bb9f5cc22ea8123380ebf153、ADR-0028、npm bundled npm-package-arg 13.0.2 read-only probe。
+- Evidence: Issue #134、実装PR、design統合後の親head 1ad1204e18afd151246a8eb1a31af1ca183dc70c、ADR-0028、targeted scanner 24/24、実lockfile、remote CI。
