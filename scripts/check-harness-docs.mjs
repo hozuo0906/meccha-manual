@@ -259,6 +259,24 @@ function isKnownProviderPackage(specifier) {
   return AI_PROHIBITION_SCAN_CONTRACT.knownProviderPackages.some((pattern) => pattern.test(specifier));
 }
 
+function npmAliasTargetPackage(specifier) {
+  if (typeof specifier !== "string" || !specifier.startsWith("npm:")) return null;
+  const target = specifier.slice("npm:".length);
+  const match = target.match(/^(@[^/\s]+\/[^@/\s]+|[^@/\s]+)@[^\s]+$/);
+  return match?.[1] ?? null;
+}
+
+function isKnownProviderDependency(dependencyName, declaration) {
+  if (isKnownProviderPackage(dependencyName)) return true;
+  if (typeof declaration === "string") {
+    return isKnownProviderPackage(npmAliasTargetPackage(declaration));
+  }
+  if (declaration && typeof declaration === "object") {
+    return isKnownProviderPackage(npmAliasTargetPackage(declaration.version));
+  }
+  return false;
+}
+
 function hasKnownProviderImport(source) {
   const staticImports = source.matchAll(/\bimport\s+(?:(?:[\s\S]*?)\s+from\s+)?["']([^"']+)["']/g);
   for (const [, specifier] of staticImports) {
@@ -289,15 +307,20 @@ function hasDependencyDeclaration(source) {
       manifest.peerDependencies
     ];
     for (const dependencies of dependencyMaps) {
-      if (dependencies && Object.keys(dependencies).some(isKnownProviderPackage)) return true;
+      if (
+        dependencies &&
+        Object.entries(dependencies).some(([dependencyName, declaration]) =>
+          isKnownProviderDependency(dependencyName, declaration)
+        )
+      ) return true;
     }
     if (manifest.packages && typeof manifest.packages === "object") {
-      for (const packagePath of Object.keys(manifest.packages)) {
+      for (const [packagePath, packageInfo] of Object.entries(manifest.packages)) {
         const packagePathParts = packagePath.replace(/^node_modules\//, "").split("/node_modules/").pop().split("/");
         const packageName = packagePathParts[0]?.startsWith("@")
           ? packagePathParts.slice(0, 2).join("/")
           : packagePathParts[0];
-        if (isKnownProviderPackage(packageName)) return true;
+        if (isKnownProviderDependency(packageName, packageInfo)) return true;
       }
     }
   } catch {
@@ -495,6 +518,3 @@ for (const [environment, config] of [["default", wrangler], ...Object.entries(wr
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
-}
-
-console.log(`Harness docs OK: ${Object.keys(requiredDocs).length} documents and disabled Stripe runtime state checked without reading secrets.`);
