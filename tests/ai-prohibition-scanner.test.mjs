@@ -232,12 +232,11 @@ test("each AI-prefixed rename target has an exact diagnostic", async () => {
   ];
   for (const filename of cases) {
     const result = await runSingleMigrationFixture("product-rename-target", filename);
-    const output = `${result.stdout}${result.stderr}`.trim();
-    assert.equal(result.status, 1, `${filename}: ${output}`);
-    assert.equal(
-      output,
-      `AI prohibition violation [product-db-migrations/ai-schema-objects]: supabase/migrations/${filename}`
-    );
+    const expectedDiagnostic =
+      `AI prohibition violation [product-db-migrations/ai-schema-objects]: supabase/migrations/${filename}`;
+    assert.equal(result.status, 1, `${filename}: ${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, "", `${filename}: unexpected stdout`);
+    assert.equal(result.stderr, `${expectedDiagnostic}\n`, `${filename}: unexpected diagnostic stream`);
   }
 });
 
