@@ -35,6 +35,7 @@ const DEPLOYMENT_VERSION_RE = /^static-[0-9a-f]{16}$/;
 const ALIAS_RE = /^(?:main|master|latest|head|origin\/|refs\/|branch:|tag:)/i;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
+const UTC_TIMESTAMP_RE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)\.(\d{3})Z$/;
 
 const requiredRunbookTerms = [
   "Runbook品質PASS", "internal alpha", "candidate SHA", "immutable", "artifact digest",
@@ -63,6 +64,12 @@ function checkExactArray(errors, value, expected, label) {
   if (!Array.isArray(value) || value.length !== expected.length || new Set(value).size !== value.length || [...value].some((item) => !expected.includes(item))) {
     fail(errors, `${label}: fixed set is incomplete or unknown`);
   }
+}
+
+function isCanonicalUtcTimestamp(value) {
+  if (typeof value !== "string" || !UTC_TIMESTAMP_RE.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function checkMatrix(errors, matrix, internalAlphaVerdict) {
@@ -106,8 +113,8 @@ function checkEvidence(errors, evidence, candidateSha) {
     if (event.verdict !== "PASS" && event.verdict !== "FAIL") fail(errors, "evidence event: invalid verdict");
     if (!Number.isInteger(event.count) || event.count < 0) fail(errors, "evidence event: count is not deterministic");
     if (event.candidateSha !== candidateSha) fail(errors, "evidence event: candidate SHA does not match");
-    if (typeof event.timestamp !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.timestamp)) {
-      fail(errors, "evidence event: timestamp is not ISO 8601");
+    if (!isCanonicalUtcTimestamp(event.timestamp)) {
+      fail(errors, "evidence event: timestamp is not a canonical UTC instant");
     }
   }
 }
