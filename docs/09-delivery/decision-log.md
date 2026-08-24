@@ -164,3 +164,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - handwritten npmAliasTargetPackage regexは拡張せず、parser呼出しへ置換した。Worker/runtime bundleへは接続しない。
 - Reason: PR #129で同じalias package-spec根因が2 review cycle再発したため、protocol normalization・optional spec・invalid specのsemanticsを局所regexで再実装しない。
 - Evidence: Issue #134、実装PR、design統合後の親head 1ad1204e18afd151246a8eb1a31af1ca183dc70c、ADR-0028、targeted scanner 24/24、実lockfile、remote CI。
+
+## DEC-067: provider marker検査はfile-kind-aware semanticsとfail-closedを採用する
+
+- Status: Proposed
+- Date: 2026-08-24
+- Decision:
+  - JavaScript/TypeScript、JSON/JSONC、shell/env、YAML/TOML、Markdown/plain、unknown/binaryをfile kindとして分け、言語ごとのcomment/string境界を適用する。汎用comment stripperを全fileへ適用しない。
+  - JavaScript/TypeScript以外ではURLの`//`をcomment markerと扱わず、文字列・assignment・mappingのdataを保持する。unknownまたはparse/lex不能なtextはAI禁止ruleの違反側へ倒す。
+  - 既存のgenerated/vendor/binary/product-root除外contractを再利用し、diagnosticはrule IDとrepo-relative pathだけにする。
+  - `pgsql-parser`はSQL専用のためsource file検査へ流用しない。後続Issueで形式ごとのsyntax-aware lexer/parser候補をlicense/version/ESM/error/perf/fixture証跡と比較し、production dependencyはその小PRでのみ追加する。
+- Reason: PR #145でJavaScript用の`//`除去がshell URLの`https://`を壊し、Azure endpoint markerを迂回できたため。PR #145は`acc7dc8b795fe6d2b215fa84e41cbe42da3c33d6`でfreezeし、production接続を後続Issueへ分離する。
+- Evidence: Issue #158、PR #145 recovery head、ADR-0029、後続Issueのfixture matrix（JS/TS comment、shell/JSON/YAML/TOML/env URL、ordinary Azure、suffix spoof、unknown/malformed fail-closed）。
