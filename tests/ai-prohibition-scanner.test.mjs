@@ -197,6 +197,20 @@ test("quoted qualified AI function migrations are rejected", () => {
   assert.doesNotMatch(output, /ai_vectorize/);
 });
 
+test("AI materialized views are rejected through the PostgreSQL AST", () => {
+  const result = runFixture("product-materialized-view");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-db-migrations\/ai-schema-objects/);
+  assert.match(output, /ai_materialized_view\.sql/);
+  assert.doesNotMatch(output, /ai_summaries|Ai_Summaries/i);
+});
+
+test("ordinary materialized views and comment or literal text pass", () => {
+  const result = runFixture("allowed-materialized-view");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
 test("parser adoption corpus is enforced by the production scanner", async () => {
   const expectedStatus = new Map([
     ["001_plain.sql", false],
