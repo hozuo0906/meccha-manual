@@ -148,6 +148,29 @@ test("known provider endpoint and binding fail without logging values", () => {
   assert.doesNotMatch(output, /api\.openai\.com|OPENAI_API_KEY/);
 });
 
+test("Azure OpenAI API key marker fails without logging its value", () => {
+  const result = runFixture("azure-openai-key-marker");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /azure-config\.ts/);
+  assert.doesNotMatch(output, /AZURE_OPENAI_API_KEY|secret-value/i);
+});
+
+test("Azure OpenAI endpoint marker rejects case-insensitive valid hosts", () => {
+  const result = runFixture("azure-openai-endpoint-marker");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-endpoints/);
+  assert.match(output, /azure-config\.ts/);
+  assert.doesNotMatch(output, /openai\.azure\.com|tenant-name/i);
+});
+
+test("Azure endpoint suffix spoof, comments, literals, and ordinary services pass", () => {
+  const result = runFixture("azure-openai-controls");
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
 test("legacy assistive-generation marker fails without logging its value", () => {
   const result = runFixture("legacy-assistive-marker");
   const output = `${result.stdout}${result.stderr}`;

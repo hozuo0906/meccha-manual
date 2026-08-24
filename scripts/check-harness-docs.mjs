@@ -206,6 +206,9 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /https?:\/\/api\.replicate\.com\b/i,
     /https?:\/\/openrouter\.ai\b/i
   ]),
+  azureProviderEndpointHosts: Object.freeze([
+    /https?:\/\/[a-z0-9-]+\.openai\.azure\.com(?::\d+)?(?:[/?#]|$)/i
+  ]),
   providerBindings: Object.freeze([
     /\bAI_PROVIDER_API_KEY\b/i,
     /\bAI_API_KEY\b/i,
@@ -214,6 +217,7 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /AI_(?:API_)?ENDPOINT/i,
     /\bai\.assistiveGeneration\.enabled\b/i,
     /\b(?:OPENAI|ANTHROPIC|GOOGLE|GEMINI|COHERE|MISTRAL|GROQ)_API_KEY\b/i,
+    /\bAZURE_OPENAI_API_KEY\b/i,
     /\b(?:OPENAI|ANTHROPIC)_BASE_URL\b/i,
     /\bREPLICATE_API_TOKEN\b/i
   ]),
@@ -331,6 +335,55 @@ function hasKnownProviderImport(source) {
   return false;
 }
 
+function stripJavaScriptComments(source) {
+  let result = "";
+  let state = "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (state === "code") {
+      if (character === "/" && next === "/") {
+        state = "line-comment";
+        result += "  ";
+        index += 1;
+      } else if (character === "/" && next === "*") {
+        state = "block-comment";
+        result += "  ";
+        index += 1;
+      } else if (["'", '"', "`"].includes(character)) {
+        state = character;
+        result += character;
+      } else {
+        result += character;
+      }
+    } else if (state === "line-comment") {
+      if (character === "\n" || character === "\r") {
+        state = "code";
+        result += character;
+      } else {
+        result += " ";
+      }
+    } else if (state === "block-comment") {
+      if (character === "*" && next === "/") {
+        state = "code";
+        result += "  ";
+        index += 1;
+      } else {
+        result += character === "\n" || character === "\r" ? character : " ";
+      }
+    } else {
+      result += character;
+      if (character === "\\") {
+        result += source[index + 1] ?? "";
+        index += 1;
+      } else if (character === state) {
+        state = "code";
+      }
+    }
+  }
+  return result;
+}
+
 function hasDependencyDeclaration(source) {
   try {
     const manifest = JSON.parse(source);
@@ -407,7 +460,12 @@ async function findAiProhibitionRule(source, rules) {
   if (rules.includes("imports") && hasKnownProviderImport(source)) return "imports";
   if (
     rules.includes("provider-endpoints") &&
-    AI_PROHIBITION_SCAN_CONTRACT.providerEndpointHosts.some((pattern) => pattern.test(source))
+    (
+      AI_PROHIBITION_SCAN_CONTRACT.providerEndpointHosts.some((pattern) => pattern.test(source)) ||
+      AI_PROHIBITION_SCAN_CONTRACT.azureProviderEndpointHosts.some((pattern) =>
+        pattern.test(stripJavaScriptComments(source))
+      )
+    )
   ) return "provider-endpoints";
   if (
     rules.includes("provider-bindings") &&
