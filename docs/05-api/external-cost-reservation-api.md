@@ -19,7 +19,7 @@ Status: Accepted
 | `reservationId` | サーバーが発行するUUID。operation keyの最初の確定時にだけ作成し、同じkey・同じfingerprintの再送では同じIDを返す |
 | `resourceType` | `browser_run` または `r2_write`。異なるresource typeの予約を同じ状態として扱わない |
 | `resourceRef` | 予約対象を再取得するためのopaqueな内部参照。`browser_run`ではcapture session、`r2_write`ではPostgresのobject metadataを指し、provider URL、secret、実ユーザー操作内容を含めない |
-| `providerOperationRef` | provider呼出し後に記録するopaqueなBrowser session/provider operationまたはstorage attemptの参照。provider URL、credential、生レスポンスを保存しない |
+| `providerOperationRef` | providerへ渡すidempotency/operation参照としてdispatch前に生成・永続化し、Browser session/provider operationまたはstorage attemptを相関するopaqueな参照。provider URL、credential、生レスポンスを保存しない |
 | `expectedSizeBytes` / `expectedChecksumSha256` | `r2_write`で必須のimmutableな予定byte数とchecksum。照合対象を一意にし、`browser_run`ではnullとする |
 | `deadlineAt` | サーバーが計算するUTCの絶対期限。Browser Runではproviderの絶対失効証跡に対応し、DOのclose、Workerのalarm、クライアントのtimeoutだけを期限の根拠にしない |
 | `leaseGeneration` | writer/reconcilerが状態遷移で提示するcompare-and-swap世代。現在値と一致した遷移だけを受理し、受理時に単調増加させる |
@@ -38,10 +38,11 @@ Status: Accepted
 予約transactionは次の順序を原子的に実行する。
 
 1. session、workspace role、entitlement、egress gateを確認する。
-2. 同じworkspaceの確定済み使用量とactive reservationをlock境界で読み、`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。
-3. 新規ならreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。既存keyならfingerprintと既存stateだけを照合する。
-4. server計算の`deadlineAt`、`leaseGeneration`、`leaseExpiresAt`、request fingerprint、reservation ID、`resourceRef`を応答へ含める。
-5. reservation確定後だけprovider起動へ進む。transaction失敗、上限超過、権限不足ではproviderへ通信しない。
+2. 同じworkspaceの確定済み使用量とactive reservationをlock境界で読み、同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintなら既存stateを返し、`requestedSeconds`をquota candidateへ加算しない。異なるfingerprintはproviderやquota判定へ進めず拒否する。
+3. 新規keyだけ、`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。同じkeyの既存reservationをactive reservedへ含める場合も、その既存量をcandidateとして二重計上しない。
+4. 新規ならreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。reservation確定時にprovider-supported idempotency/operation参照を生成して永続化し、dispatch後も同じ参照でlookupできるようにする。
+5. server計算の`deadlineAt`、`leaseGeneration`、`leaseExpiresAt`、request fingerprint、reservation ID、`resourceRef`、dispatch前に固定した`providerOperationRef`を応答へ含める。
+6. reservation確定後だけprovider起動へ進む。transaction失敗、上限超過、権限不足ではproviderへ通信しない。
 
 P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証するまでは、egress gateによりprovider起動を`503 BROWSER_EGRESS_NOT_VERIFIED`で拒否する。実証後も`deadlineAt`到達時にLive Viewを失効させ、providerの絶対失効、cancel、closeを期限付きで記録する。closeやDOが停止しても予約期限を越えてremote sessionが稼働できないことを証跡にする。
 
@@ -59,7 +60,7 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
   "reservedSeconds": 120,
   "committedSeconds": 0,
   "resourceRef": "<opaque-capture-session-ref>",
-  "providerOperationRef": null,
+  "providerOperationRef": "<opaque-provider-operation-ref>",
   "leaseGeneration": 1,
   "deadlineAt": "<absolute-utc>",
   "leaseExpiresAt": "<absolute-utc>",
@@ -74,22 +75,24 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
 | 同じkey・同じfingerprintの再送 | `200` と同じreservation ID・現在state | 新しい予約、session、provider起動を作らない |
 | key再利用で要求が変わった | `409 RESERVATION_REQUEST_MISMATCH` | 既存予約を変更・解放しない |
 | 上限または同時実行数を超えた | `409 USAGE_RESERVATION_LIMIT_EXCEEDED` | reservationを作らずproviderへ通信しない |
-| provider呼出し後に応答・結果が確認できない | `202 RESERVATION_RESULT_UNKNOWN` と同じreservation ID | `result_unknown`としてlease期限後のreconciliationまで保持 |
+| provider呼出し後に応答・結果が確認できない | `202 RESERVATION_RESULT_UNKNOWN` と同じreservation ID・dispatch前に固定した`providerOperationRef` | その参照でprovider/sessionをlookupし、`result_unknown`としてlease期限後のreconciliationまで保持 |
 | provider絶対失効P0未実証のため起動を止めた | `503 BROWSER_EGRESS_NOT_VERIFIED` | providerへ通信せず、confirmed non-startとして未使用予約だけ解放 |
 
 ## R2書込reservation port
 
 R2のputは、Workerのstorage portが`r2_write`予約を確定してからだけ開始できる。providerとの実通信をこの文書やCIで行わない。
 
-`reserve_r2_write`は`operationKey`、対象workspace/resource、opaqueな`resourceRef`、正確な`plannedBytes`、`expectedSizeBytes`、`expectedChecksumSha256`、content typeを受け取り、`current bytes + active reserved bytes + plannedBytes`を一つのtransactionで検証する。`expectedSizeBytes`は`plannedBytes`と一致させ、bodyサイズを確定できない要求、checksum形式が不正な要求、上限超過は予約もprovider通信も行わない。adapterはput前後にbyte数とchecksumを再検証する。
+`reserve_r2_write`は`operationKey`、対象workspace/resource、opaqueな`resourceRef`、正確な`plannedBytes`、`expectedSizeBytes`、`expectedChecksumSha256`、content typeを受け取り、同じ`operationKey`の既存reservationをfingerprint/state照合してからquota candidateを計算する。同じkey・同じfingerprintなら既存stateを返して`plannedBytes`を二重加算せず、新規keyだけ`current bytes + active reserved bytes + plannedBytes`を一つのtransactionで検証する。`expectedSizeBytes`は`plannedBytes`と一致させ、bodyサイズを確定できない要求、checksum形式が不正な要求、上限超過は予約もprovider通信も行わない。reservation確定時にstorage attempt用のopaqueな`providerOperationRef`を生成・永続化し、put dispatchへ同じ参照を渡す。adapterはput前後にbyte数とchecksumを再検証する。
 
-R2の同じoperation keyの再送は同じreservationを返す。keyは同じでもplanned bytes、対象、checksumが変わる要求は`409 RESERVATION_REQUEST_MISMATCH`とし、別reservationへの付け替えや旧reservationの暗黙解放をしない。put結果が不明な場合は`202 RESERVATION_RESULT_UNKNOWN`として予約を保持し、object照合とoriginal writerのterminal/fenced証跡が揃うまで解放しない。
+R2の同じoperation keyの再送はquota candidateを加算する前に同じreservationを返す。keyは同じでもplanned bytes、対象、checksumが変わる要求は`409 RESERVATION_REQUEST_MISMATCH`とし、別reservationへの付け替えや旧reservationの暗黙解放をしない。put結果が不明な場合はdispatch前に固定した`providerOperationRef`でlookupし、`202 RESERVATION_RESULT_UNKNOWN`として予約を保持し、object照合とoriginal writerのterminal/fenced証跡が揃うまで解放しない。
+
+R2のput dispatchには`reservationId`、`resourceRef`、その時点の`leaseGeneration`、`providerOperationRef`を必ず渡し、object locatorまたはwrite-intentへ同じreservationと世代を拘束する。storage providerが世代fenceを強制できない場合は、stateのCASだけで外部putを無効化したとみなさず、original writerのprovider-terminal proofが得られるまでobject不在を`confirmed_nonexistence`に昇格させない。期限後に遅れて到着したobjectはこの相関参照でreconcileし、確認前に予約を解放しない。
 
 ## 解放とreconciliationの共通契約
 
 - providerへ一度も到達していないことが確定した`confirmed_non_start`、またはproviderの終端証跡後にobjectが存在しないことが確定した`confirmed_nonexistence`だけを未使用予約の即時解放対象にする。
 - timeout、通信切断、Worker/DO再起動、lease期限切れ、応答本文破損は`result_unknown`であり、object不在だけを根拠に解放しない。
 - expired reservationの解放前に、`resourceRef`から対象session/object metadataを再取得し、original writerがterminal/fencedであることを`lease generation/fencing`または`provider-terminal proof`で確認する。確認できない間は`reconciling`へ留め、実使用量への確定や解放を行わない。
-- writerとreconcilerは必ず現在の`leaseGeneration`をcompare-and-swapし、一致しない古いwriterのcommit、release、terminal証跡を拒否する。成功した状態遷移だけが世代を増やすため、単なる単調な保存値をfencingの代わりにしない。
+- writerとreconcilerは必ず現在の`leaseGeneration`をcompare-and-swapし、一致しない古いwriterのcommit、release、terminal証跡を拒否する。R2の外部putも`reservationId`、`resourceRef`、`leaseGeneration`へ拘束し、object locator/write-intentまたはprovider側のterminal proofで同じ世代を確認できるようにする。stateのCASだけでは外部副作用をfenceしたことにならないため、providerが世代拘束を提供しない間はterminal proofなしの不在を解放根拠にしない。成功した状態遷移だけが世代を増やすため、単なる単調な保存値をfencingの代わりにしない。
 - 成功したobject/sessionは実績量を`committed`へ確定し、`reserved - committed`だけを原子的に解放する。二重再送でcommitted量を二重計上しない。
 - reconciliationは`reservationId`単位で冪等に実行し、`reconciliationOutcome`、確認時刻、終端証跡のdigestを状態へ残す。providerの生レスポンス、secret、実ユーザー操作内容は保存しない。
