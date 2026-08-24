@@ -16,7 +16,7 @@ Issue #131 / PR #133では、capture-session createとmobile preview session cre
 
 このstate machineに入るのは、外部providerのBrowser Run startを発生させ得る次の2種類だけとする。
 
-| operation kind | 対象 | route固有key |
+| route kind | 対象 | route固有key |
 |---|---|---|
 | `capture_session_start` | 操作記録の新規Browser Run start | `operationKey` |
 | `mobile_preview_session_start` | mobile preview sessionの新規Browser Run start | `mobilePreviewOperationKey`（永続化時はcanonicalなopaque `operationKey`へ正規化） |
@@ -25,14 +25,14 @@ live-url発行とcapture commands（navigate/reload）はstart reservation state
 
 ### 正規化されたidentity
 
-外部要求がrouteごとのkey名を持っていても、reservationの正本は次の組で一意にする。
+外部要求がrouteごとのkey名を持っていても、`resourceType=browser_run`のreservationの正本は次の組で一意にする。
 
-`workspaceRef + operationKind + opaque operationKey + requestFingerprint`
+`workspaceRef + resourceType + opaque operationKey`
 
-- `operationKind`は上表の列挙値のいずれかで、captureとmobile previewのkeyを相互利用しない。
+- 上表のroute kindはBrowser Runのroute境界を示す監査上の分類であり、一意性の列には含めない。captureとmobile previewはそれぞれroute固有のoperationKeyを発行し、capture-startのkeyをmobile previewへ流用しない。
 - `operationKey`は秘密値、URL、Cookie、Authorization、provider payloadを含まないopaque値として扱う。
-- 同じworkspace、kind、keyでfingerprintが一致すれば同じreservation stateを返す。fingerprintが異なれば既存stateを変更せず409で拒否する。
-- captureのfingerprint入力は`operationKind`、workspace scope、manual scope、serverが受理した`requestedSeconds`とする。mobile previewは`operationKind`、workspace scope、opaqueなpreview target scope、serverが受理した`requestedSeconds`とする。具体的なHTTP field名・resource生成規則は後続のAPI/data契約で定義し、provider URLやraw commandを入力にしない。
+- `requestFingerprint`は一意性の一部ではなく、operation keyを除くcanonical requestのimmutableな比較値として保存する。同じworkspace、`resourceType=browser_run`、keyでfingerprintが一致すれば同じreservation stateを返し、異なれば既存stateを変更せず409で拒否する。
+- captureのfingerprint入力は`resourceType=browser_run`、workspace scope、manual scope、serverが受理した`requestedSeconds`とする。mobile previewは`resourceType=browser_run`、workspace scope、opaqueなpreview target scope、serverが受理した`requestedSeconds`とする。具体的なHTTP field名・resource生成規則は後続のAPI/data契約で定義し、provider URLやraw commandを入力にしない。
 
 ### resourceRefとreservation dimensions
 
@@ -45,7 +45,7 @@ serverはentitlementとroute契約から、boundedな`plannedSeconds`と`planned
 新規keyと既存keyで順序を分け、disabled要求がcapacityを消費しないことを不変条件にする。
 
 1. authentication、same-origin、workspace role、tenant entitlement、request envelopeを検証する。ここでは既存retryを新規開始として扱わない。
-2. route kindを決定し、kind固有keyで既存reservationをlookupする。
+2. route kindを決定し、`resourceType=browser_run`のcanonical operationKeyで既存reservationをlookupする。
 3. 既存reservationがある場合はfingerprint/stateを照合する。同一fingerprintならegress、quota、capacityを再評価せず、terminal stateは`200`、in-flightまたは`result_unknown`は`202 RESERVATION_RESULT_UNKNOWN`で同じreservationを返す。providerへ新しいdispatchを行わない。fingerprint mismatchは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
 4. 既存reservationがない新規keyだけ、egress/P0 gateを検証する。disabled、missing、期限切れ、または不十分な証跡は`503 BROWSER_EGRESS_NOT_VERIFIED`で停止し、reservationもprovider operationも作らない。
 5. gateを通過した新規keyだけ、時間と同時実行数のcandidateをatomicに検証する。quota/capacity超過は既存契約の拒否状態で停止し、providerへ通信しない。同じreservation transaction内でdispatch前のprovider-supported operation referenceをopaqueに生成し、immutableに同時永続化する。refを生成・保存できない場合はreservation全体を確定せず、providerへ通信しない。
@@ -57,13 +57,13 @@ serverはentitlementとroute契約から、boundedな`plannedSeconds`と`planned
 - writer commitとreconciliationは`leaseGeneration`をCASするfencing境界を必須とする。単なる単調増加値の保存だけではcommit/releaseを成功扱いにしない。
 - `result_unknown`はprovider operation referenceのlookupとreconciliationが完了するまで保持する。original writerがterminal/fencedであること、またはprovider-terminal proofがあることを確認する前に、absent object/sessionを根拠にexpired reservationを解放しない。
 - terminal/fenced、またはprovider-terminal proofが確認できた場合だけ、残余reservationの確定・解放を行う。confirmed non-start/nonexistenceとresult unknownを混同しない。
-- すべてのtransitionはreservation ID、operation kind、lease generation、server時刻に結び付け、遅延した古いwriterが新しいstateを上書きできないようにする。
+- すべてのtransitionはreservation ID、resource type、operation key、lease generation、server時刻に結び付け、遅延した古いwriterが新しいstateを上書きできないようにする。
 
 ### response mapping
 
 | 状態・分岐 | 契約結果 | reservation/providerの扱い |
 |---|---|---|
-| 同一keyのcommitted/terminal結果のretry | `200`、同じreservation state | 新しいreservation、provider dispatchを作らない |
+| 同一keyのcommitted結果のretry | `200`、同じreservation state | 新しいreservation、provider dispatchを作らない |
 | 同一keyのin-flightまたは`result_unknown` retry | `202 RESERVATION_RESULT_UNKNOWN`、同じreservation state | reconciliationまで保持し、新しいreservation/provider dispatchを作らない |
 | 同一keyのfingerprint mismatch | `409 RESERVATION_REQUEST_MISMATCH` | 既存reservationを変更・解放しない |
 | 新規keyのegress disabled/P0未完了 | `503 BROWSER_EGRESS_NOT_VERIFIED` | reservation/provider operationを作らない |
@@ -73,7 +73,7 @@ serverはentitlementとroute契約から、boundedな`plannedSeconds`と`planned
 
 - captureとmobile previewで同じ外部原価保護を使いながら、route固有keyの取り違えとsame-key二重予約を防げる。
 - egress gateをreservationより前に置くため、disabled要求が時間・同時実行数を消費しない。gate通過後はprovider dispatch前のatomic reservationを必須にできる。
-- mobile previewの具体的なHTTP入力、DB列、RLS、provider refの永続形は未実装のまま残る。後続のAPI/data契約は本ADRのkind、identity、transition、status mappingを変更せずに定義する。
+- mobile previewの具体的なHTTP入力、DB列、RLS、provider refの永続形は未実装のまま残る。後続のAPI/data契約は本ADRのresource type、identity、transition、status mappingを変更せずに定義する。
 - OQ-005/OQ-006のP0証跡がない間は、state machineを定義しても新規Browser Runを有効化しない。
 
 ## Rejected alternatives

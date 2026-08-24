@@ -144,7 +144,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Status: Accepted
 - Date: 2026-08-24
 - Decision:
-  - `capture_session_start`と`mobile_preview_session_start`だけをBrowser Run start reservation state machineの対象とし、route固有keyを`workspaceRef + operationKind + opaque operationKey + requestFingerprint`へ正規化する。capture-startのkeyをmobile previewへ流用しない。
+  - `capture_session_start`と`mobile_preview_session_start`だけを`resourceType=browser_run`のBrowser Run start reservation state machineの対象とし、route固有keyを`workspaceRef + resourceType + opaque operationKey`へ正規化する。`requestFingerprint`は一意性に含めず、同じkeyの要求比較と409拒否にだけ使う。capture-startのkeyをmobile previewへ流用しない。
   - 既存reservationの同一fingerprint retryはegress・quota・capacityを再評価せず、terminal=`200`、in-flight/`result_unknown`=`202 RESERVATION_RESULT_UNKNOWN`、fingerprint mismatch=`409`で同じstateを返す。
   - 新規keyはegress/P0 gateを先に確認し、disabledまたはP0未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`でreservation/provider operationを作らない。gate通過後だけ時間・同時実行数をatomicに予約し、同じtransaction内でdispatch前のimmutableなprovider operation referenceを同時に永続化する。refなしreservationを確定しない。
   - `leaseGeneration`のCAS/fencingとreconciliationを必須にし、original writerがterminal/fencedまたはprovider-terminal proofを示すまで`result_unknown`のreservationを解放しない。
