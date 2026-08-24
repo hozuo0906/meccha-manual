@@ -1,5 +1,5 @@
 {
-  "fixture": "invalid-value-exposure",
+  "fixture": "invalid-configuration-enum",
   "expectedOutcome": "INVALID",
   "runbookQualityVerdict": "PASS",
   "internalAlphaVerdict": "BLOCKED",
@@ -91,14 +91,14 @@
     "fields": [
       "configuration",
       "collection",
-      "collection",
+      "count",
       "verdict",
       "timestamp",
       "candidateSha"
     ],
     "events": [
       {
-        "configuration": "isolated-staging",
+        "configuration": "https://unsafe.example",
         "collection": "preflight-gates",
         "count": 6,
         "verdict": "FAIL",
