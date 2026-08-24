@@ -1,0 +1,110 @@
+{
+  "fixture": "invalid-integrity-matrix",
+  "expectedOutcome": "INVALID",
+  "runbookQualityVerdict": "PASS",
+  "internalAlphaVerdict": "PASS",
+  "candidate": {
+    "sha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
+    "expectedSha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
+    "refKind": "immutable-sha",
+    "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "deploymentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "deploymentVersion": "static-989c17f9894604dd"
+  },
+  "artifact": {
+    "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expectedArtifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "deploymentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expectedDeploymentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "complete",
+    "result": "unknown",
+    "deploymentVersion": "static-989c17f9894604dd",
+    "expectedDeploymentVersion": "static-989c17f9894604dd",
+    "candidateSha": "989c17f9894604dd640a1909d6e0dc550ab01c96",
+    "evidenceKind": "static-fixture"
+  },
+  "gates": {
+    "issue92": "PASS",
+    "issue94": {
+      "db": "PASS",
+      "ci": "PASS",
+      "latestReview": "PASS"
+    },
+    "ownerApproval": "PASS",
+    "isolatedStaging": "PASS"
+  },
+  "matrix": {
+    "resources": [
+      "manuals",
+      "manual_revisions",
+      "manual_steps",
+      "step_targets"
+    ],
+    "roles": [
+      "owner",
+      "admin",
+      "editor",
+      "viewer"
+    ],
+    "phases": [
+      "sameTenant",
+      "crossTenant",
+      "anon",
+      "directDml",
+      "approvedMutation",
+      "archiveAfter"
+    ],
+    "policy": {
+      "sameTenant": "ALLOW",
+      "crossTenant": "DENY",
+      "anon": "DENY",
+      "directDml": "DENY",
+      "approvedMutation": "ROLE_SCOPED",
+      "archiveAfter": "DENY",
+      "viewerApprovedMutation": "DENY",
+      "stepTargetsApprovedMutation": "ALLOW"
+    },
+    "verdict": "PASS"
+  },
+  "flow": {
+    "publish": {
+      "status": "PASS",
+      "publishedRevisionImmutable": "PASS"
+    },
+    "nextDraft": {
+      "status": "PASS",
+      "publishedRevisionUnchanged": "PASS"
+    },
+    "archive": {
+      "status": "PASS",
+      "pointerRetained": "PASS",
+      "contentRetained": "PASS",
+      "auditRetained": "PASS"
+    }
+  },
+  "ac010": {
+    "publishedRevisionCreated": "PASS",
+    "publicAccess": "NOT_RUN",
+    "partialEvidence": true
+  },
+  "evidence": {
+    "fields": [
+      "configuration",
+      "collection",
+      "count",
+      "verdict",
+      "timestamp",
+      "candidateSha"
+    ],
+    "events": [
+      {
+        "configuration": "isolated-staging",
+        "collection": "preflight-gates",
+        "count": 6,
+        "verdict": "PASS",
+        "timestamp": "2026-08-24T00:00:00.000Z",
+        "candidateSha": "989c17f9894604dd640a1909d6e0dc550ab01c96"
+      }
+    ]
+  }
+}
