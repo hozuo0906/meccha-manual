@@ -164,3 +164,17 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - handwritten npmAliasTargetPackage regexは拡張せず、parser呼出しへ置換した。Worker/runtime bundleへは接続しない。
 - Reason: PR #129で同じalias package-spec根因が2 review cycle再発したため、protocol normalization・optional spec・invalid specのsemanticsを局所regexで再実装しない。
 - Evidence: Issue #134、実装PR、design統合後の親head 1ad1204e18afd151246a8eb1a31af1ca183dc70c、ADR-0028、targeted scanner 24/24、実lockfile、remote CI。
+
+## DEC-067: provider marker検査はfile-kind-aware semanticsとfail-closedを採用する
+
+- Status: Proposed
+- Date: 2026-08-24
+- Decision:
+  - JavaScript/TypeScript、JSON/JSONC、shell/env、YAML/TOML、Markdown/plain、HTML、CSS、既知のextensionless product asset、unknown/binaryをfile kindとして分け、言語ごとのcomment/string境界を適用する。汎用comment stripperを全fileへ適用しない。
+  - JavaScript/TypeScript以外ではURLの`//`をcomment markerと扱わず、文字列・assignment・mapping・attributeのdataを保持する。shellのunquoted `#`はword先頭だけ、`.env`は別grammarとして扱う。unknownまたはparse/lex不能なtextはAI禁止ruleの違反側へ倒す。
+  - 現行のroot-only（business-os workflow、`scripts`、ADR-0026文書）とnested（`node_modules`、`dist`、`build`、`generated`）除外だけを再利用する。`vendor`や広域binaryをpathで除外しない。Issue #160のallowlisted inert binary判定は個別fileの狭い例外であり、diagnosticはrule IDとrepo-relative pathだけにする。
+  - Issue #160では、`apps/brand-site/public/assets/meccha-manual-logo-mark.png`（909259 bytes、SHA-256 `37eedc60e1d2b9be2a6cddc45c2d15f45361cc47c8113d177af9664445a1eedb`）と`apps/brand-site/public/assets/meccha-manual-mascot.png`（1373413 bytes、SHA-256 `aae49f0c73321999f9d25ecc2878fcae949aae5b9f421356c7009ac3708d4c88`）だけを、`.png`拡張子・PNG magic `89 50 4e 47 0d 0a 1a 0a`・exact size・streamed SHA-256が一致した場合にpassする。画像decoderは使わずmetadata-onlyとし、JPEG/GIF/WebP/font/SVGはinventory外としてdeferする。
+  - extension/rename/new/changed/mismatch、unknown、archive、executable、config-like binary、trailing/polyglot、read/hash failureは`product-source-runtime-config/binary-assets`でfail closedとする。allowlistは個別pathのdigest manifestであり、broad `vendor`除外や新root exclusionではない。diagnosticはpath+rule IDだけにする。
+  - `pgsql-parser`はSQL専用のためsource file検査へ流用しない。後続Issueで形式ごとのsyntax-aware lexer/parser候補をlicense/version/ESM/error/perf/fixture証跡と比較し、production dependencyはその小PRでのみ追加する。
+- Reason: PR #145でJavaScript用の`//`除去がshell URLの`https://`を壊し、Azure endpoint markerを迂回できたうえ、PR #158で既存PNGを無条件binary fail-closedにするとclean treeを常時failさせることが判明したため。PR #158は`c01afebbb6e4d4123e23fada89556ebdbbca3c0c`でfreezeし、binary policyをIssue #160へ分離する。
+- Evidence: Issue #158/#160/#163、PR #158 recovery head、ADR-0029、後続Issueのfixture matrix（既存PNG clean pass、magic mismatch、unknown binary、renamed text、archive/executable、read/size/hash failure、JS/TS comment、shell/JSON/YAML/TOML/env URL、ordinary Azure、suffix spoof）。
