@@ -1,7 +1,9 @@
 {
   "private": true,
   "dependencies": {
-    "ai-client": "npm:openai@4.0.0"
+    "ai-client": "npm:openai@4.0.0",
+    "versionless-ai-client": "npm:openai",
+    "versionless-scoped-client": "npm:@openai/core"
   },
   "devDependencies": {
     "provider-core": "npm:@openai/core@4.0.0"
