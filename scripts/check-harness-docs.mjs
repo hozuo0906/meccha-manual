@@ -518,3 +518,6 @@ for (const [environment, config] of [["default", wrangler], ...Object.entries(wr
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
+}
+
+console.log(`Harness docs OK: ${Object.keys(requiredDocs).length} documents and disabled Stripe runtime state checked without reading secrets.`);
