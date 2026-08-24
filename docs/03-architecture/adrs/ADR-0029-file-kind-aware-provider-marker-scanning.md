@@ -22,14 +22,18 @@ PR #145のAzure OpenAI endpoint検査で、JavaScript用のコメント除去を
 | shell/env | `.sh` `.bash` `.zsh` `.env` | quote外の`#` | `//`は常にdata。quote内の`#`も値 | fail closed |
 | YAML/TOML | `.yaml` `.yml` `.toml` | quote外の`#`（各形式の構文に従う） | quote内およびURLのseparatorは値 | fail closed |
 | Markdown/plain | `.md` `.txt` | 文書の本文をcommentとは扱わない | URLを保持し、検査対象のmarkerを隠さない | fail closed |
+| HTML | `.html` `.htm` | `<!-- -->` | attribute・text内のURLを保持 | fail closed |
+| CSS | `.css` | `/* */` | quote、`url(...)`内のURLを保持 | fail closed |
+| extensionless product asset | `_headers`（および将来の既知extensionless file） | 形式固有のcommentを推測しない | URLを保持し、未知形式として安全側に扱う | fail closed |
 | unknown/binary | 未知拡張子またはbinary | 推測でstripしない | raw dataを解釈して迂回させない | fail closed |
 
-generated、vendor、`node_modules`、既存契約で除外されたbinaryは従来どおり検査対象外とする。それ以外のunknownまたは形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
+現行contractのroot-only exclusionは`.github/workflows/business-os-codex.yml`、`scripts`、ADR-0026文書であり、nested exclusionは`node_modules`、`dist`、`build`、`generated`だけである。`vendor`やbinary専用の除外・classifierは現存しないため、このADRで追加しない。除外に一致しないunknown、binary、または形式不正なtextは、正常扱いしてpassさせず、AI禁止ruleの違反側へ倒す。
 
 ### 2. comment/string semantics
 
 - JavaScript/TypeScriptだけで`//`をline commentとし、code stateでのみ適用する。quote、template literal、escape、正規表現の境界を文字列値から分離し、URLの`//`を消さない。
 - JSON/JSONC、shell/env、YAML/TOMLでは、形式が許すcommentだけをその形式のlexer/parserで認識する。特にshell/envの`https://`の`//`をcomment markerにしない。
+- shellではunquoted `#`をwordの先頭でだけcomment開始とし、`value=before#AI_PROVIDER_ENDPOINT`のようなword内の`#`とsuffixはdataとして保持する。`.env`は別grammarとして扱い、採用するdotenv契約のcomment境界をfixtureで固定する。
 - Markdown/plain/unknownは汎用のcomment stripperを通さない。source commentの文脈を推測できないため、unknownはfail closedとする。
 - comment内のprovider markerは検出しないが、文字列・assignment・mappingなどのdata内markerは検出する。ordinary Azure service hostとsuffix spoofはmatrixでpassを固定する。
 
@@ -46,7 +50,7 @@ generated、vendor、`node_modules`、既存契約で除外されたbinaryは従
 
 ### 4. diagnostics and exclusion
 
-違反診断は既存の`rule ID + repo-relative path`だけとする。検出したURL、key、行内容、secret、絶対pathは出力しない。除外は既存のproduct-root/generated/vendor/binary contractだけを使い、file-kind dispatch側で意味を変えない。
+違反診断は既存の`rule ID + repo-relative path`だけとする。検出したURL、key、行内容、secret、絶対pathは出力しない。除外は現行contractのroot-only/nested exclusionだけを使い、file-kind dispatch側で意味を変えない。
 
 ### 5. production接続前のfixture matrix
 
