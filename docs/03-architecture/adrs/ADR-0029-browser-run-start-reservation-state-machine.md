@@ -48,13 +48,12 @@ serverはentitlementとroute契約から、boundedな`plannedSeconds`と`planned
 2. route kindを決定し、kind固有keyで既存reservationをlookupする。
 3. 既存reservationがある場合はfingerprint/stateを照合する。同一fingerprintならegress、quota、capacityを再評価せず、terminal stateは`200`、in-flightまたは`result_unknown`は`202 RESERVATION_RESULT_UNKNOWN`で同じreservationを返す。providerへ新しいdispatchを行わない。fingerprint mismatchは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
 4. 既存reservationがない新規keyだけ、egress/P0 gateを検証する。disabled、missing、期限切れ、または不十分な証跡は`503 BROWSER_EGRESS_NOT_VERIFIED`で停止し、reservationもprovider operationも作らない。
-5. gateを通過した新規keyだけ、時間と同時実行数のcandidateをatomicに検証してreservationを確定する。quota/capacity超過は既存契約の拒否状態で停止し、providerへ通信しない。
-6. reservation確定後、dispatch前にprovider-supported operation referenceをopaqueに生成し、reservationへdurableに固定する。provider refを固定できない場合はdispatchしない。
-7. reservation、lease、provider referenceの整合を再確認してからproviderへdispatchする。dispatch後の応答消失や結果不明は同じreservationの`result_unknown`として扱い、別のkeyや新しいreservationを作らない。
+5. gateを通過した新規keyだけ、時間と同時実行数のcandidateをatomicに検証する。quota/capacity超過は既存契約の拒否状態で停止し、providerへ通信しない。同じreservation transaction内でdispatch前のprovider-supported operation referenceをopaqueに生成し、immutableに同時永続化する。refを生成・保存できない場合はreservation全体を確定せず、providerへ通信しない。
+6. transaction commit後、reservation、lease、provider referenceの整合を再確認してからproviderへdispatchする。dispatch後の応答消失や結果不明は同じreservationの`result_unknown`として扱い、別のkeyや新しいreservationを作らない。
 
 ### stateとfencing不変条件
 
-- reservationの状態遷移は`reserved`、`dispatching`、`result_unknown`、`terminal`、`released`を明示し、状態をbooleanの組み合わせで表現しない。
+- durable reservationの状態enumは既存契約の`reserved`、`in_progress`、`result_unknown`、`reconciling`、`committed`、`released`を再利用し、状態をbooleanの組み合わせで表現しない。HTTPのterminal retry=`200`は`committed`等のdurable stateを返すresponse mappingであり、durable enumに`terminal`を追加しない。
 - writer commitとreconciliationは`leaseGeneration`をCASするfencing境界を必須とする。単なる単調増加値の保存だけではcommit/releaseを成功扱いにしない。
 - `result_unknown`はprovider operation referenceのlookupとreconciliationが完了するまで保持する。original writerがterminal/fencedであること、またはprovider-terminal proofがあることを確認する前に、absent object/sessionを根拠にexpired reservationを解放しない。
 - terminal/fenced、またはprovider-terminal proofが確認できた場合だけ、残余reservationの確定・解放を行う。confirmed non-start/nonexistenceとresult unknownを混同しない。
@@ -64,7 +63,7 @@ serverはentitlementとroute契約から、boundedな`plannedSeconds`と`planned
 
 | 状態・分岐 | 契約結果 | reservation/providerの扱い |
 |---|---|---|
-| 同一keyのterminal retry | `200`、同じreservation state | 新しいreservation、provider dispatchを作らない |
+| 同一keyのcommitted/terminal結果のretry | `200`、同じreservation state | 新しいreservation、provider dispatchを作らない |
 | 同一keyのin-flightまたは`result_unknown` retry | `202 RESERVATION_RESULT_UNKNOWN`、同じreservation state | reconciliationまで保持し、新しいreservation/provider dispatchを作らない |
 | 同一keyのfingerprint mismatch | `409 RESERVATION_REQUEST_MISMATCH` | 既存reservationを変更・解放しない |
 | 新規keyのegress disabled/P0未完了 | `503 BROWSER_EGRESS_NOT_VERIFIED` | reservation/provider operationを作らない |

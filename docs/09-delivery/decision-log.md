@@ -139,14 +139,14 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision: Browser Runは残り時間を開始前に原子的に予約するが、close/DOから独立したprovider保証の絶対失効を公式契約と障害注入でP0実証できるまで起動をfail closedにする。R2は初回要求前に保持するoperation keyへ予約IDを1対1で固定し、期限付きleaseで`current + active reserved + planned bytes`を原子的に検証して、結果不明再送を同じ予約へ集約する。original writerがterminal/fenced（lease generation/fencingまたはprovider-terminal proof）と確認されるまでabsent objectのexpired reservationを解放せず、reconciliationで確定または解放する。
 - Reason: 並行要求が個別の上限検査を通過して原価上限を超える競合と、失敗した予約が利用枠を消費し続ける事故を防ぐため。
 
-## DEC-065: Browser Run start予約state machineをroute共通の正本にする
+## DEC-067: Browser Run start予約state machineをroute共通の正本にする
 
 - Status: Accepted
 - Date: 2026-08-24
 - Decision:
   - `capture_session_start`と`mobile_preview_session_start`だけをBrowser Run start reservation state machineの対象とし、route固有keyを`workspaceRef + operationKind + opaque operationKey + requestFingerprint`へ正規化する。capture-startのkeyをmobile previewへ流用しない。
   - 既存reservationの同一fingerprint retryはegress・quota・capacityを再評価せず、terminal=`200`、in-flight/`result_unknown`=`202 RESERVATION_RESULT_UNKNOWN`、fingerprint mismatch=`409`で同じstateを返す。
-  - 新規keyはegress/P0 gateを先に確認し、disabledまたはP0未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`でreservation/provider operationを作らない。gate通過後だけ時間・同時実行数をatomicに予約し、dispatch前にprovider operation referenceを固定する。
+  - 新規keyはegress/P0 gateを先に確認し、disabledまたはP0未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`でreservation/provider operationを作らない。gate通過後だけ時間・同時実行数をatomicに予約し、同じtransaction内でdispatch前のimmutableなprovider operation referenceを同時に永続化する。refなしreservationを確定しない。
   - `leaseGeneration`のCAS/fencingとreconciliationを必須にし、original writerがterminal/fencedまたはprovider-terminal proofを示すまで`result_unknown`のreservationを解放しない。
   - live-url、capture commands、mobile preview navigate/reloadは本state machineへ入れず、後続のAcceptedな別契約までfail closedとする（詳細は[ADR-0029](../03-architecture/adrs/ADR-0029-browser-run-start-reservation-state-machine.md)）。
 - Reason: PR #133で同じroute-state／reservation propagation根因が2 review cycle再発したため、disabled時のcapacity消費、route間key流用、結果不明の早期解放を一つの監査可能な設計境界で防ぐため。
