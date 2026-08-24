@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "dependencies": {
+    "openai": "1.0.0"
+  },
+  "devDependencies": {
+    "@ai-sdk/core": "1.0.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "1.0.0"
+  },
+  "peerDependencies": {
+    "ai": "1.0.0"
+  }
+}

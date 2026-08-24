@@ -1,5 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import npmPackageArg from "npm-package-arg";
+import { parse } from "pgsql-parser";
 
 const requiredDocs = {
   "README.md": [
@@ -150,35 +152,308 @@ const errors = [];
 const contents = {};
 
 // AC-060 covers product runtime/source/config, not the separately governed
-// ADR-0026 development automation. Keep this scan deliberately limited to
-// product roots so Codex/Business OS runner credentials remain out of scope.
-const productScanRoots = ["apps", "package.json", "wrangler.jsonc", "wrangler.brand.jsonc"];
-const forbiddenProductAiPatterns = [
-  /AI_PROVIDER_API_KEY/i,
-  /AI_(?:API_)?ENDPOINT/i,
-  /ai\.assistiveGeneration\.enabled/i,
-  /(?:from|require\s*\()\s*["'](?:openai|@anthropic-ai|@google\/generative-ai)/i
-];
-async function listProductFiles(entry) {
+// ADR-0026 development automation. Keep the scan surface and exclusions in
+// one contract so extending the gate cannot silently omit a product root.
+const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
+  surfaces: Object.freeze([
+    Object.freeze({
+      id: "product-source-runtime-config",
+      roots: Object.freeze(["apps", "wrangler.jsonc", "wrangler.brand.jsonc"]),
+      rules: Object.freeze(["imports", "provider-endpoints", "provider-bindings"])
+    }),
+    Object.freeze({
+      id: "dependency-manifests",
+      roots: Object.freeze(["package.json", "package-lock.json", "apps"]),
+      rules: Object.freeze(["dependency-declarations"])
+    }),
+    Object.freeze({
+      id: "product-db-migrations",
+      roots: Object.freeze(["supabase/migrations"]),
+      rules: Object.freeze(["ai-schema-objects"])
+    })
+  ]),
+  // Development-only automation (including ADR-0026) is intentionally not a
+  // product surface. Keep this list explicit so a future surface cannot
+  // accidentally absorb its credentials or provider configuration.
+  rootOnlyExclusions: Object.freeze([
+    ".github/workflows/business-os-codex.yml",
+    "scripts",
+    "docs/03-architecture/adrs/ADR-0026-business-os-cloud-runner.md"
+  ]),
+  nestedExclusions: Object.freeze(["node_modules", "dist", "build", "generated"]),
+  knownProviderPackages: Object.freeze([
+    /^openai$/i,
+    /^@openai\//i,
+    /^@anthropic-ai\//i,
+    /^@google\/(?:generative-ai|genai)$/i,
+    /^@ai-sdk\//i,
+    /^ai$/i,
+    /^cohere-ai$/i,
+    /^groq-sdk$/i,
+    /^@mistralai\//i,
+    /^ollama$/i,
+    /^replicate$/i,
+    /^@aws-sdk\/client-bedrock-runtime$/i,
+    /^@azure\/openai$/i
+  ]),
+  providerEndpointHosts: Object.freeze([
+    /https?:\/\/(?:api\.)?openai\.com\b/i,
+    /https?:\/\/api\.anthropic\.com\b/i,
+    /https?:\/\/generativelanguage\.googleapis\.com\b/i,
+    /https?:\/\/api\.cohere\.ai\b/i,
+    /https?:\/\/api\.mistral\.ai\b/i,
+    /https?:\/\/api\.groq\.com\b/i,
+    /https?:\/\/api\.replicate\.com\b/i,
+    /https?:\/\/openrouter\.ai\b/i
+  ]),
+  providerBindings: Object.freeze([
+    /\bAI_PROVIDER_API_KEY\b/i,
+    /\bAI_API_KEY\b/i,
+    /\bAI_PROVIDER_ENDPOINT\b/i,
+    /\bAI_API_ENDPOINT\b/i,
+    /AI_(?:API_)?ENDPOINT/i,
+    /\bai\.assistiveGeneration\.enabled\b/i,
+    /\b(?:OPENAI|ANTHROPIC|GOOGLE|GEMINI|COHERE|MISTRAL|GROQ)_API_KEY\b/i,
+    /\b(?:OPENAI|ANTHROPIC)_BASE_URL\b/i,
+    /\bREPLICATE_API_TOKEN\b/i
+  ]),
+  aiSchemaObjects: Object.freeze([
+    /\b(?:create|alter|drop)\s+(?:or\s+replace\s+)?(?:table|index|view|function|type|policy)\s+(?:if\s+not\s+exists\s+)?(?:["`']?[a-z0-9_]+["`']?\s*\.\s*)?["`']?ai_[a-z0-9_]+\b/i,
+    /\bai_(?:[a-z0-9]+_)*(?:settings?|providers?|logs?|generations?|requests?|usage|prompts?)\b/i,
+    /\b(?:llm|embedding|inference|prompt)_(?:[a-z0-9]+_)*(?:settings?|configs?|logs?|generations?|requests?|usage)\b/i,
+    /\bmodel_(?:settings?|configs?|providers?)\b/i
+  ])
+});
+
+async function listProductFiles(entry, scanRoot) {
   const info = await readdir(entry, { withFileTypes: true }).catch(() => null);
   if (!Array.isArray(info)) return [entry];
   const files = [];
   for (const item of info) {
     const child = path.join(entry, item.name);
-    if (item.isDirectory()) files.push(...await listProductFiles(child));
+    const relativeChild = path.relative(scanRoot, child).split(path.sep).join("/");
+    if (isExcluded(relativeChild)) continue;
+    if (item.isDirectory()) files.push(...await listProductFiles(child, scanRoot));
     else files.push(child);
   }
   return files;
 }
 
-for (const root of productScanRoots) {
-  for (const file of await listProductFiles(root)) {
-    const source = await readFile(file, "utf8").catch(() => "");
-    for (const pattern of forbiddenProductAiPatterns) {
-      if (pattern.test(source)) {
-        errors.push(`AI implementation marker remains in product runtime/config: ${file}`);
-        break;
+function isExcluded(relativeFile) {
+  const normalized = relativeFile.split(path.sep).join("/");
+  const segments = normalized.split("/");
+  const rootOnlyExcluded = AI_PROHIBITION_SCAN_CONTRACT.rootOnlyExclusions.some(
+    (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`)
+  );
+  const nestedExcluded = AI_PROHIBITION_SCAN_CONTRACT.nestedExclusions.some(
+    (excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`) || segments.includes(excluded)
+  );
+  return rootOnlyExcluded || nestedExcluded;
+}
+
+function isDependencyManifest(relativeFile) {
+  const fileName = relativeFile.split(path.sep).join("/").split("/").at(-1);
+  return fileName === "package.json" || fileName === "package-lock.json";
+}
+
+function isKnownProviderPackage(specifier) {
+  return AI_PROHIBITION_SCAN_CONTRACT.knownProviderPackages.some((pattern) => pattern.test(specifier));
+}
+
+const INVALID_NPM_ALIAS = Symbol("invalid-npm-alias");
+
+function npmAliasTargetPackage(specifier) {
+  if (typeof specifier !== "string" || !/^npm:/i.test(specifier)) return null;
+  try {
+    const parsed = npmPackageArg(specifier);
+    if (parsed.type !== "alias" || typeof parsed.subSpec?.name !== "string") {
+      return INVALID_NPM_ALIAS;
+    }
+    return parsed.subSpec.name;
+  } catch {
+    return INVALID_NPM_ALIAS;
+  }
+}
+
+function isKnownProviderDependency(dependencyName, declaration) {
+  if (isKnownProviderPackage(dependencyName)) return true;
+  if (typeof declaration === "string") {
+    const aliasTarget = npmAliasTargetPackage(declaration);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
+  }
+  if (declaration && typeof declaration === "object") {
+    if (isKnownProviderPackage(declaration.name)) return true;
+    const dependencyMaps = [
+      declaration.dependencies,
+      declaration.devDependencies,
+      declaration.optionalDependencies,
+      declaration.peerDependencies
+    ];
+    if (dependencyMaps.some((dependencies) =>
+      dependencies && Object.entries(dependencies).some(([name, specifier]) =>
+        isKnownProviderDependency(name, specifier)
+      )
+    )) return true;
+    const aliasTarget = npmAliasTargetPackage(declaration.version);
+    return aliasTarget === INVALID_NPM_ALIAS || isKnownProviderPackage(aliasTarget);
+  }
+  return false;
+}
+
+function hasKnownProviderImport(source) {
+  const staticImports = source.matchAll(/\bimport\s+(?:(?:[\s\S]*?)\s+from\s+)?["']([^"']+)["']/g);
+  for (const [, specifier] of staticImports) {
+    if (isKnownProviderPackage(specifier)) return true;
+  }
+  const reExports = source.matchAll(/\bexport\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']([^"']+)["']/g);
+  for (const [, specifier] of reExports) {
+    if (isKnownProviderPackage(specifier)) return true;
+  }
+  const dynamicImports = source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g);
+  for (const [, specifier] of dynamicImports) {
+    if (isKnownProviderPackage(specifier)) return true;
+  }
+  const requires = source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/g);
+  for (const [, specifier] of requires) {
+    if (isKnownProviderPackage(specifier)) return true;
+  }
+  return false;
+}
+
+function hasDependencyDeclaration(source) {
+  try {
+    const manifest = JSON.parse(source);
+    const dependencyMaps = [
+      manifest.dependencies,
+      manifest.devDependencies,
+      manifest.optionalDependencies,
+      manifest.peerDependencies
+    ];
+    for (const dependencies of dependencyMaps) {
+      if (
+        dependencies &&
+        Object.entries(dependencies).some(([dependencyName, declaration]) =>
+          isKnownProviderDependency(dependencyName, declaration)
+        )
+      ) return true;
+    }
+    if (manifest.packages && typeof manifest.packages === "object") {
+      for (const [packagePath, packageInfo] of Object.entries(manifest.packages)) {
+        const packagePathParts = packagePath.replace(/^node_modules\//, "").split("/node_modules/").pop().split("/");
+        const packageName = packagePathParts[0]?.startsWith("@")
+          ? packagePathParts.slice(0, 2).join("/")
+          : packagePathParts[0];
+        if (isKnownProviderDependency(packageName, packageInfo)) return true;
       }
+    }
+  } catch {
+    // A malformed fixture is not an AI dependency declaration; JSON validity
+    // remains the responsibility of the repository's existing package checks.
+  }
+  return false;
+}
+
+async function hasAiFunctionDeclaration(source) {
+  if (source.trim() === "") return false;
+  let ast;
+  try {
+    ast = await parse(source);
+  } catch {
+    return true;
+  }
+  return ast.stmts.some(({ stmt }) => {
+    const functionStatement = stmt.CreateFunctionStmt;
+    if (!functionStatement) return false;
+    const functionName = functionStatement.funcname.at(-1)?.String?.sval;
+    return typeof functionName === "string" && /^ai_/i.test(functionName);
+  });
+}
+
+async function hasAiMaterializedViewDeclaration(source) {
+  if (source.trim() === "") return false;
+  let ast;
+  try {
+    ast = await parse(source);
+  } catch {
+    return true;
+  }
+  return ast.stmts.some(({ stmt }) => {
+    const materializedViewStatement = stmt.CreateTableAsStmt;
+    if (materializedViewStatement?.objtype !== "OBJECT_MATVIEW") return false;
+    const relation = materializedViewStatement.into?.rel;
+    return typeof relation?.relname === "string" && /^ai_/i.test(relation.relname);
+  });
+}
+
+async function findAiProhibitionRule(source, rules) {
+  if (rules.includes("dependency-declarations")) {
+    if (hasDependencyDeclaration(source)) return "dependency-declarations";
+  }
+  if (rules.includes("imports") && hasKnownProviderImport(source)) return "imports";
+  if (
+    rules.includes("provider-endpoints") &&
+    AI_PROHIBITION_SCAN_CONTRACT.providerEndpointHosts.some((pattern) => pattern.test(source))
+  ) return "provider-endpoints";
+  if (
+    rules.includes("provider-bindings") &&
+    AI_PROHIBITION_SCAN_CONTRACT.providerBindings.some((pattern) => pattern.test(source))
+  ) return "provider-bindings";
+  if (
+    rules.includes("ai-schema-objects") &&
+    AI_PROHIBITION_SCAN_CONTRACT.aiSchemaObjects.some((pattern) => pattern.test(source))
+  ) return "ai-schema-objects";
+  if (rules.includes("ai-schema-objects") && await hasAiFunctionDeclaration(source)) {
+    return "ai-schema-objects";
+  }
+  if (rules.includes("ai-schema-objects") && await hasAiMaterializedViewDeclaration(source)) {
+    return "ai-schema-objects";
+  }
+  return null;
+}
+
+async function scanAiProhibition(rootDir) {
+  const violations = [];
+  const resolvedRootDir = path.resolve(rootDir);
+  for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
+    for (const root of surface.roots) {
+      const absoluteRoot = path.resolve(resolvedRootDir, root);
+      for (const file of await listProductFiles(absoluteRoot, resolvedRootDir)) {
+        const relativeFile = path.relative(resolvedRootDir, file).split(path.sep).join("/");
+        if (isExcluded(relativeFile)) continue;
+        if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
+        const source = await readFile(file, "utf8").catch(() => "");
+        const rule = await findAiProhibitionRule(source, surface.rules);
+        if (rule) violations.push({ surface: surface.id, rule, file: relativeFile });
+      }
+    }
+  }
+  return violations;
+}
+
+const aiScanRoot = process.argv[2] === "--ai-scan-root" ? process.argv[3] : null;
+if (aiScanRoot) {
+  const violations = await scanAiProhibition(path.resolve(aiScanRoot));
+  if (violations.length > 0) {
+    for (const violation of violations) {
+      console.error(`AI prohibition violation [${violation.surface}/${violation.rule}]: ${violation.file}`);
+    }
+    process.exit(1);
+  }
+  console.log("AI prohibition scanner OK: product surfaces are free of provider implementation markers.");
+  process.exit(0);
+}
+
+const scanRoot = process.cwd();
+for (const surface of AI_PROHIBITION_SCAN_CONTRACT.surfaces) {
+  for (const root of surface.roots) {
+    const absoluteRoot = path.resolve(scanRoot, root);
+    for (const file of await listProductFiles(absoluteRoot, scanRoot)) {
+      const relativeFile = path.relative(scanRoot, file).split(path.sep).join("/");
+      if (isExcluded(relativeFile)) continue;
+      if (surface.rules.includes("dependency-declarations") && !isDependencyManifest(relativeFile)) continue;
+      const source = await readFile(file, "utf8").catch(() => "");
+      const rule = await findAiProhibitionRule(source, surface.rules);
+      if (rule) errors.push(`AI implementation marker remains in ${surface.id}/${rule}: ${relativeFile}`);
     }
   }
 }

@@ -138,3 +138,29 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Date: 2026-08-20
 - Decision: 売上安定をownerが確認し、実装開始を明示承認するまで、AI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。FR-006は常にローカルの決定的処理とする。
 - Reason: OFF設定だけでは実装・Secret・誤有効化による費用とデータ送信リスクが残るため。
+
+## DEC-065: AI禁止SQL検査のparser採用候補をpgsql-parserへ絞る
+
+- Status: Proposed
+- Date: 2026-08-24
+- Decision:
+  - PR #112の独自lexerは拡張せず、次の実装候補を`pgsql-parser@18.2.6`へ絞る。依存追加はproduction runtimeではなく、固定versionのdevDependency一件だけとする。
+  - `pgsql-parser`はMIT、PostgreSQL実装由来の`libpg-query` WASM、async/sync API、ESM entrypointを持ち、14件のdifferential fixtureでplain、OR REPLACE、schema-qualified、quoted/hyphen/space/doubled identifier、line/block/nested commentを抽出し、unterminated comment・malformed quote・unknown headerをparse errorとしてfail closed、通常のnon-AI functionを許可した。14件全体の初回実行中央値は約0.15msだった。
+  - `pgsql-ast-parser@12.0.2`はMITだがCJS mainのみで、doubled quoteを`tenant""prod`のまま返すため採用しない。
+  - `node-sql-parser@5.4.0`はApache-2.0・CJS mainで、doubled quote fixtureをparseできず、unpacked sizeも約92MBのため採用しない。
+  - 採用候補の本番scanner統合、production runtime、migration適用、DB接続はこのspikeに含めず、次の小PRでparser ASTからrule ID/path-only violationへ接続する。parse errorは必ず禁止側へ倒す。
+- Reason: nested PostgreSQL commentの同一根因がPR #112で2回再発したため、コメント・quoted identifier・DDL headerの契約を独自lexerの局所修正で再実装せず、PostgreSQL本体parserの構文エラーとASTを正本候補にするため。
+- Evidence: Issue #114、PR #112 recovery head `f0646b29a31b9d3b5c6b88694b75ca992a4565f8`、base `agent/issue104-ai-ddl-modifiers` @ `f120583780ea4e747e9b8610230a4e49cf6b3f06`、`scripts/sql-parser-adoption-spike.mjs`、`tests/fixtures/ai-prohibition/parser-adoption/`、targeted/full checks。
+
+
+## DEC-066: npm alias package-spec parserはnpm-package-argを採用する
+
+- Status: Accepted
+- Date: 2026-08-24
+- Decision:
+  - Issue #134では、npm-package-arg 13.0.2をpackage-spec parserとして採用する。npmが受理するlowercase/uppercase/mixed-caseのnpm: protocol、unscoped/scoped target、version/tag/rangeあり・なし、invalid aliasのfail-closedを構造化して扱う。
+  - ISCライセンス、CommonJS main、実lockfile treeのnpm-package-arg、hosted-git-info、lru-cache、proc-log、validate-npm-package-nameを確認し、exact pinned direct devDependencyとして追加した。
+  - standard package-lock v3のpackageInfo.nameとroot dependency declarationは別の検査面として保持し、Worker/runtime bundleへparserを接続しない。
+  - handwritten npmAliasTargetPackage regexは拡張せず、parser呼出しへ置換した。Worker/runtime bundleへは接続しない。
+- Reason: PR #129で同じalias package-spec根因が2 review cycle再発したため、protocol normalization・optional spec・invalid specのsemanticsを局所regexで再実装しない。
+- Evidence: Issue #134、実装PR、design統合後の親head 1ad1204e18afd151246a8eb1a31af1ca183dc70c、ADR-0028、targeted scanner 24/24、実lockfile、remote CI。

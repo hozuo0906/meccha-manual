@@ -1,0 +1,2 @@
+CREATE MATERIALIZED VIEW public.ai_summaries AS
+SELECT 1;

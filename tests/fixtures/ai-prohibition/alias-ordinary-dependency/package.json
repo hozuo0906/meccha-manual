@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "ai-client": "npm:parse5@8.0.0",
+    "@tools/client": "npm:@types/node@22.0.0"
+  }
+}

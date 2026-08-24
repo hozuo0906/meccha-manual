@@ -1,0 +1,2 @@
+CREATE MATERIALIZED VIEW "Tenant" . "Ai_Summaries" AS
+SELECT 1;
