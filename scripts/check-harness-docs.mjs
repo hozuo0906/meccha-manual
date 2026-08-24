@@ -222,6 +222,17 @@ const AI_PROHIBITION_SCAN_CONTRACT = Object.freeze({
     /\bai_(?:[a-z0-9]+_)*(?:settings?|providers?|logs?|generations?|requests?|usage|prompts?)\b/i,
     /\b(?:llm|embedding|inference|prompt)_(?:[a-z0-9]+_)*(?:settings?|configs?|logs?|generations?|requests?|usage)\b/i,
     /\bmodel_(?:settings?|configs?|providers?)\b/i
+  ]),
+  // This finite mapping mirrors every renameable kind named by aiSchemaObjects.
+  // The parser inventory regression test records the concrete pgsql-parser AST.
+  aiSchemaRenameTypes: Object.freeze([
+    "OBJECT_TABLE",
+    "OBJECT_MATVIEW",
+    "OBJECT_VIEW",
+    "OBJECT_INDEX",
+    "OBJECT_FUNCTION",
+    "OBJECT_TYPE",
+    "OBJECT_POLICY"
   ])
 });
 
@@ -384,7 +395,7 @@ async function hasAiMaterializedViewOrRenameDeclaration(source) {
       if (typeof relation?.relname === "string" && /^ai_/i.test(relation.relname)) return true;
     }
     const renameStatement = stmt.RenameStmt;
-    if (!["OBJECT_MATVIEW", "OBJECT_TABLE"].includes(renameStatement?.renameType)) return false;
+    if (!AI_PROHIBITION_SCAN_CONTRACT.aiSchemaRenameTypes.includes(renameStatement?.renameType)) return false;
     return typeof renameStatement.newname === "string" && /^ai_/i.test(renameStatement.newname);
   });
 }
