@@ -72,7 +72,10 @@ const requiredDocs = {
     "入力値",
     "スクリーンショット",
     "終了・失敗・期限切れ",
-    "監査ログ"
+    "監査ログ",
+    "provider保証の絶対失効",
+    "未実証なら起動をfail closed",
+    "closeの失敗・hangとWorker/DO再起動"
   ],
   "docs/08-operations/browser-run-egress-proof.md": [
     "guardrails.allowedDomains",
@@ -100,7 +103,9 @@ const requiredDocs = {
   "docs/07-quality/acceptance-catalog.md": [
     "| AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み |",
     "| AC-024 | editorユーザーかつegress P0検証未完了 |",
-    "| AC-025 | Browser Runセッション稼働中 |"
+    "| AC-025 | Browser Runセッション稼働中 |",
+    "| AC-064 | Browser Runの月次残り時間より長い要求または並行開始があり",
+    "| AC-065 | R2上限付近で複数保存、初回応答消失"
   ],
   "docs/09-delivery/decision-log.md": [
     "DEC-032",
@@ -196,7 +201,7 @@ for (const legacyTerm of [
 const traceability = contents["docs/01-product/requirements-traceability.md"] ?? "";
 const requiredAcceptanceByRequirement = {
   "FR-019": ["AC-050", "AC-052", "AC-054", "AC-055", "AC-056", "AC-057", "AC-059", "AC-062", "AC-063"],
-  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058"]
+  "FR-021": ["AC-051", "AC-053", "AC-055", "AC-058", "AC-064", "AC-065"]
 };
 for (const [requirement, acceptanceIds] of Object.entries(requiredAcceptanceByRequirement)) {
   const row = traceability.split("\n").find((line) => line.startsWith(`| ${requirement} |`));
@@ -217,6 +222,205 @@ const acceptanceIds = [...acceptanceCatalog.matchAll(/^\| (AC-\d{3}) \|/gm)].map
 const duplicateAcceptanceIds = acceptanceIds.filter((id, index) => acceptanceIds.indexOf(id) !== index);
 if (duplicateAcceptanceIds.length > 0) {
   errors.push(`Duplicate acceptance criteria IDs: ${[...new Set(duplicateAcceptanceIds)].join(", ")}`);
+}
+
+const requiredAcceptanceOutcomes = {
+  "AC-064": {
+    action: ["セッションを開始・継続する"],
+    result: [
+      "残り時間を原子的に予約する",
+      "provider保証の絶対失効",
+      "起動をfail closed",
+      "予約期限でremote sessionが停止"
+    ]
+  },
+  "AC-065": {
+    action: ["初回要求前に保持したoperation key"],
+    result: [
+      "operation keyへ予約IDを1対1で固定",
+      "原子的に検証・予約",
+      "再送は同じ予約を返す",
+      "result-unknownはreconciliationまで予約を保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "reconciliationがobjectを照合"
+    ]
+  }
+};
+for (const [acceptanceId, columns] of Object.entries(requiredAcceptanceOutcomes)) {
+  const row = acceptanceCatalog.split("\n").find((line) => line.startsWith(`| ${acceptanceId} |`));
+  const cells = row?.split("|").slice(1, -1).map((cell) => cell.trim()) ?? [];
+  if (cells.length !== 4) {
+    errors.push(`Acceptance criteria row must have four cells: ${acceptanceId}`);
+    continue;
+  }
+  for (const term of columns.action) {
+    if (!cells[2].includes(term)) {
+      errors.push(`${acceptanceId} action is missing outcome term: ${term}`);
+    }
+  }
+  for (const term of columns.result) {
+    if (!cells[3].includes(term)) {
+      errors.push(`${acceptanceId} result is missing outcome term: ${term}`);
+    }
+  }
+}
+
+const exactDecisionHeading = "## DEC-064: 外部原価を伴う利用は実行前に原子的予約する";
+function extractExactMarkdownSection(markdown, expectedHeading) {
+  const lines = markdown.split(/\r?\n/);
+  const headingIndexes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] === expectedHeading) headingIndexes.push(index);
+  }
+  if (headingIndexes.length === 0) {
+    return { ok: false, error: "missing exact heading" };
+  }
+  if (headingIndexes.length > 1) {
+    return { ok: false, error: "duplicate exact heading" };
+  }
+  const start = headingIndexes[0];
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^## /.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return { ok: true, section: lines.slice(start, end).join("\n") };
+}
+
+const sectionExtractionFixtures = [
+  {
+    name: "exact heading with adjacent section",
+    valid: true,
+    markdown: "## Before\nold\n" + exactDecisionHeading + "\nterminal/fenced\n## Adjacent\nadjacent-only",
+    includes: ["terminal/fenced"],
+    excludes: ["adjacent-only"]
+  },
+  {
+    name: "heading prefix",
+    valid: false,
+    markdown: "## P1: DEC-064: 外部原価を伴う利用は実行前に原子的予約する\nterminal/fenced"
+  },
+  {
+    name: "heading suffix",
+    valid: false,
+    markdown: exactDecisionHeading + "（改名）\nterminal/fenced"
+  },
+  {
+    name: "heading renumber",
+    valid: false,
+    markdown: exactDecisionHeading.replace("DEC-064", "DEC-065") + "\nterminal/fenced"
+  },
+  {
+    name: "moved sentence in adjacent section",
+    valid: true,
+    markdown: exactDecisionHeading + "\nreservation stays here\n## Adjacent\nterminal/fenced moved here",
+    includes: ["reservation stays here"],
+    excludes: ["terminal/fenced moved here"]
+  },
+  {
+    name: "missing heading",
+    valid: false,
+    markdown: "## DEC-063: 外部原価を伴う利用は実行前に原子的予約する\nterminal/fenced"
+  },
+  {
+    name: "duplicate heading",
+    valid: false,
+    markdown: exactDecisionHeading + "\nfirst\n## Neighbor\nneighbor\n" + exactDecisionHeading + "\nsecond"
+  }
+];
+for (const fixture of sectionExtractionFixtures) {
+  const result = extractExactMarkdownSection(fixture.markdown, exactDecisionHeading);
+  if (!fixture.valid) {
+    if (result.ok) {
+      errors.push("Section fixture should be rejected: " + fixture.name);
+    }
+    continue;
+  }
+  if (!result.ok) {
+    errors.push("Section fixture should pass: " + fixture.name + " (" + result.error + ")");
+    continue;
+  }
+  for (const term of fixture.includes ?? []) {
+    if (!result.section.includes(term)) {
+      errors.push("Section fixture is missing expected text: " + fixture.name + ": " + term);
+    }
+  }
+  for (const term of fixture.excludes ?? []) {
+    if (result.section.includes(term)) {
+      errors.push("Section fixture included adjacent text: " + fixture.name + ": " + term);
+    }
+  }
+}
+
+const requiredFencingContracts = [
+  {
+    file: "docs/09-delivery/decision-log.md",
+    sectionHeading: exactDecisionHeading,
+    marker: "- Decision: Browser Runは残り時間を開始前に原子的に予約する",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/01-product/pricing-and-plans.md",
+    marker: "- R2への書込",
+    terms: [
+      "original writerがterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof",
+      "expired reservationを解放せず"
+    ]
+  },
+  {
+    file: "docs/07-quality/acceptance-catalog.md",
+    marker: "| AC-065 |",
+    terms: [
+      "result-unknownはreconciliationまで予約を保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  },
+  {
+    file: "docs/09-delivery/risk-register.md",
+    marker: "| RISK-019 |",
+    terms: [
+      "result-unknownはreconciliationまで保持",
+      "confirmed non-start/nonexistenceだけ即時解放",
+      "original writerのterminal/fenced",
+      "lease generation/fencing",
+      "provider-terminal proof"
+    ]
+  }
+];
+for (const { file, sectionHeading, marker, terms } of requiredFencingContracts) {
+  const content = contents[file] ?? "";
+  const extraction = sectionHeading
+    ? extractExactMarkdownSection(content, sectionHeading)
+    : { ok: true, section: content };
+  if (!extraction.ok) {
+    errors.push("Invalid fencing contract section in " + file + ": " + extraction.error);
+    continue;
+  }
+  const line = extraction.section.split("\n").find((candidate) => candidate.includes(marker)) ?? "";
+  if (!line) {
+    errors.push("Missing fencing contract line in " + file + ": " + marker);
+    continue;
+  }
+  for (const term of terms) {
+    if (!line.includes(term)) {
+      errors.push("Fencing contract is missing in " + file + ": " + term);
+    }
+  }
 }
 
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
