@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "invalid-client": "npm:",
+    "invalid-scoped-client": "NPM:@openai"
+  }
+}
