@@ -3,7 +3,9 @@
   "dependencies": {
     "ai-client": "npm:openai@4.0.0",
     "versionless-ai-client": "npm:openai",
-    "versionless-scoped-client": "npm:@openai/core"
+    "versionless-scoped-client": "npm:@openai/core",
+    "tagged-scoped-client": "NPM:@openai/core@latest",
+    "ranged-ai-client": "nPm:openai@^4"
   },
   "devDependencies": {
     "provider-core": "npm:@openai/core@4.0.0"
