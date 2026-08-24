@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 現在の安全境界
 
-OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`は認証、same-origin、workspaceのowner／admin／editor権限を確認した後、Cloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
+OQ-006／DEC-032のP0 egress検証が完了していないため、次の`POST`は認証、same-origin、workspaceのowner／admin／editor権限、tenant entitlement、request envelopeを確認した後、同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintのterminal retryは`200`、in-flightまたは`result_unknown` retryは`202 RESERVATION_RESULT_UNKNOWN`で同じreservation stateを返し、Cloudflare Browser Runへ通信しない。異なるfingerprintは`409 RESERVATION_REQUEST_MISMATCH`で拒否する。既存reservationに該当しない新しい開始だけはCloudflare Browser Runへ通信せず`503 BROWSER_EGRESS_NOT_VERIFIED`を返す。
 
 - `/api/workspaces/{workspaceId}/capture-sessions`
 - `/v1/workspaces/{workspaceId}/capture-sessions`

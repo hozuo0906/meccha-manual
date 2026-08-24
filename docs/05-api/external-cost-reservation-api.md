@@ -38,7 +38,7 @@ Status: Accepted
 予約transactionは次の順序を原子的に実行する。
 
 1. authentication、workspace role、tenant entitlement、request envelopeを確認する。ここでは既存reservationのretryを拒否するegress gateを評価しない。
-2. 同じworkspaceのlock境界で同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintならegress、quota、capacityを再評価せず既存stateを返し、`requestedSeconds`をcandidateへ加算しない。terminal、in-flight、`result_unknown`のretryはそれぞれ現在stateを決定的な`200`または`202`で返し、新規provider dispatchを行わない。異なるfingerprintはegress状態に依存せず`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
+2. 同じworkspaceのlock境界で同じ`operationKey`の既存reservationを先にfingerprint/state照合する。同じkey・同じfingerprintならegress、quota、capacityを再評価せず既存stateを返し、`requestedSeconds`をcandidateへ加算しない。terminalは`200`、in-flightと`result_unknown`は`202`で現在stateを決定的に返し、いずれも新規provider dispatchを行わない。異なるfingerprintはegress状態に依存せず`409 RESERVATION_REQUEST_MISMATCH`で拒否する。
 3. 新規keyだけ、egress enablementを確認する。egressが無効またはP0証跡未完了なら`503 BROWSER_EGRESS_NOT_VERIFIED`で停止し、新規reservationやprovider operationを開始しない。egressを通過した新規keyだけ、他のoperation keyによる`active reserved`を含む`current seconds + active reserved seconds + requested seconds`が上限を超えないことを確認する。既存keyの量を新規candidateへ二重計上しない。
 4. 新規ならreservationを作成し、`requestedSeconds`を`plannedSeconds`と`reservedSeconds`へ固定する。reservation確定時にprovider-supported idempotency/operation参照を生成して永続化し、dispatch後も同じ参照でlookupできるようにする。
 5. server計算の`deadlineAt`、`leaseGeneration`、`leaseExpiresAt`、request fingerprint、reservation ID、`resourceRef`、dispatch前に固定した`providerOperationRef`を応答へ含める。
@@ -72,7 +72,8 @@ P0のprovider絶対失効を公式契約と隔離stagingの障害注入で実証
 | 状況 | 契約応答 | 予約の扱い |
 |---|---|---|
 | 新しい要求を原子的に予約できた | `201` と`status=reserved` | provider起動前のreservedを保持 |
-| 同じkey・同じfingerprintの再送 | `200` と同じreservation ID・現在state | 新しい予約、session、provider起動を作らない |
+| 同じkey・同じfingerprintでterminal stateを再送 | `200` と同じreservation ID・現在state | 新しい予約、session、provider起動を作らない |
+| 同じkey・同じfingerprintでin-flightまたは`result_unknown`を再送 | `202 RESERVATION_RESULT_UNKNOWN` と同じreservation ID・現在state | 新しい予約、session、provider起動を作らず、同じreservationの状態を返す |
 | key再利用で要求が変わった | `409 RESERVATION_REQUEST_MISMATCH` | 既存予約を変更・解放しない |
 | 上限または同時実行数を超えた | `409 USAGE_RESERVATION_LIMIT_EXCEEDED` | reservationを作らずproviderへ通信しない |
 | provider呼出し後に応答・結果が確認できない | `202 RESERVATION_RESULT_UNKNOWN` と同じreservation ID・dispatch前に固定した`providerOperationRef` | その参照でprovider/sessionをlookupし、`result_unknown`としてlease期限後のreconciliationまで保持 |
