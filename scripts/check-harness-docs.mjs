@@ -369,7 +369,7 @@ async function hasAiFunctionDeclaration(source) {
   });
 }
 
-async function hasAiMaterializedViewDeclaration(source) {
+async function hasAiMaterializedViewOrRenameDeclaration(source) {
   if (source.trim() === "") return false;
   let ast;
   try {
@@ -379,9 +379,13 @@ async function hasAiMaterializedViewDeclaration(source) {
   }
   return ast.stmts.some(({ stmt }) => {
     const materializedViewStatement = stmt.CreateTableAsStmt;
-    if (materializedViewStatement?.objtype !== "OBJECT_MATVIEW") return false;
-    const relation = materializedViewStatement.into?.rel;
-    return typeof relation?.relname === "string" && /^ai_/i.test(relation.relname);
+    if (materializedViewStatement?.objtype === "OBJECT_MATVIEW") {
+      const relation = materializedViewStatement.into?.rel;
+      if (typeof relation?.relname === "string" && /^ai_/i.test(relation.relname)) return true;
+    }
+    const renameStatement = stmt.RenameStmt;
+    if (!["OBJECT_MATVIEW", "OBJECT_TABLE"].includes(renameStatement?.renameType)) return false;
+    return typeof renameStatement.newname === "string" && /^ai_/i.test(renameStatement.newname);
   });
 }
 
@@ -405,7 +409,7 @@ async function findAiProhibitionRule(source, rules) {
   if (rules.includes("ai-schema-objects") && await hasAiFunctionDeclaration(source)) {
     return "ai-schema-objects";
   }
-  if (rules.includes("ai-schema-objects") && await hasAiMaterializedViewDeclaration(source)) {
+  if (rules.includes("ai-schema-objects") && await hasAiMaterializedViewOrRenameDeclaration(source)) {
     return "ai-schema-objects";
   }
   return null;
