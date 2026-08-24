@@ -262,7 +262,7 @@ function isKnownProviderPackage(specifier) {
 function npmAliasTargetPackage(specifier) {
   if (typeof specifier !== "string" || !specifier.startsWith("npm:")) return null;
   const target = specifier.slice("npm:".length);
-  const match = target.match(/^(@[^/\s]+\/[^@/\s]+|[^@/\s]+)@[^\s]+$/);
+  const match = target.match(/^(@[^/\s]+\/[^@/\s]+|[^@/\s]+)(?:@[^\s]+)?$/);
   return match?.[1] ?? null;
 }
 
@@ -272,6 +272,18 @@ function isKnownProviderDependency(dependencyName, declaration) {
     return isKnownProviderPackage(npmAliasTargetPackage(declaration));
   }
   if (declaration && typeof declaration === "object") {
+    if (isKnownProviderPackage(declaration.name)) return true;
+    const dependencyMaps = [
+      declaration.dependencies,
+      declaration.devDependencies,
+      declaration.optionalDependencies,
+      declaration.peerDependencies
+    ];
+    if (dependencyMaps.some((dependencies) =>
+      dependencies && Object.entries(dependencies).some(([name, specifier]) =>
+        isKnownProviderDependency(name, specifier)
+      )
+    )) return true;
     return isKnownProviderPackage(npmAliasTargetPackage(declaration.version));
   }
   return false;
