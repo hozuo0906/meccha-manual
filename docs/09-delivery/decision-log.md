@@ -139,7 +139,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision: 売上安定をownerが確認し、実装開始を明示承認するまで、AI adapter、feature flag、Secret、endpoint、AI固有ログを作らない。FR-006は常にローカルの決定的処理とする。
 - Reason: OFF設定だけでは実装・Secret・誤有効化による費用とデータ送信リスクが残るため。
 
-## DEC-064: AI禁止SQL検査のparser採用候補をpgsql-parserへ絞る
+## DEC-065: AI禁止SQL検査のparser採用候補をpgsql-parserへ絞る
 
 - Status: Proposed
 - Date: 2026-08-24
