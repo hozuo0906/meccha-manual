@@ -52,8 +52,16 @@ staging 4 bucketは作成済みとのユーザー申告があるが、bindingと
 
 ## Path規則
 
+通常object:
+
 ```text
 {workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}
+```
+
+容量予約object:
+
+```text
+{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}
 ```
 
 例:
@@ -75,6 +83,8 @@ Postgresに保存するもの:
 - `content_type`
 - `byte_size`
 - `checksum`
+- `reservation_id`（容量予約objectだけ）
+- `fencing_token`（容量予約objectだけ）
 - `created_by`
 - `created_at`
 - `deleted_at`

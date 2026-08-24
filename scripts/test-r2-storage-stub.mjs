@@ -78,6 +78,35 @@ for (const area of Object.values(STORAGE_AREAS)) {
   assert.match(createObjectKey({ area, workspaceId: "workspace-001", resourceId: "resource-001", assetId: "asset-001", extension: "bin" }), /^workspace-001\//);
 }
 
+const reservedKey = createObjectKey({
+  area: STORAGE_AREAS.MANUAL_ASSETS,
+  workspaceId: "workspace-001",
+  resourceId: "manual-001",
+  generationId: "reservation-operation-001",
+  assetId: "asset-001",
+  extension: "png"
+});
+assert.equal(reservedKey, "workspace-001/manuals/manual-001/reservation-operation-001/asset-001.png");
+const reservedObject = await createStorageObject({
+  ...object,
+  key: reservedKey,
+  metadata: { ...object.metadata, generationId: "reservation-operation-001", reservationId: "reservation-operation-001", fencingToken: "fence-operation-001" }
+});
+assert.equal(reservedObject.metadata.generationId, "reservation-operation-001");
+await assert.rejects(createStorageObject({
+  ...object,
+  key: reservedKey,
+  metadata: { ...object.metadata, generationId: "reservation-operation-001" }
+}), /present together/i);
+await assert.rejects(createStorageObject({
+  ...object,
+  metadata: { ...object.metadata, reservationId: "reservation-operation-001", fencingToken: "fence-operation-001" }
+}), /present together/i);
+await assert.rejects(createStorageObject({
+  ...reservedObject,
+  metadata: { ...reservedObject.metadata, generationId: "reservation-operation-002" }
+}), /metadata/i);
+
 function createFakeR2Bucket() {
   const objects = new Map();
   return {
@@ -113,6 +142,13 @@ const manualBucket = createFakeR2Bucket();
 const r2Storage = createR2ObjectStorage({ MANUAL_ASSETS: manualBucket });
 assert.deepEqual(await r2Storage.put(object), { status: "stored" });
 assert.deepEqual(await r2Storage.get({ area: object.area, key: object.key }), expectedRead);
+assert.deepEqual(await storage.put(reservedObject), { status: "stored" });
+assert.equal((await storage.get({ area: reservedObject.area, key: reservedObject.key })).metadata.generationId, "reservation-operation-001");
+assert.deepEqual(await r2Storage.put(reservedObject), { status: "stored" });
+assert.equal((await r2Storage.get({ area: reservedObject.area, key: reservedObject.key })).metadata.generationId, "reservation-operation-001");
+assert.equal(manualBucket.inspect(reservedObject.key).customMetadata.reservation_id, "reservation-operation-001");
+assert.equal(manualBucket.inspect(reservedObject.key).customMetadata.fencing_token, "fence-operation-001");
+await r2Storage.delete({ area: reservedObject.area, key: reservedObject.key });
 assert.equal(manualBucket.inspect(object.key).customMetadata.manual_id, undefined);
 manualBucket.inspect(object.key).customMetadata.asset_id = "asset-999";
 await assert.rejects(r2Storage.get({ area: object.area, key: object.key }), /key does not match/i);

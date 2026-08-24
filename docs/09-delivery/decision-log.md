@@ -131,3 +131,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - hostname allowlistの存在と全通信のactual peer拘束は同義ではなく、未証明経路からのSSRFをP0として防ぐため。
 - Boundary:
   - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
+
+## DEC-068: R2予約世代とobject keyの不変性をstorage契約に固定する
+
+- Status: Accepted
+- Date: 2026-08-24
+- Decision:
+  - R2の通常objectは4 segment keyを維持し、容量予約objectだけは`workspace_id/resource_type/resource_id/reservation_generation_id/asset_id.ext`の5 segment keyを使う。
+  - generation uniquenessとcanonical object keyの一意性はoperation key間で維持する。同じoperation keyの冪等retryだけが同じgenerationをimmutableに再利用でき、別operation keyによるgenerationまたはcanonical object keyの再利用はatomicに拒否する。
+  - 予約objectの保存契約は`generationId`、`reservationId`、`fencingToken`をall-or-noneで要求する。R2 custom metadataへは`reservationId`と`fencingToken`だけを複製し、read時のgenerationは検証済みkeyから導出してmemory/R2の同じdomain shapeへ返す。
+- Reason: operation keyの再送や競合する別操作が、別世代のobjectを同一予約へ紐付けたり、同じobject keyを上書きしたりすることで、容量予約と保存結果の監査境界を壊すことを防ぐため。
+- Boundary: この決定はstorage key／metadataの設計契約だけを対象とする。quota予約のtransaction、provider terminal proof、lease/fencingの実行、reconciliation、DB migration、production適用はSlice 4以降の別Issueで扱い、本PRでは実装しない。
+- Evidence: Issue #144、PR #147のexact-head `4e7f9d4f125c9efa61034646ae3b3716a4a5fd28`、`storage-object-contract.md`、`r2-storage-harness.md`、R2 policy/stub checks。

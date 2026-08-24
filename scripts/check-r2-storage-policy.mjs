@@ -43,7 +43,10 @@ const requiredTerms = [
   "bodyから再計算",
   "完全一致",
   "同じdomain shape",
-  "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
+  "別operation key",
+  "原子的",
+  "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}",
+  "{workspace_id}/{resource_type}/{resource_id}/{reservation_generation_id}/{asset_id}.{ext}"
 ];
 
 const errors = [];
@@ -126,6 +129,11 @@ if (vocabularies.domain.length === 0 || vocabularies.contract.length === 0 || vo
   }
 }
 
+const assetsRow = contents[tableDefinitionsPath]?.match(/^\| `assets` \|([^\n]+)$/m)?.[1] ?? "";
+for (const field of ["reservation_id", "fencing_token"]) {
+  if (!assetsRow.includes(`\`${field}\``)) errors.push(`Assets table definition must include ${field}.`);
+}
+
 const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 const r2Buckets = [
   ...(wrangler.r2_buckets || []),
@@ -154,7 +162,7 @@ const domainStorage = contents[implementationFiles[0]] || "";
 if (/cloudflare|R2Bucket|R2Object/i.test(domainStorage)) {
   errors.push("Domain storage port must not reference Cloudflare or R2 SDK types.");
 }
-for (const snippet of ["createObjectKey", "createStorageReadResult", "contentType", "sizeBytes", "checksumSha256", "resourceId", "manualId", "stepId", "put", "get", "delete"]) {
+for (const snippet of ["createObjectKey", "createStorageReadResult", "contentType", "sizeBytes", "checksumSha256", "resourceId", "generationId", "manualId", "stepId", "put", "get", "delete"]) {
   if (!domainStorage.includes(snippet)) errors.push(`Missing storage port contract: ${snippet}`);
 }
 const storageImplementation = implementationFiles.slice(0, 3).map((path) => contents[path] || "").join("\n");
