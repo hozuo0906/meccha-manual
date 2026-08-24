@@ -71,6 +71,15 @@ test("nested generated and development-only manifests remain excluded", () => {
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
+test("nested product scripts remain inside the scan surface", () => {
+  const result = runFixture("nested-product-scripts");
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(output, /product-source-runtime-config\/provider-bindings/);
+  assert.match(output, /apps\/manual-editor\/scripts\/provider-config\.ts/);
+  assert.doesNotMatch(output, /AI_ENDPOINT/);
+});
+
 test("static, dynamic, and side-effect provider imports fail", () => {
   const result = runFixture("imports");
   assert.notEqual(result.status, 0, result.stdout);
