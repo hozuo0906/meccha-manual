@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse } from "pgsql-parser";
 
-const repositoryRoot = path.resolve(new URL("..", import.meta.url).pathname);
+const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixturesRoot = path.join(repositoryRoot, "tests/fixtures/ai-prohibition/parser-adoption");
 
 const expected = new Map([
@@ -39,18 +40,21 @@ for (const file of fixtureFiles) {
   const source = await readFile(path.join(fixturesRoot, file), "utf8");
   const expectation = expected.get(file);
   const started = performance.now();
+  let ast;
   try {
-    const names = extractFunctionNames(await parse(source));
-    durations.push(performance.now() - started);
-    assert.equal(expectation.error, undefined, `${file} must fail closed`);
-    assert.deepEqual(names, expectation.functions, `${file} function AST mismatch`);
-    if (expectation.functions.some((name) => name.split(".").at(-1).toLowerCase().startsWith("ai_"))) {
-      assert.ok(names.some((name) => name.split(".").at(-1).toLowerCase().startsWith("ai_")), `${file} AI function was not extracted`);
-    }
+    ast = await parse(source);
   } catch (error) {
     durations.push(performance.now() - started);
     if (!expectation.error) throw error;
     assert.match(error.message.toLowerCase(), new RegExp(expectation.error), `${file} must fail closed with the expected parser error`);
+    continue;
+  }
+  durations.push(performance.now() - started);
+  assert.equal(expectation.error, undefined, `${file} must fail closed`);
+  const names = extractFunctionNames(ast);
+  assert.deepEqual(names, expectation.functions, `${file} function AST mismatch`);
+  if (expectation.functions.some((name) => name.split(".").at(-1).toLowerCase().startsWith("ai_"))) {
+    assert.ok(names.some((name) => name.split(".").at(-1).toLowerCase().startsWith("ai_")), `${file} AI function was not extracted`);
   }
 }
 
