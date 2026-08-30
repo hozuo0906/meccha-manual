@@ -22,7 +22,7 @@ Status: Accepted
 - `01-product`: 機能要件、非機能要件、スコープ、ペルソナ
 - `02-ux`: UIUX、画面、文言、ブランド
 - `03-architecture`: システム構成、Browser Run、認証、手順書モデル、ADR
-- `04-data`: ERD、テーブル定義、RLS、Storage、データライフサイクル
+- `04-data`: ERD、D1テーブル・Worker認可境界、R2、データライフサイクル
 - `05-api`: API契約、イベント、Webhook
 - `06-security`: セキュリティ、プライバシー、脅威モデル
 - `07-quality`: テスト戦略、受入条件、レビュー基準
@@ -54,6 +54,14 @@ Status: Accepted
 - ライブな現在地: GitHub Issue #70 `META: 開発現在地・セッション引き継ぎ`
 
 新しいセッションは過去チャットだけに依存せず、上記文書、Issue #70、対象Issue/PR、最新commit、CI、review threadを照合してから作業を開始します。
+
+## Cloudflare統一移行
+
+- [ADR-0028](03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
+- [D1データ・認可境界](04-data/d1-and-storage.md)
+- [Access / D1 API移行契約](05-api/cloudflare-access-d1-api.md)
+- [Cloudflare移行ロードマップ](09-delivery/cloudflare-migration-roadmap.md)
+- 移行Epic: GitHub Issue #176
 
 ## 公開構成
 
