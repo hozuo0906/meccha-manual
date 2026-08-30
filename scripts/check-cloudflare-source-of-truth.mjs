@@ -51,7 +51,7 @@ const required = new Map([
   ]],
   ["docs/03-architecture/integrations.md", [
     "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
-    "Stripe/Discord callback", "path別Access Bypass", "通常アプリAPIと `GET /health/config`はAccess保護"
+    "Stripe/Discord callback", "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護"
   ]],
   ["docs/04-data/d1-and-storage.md", [
     "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query"
@@ -59,7 +59,8 @@ const required = new Map([
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
-    "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ"
+    "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
+    "External provider callback", "path別Access Bypass", "通常アプリAPIと `GET /health/config` はAccess保護を維持"
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",

@@ -15,6 +15,12 @@ Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、
 - email、任意header、Access到達成功だけを業務認証として信用しない。
 - JWT、OTP、Access cookie、password、refresh tokenをD1、ログ、ブラウザJavaScriptへ保存・複製しない。
 
+## External provider callback例外
+
+`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は、exact pathごとのpath別Access Bypassで外部providerからの到達だけを許可する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
+
+Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTの有界raw bodyでprovider署名、timestamp、replayをJSON parse、D1 query、Queue、外部API、状態変更より前に検証する。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。
+
 ## テナント境界
 
 全ユーザーはD1のapplication identityを持ち、業務データ操作時はactiveなworkspace membershipを必要とする。Accessへ到達できても、未招待、未登録、disabled、未所属、停止中は業務APIを拒否する。
