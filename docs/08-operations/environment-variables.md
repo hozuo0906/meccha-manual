@@ -11,20 +11,24 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 
 この台帳は名前、分類、用途だけを正本にし、どの環境へ何が登録済みかは記録しない。実際の登録状況、値、token権限はGitHub/Cloudflare/Supabase/Stripe側で権限のある担当者が確認する。
 
-`SUPABASE_SERVICE_ROLE_KEY`、`SUPABASE_DB_PASSWORD`、`SUPABASE_JWT_SECRET` は現Phaseでは登録しない。
+Supabase関連名はIssue #176の移行完了までlegacyとしてのみ扱い、新規環境へ登録しない。Access/D1の実値、audience、team domain、database IDはMarkdownやログへ記録しない。
 
 ## 台帳
 
 | 名前 | 分類 | 用途 | 必須 | クライアント公開 |
 |---|---|---|---|---|
 | `APP_ENV` | server/public | `local`、`preview`、`staging`、`production` の識別 | yes | public版のみ可 |
-| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成。productionは`https://meccha-manual.meccha-iiyatsu.com` | yes | public版のみ可 |
-| `SUPABASE_URL` | server/public | Supabase接続先 | yes | public版のみ可 |
-| `SUPABASE_ANON_KEY` | public | Supabase Auth/RESTの公開anon key | yes | yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | secret | 管理系ジョブ、将来のサーバー専用処理 | phase3以降 | no |
-| `SUPABASE_JWKS_URL` | server | JWT検証 | phase1以降 | no |
-| `SUPABASE_DB_PASSWORD` | secret | migration自動化、DB管理 | 未定 | no |
-| `SUPABASE_JWT_SECRET` | secret | JWT関連の高度な検証、管理作業 | 未定 | no |
+| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成。productionは正式アプリURL | yes | public版のみ可 |
+| `ACCESS_ISSUER` | server | 許可するCloudflare Access issuer。環境別 | migration | no |
+| `ACCESS_AUDIENCE` | server | Access application JWTのaudience。環境別 | migration | no |
+| `ACCESS_JWKS_URL` | server | Access署名鍵取得先。issuerから許可された規則で導出可能 | migration | no |
+| `DB` | binding | Cloudflare D1業務DB。staging/productionでdatabaseを共有しない | migration | no |
+| `SUPABASE_URL` | legacy | 移行前Supabase接続先。D1切替後に削除し、新規環境へ登録しない | no | no |
+| `SUPABASE_ANON_KEY` | legacy | 移行前Auth/REST。D1切替後に削除し、新規環境へ登録しない | no | no |
+| `SUPABASE_SERVICE_ROLE_KEY` | prohibited legacy secret | 新規登録・利用を禁止し、移行完了後に不要性を確認して失効 | no | no |
+| `SUPABASE_JWKS_URL` | legacy | 移行前JWT検証。Access切替後に削除 | no | no |
+| `SUPABASE_DB_PASSWORD` | prohibited legacy secret | 新規登録・利用を禁止 | no | no |
+| `SUPABASE_JWT_SECRET` | prohibited legacy secret | 新規登録・利用を禁止 | no | no |
 | `CLOUDFLARE_ACCOUNT_ID` | secret/server | Cloudflare API、Browser Run、deploy | harness | no |
 | `CLOUDFLARE_API_TOKEN` | secret | Cloudflare deploy、Workers設定 | harness | no |
 | `CF_ACCESS_CLIENT_ID` | secret | Access保護されたGitHub runner通信のservice token ID | harness | no |
@@ -105,7 +109,7 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 ## ルール
 
 - productionとstagingでsecretを共有しない。
-- `SUPABASE_ANON_KEY` は公開前提だが、service role keyと混同しない。
+- Supabase関連値は移行前baselineに限定し、新規環境へ登録しない。service role key、DB password、JWT Secretは引き続き禁止する。
 - GitHub Actionsで使うsecretはworkflow logへ出さない。
 - RLS preview用Access 2件は `staging` Environmentへ一組で登録し、Business OS用repository secretへのfallback運用を許可しない。
 - Access policyは用途別service tokenだけを許可し、同名secretでも環境・用途をまたいで値を共有しない。
