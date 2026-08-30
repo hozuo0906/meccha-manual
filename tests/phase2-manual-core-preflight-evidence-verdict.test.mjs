@@ -49,3 +49,38 @@ test("preserves PASS evidence for an allowed collection outside this correlation
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("rejects evidence counts that do not match each represented collection", async () => {
+  const expectedCounts = new Map([
+    ["preflight-gates", 6],
+    ["manual-core-matrix", 96],
+    ["publication-flow", 8],
+    ["evidence-safety", 6]
+  ]);
+  for (const [collection, expectedCount] of expectedCounts) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "phase2-evidence-count-"));
+    const copiedFixtures = path.join(directory, "fixtures");
+    await cp(FIXTURE_DIR, copiedFixtures, { recursive: true });
+    const file = path.join(copiedFixtures, "valid-blocked.json");
+    const fixture = JSON.parse(await readFile(file, "utf8"));
+    fixture.evidence.events = fixture.evidence.events.map((event) => ({
+      ...event,
+      collection,
+      count: expectedCount + 1,
+      verdict: "FAIL"
+    }));
+    await writeFile(file, JSON.stringify(fixture), "utf8");
+    try {
+      assert.throws(
+        () => execFileSync(process.execPath, [CHECKER, `--fixtures-dir=${copiedFixtures}`], {
+          cwd: ROOT,
+          encoding: "utf8",
+          stdio: "pipe"
+        }),
+        /count does not match represented collection/
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
