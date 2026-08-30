@@ -33,7 +33,7 @@
 - [開発エージェントルール](AGENTS.md)
 - [機能要件](docs/01-product/product-requirements.md)
 - [システム概要](docs/03-architecture/system-overview.md)
-- [テーブル定義](docs/04-data/table-definitions.md)
+- [D1データ・認可境界](docs/04-data/d1-and-storage.md)
 - [テスト戦略](docs/07-quality/test-strategy.md)
 - [Issue分解](docs/09-delivery/issue-map.md)
 - [ドメインと公開構成](docs/08-operations/domain-and-publication.md)
