@@ -19,7 +19,7 @@ Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、
 
 `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は、exact pathごとのpath別Access Bypassで外部providerからの到達だけを許可する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
 
-Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界JSON parseとschema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約だけを業務処理前に唯一許すguard state changeとし、新規予約に成功したrequestだけQueue、外部API、業務D1、entitlementその他の副作用へ進める。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常ブラウザwrite APIだけに同一Originを必須とし、この2 callbackでは `Origin` で認証しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。
+Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POST/body上限、raw bodyのprovider署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、Queue、外部API、業務D1、entitlementその他の副作用へ進める。receiptは `received/processing/retryable/reconcile_required/completed/dead_letter` で管理し、同じID・digestの再送は既存workを状態別に維持・再開・照合・冪等successとする。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常ブラウザwrite APIだけに同一Originを必須とし、この2 callbackでは `Origin` で認証しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。OQ-031完了前はBypassを有効化しない。
 
 ## テナント境界
 

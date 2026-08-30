@@ -7,7 +7,11 @@ Status: Accepted
 ## 共通
 
 - 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。
-- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Workerはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約後だけQueue、外部API、業務D1、entitlementその他の副作用へ進め、Bypassや`Origin`を認証・認可の代替にしない。
+- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Bypassや `Origin` を認証・認可の代替にしない。
+- callbackはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証し、有界parse/schema検証とprovider固有allowlist検証を行う。
+- provider event/interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationでauthoritative storeへ保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
+- receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。同じID・同じdigestの再送は既存workを状態別に維持・再開・照合・冪等successとし、同じID・異なるdigestは拒否する。結果不明の副作用は照合前に自動再送せず、受理済みworkを黙って失わない。
+- OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative testが揃うまでpath別Access Bypassを有効化しない。
 - 業務認可はWorkerでactive identity、membership、role、resource workspaceを再照合する。
 - tenant境界はworkspace固定D1 query、D1制約、private R2認可で多層化する。
 - エラーは日本語UI向けコードと運用向け詳細を分ける。
@@ -150,7 +154,7 @@ runnerはproduction deploy、rollback、DB migration、secret変更をこの契�
 - 必須header: `x-signature-ed25519`, `x-signature-timestamp`
 - timestamp許容: 5分以内
 - body上限: 64KB
-- replay/idempotency: 署名・timestamp検証後に有界parse/schema検証を行い、interaction IDをauthoritative storeへ原子的に予約する。`DISCORD_INTERACTION_STORE` KVの既存get→putは移行前baselineであり、単独のreplay guard正本にせず、予約後の短期応答cacheに限定できる。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない
+- replay/idempotency: 署名・timestamp検証後に有界parse/schema検証とallowlist検証を行い、interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。`DISCORD_INTERACTION_STORE` KVの既存get→putは移行前baselineであり、単独のreplay guard正本にせず、guard commit後の短期応答cacheに限定できる。再送はreceipt stateに従って同じworkを維持・再開・照合・冪等successとし、新しいIssue workを作らない。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない
 - 許可範囲: `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする
 - 応答: slash commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する
 - GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`, `status/triage`, `priority/P0|P1|P2|P3`

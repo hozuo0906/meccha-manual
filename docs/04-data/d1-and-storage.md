@@ -49,9 +49,20 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 
 ## Provider callback replay境界
 
-Stripe/Discord callbackは、raw bodyの署名・署名対象timestampを副作用なしで検証し、有界parse/schema検証後にprovider event/interaction IDをauthoritative storeへ原子的に予約してから業務処理へ進める。予約だけを業務処理前に唯一許すguard state changeとする。既存のDiscord KV get→putは単独のauthoritative replay guardにしない。
+Stripe/Discord callbackは、raw bodyの署名・署名対象timestampを副作用なしで検証し、有界parse/schema・allowlist検証後に次を単一のatomic guard operationでauthoritative storeへ保存する。
 
-具体的なCloudflare-native storeとschemaはOQ-031をIssue #176 M2で解決する。D1を選ぶ場合はtable定義、migration、unique constraint、途中失敗・並行再送negative testを同じPRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
+- provider種別、event/interaction ID、payload digest
+- receipt state、attempt、processing lease期限、次回試行時刻
+- 再実行に必要な最小workまたはdurable outbox参照
+- 作成時刻、更新時刻、完了時刻、監査用error code
+
+初期状態は `received` とし、guard commit成功後だけproviderへ成功応答する。保存済みoutboxからdispatcherを起動し、Queue、外部API、業務D1、entitlementその他の副作用へ進める。guard commitとQueue投入の間で停止してもoutboxから回収できることを必須にする。
+
+receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` の明示遷移表を持つ。一時失敗と期限切れprocessing leaseは同じreceiptを再開する。外部APIの結果不明は `reconcile_required` とし、idempotency keyまたは決定的correlation markerで照合するまで副作用を自動再送しない。上限到達は `dead_letter` として監査・運用アラート・明示再開対象にし、受理済みworkを黙って失わない。
+
+同じprovider ID・同じpayload digestの再送は新しいreceipt/workを作らず、状態に応じて維持、再開、照合、冪等successとする。同じID・異なるdigestは拒否して監査する。既存のDiscord KV get→putはatomic compare-and-setではないため、単独のauthoritative replay guardにしない。
+
+具体的なCloudflare-native store、atomic receipt/work、lease、dispatcher、保持する最小payloadはOQ-031をIssue #176 M2で解決する。D1を選ぶ場合はtable定義、migration、unique constraint、state CHECK、lease index、outbox、途中失敗・並行再送・結果不明negative testを同じPRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
 
 ## Query contract
 

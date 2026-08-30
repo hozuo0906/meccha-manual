@@ -34,9 +34,24 @@ StripeとDiscordの外部providerは対話的なAccess loginやapplication JWT�
 - `POST /v1/webhooks/stripe`
 - `POST /v1/integrations/discord/interactions`
 
-より具体的なpath applicationをhostname applicationより優先させる。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Bypassを認証・認可の代替にせず、Workerの処理順序を、(1) exact POSTとbody上限の確認、(2) raw bodyのprovider署名・署名対象timestampを副作用なしで検証、(3) 有界JSON parseとschema検証、(4) provider event/interaction IDをauthoritative replay/idempotency storeへ原子的に予約、(5) Queue、外部API、業務D1、entitlementその他の副作用、に固定する。原子的な予約だけを業務処理前に唯一許すguard state changeとする。別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落は予約前、replayは予約時にfail closedで拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。
+より具体的なpath applicationをhostname applicationより優先させる。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Bypassを認証・認可の代替にしない。
 
-通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。原子的な予約storeの選択はOQ-031をIssue #176 M2で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
+Workerのcallback処理順序を次へ固定する。
+
+1. exact POSTとbody上限を確認する。
+2. raw bodyのprovider署名・署名対象timestampを副作用なしで検証する。
+3. 有界parse/schema検証とprovider固有allowlist検証を行う。
+4. provider event/interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationでauthoritative storeへ保存し、初期状態を `received` にする。このguard commitだけを業務処理前に唯一許すstate changeとする。
+5. guard commit成功後だけproviderへ成功応答する。Stripeは2xx、Discordは3秒以内のdeferred responseとし、commit失敗時は成功応答しない。
+6. 保存済みwork/outboxからdispatcherを起動し、Queue、外部API、業務D1、entitlementその他の副作用へ進める。
+
+receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` の明示状態機械で扱う。既知の一時失敗と期限切れprocessing leaseは同じreceiptを `retryable` として再開する。外部APIの結果不明は `reconcile_required` とし、provider idempotency keyまたは決定的correlation markerによる照合が済むまで副作用を自動再送しない。上限到達は `dead_letter` として監査・運用アラート・明示再開対象にし、受理済みworkを黙って失わない。
+
+同じID・同じpayload digestの再送は新しいworkを作らず、`received/processing` は既存workを維持し、`retryable` または期限切れleaseは同じworkを再開し、`reconcile_required` は照合だけを進め、`completed` は冪等successを返す。同じID・異なるpayload digestは拒否して監査する。Queue投入失敗は永続outboxから再試行し、予約済みだが未処理のまま失われる隙間を作らない。
+
+別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落・provider allowlist不一致はguard commit前にfail closedで拒否する。callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
+
+通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。authoritative store、atomic receipt/work、lease、dispatcherの具体方式はOQ-031をIssue #176 M2で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
 
 ## Authorization boundary
 

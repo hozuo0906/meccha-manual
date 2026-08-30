@@ -58,17 +58,18 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 
 ## Webhook処理
 
-1. raw bodyと `Stripe-Signature` を使い、上限サイズと時刻許容を含めて署名を検証する。
-2. 署名検証前はJSON parse、監査payload保存、状態変更をしない。
-3. `payment_events.stripe_event_id` の一意制約で重複を受理済みとして終了する。
-4. event type、object ID、payload digest、受信時刻、処理結果だけを保存し、生payloadを長期保存しない。
-5. Price IDを環境別のserver configへ照合し、offer codeを決定する。
-6. checkout intent、payment、subscription、customerの識別子を照合し、Linkのメールだけで対象を決めない。
-7. イベント到着順を信用せず、payment/subscription/customer単位のreconciliation jobへ渡す。
-8. 状態遷移とentitlement更新を同一transactionまたは再実行可能な処理にまとめる。
-9. 失敗は再試行可能にし、重複再送でも二重付与しない。
-10. flagがfalseでも既存課金objectの署名済みeventを受け付ける。未知・期限後まで未完了・別Session・消費済みintentへの支払いは放置せず、自動返金queueと運用アラートへ送る。Webhook到着時点でintent期限を過ぎているだけでは返金対象にしない。
-11. subscription modeで照合不能または競合した場合はentitlementを拒否し、subscriptionを冪等にcancelする。invoiceは `draft` を削除、`open` をvoid、`paid` の実PaymentIntent/Chargeだけをrefund queueへ登録し、`void`/`uncollectible` は未払いを確認する。全処理の確認までreconciliationを再試行し、権利なしの継続請求を残さない。
+1. exact POSTとbody上限を確認する。
+2. raw bodyと `Stripe-Signature` を使い、署名対象timestampの時刻許容を含めて副作用なしで検証する。署名検証前はJSON parse、監査payload保存、状態変更をしない。
+3. 有界parse/schema検証を行い、event ID、event type、object IDを取得する。
+4. `stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存し、`received` にする。生payloadを長期保存しない。
+5. guard commit成功後だけStripeへ2xxを返す。保存失敗時は非2xxを返してprovider再送を可能にする。
+6. 保存済みoutboxからdispatcherを起動し、Price IDを環境別server configへ照合してoffer codeを決定する。checkout intent、payment、subscription、customerを照合し、Linkのメールだけで対象を決めない。
+7. receipt/workを `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。既知の一時失敗・期限切れleaseは同じworkを再開し、Stripe APIの結果不明はidempotency key/object再取得で照合するまで副作用を自動再送しない。
+8. 同じ `stripe_event_id`・同じpayload digestの再送は新しいworkを作らず状態別に維持・再開・照合・冪等successとする。同じID・異なるdigestは拒否して監査する。
+9. イベント到着順を信用せず、payment/subscription/customer単位のreconciliationへ集約する。状態遷移とentitlement更新はatomicまたは再実行可能にし、全副作用の確認後だけ `completed` にする。
+10. retry上限到達は `dead_letter` として監査・運用アラート・明示再開対象にし、受理済みeventを黙って失わない。
+11. flagがfalseでも既存課金objectの署名済みeventを受け付ける。未知・期限後まで未完了・別Session・消費済みintentへの支払いは放置せず、自動返金outboxと運用アラートへ一度だけ登録する。Webhook到着時点でintent期限を過ぎているだけでは返金対象にしない。
+12. subscription modeで照合不能または競合した場合はentitlementを拒否し、subscriptionを冪等にcancelする。invoiceは `draft` を削除、`open` をvoid、`paid` の実PaymentIntent/Chargeだけをrefund outboxへ登録し、`void`/`uncollectible` は未払いを確認する。全処理の確認までreconciliationを再試行し、権利なしの継続請求を残さない。
 
 ## entitlement
 

@@ -31,9 +31,20 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 
 ## External provider callback
 
-`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
+`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Access Bypassは到達だけを許可し、認証・認可の代替にしない。
 
-Access Bypassは到達だけを許可し、認証・認可の代替にしない。Workerの順序は、exact POSTとbody上限の確認、raw bodyのStripe署名またはDiscord Ed25519署名・署名対象timestampの副作用なし検証、有界JSON parse/schema検証、provider event/interaction IDのauthoritative storeへの原子的予約、Queue・外部API・業務D1・entitlementその他の副作用、とする。予約だけを業務処理前に唯一許すguard state changeとする。別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落は予約前、replayは予約時に拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない。
+処理順序は次のとおりとする。
+
+1. exact POSTとbody上限を確認する。
+2. raw bodyのprovider署名・署名対象timestampを副作用なしで検証する。
+3. 有界parse/schema検証とprovider固有allowlist検証を行う。
+4. provider event/interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationでauthoritative storeへ保存し、`received` にする。
+5. guard commit成功後だけproviderへ成功応答する。
+6. 保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用を開始する。
+
+guard commitだけを業務処理前に唯一許すstate changeとする。receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。一時失敗・期限切れleaseは同じworkを再開し、外部APIの結果不明は照合完了まで自動再送せず、上限到達は監査・アラート・明示再開対象にする。同じID・同じpayload digestの再送は状態に応じて既存workの維持・再開・照合・冪等successとし、新しいworkを作らない。同じID・異なるdigestは拒否する。
+
+別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落・allowlist不一致はguard commit前に拒否する。Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative test完了前はpath別Access Bypassを有効化しない。
 
 ## Application session
 

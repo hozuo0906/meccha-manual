@@ -35,80 +35,116 @@ const required = new Map([
     "検証済みAccess主体", "workspace固定D1 query", "D1制約", "Access service token",
     "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2、Browser Run"
   ]],
+  ["docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md", [
+    "署名対象timestampを副作用なしで検証", "receiptと再実行可能なreconciliation work/outbox",
+    "received/processing/retryable/reconcile_required/completed/dead_letter", "結果不明は照合前に自動再送しない"
+  ]],
+  ["docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md", [
+    "署名対象timestampを副作用なしで検証", "有界parse/schema検証", "receiptと再実行可能なIssue work/outbox",
+    "lease付き`processing`", "reconcile_required", "同じinteraction ID・同じpayload digest",
+    "単独のreplay guard正本にしない", "OQ-031"
+  ]],
+  ["docs/03-architecture/adrs/ADR-0022-free-first-stripe-billing.md", [
+    "署名対象timestampを副作用なしで検証", "receiptと再実行可能なreconciliation work/outbox",
+    "received/processing/retryable/reconcile_required/completed/dead_letter", "同じID・異なるdigestは拒否"
+  ]],
   ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", [
     "access_user | service_token", "空の `sub`", "`common_name`",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
     "External provider callback boundary", "path別Access Bypass", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
-    "署名対象timestampを副作用なしで検証", "有界JSON parseとschema検証", "provider event/interaction IDをauthoritative replay/idempotency storeへ原子的に予約", "唯一許すguard state change",
+    "receiptと再実行可能なwork/outboxを単一のatomic operation", "guard commit成功後だけproviderへ成功応答",
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest",
+    "受理済みworkを黙って失わない", "path別Access Bypassを有効化しない",
     "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027"
   ]],
   ["docs/03-architecture/adrs/README.md", [
     "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
   ]],
-  ["docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md", [
-    "署名対象timestampを副作用なしで検証", "有界JSON parse/schema検証", "interaction IDをauthoritative storeへ原子的に予約", "既存get→putは移行前baseline", "OQ-031"
-  ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
     "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
-    "External provider callback", "path別Access Bypass", "Bypassは到達だけを許可し、認証・認可の代替にしない",
-    "署名対象timestampを副作用なしで検証", "有界JSON parseとschema検証", "authoritative storeへ原子的に予約", "通常ブラウザwrite APIだけに同一Origin"
+    "External provider callback", "path別Access Bypass", "receiptと再実行可能なwork/outbox",
+    "received/processing/retryable/reconcile_required/completed/dead_letter", "通常ブラウザwrite APIだけに同一Origin"
   ]],
   ["docs/03-architecture/integrations.md", [
     "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
-    "Stripe/Discord callback", "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護",
-    "署名対象timestampを副作用なしで検証", "有界parse/schema検証", "authoritative storeへ原子的に予約", "callbackでは`Origin`を認証根拠にしない"
+    "Stripe/Discord callback", "receiptと再実行可能なwork/outbox", "結果不明は照合前に自動再送せず",
+    "既存Discord KV get→putはauthoritative guardにせず", "callbackでは`Origin`を認証根拠にしない"
   ]],
   ["docs/04-data/d1-and-storage.md", [
     "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query",
-    "Provider callback replay境界", "唯一許すguard state change", "OQ-031"
+    "Provider callback replay境界", "単一のatomic guard operation", "再実行に必要な最小workまたはdurable outbox参照",
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
-    "External provider callback", "path別Access Bypass", "通常アプリAPIと `GET /health/config` はAccess保護を維持",
-    "署名対象timestampの副作用なし検証", "有界JSON parse/schema検証", "authoritative storeへの原子的予約", "通常のブラウザ状態変更APIは同一origin"
+    "External provider callback", "receiptと再実行可能なwork/outboxを単一のatomic operation",
+    "guard commit成功後だけproviderへ成功応答", "lease付き`processing`", "`reconcile_required`", "`dead_letter`",
+    "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない"
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
     "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
-    "path別Access Bypassは到達経路に限る", "raw bodyのprovider署名・署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "Bypassや`Origin`を認証・認可の代替にしない",
+    "path別Access Bypassは到達経路に限る", "receiptと再実行可能なwork/outboxを単一のatomic operation",
+    "guard commit成功後だけproviderへ成功応答", "received", "reconcile_required", "dead_letter",
     "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
-  ]],
-  ["docs/08-operations/domain-and-publication.md", [
-    "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない",
-    "path別Access Bypass application", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
-    "署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "通常のブラウザwrite APIはアプリ自身のOriginだけ", "`Origin`の有無や値を認証根拠にせず",
-    "通常アプリAPIはAccess user用application", "`GET /health/config`はservice-token用Access application/policy"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
     "Access session終了導線", "Access cookieやrefresh tokenをアプリから操作しない", "認証世代",
-    "AC-018", "AC-019", "hostname全体やwildcard pathへBypassを適用せず",
-    "署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "replayは原子的予約時に拒否", "`Origin`をcallback認証に使わない"
+    "AC-018", "AC-019", "AC-027", "receiptと再実行可能なwork/outbox",
+    "received/processing/retryable/reconcile_required/completed/dead_letter", "受理済みworkを黙って失わず",
+    "`Origin`をcallback認証に使わない", "path別Access Bypassを有効化しない"
   ]],
   ["docs/07-quality/test-strategy.md", [
     "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ",
     "Access session終了導線", "refresh token交換やAccess cookie削除を行わない", "認証世代",
-    "Access callback境界", "path別Access Bypass", "署名対象timestampを副作用なしで検証", "有界parse/schema検証後", "authoritative storeへ原子的に予約", "KV get→putだけでは原子性合格にせず"
+    "Access callback境界", "receiptと再実行可能なwork/outbox", "processing lease期限",
+    "結果不明照合", "KV get→putだけでは原子性合格にせず", "path別Access Bypassを有効化しない"
+  ]],
+  ["docs/08-operations/domain-and-publication.md", [
+    "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない",
+    "path別Access Bypass application", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
+    "receiptと再実行可能なwork/outbox", "結果不明は照合前に自動再送せず",
+    "通常のブラウザwrite APIはアプリ自身のOriginだけ", "`Origin`の有無や値を認証根拠にせず",
+    "通常アプリAPIはAccess user用application", "`GET /health/config`はservice-token用Access application/policy"
   ]],
   ["docs/08-operations/environment-variables.md", [
     "Issue #176 M5 staging immutable-preview検証用Access service token ID",
-    "Issue #176 M5 immutable preview検証用Access service token 2件"
+    "Issue #176 M5 immutable preview検証用Access service token 2件",
+    "authoritative replay guardには使わず", "atomic receipt/work commit後の短期応答cache",
+    "OQ-031／Issue #176 M2", "path別Access Bypassを有効化しない"
+  ]],
+  ["docs/08-operations/discord-reporting-and-command-bridge.md", [
+    "exact POSTとbody上限", "署名対象 `x-signature-timestamp` を副作用なしで検証",
+    "有界parse/schema検証", "receiptと再実行可能なIssue work/outbox",
+    "guard commit成功後だけDiscordへ3秒以内にdeferred", "lease付き`processing`",
+    "`reconcile_required`", "`dead_letter`", "authoritative replay guardではなく",
+    "OQ-031", "path別Access Bypassを有効化しない"
+  ]],
+  ["docs/08-operations/stripe-billing-harness.md", [
+    "exact POSTとbody上限", "署名対象timestamp", "副作用なしで検証", "有界parse/schema検証",
+    "receiptと再実行可能なreconciliation work/outbox", "guard commit成功後だけStripeへ2xx",
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
-    "実行可能workflowをdefault branchから削除", "OQ-031を解決", "既存Discord KV get→putを単独のreplay guard正本にしない"
+    "実行可能workflowをdefault branchから削除", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
+    "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない"
   ]],
   ["docs/09-delivery/decision-log.md", [
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
     "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持",
-    "唯一許すguard state change", "通常ブラウザwrite APIだけに同一Origin", "OQ-031をM2で解決"
+    "receiptと再実行可能なwork/outbox", "received/processing/retryable/reconcile_required/completed/dead_letter",
+    "結果不明は照合前に自動再送せず", "OQ-031をM2で解決"
   ]],
   ["docs/09-delivery/open-questions.md", [
-    "OQ-031", "Issue #176 M2", "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない"
+    "OQ-031", "Issue #176 M2", "receiptと再実行可能なwork/outbox",
+    "received/processing/retryable/reconcile_required/completed/dead_letter",
+    "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない"
   ]]
 ]);
 
@@ -124,13 +160,23 @@ const forbidden = new Map([
   ["docs/03-architecture/adrs/ADR-0024-domain-and-publication-boundary.md", ["Supabase production設定", "Supabase Site URL", "Supabaseのredirect allowlist"]],
   ["docs/03-architecture/adrs/ADR-0025-consent-based-member-join-codes.md", ["SECURITY DEFINER RPC", "RLS経由"]],
   ["docs/03-architecture/adrs/ADR-0027-prelaunch-repository-and-staging-boundary.md", ["staging Workerの `SUPABASE_URL`", "`SUPABASE_ANON_KEY` は承認済み", "production Supabase"]],
+  ["docs/03-architecture/adrs/ADR-0022-free-first-stripe-billing.md", [
+    "`stripe_event_id` の一意制約で重複を拒否する"
+  ]],
+  ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", [
+    "replayは予約時にfail closedで拒否", "provider event/interaction IDをauthoritative replay/idempotency storeへ原子的に予約"
+  ]],
+  ["docs/05-api/cloudflare-access-d1-api.md", [
+    "replayは予約時に拒否", "authoritative storeへの原子的予約、Queue"
+  ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
+    "新規予約に成功したrequestだけ",
     "Supabase Authを使います", "API WorkerはSupabase JWT", "RLS: 最終防衛線",
     "空の `sub` または `common_name` を持つmachine actor"
   ]],
   ["docs/03-architecture/integrations.md", ["Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
   ["docs/04-data/storage-object-contract.md", ["## Postgresメタデータ", "認可時はPostgres正本", "WorkerはSupabase session"]],
-  ["docs/05-api/api-contracts.md", ["# API契約\n\nStatus: Superseded"]],
+  ["docs/05-api/api-contracts.md", ["# API契約\n\nStatus: Superseded", "新規予約に成功", "単独のreplay guard正本にせず、予約後"]],
   [".github/workflows/phase1-readiness-gate.yml", ["Phase 1着手前ゲートは通っています", "本番開発へ進めます"]],
   ["docs/05-api/browser-capture-foundation-api.md", ["将来の永続化はworkspace RLS"]],
   ["docs/06-security/security-and-privacy.md", ["- RLS抜け。"]],
@@ -149,7 +195,13 @@ const forbidden = new Map([
   ]],
   ["docs/08-operations/observability-and-runbook.md", ["Supabase RLS denial rate", "Supabase障害:"]],
   ["docs/08-operations/r2-storage-harness.md", ["権限の正本はSupabase Auth", "Postgresメタデータ方針"]],
-  ["docs/08-operations/environment-variables.md", ["RLS preview用"]],
+  ["docs/08-operations/environment-variables.md", [
+    "RLS preview用", "Discord interaction IDの短期replay防止KV binding",
+    "`DISCORD_INTERACTION_STORE` KV bindingを設定し、同じDiscord interaction IDから重複Issueを作らない"
+  ]],
+  ["docs/08-operations/discord-reporting-and-command-bridge.md", [
+    "`DISCORD_INTERACTION_STORE` でinteraction IDを短期保存し、同じDiscord requestから重複Issueを作らない"
+  ]],
   ["docs/09-delivery/decision-log.md", ["認証遷移を直列化し"]]
 ]);
 
@@ -180,7 +232,7 @@ for (const [path, terms] of required) {
 }
 for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
-  for (const term of terms) if (content.includes(term)) errors.push(`Active source retains retired Supabase instruction in ${path}: ${term}`);
+  for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
 }
 for (const [path, successor] of superseded) {
   const head = (contents.get(path) ?? "").split(/\r?\n/).slice(0, 10).join("\n");
@@ -233,9 +285,133 @@ if (apiContracts.includes("GET /health/config` | Cloudflare Workerが必要な�
   errors.push("GET /health/config must not be documented as a public route.");
 }
 
+function callbackSection(path, startMarker, endMarker) {
+  const content = contents.get(path) ?? "";
+  const start = content.indexOf(startMarker);
+  if (start < 0) {
+    errors.push(`Missing callback section start in ${path}: ${startMarker}`);
+    return "";
+  }
+  const end = endMarker ? content.indexOf(endMarker, start + startMarker.length) : content.length;
+  if (end < 0) {
+    errors.push(`Missing callback section end in ${path}: ${endMarker}`);
+    return "";
+  }
+  return content.slice(start, end);
+}
+
+function requireOrderedCallbackMarkers({ path, start, end, markers }) {
+  const section = callbackSection(path, start, end);
+  if (!section) return;
+  let cursor = 0;
+  for (const marker of markers) {
+    const index = section.indexOf(marker, cursor);
+    if (index < 0) {
+      errors.push(`Callback contract order is missing or reversed in ${path}: ${marker}`);
+      return;
+    }
+    cursor = index + marker.length;
+  }
+}
+
+const commonCallbackOrder = [
+  "exact POSTとbody上限",
+  "署名対象timestampを副作用なしで検証",
+  "有界parse/schema検証",
+  "receiptと再実行可能なwork/outboxを単一のatomic operation",
+  "providerへ成功応答",
+  "Queue、外部API、業務D1",
+  "path別Access Bypassを有効化しない"
+];
+
+for (const spec of [
+  {
+    path: "docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md",
+    start: "## External provider callback boundary",
+    end: "## Authorization boundary",
+    markers: commonCallbackOrder
+  },
+  {
+    path: "docs/05-api/cloudflare-access-d1-api.md",
+    start: "## External provider callback",
+    end: "## Application session",
+    markers: commonCallbackOrder
+  },
+  {
+    path: "docs/05-api/api-contracts.md",
+    start: "## 共通",
+    end: "## API一覧",
+    markers: [
+      "exact POSTとbody上限",
+      "署名対象timestampを副作用なしで検証",
+      "有界parse/schema検証",
+      "receiptと再実行可能なwork/outboxを単一のatomic operation",
+      "guard commit成功後だけproviderへ成功応答",
+      "保存済みoutboxからQueue",
+      "path別Access Bypassを有効化しない"
+    ]
+  },
+  {
+    path: "docs/07-quality/test-strategy.md",
+    start: "# テスト戦略",
+    end: null,
+    markers: [
+      "exact POSTとbody上限",
+      "署名対象timestampを副作用なしで検証",
+      "有界parse/schema・allowlist検証",
+      "receiptと再実行可能なwork/outboxを単一のatomic operation",
+      "providerへ成功応答",
+      "保存済みoutboxからQueue",
+      "path別Access Bypassを有効化しない"
+    ]
+  },
+  {
+    path: "docs/07-quality/acceptance-catalog.md",
+    start: "| AC-018 |",
+    end: "| AC-017 |",
+    markers: [
+      "exact POSTとbody上限",
+      "署名対象timestampを副作用なしで検証",
+      "有界parse/schema・allowlist検証",
+      "receiptと再実行可能なwork/outboxを単一のatomic operation",
+      "guard commit成功後だけproviderへ成功応答",
+      "保存済みoutboxからQueue",
+      "path別Access Bypassを有効化しない"
+    ]
+  },
+  {
+    path: "docs/08-operations/discord-reporting-and-command-bridge.md",
+    start: "Workerの処理:",
+    end: "危険操作検知:",
+    markers: [
+      "exact POSTとbody上限",
+      "署名対象 `x-signature-timestamp` を副作用なしで検証",
+      "有界parse/schema検証",
+      "receiptと再実行可能なIssue work/outboxを単一のatomic operation",
+      "guard commit成功後だけDiscordへ3秒以内にdeferred",
+      "保存済みoutboxからdispatcher",
+      "path別Access Bypassを有効化しない"
+    ]
+  },
+  {
+    path: "docs/08-operations/stripe-billing-harness.md",
+    start: "## Webhook処理",
+    end: "## entitlement",
+    markers: [
+      "exact POSTとbody上限",
+      "署名対象timestamp",
+      "副作用なしで検証",
+      "有界parse/schema検証",
+      "receiptと再実行可能なreconciliation work/outboxを単一のatomic operation",
+      "guard commit成功後だけStripeへ2xx",
+      "保存済みoutboxからdispatcher"
+    ]
+  }
+]) requireOrderedCallbackMarkers(spec);
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 
-console.log("Cloudflare source-of-truth OK: active contracts use Access/Workers/D1/R2, legacy Supabase runbooks are fenced, and the live RLS workflow is absent.");
+console.log("Cloudflare source-of-truth OK: Access/Workers/D1/R2 contracts, callback order/recovery, legacy fences, and retired live RLS workflow are consistent.");

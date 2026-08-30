@@ -12,6 +12,7 @@ Status: Accepted
 
 ## 影響
 
-- `payment_events.stripe_event_id` をuniqueにする。
-- webhook処理はraw bodyで署名検証する。
-- entitlement変更は一元化する。
+- webhook処理はraw bodyの署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行う。
+- `payment_events.stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存し、guard commit後だけ2xxを返す。
+- receipt/workは `received/processing/retryable/reconcile_required/completed/dead_letter` で管理し、同じID・digestの再送は同じworkを再開・照合・冪等successとする。結果不明は照合前に自動再送しない。
+- entitlement変更は一元化し、全副作用確認後だけcompletedにする。

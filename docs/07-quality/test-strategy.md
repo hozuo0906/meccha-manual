@@ -17,7 +17,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - Cloudflare Accessのログイン、Access session終了導線によるログアウト、期限切れ、再認証。アプリはrefresh token交換やAccess cookie削除を行わない。認証世代が変わった後の古いsession／workspace応答を破棄し、状態変更を自動再送せず、上流通信失敗とlogout結果不明を安全に案内できることを確認する。
 - owner/admin/editor/viewerの権限。
 - Access JWT／Worker認可／D1 tenant・role・status・ID差し替えnegative/mutation test。移行前Postgres baselineを変更する場合だけRLS negative testも実施する。
-- Access callback境界。Stripe/Discordのexact pathだけがpath別Access BypassでWorkerへ到達し、exact POST・body上限の確認後、raw bodyの署名・署名対象timestampを副作用なしで検証し、有界parse/schema検証後にprovider event/interaction IDをauthoritative storeへ原子的に予約する順序を確認する。別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落は予約前、replayは予約時に拒否し、予約以外のQueue、外部API、業務D1、entitlementその他の副作用がないことを確認する。KV get→putだけでは原子性合格にせず、通常ブラウザwrite APIだけに同一Originを必須とする。hostname全体やwildcard pathはBypassせず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。
+- Access callback境界。Stripe/Discordのexact pathだけがpath別Access BypassでWorkerへ到達し、exact POSTとbody上限、raw bodyの署名・署名対象timestampを副作用なしで検証、有界parse/schema・allowlist検証、provider ID・payload digest・receiptと再実行可能なwork/outboxを単一のatomic operationで保存、providerへ成功応答、保存済みoutboxからQueue・外部API・業務D1を開始、の順序をmutation testで固定する。guard commit失敗時は成功応答しない。`received/processing/retryable/reconcile_required/completed/dead_letter`、processing lease期限、一時失敗、Queue投入前停止、結果不明照合、同一ID・同一digest再送、同一ID・異なるdigest、並行再送を検証し、受理済みworkの消失・二重副作用・結果不明の盲目的再送がないことを確認する。KV get→putだけでは原子性合格にせず、通常ブラウザwrite APIだけに同一Originを必須とする。hostname全体やwildcard pathはBypassせず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。 OQ-031の方式決定・実装・schema/migration・recovery test完了前はpath別Access Bypassを有効化しない。
 - ワークスペース越境のAPI/DB/Storageアクセス拒否。
 - 手順書の下書きと公開版の分離。
 - 操作記録セッションの起動、切断、再接続、終了。

@@ -67,12 +67,12 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 
 - staging用D1 schema/migration
 - identities、profiles、workspaces、workspace_members、join codes、audit logs
-- OQ-031を解決し、Stripe/Discordのprovider event/interaction IDをCloudflare-native authoritative storeへ原子的に予約する。D1を選ぶ場合はschema/migration/unique constraintを同じPRへ含め、既存Discord KV get→putを単独のreplay guard正本にしない
+- OQ-031を解決し、Stripe/Discordのprovider ID、payload digest、receiptと再実行可能なwork/outboxをCloudflare-native authoritative storeへ単一のatomic operationで保存する。`received/processing/retryable/reconcile_required/completed/dead_letter`、processing lease、dispatcher、結果不明照合を実装する。D1を選ぶ場合はschema/migration/unique/state CHECK/lease index/outboxを同じPRへ含め、既存Discord KV get→putを単独のreplay guard正本にしない
 - workspace固定repository API
 - 別workspace、viewer、disabled、last-owner、ID差し替えnegative test
 - backup/export/restore rehearsal
 - staging/production binding分離scanner
-- callback予約の並行再送・途中失敗negative test。完了までは環境を問わずpath別Access Bypassを有効化しない
+- callbackのguard commit失敗、commit直後・Queue投入前停止、processing lease期限、一時失敗、結果不明、同一ID・同一digest並行再送、同一ID・異なるdigest、completed再送のnegative/recovery test。受理済みworkの消失・二重副作用がないことを証明し、完了までは環境を問わずpath別Access Bypassを有効化しない
 
 完了条件:
 
