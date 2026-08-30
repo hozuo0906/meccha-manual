@@ -1,14 +1,14 @@
 # API契約
 
-Status: Superseded
+Status: Accepted
 
-Superseded by [Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)。以下はSupabase実装の移行前baselineとして保持する。
+本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
 ## 共通
 
-- 認証はSupabase JWT。
-- 業務認可はAPI Workerで判定。
-- 最終防衛線はRLS。
+- 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。
+- 業務認可はWorkerでactive identity、membership、role、resource workspaceを再照合する。
+- tenant境界はworkspace固定D1 query、D1制約、private R2認可で多層化する。
 - エラーは日本語UI向けコードと運用向け詳細を分ける。
 - 外部イベントと状態変更APIは冪等性を持つ。
 
@@ -16,7 +16,9 @@ Superseded by [Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.
 
 ### Phase 1ハーネス
 
-この表はADR-0010に基づくAccepted契約である。後段の将来API一覧は、各PhaseのScope CheckでAcceptedへ移すまでProposedとして扱う。
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、このsectionだけを移行前Supabase Auth／PostgREST／RPC baselineとして保持する。新規実装、test user、secret、migration、live実行、staging合格証跡の根拠にしない。後継は[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)とIssue #176 M3。
 
 | API | 目的 | 認可・失敗境界 |
 |---|---|---|
@@ -42,6 +44,10 @@ Superseded by [Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.
 メンバー変更はdesired roleとstatusを同時に送る冪等な更新とし、statusは`active`または`removed`だけを受け付ける。ただし、`invited`と停止済みを含む非active membershipをPATCHで`active`へ戻すことはできず、本人が新しく発行した参加コードを利用した場合だけ再参加できる。`removed`への変更応答は初回・冪等再実行ともプロフィールを参照せず、`displayName`を固定ラベル`利用停止済み`へ置換する。ownerの付与、降格、停止、削除は専用移管フローがAcceptedになるまでAPIとDB triggerの両方で拒否する。ブラウザは利用停止とadminへの昇格前に、対象者と影響を示して確認し、自分自身の利用停止を表示と処理の両方で拒否する。RPC送信後に結果を確認できない場合は`502 MEMBER_CHANGE_RESULT_UNKNOWN`を返し、ブラウザは再送結果を推測せず最新一覧を取得して確認する。保存中に別タブの認証変更通知を受けた場合は、同じユーザーであることと保留中RPCの決着を待ってから最新一覧を再取得し、別ユーザーへ変わった場合は旧ユーザーの保留状態を破棄する。
 
 ### 将来の正式API
+
+Status: Proposed
+
+各PhaseのScope CheckでAcceptedへ移すまで、この一覧だけをProposedとして扱う。
 
 | API | 目的 | 認可 |
 |---|---|---|

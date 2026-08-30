@@ -54,6 +54,10 @@ const required = new Map([
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ"
   ]],
+  ["docs/05-api/api-contracts.md", [
+    "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
+    "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
+  ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
     "Access session終了導線", "Access cookieやrefresh tokenをアプリから操作しない", "認証世代"
@@ -69,6 +73,9 @@ const required = new Map([
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "実行可能workflowをdefault branchから削除"
+  ]],
+  ["docs/09-delivery/decision-log.md", [
+    "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない"
   ]]
 ]);
 
@@ -90,6 +97,7 @@ const forbidden = new Map([
   ]],
   ["docs/03-architecture/integrations.md", ["Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
   ["docs/04-data/storage-object-contract.md", ["## Postgresメタデータ", "認可時はPostgres正本", "WorkerはSupabase session"]],
+  ["docs/05-api/api-contracts.md", ["# API契約\n\nStatus: Superseded"]],
   ["docs/05-api/browser-capture-foundation-api.md", ["将来の永続化はworkspace RLS"]],
   ["docs/06-security/security-and-privacy.md", ["- RLS抜け。"]],
   ["docs/07-quality/acceptance-catalog.md", [
@@ -104,7 +112,8 @@ const forbidden = new Map([
   ["docs/08-operations/domain-and-publication.md", ["production用Supabase", "Supabaseのproduction Site URL", "`SUPABASE_URL` / `SUPABASE_ANON_KEY`"]],
   ["docs/08-operations/observability-and-runbook.md", ["Supabase RLS denial rate", "Supabase障害:"]],
   ["docs/08-operations/r2-storage-harness.md", ["権限の正本はSupabase Auth", "Postgresメタデータ方針"]],
-  ["docs/08-operations/environment-variables.md", ["RLS preview用"]]
+  ["docs/08-operations/environment-variables.md", ["RLS preview用"]],
+  ["docs/09-delivery/decision-log.md", ["認証遷移を直列化し"]]
 ]);
 
 const superseded = new Map([

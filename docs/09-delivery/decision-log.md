@@ -156,7 +156,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Date: 2026-08-30
 - Decision:
   - Cloudflare AccessのメールOTPを初期の招待制ログインにする。
-  - WorkerはAccess application JWTの署名、issuer、audience、期限、token typeを検証する。`type: "app"` だけで人間userとservice tokenを区別せず、人間向け業務APIは空でない `sub` を必須にし、空の `sub`／`common_name` を持つservice-token JWTを拒否する。
+  - WorkerはAccess application JWTの署名、issuer、audience、expiration、issued-at、token typeを検証し、not-beforeはclaimが存在する場合だけ検証する。`access_user` は `type: "app"`、trim後非空 `sub`、`common_name` 不在、`service_token` は `type: "app"`、空文字 `sub`、trim後非空 `common_name` の各3条件すべてを必須にし、曖昧なactorを全routeで拒否する。
   - Cloudflare D1を業務データとファイルメタデータの正本にする。
   - workspace membershipとowner/admin/editor/viewerはD1で管理し、Workerが全業務queryで再認可する。
   - private R2、Durable Objects、Browser Runは既存Cloudflare方針を維持する。
@@ -164,14 +164,14 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - ADR-0001/0004/0010に加え、ADR-0003/0011/0018/0019/0024/0025/0027のSupabase/Postgres/RLS固有部分をADR-0028でSupersededにし、各ADRのCloudflare・R2・domain分離・同意・fail-closed安全原則は維持する。
 - Supersedes:
   - DEC-034のSupabase project分離と、現行Supabase projectを暫定dev/stagingとする部分。環境分離原則はAccess application／D1へ置換して維持する。
-  - DEC-040のSupabase Auth session失効・session再取得に依存する方式と、DEC-042のrefresh token交換・専用refresh endpointに依存する方式。
+  - DEC-040のSupabase Auth session失効・session再取得に依存する方式と、DEC-042のrefresh token交換・専用refresh endpoint・login/logout/refreshを旧Web Lockで直列化してアプリがCookieを発行／削除する方式。
   - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
   - DEC-051のSupabase／PostgREST応答としての上限契約。
   - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
   - DEC-063のPhase 1 RLS Live Gate、同一origin RLS E2E、live RLS実行、#92由来のmain merge hold継続に依存する部分。Issue #176のD1 dynamic negative proofとstaging統合実証へ置換し、#92 closure後のblanket holdを復活させない。
 - Preserves:
   - DEC-034のstaging／production資源分離。
-  - DEC-040／042の認証変更時に古い応答を無効化し、認証遷移を直列化し、401と上流障害を区別する安全原則。
+  - DEC-040／042のうち、検証済みsessionの認証世代が変わった後の古い応答を破棄し、旧shellと保護データを即時に隠し、状態変更を自動再送せず、401と上流障害を区別する安全原則。Access cookie／refresh tokenをアプリから操作しない。
   - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
   - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
   - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
