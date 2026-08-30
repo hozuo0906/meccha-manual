@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { fetchWithCloudflareAccess } from "./cloudflare-access-fetch.mjs";
 
 const DEFAULT_APP_ORIGIN = "https://meccha-manual.tattoo-studio-crm.workers.dev";
 const REMOTE_WRITE_GUARD = "I_UNDERSTAND_TEST_DATA_WILL_BE_CREATED";
@@ -18,6 +19,12 @@ const config = {
   }
 };
 
+function appFetch(input, init) {
+  return fetchWithCloudflareAccess(input, init, {
+    expectedOrigin: config.appOrigin
+  });
+}
+
 function requireValue(value, name) {
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -27,7 +34,13 @@ function requireValue(value, name) {
 }
 
 function requireRemoteWriteGuard(appOrigin) {
-  const isLocal = appOrigin.includes("localhost") || appOrigin.includes("127.0.0.1");
+  let hostname;
+  try {
+    hostname = new URL(appOrigin).hostname;
+  } catch {
+    throw new Error("MECCHA_APP_ORIGIN must be a valid absolute URL.");
+  }
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   if (isLocal) return;
 
   if (config.allowRemoteWrite !== REMOTE_WRITE_GUARD) {
@@ -97,11 +110,11 @@ async function assertOk(response, label) {
   const payload = await readJson(response);
   if (response.ok) return payload;
 
-  throw new Error(`${label} failed: HTTP ${response.status} ${JSON.stringify(payload)}`);
+  throw new Error(`${label} failed with HTTP ${response.status}.`);
 }
 
-async function appLogin(appOrigin, email, password) {
-  const response = await fetch(`${appOrigin}/api/auth/login`, {
+async function appLogin(appOrigin, email, password, label) {
+  const response = await appFetch(`${appOrigin}/api/auth/login`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -109,21 +122,21 @@ async function appLogin(appOrigin, email, password) {
     },
     body: JSON.stringify({ email, password })
   });
-  const payload = await assertOk(response, `app login ${email}`);
+  const payload = await assertOk(response, `app login ${label}`);
   const cookie = extractCookies(response.headers);
 
   if (!cookie.includes("__Host-mm_access=") || !cookie.includes("__Host-mm_refresh=")) {
-    throw new Error(`app login ${email} did not return session cookies`);
+    throw new Error(`app login ${label} did not return session cookies`);
   }
 
   return {
-    email,
+    label,
     cookie,
     userId: payload.user?.id
   };
 }
 
-async function supabaseLogin(supabase, email, password) {
+async function supabaseLogin(supabase, email, password, label) {
   const response = await fetch(`${supabase.url}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: {
@@ -133,30 +146,30 @@ async function supabaseLogin(supabase, email, password) {
     },
     body: JSON.stringify({ email, password })
   });
-  const payload = await assertOk(response, `supabase login ${email}`);
+  const payload = await assertOk(response, `supabase login ${label}`);
 
   if (!payload.access_token || !payload.user?.id) {
-    throw new Error(`supabase login ${email} did not return an access token`);
+    throw new Error(`supabase login ${label} did not return an access token`);
   }
 
   return {
-    email,
+    label,
     accessToken: payload.access_token,
     userId: payload.user.id
   };
 }
 
 async function getSession(appOrigin, actor) {
-  const response = await fetch(`${appOrigin}/api/session`, {
+  const response = await appFetch(`${appOrigin}/api/session`, {
     headers: {
       "cookie": actor.cookie
     }
   });
-  return assertOk(response, `session ${actor.email}`);
+  return assertOk(response, `session ${actor.label}`);
 }
 
 async function createWorkspace(appOrigin, actor, name, slug) {
-  const response = await fetch(`${appOrigin}/api/workspaces`, {
+  const response = await appFetch(`${appOrigin}/api/workspaces`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -165,18 +178,18 @@ async function createWorkspace(appOrigin, actor, name, slug) {
     },
     body: JSON.stringify({ name, slug })
   });
-  return assertOk(response, `create workspace ${actor.email}`);
+  return assertOk(response, `create workspace ${actor.label}`);
 }
 
 async function getWorkspaceMembers(appOrigin, actor, workspace) {
-  const response = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
+  const response = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
     headers: { "cookie": actor.cookie }
   });
-  return assertOk(response, `get workspace members ${actor.email}`);
+  return assertOk(response, `get workspace members ${actor.label}`);
 }
 
 async function createWorkspaceJoinCode(appOrigin, actor) {
-  const response = await fetch(`${appOrigin}/api/member-join-code`, {
+  const response = await appFetch(`${appOrigin}/api/member-join-code`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -185,12 +198,12 @@ async function createWorkspaceJoinCode(appOrigin, actor) {
     },
     body: "{}"
   });
-  return assertOk(response, `create workspace join code ${actor.email}`);
+  return assertOk(response, `create workspace join code ${actor.label}`);
 }
 
 async function addWorkspaceMember(appOrigin, actor, workspace, joiningMember, role) {
   const issued = await createWorkspaceJoinCode(appOrigin, joiningMember);
-  const response = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
+  const response = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -199,12 +212,12 @@ async function addWorkspaceMember(appOrigin, actor, workspace, joiningMember, ro
     },
     body: JSON.stringify({ joinCode: issued.joinCode, role })
   });
-  const member = await assertOk(response, `add workspace member ${actor.email}`);
+  const member = await assertOk(response, `add workspace member ${actor.label}`);
   return { member, joinCode: issued.joinCode };
 }
 
 async function updateWorkspaceMember(appOrigin, actor, workspace, userId, role, status) {
-  const response = await fetch(
+  const response = await appFetch(
     `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(userId)}`,
     {
       method: "PATCH",
@@ -216,7 +229,7 @@ async function updateWorkspaceMember(appOrigin, actor, workspace, userId, role, 
       body: JSON.stringify({ role, status })
     }
   );
-  return assertOk(response, `update workspace member ${actor.email}`);
+  return assertOk(response, `update workspace member ${actor.label}`);
 }
 
 async function assertMemberApiRejected(response, expectedStatus, expectedCode, label) {
@@ -245,7 +258,7 @@ async function supabaseSelect(supabase, actor, table, query) {
       "authorization": `Bearer ${actor.accessToken}`
     }
   });
-  const payload = await assertOk(response, `supabase select ${table} ${actor.email}`);
+  const payload = await assertOk(response, `supabase select ${table} ${actor.label}`);
 
   if (!Array.isArray(payload)) {
     throw new Error(`supabase select ${table} did not return an array`);
@@ -266,7 +279,7 @@ async function supabaseWrite(supabase, actor, table, method, query, body) {
     body: JSON.stringify(body)
   });
 
-  return assertOk(response, `supabase ${method.toLowerCase()} ${table} ${actor.email}`);
+  return assertOk(response, `supabase ${method.toLowerCase()} ${table} ${actor.label}`);
 }
 
 async function assertSupabaseWriteRejected(
@@ -525,7 +538,7 @@ async function assertMembershipTableWritesRevoked(supabase, owner, admin, worksp
         created_by: actor.userId
       },
       "permission denied for table workspace_members",
-      `${actor.email} direct invited membership insert`
+      `${actor.label} direct invited membership insert`
     );
     await assertSupabaseWriteRejected(
       supabase,
@@ -538,7 +551,7 @@ async function assertMembershipTableWritesRevoked(supabase, owner, admin, worksp
       ].join("&"),
       { status: "invited" },
       "permission denied for table workspace_members",
-      `${actor.email} direct invited membership update`
+      `${actor.label} direct invited membership update`
     );
   }
 }
@@ -588,7 +601,7 @@ async function assertInitialAuditContract(appOrigin, supabase, appOwner, owner, 
       "",
       fakeAudit,
       "permission denied for table audit_logs",
-      `${actor.email} direct audit insert`
+      `${actor.label} direct audit insert`
     );
     for (const method of ["PATCH", "DELETE"]) {
       await assertSupabaseWriteRejected(
@@ -599,7 +612,7 @@ async function assertInitialAuditContract(appOrigin, supabase, appOwner, owner, 
         `id=eq.${encodeURIComponent(row.id)}`,
         method === "PATCH" ? { action: "tampered" } : {},
         "permission denied for table audit_logs",
-        `${actor.email} direct audit ${method.toLowerCase()}`
+        `${actor.label} direct audit ${method.toLowerCase()}`
       );
     }
   }
@@ -683,7 +696,7 @@ async function assertLastOwnerProtected(appOrigin, owner, admin, workspace) {
       { role: "editor", status: "active" },
       { role: "editor", status: "removed" }
     ]) {
-      const response = await fetch(
+      const response = await appFetch(
         `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(owner.userId)}`,
         {
           method: "PATCH",
@@ -699,7 +712,7 @@ async function assertLastOwnerProtected(appOrigin, owner, admin, workspace) {
         response,
         409,
         "OWNER_TRANSFER_REQUIRED",
-        `${actor.email} last-owner ${body.status}`
+        `${actor.label} last-owner ${body.status}`
       );
     }
   }
@@ -802,7 +815,7 @@ async function assertCrossWorkspaceMemberApisRejected(appOrigin, userA, userB, w
     [userA, workspaceB, "User A to workspace B member list"],
     [userB, workspaceA, "User B to workspace A member list"]
   ]) {
-    const response = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(target.id)}/members`, {
+    const response = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(target.id)}/members`, {
       headers: { "cookie": actor.cookie }
     });
     await assertMemberApiRejected(response, 404, "WORKSPACE_MEMBERS_NOT_FOUND", label);
@@ -810,7 +823,7 @@ async function assertCrossWorkspaceMemberApisRejected(appOrigin, userA, userB, w
 }
 
 async function assertMemberMutationApisRejected(appOrigin, actor, owner, workspace, role) {
-  const addResponse = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
+  const addResponse = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -821,7 +834,7 @@ async function assertMemberMutationApisRejected(appOrigin, actor, owner, workspa
   });
   await assertMemberApiRejected(addResponse, 403, "MEMBER_MANAGE_FORBIDDEN", `${role} member add`);
 
-  const patchResponse = await fetch(
+  const patchResponse = await appFetch(
     `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(actor.userId)}`,
     {
       method: "PATCH",
@@ -838,7 +851,7 @@ async function assertMemberMutationApisRejected(appOrigin, actor, owner, workspa
 
 async function assertMemberManagementApis(appOrigin, owner, managedMember, workspace) {
   const added = await addWorkspaceMember(appOrigin, owner, workspace, managedMember, "editor");
-  const reusedCodeResponse = await fetch(
+  const reusedCodeResponse = await appFetch(
     `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`,
     {
       method: "POST",
@@ -877,7 +890,7 @@ async function assertMemberManagementApis(appOrigin, owner, managedMember, works
     throw new Error("admin member list did not return the admin role.");
   }
   await updateWorkspaceMember(appOrigin, managedMember, workspace, managedMember.userId, "admin", "active");
-  const adminOwnerResponse = await fetch(
+  const adminOwnerResponse = await appFetch(
     `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(owner.userId)}`,
     {
       method: "PATCH",
@@ -911,7 +924,7 @@ async function assertMemberManagementApis(appOrigin, owner, managedMember, works
     throw new Error("owner member list still included the stopped member.");
   }
 
-  const lastOwnerResponse = await fetch(
+  const lastOwnerResponse = await appFetch(
     `${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(owner.userId)}`,
     {
       method: "PATCH",
@@ -947,7 +960,7 @@ async function assertRemovedMemberRequiresFreshJoinCode(
 
   const first = await createWorkspaceJoinCode(appOrigin, joiningMember);
   const second = await createWorkspaceJoinCode(appOrigin, joiningMember);
-  const firstResponse = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
+  const firstResponse = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -958,7 +971,7 @@ async function assertRemovedMemberRequiresFreshJoinCode(
   });
   await assertMemberApiRejected(firstResponse, 409, "JOIN_CODE_UNAVAILABLE", "replaced join code");
 
-  const secondResponse = await fetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
+  const secondResponse = await appFetch(`${appOrigin}/api/workspaces/${encodeURIComponent(workspace.id)}/members`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1071,10 +1084,10 @@ async function main() {
   }
 
   const [appUserA, appUserB, directUserA, directUserB] = await Promise.all([
-    appLogin(appOrigin, userAEmail, userAPassword),
-    appLogin(appOrigin, userBEmail, userBPassword),
-    supabaseLogin(supabase, userAEmail, userAPassword),
-    supabaseLogin(supabase, userBEmail, userBPassword)
+    appLogin(appOrigin, userAEmail, userAPassword, "User A"),
+    appLogin(appOrigin, userBEmail, userBPassword, "User B"),
+    supabaseLogin(supabase, userAEmail, userAPassword, "User A"),
+    supabaseLogin(supabase, userBEmail, userBPassword, "User B")
   ]);
 
   const slugA = uniqueSlug("a");
@@ -1229,7 +1242,6 @@ async function main() {
 
   console.log(JSON.stringify({
     status: "ok",
-    appOrigin,
     checks: {
       userALogin: true,
       userBLogin: true,
@@ -1266,8 +1278,8 @@ async function main() {
       memberApiRejectsLastOwnerRemoval: true
     },
     createdWorkspaces: {
-      userA: { slug: slugA, idPresent: Boolean(workspaceA.id) },
-      userB: { slug: slugB, idPresent: Boolean(workspaceB.id) }
+      userA: Boolean(workspaceA.id),
+      userB: Boolean(workspaceB.id)
     },
     counts: {
       userAWorkspaces: userAWorkspaces.length,
