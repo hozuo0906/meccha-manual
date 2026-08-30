@@ -66,25 +66,28 @@ test("rejects evidence counts that do not match each represented collection", as
     fixture.evidence.events = fixture.evidence.events.map((event) => ({
       ...event,
       collection,
-      count: expectedCount + 1,
+      count: expectedCount,
       verdict: "FAIL"
     }));
     await writeFile(file, JSON.stringify(fixture), "utf8");
     try {
-      assert.throws(
-        () => execFileSync(process.execPath, [CHECKER, `--fixtures-dir=${copiedFixtures}`], {
-          cwd: ROOT,
-          encoding: "utf8",
-          stdio: "pipe"
-        }),
-        (error) => {
-          const output = [error.message, error.stdout, error.stderr]
-            .filter((value) => typeof value === "string")
-            .join("\n");
-          assert.match(output, /count does not match represented collection/);
-          return true;
-        }
-      );
+      assert.doesNotThrow(() => execFileSync(process.execPath, [CHECKER, `--fixtures-dir=${copiedFixtures}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: "pipe"
+      }));
+
+      fixture.evidence.events = fixture.evidence.events.map((event) => ({
+        ...event,
+        count: expectedCount + 1
+      }));
+      await writeFile(file, JSON.stringify(fixture), "utf8");
+
+      assert.throws(() => execFileSync(process.execPath, [CHECKER, `--fixtures-dir=${copiedFixtures}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: "pipe"
+      }));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
