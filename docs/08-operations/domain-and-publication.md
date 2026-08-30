@@ -39,7 +39,7 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 
 ## 認証・Cookie・メールリンク
 
-- アプリCookieは`__Host-mm_access`と`__Host-mm_refresh`を維持し、`Domain`属性を付けない。これにより`www`や将来の別アプリへ送られない。
+- Access session CookieはCloudflare Accessが管理する。production Access application、audience、policy、sessionをアプリ本体hostname専用にし、`www`や別アプリの到達許可と共有しない。アプリはAccess Cookieや独自access/refresh tokenを発行・更新・削除しない。
 - LPからアプリへは通常のtop-level GET遷移だけとし、LPからアプリAPIを呼ばない。アプリAPIのCORS許可を`www`へ広げない。
 - write APIは現在どおりアプリ自身のOriginだけを受け付ける。
 - production Access applicationはアプリ本体URL、audience、policy、sessionを専用化し、メールOTPの明示Emails/Groups allowlistを検証する。preview wildcard policyをproductionへ流用しない。

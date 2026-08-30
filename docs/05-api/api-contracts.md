@@ -51,7 +51,6 @@ Status: Proposed
 
 | API | 目的 | 認可 |
 |---|---|---|
-| `GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public, secret値は返さない |
 | `POST /v1/workspaces` | ワークスペース作成 | authenticated |
 | `GET /v1/workspaces/{id}` | ワークスペース取得 | member |
 | `POST /v1/workspaces/{id}/invitations` | 招待 | owner/admin + plan limit |
@@ -72,6 +71,7 @@ Status: Accepted
 
 | API | 正本contract |
 |---|---|
+| `GET /health/config` | Cloudflare Access / D1 API移行契約。`service_token` actorだけを許可し、Access JWTなし・不正・`access_user` actorを拒否する。業務データやsecret値を返さない |
 | `POST /v1/manuals/{id}/exports` | 課金API contract |
 | `POST /v1/workspaces/{workspaceId}/capture-sessions` | Browser Run egress contract |
 | `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url` | Browser Run egress contract |

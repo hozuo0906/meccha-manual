@@ -61,7 +61,11 @@ const required = new Map([
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
     "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
+    "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
     "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
+  ]],
+  ["docs/08-operations/domain-and-publication.md", [
+    "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
@@ -115,7 +119,10 @@ const forbidden = new Map([
   ]],
   ["docs/08-operations/browser-run-session-harness.md", ["Supabase Postgres/RLS", "API WorkerがSupabase session", "完了後の正本はPostgres"]],
   ["docs/08-operations/codex-cloud-environment.md", ["Cloudflare Worker、Supabase、Discord通知"]],
-  ["docs/08-operations/domain-and-publication.md", ["production用Supabase", "Supabaseのproduction Site URL", "`SUPABASE_URL` / `SUPABASE_ANON_KEY`"]],
+  ["docs/08-operations/domain-and-publication.md", [
+    "production用Supabase", "Supabaseのproduction Site URL", "`SUPABASE_URL` / `SUPABASE_ANON_KEY`",
+    "`__Host-mm_access`", "`__Host-mm_refresh`"
+  ]],
   ["docs/08-operations/observability-and-runbook.md", ["Supabase RLS denial rate", "Supabase障害:"]],
   ["docs/08-operations/r2-storage-harness.md", ["権限の正本はSupabase Auth", "Postgresメタデータ方針"]],
   ["docs/08-operations/environment-variables.md", ["RLS preview用"]],
@@ -170,19 +177,35 @@ for (const path of [".github/workflows/phase1-rls-live.yml", ".github/workflows/
 const apiContracts = contents.get("docs/05-api/api-contracts.md") ?? "";
 const proposedStart = apiContracts.indexOf("### 将来の正式API");
 const acceptedIndexStart = apiContracts.indexOf("### Accepted継続API索引", proposedStart);
-if (proposedStart < 0 || acceptedIndexStart < 0) {
+const acceptedIndexEnd = apiContracts.indexOf("\n## 課金API contract", acceptedIndexStart);
+const acceptedEndpoints = [
+  "GET /health/config",
+  "POST /v1/manuals/{id}/exports",
+  "POST /v1/workspaces/{workspaceId}/capture-sessions",
+  "POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url",
+  "POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/commands",
+  "GET /v1/workspaces/{workspaceId}/capture-sessions/{id}/events",
+  "DELETE /v1/workspaces/{workspaceId}/capture-sessions/{id}",
+  "POST /v1/workspaces/{workspaceId}/mobile-preview-sessions",
+  "GET /v1/billing/summary",
+  "POST /v1/billing/checkout-intents",
+  "GET /v1/billing/checkout-intents/{id}",
+  "POST /v1/webhooks/stripe",
+  "POST /v1/integrations/discord/interactions"
+];
+if (proposedStart < 0 || acceptedIndexStart < 0 || acceptedIndexEnd < 0) {
   errors.push("API contract must separate Proposed future APIs from the Accepted continuation index.");
 } else {
   const proposedOnly = apiContracts.slice(proposedStart, acceptedIndexStart);
-  for (const endpoint of [
-    "POST /v1/manuals/{id}/exports",
-    "POST /v1/workspaces/{workspaceId}/capture-sessions",
-    "GET /v1/billing/summary",
-    "POST /v1/billing/checkout-intents",
-    "POST /v1/integrations/discord/interactions"
-  ]) {
+  const acceptedOnly = apiContracts.slice(acceptedIndexStart, acceptedIndexEnd);
+  for (const endpoint of acceptedEndpoints) {
     if (proposedOnly.includes(endpoint)) errors.push(`Accepted API remains inside Proposed list: ${endpoint}`);
+    const occurrences = acceptedOnly.split(endpoint).length - 1;
+    if (occurrences !== 1) errors.push(`Accepted API index must contain endpoint exactly once: ${endpoint}`);
   }
+}
+if (apiContracts.includes("GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public")) {
+  errors.push("GET /health/config must not be documented as a public route.");
 }
 
 if (errors.length > 0) {
