@@ -14,9 +14,9 @@ Status: Accepted
 
 | ID | 要件 | 受入条件 |
 |---|---|---|
-| FR-001 | ユーザーはSupabase Authでログインできる | ログイン、ログアウト、期限切れ、再ログインが動作する |
+| FR-001 | 招待済みユーザーはCloudflare AccessのメールOTPでログインできる | Access JWTの署名・issuer・audience・期限をWorkerが検証し、ログイン、ログアウト、期限切れ、再認証が動作する。アプリ独自passwordは保存しない |
 | FR-002 | ユーザーは必ずワークスペースに所属する | 個人単独利用のデータが作られない |
-| FR-003 | owner/admin/editor/viewerを管理できる | 権限ごとのCRUDがAPIとRLSで制御される |
+| FR-003 | owner/admin/editor/viewerを管理できる | 権限ごとのCRUDがWorker認可とworkspace固定D1 queryで制御され、Accessへ到達できても未所属・停止中は拒否される |
 | FR-004 | 手順書を作成、編集、削除、アーカイブできる | 下書きと公開版が混ざらない |
 | FR-005 | 手順を追加、並べ替え、削除できる | 1手順1操作の構造を維持できる |
 | FR-006 | 日本語テンプレ文を生成できる | `［対象］を［操作］します` 形式で生成される |
