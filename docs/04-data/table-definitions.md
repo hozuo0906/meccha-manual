@@ -1,6 +1,8 @@
 # テーブル定義
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [D1データ・認可境界](d1-and-storage.md)。以下はSupabase/Postgres移行前baselineとして保持し、D1へ適用済みとは扱わない。
 
 ## 共通ルール
 
