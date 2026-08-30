@@ -6,7 +6,7 @@ Status: Accepted
 
 `めっちゃマニュアル` の検証資源と本番資源を混在させず、`main` へのマージとproduction反映を別の判断にする。本書はIssue #21と、R2契約を固定したIssue #23を前提とする静的ハーネスであり、外部リソースの作成・変更・deployは行わない。
 
-現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
+既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
 外部ユーザーと実業務データがないprelaunch期間だけは、ownerの明示判断によりCloudflare Git連携の`main`自動deployと非production branch buildを暫定許可している。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
 
@@ -19,7 +19,9 @@ Status: Accepted
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
-| Supabase project | 現projectを暫定dev/stagingとして利用 | `meccha-manual-prod`を将来新規作成 | Auth、DB、project ref、migration履歴を共有しない |
+| Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
+| Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
+| Legacy Supabase | 移行前baseline。新規データ・資格情報を追加しない | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |
 | R2 manual / `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` | `meccha-manual-manual-assets-prod` | 同上 |
 | R2 exports / `EXPORTS` | `meccha-manual-exports-staging` | `meccha-manual-exports-prod` | 同上 |
@@ -34,7 +36,7 @@ Status: Accepted
 
 1. PR checksを通過したcommitを`main`へマージし、production候補SHAを固定する。
 2. staging workflowを40桁の候補SHA付きで明示的に起動し、workflow実行SHAとの一致を確認してcheckを再実行する。将来deploy stepを有効化した後はstagingへだけ反映する。
-3. stagingでmigration、RLS negative test、smoke/E2E、rollback手順、P0/P1が0件であることを確認する。
+3. stagingでD1 migration、Access JWT・workspace認可negative test、smoke/E2E、backup/restore、rollback手順、P0/P1が0件であることを確認する。
 4. production workflowを`main`から同じ40桁SHA指定で起動し、workflow実行SHAと不一致なら停止する。
 5. GitHub Environment `production` のrequired reviewersによる手動承認後にだけjobを開始する。
 6. 現段階のproduction workflowはcheckで停止する。実deploy step追加、Secret登録、production資源作成はそれぞれ別のユーザー承認対象とする。
