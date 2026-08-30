@@ -22,7 +22,7 @@ Status: Accepted
 | RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、検証済みAccess identityとcheckout intentを正本にする |
 | RISK-017 | Browser RunやStorageの計測誤差で追加請求する | 誤課金/信用失墜 | 初期は自動従量課金せず、上限停止と再集計フローを採用する |
 | RISK-018 | DNS検査後にBrowser Runが再解決しprivate IPへ接続する | P0内部ネットワーク到達 | 検査済みIPへの実接続拘束、全通信種別のegress negative test、実現不能時は任意URL・承認済みhost・mobile previewを含む全Browser Runをfail closed |
-| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | non-production branch build停止、`main`は非promote version upload、Access deny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、staging境界確認、backend negative proof、証明完了までmain merge hold |
+| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | non-production branch build停止、`main`は非promote version upload、Access deny-by-default、Cloudflare account members + preview専用service token、未認証health拒否。Issue #176 M5の実preview negative proof完了までstaging合格、production資源作成・deploy、外部招待を禁止 |
 | RISK-020 | Access policyが未招待者をアプリ内部まで到達させる | P0不正アクセス/情報露出 | Access deny-by-defaultに加え、D1 application identityとactive membershipを全APIで再検証 |
 | RISK-021 | Access JWTの署名・issuer・audience・期限検証が欠ける | P0 identity spoofing | 公式JWKS検証、固定issuer/audience、negative test、検証済みclaim型だけをdomainへ渡す |
 | RISK-022 | D1移行でPostgres transaction/RPCの競合防止が失われる | データ破損/公開版改変 | 用途別transaction、期待version、結果不明時の再照合、並行mutation test |

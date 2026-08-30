@@ -7,8 +7,8 @@ Status: Accepted
 | FR-001 | SCR-LOGIN, SCR-SHELL | Access callback/JWT検証, session API | identities, profiles | ADR-0028 | AC-001, AC-003, AC-004, AC-005, Access JWT negative tests | #176, EPIC-02, EPIC-03 |
 | FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0028 | AC-002, AC-006, AC-007, D1 workspace negative tests | #176, EPIC-02, EPIC-03 |
 | FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, identities, profiles | ADR-0028 | AC-007, AC-008, AC-009, AC-014, role/status negative tests | #176, EPIC-02, EPIC-03 |
-| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft/publish/archive APIs | manuals, manual_revisions, manual_steps, audit_logs | ADR-0028, ADR-0005 | `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。AC-010の公開版revision作成まで。未ログイン公開URLは後続。物理削除・復元はOQ-028の後続 | #63, #64, #65, #74, #80, #82, EPIC-06 |
-| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0028, ADR-0005 | `tests/manual-edit-api.test.mjs`, step RPC/RLS/lock SQL tests, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
+| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft/publish/archive APIs | manuals, manual_revisions, manual_steps, audit_logs | ADR-0028, ADR-0005 | 移行前Supabase／Postgres baseline（D1合格証跡には使用しない）: `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。Issue #176 M4のD1 gateでは、作成・編集・公開・次draft・archiveの正常系、別workspace、role/status、ID差し替え、期待version競合、再送、結果不明、batch途中失敗とatomic rollbackをAPI／repository／E2Eで検証する。AC-010の公開版revision作成まで。物理削除・復元はOQ-028の後続 | #176（M4、未完了）, #63, #64, #65, #74, #80, #82（移行前baseline）, EPIC-06 |
+| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0028, ADR-0005 | 移行前Supabase／Postgres baseline（D1合格証跡には使用しない）: `tests/manual-edit-api.test.mjs`, step RPC/RLS/lock SQL tests, `tests/e2e/phase2-manual-editor.spec.mjs`。Issue #176 M4のD1 gateでは、追加・更新・削除・並べ替えの正常系、別workspace、role/status、version／position競合、再送、結果不明、batch途中失敗とatomic rollbackをAPI／repository／E2Eで検証する | #176（M4、未完了）, #64, #65, #74（移行前baseline）, EPIC-06 |
 | FR-006 | SCR-MANUAL-EDITOR | local instruction suggestion only; external APIなし | - | ADR-0009 | `tests/manual-instruction-template.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
 | FR-007 | SCR-CAPTURE-START | capture session APIs（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions, capture_sessions（後続） | ADR-0002, ADR-0003 | AC-020, AC-023, AC-025, `tests/capture-foundation.test.mjs`, `tests/browser-run-egress-proof.test.mjs` | #57, #84, #86, EPIC-04 |
 | FR-008 | SCR-CAPTURE-START | 保存可能event正規化 | capture_events（後続） | ADR-0003 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
@@ -34,12 +34,11 @@ Status: Accepted
 
 ## Phase 2 手順書コア
 
-- Issue #63のAccepted API契約は `docs/05-api/phase2-manual-api.md` を正とする。
-- Issue #64/#74のAccepted API契約は `docs/05-api/phase2-manual-edit-api.md` を正とする。
-- #63は一覧・新規作成、#64/#74は詳細・draft/step編集、#65は一覧・エディタUI/E2Eを正とする。
-- step追加のposition採番と並べ替えは`202608140010_phase2_manual_step_mutations.sql`の原子的RPCを利用し、GitHub PRだけを根拠に外部DBへ適用しない。
+- 既存のPhase 2 API契約、Postgres migration、RPC/RLS/lockテストは移行前baselineとして保持し、D1合格証跡には使用しない。
+- Issue #176 M4では[Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)に従い、Worker認可、workspace固定D1 query、D1対応atomic operation、migration、API契約、正常系・越境・競合・再送・結果不明・途中失敗テストを同じPRで追加する。
+- 手順追加のposition採番、並べ替え、公開、次draft、archiveはD1のatomic operationとして再実装し、部分成功を許可しない。
 - FR-006は将来FR-020が実装されても常にローカル決定的処理とし、外部AI APIへ切り替えない。
-- Phase 2でもPhase 1のHttpOnly Cookie session、same-origin write、RLSを迂回しない。
-- AC-010の公開版revision作成はIssue #80、公開URL閲覧は共有機能の後続マイルストーンで扱う。
+- Phase 2でも検証済みAccess主体、active membership/role、resource workspace、期待versionをWorkerで毎回照合し、Access到達やUI表示を認可根拠にしない。
+- AC-010の公開版revision作成はIssue #176 M4、公開URL閲覧は共有機能の後続マイルストーンで扱う。
 
-Phase 1の実装では、上記の各行を詳細Issueへ展開し、画面、API、RLS、受入テストを同じPRで更新する。Phase 2以降の行も、実装開始前に同じ粒度へ展開する。
+Phase 1/2の移行実装では、画面、API、Worker認可、D1 schema/query、受入テスト、トレーサビリティを同じPRで更新する。

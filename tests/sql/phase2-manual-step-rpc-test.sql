@@ -5,6 +5,8 @@
 \set workspace_lock 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 \set editor_id '11111111-1111-4111-8111-111111111111'
 \set viewer_id '22222222-2222-4222-8222-222222222222'
+\set admin_id 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01'
+\set owner_id 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02'
 \set manual_a '33333333-3333-4333-8333-333333333333'
 \set manual_b '44444444-4444-4444-8444-444444444444'
 \set manual_lock '55555555-5555-4555-8555-555555555555'
@@ -29,6 +31,8 @@ insert into public.manual_revisions (id, workspace_id, manual_id, state) values
 insert into public.workspace_members (workspace_id, user_id, role, status) values
   (:'workspace_a', :'editor_id', 'editor', 'active'),
   (:'workspace_a', :'viewer_id', 'viewer', 'active'),
+  (:'workspace_a', :'admin_id', 'admin', 'active'),
+  (:'workspace_a', :'owner_id', 'owner', 'active'),
   (:'workspace_b', :'editor_id', 'editor', 'active'),
   (:'workspace_lock', :'editor_id', 'editor', 'active');
 
@@ -64,6 +68,23 @@ begin
   end if;
 end;
 $$;
+
+-- The mutation boundary is intentionally role-based: editor, admin, and owner
+-- may use the RPC, while viewer is rejected below. This keeps the matrix
+-- credential-free and exercises the same predicate used by every mutation.
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'admin_id', false);
+select public.append_manual_step(
+  :'revision_a', 'note', '管理者追記', '管理者が追記します。',
+  null, null, null, null, '{}'::jsonb, '{}'::jsonb
+) as admin_step \gset
+
+select set_config('request.jwt.claim.sub', :'owner_id', false);
+select public.append_manual_step(
+  :'revision_a', 'note', '所有者追記', '所有者が追記します。',
+  null, null, null, null, '{}'::jsonb, '{}'::jsonb
+) as owner_step \gset
+reset role;
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
@@ -103,7 +124,15 @@ begin
   end if;
 end;
 $$;
-select public.reorder_manual_steps(:'revision_a', array[:'step_b'::uuid, :'step_a'::uuid]);
+select public.reorder_manual_steps(
+  :'revision_a',
+  array[
+    :'step_b'::uuid,
+    :'step_a'::uuid,
+    :'admin_step'::uuid,
+    :'owner_step'::uuid
+  ]
+);
 reset role;
 
 do $$
@@ -169,15 +198,87 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', :'editor_id', false);
 do $$
 declare
+  active_ids uuid[];
+  ordered_ids uuid[];
+  active_count bigint;
+  ordered_count bigint;
+  distinct_count bigint;
   local_id uuid;
   foreign_id uuid;
+  foreign_count bigint;
+  local_set_mismatch_count bigint;
+  extra_id_count bigint;
 begin
-  select id into local_id from public.manual_steps where revision_id = '66666666-6666-4666-8666-666666666666' and title = '補足';
+  select
+    coalesce(array_agg(id order by position, id), '{}'::uuid[]),
+    count(*)
+  into active_ids, active_count
+  from public.manual_steps
+  where revision_id = '66666666-6666-4666-8666-666666666666'
+    and deleted_at is null;
+
   select id into foreign_id from public.manual_steps where revision_id = '77777777-7777-4777-8777-777777777777' and title = 'Foreign';
+
+  if foreign_id is null then
+    raise exception 'cross revision fixture did not create a foreign active step';
+  end if;
+  if active_count < 2 or cardinality(active_ids) <> active_count then
+    raise exception 'cross revision fixture active set cardinality mismatch';
+  end if;
+  if foreign_id = any(active_ids) then
+    raise exception 'cross revision fixture foreign step leaked into local active set';
+  end if;
+
+  local_id := active_ids[1];
+  select array_agg(
+    case when step_id = local_id then foreign_id else step_id end
+    order by ordinal
+  )
+  into ordered_ids
+  from unnest(active_ids) with ordinality as active(step_id, ordinal);
+
+  ordered_count := cardinality(ordered_ids);
+  select count(distinct step_id) into distinct_count
+  from unnest(ordered_ids) as ordered(step_id);
+  select count(*) into foreign_count
+  from unnest(ordered_ids) as ordered(step_id)
+  where step_id = foreign_id;
+  select count(*) into local_set_mismatch_count
+  from unnest(active_ids) as expected(step_id)
+  where step_id <> local_id
+    and (
+      select count(*)
+      from unnest(ordered_ids) as actual(step_id)
+      where actual.step_id = expected.step_id
+    ) <> 1;
+  select count(*) into extra_id_count
+  from unnest(ordered_ids) as actual(step_id)
+  where actual.step_id <> foreign_id
+    and not (actual.step_id = any(active_ids));
+
+  if ordered_count <> active_count then
+    raise exception 'cross revision fixture ordered array cardinality mismatch';
+  end if;
+  if distinct_count <> active_count then
+    raise exception 'cross revision fixture ordered array contains duplicates';
+  end if;
+  if local_id = any(ordered_ids) then
+    raise exception 'cross revision fixture replacement local ID is still present';
+  end if;
+  if foreign_count <> 1 then
+    raise exception 'cross revision fixture foreign ID replacement count mismatch';
+  end if;
+  if local_set_mismatch_count <> 0 then
+    raise exception 'cross revision fixture omitted a local active ID';
+  end if;
+  if extra_id_count <> 0 then
+    raise exception 'cross revision fixture contains an extra ID';
+  end if;
+
   begin
     perform public.reorder_manual_steps(
       '66666666-6666-4666-8666-666666666666',
-      array[local_id, foreign_id]
+      ordered_ids
     );
     raise exception 'expected cross revision rejection';
   exception
@@ -443,6 +544,36 @@ $$;
 set role anon;
 do $$
 begin
+  begin
+    perform public.append_manual_step(
+      '66666666-6666-4666-8666-666666666666', 'note', 'anonymous insert', '', null, null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
+    raise exception 'expected anonymous append denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.update_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-0000-4000-8000-000000000001',
+      null, 'action', 'anonymous update', '', 'click', null, null, null, '{}'::jsonb, '{}'::jsonb
+    );
+    raise exception 'expected anonymous update denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.soft_delete_manual_step(
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-0000-4000-8000-000000000001'
+    );
+    raise exception 'expected anonymous soft delete denial';
+  exception
+    when insufficient_privilege then null;
+  end;
+
   begin
     perform public.reorder_manual_steps(
       '66666666-6666-4666-8666-666666666666',

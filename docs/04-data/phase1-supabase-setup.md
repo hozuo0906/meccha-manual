@@ -1,6 +1,10 @@
 # Phase 1 Supabase setup
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はSupabase Auth/Postgres/RLS移行前の適用履歴・回帰仕様としてのみ保持し、新しい環境のsetup手順、staging合格条件、production候補として使用しない。
+
+新規Supabase test user、データ、資格情報、`MECCHA_RLS_*` secretを追加せず、`npm run test:rls`のlive実行も行わない。既存Supabase runtimeはIssue #176 M6まで凍結baselineとして扱い、代替の認証・workspace境界・実preview証跡はM1〜M5でAccess/Workers/D1/R2に対して取得する。
 
 ## Purpose
 
@@ -99,7 +103,7 @@ staging DBセッションで次のnegative testを実施し、すべて期待ど
 
 この確認により、Issue #38の「staging migration適用・migration履歴整合・DBセッションRLS negative test」部分は完了として扱える。ただし、Issue #38の受入条件に含まれる `npm run test:rls` の実アカウントE2Eは未完了である。専用テストユーザー2名の資格情報を安全にCIへ渡す経路が確立するまで、Issue #38全体を完了扱いにしない。
 
-## Manual setup steps
+## Legacy manual setup record（実行しない）
 
 新しいstaging環境または未適用環境へ正本migrationを適用するときは次の手順を使う。
 
@@ -115,7 +119,7 @@ staging DBセッションで次のnegative testを実施し、すべて期待ど
 
 旧名 `202608020003_phase1_workspace_membership_hardening.sql` はPhase 2より後へ並ぶため使用しない。既存環境ではbundleを無条件に再実行せず、migration履歴、関数権限、trigger、既存データを先に確認し、正本との差分だけをforward migrationとして適用する。
 
-## Expected result
+## Historical expected result
 
 成功すると、SQL Editorにエラーが出ず、Table Editorに以下が見える。
 
@@ -139,14 +143,13 @@ Authenticationで新規ユーザーを作成すると、`profiles` に同じユ�
 - Connection string
 - 実ユーザーの個人情報
 
-## Next quality gate
+## Superseded gateと移管先
 
-staging migrationとDBセッションRLS negative testは2026-08-13に完了済み。次の未完了gateは、専用テストユーザー2名の資格情報を安全なCI secret経路へ登録し、実stagingに対して `npm run test:rls` を実行して `status: ok` を得ること。
+専用Supabaseテストユーザー2名の作成、CI secret登録、実stagingでの`npm run test:rls`は未実行であり、成功証跡として扱わない。この旧gateを今後実行することもしない。
 
-そのE2Eでは少なくとも以下を確認する。
+旧gateが確認予定だった要件は次へ移管する。
 
-- ログインできる。
-- ログイン後に自分のワークスペースを作れる。
-- 別ユーザーは他ワークスペースを読めない。
-- `viewer` は更新できない。
-- `owner` が最後のownerを失わない。
+- ログイン、再認証、ログアウト: Issue #176 M1/M3
+- workspace作成、4ロール、未招待・停止member拒否: M2/M3
+- 別workspace越境拒否、viewer mutation拒否、last-owner保護: M2/M3
+- 実immutable previewのAccess保護、staging-only D1/R2、production backend非到達: M5

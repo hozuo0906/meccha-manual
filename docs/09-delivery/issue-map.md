@@ -24,7 +24,7 @@ Status: Accepted
 7. M6 Supabase退役
 8. M7 production準備
 
-EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92と#95のSupabase live gateはD1/Access境界へ置換するまでholdする。production D1、production Access、deploy、実ユーザー招待は別承認とする。
+EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報やlive runを追加しない。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。
 
 
 ## EPIC-00: 文書正本
@@ -76,7 +76,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 外部設定Issue:
 
 - GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
-- GitHub Issue #92: Cloudflare Git integrationのnon-production branch buildは無効化し、`main`はversion uploadだけでactive deploymentへ自動promoteしない。immutable previewはAccess deny-by-default、Cloudflare account members、preview専用service tokenで保護済みで、repo-side契約はPR #175でmainへ取り込み済み。Issue #176 M2でpreviewがstaging専用D1/R2だけをbindingし、production backendへ到達できないnegative proofが完了するまでmain merge holdを維持する。
+- GitHub Issue #92: non-production branch build停止、`main`のversion upload-only、Access保護は完了し、Issueはcompleted close済みである。これらの保護を維持しつつ、Access/D1/R2移行後の実preview分離はIssue #176 M5の独立migration gateで検証する。これは#92由来のblanket main merge holdを復活させるものではない。
 
 ## EPIC-04: Browser Run
 

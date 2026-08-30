@@ -1,6 +1,10 @@
 # Phase 1 RLS Live Gate
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はPR #175で整備された移行前Supabase RLS workflowの履歴・安全境界としてのみ保持する。
+
+`.github/workflows/phase1-rls-live.yml`をdispatchせず、Supabase test user、テストデータ、`MECCHA_RLS_*` secretを新規作成・登録しない。既存Access service tokenもSupabase live runへ使用しない。代替gateはIssue #176 M5のAccess/D1/R2実preview negative proofである。
 
 ## 目的
 
@@ -36,7 +40,7 @@ Wranglerのstdout/stderrと構造化結果はGitHub-hosted runnerの一時領域
 
 preview originはHTTPS、認証情報なし、portなし、origin-only、承認済みWorker名とaccount suffixに一致するimmutable hostnameでなければ拒否する。
 
-## staging Environment secrets
+## Legacy secret inventory（登録しない）
 
 RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。
 
@@ -69,7 +73,7 @@ CF_ACCESS_CLIENT_SECRET
 - Worker向けrequestだけにAccess headerを付け、Supabase Auth/RESTへの直接requestには付けない。
 - errorへresponse body、email、URL、識別子、資格値を含めない。
 
-## 実行手順
+## Legacy実行手順（実行しない）
 
 1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
 2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。
@@ -82,7 +86,7 @@ CF_ACCESS_CLIENT_SECRET
 9. 同じimmutable previewで `npm run test:rls` が `status: ok` になることを確認する。
 10. Issue #79へ対象commit SHA、成功/失敗、残存テストデータの有無だけを記録する。run URL、preview URL、Worker version ID、資格値、外部ID、テストデータ識別子は記録しない。
 
-## 成功条件
+## Historical success conditions（M5証跡へ流用しない）
 
 - dispatch SHAとcheckout SHAが一致する。
 - non-production branch buildを再有効化せず、明示uploadしたimmutable versionだけを使う。
@@ -105,4 +109,4 @@ CF_ACCESS_CLIENT_SECRET
 
 ## 残存リスク
 
-repo-side修正だけではAccess外部設定の正しさ、previewとproduction backendの物理分離、staging Environment secretのscope由来を証明できない。Issue #92のbackend negative proofとmain merge holdはowner/adminの外部設定証跡が完了するまで維持する。
+旧workflowはpreview/backend物理分離の成功証跡として扱わない。Issue #92はcompleted close済みでblanket main merge holdを再開しない。Access/D1/R2移行後の実preview分離はIssue #176 M5で検証し、完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。

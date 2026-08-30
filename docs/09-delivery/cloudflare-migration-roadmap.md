@@ -11,8 +11,20 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - Cloudflare Workers、preview Access保護、R2方針、Browser Run fail-closed基盤は継続利用する。
 - Supabase Auth、Postgres migration、RLS、RPC、PostgRESTを使うPhase 1/2実装は移行前baselineとして存在する。
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
-- PR #175でmainへ取り込まれたAccess保護とproduction自動promote停止は移行中も維持する。Supabase RLS live gateはIssue #176 M2のD1境界gateへ置換する。
-- 全PRのmain merge holdはIssue #92と本移行の安全gateが整理されるまで維持する。
+- Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
+- PR #175でmainへ取り込まれたnon-production branch build停止、version upload-only、Access deny-by-defaultは移行中も維持する。
+- 旧Supabase RLS live gateは移行前baselineとしてSupersededとし、新規Supabase test user、資格情報、live runを追加しない。
+
+## Migration safety gate
+
+M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばmainへ統合できる。Issue #92を再openせず、blanket main merge holdも復活させない。
+
+ただし、M5でreview済みcandidate SHAから作成した実immutable previewについて、staging専用D1/R2だけをbindingし、production backendを参照・継承・到達できないnegative proofが成功するまでは、次を禁止する。
+
+- staging合格または内部alpha合格として扱うこと
+- production Access application、D1、R2の作成
+- production migration、deploy、promote
+- 外部ユーザー招待、実業務データ保存
 
 ## M0: 正本移行
 
@@ -64,6 +76,8 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - workspace条件なしqueryを静的検出する
 - stagingだけで動的negative testが成功する
 
+M2のscanner、repository negative test、staging D1 testはM5の実preview証跡に向けた準備であり、staging合格やproduction準備開始の根拠にはしない。
+
 ## M3: Phase 1移行
 
 成果:
@@ -103,6 +117,14 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - candidate SHA、migration履歴、Access policy、D1 databaseの対応証跡
 - rollbackとAccess/D1/R2障害訓練
 
+完了条件:
+
+- review済みcandidate SHAからversion upload-onlyで実immutable previewを作成する。
+- 未認証requestがAccessで拒否される。
+- Access認証後もstaging D1/R2だけが利用可能で、production binding、route、secret、backendへのfallbackまたは到達経路がないことをnegative proofで確認する。
+- candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
+- この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
+
 禁止:
 
 - production資源作成
@@ -116,7 +138,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - runtime、workflow、環境変数、文書からSupabase依存を削除
 - 不要なSupabase資格情報の失効
 - 旧migration/RLS harnessを履歴またはarchiveへ整理
-- #92/#95と旧PRのclose/supersede判断
+- #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う
 
 完了条件:
 

@@ -162,6 +162,22 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - private R2、Durable Objects、Browser Runは既存Cloudflare方針を維持する。
   - アプリ独自password、password hash、refresh tokenを保持しない。
   - ADR-0001のSupabase部分、ADR-0004、ADR-0010のSupabase認証方式をADR-0028でSupersededにする。
+- Supersedes:
+  - DEC-034のSupabase project分離と、現行Supabase projectを暫定dev/stagingとする部分。環境分離原則はAccess application／D1へ置換して維持する。
+  - DEC-040のSupabase Auth session失効・session再取得に依存する方式と、DEC-042のrefresh token交換・専用refresh endpointに依存する方式。
+  - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
+  - DEC-051のSupabase／PostgREST応答としての上限契約。
+  - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
+  - DEC-063のPhase 1 RLS Live Gate、同一origin RLS E2E、live RLS実行、#92由来のmain merge hold継続に依存する部分。Issue #176のD1 dynamic negative proofとstaging統合実証へ置換し、#92 closure後のblanket holdを復活させない。
+- Preserves:
+  - DEC-034のstaging／production資源分離。
+  - DEC-040／042の認証変更時に古い応答を無効化し、認証遷移を直列化し、401と上流障害を区別する安全原則。
+  - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
+  - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
+  - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
+- Current gate:
+  - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
+  - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。
 - Reason:
   - runtime、認証、DB、Storage、preview保護のcontrol planeをCloudflare中心へ集約し、production資源作成前に環境分離と運用を単純化するため。
 - Safety:
