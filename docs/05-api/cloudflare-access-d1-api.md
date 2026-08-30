@@ -25,8 +25,8 @@ email、任意header、未検証payloadだけで認証しない。ブラウザJa
 
 Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけでactorを決めない。
 
-- 人間向け業務APIは `access_user` と空でない `sub` を必須にし、空の `sub`、service token固有の `common_name`、actor種別が曖昧なtokenを403で拒否する。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
-- `service_token` は `/health/config` 等の明示allowlistしたmachine専用routeだけに許可し、session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
+- 人間向け業務APIは `access_user`、`type: "app"`、trim後非空の `sub`、`common_name` 不在の3条件すべてを必須にする。空の `sub`、service token固有の `common_name`、actor種別が曖昧なtokenを403で拒否する。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
+- `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、`/health/config` 等の明示allowlistしたmachine専用routeだけに許可する。session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
 - machine専用routeは業務データを返さず、状態変更を行わず、許可routeを列挙してdefault denyにする。
 
 ## Application session
@@ -86,6 +86,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 - JWTなし・不正・期限切れ
 - issuer/audience不一致
 - service-token JWT、空の `sub`、`common_name` を人間userへ誤写像しない
+- 空の `sub` だけ、`sub` 不在、`common_name` だけ、非空 `sub` と `common_name` 併存の曖昧なactorを全routeで拒否する
 - nbfなしservice-token JWTをmachine routeでは受理し、人間向け業務APIでは403にする。存在する `nbf` が未来なら拒否する
 - application identityなし・disabled
 - 未所属・停止member

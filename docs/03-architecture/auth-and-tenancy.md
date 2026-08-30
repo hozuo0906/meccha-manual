@@ -6,10 +6,11 @@ Status: Accepted
 
 Cloudflare AccessのメールOTPを招待制ログインの前段に使う。Access policyは明示Emails/Groups allowlistで固定し、One-time PINをlogin methodに選ぶだけで全メール利用者を許可しない。
 
-Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、not-before、expirationを検証する。検証後のactorを `access_user | service_token` として分類する。
+Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、expiration、issued-atを検証し、not-beforeはclaimが存在する場合に検証する。検証後のactorを `access_user | service_token` として分類する。
 
-- `access_user`: 空でない `sub` を必須にし、D1のactive identityへ `issuer + subject` で解決する。
-- `service_token`: 空の `sub` または `common_name` を持つmachine actor。明示allowlistしたhealth routeだけに許可する。
+- `access_user`: `type: "app"`、trim後非空の `sub`、`common_name` 不在の3条件すべてを必須にし、D1のactive identityへ `issuer + subject` で解決する。
+- `service_token`: `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にするmachine actor。明示allowlistしたhealth routeだけに許可する。
+- 空の `sub` だけ、`sub` 不在、`common_name` だけ、または非空 `sub` と `common_name` の併存は曖昧なactorとして全routeで拒否する。
 - service tokenをapplication user、workspace member、roleへ昇格させず、session/workspace/manual APIとidentity bootstrapを403にする。
 - email、任意header、Access到達成功だけを業務認証として信用しない。
 - JWT、OTP、Access cookie、password、refresh tokenをD1、ログ、ブラウザJavaScriptへ保存・複製しない。

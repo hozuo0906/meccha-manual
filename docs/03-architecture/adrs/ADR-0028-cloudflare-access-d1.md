@@ -37,9 +37,9 @@ Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。
 - 別workspace、不明resource、権限不足の応答から存在を推測できないようにする。
 - D1の制約、外部キー、unique index、version列をWorker認可と併用する。
 - 未招待、停止member、viewer mutation、owner喪失、ID差し替え、途中失敗、再送、競合をnegative testへ含める。
-- `access_user` は空でない `sub` を必須にし、空の `sub`、service tokenを示す `common_name`、またはactor種別が曖昧なtokenをapplication userへ写像しない。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
-- `service_token` は明示allowlistしたmachine/health routeの到達確認だけに使用し、D1 identity、workspace membership、roleへ昇格させず、session/workspace/manual API、identity bootstrap、業務データread/mutationを403で拒否する。
-- M1ではnbfなしservice-token fixtureをmachine routeで受理し、同じtokenを人間向け業務APIでは403にするactor別testを固定する。
+- `access_user` は `type: "app"`、trim後非空の `sub`、`common_name` 不在の3条件すべてを必須にする。空の `sub`、`common_name`、またはactor種別が曖昧なtokenをapplication userへ写像しない。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
+- `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、明示allowlistしたmachine/health routeの到達確認だけに使用する。D1 identity、workspace membership、roleへ昇格させず、session/workspace/manual API、identity bootstrap、業務データread/mutationを403で拒否する。
+- M1ではnbfなしservice-token fixtureをmachine routeで受理し、同じtokenを人間向け業務APIでは403にする。空の `sub` だけ、`sub` 不在、`common_name` だけ、非空 `sub` と `common_name` 併存のfixtureは全routeで拒否するactor別testを固定する。
 - Cloudflare bindingへ到達できることを認可の根拠にしない。
 
 ## Environment boundary

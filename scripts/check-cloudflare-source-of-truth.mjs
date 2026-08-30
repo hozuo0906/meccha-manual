@@ -40,7 +40,8 @@ const required = new Map([
     "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
   ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
-    "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない"
+    "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない",
+    "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ"
   ]],
   ["docs/03-architecture/integrations.md", [
     "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret"
@@ -50,13 +51,16 @@ const required = new Map([
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
-    "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT"
+    "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
+    "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
-    "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch"
+    "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
+    "Access session終了導線", "Access cookieやrefresh tokenをアプリから操作しない", "認証世代"
   ]],
   ["docs/07-quality/test-strategy.md", [
-    "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ"
+    "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ",
+    "Access session終了導線", "refresh token交換やAccess cookie削除を行わない", "認証世代"
   ]],
   ["docs/08-operations/environment-variables.md", [
     "Issue #176 M5 staging immutable-preview検証用Access service token ID",
@@ -80,13 +84,21 @@ const forbidden = new Map([
   ["docs/03-architecture/adrs/ADR-0024-domain-and-publication-boundary.md", ["Supabase production設定", "Supabase Site URL", "Supabaseのredirect allowlist"]],
   ["docs/03-architecture/adrs/ADR-0025-consent-based-member-join-codes.md", ["SECURITY DEFINER RPC", "RLS経由"]],
   ["docs/03-architecture/adrs/ADR-0027-prelaunch-repository-and-staging-boundary.md", ["staging Workerの `SUPABASE_URL`", "`SUPABASE_ANON_KEY` は承認済み", "production Supabase"]],
-  ["docs/03-architecture/auth-and-tenancy.md", ["Supabase Authを使います", "API WorkerはSupabase JWT", "RLS: 最終防衛線"]],
+  ["docs/03-architecture/auth-and-tenancy.md", [
+    "Supabase Authを使います", "API WorkerはSupabase JWT", "RLS: 最終防衛線",
+    "空の `sub` または `common_name` を持つmachine actor"
+  ]],
   ["docs/03-architecture/integrations.md", ["Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
   ["docs/04-data/storage-object-contract.md", ["## Postgresメタデータ", "認可時はPostgres正本", "WorkerはSupabase session"]],
   ["docs/05-api/browser-capture-foundation-api.md", ["将来の永続化はworkspace RLS"]],
   ["docs/06-security/security-and-privacy.md", ["- RLS抜け。"]],
-  ["docs/07-quality/acceptance-catalog.md", ["Supabase REST", "access tokenとrefresh token", "APIとRLS"]],
-  ["docs/07-quality/test-strategy.md", ["- RLS negative test。", "共有URL、RLS、削除"]],
+  ["docs/07-quality/acceptance-catalog.md", [
+    "Supabase REST", "access tokenとrefresh token", "APIとRLS",
+    "WorkerのCookie削除レスポンス", "login/logoutは全タブ横断で直列化", "後発loginのCookieを削除しない"
+  ]],
+  ["docs/07-quality/test-strategy.md", [
+    "- RLS negative test。", "共有URL、RLS、削除", "refreshは専用POSTと認証Web Lock"
+  ]],
   ["docs/08-operations/browser-run-session-harness.md", ["Supabase Postgres/RLS", "API WorkerがSupabase session", "完了後の正本はPostgres"]],
   ["docs/08-operations/codex-cloud-environment.md", ["Cloudflare Worker、Supabase、Discord通知"]],
   ["docs/08-operations/domain-and-publication.md", ["production用Supabase", "Supabaseのproduction Site URL", "`SUPABASE_URL` / `SUPABASE_ANON_KEY`"]],

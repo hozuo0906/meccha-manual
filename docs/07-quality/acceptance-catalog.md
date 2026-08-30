@@ -18,8 +18,8 @@ Status: Accepted
 | AC-012 | SCR-LOGIN、SCR-WORKSPACE、SCR-MEMBERS、SCR-SHELLを利用する | 読込、保存、失敗、権限不足、接続切断、期限切れが発生する | 該当する状態を区別して表示し、完了済み範囲と次の操作を日本語で案内する |
 | AC-013 | キーボード、200%ズーム、スクリーンリーダー相当の検査環境 | Phase 1の主要操作を完了する | WCAG 2.2 AAを目標とする自動検査に重大違反がなく、フォーカス順、可視フォーカス、ラベル、エラー関連付け、状態通知、44px操作領域を手動確認できる |
 | AC-014 | owner、admin、editor、viewerの各ユーザー | SCR-SHELLとSCR-MEMBERSを表示し、URLまたはAPIを直接指定する | UIはロールで許可された操作だけを有効表示し、非表示や無効表示に関係なくWorker認可とworkspace固定D1 query/constraintが不許可操作を拒否する |
-| AC-015 | ログイン済みユーザー | ログアウト要求で通信切断または中継側の非JSONエラーとなり、WorkerのCookie削除レスポンスを確認できない | ログイン画面へ遷移せず現在のセッション表示を維持し、ログアウト未完了と再試行を日本語で案内する |
-| AC-016 | 同一ブラウザの複数タブでlogin、logout、workspace作成、一覧更新が並行する | 古い認証・session・作成・一覧応答または失敗が新しい操作より後に到着する | login/logoutは全タブ横断で直列化し、先行loginで認証世代が変わった場合は待機中の古いlogoutを送信せず、後発loginのCookieを削除しない。認証変更時は旧shellを即座に隠し、現在Cookieのユーザーと最新一覧だけを表示して、別ユーザーのworkspace情報・作成前一覧・古い失敗表示で上書きしない。作成POST成功後の一覧再取得失敗は作成済みと明示する |
+| AC-015 | ログイン済みユーザー | Access session終了導線でログアウトを開始し、通信切断または終了結果を確認できない | 保護データとアプリ表示stateを直ちに破棄し、Access session終了を成功扱いせず、結果不明と再確認方法を日本語で案内する。Access cookieやrefresh tokenをアプリから操作しない |
+| AC-016 | 同一ブラウザの複数タブでAccess再認証、Access session終了、workspace作成、一覧更新が並行する | 古い認証・session・作成・一覧応答または失敗が新しい操作より後に到着する | 検証済みsessionの認証世代が変わった時点で旧shellと保護データを即座に隠し、古いsession／workspace応答を破棄する。アプリからAccess cookieやrefresh tokenを操作せず、状態変更を自動再送しない。現在のAccess主体と最新一覧だけを表示し、別ユーザーのworkspace情報・作成前一覧・古い失敗表示で上書きしない。作成POST成功後の一覧再取得失敗は作成済みと明示する |
 | AC-017 | owner/admin/editorが表示中の手順書を開いている | 未保存変更の有無、権限失効、別更新との競合、通信切断を含む条件でアーカイブする | 未保存変更は保護し、viewerと別workspaceは拒否し、表示時versionが一致する場合だけ非破壊アーカイブして一覧から除外する。revision pointerと内容を保持し監査ログを残し、結果不明時は自動再送せず一覧で確認する |
 | AC-020 | editorユーザーかつ `capture.browserRun.egressVerified.enabled=true`、P0検証済み | 操作記録を開始する | Browser sessionが作成されLive View URLを取得できる |
 | AC-021 | 記録中 | password欄へ入力する | 入力値はDB/ログ/Storageに保存されない |

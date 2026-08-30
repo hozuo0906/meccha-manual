@@ -14,7 +14,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 
 ## 必須テスト
 
-- 認証、ログアウト、期限切れ。refreshは専用POSTと認証Web Lockで直列化し、古い応答、上流通信失敗、回転後の途中失敗、token非露出、Cookie削除/維持境界を確認する。
+- Cloudflare Accessのログイン、Access session終了導線によるログアウト、期限切れ、再認証。アプリはrefresh token交換やAccess cookie削除を行わない。認証世代が変わった後の古いsession／workspace応答を破棄し、状態変更を自動再送せず、上流通信失敗とlogout結果不明を安全に案内できることを確認する。
 - owner/admin/editor/viewerの権限。
 - Access JWT／Worker認可／D1 tenant・role・status・ID差し替えnegative/mutation test。移行前Postgres baselineを変更する場合だけRLS negative testも実施する。
 - ワークスペース越境のAPI/DB/Storageアクセス拒否。
