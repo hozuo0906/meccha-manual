@@ -77,7 +77,13 @@ test("rejects evidence counts that do not match each represented collection", as
           encoding: "utf8",
           stdio: "pipe"
         }),
-        /count does not match represented collection/
+        (error) => {
+          const output = [error.message, error.stdout, error.stderr]
+            .filter((value) => typeof value === "string")
+            .join("\n");
+          assert.match(output, /count does not match represented collection/);
+          return true;
+        }
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
