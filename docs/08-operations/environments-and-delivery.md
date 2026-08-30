@@ -18,7 +18,7 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 |---|---|---|---|
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
-| Legacy RLS immutable preview | `main` Git buildのversion uploadと手動live gate。Access deny-by-default | 使用しない | Issue #176 M2でD1境界gateへ置換するまで移行前baseline。新規Supabase test userは追加しない |
+| Legacy RLS immutable preview | `main` Git buildのversion uploadと手動live gate。Access deny-by-default | 使用しない | 既存のRLS negative test契約を回帰仕様として保持し、Issue #176 M2でD1境界gateへ置換する。新規Supabase test userは追加しない |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
