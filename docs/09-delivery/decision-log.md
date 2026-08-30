@@ -6,7 +6,7 @@ Status: Accepted
 |---|---|---|---|
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |
-| DEC-003 | 2026-07-31 | Supabaseを使う（DEC-063でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |
+| DEC-003 | 2026-07-31 | Supabaseを使う（DEC-064でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |
 | DEC-004 | 2026-07-31 | Cloudflareを使う | ユーザー指定。Workers/Browser Run/R2を使える |
 | DEC-005 | 2026-07-31 | Chrome拡張を第一方式にしない | システム内ブラウザ方式を核にする |
 | DEC-006 | 2026-07-31 | AI APIは初期OFF | 従量課金と機密情報送信リスクを避ける |
@@ -132,8 +132,25 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Boundary:
   - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
 
+## DEC-063: RLS用immutable previewをAccessで保護する
 
-## DEC-063: 認証・業務DBをCloudflare Access / D1へ統一する
+- Status: Accepted
+- Date: 2026-08-30
+- Decision:
+  - Cloudflare Git integrationのnon-production branch buildは無効のまま維持する。
+  - Cloudflare Git integrationのproduction branchは `main`、deploy commandは `npx wrangler versions upload` とし、push時もactive deploymentへ自動promoteしない。
+  - `wrangler.jsonc` は `preview_urls: true` を明示し、Phase 1 RLS Live Gateも同じimmutable version upload経路を使う。
+  - preview wildcardはCloudflare Accessでdeny-by-default保護し、Cloudflare account membersと`staging` Environmentのpreview専用service tokenだけを許可する。
+  - 未認証health拒否、Access付きhealthのstaging境界一致、同一originへのRLS E2Eを順に検証し、redirect、別origin、HTTP、資格情報欠落はfail closedにする。
+  - preview URL、Worker version ID、外部ID、テストデータ識別子、資格値、個人情報をログ、artifact、summary、Issue、PR、文書へ記録しない。
+  - production trafficとactive deploymentは変更せず、Issue #92のbackend分離negative proofとmain merge holdは継続する。
+- Reason:
+  - 公開previewを閉じたままではimmutable versionを必要とする正式RLS gateが成立しないため、non-production branch自動buildを停止し、`main`は非promoteのversion upload、live gateはAccess保護された明示uploadに限定する。
+- Boundary:
+  - Access application/policy/service token、GitHub Environment/secretsの登録、live RLS実行、production deploy、Issue #92 closeはrepo-side変更に含めない。
+
+
+## DEC-064: 認証・業務DBをCloudflare Access / D1へ統一する
 
 - Status: Accepted
 - Date: 2026-08-30
