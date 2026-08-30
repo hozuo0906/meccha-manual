@@ -156,15 +156,27 @@ jobs:
             const expectedUrl = wrangler.vars?.SUPABASE_URL;
             if (!origin || !expectedUrl) throw new Error("Approved staging boundary configuration is incomplete.");
 
-            const accessDeniedStatuses = new Set([301, 302, 303, 307, 308, 401, 403]);
+            const accessRedirectStatuses = new Set([301, 302, 303, 307, 308]);
             const unauthenticatedPaths = ["/health/config", "/api/session"];
             for (const path of unauthenticatedPaths) {
               const unauthenticatedResponse = await fetch(`${origin}${path}`, {
                 headers: { accept: "application/json" },
                 redirect: "manual"
               });
-              if (!accessDeniedStatuses.has(unauthenticatedResponse.status)) {
-                throw new Error("Immutable preview route did not return an expected Access denial.");
+              const location = unauthenticatedResponse.headers.get("location");
+              let accessLoginUrl;
+              try {
+                accessLoginUrl = location ? new URL(location) : null;
+              } catch {
+                accessLoginUrl = null;
+              }
+              if (
+                !accessRedirectStatuses.has(unauthenticatedResponse.status) ||
+                accessLoginUrl?.protocol !== "https:" ||
+                !accessLoginUrl.hostname.endsWith(".cloudflareaccess.com") ||
+                !accessLoginUrl.pathname.startsWith("/cdn-cgi/access/login/")
+              ) {
+                throw new Error("Immutable preview route did not return the expected Cloudflare Access login redirect.");
               }
             }
 
@@ -246,7 +258,7 @@ jobs:
             echo "- Target: Access-protected immutable non-production Worker version preview"
             echo "- Tested commit: \`$DISPATCH_SHA\`"
             echo "- Test command: npm run test:rls"
-            echo "- Unauthenticated config and application API access were rejected before the protected request"
+            echo "- Unauthenticated config and application API access returned verified Cloudflare Access login redirects"
             echo "- Static config and immutable preview Supabase boundary were verified before RLS credentials were used"
             echo "- Credential values, external IDs, preview URL, and test data identifiers are not written to artifacts or summaries"
             echo "- The test may create staging workspace/test rows as documented by Issue #79"
