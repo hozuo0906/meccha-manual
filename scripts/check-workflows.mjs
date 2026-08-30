@@ -4,10 +4,22 @@ import { join } from "node:path";
 const workflowDir = ".github/workflows";
 const files = (await readdir(workflowDir)).filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"));
 const errors = [];
+const retiredWorkflowFiles = new Set(["phase1-rls-live.yml", "phase1-rls-live.yaml"]);
+const forbiddenLegacyRlsWorkflowPatterns = [
+  ["legacy workflow name", /Phase 1 RLS Live Gate/],
+  ["legacy RLS secrets", /\bMECCHA_RLS_/],
+  ["legacy live RLS command", /\bnpm run test:rls\b/],
+  ["legacy live RLS runner", /\bscripts\/rls-negative-test\.mjs\b/]
+];
 
 for (const file of files) {
   const path = join(workflowDir, file);
-  const lines = (await readFile(path, "utf8")).split(/\r?\n/);
+  if (retiredWorkflowFiles.has(file)) errors.push(`Retired Supabase live workflow must not exist: ${path}`);
+  const content = await readFile(path, "utf8");
+  for (const [label, pattern] of forbiddenLegacyRlsWorkflowPatterns) {
+    if (pattern.test(content)) errors.push(`Workflow contains retired Supabase live path (${label}): ${path}`);
+  }
+  const lines = content.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
