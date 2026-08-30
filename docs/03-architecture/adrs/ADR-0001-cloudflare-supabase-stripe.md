@@ -1,6 +1,8 @@
 # ADR-0001: Cloudflare + Supabase + Stripeを採用する
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](ADR-0028-cloudflare-access-d1.md)。Cloudflare基盤、private R2、Stripe方針は継続し、Supabase Auth/Postgres/RLSを正本にする部分だけをCloudflare Access/D1へ置換する。以下は移行前の判断記録として保持する。
 
 ## 文脈
 
