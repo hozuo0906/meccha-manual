@@ -67,10 +67,12 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 
 - staging用D1 schema/migration
 - identities、profiles、workspaces、workspace_members、join codes、audit logs
+- OQ-031を解決し、Stripe/Discordのprovider event/interaction IDをCloudflare-native authoritative storeへ原子的に予約する。D1を選ぶ場合はschema/migration/unique constraintを同じPRへ含め、既存Discord KV get→putを単独のreplay guard正本にしない
 - workspace固定repository API
 - 別workspace、viewer、disabled、last-owner、ID差し替えnegative test
 - backup/export/restore rehearsal
 - staging/production binding分離scanner
+- callback予約の並行再送・途中失敗negative test。完了までは環境を問わずpath別Access Bypassを有効化しない
 
 完了条件:
 

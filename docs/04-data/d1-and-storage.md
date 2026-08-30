@@ -47,6 +47,12 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 
 既存の課金、共有、分析、Browser Run関連テーブルは、対応Phaseの移行IssueでD1 schemaを確定する。
 
+## Provider callback replay境界
+
+Stripe/Discord callbackは、raw bodyの署名・署名対象timestampを副作用なしで検証し、有界parse/schema検証後にprovider event/interaction IDをauthoritative storeへ原子的に予約してから業務処理へ進める。予約だけを業務処理前に唯一許すguard state changeとする。既存のDiscord KV get→putは単独のauthoritative replay guardにしない。
+
+具体的なCloudflare-native storeとschemaはOQ-031をIssue #176 M2で解決する。D1を選ぶ場合はtable定義、migration、unique constraint、途中失敗・並行再送negative testを同じPRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
+
 ## Query contract
 
 - 業務repository APIは `actorId` と `workspaceId` を必須引数にする。

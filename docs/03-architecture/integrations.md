@@ -15,7 +15,7 @@ Status: Accepted
 
 Access到達を業務認可と同一視せず、Workerが検証済みaccess user、D1のactive membership/role、resource workspaceを毎回照合する。service tokenはmachine専用routeだけに許可し、D1 userへ写像しない。
 
-Stripe/Discord callbackはexact pathごとのpath別Access Bypassで到達だけを許可する。Bypassを認証・認可の代替にせず、Workerがraw bodyのprovider署名、timestamp、replayをD1 queryや状態変更より前に検証する。hostname全体やwildcard pathへBypassを適用せず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。
+Stripe/Discord callbackはexact pathごとのpath別Access Bypassで到達だけを許可する。Bypassを認証・認可の代替にせず、Workerはexact method/body上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約後だけQueue、外部API、業務D1、entitlementその他の副作用へ進める。既存のDiscord KV get→putはauthoritativeな原子replay guardにせず、OQ-031の実装完了前はBypassを有効化しない。hostname全体やwildcard pathへBypassを適用せず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。
 
 Cloudflareのaccount ID、API token、Access audience、D1 database ID、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
 

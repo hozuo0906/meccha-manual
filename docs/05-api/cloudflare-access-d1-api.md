@@ -33,7 +33,7 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 
 `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
 
-Access Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTと有界raw bodyだけを受け、Stripe署名またはDiscord Ed25519署名・timestamp・replayをJSON parse、D1 query、Queue、外部API、状態変更より前に検証する。欠落、不正、期限外、replay、別method、subpathは拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。
+Access Bypassは到達だけを許可し、認証・認可の代替にしない。Workerの順序は、exact POSTとbody上限の確認、raw bodyのStripe署名またはDiscord Ed25519署名・署名対象timestampの副作用なし検証、有界JSON parse/schema検証、provider event/interaction IDのauthoritative storeへの原子的予約、Queue・外部API・業務D1・entitlementその他の副作用、とする。予約だけを業務処理前に唯一許すguard state changeとする。別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落は予約前、replayは予約時に拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない。
 
 ## Application session
 
@@ -79,7 +79,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 
 ## CSRF / browser state
 
-- 状態変更APIは同一originを必須にする。
+- 通常のブラウザ状態変更APIは同一originを必須にする。Stripe/Discordの2 exact callback pathはserver-to-server例外とし、`Origin`をcredentialや認証根拠にせずprovider署名を正とする。
 - Access cookieがあることだけをCSRF対策にしない。
 - Cookieや認証状態が変化した場合、進行中の旧session応答をUIへ反映しない。
 - 状態変更の認証世代が変わった場合は再送しない。

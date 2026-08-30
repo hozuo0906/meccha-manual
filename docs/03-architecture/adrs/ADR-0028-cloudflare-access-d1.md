@@ -34,9 +34,9 @@ StripeとDiscordの外部providerは対話的なAccess loginやapplication JWT�
 - `POST /v1/webhooks/stripe`
 - `POST /v1/integrations/discord/interactions`
 
-より具体的なpath applicationをhostname applicationより優先させる。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Bypassを認証・認可の代替にせず、Workerはexact pathのPOSTと有界なraw bodyだけを受け、JSON parse、D1 query、Queue、外部API、状態変更より前にStripe署名またはDiscord Ed25519署名・timestamp・replayを検証する。欠落、不正、期限外、replay、別method、subpathはfail closedで拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。
+より具体的なpath applicationをhostname applicationより優先させる。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Bypassを認証・認可の代替にせず、Workerの処理順序を、(1) exact POSTとbody上限の確認、(2) raw bodyのprovider署名・署名対象timestampを副作用なしで検証、(3) 有界JSON parseとschema検証、(4) provider event/interaction IDをauthoritative replay/idempotency storeへ原子的に予約、(5) Queue、外部API、業務D1、entitlementその他の副作用、に固定する。原子的な予約だけを業務処理前に唯一許すguard state changeとする。別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落は予約前、replayは予約時にfail closedで拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。
 
-通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。path別Access Bypassのproduction作成・変更はIssue #176 M7の個別owner承認対象とする。
+通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。原子的な予約storeの選択はOQ-031をIssue #176 M2で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
 
 ## Authorization boundary
 
@@ -86,6 +86,7 @@ previewはstaging専用D1だけをbindingし、production D1をbindingしない�
 - ADR-0001の「Cloudflare + Supabase」を採用する部分
 - ADR-0004 Supabase Auth/Postgres/RLS採用
 - ADR-0010のSupabase token、refresh、sign-out、PostgREST/RPCに依存する認証方式
+- ADR-0012の `DISCORD_INTERACTION_STORE` KVによるget→putをauthoritative replay guardとする部分
 - ADR-0003の永続正本をSupabase Postgresとする部分
 - ADR-0011、ADR-0018のSupabase Auth/RLS/PostgresをR2認可・メタデータ正本とする部分
 - ADR-0019のPhase 1 Supabase/RLS着手前gate
@@ -93,7 +94,7 @@ previewはstaging専用D1だけをbindingし、production D1をbindingしない�
 - ADR-0025のSECURITY DEFINER RPC/RLSによる参加コード実装方式（同意、短命、単回、digest保存の原則は維持）
 - ADR-0027のSupabase project URL/anon keyをprelaunch環境境界とする部分
 
-ADR-0003のDurable Objectと永続DBを二重正本にしない原則、ADR-0011/0018のprivate R2・Worker経由配信・環境別binding、ADR-0024のブランド/アプリ分離、ADR-0025の本人同意・短命・単回参加コード、ADR-0027のproduction非変更と環境分離は維持する。ADR-0010で定めたHttpOnly、同一origin、認証変更時の古い応答破棄、状態変更の自動再送禁止、結果不明時の再照合という安全原則も、新実装で維持する。
+ADR-0003のDurable Objectと永続DBを二重正本にしない原則、ADR-0011/0018のprivate R2・Worker経由配信・環境別binding、ADR-0012のDiscord署名検証とGitHub Issue変換境界、ADR-0024のブランド/アプリ分離、ADR-0025の本人同意・短命・単回参加コード、ADR-0027のproduction非変更と環境分離は維持する。ADR-0010で定めたHttpOnly、通常ブラウザwrite APIの同一origin、認証変更時の古い応答破棄、状態変更の自動再送禁止、結果不明時の再照合という安全原則も、新実装で維持する。
 
 ## Consequences
 

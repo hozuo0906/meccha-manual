@@ -186,8 +186,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
   - 旧 `phase1-rls-live.yml` はdefault branchから削除し、workflow checkerで同名・改名再追加を拒否する。
   - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
-  - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはraw bodyのprovider署名・timestamp・replayをD1 queryや状態変更より前に検証する。
+  - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはexact method/body上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約だけを業務処理前に唯一許すguard state changeとし、その後にだけQueue、外部API、業務D1、entitlementその他の副作用へ進める。
   - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
+  - 通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。OQ-031をM2で解決し、原子的な予約実装・schema/migration・negative testが揃うまでpath別Access Bypassを有効化しない。
 - Evidence:
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176

@@ -39,50 +39,60 @@ const required = new Map([
     "access_user | service_token", "空の `sub`", "`common_name`",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
     "External provider callback boundary", "path別Access Bypass", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
+    "署名対象timestampを副作用なしで検証", "有界JSON parseとschema検証", "provider event/interaction IDをauthoritative replay/idempotency storeへ原子的に予約", "唯一許すguard state change",
     "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027"
   ]],
   ["docs/03-architecture/adrs/README.md", [
     "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
   ]],
+  ["docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md", [
+    "署名対象timestampを副作用なしで検証", "有界JSON parse/schema検証", "interaction IDをauthoritative storeへ原子的に予約", "既存get→putは移行前baseline", "OQ-031"
+  ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
     "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
-    "External provider callback", "path別Access Bypass", "Bypassは到達だけを許可し、認証・認可の代替にしない"
+    "External provider callback", "path別Access Bypass", "Bypassは到達だけを許可し、認証・認可の代替にしない",
+    "署名対象timestampを副作用なしで検証", "有界JSON parseとschema検証", "authoritative storeへ原子的に予約", "通常ブラウザwrite APIだけに同一Origin"
   ]],
   ["docs/03-architecture/integrations.md", [
     "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
-    "Stripe/Discord callback", "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護"
+    "Stripe/Discord callback", "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護",
+    "署名対象timestampを副作用なしで検証", "有界parse/schema検証", "authoritative storeへ原子的に予約", "callbackでは`Origin`を認証根拠にしない"
   ]],
   ["docs/04-data/d1-and-storage.md", [
-    "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query"
+    "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query",
+    "Provider callback replay境界", "唯一許すguard state change", "OQ-031"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
-    "External provider callback", "path別Access Bypass", "通常アプリAPIと `GET /health/config` はAccess保護を維持"
+    "External provider callback", "path別Access Bypass", "通常アプリAPIと `GET /health/config` はAccess保護を維持",
+    "署名対象timestampの副作用なし検証", "有界JSON parse/schema検証", "authoritative storeへの原子的予約", "通常のブラウザ状態変更APIは同一origin"
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
     "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
-    "path別Access Bypassは到達経路に限る", "exact POSTのraw body", "Bypassを認証・認可の代替にしない",
+    "path別Access Bypassは到達経路に限る", "raw bodyのprovider署名・署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "Bypassや`Origin`を認証・認可の代替にしない",
     "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
   ]],
   ["docs/08-operations/domain-and-publication.md", [
     "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない",
     "path別Access Bypass application", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
+    "署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "通常のブラウザwrite APIはアプリ自身のOriginだけ", "`Origin`の有無や値を認証根拠にせず",
     "通常アプリAPIはAccess user用application", "`GET /health/config`はservice-token用Access application/policy"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
     "Access session終了導線", "Access cookieやrefresh tokenをアプリから操作しない", "認証世代",
-    "AC-018", "AC-019", "hostname全体やwildcard pathへBypassを適用せず"
+    "AC-018", "AC-019", "hostname全体やwildcard pathへBypassを適用せず",
+    "署名対象timestampを副作用なしで検証", "authoritative storeへ原子的に予約", "replayは原子的予約時に拒否", "`Origin`をcallback認証に使わない"
   ]],
   ["docs/07-quality/test-strategy.md", [
     "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ",
     "Access session終了導線", "refresh token交換やAccess cookie削除を行わない", "認証世代",
-    "Access callback境界", "path別Access Bypass", "D1 query、Queue、外部API、状態変更より前に拒否"
+    "Access callback境界", "path別Access Bypass", "署名対象timestampを副作用なしで検証", "有界parse/schema検証後", "authoritative storeへ原子的に予約", "KV get→putだけでは原子性合格にせず"
   ]],
   ["docs/08-operations/environment-variables.md", [
     "Issue #176 M5 staging immutable-preview検証用Access service token ID",
@@ -90,11 +100,15 @@ const required = new Map([
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
-    "実行可能workflowをdefault branchから削除"
+    "実行可能workflowをdefault branchから削除", "OQ-031を解決", "既存Discord KV get→putを単独のreplay guard正本にしない"
   ]],
   ["docs/09-delivery/decision-log.md", [
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
-    "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持"
+    "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持",
+    "唯一許すguard state change", "通常ブラウザwrite APIだけに同一Origin", "OQ-031をM2で解決"
+  ]],
+  ["docs/09-delivery/open-questions.md", [
+    "OQ-031", "Issue #176 M2", "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない"
   ]]
 ]);
 

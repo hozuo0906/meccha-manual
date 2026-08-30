@@ -7,7 +7,7 @@ Status: Accepted
 ## 共通
 
 - 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。
-- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Workerはexact POSTのraw bodyでprovider署名・timestamp・replayを検証してからparse・D1 query・状態変更を行い、Bypassを認証・認可の代替にしない。
+- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Workerはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約後だけQueue、外部API、業務D1、entitlementその他の副作用へ進め、Bypassや`Origin`を認証・認可の代替にしない。
 - 業務認可はWorkerでactive identity、membership、role、resource workspaceを再照合する。
 - tenant境界はworkspace固定D1 query、D1制約、private R2認可で多層化する。
 - エラーは日本語UI向けコードと運用向け詳細を分ける。
@@ -150,7 +150,7 @@ runnerはproduction deploy、rollback、DB migration、secret変更をこの契�
 - 必須header: `x-signature-ed25519`, `x-signature-timestamp`
 - timestamp許容: 5分以内
 - body上限: 64KB
-- replay防止: `DISCORD_INTERACTION_STORE` KVにinteraction IDを10分保存する
+- replay/idempotency: 署名・timestamp検証後に有界parse/schema検証を行い、interaction IDをauthoritative storeへ原子的に予約する。`DISCORD_INTERACTION_STORE` KVの既存get→putは移行前baselineであり、単独のreplay guard正本にせず、予約後の短期応答cacheに限定できる。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない
 - 許可範囲: `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする
 - 応答: slash commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する
 - GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`, `status/triage`, `priority/P0|P1|P2|P3`

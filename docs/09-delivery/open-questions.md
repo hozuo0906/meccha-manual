@@ -36,3 +36,4 @@ Status: Accepted
 | OQ-028 | FR-004の「削除」で、アーカイブ後の復元・物理削除をいつ誰に許可し、revision、asset、共有、分析、コメントをどう扱うか | 現段階は非破壊アーカイブだけを提供し、revision pointerと全内容を保持する。復元・物理削除・自動削除は、権限、猶予期間、参照関係、監査、再試行をADRで確定するまで有効化しない | 手順書復元／物理削除 |
 | OQ-029 | Accessの招待照合、subject再発行、email変更、退会後再登録をどう扱うか | 初期はメールOTP・招待制。emailだけを永続identity keyにせず、issuer+subjectを正本にする。bootstrapと再紐付けはM1で脅威分析後にAccepted化 | Access identity spike / 外部招待 |
 | OQ-030 | D1でPostgres RLS相当の防御をどこまで二重化するか | Worker用途別repositoryとworkspace固定queryを必須にし、D1制約、negative test、mutation test、静的scannerで補完する。共通汎用DMLは禁止 | D1 workspace/manual移行 |
+| OQ-031 | Stripe/Discord callbackのprovider event/interaction IDを原子的に予約するauthoritative storeをD1またはDurable Objectsのどちらで実現するか | raw bodyの署名・timestampを副作用なしで検証し、有界parse/schema検証後にIDを原子的に予約する順序は固定する。既存Discord KV get→putだけでは合格にせず、Issue #176 M2でCloudflare-native storeを決定し、実装・schema/migration・並行再送/途中失敗negative testが揃うまでpath別Access Bypassを有効化しない | callbackのstaging/production外部到達 |

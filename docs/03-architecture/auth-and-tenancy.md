@@ -19,7 +19,7 @@ Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、
 
 `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は、exact pathごとのpath別Access Bypassで外部providerからの到達だけを許可する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
 
-Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTの有界raw bodyでprovider署名、timestamp、replayをJSON parse、D1 query、Queue、外部API、状態変更より前に検証する。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。
+Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証してから有界JSON parseとschema検証を行い、provider event/interaction IDをauthoritative storeへ原子的に予約する。予約だけを業務処理前に唯一許すguard state changeとし、新規予約に成功したrequestだけQueue、外部API、業務D1、entitlementその他の副作用へ進める。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常ブラウザwrite APIだけに同一Originを必須とし、この2 callbackでは `Origin` で認証しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。
 
 ## テナント境界
 
