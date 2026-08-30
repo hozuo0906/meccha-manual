@@ -94,7 +94,7 @@ function checkMatrix(errors, matrix, internalAlphaVerdict) {
   return meta;
 }
 
-function checkEvidence(errors, evidence, candidateSha, representedCollectionPass) {
+function checkEvidence(errors, evidence, candidateSha, representedCollectionPass, expectedCollectionCounts) {
   checkExactKeys(errors, evidence, new Set(["fields", "events"]), "evidence");
   if (!evidence || typeof evidence !== "object") return;
   const fields = evidence.fields;
@@ -112,6 +112,12 @@ function checkEvidence(errors, evidence, candidateSha, representedCollectionPass
     if (!EVIDENCE_COLLECTIONS.has(event.collection)) fail(errors, "evidence event: collection is not an allowed enum");
     if (event.verdict !== "PASS" && event.verdict !== "FAIL") fail(errors, "evidence event: invalid verdict");
     if (!Number.isInteger(event.count) || event.count < 0) fail(errors, "evidence event: count is not deterministic");
+    if (
+      Object.hasOwn(expectedCollectionCounts ?? {}, event.collection)
+      && event.count !== expectedCollectionCounts[event.collection]
+    ) {
+      fail(errors, "evidence event: count does not match represented collection");
+    }
     if (event.candidateSha !== candidateSha) fail(errors, "evidence event: candidate SHA does not match");
     if (!isCanonicalUtcTimestamp(event.timestamp)) {
       fail(errors, "evidence event: timestamp is not a canonical UTC instant");
@@ -212,6 +218,11 @@ function checkFixture(fixture) {
     "preflight-gates": prerequisitesPass,
     "manual-core-matrix": matrixMeta.allPass && !matrixMeta.unimplemented,
     "publication-flow": flowPass
+  }, {
+    "preflight-gates": prerequisiteValues.length,
+    "manual-core-matrix": RESOURCES.length * ROLES.length * MATRIX_PHASES.length,
+    "publication-flow": 2 + 2 + 4,
+    "evidence-safety": EVIDENCE_KEYS.size
   });
   if (fixture.internalAlphaVerdict === "PASS" && (matrixMeta.unimplemented || !matrixMeta.allPass)) fail(errors, "matrix: alpha PASS requires implemented cells with executed PASS verdicts");
   if (!prerequisitesPass && fixture.internalAlphaVerdict === "PASS") fail(errors, "fixture: blocked preflight cannot claim internal alpha PASS");
