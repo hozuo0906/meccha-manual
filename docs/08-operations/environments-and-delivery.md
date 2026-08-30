@@ -8,7 +8,7 @@ Status: Accepted
 
 現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策として無効化している。例外は `main` から手動実行するPhase 1 RLS Live Gateが、Accessでdeny-by-default保護されたimmutable versionを明示uploadする場合だけとする。prelaunch期間の `main` 自動deploy例外は契約上残るが、Issue #92のmain merge holdが解除されるまで使用しない。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
+Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策として無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは `main` から手動実行し、同じAccess保護されたimmutable version経路を使う。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
 
 ## 環境対応表
 
@@ -18,7 +18,7 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 |---|---|---|---|
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
-| RLS immutable preview | `main`の手動live gateだけ。Access deny-by-default | 使用しない | Git branch buildでは生成せず、preview専用service tokenだけを許可する |
+| RLS immutable preview | `main` Git buildのversion uploadと手動live gate。Access deny-by-default | 使用しない | non-production branch buildでは生成せず、Cloudflare account membersとpreview専用service tokenだけを許可する |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Supabase project | 現projectを暫定dev/stagingとして利用 | `meccha-manual-prod`を将来新規作成 | Auth、DB、project ref、migration履歴を共有しない |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |
@@ -31,7 +31,7 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 
 ## `main` マージ後の扱い
 
-原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在のCloudflare設定では`main`マージ後に暫定WorkerへGit連携deployが動き得るため、Issue #92のmain merge hold中はマージしない。hold解除後もPR・必須check・最新SHAレビューを通過しない変更を`main`へ入れない。外部ユーザー登録前に自動deployを解除し、以下の正式フローへ戻す。
+原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在のCloudflare設定では`main`マージ後にGit連携のversion uploadが動き得るが、active deploymentへ自動promoteしない。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。hold解除後もPR・必須check・最新SHAレビューを通過しない変更を`main`へ入れず、以下の正式フローでproduction反映を別承認にする。
 
 1. PR checksを通過したcommitを`main`へマージし、production候補SHAを固定する。
 2. staging workflowを40桁の候補SHA付きで明示的に起動し、workflow実行SHAとの一致を確認してcheckを再実行する。将来deploy stepを有効化した後はstagingへだけ反映する。
@@ -46,8 +46,8 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 |---|---|---|
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
-| `main`マージから暫定Worker deploy | prelaunch期間のみ自動 | Issue #92 hold中は禁止。解除後も外部ユーザー/実データなし、PR必須、公開前チェックリストで解除 |
-| Phase 1 RLS immutable preview | `main`から手動 | `staging` Environment、Access deny-by-default、preview専用service token、production deployなし |
+| `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。Issue #92 hold中はmerge禁止。解除後もPRと公開前チェックリストを必須にする |
+| Phase 1 RLS immutable preview | `main`から手動 | `staging` Environment、Access deny-by-default、Cloudflare account members + preview専用service token、production deployなし |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
@@ -74,7 +74,7 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
 - `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。ADR-0024のCustom Domain設定と切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
-- Cloudflare Git integrationのnon-production branch buildを再有効化しない。RLS用version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、未認証health拒否、preview専用service token付きhealth成功を同じlive gateで確認する。
+- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。RLS用version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を同じlive gateで確認する。
 
 ## Supabase
 

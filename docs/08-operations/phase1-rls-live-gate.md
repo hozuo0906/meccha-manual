@@ -14,7 +14,7 @@ Issue #79がIssue #38から引き継いだ正式live RLS gateを、秘密値、p
 - GitHub Environmentは `staging` とし、productionでは実行しない。
 - Cloudflare Git integrationのnon-production branch buildはIssue #92のP0対策として無効のまま維持する。
 - `wrangler.jsonc` は `preview_urls: true` を明示し、このworkflowがuploadした一時的なimmutable version previewだけをRLS gateに使用する。
-- preview wildcardはCloudflare Accessでdeny-by-default保護し、preview専用service tokenだけを許可する。
+- preview wildcardはCloudflare Accessでdeny-by-default保護し、Cloudflare account membersとpreview専用service tokenだけを許可する。
 - RLS資格情報を使う前に、未認証の `/health/config` がAccessで拒否されることと、service token付きの同じrequestだけが成功することを確認する。
 - `/health/config` と `npm run test:rls` は同じimmutable preview originへ固定する。
 - production traffic、active deployment、production DB、課金、AI API、共有リンクを変更しない。
@@ -53,7 +53,7 @@ CF_ACCESS_CLIENT_SECRET
 - Access 2件は必ず一組で登録し、片方欠落時は停止する。
 - 同名のBusiness OS用service tokenやrepository secretと値を共有しない。
 - GitHub Actionsからsecretのscope由来は判別できないため、owner/adminは6件が `staging` Environmentへ登録済みであることを確認する。
-- Access policy側でもpreview専用service token以外を拒否し、同名repository secretへのfallback運用を許可しない。
+- Access policy側はCloudflare account membersとpreview専用service tokenだけを許可し、その他の未認証requestとservice tokenを拒否する。同名repository secretへのfallback運用は許可しない。
 - workflowはsecret値をechoせず、不足している名前だけを報告する。
 
 ## HTTP request境界
@@ -71,7 +71,7 @@ CF_ACCESS_CLIENT_SECRET
 
 ## 実行手順
 
-1. owner/adminがpreview wildcardのAccess deny-by-defaultとpreview専用service tokenだけのallowを確認する。
+1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
 2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。
 3. Worker version upload用Cloudflare資格情報が利用可能であることを値非表示で確認する。
 4. Actionsから `Phase 1 RLS Live Gate` を `main` で手動実行する。

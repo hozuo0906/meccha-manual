@@ -22,4 +22,4 @@ Status: Accepted
 | RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、Supabase sessionとcheckout intentを正本にする |
 | RISK-017 | Browser RunやStorageの計測誤差で追加請求する | 誤課金/信用失墜 | 初期は自動従量課金せず、上限停止と再集計フローを採用する |
 | RISK-018 | DNS検査後にBrowser Runが再解決しprivate IPへ接続する | P0内部ネットワーク到達 | 検査済みIPへの実接続拘束、全通信種別のegress negative test、実現不能時は任意URL・承認済みhost・mobile previewを含む全Browser Runをfail closed |
-| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | Git branch build停止、Access deny-by-default、preview専用service token、未認証health拒否、staging境界確認、backend negative proof、証明完了までmain merge hold |
+| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | non-production branch build停止、`main`は非promote version upload、Access deny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、staging境界確認、backend negative proof、証明完了までmain merge hold |
