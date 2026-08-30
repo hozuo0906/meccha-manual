@@ -6,7 +6,7 @@ Status: Accepted
 |---|---|---|---|
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |
-| DEC-003 | 2026-07-31 | Supabaseを使う | ユーザー指定。Auth/DB/RLSを一体で扱える |
+| DEC-003 | 2026-07-31 | Supabaseを使う（DEC-063でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |
 | DEC-004 | 2026-07-31 | Cloudflareを使う | ユーザー指定。Workers/Browser Run/R2を使える |
 | DEC-005 | 2026-07-31 | Chrome拡張を第一方式にしない | システム内ブラウザ方式を核にする |
 | DEC-006 | 2026-07-31 | AI APIは初期OFF | 従量課金と機密情報送信リスクを避ける |
@@ -131,3 +131,27 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - hostname allowlistの存在と全通信のactual peer拘束は同義ではなく、未証明経路からのSSRFをP0として防ぐため。
 - Boundary:
   - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
+
+
+## DEC-063: 認証・業務DBをCloudflare Access / D1へ統一する
+
+- Status: Accepted
+- Date: 2026-08-30
+- Decision:
+  - Cloudflare AccessのメールOTPを初期の招待制ログインにする。
+  - WorkerはAccess application JWTの署名、issuer、audience、期限、token typeを検証する。
+  - Cloudflare D1を業務データとファイルメタデータの正本にする。
+  - workspace membershipとowner/admin/editor/viewerはD1で管理し、Workerが全業務queryで再認可する。
+  - private R2、Durable Objects、Browser Runは既存Cloudflare方針を維持する。
+  - アプリ独自password、password hash、refresh tokenを保持しない。
+  - ADR-0001のSupabase部分、ADR-0004、ADR-0010のSupabase認証方式をADR-0028でSupersededにする。
+- Reason:
+  - runtime、認証、DB、Storage、preview保護のcontrol planeをCloudflare中心へ集約し、production資源作成前に環境分離と運用を単純化するため。
+- Safety:
+  - Access到達許可をworkspace認可と同一視しない。
+  - Postgres RLS置換はWorker認可とworkspace固定D1 queryのnegative testをP0 gateにする。
+  - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
+- Evidence:
+  - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
+  - GitHub Issue #176
+  - [Cloudflare移行ロードマップ](cloudflare-migration-roadmap.md)
