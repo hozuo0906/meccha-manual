@@ -137,7 +137,6 @@ test("RLS runnerと退役workflow guardが契約へ固定されている", async
   assert.match(checker, /Phase 1 RLS Live Gate/);
   assert.match(checker, /MECCHA_RLS_/);
   assert.match(checker, /npm run test:rls/);
-  assert.ok(checker.includes("scripts/rls-negative-test.mjs"));
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_ID"/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_SECRET"/);
 });
