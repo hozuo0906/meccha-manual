@@ -35,7 +35,7 @@ const requiredTerms = [
   "production 4 bucketはまだ作成しない",
   "bucket自体はpublicにしない",
   "Worker経由",
-  "Postgresメタデータ",
+  "D1 assetsメタデータ",
   "短期署名URL",
   "保持期間",
   "PII",
