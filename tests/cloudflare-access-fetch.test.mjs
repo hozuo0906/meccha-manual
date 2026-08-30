@@ -132,11 +132,14 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.ok(workflow.includes(`${clientIdName}: ` + "${{ secrets." + clientIdName + " }}"));
   assert.ok(workflow.includes(`${clientSecretName}: ` + "${{ secrets." + clientSecretName + " }}"));
   assert.match(workflow, /fetchWithCloudflareAccess/);
-  assert.match(workflow, /accessDeniedStatuses\.has\(unauthenticatedResponse\.status\)/);
+  assert.ok(workflow.includes("const accessRedirectStatuses = new Set([301, 302, 303, 307, 308]);"));
   assert.ok(workflow.includes('const unauthenticatedPaths = ["/health/config", "/api/session"];'));
   assert.ok(workflow.includes("for (const path of unauthenticatedPaths)"));
   assert.ok(workflow.includes('fetch(`${origin}${path}`, {'));
-  assert.match(workflow, /Unauthenticated config and application API access were rejected/);
+  assert.ok(workflow.includes('accessLoginUrl.hostname.endsWith(".cloudflareaccess.com")'));
+  assert.ok(workflow.includes('accessLoginUrl.pathname.startsWith("/cdn-cgi/access/login/")'));
+  assert.doesNotMatch(workflow, /accessRedirectStatuses = new Set\([^\n]*(?:401|403)/);
+  assert.match(workflow, /returned verified Cloudflare Access login redirects/);
   assert.match(workflow, /async function verifyImmutableWorkerBoundary\(\)/);
   assert.match(workflow, /console\.error\("Immutable preview boundary verification failed\."\)/);
   assert.match(workflow, /process\.exitCode = 1/);
