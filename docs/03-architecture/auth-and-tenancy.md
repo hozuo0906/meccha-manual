@@ -22,7 +22,7 @@ Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、
 
 1. Access: アプリへの到達可否。
 2. Worker: 検証済み `access_user`、active identity、membership、owner/admin/editor/viewer、resource workspace、期待versionを照合。
-3. D1 repository: actor IDとworkspace IDを必須にした用途別queryだけを公開し、resource ID単独の汎用更新・削除を作らない。
+3. D1 repository: actor IDとworkspace IDを必須にした用途別のworkspace固定D1 queryだけを公開し、resource ID単独の汎用更新・削除を作らない。
 4. D1 constraints: foreign key、unique、CHECK、version、atomic batchで不変条件を強制。
 
 Access到達やUI表示を認可根拠にしない。別workspace、viewer mutation、disabled、ID差し替え、last-owner、競合、途中失敗、結果不明をnegative/mutation testへ含める。
