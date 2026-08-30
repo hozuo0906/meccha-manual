@@ -124,7 +124,8 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.match(runner, /hostname === "localhost"/);
   assert.doesNotMatch(runner, /appOrigin\.includes\("localhost"\)/);
   assert.doesNotMatch(runner, /status: "ok",\s*appOrigin/);
-  assert.doesNotMatch(runner, /slug:\s*slug[AB]/);
+  const resultLog = runner.slice(runner.lastIndexOf("console.log(JSON.stringify({"));
+  assert.doesNotMatch(resultLog, /\bslug\b/);
   assert.doesNotMatch(runner, /JSON\.stringify\(payload\)/);
   assert.doesNotMatch(runner, /actor\.email/);
 
