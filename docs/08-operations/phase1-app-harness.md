@@ -1,6 +1,8 @@
 # Phase 1 app harness
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)。以下は移行前の実装・回帰baselineとして保持する。
 
 ## Purpose
 
