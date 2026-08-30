@@ -25,7 +25,8 @@ Status: Accepted
 
 - 対象は日本人オフィスワーカー。
 - UIは日本語専用。
-- Cloudflare Pages/Workers、Cloudflare Browser Run、Supabase、Stripeを前提にする。
+- Cloudflare Access、Workers、D1、R2、Browser RunとStripeを前提にする。
+- 初期ログインはCloudflare AccessのメールOTPによる招待制とし、アプリ独自passwordを保持しない。
 - 初期はAI APIを呼ばない。
 - Chrome拡張は第一方式にしない。
 - GitHub Codespacesを開発場所の第一候補にする。
