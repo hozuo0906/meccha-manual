@@ -60,6 +60,7 @@ Status: Accepted
 - [ADR-0028](03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
 - [D1データ・認可境界](04-data/d1-and-storage.md)
 - [Access / D1 API移行契約](05-api/cloudflare-access-d1-api.md)
+- [Cloudflare移行ロードマップ](09-delivery/cloudflare-migration-roadmap.md)
 - 移行Epic: GitHub Issue #176
 
 ## 公開構成
