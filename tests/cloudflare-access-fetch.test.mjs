@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   createCloudflareAccessHeaders,
@@ -107,10 +107,11 @@ test("Access資格情報を別originまたはHTTPへ送らない", async () => {
   assert.equal(calls, 0);
 });
 
-test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定されている", async () => {
-  const [runner, workflow, wranglerText, sensitiveValueScanner] = await Promise.all([
+test("RLS runnerと退役workflow guardが契約へ固定されている", async () => {
+  const [runner, workflowFiles, checker, wranglerText, sensitiveValueScanner] = await Promise.all([
     readFile(new URL("../scripts/rls-negative-test.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../.github/workflows/phase1-rls-live.yml", import.meta.url), "utf8"),
+    readdir(new URL("../.github/workflows/", import.meta.url)),
+    readFile(new URL("../scripts/check-workflows.mjs", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../scripts/check-sensitive-values.mjs", import.meta.url), "utf8")
   ]);
@@ -129,28 +130,14 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.doesNotMatch(runner, /JSON\.stringify\(payload\)/);
   assert.doesNotMatch(runner, /actor\.email/);
 
-  assert.ok(workflow.includes(`${clientIdName}: ` + "${{ secrets." + clientIdName + " }}"));
-  assert.ok(workflow.includes(`${clientSecretName}: ` + "${{ secrets." + clientSecretName + " }}"));
-  assert.match(workflow, /fetchWithCloudflareAccess/);
-  assert.ok(workflow.includes("const accessRedirectStatuses = new Set([301, 302, 303, 307, 308]);"));
-  assert.ok(workflow.includes('const unauthenticatedPaths = ["/health/config", "/api/session"];'));
-  assert.ok(workflow.includes("for (const path of unauthenticatedPaths)"));
-  assert.ok(workflow.includes('fetch(`${origin}${path}`, {'));
-  assert.ok(workflow.includes('accessLoginUrl.hostname.endsWith(".cloudflareaccess.com")'));
-  assert.ok(workflow.includes('accessLoginUrl.pathname.startsWith("/cdn-cgi/access/login/")'));
-  assert.doesNotMatch(workflow, /accessRedirectStatuses = new Set\([^\n]*(?:401|403)/);
-  assert.match(workflow, /returned verified Cloudflare Access login redirects/);
-  assert.match(workflow, /async function verifyImmutableWorkerBoundary\(\)/);
-  assert.match(workflow, /console\.error\("Immutable preview boundary verification failed\."\)/);
-  assert.match(workflow, /process\.exitCode = 1/);
-  assert.match(workflow, /\n          NODE\n\n      - name: Verify immutable Worker staging boundary\n/);
-  assert.match(workflow, /process\.exitCode = 1;\n          }\n          NODE\n\n      - name: Verify protected test credentials are present\n/);
-  assert.match(workflow, />"\$WRANGLER_UPLOAD_LOG_PATH" 2>&1/);
-  assert.match(workflow, /npx --no-install wrangler versions upload/);
-  assert.doesNotMatch(workflow, /steps\.worker_preview\.outputs\.preview_url/);
-  assert.doesNotMatch(workflow, /GITHUB_OUTPUT/);
-  assert.doesNotMatch(workflow, /::add-mask::/);
-
+  assert.equal(workflowFiles.includes("phase1-rls-live.yml"), false);
+  assert.equal(workflowFiles.includes("phase1-rls-live.yaml"), false);
+  assert.match(checker, /retiredWorkflowFiles/);
+  assert.match(checker, /forbiddenLegacyRlsWorkflowPatterns/);
+  assert.match(checker, /Phase 1 RLS Live Gate/);
+  assert.match(checker, /MECCHA_RLS_/);
+  assert.match(checker, /npm run test:rls/);
+  assert.match(checker, /scripts\\/rls-negative-test\\.mjs/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_ID"/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_SECRET"/);
 });
