@@ -1,6 +1,8 @@
 # RLSとファイル保存
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [D1データ・認可境界](d1-and-storage.md) and [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)。以下はSupabase/RLS移行前の判断記録として保持する。
 
 ## 方針
 
