@@ -1,4 +1,4 @@
-name: Phase 1 Readiness Gate
+name: Legacy Phase 1 Baseline Integrity
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   phase1-readiness:
-    name: Validate Phase 1 readiness
+    name: Validate legacy Phase 1 baseline
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -69,10 +69,10 @@ jobs:
           node --experimental-strip-types --check apps/worker/src/index.ts
           node --experimental-strip-types --check apps/worker/src/app-assets.ts
 
-      - name: Validate Phase 1 readiness
+      - name: Validate legacy Phase 1 baseline
         run: npm run phase1-readiness:check
 
-      - name: Notify Discord
+      - name: Notify Discord about legacy baseline
         if: always()
         continue-on-error: true
         env:
@@ -81,7 +81,7 @@ jobs:
           DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
           DISCORD_NOTIFY_ENV: development
           DISCORD_NOTIFY_STATUS: ${{ job.status }}
-          DISCORD_NOTIFY_TITLE: Phase 1着手前ゲート
-          DISCORD_NOTIFY_DESCRIPTION: 認証、ワークスペース、RLS、service_role未使用、ユーザー承認待ち状態を確認しました。
-          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && 'Phase 1着手前ゲートは通っています。次はユーザーの明示承認を受けてから、認証・ワークスペース基盤の本番開発へ進めます。' || 'Phase 1着手前ゲートで失敗しています。必要docs、RLS negative test、Worker API、service_role未使用、承認状態を確認します。' }}
+          DISCORD_NOTIFY_TITLE: 旧Phase 1 baseline整合検査
+          DISCORD_NOTIFY_DESCRIPTION: 移行前Supabase baselineのリポジトリ整合だけを確認しました。Cloudflare移行、staging受入、実装着手の承認ではありません。
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && '旧Phase 1 baseline整合検査は成功しました。Cloudflare移行、staging受入、実装着手の承認には使用できません。Issue #176の対象マイルストーンと独立gateを確認してください。' || '旧Phase 1 baseline整合検査で失敗しています。移行前baselineの欠損だけを確認し、Cloudflare移行やstaging受入の判定には使用しません。' }}
         run: npm run notify:discord

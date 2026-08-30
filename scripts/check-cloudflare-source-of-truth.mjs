@@ -20,6 +20,10 @@ const required = new Map([
     "対象DBのmigration", "D1 migration/schema", "workspace固定query",
     "移行前Supabase/Postgres baselineを変更した場合だけ"
   ]],
+  [".github/workflows/phase1-readiness-gate.yml", [
+    "name: Legacy Phase 1 Baseline Integrity", "Validate legacy Phase 1 baseline",
+    "旧Phase 1 baseline整合検査", "実装着手の承認には使用できません"
+  ]],
   ["docs/00-foundation/coding-guidelines.md", [
     "Durable ObjectsとD1の両方を同じ状態の正本にする。"
   ]],
@@ -56,6 +60,7 @@ const required = new Map([
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
+    "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
     "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
@@ -98,6 +103,7 @@ const forbidden = new Map([
   ["docs/03-architecture/integrations.md", ["Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
   ["docs/04-data/storage-object-contract.md", ["## Postgresメタデータ", "認可時はPostgres正本", "WorkerはSupabase session"]],
   ["docs/05-api/api-contracts.md", ["# API契約\n\nStatus: Superseded"]],
+  [".github/workflows/phase1-readiness-gate.yml", ["Phase 1着手前ゲートは通っています", "本番開発へ進めます"]],
   ["docs/05-api/browser-capture-foundation-api.md", ["将来の永続化はworkspace RLS"]],
   ["docs/06-security/security-and-privacy.md", ["- RLS抜け。"]],
   ["docs/07-quality/acceptance-catalog.md", [
@@ -157,6 +163,25 @@ for (const path of [".github/workflows/phase1-rls-live.yml", ".github/workflows/
     errors.push(`Retired Supabase live workflow must not exist: ${path}`);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+
+const apiContracts = contents.get("docs/05-api/api-contracts.md") ?? "";
+const proposedStart = apiContracts.indexOf("### 将来の正式API");
+const acceptedIndexStart = apiContracts.indexOf("### Accepted継続API索引", proposedStart);
+if (proposedStart < 0 || acceptedIndexStart < 0) {
+  errors.push("API contract must separate Proposed future APIs from the Accepted continuation index.");
+} else {
+  const proposedOnly = apiContracts.slice(proposedStart, acceptedIndexStart);
+  for (const endpoint of [
+    "POST /v1/manuals/{id}/exports",
+    "POST /v1/workspaces/{workspaceId}/capture-sessions",
+    "GET /v1/billing/summary",
+    "POST /v1/billing/checkout-intents",
+    "POST /v1/integrations/discord/interactions"
+  ]) {
+    if (proposedOnly.includes(endpoint)) errors.push(`Accepted API remains inside Proposed list: ${endpoint}`);
   }
 }
 
