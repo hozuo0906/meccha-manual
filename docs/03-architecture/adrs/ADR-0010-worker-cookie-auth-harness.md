@@ -1,6 +1,8 @@
 # ADR-0010 Worker cookie auth harness
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](ADR-0028-cloudflare-access-d1.md)。Supabase token、refresh、sign-out、PostgREST/RPCに依存する方式は移行対象とする。HttpOnly、同一origin、認証変更時の古い応答破棄、結果不明時の自動再送禁止という安全原則は維持する。
 
 ## Context
 
