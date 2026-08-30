@@ -2,6 +2,31 @@
 
 Status: Accepted
 
+## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行
+
+親Issue: GitHub Issue #176
+
+正本:
+
+- ADR-0028
+- `docs/09-delivery/cloudflare-migration-roadmap.md`
+- `docs/04-data/d1-and-storage.md`
+- `docs/05-api/cloudflare-access-d1-api.md`
+
+順序:
+
+1. M0 正本移行
+2. M1 Access identity spike
+3. M2 D1 workspace boundary
+4. M3 Phase 1移行
+5. M4 Phase 2 manual移行
+6. M5 staging統合実証
+7. M6 Supabase退役
+8. M7 production準備
+
+EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92と#95のSupabase live gateはD1/Access境界へ置換するまでholdする。production D1、production Access、deploy、実ユーザー招待は別承認とする。
+
+
 ## EPIC-00: 文書正本
 
 目的: 実装前の迷いをなくす。
@@ -26,7 +51,9 @@ Status: Accepted
 
 ## EPIC-02: 認証とワークスペース
 
-Phase 1親Issue: GitHub Issue #32
+Phase 1旧実装親Issue: GitHub Issue #32
+
+この節のSupabase/RLS経路はIssue #176 M3で置換する移行前baselineである。
 
 Phase 1実装Issue:
 
@@ -68,6 +95,8 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - 下書き生成
 
 ## EPIC-06: 手順書編集
+
+既存Postgres RPC/RLS実装はIssue #176 M4でD1 transaction/queryへ置換する移行前baselineとする。
 
 - 手順書一覧
 - エディタ
