@@ -133,9 +133,9 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.ok(workflow.includes(`${clientSecretName}: ` + "${{ secrets." + clientSecretName + " }}"));
   assert.match(workflow, /fetchWithCloudflareAccess/);
   assert.match(workflow, /accessDeniedStatuses\.has\(unauthenticatedResponse\.status\)/);
-  assert.match(workflow, /const unauthenticatedPaths = \\["\\/health\\/config", "\\/api\\/session"\\]/);
-  assert.match(workflow, /for \\(const path of unauthenticatedPaths\\)/);
-  assert.match(workflow, /fetch\\(\\`\\$\\{origin\\}\\$\\{path\\}\\`/);
+  assert.ok(workflow.includes('const unauthenticatedPaths = ["/health/config", "/api/session"];'));
+  assert.ok(workflow.includes("for (const path of unauthenticatedPaths)"));
+  assert.ok(workflow.includes('fetch(`${origin}${path}`, {'));
   assert.match(workflow, /Unauthenticated config and application API access were rejected/);
   assert.match(workflow, /async function verifyImmutableWorkerBoundary\(\)/);
   assert.match(workflow, /console\.error\("Immutable preview boundary verification failed\."\)/);
