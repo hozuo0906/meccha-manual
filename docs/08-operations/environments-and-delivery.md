@@ -8,7 +8,7 @@ Status: Accepted
 
 既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-外部ユーザーと実業務データがないprelaunch期間だけは、ownerの明示判断によりCloudflare Git連携の`main`自動deployと非production branch buildを暫定許可している。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
+Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策として無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは `main` から手動実行し、同じAccess保護されたimmutable version経路を使う。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
 
 ## 環境対応表
 
@@ -18,6 +18,7 @@ Status: Accepted
 |---|---|---|---|
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
+| Legacy RLS immutable preview | `main` Git buildのversion uploadと手動live gate。Access deny-by-default | 使用しない | Issue #176 M2でD1境界gateへ置換するまで移行前baseline。新規Supabase test userは追加しない |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
@@ -32,7 +33,7 @@ Status: Accepted
 
 ## `main` マージ後の扱い
 
-原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在はprelaunch例外として`main`マージ後に暫定WorkerへCloudflare Git連携deployが動くため、PR・必須check・最新SHAレビューを通過しない変更を`main`へ入れない。外部ユーザー登録前に自動deployを解除し、以下の正式フローへ戻す。
+原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在のCloudflare設定では`main`マージ後にGit連携のversion uploadが動き得るが、active deploymentへ自動promoteしない。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。hold解除後もPR・必須check・最新SHAレビューを通過しない変更を`main`へ入れず、以下の正式フローでproduction反映を別承認にする。
 
 1. PR checksを通過したcommitを`main`へマージし、production候補SHAを固定する。
 2. staging workflowを40桁の候補SHA付きで明示的に起動し、workflow実行SHAとの一致を確認してcheckを再実行する。将来deploy stepを有効化した後はstagingへだけ反映する。
@@ -47,7 +48,8 @@ Status: Accepted
 |---|---|---|
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
-| `main`マージから暫定Worker deploy | prelaunch期間のみ自動 | 外部ユーザー/実データなし、PR必須、公開前チェックリストで解除 |
+| `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。Issue #92 hold中はmerge禁止。解除後もPRと公開前チェックリストを必須にする |
+| Phase 1 RLS immutable preview | `main`から手動 | `staging` Environment、Access deny-by-default、Cloudflare account members + preview専用service token、production deployなし |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
@@ -65,6 +67,7 @@ Status: Accepted
 - workflowへSecret値を直書きせず、値をecho、artifact、Discord通知へ出さない。
 - reusable workflowを将来導入しても、呼び出し元production jobのEnvironment approvalを省略しない。
 - `.github/workflows/deployment-gates.yml` は既存の汎用検査として維持するが、実deployの正本にはしない。
+- RLS preview用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。
 
 ## Cloudflare Worker / Wrangler
 
@@ -73,14 +76,16 @@ Status: Accepted
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
 - `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。ADR-0024のCustom Domain設定と切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
+- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。RLS用version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を同じlive gateで確認する。
 
-## Supabase
+## Cloudflare Access / D1
 
-- staging projectとproduction projectを物理的に分ける。現在のprojectは暫定dev/stagingであり、productionデータを保存しない。
-- production projectはまだ作成しない。project ref、Auth設定、DB credential、migration履歴を環境間で共有しない。
-- migration適用はstaging/productionとも承認必須とし、productionへの自動適用を行わない。
-- static migration checkの後、stagingでRLS negative testを先に通す。production適用はbackup/rollback確認とstaging証跡が揃った後に別承認する。
-- service role key、DB password、JWT Secret、connection stringをMarkdown、GitHub Variables、artifact、ログへ保存しない。
+- Access application、audience、policy、session、D1 database、migration履歴をstaging/productionで共有しない。
+- WorkerはAccess JWTの署名、issuer、audience、期限、token typeを検証し、D1のactive identityとworkspace membershipを毎回再認可する。
+- Access到達許可をworkspace role認可と同一視しない。
+- previewはstaging D1だけをbindingし、production D1をbindingしない。
+- production Access applicationとproduction D1はまだ作成しない。migration、deploy、外部ユーザー招待は別々のowner承認を必須にする。
+- 既存Supabaseは移行前baselineとし、新規ユーザー、データ、資格情報を追加しない。Issue #176 M6でruntime依存と不要資格情報を退役する。
 
 ## R2
 
@@ -98,7 +103,8 @@ bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding�
 ## Release gate
 
 - 対象commit SHAとstaging検証SHAが一致する。
-- `npm run check`、RLS negative test、smoke/E2Eが成功する。
+- `npm run check`、Access JWT/D1 workspace negative test、smoke/E2Eが成功する。
+- previewの未認証requestがAccessで拒否され、検証済みidentityだけがstaging D1境界へ到達する。
 - P0/P1が0件で、rollback対象SHAと手順が確認済みである。
 - GitHub Environment `production` required reviewersとユーザーの明示承認がある。
 - production接続先、Secrets、binding、domainを環境対応表と照合する。
