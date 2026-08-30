@@ -31,7 +31,7 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 
 ## External provider callback
 
-`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted Access applicationに `Bypass / Include Everyone` を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
+`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
 
 Access Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTと有界raw bodyだけを受け、Stripe署名またはDiscord Ed25519署名・timestamp・replayをJSON parse、D1 query、Queue、外部API、状態変更より前に検証する。欠落、不正、期限外、replay、別method、subpathは拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。
 
