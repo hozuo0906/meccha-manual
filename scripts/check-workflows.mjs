@@ -41,13 +41,6 @@ for (const file of files) {
   }
 }
 
-if (errors.length > 0) {
-  console.error(errors.join("\n"));
-  process.exit(1);
-}
-
-console.log(`Workflow files OK: ${files.length} files checked.`);
-
 const retiredAuditScriptPath = "scripts/cloudflare-config-audit.mjs";
 const retiredAuditScript = await readFile(retiredAuditScriptPath, "utf8");
 for (const [label, pattern] of [
@@ -62,3 +55,10 @@ for (const [label, pattern] of [
 if (!retiredAuditScript.includes("Cloudflare Config Audit is retired")) {
   errors.push(`Retired config audit script must fail closed: ${retiredAuditScriptPath}`);
 }
+
+if (errors.length > 0) {
+  console.error(errors.join("\n"));
+  process.exit(1);
+}
+
+console.log(`Workflow files OK: ${files.length} files checked.`);
