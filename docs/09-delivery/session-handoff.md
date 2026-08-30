@@ -213,3 +213,17 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 障害対応中: 未検証の修正を完成扱いにせず、再現条件、仮説、試したこと、次の検証を残す。
 
 これにより、会話上限や端末停止が発生しても、次のセッションがGitHubから再開できる。
+
+
+## Cloudflare Access / D1移行引き継ぎ（2026-08-30）
+
+- Owner決定: 認証はCloudflare AccessのメールOTP・招待制、業務DBはD1、アプリ/APIはWorkers、ファイルはprivate R2へ統一する。
+- 正本: ADR-0028、DEC-063、Issue #176、`cloudflare-migration-roadmap.md`。
+- 旧Supabase Auth/Postgres/RLS実装、migration、RPC、テストは移行前baselineとして保持する。新規機能の土台、staging合格、production候補として拡張しない。
+- PR #174のCloudflare Access保護とproduction自動promote停止は流用候補。Supabase RLS live gateとテストユーザー準備は中止し、D1/Access negative proofへ置換する。
+- Issue #92はpreviewがproduction D1/R2へ接続しない証明として再定義するまでopen・main merge holdを維持する。
+- Issue #95のSupabase staging内部alphaはIssue #176 M5のAccess/D1/R2 staging実証へ置換するまでholdする。
+- production Access application、production D1、migration、deploy、実ユーザー招待、実データ移行は未実施。
+- ローカルPC依存の作業は行わず、GitHub上のbranch/PR/CIを正本の実状態として照合する。
+
+次の1マイルストーンはIssue #176 M0の文書PRを品質ゲートまで完了し、その後M1 Access identity spikeを別Issue・別PRで開始することである。
