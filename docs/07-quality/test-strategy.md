@@ -17,6 +17,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - Cloudflare Accessのログイン、Access session終了導線によるログアウト、期限切れ、再認証。アプリはrefresh token交換やAccess cookie削除を行わない。認証世代が変わった後の古いsession／workspace応答を破棄し、状態変更を自動再送せず、上流通信失敗とlogout結果不明を安全に案内できることを確認する。
 - owner/admin/editor/viewerの権限。
 - Access JWT／Worker認可／D1 tenant・role・status・ID差し替えnegative/mutation test。移行前Postgres baselineを変更する場合だけRLS negative testも実施する。
+- Access callback境界。Stripe/Discordのexact pathだけがpath別Access BypassでWorkerへ到達し、exact POST・有界raw body・署名・timestamp・replay検証に成功した場合だけ処理することを確認する。別method、subpath、欠落・不正・期限外・replayは署名検証前後を取り違えず、D1 query、Queue、外部API、状態変更より前に拒否する。hostname全体やwildcard pathはBypassせず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。
 - ワークスペース越境のAPI/DB/Storageアクセス拒否。
 - 手順書の下書きと公開版の分離。
 - 操作記録セッションの起動、切断、再接続、終了。

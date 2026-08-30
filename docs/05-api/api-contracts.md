@@ -7,6 +7,7 @@ Status: Accepted
 ## 共通
 
 - 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。
+- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Workerはexact POSTのraw bodyでprovider署名・timestamp・replayを検証してからparse・D1 query・状態変更を行い、Bypassを認証・認可の代替にしない。
 - 業務認可はWorkerでactive identity、membership、role、resource workspaceを再照合する。
 - tenant境界はworkspace固定D1 query、D1制約、private R2認可で多層化する。
 - エラーは日本語UI向けコードと運用向け詳細を分ける。

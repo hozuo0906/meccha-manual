@@ -27,6 +27,17 @@ Accessはアプリへの到達可否を制御し、D1はアプリ内の招待、
 
 アプリ独自のpassword、password hash、refresh tokenをD1、KV、R2、Cookie、ログへ保存しない。ブラウザJavaScriptへAccess JWTを複製しない。
 
+## External provider callback boundary
+
+StripeとDiscordの外部providerは対話的なAccess loginやapplication JWTを送れないため、次の2 routeだけをhostname用Access applicationより具体的なpath別self-hosted Access applicationへ分離し、`Bypass / Include Everyone`を適用する。
+
+- `POST /v1/webhooks/stripe`
+- `POST /v1/integrations/discord/interactions`
+
+より具体的なpath applicationをhostname applicationより優先させる。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Bypassを認証・認可の代替にせず、Workerはexact pathのPOSTと有界なraw bodyだけを受け、JSON parse、D1 query、Queue、外部API、状態変更より前にStripe署名またはDiscord Ed25519署名・timestamp・replayを検証する。欠落、不正、期限外、replay、別method、subpathはfail closedで拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。
+
+通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。path別Access Bypassのproduction作成・変更はIssue #176 M7の個別owner承認対象とする。
+
 ## Authorization boundary
 
 Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。

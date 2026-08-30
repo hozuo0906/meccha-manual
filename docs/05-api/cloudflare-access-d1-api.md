@@ -29,6 +29,12 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 - `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、`/health/config` 等の明示allowlistしたmachine専用routeだけに許可する。session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
 - machine専用routeは業務データを返さず、状態変更を行わず、許可routeを列挙してdefault denyにする。
 
+## External provider callback
+
+`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted Access applicationに `Bypass / Include Everyone` を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
+
+Access Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POSTと有界raw bodyだけを受け、Stripe署名またはDiscord Ed25519署名・timestamp・replayをJSON parse、D1 query、Queue、外部API、状態変更より前に検証する。欠落、不正、期限外、replay、別method、subpathは拒否し、Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。
+
 ## Application session
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。

@@ -186,6 +186,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
   - 旧 `phase1-rls-live.yml` はdefault branchから削除し、workflow checkerで同名・改名再追加を拒否する。
   - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
+  - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはraw bodyのprovider署名・timestamp・replayをD1 queryや状態変更より前に検証する。
+  - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
 - Evidence:
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176

@@ -15,6 +15,8 @@ Status: Accepted
 
 Access到達を業務認可と同一視せず、Workerが検証済みaccess user、D1のactive membership/role、resource workspaceを毎回照合する。service tokenはmachine専用routeだけに許可し、D1 userへ写像しない。
 
+Stripe/Discord callbackはexact pathごとのpath別Access Bypassで到達だけを許可する。Bypassを認証・認可の代替にせず、Workerがraw bodyのprovider署名、timestamp、replayをD1 queryや状態変更より前に検証する。hostname全体やwildcard pathへBypassを適用せず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。
+
 Cloudflareのaccount ID、API token、Access audience、D1 database ID、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
 
 staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production Access/D1/R2はまだ作成しない。bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実binding追加は承認後に行う。
