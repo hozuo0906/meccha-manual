@@ -23,6 +23,13 @@ MECCHA_RLS_USER_B_EMAIL
 MECCHA_RLS_USER_B_PASSWORD
 ```
 
+Accessで保護されたimmutable previewへ実行する場合は、次の2件も必ず一組で設定する。
+
+```text
+CF_ACCESS_CLIENT_ID
+CF_ACCESS_CLIENT_SECRET
+```
+
 リモートURLに対して実行し、テストデータ作成を許可する場合は以下も必須。
 
 ```text
@@ -38,6 +45,17 @@ MECCHA_SUPABASE_ANON_KEY
 ```
 
 `MECCHA_APP_ORIGIN` 未指定の場合はCloudflare Workersの開発URLを使う。Supabase公開設定は環境変数がなければ `wrangler.jsonc` から読む。
+
+## Access-protected app request
+
+- Access 2件は片方だけなら値を表示せず拒否する。
+- app origin向け16 requestは共通helperを通し、既存Cookie、Origin、Content-Typeを保持して両Access headerを付ける。
+- app originとの完全一致とHTTPSを必須にし、redirectを追わない。
+- Supabase Auth/RESTへ直接送る9 requestにはAccess headerを付けない。
+- 成功出力はcheck結果と件数だけに限定し、app origin、workspace slug/ID、emailを出さない。
+- failureはHTTP statusと匿名化したUser A/B labelだけを使い、response body、URL、資格値、識別子を出さない。
+
+正式live gateでは、未認証healthがAccessで拒否された後にだけ、Access付きhealthとRLS testへ進む。
 
 ## Checks
 
@@ -82,7 +100,7 @@ admin/editor/viewerの確認は、ユーザーBが発行した短命・単回使
 
 ## Pass condition
 
-スクリプトが `status: ok` を出して終了コード0で終わる。
+スクリプトが識別値を含まない `status: ok` を出して終了コード0で終わる。
 
 静的migration検査は `npm run migrations:check` が終了コード0になれば合格とする。`npm run check` からも同じ検査を実行する。
 
@@ -90,6 +108,7 @@ admin/editor/viewerの確認は、ユーザーBが発行した短命・単回使
 
 以下のいずれかで失敗する。
 
+- Access-protected previewでAccess 2件が揃わない、別origin/HTTP/redirectになる、または未認証healthが拒否されない。
 - どちらかのユーザーでログインできない。
 - どちらかのユーザーが自分のワークスペースを作成できない。
 - どちらかのユーザーが自分のワークスペースを読めない。
@@ -129,9 +148,11 @@ npm run test:rls
 
 - テストユーザーのメールアドレスとパスワードはGitに保存しない。
 - `service_role key`、DBパスワード、JWT Secretは使わない。
-- リモートURLで実行する場合は明示ガードを必須にする。
+- リモートURLで実行する場合はURL hostnameの完全一致による明示ガードを必須にし、文字列部分一致でlocalhost扱いしない。
+- Access資格情報をSupabase直接通信、別origin、HTTP、redirect先へ送らない。
+- preview URL、workspace slug/ID、テストユーザーemail、response bodyをログへ出さない。
 - テストはワークスペースを2件作成し、RLS直接検査とメンバーAPI検査のため、本人発行の参加コードを使って検証用membershipを追加する。片方はviewer、もう片方はremovedで残る。物理削除APIはないため、作成済みデータは残る。参加コードは10分で失効し、平文を保存しない。
 
 ## Remaining risk
 
-このテストは `workspaces` と `workspace_members` の読み取り分離、匿名RPC拒否、client直接membership書込み拒否、本人発行参加コードの単回利用・再発行時の旧コード失効・新コードによる再参加、通常RPCでの停止済みmembership再開拒否、監査recordの内容・閲覧境界・追記専用性、owner/adminによる識別子・作成監査項目の更新拒否、editor/viewerの管理操作拒否、メンバーAPIの越境拒否・role境界・最後のowner保護を確認する。実DBの2接続を使う並行redeem・相互admin更新と、監査recordのtransaction rollback確認はstaging migration適用後の追加検証とする。owner移譲専用フローは未実装のため、専用フロー実装時に成功側の動的テストを追加する。将来はStorage private bucket testも追加する。
+このテストは `workspaces` と `workspace_members` の読み取り分離、匿名RPC拒否、client直接membership書込み拒否、本人発行参加コードの単回利用・再発行時の旧コード失効・新コードによる再参加、通常RPCでの停止済みmembership再開拒否、監査recordの内容・閲覧境界・追記専用性、owner/adminによる識別子・作成監査項目の更新拒否、editor/viewerの管理操作拒否、メンバーAPIの越境拒否・role境界・最後のowner保護を確認する。実DBの2接続を使う並行redeem・相互admin更新と、監査recordのtransaction rollback確認はstaging migration適用後の追加検証とする。owner移譲専用フローは未実装のため、専用フロー実装時に成功側の動的テストを追加する。将来はStorage private bucket testも追加する。同名のBusiness OS用repository secretへfallbackしたかはworkflow内から判別できないため、staging Environmentの登録とAccess policyのpreview専用token allowはowner/adminが別途検証する。

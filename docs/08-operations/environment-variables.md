@@ -27,6 +27,8 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `SUPABASE_JWT_SECRET` | secret | JWT関連の高度な検証、管理作業 | 未定 | no |
 | `CLOUDFLARE_ACCOUNT_ID` | secret/server | Cloudflare API、Browser Run、deploy | harness | no |
 | `CLOUDFLARE_API_TOKEN` | secret | Cloudflare deploy、Workers設定 | harness | no |
+| `CF_ACCESS_CLIENT_ID` | secret | Access保護されたGitHub runner通信のservice token ID | harness | no |
+| `CF_ACCESS_CLIENT_SECRET` | secret | Access保護されたGitHub runner通信のservice token secret | harness | no |
 | `BROWSER_RUN` | binding | Cloudflare Browser Run | phase3 | no |
 | `CAPTURE_SESSION` | binding | 操作記録sessionのDurable Object | phase3 | no |
 | `CAPTURE_ASSETS` | binding | R2操作記録スクリーンショット | phase3 | no |
@@ -105,6 +107,8 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 - productionとstagingでsecretを共有しない。
 - `SUPABASE_ANON_KEY` は公開前提だが、service role keyと混同しない。
 - GitHub Actionsで使うsecretはworkflow logへ出さない。
+- RLS preview用Access 2件は `staging` Environmentへ一組で登録し、Business OS用repository secretへのfallback運用を許可しない。
+- Access policyは用途別service tokenだけを許可し、同名secretでも環境・用途をまたいで値を共有しない。
 - Discord通知にはsecret値、実ユーザー情報、長いログ全文を含めない。
 - DiscordからのIssue作成tokenはIssues writeだけに絞る。
 - Discord Interaction endpointでは `DISCORD_PUBLIC_KEY` による署名検証を必須にする。
@@ -131,8 +135,6 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 | `BUSINESS_OS_URL` | runner variable | 社内Business OSのbase URL | probe以降 | no |
 | `BUSINESS_OS_RUNNER_TOKEN` | secret | execution target専用runner認証 | probe以降 | no |
 | `CLOUD_RUNNER_JOB_SIGNING_SECRET` | secret | Business OS job payloadの署名検証 | 有料job実行時 | no |
-| `CF_ACCESS_CLIENT_ID` | secret | runner専用Cloudflare Access service token ID | probe以降 | no |
-| `CF_ACCESS_CLIENT_SECRET` | secret | runner専用Cloudflare Access service token secret | probe以降 | no |
 | `OPENAI_API_KEY` | secret | Owner承認済みBusiness OS automationでCodexを実行 | optional / paid | no |
 
-Business OS runner secretは既存の `CODEX_ACCESS_TOKEN` と共有しない。値はGitHub Actions log、Issue、PR、Markdownへ記録しない。`OPENAI_API_KEY` は無料probeと拒否系testでは設定せず、費用、job単位の `maxCostUsd`、月次hard stopをOwnerが承認した後だけ登録する。
+Business OS runner secretは既存の `CODEX_ACCESS_TOKEN` と共有しない。`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` の名前は共通規約だが、Business OS用とRLS preview用のservice token値は共有しない。値はGitHub Actions log、Issue、PR、Markdownへ記録しない。`OPENAI_API_KEY` は無料probeと拒否系testでは設定せず、費用、job単位の `maxCostUsd`、月次hard stopをOwnerが承認した後だけ登録する。

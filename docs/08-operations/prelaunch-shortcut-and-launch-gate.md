@@ -4,13 +4,15 @@ Status: Accepted
 
 ## 現在の暫定運用
 
-2026-08-08時点で、ownerから外部ユーザーと実業務データがまだ存在しないとの申告がある。この期間だけ、開発速度を優先して次を暫定許可する。
+2026-08-30時点で外部ユーザーと実業務データはまだ存在しないが、Issue #92で公開previewとbackend分離のP0が判明したため、暫定運用を次のように制限する。
 
-- PR・作業branchのCloudflare non-production build。
-- PR、必須check、最新head SHAのレビューを通過して`main`へマージした後の暫定Worker自動deploy。
-- staging環境を毎回経由しない開発確認。
+- PR・作業branchはGitHub Actionsのrepo-side CIだけを自動実行してよい。
+- Cloudflare Git integrationのnon-production branch buildは無効のまま維持し、PR pushからpreviewを自動生成しない。
+- 例外は `main` の `Phase 1 RLS Live Gate` を手動実行したときの `wrangler versions upload` だけとする。生成したimmutable previewはCloudflare Accessのdeny-by-defaultとpreview専用service tokenで保護する。
+- 暫定Workerの `main` 自動deployを許可する旧prelaunch例外は、Issue #92のmain merge holdが解除されるまで使用しない。
+- staging環境を毎回経由しないrepo-side開発確認は継続できるが、preview/staging合格やbackend分離の証跡には扱わない。
 
-mainへの直接push、PR自動merge、DB migration自動適用、production資源作成、課金ON、AI API ON、共有リンク公開は許可しない。Cloudflare画面上の`production`という表示はGit連携上のラベルであり、本番公開準備完了の証拠にしない。
+mainへの直接push、PR自動merge、DB migration自動適用、production資源作成、課金ON、AI API ON、共有リンク公開は許可しない。Cloudflare画面上の `production` という表示はGit連携上のラベルであり、本番公開準備完了の証拠にしない。
 
 ## 強制終了条件
 
@@ -24,6 +26,7 @@ mainへの直接push、PR自動merge、DB migration自動適用、production資�
 ## 本番公開前チェックリスト
 
 - [ ] Cloudflare `main`自動deployを解除し、staging合格SHAだけをproduction候補にする。
+- [ ] non-production branch buildが無効であり、RLS用immutable previewだけがAccess deny-by-defaultで保護されていることを確認する。
 - [ ] GitHub Environment `staging` / `production` とrequired reviewersを確認する。
 - [ ] main branch protectionでPR必須、status checks必須、up-to-date必須、conversation resolution必須、bypass禁止、直接push禁止を確認する。
 - [ ] staging/production Worker、Supabase project、R2 bucket、Secret、routeを物理分離する。

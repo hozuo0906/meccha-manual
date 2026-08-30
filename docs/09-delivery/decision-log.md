@@ -131,3 +131,19 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - hostname allowlistの存在と全通信のactual peer拘束は同義ではなく、未証明経路からのSSRFをP0として防ぐため。
 - Boundary:
   - PR CIではBrowser Runを起動しない。live実証は隔離staging、明示確認、専用token、合成fixtureだけで行い、production・実顧客サイトへ接続しない。
+
+## DEC-063: RLS用immutable previewをAccessで保護する
+
+- Status: Accepted
+- Date: 2026-08-30
+- Decision:
+  - Cloudflare Git integrationのnon-production branch buildは無効のまま維持する。
+  - `wrangler.jsonc` は `preview_urls: true` を明示し、`main` から手動実行するPhase 1 RLS Live Gateのimmutable version uploadだけを例外として許可する。
+  - preview wildcardはCloudflare Accessでdeny-by-default保護し、`staging` Environmentのpreview専用service tokenだけを許可する。
+  - 未認証health拒否、Access付きhealthのstaging境界一致、同一originへのRLS E2Eを順に検証し、redirect、別origin、HTTP、資格情報欠落はfail closedにする。
+  - preview URL、Worker version ID、外部ID、テストデータ識別子、資格値、個人情報をログ、artifact、summary、Issue、PR、文書へ記録しない。
+  - production trafficとactive deploymentは変更せず、Issue #92のbackend分離negative proofとmain merge holdは継続する。
+- Reason:
+  - 公開previewを閉じたままではimmutable versionを必要とする正式RLS gateが成立しないため、Git branch自動buildを停止しつつ、Access保護された明示uploadだけを最小例外にする。
+- Boundary:
+  - Access application/policy/service token、GitHub Environment/secretsの登録、live RLS実行、production deploy、Issue #92 closeはrepo-side変更に含めない。
