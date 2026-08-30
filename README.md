@@ -10,7 +10,8 @@
 - 開発場所: GitHub Codespacesとクラウド環境を主戦場にする
 - デプロイ: Cloudflare Workers（アプリWorker + ブランド用Static Assets Worker）
 - ブラウザ実行: Cloudflare Browser Run + Live View
-- 認証/DB: Supabase Auth / Postgres / RLS
+- 認証: Cloudflare Access（メールOTP・招待制）
+- 業務DB: Cloudflare D1。ワークスペース所属と4ロールはD1を正本にWorkerで認可
 - ファイル保存: Cloudflare R2を第一候補（Supabase Storageは第一保存先にしない）
 - 課金拡張: Stripe Checkout Sessions / Link / Webhook
 - AI API: 初期OFF。将来ONにできる設計のみ用意する
@@ -32,11 +33,11 @@
 - [開発エージェントルール](AGENTS.md)
 - [機能要件](docs/01-product/product-requirements.md)
 - [システム概要](docs/03-architecture/system-overview.md)
-- [テーブル定義](docs/04-data/table-definitions.md)
+- [D1データ・認可境界](docs/04-data/d1-and-storage.md)
 - [テスト戦略](docs/07-quality/test-strategy.md)
 - [Issue分解](docs/09-delivery/issue-map.md)
 - [ドメインと公開構成](docs/08-operations/domain-and-publication.md)
 
 ## 現在の状態
 
-Phase 1の認証・ワークスペース基盤と、ブランドサイトの静的実装まで準備済みです。本番Custom Domain、production Supabase、DB migration、課金、外部ユーザー公開はまだ有効化していません。
+Supabase Auth/Postgres/RLS前提のPhase 1/2実装は移行前baselineとして存在します。Issue #176でCloudflare Access/D1へ段階移行中です。本番Custom Domain、production D1、production migration、課金、外部ユーザー公開はまだ有効化していません。
