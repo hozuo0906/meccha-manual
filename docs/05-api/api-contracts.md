@@ -1,6 +1,8 @@
 # API契約
 
-Status: Proposed
+Status: Superseded
+
+Superseded by [Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)。以下はSupabase実装の移行前baselineとして保持する。
 
 ## 共通
 
