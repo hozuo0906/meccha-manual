@@ -275,8 +275,11 @@ for (const command of [
   }
 }
 
-if (!contents["docs/09-delivery/phase1-entry-gate.md"]?.includes("Status: Ready for owner approval")) {
-  errors.push("Phase 1 entry gate must be ready for owner approval, not approved implicitly.");
+const legacyEntryGate = contents["docs/09-delivery/phase1-entry-gate.md"] || "";
+for (const term of ["Status: Superseded", "実行禁止:", "ADR-0028", "Issue #176", "M1〜M3"]) {
+  if (!legacyEntryGate.includes(term)) {
+    errors.push(`Superseded Phase 1 baseline banner is incomplete: ${term}`);
+  }
 }
 
 if (errors.length > 0) {
@@ -284,4 +287,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Phase 1 readiness gate OK.");
+console.log("Phase 1 legacy Supabase baseline integrity OK; this is not a Cloudflare migration or staging acceptance gate.");
