@@ -51,7 +51,7 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 - resource IDだけで更新・削除する共通関数を作らない。
 - readはactive membershipを照合し、mutationはrole/statusも同じ処理で照合する。
 - viewer、disabled member、別workspace、存在しないresourceをnegative testで区別なく拒否する。
-- owner変更、最後のactive owner、公開、archive、step reorderはD1 transaction内で期待versionを再照合する。
+- owner変更、最後のactive owner、公開、archive、step reorderは、単一の条件付きSQL、`D1Database.batch()`、schema constraint/triggerを組み合わせたD1対応のatomic operationとして設計し、workspace/status/期待versionを再照合する。interactive transaction APIの存在を前提にしない。
 - mutation結果不明時は自動再送せず、冪等keyまたは再読取で確認する。
 - listは固定field、固定order、明示limitを必須にする。
 
@@ -80,6 +80,6 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 - disabled identity、未所属、停止member
 - viewer mutation、別workspace、ID差し替え
 - last-owner喪失
-- version競合、途中失敗、再送
+- version競合、batch途中失敗・全体rollback、再送
 - workspace条件なしqueryの静的検出
 - staging/production bindingの共有検出
