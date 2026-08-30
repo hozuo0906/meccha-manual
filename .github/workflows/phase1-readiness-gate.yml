@@ -83,5 +83,5 @@ jobs:
           DISCORD_NOTIFY_STATUS: ${{ job.status }}
           DISCORD_NOTIFY_TITLE: 旧Phase 1 baseline整合検査
           DISCORD_NOTIFY_DESCRIPTION: 移行前Supabase baselineのリポジトリ整合だけを確認しました。Cloudflare移行、staging受入、実装着手の承認ではありません。
-          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && '旧Phase 1 baseline整合検査は成功しました。Cloudflare移行、staging受入、実装着手の承認には使用できません。Issue #176の対象マイルストーンと独立gateを確認してください。' || '旧Phase 1 baseline整合検査で失敗しています。移行前baselineの欠損だけを確認し、Cloudflare移行やstaging受入の判定には使用しません。' }}
+          DISCORD_NOTIFY_IMPRESSION: ${{ job.status == 'success' && '旧Phase 1 baseline整合検査は成功しました。Cloudflare移行、staging受入、実装着手の承認には使用できません。Issue 176の対象マイルストーンと独立gateを確認してください。' || '旧Phase 1 baseline整合検査で失敗しています。移行前baselineの欠損だけを確認し、Cloudflare移行やstaging受入の判定には使用しません。' }}
         run: npm run notify:discord
