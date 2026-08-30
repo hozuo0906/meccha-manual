@@ -133,6 +133,9 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.ok(workflow.includes(`${clientSecretName}: ` + "${{ secrets." + clientSecretName + " }}"));
   assert.match(workflow, /fetchWithCloudflareAccess/);
   assert.match(workflow, /accessDeniedStatuses\.has\(unauthenticatedResponse\.status\)/);
+  assert.match(workflow, /async function verifyImmutableWorkerBoundary\(\)/);
+  assert.match(workflow, /console\.error\("Immutable preview boundary verification failed\."\)/);
+  assert.match(workflow, /process\.exitCode = 1/);
   assert.match(workflow, />"\$WRANGLER_UPLOAD_LOG_PATH" 2>&1/);
   assert.match(workflow, /npx --no-install wrangler versions upload/);
   assert.doesNotMatch(workflow, /steps\.worker_preview\.outputs\.preview_url/);

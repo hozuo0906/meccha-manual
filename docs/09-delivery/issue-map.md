@@ -35,7 +35,7 @@ Phase 1実装Issue:
 - GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
 - GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。実アカウントE2EはIssue #79へ継承し、Draft PR #174でAccess保護immutable preview用repo-side経路を整備中。`staging` EnvironmentのAccess secretsとAccess外部設定は完了した。専用RLSテストユーザー4項目とlive runは未完了。
 
-リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` はAccess外部設定とmain-only live runが未完了のため合格扱いにしない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
+リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runが未完了のため合格扱いにしない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
 
 ## EPIC-03: アプリシェル
 
