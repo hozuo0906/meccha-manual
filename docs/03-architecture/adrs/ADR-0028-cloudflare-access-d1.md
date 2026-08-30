@@ -21,7 +21,7 @@ Status: Accepted
 - 操作記録session: Durable Objects
 - ワークスペース所属・owner/admin/editor/viewer: D1を正本とし、Workerで毎回認可する
 
-Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、not-before、expiration、token typeを検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。
+Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、not-before、expiration、token typeを検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけで人間の業務主体を判定しない。
 
 Accessはアプリへの到達可否を制御し、D1はアプリ内の招待、profile、workspace membership、role、statusを管理する。Accessへログインできても、activeな招待またはworkspace membershipがなければ業務APIを拒否する。
 
@@ -37,6 +37,8 @@ Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。
 - 別workspace、不明resource、権限不足の応答から存在を推測できないようにする。
 - D1の制約、外部キー、unique index、version列をWorker認可と併用する。
 - 未招待、停止member、viewer mutation、owner喪失、ID差し替え、途中失敗、再送、競合をnegative testへ含める。
+- `access_user` は空でない `sub` を必須にし、空の `sub`、service tokenを示す `common_name`、またはactor種別が曖昧なtokenをapplication userへ写像しない。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
+- `service_token` は明示allowlistしたmachine/health routeの到達確認だけに使用し、D1 identity、workspace membership、roleへ昇格させず、session/workspace/manual API、identity bootstrap、業務データread/mutationを403で拒否する。
 - Cloudflare bindingへ到達できることを認可の根拠にしない。
 
 ## Environment boundary
@@ -72,8 +74,14 @@ previewはstaging専用D1だけをbindingし、production D1をbindingしない�
 - ADR-0001の「Cloudflare + Supabase」を採用する部分
 - ADR-0004 Supabase Auth/Postgres/RLS採用
 - ADR-0010のSupabase token、refresh、sign-out、PostgREST/RPCに依存する認証方式
+- ADR-0003の永続正本をSupabase Postgresとする部分
+- ADR-0011、ADR-0018のSupabase Auth/RLS/PostgresをR2認可・メタデータ正本とする部分
+- ADR-0019のPhase 1 Supabase/RLS着手前gate
+- ADR-0024のSupabase production設定・redirect allowlist固有手順
+- ADR-0025のSECURITY DEFINER RPC/RLSによる参加コード実装方式（同意、短命、単回、digest保存の原則は維持）
+- ADR-0027のSupabase project URL/anon keyをprelaunch環境境界とする部分
 
-ADR-0010で定めたHttpOnly、同一origin、認証変更時の古い応答破棄、状態変更の自動再送禁止、結果不明時の再照合という安全原則は、新実装でも維持する。
+ADR-0003のDurable Objectと永続DBを二重正本にしない原則、ADR-0011/0018のprivate R2・Worker経由配信・環境別binding、ADR-0024のブランド/アプリ分離、ADR-0025の本人同意・短命・単回参加コード、ADR-0027のproduction非変更と環境分離は維持する。ADR-0010で定めたHttpOnly、同一origin、認証変更時の古い応答破棄、状態変更の自動再送禁止、結果不明時の再照合という安全原則も、新実装で維持する。
 
 ## Consequences
 

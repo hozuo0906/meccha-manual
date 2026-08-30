@@ -1,6 +1,6 @@
 # D1データ・認可境界
 
-Status: Proposed
+Status: Accepted
 
 ## 目的
 
@@ -25,6 +25,8 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 - emailだけをidentityの主キーにしない
 - 未検証headerをidentityへ使わない
 - Accessへ到達できても、D1上のactive identityまたはmembershipがなければ業務APIを拒否する
+- 検証後のactorを `access_user | service_token` として明示する。人間向け業務APIは `access_user` と空でないAccess `sub` を必須にし、空の `sub`、`common_name` を持つservice-token JWT、actor種別が曖昧なJWTをapplication userへ写像しない
+- service tokenはmachine専用routeだけに許可し、D1 identity/workspace/roleへ昇格させず業務データ操作を拒否する
 - password、password hash、Access JWT、OTP、Access authorization cookieをD1へ保存しない
 - Access subject再発行、email変更、招待照合、退会後の再登録はOQ-029で確定する
 
@@ -32,7 +34,7 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 
 | テーブル | 主な責務 | 境界 |
 |---|---|---|
-| `identities` | Access issuer/subjectとapplication userの対応 | issuer + subjectをunique。statusはactive/disabled |
+| `identities` | Access issuer/subjectとapplication userの対応 | subjectはtrim後非空、issuer + subjectをunique。statusはactive/disabled。service tokenは保存しない |
 | `profiles` | 表示名、locale、timezone | application user IDと1対1。必要最小限だけ返す |
 | `workspaces` | workspaceの名称、slug、状態 | 作成主体・作成日時・IDを不変にする |
 | `workspace_members` | user、workspace、role、status | workspace + userをunique。owner喪失をtransactionで拒否 |
@@ -77,6 +79,7 @@ Access application JWTをWorkerが検証した後、検証済みissuerとsubject
 
 - JWTなし、署名不正、issuer不一致、audience不一致、期限切れ
 - Access認証済みだがapplication identityなし
+- service-token JWTによる人間向け業務APIアクセスとD1 actor偽装
 - disabled identity、未所属、停止member
 - viewer mutation、別workspace、ID差し替え
 - last-owner喪失

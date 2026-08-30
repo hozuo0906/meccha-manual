@@ -1,6 +1,6 @@
 # Cloudflare Access / D1 API移行契約
 
-Status: Proposed
+Status: Accepted
 
 ## 位置づけ
 
@@ -22,12 +22,19 @@ ADR-0028とIssue #176の目標API契約である。既存の `api-contracts.md`�
 
 email、任意header、未検証payloadだけで認証しない。ブラウザJavaScriptへJWTを複製しない。
 
+Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけでactorを決めない。
+
+- 人間向け業務APIは `access_user` と空でない `sub` を必須にし、空の `sub`、service token固有の `common_name`、actor種別が曖昧なtokenを403で拒否する。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
+- `service_token` は `/health/config` 等の明示allowlistしたmachine専用routeだけに許可し、session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
+- machine専用routeは業務データを返さず、状態変更を行わず、許可routeを列挙してdefault denyにする。
+
 ## Application session
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。
 
 - Access JWTなし・不正・期限切れ: 401
 - Access認証済みだが未招待または未登録: 403
+- service-token actor、空の `sub`、`common_name` を持つtoken: 人間向け業務APIでは403
 - disabled identity: 403
 - active identityでworkspaceなし: 認証済み空状態
 - 上流鍵取得またはD1障害: 503
@@ -77,6 +84,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 
 - JWTなし・不正・期限切れ
 - issuer/audience不一致
+- service-token JWT、空の `sub`、`common_name` を人間userへ誤写像しない
 - application identityなし・disabled
 - 未所属・停止member
 - viewer mutation
@@ -88,4 +96,4 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 
 ## Migration gate
 
-Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
+Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。M3でPhase 1をAccess/D1へ切り替えた後、Phase 2 manualのD1切替が完了するM4までは全manual read/mutation routeとUI入口をfail closedで一時停止する。APIは安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返し、Supabase Auth/PostgREST/RPC呼出し、自動再送、queued write、fallback、二重認証、二重書込みを行わない。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。

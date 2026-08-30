@@ -13,7 +13,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
 - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
 - PR #175でmainへ取り込まれたnon-production branch build停止、version upload-only、Access deny-by-defaultは移行中も維持する。
-- 旧Supabase RLS live gateは移行前baselineとしてSupersededとし、新規Supabase test user、資格情報、live runを追加しない。
+- 旧Supabase RLS live gateは移行前baselineとしてSupersededとし、実行可能workflowをdefault branchから削除して再追加をCIで拒否する。新規Supabase test user、資格情報、live runを追加しない。
 
 ## Migration safety gate
 
@@ -33,6 +33,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
 - Supabase前提文書のSuperseded表示
+- 旧Supabase live workflowの削除と再追加防止check
 - Issue #92/#95/#176/#70の依存関係更新
 
 完了条件:
@@ -48,6 +49,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 
 - Access JWT verifier
 - issuer/audience/署名/期限/token typeのnegative test
+- identity-based user JWTとservice-token JWTのactor分離。空の `sub`／`common_name` を人間userへ写像しないnegative test
 - 検証済みsubjectからapplication identityを解決する最小contract
 - 未招待・disabled identityの拒否
 - email、JWT、OTPをログへ出さない検査
@@ -83,15 +85,19 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 成果:
 
 - Accessログイン/再認証/ログアウトUX
+- 招待制Access policyを明示Emails/Groups allowlistで固定し、メールOTP login methodだけをallow条件にしない
 - session、workspace、member API/UIのD1化
 - 複数タブ、古い応答、結果不明、途中失敗の回帰
-- Supabase Auth、refresh token、PostgREST/RPC依存の削除
+- Phase 1のactive request pathからSupabase Auth、refresh token、PostgREST/RPC依存を削除
+- M4完了まで全Phase 2 manual read/mutation routeとUI入口をfail closedで一時停止し、安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返す。Supabase呼出し、自動再送、queued write、fallback、二重認証、二重書込みを作らない
 
 完了条件:
 
 - Phase 1 E2Eとアクセシビリティ成功
 - 4ロールと未招待/停止/越境negative test成功
-- Supabase runtime fallback 0
+- Phase 1 active request pathのSupabase runtime fallback 0
+- 旧manual routeがSupabaseへ到達せず、`503 MANUAL_MIGRATION_IN_PROGRESS` でfail closedになる回帰成功
+- M3状態をstaging合格または内部alpha合格として扱わない
 
 ## M4: Phase 2 manual移行
 
@@ -101,6 +107,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - create/edit/reorder/publish/next draft/archiveのD1対応atomic operation
 - optimistic version、公開版不変、200 step上限
 - API/UI/E2Eと途中失敗回帰
+- M3で一時停止したmanual API/UIをD1経路だけで再開
 
 完了条件:
 
@@ -135,7 +142,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 
 成果:
 
-- runtime、workflow、環境変数、文書からSupabase依存を削除
+- 残存runtime、環境変数、harness、文書からSupabase依存を削除（旧live workflowはM0で削除済み）
 - 不要なSupabase資格情報の失効
 - 旧migration/RLS harnessを履歴またはarchiveへ整理
 - #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う

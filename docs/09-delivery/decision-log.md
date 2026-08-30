@@ -156,12 +156,12 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Date: 2026-08-30
 - Decision:
   - Cloudflare AccessのメールOTPを初期の招待制ログインにする。
-  - WorkerはAccess application JWTの署名、issuer、audience、期限、token typeを検証する。
+  - WorkerはAccess application JWTの署名、issuer、audience、期限、token typeを検証する。`type: "app"` だけで人間userとservice tokenを区別せず、人間向け業務APIは空でない `sub` を必須にし、空の `sub`／`common_name` を持つservice-token JWTを拒否する。
   - Cloudflare D1を業務データとファイルメタデータの正本にする。
   - workspace membershipとowner/admin/editor/viewerはD1で管理し、Workerが全業務queryで再認可する。
   - private R2、Durable Objects、Browser Runは既存Cloudflare方針を維持する。
   - アプリ独自password、password hash、refresh tokenを保持しない。
-  - ADR-0001のSupabase部分、ADR-0004、ADR-0010のSupabase認証方式をADR-0028でSupersededにする。
+  - ADR-0001/0004/0010に加え、ADR-0003/0011/0018/0019/0024/0025/0027のSupabase/Postgres/RLS固有部分をADR-0028でSupersededにし、各ADRのCloudflare・R2・domain分離・同意・fail-closed安全原則は維持する。
 - Supersedes:
   - DEC-034のSupabase project分離と、現行Supabase projectを暫定dev/stagingとする部分。環境分離原則はAccess application／D1へ置換して維持する。
   - DEC-040のSupabase Auth session失効・session再取得に依存する方式と、DEC-042のrefresh token交換・専用refresh endpointに依存する方式。
@@ -184,6 +184,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - Access到達許可をworkspace認可と同一視しない。
   - Postgres RLS置換はWorker認可とworkspace固定D1 queryのnegative testをP0 gateにする。
   - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
+  - 旧 `phase1-rls-live.yml` はdefault branchから削除し、workflow checkerで同名・改名再追加を拒否する。
+  - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
 - Evidence:
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176
