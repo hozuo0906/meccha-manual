@@ -4,11 +4,11 @@ Status: Accepted
 
 | 要件 | 画面 | API | テーブル | ADR | テスト | Issue |
 |---|---|---|---|---|---|---|
-| FR-001 | SCR-LOGIN, SCR-SHELL | auth callbacks, session API | profiles | ADR-0004, ADR-0010 | AC-001, AC-003, AC-004, AC-005 | EPIC-02, EPIC-03 |
-| FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0004, ADR-0010 | AC-002, AC-006, AC-007 | EPIC-02, EPIC-03 |
-| FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, profiles | ADR-0004 | AC-007, AC-008, AC-009, AC-014 | EPIC-02, EPIC-03 |
-| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft/publish/archive APIs | manuals, manual_revisions, manual_steps, audit_logs | ADR-0004, ADR-0005 | `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。AC-010の公開版revision作成まで。未ログイン公開URLは後続。物理削除・復元はOQ-028の後続 | #63, #64, #65, #74, #80, #82, EPIC-06 |
-| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0004, ADR-0005 | `tests/manual-edit-api.test.mjs`, step RPC/RLS/lock SQL tests, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
+| FR-001 | SCR-LOGIN, SCR-SHELL | Access callback/JWT検証, session API | identities, profiles | ADR-0028 | AC-001, AC-003, AC-004, AC-005, Access JWT negative tests | #176, EPIC-02, EPIC-03 |
+| FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0028 | AC-002, AC-006, AC-007, D1 workspace negative tests | #176, EPIC-02, EPIC-03 |
+| FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, identities, profiles | ADR-0028 | AC-007, AC-008, AC-009, AC-014, role/status negative tests | #176, EPIC-02, EPIC-03 |
+| FR-004 | SCR-MANUAL-EDITOR | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft/publish/archive APIs | manuals, manual_revisions, manual_steps, audit_logs | ADR-0028, ADR-0005 | `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。AC-010の公開版revision作成まで。未ログイン公開URLは後続。物理削除・復元はOQ-028の後続 | #63, #64, #65, #74, #80, #82, EPIC-06 |
+| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0028, ADR-0005 | `tests/manual-edit-api.test.mjs`, step RPC/RLS/lock SQL tests, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
 | FR-006 | SCR-MANUAL-EDITOR | local instruction suggestion only; external APIなし | - | ADR-0009 | `tests/manual-instruction-template.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
 | FR-007 | SCR-CAPTURE-START | capture session APIs（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions, capture_sessions（後続） | ADR-0002, ADR-0003 | AC-020, AC-023, AC-025, `tests/capture-foundation.test.mjs`, `tests/browser-run-egress-proof.test.mjs` | #57, #84, #86, EPIC-04 |
 | FR-008 | SCR-CAPTURE-START | 保存可能event正規化 | capture_events（後続） | ADR-0003 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
