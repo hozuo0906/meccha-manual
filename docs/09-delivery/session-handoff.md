@@ -218,9 +218,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 ## Cloudflare Access / D1移行引き継ぎ（2026-08-30）
 
 - Owner決定: 認証はCloudflare AccessのメールOTP・招待制、業務DBはD1、アプリ/APIはWorkers、ファイルはprivate R2へ統一する。
-- 正本: ADR-0028、DEC-063、Issue #176、`cloudflare-migration-roadmap.md`。
+- 正本: ADR-0028、DEC-064、Issue #176、`cloudflare-migration-roadmap.md`。DEC-063のpreview Access保護は継続する。
 - 旧Supabase Auth/Postgres/RLS実装、migration、RPC、テストは移行前baselineとして保持する。新規機能の土台、staging合格、production候補として拡張しない。
-- PR #174のCloudflare Access保護とproduction自動promote停止は流用候補。Supabase RLS live gateとテストユーザー準備は中止し、D1/Access negative proofへ置換する。
+- PR #175でCloudflare Access保護とproduction自動promote停止をmainへ取り込み済み。Supabase RLS live gateとテストユーザー準備は中止し、Issue #176 M2のD1/Access negative proofへ置換する。
 - Issue #92はpreviewがproduction D1/R2へ接続しない証明として再定義するまでopen・main merge holdを維持する。
 - Issue #95のSupabase staging内部alphaはIssue #176 M5のAccess/D1/R2 staging実証へ置換するまでholdする。
 - production Access application、production D1、migration、deploy、実ユーザー招待、実データ移行は未実施。
