@@ -11,7 +11,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - Cloudflare Workers、preview Access保護、R2方針、Browser Run fail-closed基盤は継続利用する。
 - Supabase Auth、Postgres migration、RLS、RPC、PostgRESTを使うPhase 1/2実装は移行前baselineとして存在する。
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
-- PR #174のAccess保護とproduction自動promote停止は有効な成果候補だが、Supabase RLS live gateは移行対象である。
+- PR #175でmainへ取り込まれたAccess保護とproduction自動promote停止は移行中も維持する。Supabase RLS live gateはIssue #176 M2のD1境界gateへ置換する。
 - 全PRのmain merge holdはIssue #92と本移行の安全gateが整理されるまで維持する。
 
 ## M0: 正本移行
