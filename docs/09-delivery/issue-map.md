@@ -62,7 +62,7 @@ Phase 1実装Issue:
 - GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
 - GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。移行前baselineとして保持し、新規Supabase test userやlive runは追加しない。実アカウントE2EはIssue #176 M3/M5のAccess/D1経路へ継承する。PR #175でAccess保護immutable preview用repo-side経路をmainへ取り込み済みで、`staging` EnvironmentのAccess secretsとAccess外部設定も完了した。
 
-リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runが未完了のため合格扱いにしない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
+リポジトリには移行前baselineとして、Supabase認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runを完了していないため、過去経路の合格証跡にはしない。新規Supabase test userは追加せず、同じ越境拒否・last-owner・停止member要件をIssue #176 M3/M5のAccess/D1 negative testへ継承する。旧参加コード経路は移行まで平文をStorage、URL、ログへ保存しない。
 
 ## EPIC-03: アプリシェル
 
