@@ -26,6 +26,11 @@ const MATRIX_POLICY = {
   viewerApprovedMutation: "DENY",
   stepTargetsApprovedMutation: "NOT_IMPLEMENTED"
 };
+const PUBLICATION_FLOW_FIELDS = {
+  publish: ["status", "publishedRevisionImmutable"],
+  nextDraft: ["status", "publishedRevisionUnchanged"],
+  archive: ["status", "pointerRetained", "contentRetained", "auditRetained"]
+};
 const EVIDENCE_KEYS = new Set(["configuration", "collection", "count", "verdict", "timestamp", "candidateSha"]);
 const GATE_VALUES = new Set(["PASS", "BLOCKED", "FAIL", "NOT_RUN"]);
 const CELL_VERDICTS = new Set(["PASS", "NOT_RUN", "FAIL"]);
@@ -185,9 +190,9 @@ function checkFixture(fixture) {
   const flow = fixture.flow;
   checkExactKeys(errors, flow, new Set(["publish", "nextDraft", "archive"]), "flow");
   if (flow && typeof flow === "object") {
-    checkExactKeys(errors, flow.publish, new Set(["status", "publishedRevisionImmutable"]), "flow.publish");
-    checkExactKeys(errors, flow.nextDraft, new Set(["status", "publishedRevisionUnchanged"]), "flow.nextDraft");
-    checkExactKeys(errors, flow.archive, new Set(["status", "pointerRetained", "contentRetained", "auditRetained"]), "flow.archive");
+    checkExactKeys(errors, flow.publish, new Set(PUBLICATION_FLOW_FIELDS.publish), "flow.publish");
+    checkExactKeys(errors, flow.nextDraft, new Set(PUBLICATION_FLOW_FIELDS.nextDraft), "flow.nextDraft");
+    checkExactKeys(errors, flow.archive, new Set(PUBLICATION_FLOW_FIELDS.archive), "flow.archive");
     for (const value of [flow.publish, flow.nextDraft, flow.archive]) {
       if (value && !["PASS", "NOT_RUN", "FAIL"].includes(value.status)) fail(errors, "flow: unknown status enum");
       if (value && Object.values(value).some((item) => !["PASS", "NOT_RUN", "FAIL"].includes(item))) fail(errors, "flow: unknown verdict enum");
@@ -221,7 +226,8 @@ function checkFixture(fixture) {
   }, {
     "preflight-gates": prerequisiteValues.length,
     "manual-core-matrix": RESOURCES.length * ROLES.length * MATRIX_PHASES.length,
-    "publication-flow": 2 + 2 + 4,
+    "publication-flow": Object.values(PUBLICATION_FLOW_FIELDS)
+      .reduce((count, fields) => count + fields.length, 0),
     "evidence-safety": EVIDENCE_KEYS.size
   });
   if (fixture.internalAlphaVerdict === "PASS" && (matrixMeta.unimplemented || !matrixMeta.allPass)) fail(errors, "matrix: alpha PASS requires implemented cells with executed PASS verdicts");
