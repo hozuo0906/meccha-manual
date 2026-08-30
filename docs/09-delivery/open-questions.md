@@ -34,6 +34,5 @@ Status: Accepted
 | OQ-026 | 未契約作成枠のR2保存容量上限を何GBにするか | 画像圧縮率と1マニュアルあたりの実測後に数値を固定する。決定までは無制限保存を許可せず、課金公開をブロックする | usage metering/課金公開 |
 | OQ-027 | TeamからPersonalへ移行するとき、既存Team subscriptionをどう置換し、owner以外のメンバーをどう扱うか | 自動解約・自動削除・自動降格は行わない。決定まではactive/grace/read_onlyのTeam契約があれば人数に関係なくPersonalのCheckout Session作成を拒否し、二重契約を課金前に止める | pricing/checkout/subscription/membership |
 | OQ-028 | FR-004の「削除」で、アーカイブ後の復元・物理削除をいつ誰に許可し、revision、asset、共有、分析、コメントをどう扱うか | 現段階は非破壊アーカイブだけを提供し、revision pointerと全内容を保持する。復元・物理削除・自動削除は、権限、猶予期間、参照関係、監査、再試行をADRで確定するまで有効化しない | 手順書復元／物理削除 |
-
 | OQ-029 | Accessの招待照合、subject再発行、email変更、退会後再登録をどう扱うか | 初期はメールOTP・招待制。emailだけを永続identity keyにせず、issuer+subjectを正本にする。bootstrapと再紐付けはM1で脅威分析後にAccepted化 | Access identity spike / 外部招待 |
 | OQ-030 | D1でPostgres RLS相当の防御をどこまで二重化するか | Worker用途別repositoryとworkspace固定queryを必須にし、D1制約、negative test、mutation test、静的scannerで補完する。共通汎用DMLは禁止 | D1 workspace/manual移行 |

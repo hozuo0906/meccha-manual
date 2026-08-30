@@ -2,6 +2,8 @@
 
 Status: Superseded
 
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Auth/Postgres/RLS baselineである。新規setup、project、user、secret、migration、remote write、live test、staging合格証跡の根拠にしない。後継はIssue #176 M1〜M5。
+
 Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はSupabase Auth/Postgres/RLS移行前の適用履歴・回帰仕様としてのみ保持し、新しい環境のsetup手順、staging合格条件、production候補として使用しない。
 
 新規Supabase test user、データ、資格情報、`MECCHA_RLS_*` secretを追加せず、`npm run test:rls`のlive実行も行わない。既存Supabase runtimeはIssue #176 M6まで凍結baselineとして扱い、代替の認証・workspace境界・実preview証跡はM1〜M5でAccess/Workers/D1/R2に対して取得する。

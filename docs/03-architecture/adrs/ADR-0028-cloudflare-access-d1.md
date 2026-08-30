@@ -21,7 +21,7 @@ Status: Accepted
 - 操作記録session: Durable Objects
 - ワークスペース所属・owner/admin/editor/viewer: D1を正本とし、Workerで毎回認可する
 
-Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、not-before、expiration、token typeを検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけで人間の業務主体を判定しない。
+Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、expiration、issued-at、token typeを検証し、not-beforeはclaimが存在する場合に検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけで人間の業務主体を判定しない。正規のservice-token application tokenは `nbf` を持たない場合があるため、`nbf` の欠落だけでは拒否しない。
 
 Accessはアプリへの到達可否を制御し、D1はアプリ内の招待、profile、workspace membership、role、statusを管理する。Accessへログインできても、activeな招待またはworkspace membershipがなければ業務APIを拒否する。
 
@@ -39,6 +39,7 @@ Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。
 - 未招待、停止member、viewer mutation、owner喪失、ID差し替え、途中失敗、再送、競合をnegative testへ含める。
 - `access_user` は空でない `sub` を必須にし、空の `sub`、service tokenを示す `common_name`、またはactor種別が曖昧なtokenをapplication userへ写像しない。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
 - `service_token` は明示allowlistしたmachine/health routeの到達確認だけに使用し、D1 identity、workspace membership、roleへ昇格させず、session/workspace/manual API、identity bootstrap、業務データread/mutationを403で拒否する。
+- M1ではnbfなしservice-token fixtureをmachine routeで受理し、同じtokenを人間向け業務APIでは403にするactor別testを固定する。
 - Cloudflare bindingへ到達できることを認可の根拠にしない。
 
 ## Environment boundary

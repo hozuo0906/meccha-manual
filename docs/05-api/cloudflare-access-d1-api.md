@@ -16,9 +16,10 @@ ADR-0028とIssue #176の目標API契約である。既存の `api-contracts.md`�
 - issuer
 - application audience
 - token type
-- not-before
+- issued-at
+- not-beforeはclaimが存在する場合に検証し、欠落だけでは拒否しない
 - expiration
-- subject
+- subjectとcommon_nameのactor別shape
 
 email、任意header、未検証payloadだけで認証しない。ブラウザJavaScriptへJWTを複製しない。
 
@@ -85,6 +86,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 - JWTなし・不正・期限切れ
 - issuer/audience不一致
 - service-token JWT、空の `sub`、`common_name` を人間userへ誤写像しない
+- nbfなしservice-token JWTをmachine routeでは受理し、人間向け業務APIでは403にする。存在する `nbf` が未来なら拒否する
 - application identityなし・disabled
 - 未所属・停止member
 - viewer mutation

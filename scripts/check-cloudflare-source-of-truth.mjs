@@ -20,8 +20,20 @@ const required = new Map([
     "対象DBのmigration", "D1 migration/schema", "workspace固定query",
     "移行前Supabase/Postgres baselineを変更した場合だけ"
   ]],
+  ["docs/00-foundation/coding-guidelines.md", [
+    "Durable ObjectsとD1の両方を同じ状態の正本にする。"
+  ]],
+  ["docs/01-product/product-requirements.md", [
+    "Cloudflare AccessのメールOTP", "Access JWTの署名・issuer・audience・期限をWorkerが検証",
+    "Worker認可とworkspace固定D1 query", "アプリ独自passwordは保存しない"
+  ]],
+  ["docs/01-product/non-functional-requirements.md", [
+    "検証済みAccess主体", "workspace固定D1 query", "D1制約", "Access service token",
+    "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2、Browser Run"
+  ]],
   ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", [
     "access_user | service_token", "空の `sub`", "`common_name`",
+    "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
     "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027"
   ]],
   ["docs/03-architecture/adrs/README.md", [
@@ -37,7 +49,8 @@ const required = new Map([
     "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
-    "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT"
+    "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
+    "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch"
@@ -58,6 +71,9 @@ const required = new Map([
 const forbidden = new Map([
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
+  ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
+  ["docs/01-product/product-requirements.md", ["ユーザーはSupabase Authでログインできる", "権限ごとのCRUDがAPIとRLSで制御される"]],
+  ["docs/01-product/non-functional-requirements.md", ["全テナントデータはRLSで分離する", "Supabase service role", "Supabaseは東京リージョン"]],
   ["docs/03-architecture/adrs/ADR-0003-durable-object-session-state.md", ["永続データの正本はSupabase Postgres"]],
   ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", ["SupabaseはAuth、Postgres、RLS", "PostgresにはR2 object key", "WorkerはSupabase session"]],
   ["docs/03-architecture/adrs/ADR-0018-r2-bucket-binding-contract.md", ["Supabase PostgresはAuth", "WorkerはSupabase Auth session"]],
@@ -81,6 +97,7 @@ const forbidden = new Map([
 
 const superseded = new Map([
   ["docs/03-architecture/adrs/ADR-0019-phase1-development-entry-gate.md", "M1〜M3"],
+  ["docs/04-data/phase1-supabase-setup.md", "M1〜M5"],
   ["docs/04-data/phase2-manual-core-setup.md", "M4"],
   ["docs/05-api/phase2-manual-api.md", "M4"],
   ["docs/05-api/phase2-manual-edit-api.md", "M4"],
@@ -88,6 +105,9 @@ const superseded = new Map([
   ["docs/07-quality/rls-negative-test.md", "M2/M3/M5"],
   ["docs/08-operations/cloud-harness.md", "M1〜M5"],
   ["docs/08-operations/db-migration-safety-harness.md", "M2/M4"],
+  ["docs/08-operations/phase1-app-harness.md", "M1〜M3"],
+  ["docs/08-operations/phase1-rls-live-gate.md", "M5"],
+  ["docs/08-operations/phase2-manual-core-staging-alpha.md", "M4/M5"],
   ["docs/08-operations/remaining-harness-plan.md", "M0〜M7"],
   ["docs/09-delivery/phase1-entry-gate.md", "M1〜M3"]
 ]);

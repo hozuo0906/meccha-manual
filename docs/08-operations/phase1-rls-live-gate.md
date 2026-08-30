@@ -2,6 +2,8 @@
 
 Status: Superseded
 
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase RLS live gateの履歴baselineである。workflow再追加、test user、secret、remote write、live実行、staging合格証跡の根拠にしない。後継はIssue #176 M5。
+
 Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はPR #175で整備された移行前Supabase RLS workflowの履歴・安全境界としてのみ保持する。
 
 実行可能だった `.github/workflows/phase1-rls-live.yml` はdefault branchから削除し、workflow checkerで同名・改名再追加を拒否する。Supabase test user、テストデータ、`MECCHA_RLS_*` secretを新規作成・登録せず、既存Access service tokenもSupabase live runへ使用しない。以下はGit履歴上の移行前仕様記録であり、実行手順ではない。代替gateはIssue #176 M5のAccess/D1/R2実preview negative proofである。
