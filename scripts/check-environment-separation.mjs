@@ -30,6 +30,7 @@ for (const term of [
   "staging D1",
   "production D1",
   "Access JWT",
+  "Access JWT/D1 workspace negative test",
   "R2 capture",
   "Stripe",
   "Discord通知",
