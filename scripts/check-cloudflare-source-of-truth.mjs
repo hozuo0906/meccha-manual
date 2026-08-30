@@ -199,8 +199,9 @@ if (proposedStart < 0 || acceptedIndexStart < 0 || acceptedIndexEnd < 0) {
   const proposedOnly = apiContracts.slice(proposedStart, acceptedIndexStart);
   const acceptedOnly = apiContracts.slice(acceptedIndexStart, acceptedIndexEnd);
   for (const endpoint of acceptedEndpoints) {
-    if (proposedOnly.includes(endpoint)) errors.push(`Accepted API remains inside Proposed list: ${endpoint}`);
-    const occurrences = acceptedOnly.split(endpoint).length - 1;
+    const markdownEndpoint = `\`${endpoint}\``;
+    if (proposedOnly.includes(markdownEndpoint)) errors.push(`Accepted API remains inside Proposed list: ${endpoint}`);
+    const occurrences = acceptedOnly.split(markdownEndpoint).length - 1;
     if (occurrences !== 1) errors.push(`Accepted API index must contain endpoint exactly once: ${endpoint}`);
   }
 }
