@@ -84,7 +84,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 成果:
 
 - manuals、revisions、stepsのD1 schema
-- create/edit/reorder/publish/next draft/archive transaction
+- create/edit/reorder/publish/next draft/archiveのD1対応atomic operation
 - optimistic version、公開版不変、200 step上限
 - API/UI/E2Eと途中失敗回帰
 
