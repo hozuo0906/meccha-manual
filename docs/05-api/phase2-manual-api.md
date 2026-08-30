@@ -1,6 +1,8 @@
 # Phase 2 手順書一覧・作成API
 
-Status: Accepted
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Postgres/RLS baselineである。新規Supabase project/user/secret、migration、remote write、live workflow、staging合格証跡の根拠にしない。後継は`cloudflare-access-d1-api.md` とIssue #176 M4。
 
 対象: GitHub Issue #63 / FR-004
 

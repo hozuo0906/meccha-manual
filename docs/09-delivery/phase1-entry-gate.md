@@ -1,6 +1,8 @@
 # Phase 1 entry gate
 
-Status: Ready for owner approval
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Postgres/RLS baselineである。新規Supabase project/user/secret、migration、remote write、live workflow、staging合格証跡の根拠にしない。後継はIssue #176 M1〜M3。
 
 ## 目的
 

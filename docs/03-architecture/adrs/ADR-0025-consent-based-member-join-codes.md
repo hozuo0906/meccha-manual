@@ -2,15 +2,17 @@
 
 Status: Accepted
 
+ADR-0028により、旧database RPC/policyの実装方式をWorker認可とD1 atomic operationへ置換する。本人同意、短命、単回、digest-only、last-owner保護、結果不明時の再照合は維持する。
+
 ## 決定
 
 メールアドレスによる直接追加を廃止する。参加者本人が認証済みセッションから256 bitの参加コードを明示発行し、owner/adminが希望role（admin/editor/viewer）を指定して利用する。コードは10分で失効する単回使用Bearer credentialであり、DBにはSHA-256 digestだけを保存する。
 
-発行時の平文は一度だけ応答し、Storage、URL、ログ、監査ログへ保存しない。再発行は以前の未使用コードを失効させる。利用はworkspace行、操作主体の所属、コード行、対象所属の順にlockし、所属追加または復帰、コード消費、監査追記を同じtransactionで確定する。`invited`を含む非active所属を通常の変更RPCでactive化せず、本人発行コードの利用だけをactive化の窓口にする。activeメンバーは1workspace最大1000人とし、追加・復帰transaction内で上限を拒否する。無効・期限切れ・失効・使用済みは同じエラーにまとめ、応答が失われた場合はメンバー一覧の再取得で結果を照合する。
+発行時の平文は一度だけ応答し、Storage、URL、ログ、監査ログへ保存しない。再発行は以前の未使用コードを失効させる。利用は検証済みAccess identity、active D1 membership/role、workspace、コード、対象所属を再照合し、所属追加または復帰、コード消費、監査追記を同じD1 atomic operationで確定する。D1のunique/foreign-key/version制約とtransactional batchを併用する。`invited`を含む非active所属を通常の変更RPCでactive化せず、本人発行コードの利用だけをactive化の窓口にする。activeメンバーは1workspace最大1000人とし、追加・復帰transaction内で上限を拒否する。無効・期限切れ・失効・使用済みは同じエラーにまとめ、応答が失われた場合はメンバー一覧の再取得で結果を照合する。
 
 発行画面は、コードを受け取った管理者が、その管理者の管理する任意のworkspaceへ発行者を選択したroleで1回追加できることを明示する。参加先を確認し、信頼できる管理者1人へ安全な1対1の方法でだけ渡し、グループチャットや共有チャンネルへ送らないよう案内する。ブラウザは生の有効期限を保持し、期限到達時に平文をDOMとメモリstateから消去してコピーを無効化する。再発行は現在コードが即時失効することを確認してから行う。発行中の認証変更では、同一ユーザーなら発行応答の成功または失敗まで待って状態を確定し、別ユーザーなら保留状態と遅延した平文を破棄する。
 
-`workspace_members`、`workspace_join_codes`、`audit_logs`へのclient直接書込みは許可しない。監査ログは追加、role変更、status変更をSECURITY DEFINER RPCからappend-onlyで記録し、owner/adminだけがRLS経由で参照できる。
+`workspace_members`、`workspace_join_codes`、`audit_logs`へのclient直接書込みは許可しない。Workerの用途別D1 repository methodだけを書込み窓口にし、監査ログは追加、role変更、status変更をappend-onlyで記録する。owner/adminだけがWorker認可とworkspace固定D1 query経由で参照できる。
 
 ## 理由
 

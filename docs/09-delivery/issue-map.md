@@ -75,7 +75,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 
 外部設定Issue:
 
-- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
+- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Access application/audience/policyとstaging D1/R2/Worker bindingはIssue #176 M5のboundary gateで固定し、productionと共有しない。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
 - GitHub Issue #92: non-production branch build停止、`main`のversion upload-only、Access保護は完了し、Issueはcompleted close済みである。これらの保護を維持しつつ、Access/D1/R2移行後の実preview分離はIssue #176 M5の独立migration gateで検証する。これは#92由来のblanket main merge holdを復活させるものではない。
 
 ## EPIC-04: Browser Run
@@ -161,7 +161,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 ## EPIC-13: リリース品質
 
 - E2E
-- RLS negative test
+- Access JWT、Worker認可、workspace固定D1 query／制約negative・mutation test（旧RLSは移行baseline変更時だけ）
 - 負荷
 - 障害注入
 - 可観測性

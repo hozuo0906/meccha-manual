@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 目的
 
-R2 objectとPostgresメタデータの対応を固定し、ワークスペース越境、公開URL漏れ、削除漏れを防ぐ。
+R2 objectとD1 assetsメタデータの対応を固定し、ワークスペース越境、公開URL漏れ、削除漏れを防ぐ。
 
 ## 保存先
 
@@ -32,9 +32,9 @@ workspace-id/exports/manual-id/export-id.pdf
 workspace-id/avatars/user-id/asset-id.webp
 ```
 
-## Postgresメタデータ
+## D1 assetsメタデータ
 
-Postgresメタデータに保存するもの:
+D1 assetsメタデータに保存するもの:
 
 - `workspace_id`
 - `asset_id`
@@ -73,12 +73,12 @@ secret、共有トークン、個人情報、入力値、実ユーザーの操�
 - Storage adapterは`put`境界でbodyを再snapshotし、byte sizeとSHA-256を再検証してから保存する。検証済みobjectの公開bodyが後から変更されても、不一致のまま保存しない。
 - object keyの各要素は元ファイル名や表示名ではなく、不透明な小文字識別子に限定する。
 - key全体をmetadataから再構築して完全一致を確認する。workspace、resource、assetのいずれかが異なるkeyや、余分・空のpath segmentを拒否する。
-- Storage portの`get`はmemory stubとR2 adapterで同じdomain shapeを返す。R2に複製しない`manual_id`と`step_id`はread結果へ含めず、認可時はPostgres正本から取得する。
+- Storage portの`get`はmemory stubとR2 adapterで同じdomain shapeを返す。R2に複製しない`manual_id`と`step_id`はread結果へ含めず、認可時はD1正本から取得する。
 
 ## 参照
 
 - 認可はWorker経由で行う。
-- WorkerはSupabase sessionとworkspace権限を確認する。
+- Workerは検証済みAccess user identityとD1のactive membership/role、resource workspaceを確認する。
 - 権限確認後、Worker proxyまたは短期署名URLで配信する。
 - bucket自体はpublicにしない。
 - 共有リンクが有効でも、R2 objectを直接公開しない。

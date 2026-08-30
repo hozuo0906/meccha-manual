@@ -8,7 +8,8 @@
 - 未決事項を推測で埋めない。必要なら `docs/09-delivery/open-questions.md` に登録する。
 - 変更は小さく分ける。無関係な整形、改名、移動、リファクタリングを混ぜない。
 - 新しい設計判断はコードコメントだけに残さず、ADRまたは `decision-log.md` に記録する。
-- DB変更はmigration、テーブル定義、ERD/RLS方針、RLSテストを同じPRで更新する。
+- DB変更は、対象DBのmigration、テーブル定義、データ／認可境界、tenant越境・権限negative testを同じPRで更新する。
+- D1変更では、D1 migration/schema、Worker認可、workspace固定query、D1制約、negative/mutation testを同じPRで更新する。移行前Supabase/Postgres baselineを変更する場合だけ、RLS方針とRLS testも同じPRで更新する。
 - API、イベント、画面挙動の変更は対応する契約文書とトレーサビリティ表を同時更新する。
 - 秘密値、共有トークン、個人情報、実ユーザーの操作内容をMarkdownやログへ記載しない。
 - サブエージェントの生思考や会話全文は記録しない。結論、根拠、採否、リスク、未決だけを要約する。
@@ -46,7 +47,7 @@
 - 親セッション: 要件、統合判断、品質ゲート、進行管理。
 - コーディング担当: 実装。担当範囲を限定し、共有ファイルの同時編集を避ける。
 - UIUX担当: 日本語業務UI、画面状態、アクセシビリティ、文言。
-- テスト担当: 自動テスト、RLS negative test、E2E、証跡。
+- テスト担当: 自動テスト、認証主体・tenant越境・role/status・ID差し替えnegative test、E2E、証跡。移行前Postgres baselineを変更する場合だけRLS negative testも担当する。
 - 辛口レビュー担当: P0/P1リスク、セキュリティ、プライバシー、UX欠陥。
 - リファクタリング/コードレビュー担当: 命名、定数、設定、責務分離、再利用性、依存方向。
 - ドキュメント記録担当: 決定、採用/却下案、サブエージェント成果要約、未決事項。

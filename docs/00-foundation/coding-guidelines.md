@@ -27,8 +27,8 @@ application/
   commands/
   queries/
 infrastructure/
-  supabase/
   cloudflare/
+  supabase/ # Issue #176 M6までのlegacy adapter
   stripe/
 shared/
   contracts/

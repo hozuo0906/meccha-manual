@@ -27,6 +27,6 @@ Status: Accepted
 - バグ修正PR: 再現テストと最小修正が原則。
 - 横断機能PR: 先にADRと移行計画を承認。
 - 専用リファクタリングPR: 挙動不変をテストで証明。
-- DB/RLS PR: migration、rollback、既存データ影響、RLS検証を一組にする。
+- D1／認可PR: migration、rollback、既存データ影響、Worker認可、workspace固定query／制約のnegative・mutation testを一組にする。旧Postgres/RLSは移行baseline変更時だけ確認する。
 
 `ついでに` が出たらPR分割対象です。

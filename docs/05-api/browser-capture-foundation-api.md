@@ -38,4 +38,4 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 - navigation: URLを含まない「次のページへ移動」の汎用step
 - 連続する同方向scroll: 1件のnoteへ集約
 
-このPRではDB保存、Browser session、Live View、Durable Object、R2を実装しない。将来の永続化はworkspace RLS、manual→revision lock、archive version、job期限・取消・再試行・監査を同じ縦切りで実装する。
+このPRではDB保存、Browser session、Live View、Durable Object、R2を実装しない。将来の永続化は検証済みAccess identity、active D1 membership/role、workspace固定query/constraint、manual→revision lock、archive version、job期限・取消・再試行・監査を同じ縦切りで実装する。

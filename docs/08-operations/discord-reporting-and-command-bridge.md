@@ -194,7 +194,7 @@ Workerに設定できる制限:
 - AI API有効化
 - PR merge
 
-GitHub PR、Cloudflare、Supabase側の承認ゲートを正本にする。
+GitHub PR、Cloudflare Access/D1/R2/Workers側の承認ゲートを正本にする。
 
 ## Discord PR review buttons
 

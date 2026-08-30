@@ -10,7 +10,7 @@ PCの電源が切れていても、GitHub上の正本repoを使ってCodex Cloud
 
 - Codex CloudまたはCodex webでGitHub repositoryを開き、クラウド側でtaskを実行する。
 - GitHub Codespacesでrepoを開き、ブラウザ上のVS Codeから作業する。
-- GitHub Actions、Cloudflare Worker、Supabase、Discord通知はPCの電源に依存せず動く。
+- GitHub Actions、Cloudflare Access/Workers/D1/R2、Discord通知はPCの電源に依存せず動く。
 - 作業結果はbranch、commit、PRとしてGitHubに残す。
 
 ## できないこと

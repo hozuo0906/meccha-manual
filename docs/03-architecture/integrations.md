@@ -2,39 +2,32 @@
 
 Status: Accepted
 
-## Supabase
-
-役割:
-
-- Auth: ユーザー認証
-- Postgres: 業務データ、ファイルメタデータ、監査ログの正本
-- RLS: workspace単位のテナント分離
-
-初期方針:
-
-- Supabase Storageは第一保存先にしない。
-- ファイル本体はCloudflare R2へ置く。
-- SupabaseにはR2 object keyと権限判定に必要なメタデータを保存する。
-
-未登録にするsecret:
-
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_DB_PASSWORD`
-- `SUPABASE_JWT_SECRET`
-
 ## Cloudflare
 
 役割:
 
-- Workers: API、Webhook、共有閲覧、署名URL発行
+- Access: メールOTP・明示allowlistによる招待制の到達制御
+- Workers: Access JWT検証、業務API認可、Webhook、共有閲覧、署名URL発行
+- D1: application identity、workspace membership/role、業務データ、ファイルメタデータ、監査ログの正本
 - Durable Objects: 操作記録セッション状態
 - Browser Run: システム内ブラウザ
-- R2: スクリーンショット、手順書画像、出力ファイル、avatar
+- R2: privateなスクリーンショット、手順書画像、出力ファイル、avatar
 
-Cloudflareのaccount ID、API token、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
+Access到達を業務認可と同一視せず、Workerが検証済みaccess user、D1のactive membership/role、resource workspaceを毎回照合する。service tokenはmachine専用routeだけに許可し、D1 userへ写像しない。
 
-staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production bucketはまだ作成しない。
-bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実bucket作成とbinding追加は承認後に行う。
+Cloudflareのaccount ID、API token、Access audience、D1 database ID、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
+
+staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production Access/D1/R2はまだ作成しない。bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実binding追加は承認後に行う。
+
+## Legacy Supabase
+
+Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。新規project、user、secret、data、migration、remote write、live workflow、fallback、二重書込みを行わない。M6で残存runtimeと不要資格情報を退役する。
+
+禁止するlegacy secret:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_PASSWORD`
+- `SUPABASE_JWT_SECRET`
 
 ## Discord
 

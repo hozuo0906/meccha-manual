@@ -2,11 +2,13 @@
 
 Status: Accepted
 
+ADR-0028により、認証・DB固有手順をSupabaseからCloudflare Access/D1へ置換する。ブランド/アプリのsubdomain分離、Custom Domain/DNS/deployの個別承認、rollback原則は維持する。
+
 ## Context
 
 取得済みドメイン `meccha-iiyatsu.com` を「めっちゃいいやつ」全体で利用し、今後のアプリ追加時にもURL、認証、デプロイを個別に拡張できる構成が必要である。
 
-`www`配下へアプリ本体までサブパスで置くと、アプリごとのルーティング、Cookie、CSP、デプロイ、障害範囲が結合する。現在の`めっちゃマニュアル`はSupabase Authとhost-only Cookieを使うため、LPと認証付きアプリを同一Workerへ統合しない。
+`www`配下へアプリ本体までサブパスで置くと、アプリごとのルーティング、Cookie、CSP、デプロイ、障害範囲が結合する。現在の`めっちゃマニュアル`はCloudflare Accessで認証付きアプリを保護するため、Access policy/audience、Cookie、CSP、障害範囲をLPから分離し、同一Workerへ統合しない。
 
 ## Decision
 
@@ -18,7 +20,7 @@ Status: Accepted
 - ブランドサイトは`meccha-iiyatsu-web`という別WorkerのStatic Assetsとして提供し、アプリWorker`meccha-manual-prod`とデプロイ単位を分ける。
 - 同じGitHubリポジトリ内の`apps/brand-site`で管理するが、CloudflareのWorker、Custom Domain、build watch path、release approvalは別にする。
 - `www`とアプリ間で認証Cookieを共有しない。アプリの`__Host-` Cookie、same-origin write検証、CORSなしを維持する。
-- Custom Domain、DNS、production Worker deploy、Supabase production設定はコードmergeとは別の明示承認対象とする。
+- Custom Domain、DNS、production Worker deploy、production Access application/audience/policy/session、production D1/R2設定はコードmergeとは別の明示承認対象とする。
 
 ## URL命名規則
 
@@ -39,8 +41,8 @@ Status: Accepted
 - 新しいアプリはLPディレクトリ、アプリWorker、Custom Domainを追加する同じ手順で拡張できる。
 - Workerが2つになるため、Cloudflare Git連携のbuild設定とproduction gateも2系統必要になる。
 - apex redirectはWorkers Static Assetsの`_redirects`ではなく、Cloudflare Bulk Redirectとproxied DNSで設定する。
-- production公開前にSupabase Site URL / Redirect URLs、メールリンク、OAuth callback、Webhook URL、CSPをアプリサブドメイン基準で検証する必要がある。
+- production公開前にAccess application domain/audience/policy/session、メールOTP導線、Webhook URL、CSPをアプリサブドメイン基準で検証する必要がある。
 
 ## Rollback
 
-Custom Domain追加前のWorker versionとDNS設定を記録する。問題発生時は、Custom Domainを新Workerから外し、直前のDNS/Worker割当へ戻す。Supabaseのredirect allowlistは旧技術URLを移行確認完了まで残し、認証中断を避ける。DB migrationやデータ移動はこの切替に含めない。
+Custom Domain追加前のWorker versionとDNS設定を記録する。問題発生時は、Custom Domainを新Workerから外し、直前のDNS/Worker割当へ戻す。Accessの旧技術URL policy/routeは移行確認完了までrollback対象として管理し、認証中断を避ける。DB migrationやデータ移動はこの切替に含めない。

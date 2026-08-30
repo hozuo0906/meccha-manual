@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+ADR-0028により、R2の認証・metadata境界をSupabase Auth/Postgres/RLSからAccess/D1/Worker認可へ置換する。bucket/binding名、private、環境分離、production未作成の契約は維持する。
+
 ## 背景
 
 ファイル本体はCloudflare R2を第一候補にする方針は決定済み。ただしR2 bucketを作る前に `wrangler.jsonc` へbindingを書くと、存在しないbucket参照でdeployが失敗する可能性がある。
@@ -12,7 +14,7 @@ Status: Accepted
 - bucket作成までは `wrangler.jsonc` に `r2_buckets` を追加しない。
 - bucket自体はpublicにしない。
 - ファイル配信はWorker経由、またはWorkerが発行する短期署名URL経由にする。
-- Supabase PostgresはAuth、RLS、ファイル権限、Postgresメタデータの正本にする。
+- Cloudflare Accessを認証前段、D1をファイル権限とメタデータの正本とし、Workerで認可する。
 - R2はファイル本体だけを保存する。
 
 ## binding名
@@ -42,13 +44,13 @@ Status: Accepted
 ## アクセスとURL
 
 - bucketはprivateとし、公開カスタムドメインを直接割り当てない。
-- WorkerはSupabase Auth sessionとPostgresメタデータの `workspace_id`、削除状態、利用者権限を検証する。
+- Workerは検証済みAccess user identityとD1メタデータの `workspace_id`、削除状態、active membership/roleを検証する。
 - 検証後にWorker proxyまたは短命URLを発行する。URLの有効期限、対象object、用途を限定し、URLそのものをDB・監査ログへ保存しない。
 - 共有リンクが将来有効でも、共有トークンの検証と失効確認をWorkerで行い、R2 objectを直接公開しない。
 
 ## 削除・保持・機密情報
 
-- 削除はPostgresメタデータをsoft deleteし、URL発行を即時停止してから非同期削除jobでR2 objectと派生物を削除する。
+- 削除はD1メタデータをsoft deleteし、URL発行を即時停止してから非同期削除jobでR2 objectと派生物を削除する。
 - 削除失敗は再試行対象とし、object keyではなくasset IDを監査ログへ残す。
 - 保持期間はデータ種別ごとに決定し、未決期間は `open-questions.md` で管理する。期間未決のまま自動削除を有効にしない。
 - スクリーンショットはPII・社内機密を含み得る。入力値、Cookie、Authorization、共有生トークン、Live View URLをobject metadataやobject keyへ入れない。

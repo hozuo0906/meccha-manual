@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+ADR-0028により、永続業務データの正本だけをSupabase PostgresからCloudflare D1へ置換する。Durable Objectを操作記録sessionの一時状態管理者とし、永続DBとの二重正本を禁止する原則は維持する。
+
 ## 決定
 
 1つの操作記録セッションにつき1つのDurable Objectを割り当て、Browser Run session ID、Live View URL発行、操作イベント連番、コマンド直列化、再接続、終了処理を管理する。
@@ -13,5 +15,5 @@ Status: Accepted
 ## 影響
 
 - Durable Objectは一時状態の管理者。
-- 永続データの正本はSupabase Postgres。
-- Durable ObjectとPostgresの両方を同じ状態の正本にしない。
+- 永続業務データの正本はCloudflare D1。
+- Durable ObjectとD1の両方を同じ状態の正本にしない。

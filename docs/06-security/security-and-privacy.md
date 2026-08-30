@@ -9,7 +9,7 @@ Status: Accepted
 - 共有リンク失効後の閲覧。
 - パスワード、Cookie、Authorization、カード情報、個人番号の保存。
 - SSRF。
-- RLS抜け。
+- Worker認可、workspace固定D1 query、D1制約のいずれかの抜け。
 - 他人のStripe状態反映。
 - 保存済み手順の不可逆消失。
 

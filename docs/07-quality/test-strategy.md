@@ -16,7 +16,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 
 - 認証、ログアウト、期限切れ。refreshは専用POSTと認証Web Lockで直列化し、古い応答、上流通信失敗、回転後の途中失敗、token非露出、Cookie削除/維持境界を確認する。
 - owner/admin/editor/viewerの権限。
-- RLS negative test。
+- Access JWT／Worker認可／D1 tenant・role・status・ID差し替えnegative/mutation test。移行前Postgres baselineを変更する場合だけRLS negative testも実施する。
 - ワークスペース越境のAPI/DB/Storageアクセス拒否。
 - 手順書の下書きと公開版の分離。
 - 操作記録セッションの起動、切断、再接続、終了。
@@ -49,7 +49,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 ## 完成扱い禁止条件
 
 - happy pathだけで主要機能を説明している。
-- 共有URL、RLS、削除、復旧のnegative testがない。
+- 共有URL、Access/D1 tenant境界、削除、復旧のnegative testがない。
 - クラウドブラウザでCookieや入力値の保存範囲が不明。
 - DNS再解決だけでSSRF対策完了とし、actual peerの照合または検査済みIPへの接続拘束を確認していない。
 - Guide Me風機能が静的デモページでしか動かない。
