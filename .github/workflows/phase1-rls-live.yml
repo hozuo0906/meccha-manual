@@ -88,7 +88,7 @@ jobs:
           async function verifyImmutableWorkerBoundary() {
             const originPath = process.env.IMMUTABLE_PREVIEW_ORIGIN_PATH;
             if (!outputPath || !originPath) throw new Error("Immutable preview output paths are not configured.");
-  
+
             const parsed = [];
             for (const line of (await readFile(outputPath, "utf8")).split(/\r?\n/).filter(Boolean)) {
               try {
@@ -100,14 +100,14 @@ jobs:
             const upload = [...parsed].reverse().find((entry) => entry?.type === "version-upload");
             if (!upload || typeof upload.version_id !== "string") throw new Error("Wrangler did not report a Worker version upload.");
             if (typeof upload.preview_url !== "string") throw new Error("Wrangler did not report an immutable version preview URL.");
-  
+
             const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
             const workerName = wrangler.name;
             const approvedBaseUrl = wrangler.vars?.APP_BASE_URL;
             if (typeof workerName !== "string" || typeof approvedBaseUrl !== "string") {
               throw new Error("Approved Worker preview boundary is incomplete.");
             }
-  
+
             let previewUrl;
             let approvedBase;
             try {
@@ -140,7 +140,7 @@ jobs:
             await writeFile(originPath, `${previewUrl.origin}\n`, { encoding: "utf8", mode: 0o600 });
             console.log("Immutable Worker version preview is ready for protected RLS testing.");
             NODE
-  
+
         - name: Verify immutable Worker staging boundary
           env:
             CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -155,7 +155,7 @@ jobs:
             const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
             const expectedUrl = wrangler.vars?.SUPABASE_URL;
             if (!origin || !expectedUrl) throw new Error("Approved staging boundary configuration is incomplete.");
-  
+
             const unauthenticatedResponse = await fetch(`${origin}/health/config`, {
               headers: { accept: "application/json" },
               redirect: "manual"
@@ -164,7 +164,7 @@ jobs:
             if (!accessDeniedStatuses.has(unauthenticatedResponse.status)) {
               throw new Error("Immutable preview did not return an expected Access denial.");
             }
-  
+
             const expectedRef = new URL(expectedUrl).hostname.replace(/\.supabase\.co$/, "");
             const response = await fetchWithCloudflareAccess(
               `${origin}/health/config`,
