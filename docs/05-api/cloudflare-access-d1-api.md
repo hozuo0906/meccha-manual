@@ -52,10 +52,10 @@ WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないwork
 
 ## Manual API
 
-manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能な限り維持する。Postgres SECURITY DEFINER RPCはD1 transactionと用途別repository methodへ置換する。
+manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能な限り維持する。Postgres SECURITY DEFINER RPCは、単一の条件付きSQL、`D1Database.batch()`、schema constraint/triggerを組み合わせたD1対応のatomic operationと用途別repository methodへ置換する。interactive transaction APIの存在を前提にしない。
 
-- create: manualと最初のdraftを同じtransactionで作成
-- update: workspace、role、draft state、期待versionを同じtransactionで照合
+- create: manualと最初のdraftを同じatomic operationで作成
+- update: workspace、role、draft state、期待versionを同じatomic operationで照合
 - publish: manual pointerと期待draft IDを再照合し、公開版を不変化
 - next draft: 期待published IDから複製
 - archive: 期待manual versionを照合し、内容を保持して非破壊化
