@@ -136,18 +136,25 @@ const required = new Map([
     "Status: Accepted", "canonical `.github/workflows/phase1-rls-live.yml`", "owner承認済み", "既存staging/test契約", "M5 replacement gate", "production実行"
   ]],
   ["docs/04-data/phase1-supabase-setup.md", [
-    "Status: Superseded", "owner承認済みのcanonical live gate", "Accepted例外", "新規project、migration、資格情報、remote writeは追加しない"
+    "Status: Superseded", "owner承認済みのcanonical live gate", "Accepted例外", "新規Supabase project、migration、test user、データ、資格情報、`MECCHA_RLS_*` secretは追加しない",
+    "`npm run test:rls`はowner承認済みの既存staging/test契約をcanonical workflowから実行する場合に限り"
   ]],
   ["docs/08-operations/stripe-billing-harness.md", [
     "exact POSTとbody上限", "署名対象timestamp", "副作用なしで検証", "有界parse/schema検証",
     "receiptと再実行可能なreconciliation work/outbox", "guard commit成功後だけStripeへ2xx",
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
+  ["docs/08-operations/environments-and-delivery.md", [
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M6で退役"
+  ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal"
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
+  ]],
+  ["docs/09-delivery/session-handoff.md", [
+    "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
   ]],
   ["docs/09-delivery/decision-log.md", [
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",

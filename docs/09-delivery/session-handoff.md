@@ -221,7 +221,7 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 正本: ADR-0028、DEC-064、Issue #176、`cloudflare-migration-roadmap.md`。DEC-063のpreview Access保護は継続する。
 - 旧Supabase Auth/Postgres/RLS実装、migration、RPC、テストは移行前baselineとして保持する。新規機能の土台、staging合格、production候補として拡張しない。
 - PR #175でCloudflare Access保護とproduction自動promote停止をmainへ取り込み済み。Issue #92はcompleted closeされ、#92由来のblanket main merge holdは解除済みである。Access保護、non-production branch build停止、version upload-onlyは継続する。
-- Supabase RLS live gateとテストユーザー準備は中止し、新規Supabase資格情報を追加しない。
+- 現行live RLS gate workflowはIssue #176 M5 replacement gateと対応正本が同じrollback単位でmainへ着地するまで維持する。ただし新規test user、資格情報、環境は追加せず、実行はowner承認済み既存staging/test契約に限定する。
 - 実immutable previewのstaging-only D1/R2・production backend非到達証明はIssue #176 M5の独立migration gateへ移管する。完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。
 - Issue #95のSupabase staging内部alphaはIssue #176 M5のAccess/D1/R2 staging実証へ置換し、旧経路を実行しない。
 - production Access application、production D1、migration、deploy、実ユーザー招待、実データ移行は未実施。
