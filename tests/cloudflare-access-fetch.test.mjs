@@ -107,12 +107,13 @@ test("Access資格情報を別originまたはHTTPへ送らない", async () => {
   assert.equal(calls, 0);
 });
 
-test("移行前RLS runnerの履歴baselineと旧workflow退役を固定する", async () => {
-  const [runner, wranglerText, sensitiveValueScanner, workflowChecker] = await Promise.all([
+test("移行前RLS runnerと現行canonical live workflowの安全境界を固定する", async () => {
+  const [runner, wranglerText, sensitiveValueScanner, workflowChecker, workflow] = await Promise.all([
     readFile(new URL("../scripts/rls-negative-test.mjs", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../scripts/check-sensitive-values.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../scripts/check-workflows.mjs", import.meta.url), "utf8")
+    readFile(new URL("../scripts/check-workflows.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/phase1-rls-live.yml", import.meta.url), "utf8")
   ]);
   const wrangler = JSON.parse(wranglerText);
 
@@ -133,6 +134,11 @@ test("移行前RLS runnerの履歴baselineと旧workflow退役を固定する", 
   assert.match(workflowChecker, /MECCHA_RLS_/);
   assert.match(workflowChecker, /npm run test:rls/);
   assert.match(workflowChecker, /scripts\\\/rls-negative-test/);
+  assert.match(workflow, /name: Phase 1 RLS Live Gate/);
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /Verify immutable Worker staging boundary/);
+  assert.match(workflow, /Run live RLS negative test against immutable Worker version/);
+  assert.match(workflow, /MECCHA_RLS_ALLOW_REMOTE_WRITE/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_ID"/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_SECRET"/);
 });

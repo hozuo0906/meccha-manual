@@ -1,8 +1,8 @@
 # RLS negative test
 
-Status: Superseded
+Status: Accepted
 
-実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Postgres/RLS baselineである。新規Supabase project/user/secret、migration、remote write、live workflow、staging合格証跡の根拠にしない。後継はIssue #176 M2/M3/M5のAccess JWT／Worker認可／D1 negative gate。
+本書は移行前Supabase/Postgres/RLSの暫定Accepted test契約であり、canonical `.github/workflows/phase1-rls-live.yml` からowner承認済みの既存staging/test契約と既存資格情報に限定して実行する。M5 replacement gateと対応正本が同じrollback単位でmainへ着地するまでAcceptedとして維持し、手動無秩序実行、新規環境、production実行、新規project・migration・資格情報追加は禁止する。
 
 ## Purpose
 

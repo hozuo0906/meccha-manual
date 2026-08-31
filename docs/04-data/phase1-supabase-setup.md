@@ -2,7 +2,7 @@
 
 Status: Superseded
 
-実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Auth/Postgres/RLS baselineである。新規setup、project、user、secret、migration、remote write、live test、staging合格証跡の根拠にしない。後継はIssue #176 M1〜M5。
+本書は新規Supabase/Auth/Postgres/RLS setup手順としてはSupersededである。ただし、既存staging/test契約を使うowner承認済みのcanonical live gateは、Issue #176 M5のreplacement gateと対応正本が同じrollback単位でmainへ着地するまでAccepted例外として扱う。新規project、migration、資格情報、remote writeは追加しない。
 
 Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はSupabase Auth/Postgres/RLS移行前の適用履歴・回帰仕様としてのみ保持し、新しい環境のsetup手順、staging合格条件、production候補として使用しない。
 
@@ -147,7 +147,7 @@ Authenticationで新規ユーザーを作成すると、`profiles` に同じユ�
 
 ## Superseded gateと移管先
 
-専用Supabaseテストユーザー2名の作成、CI secret登録、実stagingでの`npm run test:rls`は未実行であり、成功証跡として扱わない。この旧gateを今後実行することもしない。
+専用Supabaseテストユーザー2名の作成、CI secret登録、実stagingでの`npm run test:rls`は、既存staging/test契約に対するowner承認済みcanonical live gateからのみ実行する。M5 replacement gateと対応正本が同じrollback単位でmainへ着地するまでAccepted例外として扱い、無秩序な手動実行、新規環境、production実行は行わない。
 
 旧gateが確認予定だった要件は次へ移管する。
 

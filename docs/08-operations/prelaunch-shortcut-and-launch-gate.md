@@ -9,7 +9,7 @@ Status: Accepted
 - PR・作業branchはGitHub Actionsのrepo-side CIだけを自動実行してよい。
 - Cloudflare Git integrationのnon-production branch buildは無効のまま維持し、PR pushからpreviewを自動生成しない。
 - `main` のGit連携は `wrangler versions upload` だけを使用し、active deploymentへ自動promoteしない。immutable previewはCloudflare Accessのdeny-by-default、Cloudflare account members、preview専用service tokenで保護する。
-- 旧 `Phase 1 RLS Live Gate` はSupersededであり、実行可能workflowをdefault branchから削除して再追加をCIで拒否する。Supabase test user作成、`MECCHA_RLS_*` secret追加、live RLS実行を行わない。
+- `Phase 1 RLS Live Gate` は現行Accepted transitional gateとして、Issue #176 M5のAccess/D1/R2 replacement gateと対応正本が同じrollback単位でmainへ着地するまで維持する。実行はowner承認済みの既存staging/test契約とcanonical workflowに限定し、M5着地時に同じrollback単位で置換する。新規Supabase test user、`MECCHA_RLS_*` secret、環境追加、production実行は行わない。
 - 暫定Workerの `main` 自動deployを許可する旧prelaunch例外は停止済みである。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。各PRは通常品質ゲートを満たせばmainへ統合できるが、Issue #176 M5の実preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。
 - staging環境を毎回経由しないrepo-side開発確認は継続できるが、preview/staging合格やbackend分離の証跡には扱わない。
 

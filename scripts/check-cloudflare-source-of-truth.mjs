@@ -4,7 +4,7 @@ const errors = [];
 
 async function read(path) {
   try {
-    return await readFile(path, "utf8");
+    return (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
   } catch {
     errors.push(`Missing Cloudflare source-of-truth file: ${path}`);
     return "";
@@ -86,8 +86,8 @@ const required = new Map([
     "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない"
   ]],
   ["docs/05-api/api-contracts.md", [
-    "# API契約", "Status: Accepted", "### Phase 1ハーネス", "Status: Superseded",
-    "### Accepted継続API索引", "### 将来の正式API", "Status: Proposed",
+    "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
+    "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
     "path別Access Bypassは到達経路に限る", "receiptと再実行可能なwork/outboxを単一のatomic operation",
     "guard commit成功後だけproviderへ成功応答", "received", "reconcile_required", "dead_letter",
@@ -128,6 +128,15 @@ const required = new Map([
   ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
     "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate"
+  ]],
+  ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", [
+    "現行Accepted transitional gate", "Issue #176 M5", "同じrollback単位", "canonical workflow"
+  ]],
+  ["docs/07-quality/rls-negative-test.md", [
+    "Status: Accepted", "canonical `.github/workflows/phase1-rls-live.yml`", "owner承認済み", "既存staging/test契約", "M5 replacement gate", "production実行"
+  ]],
+  ["docs/04-data/phase1-supabase-setup.md", [
+    "Status: Superseded", "owner承認済みのcanonical live gate", "Accepted例外", "新規project、migration、資格情報、remote writeは追加しない"
   ]],
   ["docs/08-operations/stripe-billing-harness.md", [
     "exact POSTとbody上限", "署名対象timestamp", "副作用なしで検証", "有界parse/schema検証",
@@ -212,12 +221,10 @@ const forbidden = new Map([
 
 const superseded = new Map([
   ["docs/03-architecture/adrs/ADR-0019-phase1-development-entry-gate.md", "M1〜M3"],
-  ["docs/04-data/phase1-supabase-setup.md", "M1〜M5"],
   ["docs/04-data/phase2-manual-core-setup.md", "M4"],
   ["docs/05-api/phase2-manual-api.md", "M4"],
   ["docs/05-api/phase2-manual-edit-api.md", "M4"],
   ["docs/07-quality/phase2-smoke-test.md", "M4"],
-  ["docs/07-quality/rls-negative-test.md", "M2/M3/M5"],
   ["docs/08-operations/cloud-harness.md", "M1〜M5"],
   ["docs/08-operations/db-migration-safety-harness.md", "M2/M4"],
   ["docs/08-operations/phase1-app-harness.md", "M1〜M3"],
