@@ -54,6 +54,7 @@ const required = new Map([
     "External provider callback boundary", "path別Access Bypass", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
     "receiptと再実行可能なwork/outboxを単一のatomic operation", "guard commit成功後だけproviderへ成功応答",
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest", "lease_generation", "fencing token", "latest `lease_generation`", "CAS", "旧owner",
+    "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否", "single-writer境界", "未知結果のまま同じeffectを再送せず", "CAS成功後にworkerが停止", "sink callが最大1系統",
     "受理済みworkを黙って失わない", "path別Access Bypassを有効化しない",
     "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027",
     "Migration compatibility floor", "code-only rollback", "forward-fix", "fail closed"
@@ -75,7 +76,8 @@ const required = new Map([
   ["docs/04-data/d1-and-storage.md", [
     "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query",
     "Provider callback replay境界", "単一のatomic guard operation", "再実行に必要な最小workまたはdurable outbox参照",
-    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031", "lease_generation", "compatibility floor", "forward-fix", "code-only rollback"
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031", "lease_generation", "compatibility floor", "forward-fix", "code-only rollback",
+    "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否", "single-writer境界", "未知結果のまま同じeffectを再送せず", "CAS成功後停止・lease takeover・旧worker復帰", "sink callが最大1系統"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
@@ -145,12 +147,12 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "canonical workflowから実行可能", "M6で退役"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
-    "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない",
+    "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
     "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
   ]],
   ["docs/09-delivery/session-handoff.md", [
@@ -170,6 +172,7 @@ const required = new Map([
 ]);
 
 const forbidden = new Map([
+  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
@@ -352,6 +355,15 @@ for (const spec of [
     start: "## External provider callback boundary",
     end: "## Authorization boundary",
     markers: commonCallbackOrder
+  },
+  {
+    path: "docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md",
+    start: "## External provider callback boundary",
+    end: "## Authorization boundary",
+    markers: [
+      "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否",
+      "single-writer境界", "未知結果のまま同じeffectを再送せず", "CAS成功後にworkerが停止", "sink callが最大1系統"
+    ]
   },
   {
     path: "docs/05-api/cloudflare-access-d1-api.md",

@@ -72,7 +72,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - 別workspace、viewer、disabled、last-owner、ID差し替えnegative test
 - backup/export/restore rehearsal
 - staging/production binding分離scanner
-- callbackのguard commit失敗、commit直後・Queue投入前停止、processing lease期限、一時失敗、結果不明、同一ID・同一digest並行再送、同一ID・異なるdigest、completed再送のnegative/recovery test。受理済みworkの消失・二重副作用がないことを証明し、完了までは環境を問わずpath別Access Bypassを有効化しない
+- callbackのguard commit失敗、commit直後・Queue投入前停止、processing lease期限、一時失敗、結果不明、同一ID・同一digest並行再送、同一ID・異なるdigest、completed再送、CAS成功後停止→lease takeover→旧worker復帰のnegative/recovery test。receipt/effect由来のstable idempotency/correlation keyをoutbox保存時に確定し、sink側idempotencyまたはeffect単位single-writer/correlation reconciliationを強制して、受理済みworkの消失・二重副作用がなくsink call最大1系統であることを証明し、完了までは環境を問わずpath別Access Bypassを有効化しない
 
 完了条件:
 
@@ -133,7 +133,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - 未認証requestがAccessで拒否される。
 - Access認証後もstaging D1/R2だけが利用可能で、production binding、route、secret、backendへのfallbackまたは到達経路がないことをnegative proofで確認する。
 - candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
-- candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。
+- candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。外部effectのstable idempotency/correlation key、sink側idempotencyまたはsingle-writer境界、CAS後停止→takeover→旧worker復帰時のsink call最大1系統も同じ候補証跡で確認する。
 - この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
 
 禁止:

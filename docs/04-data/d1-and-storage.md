@@ -68,6 +68,8 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 `processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。state更新・完了・outbox予約・外部副作用直前はlatest `lease_generation`へのCAS一致を条件にし、古いleaseのworkerと旧ownerはcommit・副作用を行えない。期限切れは同じworkの再取得へ戻し、lease期限だけを見た無条件更新は合格にしない。
 
+各外部effectのstable idempotency/correlation keyはreceipt/effect由来でoutboxのatomic保存時に確定し、lease generationをまたぐ全retryで同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを再送せず、単なるD1 preflight/searchを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のrecovery negative testでも、expired/old generation workerはdispatcher/single-writer境界へ入れず、sink callが最大1系統になることを確認する。具体的なstore/coordinatorはOQ-031/Issue #176 M2で決定する。
+
 ## Query contract
 
 - 業務repository APIは `actorId` と `workspaceId` を必須引数にする。
