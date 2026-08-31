@@ -13,7 +13,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
 - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
 - PR #175でmainへ取り込まれたnon-production branch build停止、version upload-only、Access deny-by-defaultは移行中も維持する。
-- 旧Supabase RLS live gateは移行前baselineとしてSupersededとし、実行可能workflowをdefault branchから削除して再追加をCIで拒否する。新規Supabase test user、資格情報、live runを追加しない。
+- 旧Supabase RLS live gateの文書状態はSupersededだが、Accepted live gate workflowはIssue #176 M5のAccess/D1/R2置換gateと正本が同じrollback単位でmainへ着地するまで維持する。新規Supabase test user、資格情報、live runは追加しない。
 
 ## Migration safety gate
 
@@ -33,7 +33,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
 - Supabase前提文書のSuperseded表示
-- 旧Supabase live workflowの削除と再追加防止check
+- 旧Supabase live workflowはM5置換gate着地まで維持し、着地後の退役と再追加防止checkを同じrollback単位で行う
 - Issue #92/#95/#176/#70の依存関係更新
 
 完了条件:

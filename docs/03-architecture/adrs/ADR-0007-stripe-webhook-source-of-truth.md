@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+### Callback order markers
+
+`callback-order: exact POST/body limit -> signature/timestamp side-effect-free -> bounded parse/schema/allowlist -> atomic receipt/work/outbox -> guard commit -> provider success -> dispatcher`
+
 ## 決定
 
 課金状態とentitlementの確定は、署名検証済みStripe webhookのみを正本にする。Checkout Session後の画面リダイレクトは補助表示に限定する。

@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+### Migration compatibility floor
+
+各D1 migrationは、直前schemaで稼働中のWorkerが読み書きできる compatibility floor を維持し、破壊的変更を単独で適用しない。migration適用後に旧Workerをrollbackする必要がある場合は、そのfloorを満たすmigrationだけを許可する。floorを満たせない場合はrollbackせず、書き込みをfail closedにして承認済みforward-fixを同じmigration履歴へ追加する。code-only rollbackはschemaを変更せず、対象migrationとの互換性を検査できる場合に限る。
+
 ## 目的
 
 ADR-0028に基づき、Cloudflare D1を業務データとファイルメタデータの正本にする。Postgres RLSの暗黙適用を前提にせず、Worker認可とworkspace固定queryを検証可能な契約として定義する。
@@ -63,6 +67,10 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 同じprovider ID・同じpayload digestの再送は新しいreceipt/workを作らず、状態に応じて維持、再開、照合、冪等successとする。同じID・異なるdigestは拒否して監査する。既存のDiscord KV get→putはatomic compare-and-setではないため、単独のauthoritative replay guardにしない。
 
 具体的なCloudflare-native store、atomic receipt/work、lease、dispatcher、保持する最小payloadはOQ-031をIssue #176 M2で解決する。D1を選ぶ場合はtable定義、migration、unique constraint、state CHECK、lease index、outbox、途中失敗・並行再送・結果不明negative testを同じPRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
+
+### Lease fencing
+
+`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。更新・完了・outbox dispatch予約は最新generationとの一致を条件にし、古いleaseのworkerはcommit・副作用を行えない。期限切れは同じworkの再取得へ戻し、lease期限だけを見た無条件更新は合格にしない。
 
 ## Query contract
 

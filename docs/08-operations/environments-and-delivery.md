@@ -8,7 +8,7 @@ Status: Accepted
 
 既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。旧Phase 1 RLS Live GateはSupersededであり、実行可能workflowをdefault branchから削除して再追加をCIで拒否する。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
+Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。旧Phase 1 RLS Live Gateの文書状態はSupersededだが、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで実行可能workflowを維持し、着地後に退役して再追加をCIで拒否する。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
 
 ## 環境対応表
 

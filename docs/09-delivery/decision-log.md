@@ -184,7 +184,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - Access到達許可をworkspace認可と同一視しない。
   - Postgres RLS置換はWorker認可とworkspace固定D1 queryのnegative testをP0 gateにする。
   - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
-  - 旧 `phase1-rls-live.yml` はdefault branchから削除し、workflow checkerで同名・改名再追加を拒否する。
+  - 旧 `phase1-rls-live.yml` は、Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで現行Accepted live gateとして維持し、着地後に退役する。退役後はworkflow checkerで同名・改名再追加を拒否する。
   - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
   - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
   - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。

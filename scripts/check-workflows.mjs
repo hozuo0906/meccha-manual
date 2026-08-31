@@ -14,10 +14,11 @@ const forbiddenLegacyRlsWorkflowPatterns = [
 
 for (const file of files) {
   const path = join(workflowDir, file);
-  if (retiredWorkflowFiles.has(file)) errors.push(`Retired Supabase live workflow must not exist: ${path}`);
+  const isLegacyRlsGate = retiredWorkflowFiles.has(file);
+  if (isLegacyRlsGate && file !== "phase1-rls-live.yml") errors.push(`The preserved RLS live gate must use the canonical filename: ${path}`);
   const content = await readFile(path, "utf8");
   for (const [label, pattern] of forbiddenLegacyRlsWorkflowPatterns) {
-    if (pattern.test(content)) errors.push(`Workflow contains retired Supabase live path (${label}): ${path}`);
+    if (!isLegacyRlsGate && pattern.test(content)) errors.push(`Workflow contains retired Supabase live path (${label}): ${path}`);
   }
   const lines = content.split(/\r?\n/);
 
@@ -37,6 +38,10 @@ for (const file of files) {
       }
     }
   }
+}
+
+if (!files.includes("phase1-rls-live.yml")) {
+  errors.push("The accepted Phase 1 RLS live gate must remain available until the Issue #176 M5 replacement gate lands.");
 }
 
 if (errors.length > 0) {

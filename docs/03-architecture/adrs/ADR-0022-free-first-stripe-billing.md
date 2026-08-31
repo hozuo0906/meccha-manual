@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+### Callback order markers
+
+`callback-order: exact POST/body limit -> signature/timestamp side-effect-free -> bounded parse/schema/allowlist -> atomic receipt/work/outbox -> guard commit -> provider success (Stripe 2xx) -> dispatcher`
+
 ## 文脈
 
 料金体系を決定しても、未完成のWebhookやentitlement処理で誤課金・誤権限を起こしてはならない。Stripeの外部設定より先に、課金を無効な状態で安全に保つ境界を固定する。

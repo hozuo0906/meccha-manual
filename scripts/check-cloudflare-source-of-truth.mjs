@@ -53,7 +53,7 @@ const required = new Map([
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
     "External provider callback boundary", "path別Access Bypass", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
     "receiptと再実行可能なwork/outboxを単一のatomic operation", "guard commit成功後だけproviderへ成功応答",
-    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest",
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest", "lease_generation", "fencing token",
     "受理済みworkを黙って失わない", "path別Access Bypassを有効化しない",
     "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027"
   ]],
@@ -74,7 +74,7 @@ const required = new Map([
   ["docs/04-data/d1-and-storage.md", [
     "Status: Accepted", "access_user | service_token", "subjectはtrim後非空", "workspace固定query",
     "Provider callback replay境界", "単一のatomic guard operation", "再実行に必要な最小workまたはdurable outbox参照",
-    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031"
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031", "lease_generation", "compatibility floor", "forward-fix", "code-only rollback"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
@@ -85,8 +85,6 @@ const required = new Map([
     "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない"
   ]],
   ["docs/05-api/api-contracts.md", [
-    "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
-    "### Accepted継続API索引\n\nStatus: Accepted", "### 将来の正式API\n\nStatus: Proposed",
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
     "path別Access Bypassは到達経路に限る", "receiptと再実行可能なwork/outboxを単一のatomic operation",
     "guard commit成功後だけproviderへ成功応答", "received", "reconcile_required", "dead_letter",
@@ -132,7 +130,7 @@ const required = new Map([
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
-    "実行可能workflowをdefault branchから削除", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
+    "Accepted live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない"
   ]],
   ["docs/09-delivery/decision-log.md", [
@@ -240,13 +238,17 @@ for (const [path, successor] of superseded) {
     if (!head.includes(term)) errors.push(`Superseded baseline banner is incomplete in ${path}: ${term}`);
   }
 }
-for (const path of [".github/workflows/phase1-rls-live.yml", ".github/workflows/phase1-rls-live.yaml"]) {
-  try {
-    await access(path);
-    errors.push(`Retired Supabase live workflow must not exist: ${path}`);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
+try {
+  await access(".github/workflows/phase1-rls-live.yml");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+  errors.push("Accepted Phase 1 RLS live gate is missing before the Issue #176 M5 replacement gate lands.");
+}
+try {
+  await access(".github/workflows/phase1-rls-live.yaml");
+  errors.push("The preserved Phase 1 RLS live gate must use the canonical .yml filename.");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
 }
 
 
@@ -409,9 +411,30 @@ for (const spec of [
   }
 ]) requireOrderedCallbackMarkers(spec);
 
+for (const path of [
+  "docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md",
+  "docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md",
+  "docs/03-architecture/adrs/ADR-0022-free-first-stripe-billing.md"
+]) {
+  requireOrderedCallbackMarkers({
+    path,
+    start: "### Callback order markers",
+    end: null,
+    markers: [
+      "exact POST/body limit",
+      "signature/timestamp side-effect-free",
+      "bounded parse/schema/allowlist",
+      "atomic receipt/work/outbox",
+      "guard commit",
+      "provider success",
+      "dispatcher"
+    ]
+  });
+}
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 
-console.log("Cloudflare source-of-truth OK: Access/Workers/D1/R2 contracts, callback order/recovery, legacy fences, and retired live RLS workflow are consistent.");
+console.log("Cloudflare source-of-truth OK: Access/Workers/D1/R2 contracts, callback order/recovery, legacy fences, and the preserved-until-M5 live RLS gate are consistent.");

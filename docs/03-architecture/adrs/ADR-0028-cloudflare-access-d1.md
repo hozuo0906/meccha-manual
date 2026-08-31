@@ -53,6 +53,10 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。authoritative store、atomic receipt/work、lease、dispatcherの具体方式はOQ-031をIssue #176 M2で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
 
+### Lease fencing
+
+`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。receipt/workの更新、完了遷移、outbox dispatchの予約、外部副作用の開始は、保持中のgenerationがauthoritative storeの最新値と一致する場合だけ許可する。期限切れworker、再試行worker、二重dispatcherは古いgenerationのままcommit・dispatchできず、期限切れを検知したら副作用を行わず同じworkの再取得へ戻る。lease期限だけを見た無条件更新は合格にしない。
+
 ## Authorization boundary
 
 Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。

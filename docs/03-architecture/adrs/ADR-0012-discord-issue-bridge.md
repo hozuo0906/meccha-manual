@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+### Callback order markers
+
+`callback-order: exact POST/body limit -> signature/timestamp side-effect-free -> bounded parse/schema/allowlist -> atomic receipt/work/outbox -> guard commit -> provider success (Discord deferred success) -> dispatcher`
+
 ## 決定
 
 Discordからの開発指示は、Codexを直接起動せず、Cloudflare WorkerでDiscord Interactionを受けてGitHub Issueへ変換する。
