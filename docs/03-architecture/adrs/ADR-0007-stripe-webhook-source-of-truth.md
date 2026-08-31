@@ -2,10 +2,6 @@
 
 Status: Accepted
 
-### Callback order markers
-
-`callback-order: exact POST/body limit -> signature/timestamp side-effect-free -> bounded parse/schema/allowlist -> atomic receipt/work/outbox -> guard commit -> provider success -> dispatcher`
-
 ## 決定
 
 課金状態とentitlementの確定は、署名検証済みStripe webhookのみを正本にする。Checkout Session後の画面リダイレクトは補助表示に限定する。
@@ -16,7 +12,7 @@ Status: Accepted
 
 ## 影響
 
-- webhook処理はraw bodyの署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証を行う。
-- `payment_events.stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存し、guard commit後だけ2xxを返す。
+- webhook処理はexact POSTとbody上限、raw bodyの署名・署名対象timestampを副作用なしで検証してから有界parse/schema・provider固有allowlist検証を行う。
+- `payment_events.stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存する。guard commit後だけproviderへ2xxを返し、保存済みoutboxからdispatcherと副作用へ進める。
 - receipt/workは `received/processing/retryable/reconcile_required/completed/dead_letter` で管理し、同じID・digestの再送は同じworkを再開・照合・冪等successとする。結果不明は照合前に自動再送しない。
 - entitlement変更は一元化し、全副作用確認後だけcompletedにする。

@@ -2,10 +2,6 @@
 
 Status: Accepted
 
-### Callback order markers
-
-`callback-order: exact POST/body limit -> signature/timestamp side-effect-free -> bounded parse/schema/allowlist -> atomic receipt/work/outbox -> guard commit -> provider success (Discord deferred success) -> dispatcher`
-
 ## 決定
 
 Discordからの開発指示は、Codexを直接起動せず、Cloudflare WorkerでDiscord Interactionを受けてGitHub Issueへ変換する。
@@ -30,7 +26,7 @@ CodexはGitHub Issueを正としてtriageし、PR運用で作業する。
 - Discordの許可guild、channel、user、roleを環境変数で制限する。
 - guild/channel allowlist未設定は既定拒否にする。検証環境でだけ `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示できる。
 - Workerはexact POSTとbody上限を確認し、raw bodyのDiscord Ed25519署名・署名対象timestampを副作用なしで検証してから有界parse/schema検証とallowlist検証を行う。
-- interaction ID、payload digest、receiptと再実行可能なIssue work/outboxを単一のatomic operationでauthoritative storeへ保存し、成功後だけ3秒以内のdeferred responseを返す。保存失敗時は成功応答しない。
+- interaction ID、payload digest、receiptと再実行可能なIssue work/outboxを単一のatomic operationでauthoritative storeへ保存する。guard commit後だけprovider successとして3秒以内のdeferred responseを返し、保存済みoutboxからdispatcherと副作用へ進める。保存失敗時は成功応答しない。
 - receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。一時失敗や期限切れleaseは同じIssue workを再開し、GitHub Issue作成結果が不明な場合は決定的correlation markerで照合するまで作成を自動再送しない。
 - 同じinteraction ID・同じpayload digestの再送は新しいIssue workを作らず状態別に維持・再開・照合・冪等応答し、異なるdigestは拒否する。
 - `DISCORD_INTERACTION_STORE` KVの既存get→putは移行前baselineであり、単独のreplay guard正本にしない。atomic guard commit後の短期応答cacheには利用できる。OQ-031のCloudflare側実装・並行再送・途中失敗・結果不明negative test完了前はpath別Access Bypassを有効化しない。

@@ -1,12 +1,8 @@
 # Phase 1 RLS Live Gate
 
-Status: Superseded
+Status: Accepted
 
-実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase RLS live gateの履歴baselineである。workflow再追加、test user、secret、remote write、live実行、staging合格証跡の根拠にしない。後継はIssue #176 M5。
-
-Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [DEC-064](../09-delivery/decision-log.md)。本書はPR #175で整備された移行前Supabase RLS workflowの履歴・安全境界としてのみ保持する。
-
-`.github/workflows/phase1-rls-live.yml` は、Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで、現行Accepted live gateとして維持する。M5着地後にのみ退役し、workflow checkerで同名・改名再追加を拒否する。Supabase test user、テストデータ、`MECCHA_RLS_*` secretを新規作成・登録せず、既存Access service tokenもSupabase live runへ使用しない。本書は移行前仕様と、置換着地までの安全境界を記録する。代替gateはIssue #176 M5のAccess/D1/R2実preview negative proofである。
+`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。M5着地後の退役と同名・改名workflowの再追加拒否は、置換gateと同じrollback単位で行う。
 
 ## 目的
 

@@ -24,19 +24,24 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
       - name: Verify immutable dispatch SHA
         env:
           DISPATCH_SHA: ${{ github.sha }}
         run: test "$(git rev-parse HEAD)" = "$DISPATCH_SHA"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
       - name: Install dependencies
         run: npm ci
+
       - name: Verify staging runtime boundary
         run: npm run runtime-boundary:check
+
       - name: Verify Cloudflare Access credentials are present
         shell: bash
         env:
@@ -47,9 +52,13 @@ jobs:
           missing=0
           for name in CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
             value="${!name:-}"
-            if [ -z "$value" ]; then echo "::error::Missing required staging Environment secret: $name"; missing=1; fi
+            if [ -z "$value" ]; then
+              echo "::error::Missing required staging Environment secret: $name"
+              missing=1
+            fi
           done
           if [ "$missing" -ne 0 ]; then exit 1; fi
+
       - name: Upload immutable Worker version for RLS testing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -61,25 +70,76 @@ jobs:
         run: |
           set +x
           trap 'rm -f "$WRANGLER_UPLOAD_LOG_PATH" "$WRANGLER_OUTPUT_FILE_PATH"' EXIT
-          if ! npx --no-install wrangler versions upload --keep-vars --strict --experimental-provision=false --experimental-auto-create=false --message "Phase 1 RLS live gate ${DISPATCH_SHA}" >"$WRANGLER_UPLOAD_LOG_PATH" 2>&1; then
-            echo "::error::Immutable Worker version upload failed. Raw output was suppressed."; exit 1
+
+          if ! npx --no-install wrangler versions upload \
+            --keep-vars \
+            --strict \
+            --experimental-provision=false \
+            --experimental-auto-create=false \
+            --message "Phase 1 RLS live gate ${DISPATCH_SHA}" \
+            >"$WRANGLER_UPLOAD_LOG_PATH" 2>&1; then
+            echo "::error::Immutable Worker version upload failed. Raw output was suppressed."
+            exit 1
           fi
+
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
           const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
           const originPath = process.env.IMMUTABLE_PREVIEW_ORIGIN_PATH;
           if (!outputPath || !originPath) throw new Error("Immutable preview output paths are not configured.");
+
           const parsed = [];
-          for (const line of (await readFile(outputPath, "utf8")).split(/\r?\n/).filter(Boolean)) parsed.push(JSON.parse(line));
+          for (const line of (await readFile(outputPath, "utf8")).split(/\r?\n/).filter(Boolean)) {
+            try {
+              parsed.push(JSON.parse(line));
+            } catch {
+              throw new Error("Wrangler structured output was invalid.");
+            }
+          }
           const upload = [...parsed].reverse().find((entry) => entry?.type === "version-upload");
-          if (!upload || typeof upload.version_id !== "string" || typeof upload.preview_url !== "string") throw new Error("Wrangler did not report an immutable Worker preview.");
+          if (!upload || typeof upload.version_id !== "string") throw new Error("Wrangler did not report a Worker version upload.");
+          if (typeof upload.preview_url !== "string") throw new Error("Wrangler did not report an immutable version preview URL.");
+
           const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
-          const approvedBase = new URL(wrangler.vars?.APP_BASE_URL);
-          const previewUrl = new URL(upload.preview_url);
-          const approvedPrefix = `${wrangler.name}.`;
-          if (approvedBase.protocol !== "https:" || !approvedBase.hostname.startsWith(approvedPrefix) || !approvedBase.hostname.endsWith(".workers.dev") || previewUrl.protocol !== "https:" || !previewUrl.hostname.endsWith(`-${wrangler.name}.${approvedBase.hostname.slice(wrangler.name.length + 1)}`) || previewUrl.username || previewUrl.password || previewUrl.port || previewUrl.pathname !== "/" || previewUrl.search || previewUrl.hash) throw new Error("Wrangler reported an unexpected immutable preview URL.");
+          const workerName = wrangler.name;
+          const approvedBaseUrl = wrangler.vars?.APP_BASE_URL;
+          if (typeof workerName !== "string" || typeof approvedBaseUrl !== "string") {
+            throw new Error("Approved Worker preview boundary is incomplete.");
+          }
+
+          let previewUrl;
+          let approvedBase;
+          try {
+            previewUrl = new URL(upload.preview_url);
+            approvedBase = new URL(approvedBaseUrl);
+          } catch {
+            throw new Error("Worker preview boundary URL configuration is invalid.");
+          }
+          const approvedPrefix = `${workerName}.`;
+          if (
+            approvedBase.protocol !== "https:" ||
+            !approvedBase.hostname.startsWith(approvedPrefix) ||
+            !approvedBase.hostname.endsWith(".workers.dev")
+          ) {
+            throw new Error("Approved Worker base URL is outside the expected boundary.");
+          }
+          const accountSuffix = approvedBase.hostname.slice(workerName.length);
+          if (
+            previewUrl.protocol !== "https:" ||
+            !previewUrl.hostname.endsWith(`-${workerName}${accountSuffix}`) ||
+            previewUrl.username !== "" ||
+            previewUrl.password !== "" ||
+            previewUrl.port !== "" ||
+            previewUrl.pathname !== "/" ||
+            previewUrl.search !== "" ||
+            previewUrl.hash !== ""
+          ) {
+            throw new Error("Wrangler reported an unexpected immutable version preview URL.");
+          }
           await writeFile(originPath, `${previewUrl.origin}\n`, { encoding: "utf8", mode: 0o600 });
+          console.log("Immutable Worker version preview is ready for protected RLS testing.");
           NODE
+
       - name: Verify immutable Worker staging boundary
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -89,20 +149,60 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile } from "node:fs/promises";
           import { fetchWithCloudflareAccess } from "./scripts/cloudflare-access-fetch.mjs";
-          const origin = (await readFile(process.env.IMMUTABLE_PREVIEW_ORIGIN_PATH, "utf8")).trim();
-          const paths = ["/health/config", "/api/session"];
-          for (const path of paths) {
-            const response = await fetch(`${origin}${path}`, { headers: { accept: "application/json" }, redirect: "manual" });
-            const location = response.headers.get("location");
-            const login = location ? new URL(location) : null;
-            if (![301,302,303,307,308].includes(response.status) || login?.protocol !== "https:" || !login.hostname.endsWith(".cloudflareaccess.com") || !login.pathname.startsWith("/cdn-cgi/access/login/")) throw new Error("Immutable preview did not return the expected Access redirect.");
+          async function verifyImmutableWorkerBoundary() {
+            const originPath = process.env.IMMUTABLE_PREVIEW_ORIGIN_PATH;
+            const origin = originPath ? (await readFile(originPath, "utf8")).trim() : "";
+            const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
+            const expectedUrl = wrangler.vars?.SUPABASE_URL;
+            if (!origin || !expectedUrl) throw new Error("Approved staging boundary configuration is incomplete.");
+
+            const accessRedirectStatuses = new Set([301, 302, 303, 307, 308]);
+            const unauthenticatedPaths = ["/health/config", "/api/session"];
+            for (const path of unauthenticatedPaths) {
+              const unauthenticatedResponse = await fetch(`${origin}${path}`, {
+                headers: { accept: "application/json" },
+                redirect: "manual"
+              });
+              const location = unauthenticatedResponse.headers.get("location");
+              let accessLoginUrl;
+              try {
+                accessLoginUrl = location ? new URL(location) : null;
+              } catch {
+                accessLoginUrl = null;
+              }
+              if (
+                !accessRedirectStatuses.has(unauthenticatedResponse.status) ||
+                accessLoginUrl?.protocol !== "https:" ||
+                !accessLoginUrl.hostname.endsWith(".cloudflareaccess.com") ||
+                !accessLoginUrl.pathname.startsWith("/cdn-cgi/access/login/")
+              ) {
+                throw new Error("Immutable preview route did not return the expected Cloudflare Access login redirect.");
+              }
+            }
+
+            const expectedRef = new URL(expectedUrl).hostname.replace(/\.supabase\.co$/, "");
+            const response = await fetchWithCloudflareAccess(
+              `${origin}/health/config`,
+              { headers: { accept: "application/json" } },
+              { expectedOrigin: origin }
+            );
+            if (!response.ok) throw new Error(`Immutable preview config health check failed with HTTP ${response.status}.`);
+            const payload = await response.json();
+            const liveSupabase = payload?.config?.supabase;
+            if (liveSupabase?.configured !== true || typeof liveSupabase?.projectRef !== "string" || liveSupabase.projectRef !== expectedRef) {
+              throw new Error("Immutable Worker Supabase boundary does not match the approved staging configuration.");
+            }
+            console.log("Access-protected immutable Worker staging boundary verified.");
           }
-          const response = await fetchWithCloudflareAccess(`${origin}/health/config`, { headers: { accept: "application/json" } }, { expectedOrigin: origin });
-          if (!response.ok) throw new Error(`Immutable preview config health check failed with HTTP ${response.status}.`);
-          const payload = await response.json();
-          const expectedRef = new URL(JSON.parse(await readFile("wrangler.jsonc", "utf8")).vars.SUPABASE_URL).hostname.replace(/\.supabase\.co$/, "");
-          if (payload?.config?.supabase?.configured !== true || payload.config.supabase.projectRef !== expectedRef) throw new Error("Immutable preview Supabase boundary is invalid.");
+
+          try {
+            await verifyImmutableWorkerBoundary();
+          } catch {
+            console.error("Immutable preview boundary verification failed.");
+            process.exitCode = 1;
+          }
           NODE
+
       - name: Verify protected test credentials are present
         shell: bash
         env:
@@ -112,10 +212,20 @@ jobs:
           MECCHA_RLS_USER_B_PASSWORD: ${{ secrets.MECCHA_RLS_USER_B_PASSWORD }}
         run: |
           set +x
+          missing=0
           for name in MECCHA_RLS_USER_A_EMAIL MECCHA_RLS_USER_A_PASSWORD MECCHA_RLS_USER_B_EMAIL MECCHA_RLS_USER_B_PASSWORD; do
-            if [ -z "${!name:-}" ]; then echo "::error::Missing required staging Environment secret: $name"; exit 1; fi
+            value="${!name:-}"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required staging Environment secret: $name"
+              missing=1
+            fi
           done
-          if [ "$MECCHA_RLS_USER_A_EMAIL" = "$MECCHA_RLS_USER_B_EMAIL" ]; then echo "::error::RLS users A and B must be distinct accounts."; exit 1; fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if [ "$MECCHA_RLS_USER_A_EMAIL" = "$MECCHA_RLS_USER_B_EMAIL" ]; then
+            echo "::error::RLS users A and B must be distinct accounts."
+            exit 1
+          fi
+
       - name: Run live RLS negative test against immutable Worker version
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -130,16 +240,38 @@ jobs:
           set +x
           export MECCHA_APP_ORIGIN="$(tr -d '\r\n' < "$IMMUTABLE_PREVIEW_ORIGIN_PATH")"
           npm run test:rls
+
       - name: Remove immutable preview target from the runner
         if: always()
         env:
           IMMUTABLE_PREVIEW_ORIGIN_PATH: ${{ runner.temp }}/immutable-preview-origin
         run: rm -f "$IMMUTABLE_PREVIEW_ORIGIN_PATH"
-      - name: Record result summary
-        if: always()
+
+      - name: Record successful result summary
         env:
           DISPATCH_SHA: ${{ github.sha }}
         run: |
-          echo "## Phase 1 RLS Live Gate" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tested commit: `$DISPATCH_SHA`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- This historical gate remains available until the Issue #176 M5 replacement gate lands." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Phase 1 RLS Live Gate"
+            echo
+            echo "- Result: success"
+            echo "- Target: Access-protected immutable non-production Worker version preview"
+            echo "- Tested commit: \`$DISPATCH_SHA\`"
+            echo "- Test command: npm run test:rls"
+            echo "- Unauthenticated config and application API access returned verified Cloudflare Access login redirects"
+            echo "- Static config and immutable preview Supabase boundary were verified before RLS credentials were used"
+            echo "- Credential values, external IDs, preview URL, and test data identifiers are not written to artifacts or summaries"
+            echo "- The test may create staging workspace/test rows as documented by Issue #79"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record failed result summary
+        if: failure()
+        run: |
+          {
+            echo "## Phase 1 RLS Live Gate"
+            echo
+            echo "- Result: failed"
+            echo "- This run did not complete the live RLS acceptance gate."
+            echo "- Do not use this run as Issue #79 success evidence."
+            echo "- Credential values, external IDs, preview URL, and test data identifiers are not written to artifacts or summaries."
+          } >> "$GITHUB_STEP_SUMMARY"

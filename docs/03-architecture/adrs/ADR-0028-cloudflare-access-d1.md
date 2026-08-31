@@ -55,7 +55,7 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 ### Lease fencing
 
-`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。receipt/workの更新、完了遷移、outbox dispatchの予約、外部副作用の開始は、保持中のgenerationがauthoritative storeの最新値と一致する場合だけ許可する。期限切れworker、再試行worker、二重dispatcherは古いgenerationのままcommit・dispatchできず、期限切れを検知したら副作用を行わず同じworkの再取得へ戻る。lease期限だけを見た無条件更新は合格にしない。
+`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。state更新、完了遷移、outbox予約、外部副作用直前は、authoritative storeのlatest `lease_generation`に対するCASが成功した場合だけ許可する。期限切れworker、旧owner、再試行worker、二重dispatcherは古いgenerationのままcommit・dispatchできず、期限切れを検知したら副作用を行わず同じworkの再取得へ戻る。lease期限だけを見た無条件更新は合格にしない。
 
 ## Authorization boundary
 
@@ -85,6 +85,10 @@ stagingとproductionで次を共有しない。
 previewはstaging専用D1だけをbindingし、production D1をbindingしない。production D1作成、migration、deploy、外部ユーザー招待はそれぞれownerの明示承認を必要とする。
 
 ## Migration
+
+### Migration compatibility floor
+
+各D1 migrationは直前schemaとのcompatibility floorを維持し、旧Workerへ戻す必要がある場合もそのfloorを満たす場合だけrollbackする。floorを満たせない不可逆変更後はrollbackせず、書き込みをfail closedにして承認済みforward-fixを適用する。code-only rollbackはschemaを変更せず互換性を検査できる場合に限る。
 
 移行はIssue #176で段階実施する。
 

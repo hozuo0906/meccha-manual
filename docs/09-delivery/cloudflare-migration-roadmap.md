@@ -13,7 +13,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
 - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
 - PR #175でmainへ取り込まれたnon-production branch build停止、version upload-only、Access deny-by-defaultは移行中も維持する。
-- 旧Supabase RLS live gateの文書状態はSupersededだが、Accepted live gate workflowはIssue #176 M5のAccess/D1/R2置換gateと正本が同じrollback単位でmainへ着地するまで維持する。新規Supabase test user、資格情報、live runは追加しない。
+- 現行AcceptedのSupabase RLS live gate workflowは、Issue #176 M5のAccess/D1/R2置換gateと正本が同じrollback単位でmainへ着地するまで維持する。新規Supabase test user、資格情報、live runは追加しない。
 
 ## Migration safety gate
 
@@ -32,7 +32,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
-- Supabase前提文書のSuperseded表示
+- Supabase前提文書のSuperseded表示（現行Accepted transitional gate文書を除く）
 - 旧Supabase live workflowはM5置換gate着地まで維持し、着地後の退役と再追加防止checkを同じrollback単位で行う
 - Issue #92/#95/#176/#70の依存関係更新
 
@@ -125,6 +125,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - previewがstaging bindingだけを持つnegative proof
 - candidate SHA、migration履歴、Access policy、D1 databaseの対応証跡
 - rollbackとAccess/D1/R2障害訓練
+- candidate code SHAとschema migrationごとのcompatibility floor照合、code-only rollback可能条件、不可逆後はrollbackせずfail-closed/forward-fixとする条件、選択的rollback rehearsal
 
 完了条件:
 
@@ -132,6 +133,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - 未認証requestがAccessで拒否される。
 - Access認証後もstaging D1/R2だけが利用可能で、production binding、route、secret、backendへのfallbackまたは到達経路がないことをnegative proofで確認する。
 - candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
+- candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。
 - この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
 
 禁止:

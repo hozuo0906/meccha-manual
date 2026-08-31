@@ -168,13 +168,13 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
   - DEC-051のSupabase／PostgREST応答としての上限契約。
   - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
-  - DEC-063のPhase 1 RLS Live Gate、同一origin RLS E2E、live RLS実行、#92由来のmain merge hold継続に依存する部分。Issue #176のD1 dynamic negative proofとstaging統合実証へ置換し、#92 closure後のblanket holdを復活させない。
 - Preserves:
   - DEC-034のstaging／production資源分離。
   - DEC-040／042のうち、検証済みsessionの認証世代が変わった後の古い応答を破棄し、旧shellと保護データを即時に隠し、状態変更を自動再送せず、401と上流障害を区別する安全原則。Access cookie／refresh tokenをアプリから操作しない。
   - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
   - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
   - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
+  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。Issue #176 M5のAccess/D1/R2置換gateと対応正本がmainへ同じrollback単位で着地した時点で、現行gateを同じ単位で置換する。
 - Current gate:
   - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
   - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。

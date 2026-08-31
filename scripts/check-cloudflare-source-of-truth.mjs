@@ -53,9 +53,10 @@ const required = new Map([
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
     "External provider callback boundary", "path別Access Bypass", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
     "receiptと再実行可能なwork/outboxを単一のatomic operation", "guard commit成功後だけproviderへ成功応答",
-    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest", "lease_generation", "fencing token",
+    "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "同じID・異なるpayload digest", "lease_generation", "fencing token", "latest `lease_generation`", "CAS", "旧owner",
     "受理済みworkを黙って失わない", "path別Access Bypassを有効化しない",
-    "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027"
+    "ADR-0003", "ADR-0011", "ADR-0018", "ADR-0019", "ADR-0024", "ADR-0025", "ADR-0027",
+    "Migration compatibility floor", "code-only rollback", "forward-fix", "fail closed"
   ]],
   ["docs/03-architecture/adrs/README.md", [
     "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
@@ -85,6 +86,8 @@ const required = new Map([
     "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない"
   ]],
   ["docs/05-api/api-contracts.md", [
+    "# API契約", "Status: Accepted", "### Phase 1ハーネス", "Status: Superseded",
+    "### Accepted継続API索引", "### 将来の正式API", "Status: Proposed",
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
     "path別Access Bypassは到達経路に限る", "receiptと再実行可能なwork/outboxを単一のatomic operation",
     "guard commit成功後だけproviderへ成功応答", "received", "reconcile_required", "dead_letter",
@@ -123,6 +126,9 @@ const required = new Map([
     "`reconcile_required`", "`dead_letter`", "authoritative replay guardではなく",
     "OQ-031", "path別Access Bypassを有効化しない"
   ]],
+  ["docs/08-operations/phase1-rls-live-gate.md", [
+    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate"
+  ]],
   ["docs/08-operations/stripe-billing-harness.md", [
     "exact POSTとbody上限", "署名対象timestamp", "副作用なしで検証", "有界parse/schema検証",
     "receiptと再実行可能なreconciliation work/outbox", "guard commit成功後だけStripeへ2xx",
@@ -130,8 +136,9 @@ const required = new Map([
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
-    "Accepted live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
-    "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない"
+    "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
+    "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない",
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal"
   ]],
   ["docs/09-delivery/decision-log.md", [
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
@@ -214,7 +221,6 @@ const superseded = new Map([
   ["docs/08-operations/cloud-harness.md", "M1〜M5"],
   ["docs/08-operations/db-migration-safety-harness.md", "M2/M4"],
   ["docs/08-operations/phase1-app-harness.md", "M1〜M3"],
-  ["docs/08-operations/phase1-rls-live-gate.md", "M5"],
   ["docs/08-operations/phase2-manual-core-staging-alpha.md", "M4/M5"],
   ["docs/08-operations/remaining-harness-plan.md", "M0〜M7"],
   ["docs/09-delivery/phase1-entry-gate.md", "M1〜M3"]
@@ -411,26 +417,26 @@ for (const spec of [
   }
 ]) requireOrderedCallbackMarkers(spec);
 
-for (const path of [
-  "docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md",
-  "docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md",
-  "docs/03-architecture/adrs/ADR-0022-free-first-stripe-billing.md"
-]) {
-  requireOrderedCallbackMarkers({
-    path,
-    start: "### Callback order markers",
+for (const spec of [
+  {
+    path: "docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md",
+    start: "## 影響",
     end: null,
-    markers: [
-      "exact POST/body limit",
-      "signature/timestamp side-effect-free",
-      "bounded parse/schema/allowlist",
-      "atomic receipt/work/outbox",
-      "guard commit",
-      "provider success",
-      "dispatcher"
-    ]
-  });
-}
+    markers: ["exact POSTとbody上限", "署名対象timestampを副作用なしで検証", "有界parse/schema・provider固有allowlist検証", "単一のatomic operation", "guard commit後だけproviderへ2xx", "保存済みoutboxからdispatcher"]
+  },
+  {
+    path: "docs/03-architecture/adrs/ADR-0012-discord-issue-bridge.md",
+    start: "## 実装",
+    end: "## 非対象",
+    markers: ["exact POSTとbody上限", "署名対象timestampを副作用なしで検証", "有界parse/schema検証とallowlist検証", "単一のatomic operation", "guard commit後だけprovider success", "保存済みoutboxからdispatcher"]
+  },
+  {
+    path: "docs/03-architecture/adrs/ADR-0022-free-first-stripe-billing.md",
+    start: "## 決定",
+    end: "## entitlementの基本状態",
+    markers: ["exact POSTとbody上限", "署名対象timestampを副作用なしで検証", "有界parse/schema・provider固有allowlist検証", "単一のatomic operation", "guard commit後だけproviderへ2xx", "保存済みoutboxからdispatcher"]
+  }
+]) requireOrderedCallbackMarkers(spec);
 
 if (errors.length > 0) {
   console.error(errors.join("\n"));

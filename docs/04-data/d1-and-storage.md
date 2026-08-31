@@ -2,10 +2,6 @@
 
 Status: Accepted
 
-### Migration compatibility floor
-
-各D1 migrationは、直前schemaで稼働中のWorkerが読み書きできる compatibility floor を維持し、破壊的変更を単独で適用しない。migration適用後に旧Workerをrollbackする必要がある場合は、そのfloorを満たすmigrationだけを許可する。floorを満たせない場合はrollbackせず、書き込みをfail closedにして承認済みforward-fixを同じmigration履歴へ追加する。code-only rollbackはschemaを変更せず、対象migrationとの互換性を検査できる場合に限る。
-
 ## 目的
 
 ADR-0028に基づき、Cloudflare D1を業務データとファイルメタデータの正本にする。Postgres RLSの暗黙適用を前提にせず、Worker認可とworkspace固定queryを検証可能な契約として定義する。
@@ -70,7 +66,7 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 ### Lease fencing
 
-`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。更新・完了・outbox dispatch予約は最新generationとの一致を条件にし、古いleaseのworkerはcommit・副作用を行えない。期限切れは同じworkの再取得へ戻し、lease期限だけを見た無条件更新は合格にしない。
+`processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。state更新・完了・outbox予約・外部副作用直前はlatest `lease_generation`へのCAS一致を条件にし、古いleaseのworkerと旧ownerはcommit・副作用を行えない。期限切れは同じworkの再取得へ戻し、lease期限だけを見た無条件更新は合格にしない。
 
 ## Query contract
 
@@ -83,6 +79,10 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 - listは固定field、固定order、明示limitを必須にする。
 
 ## Migration contract
+
+### Migration compatibility floor
+
+各D1 migrationは、直前schemaで稼働中のWorkerが読み書きできる compatibility floor を維持し、破壊的変更を単独で適用しない。migration適用後に旧Workerをrollbackする必要がある場合は、そのfloorを満たすmigrationだけを許可する。floorを満たせない場合はrollbackせず、書き込みをfail closedにして承認済みforward-fixを同じmigration履歴へ追加する。code-only rollbackはschemaを変更せず、対象migrationとの互換性を検査できる場合に限る。
 
 - `migrations/` 配下のD1 SQLを連番で管理する。
 - migration履歴tableをstaging/productionごとに保持する。
