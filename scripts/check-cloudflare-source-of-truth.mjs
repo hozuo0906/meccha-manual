@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 
 const errors = [];
 
@@ -174,6 +174,32 @@ const required = new Map([
   ]]
 ]);
 
+// Issue #187 fixes the retirement boundary: the legacy live gate is an M5
+// rollback-unit concern, while M6 only cleans up what remains afterward.
+required.set("docs/08-operations/phase1-rls-live-gate.md", [
+  "Status: Superseded",
+  "Issue #176 M5",
+  "replacement gate",
+  "旧workflowを削除",
+  "同名・改名workflowの再追加はCIで拒否",
+  "M6へ先送りしない"
+]);
+required.set("docs/08-operations/environments-and-delivery.md", [
+  "M5 replacement gate",
+  "旧workflowを削除",
+  "本書をSuperseded",
+  "同名・改名workflowの再追加はCIで拒否",
+  "M6へ先送りしない",
+  "M6では残存runtime、不要資格情報、harness、証跡を整理"
+]);
+required.set("docs/09-delivery/cloudflare-migration-roadmap.md", [
+  "旧Supabase RLS live gate workflow",
+  "M5 replacement gate",
+  "対応runbookをSuperseded",
+  "同名・改名workflowの再追加はCIで拒否",
+  "M5で退役しなかった残存legacy runtime"
+]);
+
 const forbidden = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", []],
   ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
@@ -259,7 +285,20 @@ for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
 }
-const environmentTransitionLines = [
+for (const path of [
+  "docs/08-operations/phase1-rls-live-gate.md",
+  "docs/08-operations/environments-and-delivery.md",
+  "docs/09-delivery/cloudflare-migration-roadmap.md"
+]) {
+  const content = contents.get(path) ?? "";
+  for (const term of ["live workflowをM6で退役", "M6でSuperseded"]) {
+    if (content.includes(term)) errors.push(`Legacy live-gate retirement must not be deferred to M6 in ${path}: ${term}`);
+  }
+}
+const environmentTransitionLines = [];
+/* The pre-M5 exact-line alternatives are retired by Issue #187. */
+/*
+const retiredEnvironmentTransitionLines = [
   [
     "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
     "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
@@ -269,8 +308,9 @@ const environmentTransitionLines = [
     "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
   ]
 ];
+*/
 const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-for (const [oldLine, newLine] of environmentTransitionLines) {
+for (const [oldLine, newLine] of []) {
   const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
   const newCount = environmentTransitionSource.filter((line) => line === newLine).length;
   if (oldCount + newCount !== 1) errors.push("Environment transition contract must contain exactly one of the old or new exact lines.");
@@ -301,6 +341,19 @@ try {
 } catch (error) {
   if (error?.code !== "ENOENT") throw error;
   errors.push("Accepted Phase 1 RLS live gate is missing before the Issue #176 M5 replacement gate lands.");
+}
+
+const workflowEntries = await readdir(".github/workflows", { withFileTypes: true });
+for (const entry of workflowEntries) {
+  if (!entry.isFile() || entry.name === "phase1-rls-live.yml") continue;
+  const workflow = await read(`.github/workflows/${entry.name}`);
+  if (
+    workflow.includes("name: Phase 1 RLS Live Gate") &&
+    workflow.includes("npm run test:rls") &&
+    workflow.includes("MECCHA_RLS_ALLOW_REMOTE_WRITE")
+  ) {
+    errors.push(`Renamed Phase 1 RLS live-gate workflow is not allowed: ${entry.name}`);
+  }
 }
 try {
   await access(".github/workflows/phase1-rls-live.yaml");
