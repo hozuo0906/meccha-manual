@@ -150,13 +150,13 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M5 replacement gate", "M6では残存legacy runtime"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "同じrollback単位で完了する", "M5で退役済みのworkflow/runbookを除く"
   ]],
   ["docs/09-delivery/session-handoff.md", [
     "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
@@ -261,8 +261,8 @@ for (const [path, terms] of forbidden) {
 }
 const environmentTransitionLines = [
   [
-    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
-    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
+    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | M5 replacement gateと対応docsがmainへ同じrollback単位で着地した後、同じ単位で旧workflow削除・runbook Superseded化・再追加拒否を完了する |",
+    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。M5 replacement gateと対応docsがmainへ同じrollback単位で着地した後、同じ単位で旧workflow削除・runbook Superseded化・再追加拒否を完了する。 |"
   ],
   [
     "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。",
@@ -273,10 +273,18 @@ const environmentTransitionSource = (contents.get("docs/08-operations/environmen
 for (const [oldLine, newLine] of environmentTransitionLines) {
   const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
   const newCount = environmentTransitionSource.filter((line) => line === newLine).length;
-  const m5ContractCount = environmentTransitionSource.filter((line) => line.includes("M5 replacement gate") && line.includes("同じrollback単位")).length;
-  if (oldCount + newCount !== 1 && m5ContractCount === 0) errors.push("Environment transition contract must contain the pre-M5 or M5 replacement wording.");
+  if (oldCount + newCount !== 1) errors.push("Environment transition contract must contain exactly one pre-M5 or M5 replacement wording.");
 }
 const forbiddenExactLines = new Map([
+  ["docs/08-operations/environments-and-delivery.md", [
+    "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
+    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |",
+    "- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。immutable version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を確認する。現行live RLS gateはowner承認済みの既存staging/test契約をcanonical workflowから実行し、Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。"
+  ]],
+  ["docs/09-delivery/cloudflare-migration-roadmap.md", [
+    "- 残存runtime、環境変数、harness、文書からSupabase依存を削除（M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役）",
+    "- #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う"
+  ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
     "## Legacy secret inventory（登録しない）",
     "RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。",

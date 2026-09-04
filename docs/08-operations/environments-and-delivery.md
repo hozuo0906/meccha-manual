@@ -22,7 +22,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
-| Legacy Supabase | 移行前baseline。新規データ・資格情報を追加しない | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
+| Legacy Supabase | 移行前baseline。新規データ・資格情報を追加しない | 作成しない | Issue #176 M6で残存runtime参照、環境変数/binding、不要資格情報、旧migration/RLS harness、active docs参照だけを整理する |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |
 | R2 manual / `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` | `meccha-manual-manual-assets-prod` | 同上 |
 | R2 exports / `EXPORTS` | `meccha-manual-exports-staging` | `meccha-manual-exports-prod` | 同上 |
