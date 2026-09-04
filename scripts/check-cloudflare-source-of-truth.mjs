@@ -180,11 +180,11 @@ const forbidden = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", [
     "Legacy secret inventory（登録しない）", "Legacy実行手順（実行しない）",
     "preview-only Access用2件を `staging` Environment secretsとして登録する",
-    "Environmentへ上記6件を登録し", "Access 2件は必ず一組で登録", "新規test userを作成", "新規Supabase test userを作成"
+    "Environmentへ上記6件を登録し", "Access 2件は必ず一組で登録", "新規test userを作成", "新規test userを登録", "新規test userを追加", "新規Supabase test userを作成", "新規Supabase test userを登録", "新規Supabase test userを追加"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
     "Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可",
-    "staging` Environmentへ一組で登録し", "新規test userを作成", "新規Supabase test userを作成"
+    "staging` Environmentへ一組で登録し", "新規test userを作成", "新規test userを登録", "新規test userを追加", "新規Supabase test userを作成", "新規Supabase test userを登録", "新規Supabase test userを追加"
   ]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
