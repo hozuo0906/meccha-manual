@@ -11,6 +11,14 @@ async function read(path) {
   }
 }
 
+const m5RetirementTerms = [
+  "(1) replacement gateと対応docsの着地",
+  "(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除",
+  "(3) runbookの `Status: Superseded` 化",
+  "(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転",
+  "(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化"
+];
+
 const required = new Map([
   ["AGENTS.md", [
     "対象DBのmigration", "データ／認可境界", "tenant越境・権限negative test",
@@ -132,7 +140,8 @@ const required = new Map([
     "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate",
     "## 現行実行に参照する登録済みEnvironment secrets", "owner承認済み・登録済みの既存 `staging` / test値だけを確認・利用する",
     "新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する", "owner承認済みの既存専用テストアカウント",
-    "登録済みの既存一組が揃う場合だけ利用", "## 現行Accepted transitional gateの実行手順"
+    "登録済みの既存一組が揃う場合だけ利用", "## 現行Accepted transitional gateの実行手順",
+    "Issue #215の文書・checker整合PRとは別に、ownerがこのlive gate実行自体を明示承認したことを確認する。承認がない場合はdispatchしない。"
   ]],
   ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", [
     "現行Accepted transitional gate", "Issue #176 M5", "同じrollback単位", "canonical workflow"
@@ -150,13 +159,15 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約",
+    "M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "旧live workflowの削除、runbookのStatus: Superseded化、canonical/renamed旧workflow再追加拒否はM5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で完了し、M6へ持ち越さない",
+    "DEC-064 Safetyの5操作", "直接依存test同一scope"
   ]],
   ["docs/09-delivery/session-handoff.md", [
     "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
@@ -176,7 +187,8 @@ const required = new Map([
 
 const forbidden = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", []],
-  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
+  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可", "着地後にSupersededとしてM6で退役し、再追加をCIで拒否する", "着地した後、M6で退役する"]],
+  ["docs/09-delivery/cloudflare-migration-roadmap.md", ["live workflowをM6で退役"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
@@ -259,21 +271,71 @@ for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
 }
+const m5SafetyTerms = [
+  ...m5RetirementTerms,
+  "同一commit/rollback unit内",
+  "M6への持越し",
+  "replacement未着地のまま先行退役を禁止"
+];
+const m5CarrierEntries = [
+  {
+    name: "DEC-064 Preserves section",
+    path: "docs/09-delivery/decision-log.md",
+    prefix: "- Preserves:",
+    exact: true,
+    terms: []
+  },
+  {
+    name: "DEC-064 pre-M5 transition",
+    path: "docs/09-delivery/decision-log.md",
+    prefix: "  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。",
+    terms: [
+      "pre-M5では `.github/workflows/phase1-rls-live.yml`",
+      "Status: Accepted",
+      "Issue #215の文書・checker整合PRとは別にownerが明示承認",
+      "登録済みの既存staging/test入力",
+      "future M5ではSafety記載の5操作",
+      "同一commit/rollback unit"
+    ]
+  },
+  {
+    name: "DEC-064 Safety",
+    path: "docs/09-delivery/decision-log.md",
+    prefix: "  - 旧 `phase1-rls-live.yml` はpre-M5では現行Accepted live gateとして維持する。",
+    terms: m5SafetyTerms
+  },
+  {
+    name: "phase1 runbook M5 safety",
+    path: "docs/08-operations/phase1-rls-live-gate.md",
+    prefix: "`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。",
+    terms: m5SafetyTerms
+  },
+  {
+    name: "session handoff M5 safety",
+    path: "docs/09-delivery/session-handoff.md",
+    prefix: "- 現行live RLS gate workflow `.github/workflows/phase1-rls-live.yml` とrunbook",
+    terms: m5SafetyTerms
+  }
+];
+for (const { name, path, prefix, exact = false, terms } of m5CarrierEntries) {
+  const lines = (contents.get(path) ?? "").split("\n").filter((line) => exact ? line === prefix : line.includes(prefix));
+  if (lines.length !== 1) {
+    errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
+    continue;
+  }
+  for (const term of terms) {
+    if (!lines[0].includes(term)) errors.push(`${name} is missing a required contract term in ${path}: ${term}`);
+  }
+}
 const environmentTransitionLines = [
-  [
-    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
-    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
-  ],
-  [
-    "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。",
-    "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
-  ]
+  "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない |",
+  "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。 |",
+  "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
 ];
 const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-for (const [oldLine, newLine] of environmentTransitionLines) {
-  const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
-  const newCount = environmentTransitionSource.filter((line) => line === newLine).length;
-  if (oldCount + newCount !== 1) errors.push("Environment transition contract must contain exactly one of the old or new exact lines.");
+for (const line of environmentTransitionLines) {
+  const count = environmentTransitionSource.filter((sourceLine) => sourceLine === line).length;
+  if (count !== 1) errors.push(`Environment transition contract must contain exactly one canonical exact line: ${line}`);
 }
 const forbiddenExactLines = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", [

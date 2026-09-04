@@ -174,7 +174,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
   - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
   - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
-  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。pre-M5では `.github/workflows/phase1-rls-live.yml` とrunbook `docs/08-operations/phase1-rls-live-gate.md` の `Status: Accepted` を維持し、現行gateはIssue #215の2文書だけを更新するdocs-only PRとは別にownerが明示承認した場合だけ登録済みの既存staging/test入力で実行できる。Issue #215のdocs-only PRではworkflow dispatchとlive証跡生成を行わず、新規project、test user、資格情報、Environment、Secretを作成・登録しない。future M5ではSafety記載の5操作を同一commit/rollback unit内で完了する。
+  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。pre-M5では `.github/workflows/phase1-rls-live.yml` とrunbook `docs/08-operations/phase1-rls-live-gate.md` の `Status: Accepted` を維持し、現行gateはIssue #215の文書・checker整合PRとは別にownerが明示承認した場合だけ登録済みの既存staging/test入力で実行できる。Issue #215のPRではworkflow dispatchとlive証跡生成を行わず、新規project、test user、資格情報、Environment、Secretを作成・登録しない。future M5ではSafety記載の5操作を同一commit/rollback unit内で完了する。
 - Current gate:
   - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
   - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。
