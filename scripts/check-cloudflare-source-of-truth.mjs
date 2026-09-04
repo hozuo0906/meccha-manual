@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 
 const errors = [];
 
@@ -272,6 +272,11 @@ try {
   errors.push("The preserved Phase 1 RLS live gate must use the canonical .yml filename.");
 } catch (error) {
   if (error?.code !== "ENOENT") throw error;
+}
+const workflowNames = (await readdir(".github/workflows")).filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"));
+const legacyWorkflowVariants = workflowNames.filter((name) => /phase1-rls-live/i.test(name));
+if (legacyWorkflowVariants.length > 1 || (legacyWorkflowVariants.length === 1 && legacyWorkflowVariants[0] !== "phase1-rls-live.yml")) {
+  errors.push("Retired Phase 1 RLS live gate must reject same-name and renamed workflow variants.");
 }
 
 

@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+退役契約: M5 replacement gate、旧workflowの削除、旧runbookの `Status: Superseded` 化、同名・改名workflowの再追加拒否は、置換gateと同一rollback単位でmainへ着地させる。
+
 ## 目的と現在地
 
 `めっちゃマニュアル` の検証資源と本番資源を混在させず、`main` へのマージとproduction反映を別の判断にする。本書はIssue #21と、R2契約を固定したIssue #23を前提とする静的ハーネスであり、外部リソースの作成・変更・deployは行わない。

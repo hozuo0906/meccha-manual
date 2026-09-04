@@ -33,7 +33,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
 - Supabase前提文書のSuperseded表示（現行Accepted transitional gate文書を除く）
-- 旧Supabase live workflowはM5置換gate着地まで維持し、着地後の退役と再追加防止checkを同じrollback単位で行う
+- 旧Supabase live workflowはM5置換gate着地まで維持し、着地後に旧workflowを削除し、旧runbookを `Status: Superseded` とし、同名・改名workflowの再追加防止checkを置換gateと同じrollback単位で行う
 - Issue #92/#95/#176/#70の依存関係更新
 
 完了条件:

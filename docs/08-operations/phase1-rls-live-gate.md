@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+退役契約: M5 replacement gate、対応runbookの `Status: Accepted` から `Status: Superseded` への更新、旧workflow `.github/workflows/phase1-rls-live.yml` の削除、および同名・改名workflowの再追加拒否は、別commitに分割せず同一のrollback単位でmainへ着地させる。M5着地前はこのworkflowを削除・改名・複製しない。
+
 `.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。M5着地後の退役と同名・改名workflowの再追加拒否は、置換gateと同じrollback単位で行う。
 
 ## 目的
