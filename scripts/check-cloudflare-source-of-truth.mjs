@@ -4,7 +4,7 @@ const errors = [];
 
 async function read(path) {
   try {
-    return (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
+    return (await readFile(path, "utf8")).replace(/\n/g, "\n");
   } catch {
     errors.push(`Missing Cloudflare source-of-truth file: ${path}`);
     return "";
@@ -277,10 +277,22 @@ const m5SafetyTerms = [
   "M6への持越し",
   "replacement未着地のまま先行退役を禁止"
 ];
+function sectionLines(path, sectionPrefix) {
+  const lines = (contents.get(path) ?? "").split("\n");
+  if (!sectionPrefix) return lines;
+  const start = lines.findIndex((line) => line.startsWith(sectionPrefix));
+  if (start < 0) return [];
+  const end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
+  return lines.slice(start, end < 0 ? lines.length : end);
+}
+const decisionLogLines = (contents.get("docs/09-delivery/decision-log.md") ?? "").split("\n");
+const dec064HeadingCount = decisionLogLines.filter((line) => line.startsWith("## DEC-064:")).length;
+if (dec064HeadingCount !== 1) errors.push(`DEC-064 must have exactly one section heading in docs/09-delivery/decision-log.md (found ${dec064HeadingCount})`);
 const m5CarrierEntries = [
   {
     name: "DEC-064 Preserves section",
     path: "docs/09-delivery/decision-log.md",
+    scope: "## DEC-064:",
     prefix: "- Preserves:",
     exact: true,
     terms: []
@@ -288,6 +300,7 @@ const m5CarrierEntries = [
   {
     name: "DEC-064 pre-M5 transition",
     path: "docs/09-delivery/decision-log.md",
+    scope: "## DEC-064:",
     prefix: "  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。",
     terms: [
       "pre-M5では `.github/workflows/phase1-rls-live.yml`",
@@ -301,6 +314,7 @@ const m5CarrierEntries = [
   {
     name: "DEC-064 Safety",
     path: "docs/09-delivery/decision-log.md",
+    scope: "## DEC-064:",
     prefix: "  - 旧 `phase1-rls-live.yml` はpre-M5では現行Accepted live gateとして維持する。",
     terms: m5SafetyTerms
   },
@@ -317,8 +331,8 @@ const m5CarrierEntries = [
     terms: m5SafetyTerms
   }
 ];
-for (const { name, path, prefix, exact = false, terms } of m5CarrierEntries) {
-  const lines = (contents.get(path) ?? "").split("\n").filter((line) => exact ? line === prefix : line.includes(prefix));
+for (const { name, path, scope, prefix, exact = false, terms } of m5CarrierEntries) {
+  const lines = sectionLines(path, scope).filter((line) => exact ? line === prefix : line.includes(prefix));
   if (lines.length !== 1) {
     errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
     continue;
@@ -327,12 +341,26 @@ for (const { name, path, prefix, exact = false, terms } of m5CarrierEntries) {
     if (!lines[0].includes(term)) errors.push(`${name} is missing a required contract term in ${path}: ${term}`);
   }
 }
+const m5ScopedForbiddenEntries = [
+  {
+    name: "DEC-064 retirement contradiction",
+    path: "docs/09-delivery/decision-log.md",
+    scope: "## DEC-064:",
+    terms: ["M6で退役", "M6で削除", "M6へ持ち越す", "M6への持越しを許可"]
+  }
+];
+for (const { name, path, scope, terms } of m5ScopedForbiddenEntries) {
+  const lines = sectionLines(path, scope);
+  for (const term of terms) {
+    if (lines.some((line) => line.includes(term))) errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
+  }
+}
 const environmentTransitionLines = [
   "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない |",
   "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。 |",
   "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
 ];
-const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\n/g, "\n").replace(/\r/g, "\n").split("\n");
 for (const line of environmentTransitionLines) {
   const count = environmentTransitionSource.filter((sourceLine) => sourceLine === line).length;
   if (count !== 1) errors.push(`Environment transition contract must contain exactly one canonical exact line: ${line}`);
