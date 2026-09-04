@@ -135,6 +135,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
 - candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。外部effectのstable idempotency/correlation key、sink側idempotencyまたはsingle-writer境界、CAS後停止→takeover→旧worker復帰時のsink call最大1系統も同じ候補証跡で確認する。
 - この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
+- replacement gate・対応docs・旧workflow削除・runbookのSuperseded化・同名または改名workflowの再追加拒否を、同じrollback単位で完了する
 
 禁止:
 
@@ -153,7 +154,6 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 
 完了条件:
 
-- replacement gate・対応docs・旧workflow削除・runbookのSuperseded化・同名または改名workflowの再追加拒否を、同じrollback単位で完了する
 - Supabase runtime参照 0
 - secret scanner成功
 - staging回帰成功
