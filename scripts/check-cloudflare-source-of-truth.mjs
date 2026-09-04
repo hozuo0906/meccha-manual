@@ -373,7 +373,7 @@ function requireExactTargetRow({ lines, fenceMask, section, rows, firstCell, exp
 }
 
 const environmentContractPath = "docs/08-operations/environments-and-delivery.md";
-const environmentDocumentLines = (contents.get(environmentContractPath) ?? "").split("\n");
+const environmentDocumentLines = (contents.get(environmentContractPath) ?? "").replace(/\r/g, "\n").split("\n");
 const environmentDocumentFenceMask = markdownFenceMask(environmentDocumentLines);
 const environmentHeading = "## 環境対応表";
 const automaticOperationsHeading = "## 自動操作と承認必須操作";
