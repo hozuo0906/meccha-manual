@@ -166,7 +166,7 @@ const required = new Map([
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "旧live workflowの削除、runbookのStatus: Superseded化、canonical/renamed旧workflow再追加拒否はM5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で完了し、M6へ持ち越さない",
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "旧live workflowの削除、runbookのStatus: Superseded化、canonical/renamed旧workflow再追加拒否はM5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で完了し、M6へ持ち越さない", "M5で退役済みの旧gateについてIssue #95の完了記録と残存履歴を整理する",
     "DEC-064 Safetyの5操作", "直接依存test同一scope"
   ]],
   ["docs/09-delivery/session-handoff.md", [
@@ -188,7 +188,7 @@ const required = new Map([
 const forbidden = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", []],
   ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可", "着地後にSupersededとしてM6で退役し、再追加をCIで拒否する", "着地した後、M6で退役する"]],
-  ["docs/09-delivery/cloudflare-migration-roadmap.md", ["live workflowをM6で退役"]],
+  ["docs/09-delivery/cloudflare-migration-roadmap.md", ["live workflowをM6で退役", "#95と旧Supabase gateのclose／supersede判断を行う"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],

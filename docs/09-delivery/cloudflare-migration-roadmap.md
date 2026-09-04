@@ -150,7 +150,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - 残存runtime、環境変数、harness、文書からSupabase依存を削除（旧live workflowの削除、runbookのStatus: Superseded化、canonical/renamed旧workflow再追加拒否はM5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で完了し、M6へ持ち越さない）
 - 不要なSupabase資格情報の失効
 - 旧migration/RLS harnessを履歴またはarchiveへ整理
-- #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う
+- #92の完了記録を維持し、M5で退役済みの旧gateについてIssue #95の完了記録と残存履歴を整理する
 
 完了条件:
 

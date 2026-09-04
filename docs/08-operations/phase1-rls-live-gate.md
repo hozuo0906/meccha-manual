@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。M5着地後の退役と同名・改名workflowの再追加拒否は、置換gateと同じrollback単位で行う。future M5 replacement PRでは、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、(1) replacement gateと対応docsの着地、(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除、(3) runbookの `Status: Superseded` 化、(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転、(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化を同時に完了する。M6への持越し、replacement未着地のまま先行退役を禁止する。
+`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。future M5 replacement PRでは、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、(1) replacement gateと対応docsの着地、(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除、(3) runbookの `Status: Superseded` 化、(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転、(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化を同時に完了する。M6への持越し、replacement未着地のまま先行退役を禁止する。
 
 ## 目的
 
