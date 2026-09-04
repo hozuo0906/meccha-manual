@@ -129,7 +129,10 @@ const required = new Map([
     "OQ-031", "path別Access Bypassを有効化しない"
   ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
-    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate"
+    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate",
+    "## 現行実行に参照する登録済みEnvironment secrets", "owner承認済み・登録済みの既存 `staging` / test値だけを確認・利用する",
+    "新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する", "owner承認済みの既存専用テストアカウント",
+    "登録済みの既存一組が揃う場合だけ利用", "## 現行Accepted transitional gateの実行手順"
   ]],
   ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", [
     "現行Accepted transitional gate", "Issue #176 M5", "同じrollback単位", "canonical workflow"
@@ -172,6 +175,7 @@ const required = new Map([
 ]);
 
 const forbidden = new Map([
+  ["docs/08-operations/phase1-rls-live-gate.md", []],
   ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
@@ -254,6 +258,21 @@ for (const [path, terms] of required) {
 for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
+}
+const forbiddenExactLines = new Map([
+  ["docs/08-operations/phase1-rls-live-gate.md", [
+    "## Legacy secret inventory（登録しない）",
+    "RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。",
+    "- Access 2件は必ず一組で登録し、片方欠落時は停止する。",
+    "## Legacy実行手順（実行しない）",
+    "2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。"
+  ]]
+]);
+for (const [path, lines] of forbiddenExactLines) {
+  const sourceLines = new Set((contents.get(path) ?? "").split("\n"));
+  for (const line of lines) {
+    if (sourceLines.has(line)) errors.push(`Active source contains an exact legacy live-gate line: ${line}`);
+  }
 }
 for (const [path, successor] of superseded) {
   const head = (contents.get(path) ?? "").split(/\r?\n/).slice(0, 10).join("\n");
