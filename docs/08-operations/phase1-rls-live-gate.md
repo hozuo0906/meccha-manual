@@ -4,6 +4,8 @@ Status: Accepted
 
 `.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。M5着地後の退役と同名・改名workflowの再追加拒否は、置換gateと同じrollback単位で行う。
 
+退役契約: 旧live workflowの削除、本文書の `Status: Superseded` 化、同名または改名workflowの再追加拒否は、Issue #176 M5 replacement gateと同じrollback単位で完了させる。M6ではこの退役を実施せず、残存するlegacy runtime・資格情報・harness・証跡の整理だけを行う。
+
 ## 目的
 
 Issue #79がIssue #38から引き継いだ正式live RLS gateを、秘密値、preview URL、外部ID、テストデータ識別子、個人情報をリポジトリ、artifact、workflow summary、Actionsログへ保存せず、暫定stagingだけに対して実行する。
@@ -38,9 +40,9 @@ Wranglerのstdout/stderrと構造化結果はGitHub-hosted runnerの一時領域
 
 preview originはHTTPS、認証情報なし、portなし、origin-only、承認済みWorker名とaccount suffixに一致するimmutable hostnameでなければ拒否する。
 
-## Legacy secret inventory（登録しない）
+## 現行実行に参照する登録済みEnvironment secrets
 
-RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。
+RLS test用4件とpreview-only Access用2件は、owner承認済みの既存 `staging` Environment secretsを参照する。新規secret、値の再掲、ログ・Markdownへの資格値記録は行わない。
 
 ```text
 MECCHA_RLS_USER_A_EMAIL
@@ -71,10 +73,10 @@ CF_ACCESS_CLIENT_SECRET
 - Worker向けrequestだけにAccess headerを付け、Supabase Auth/RESTへの直接requestには付けない。
 - errorへresponse body、email、URL、識別子、資格値を含めない。
 
-## Legacy実行手順（実行しない）
+## 現行Accepted transitional gateの実行手順
 
 1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
-2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。
+2. GitHub `staging` Environmentに上記6件が登録済みであることだけを確認し、Business OS用値と共有していないことを確認する。
 3. Worker version upload用Cloudflare資格情報が利用可能であることを値非表示で確認する。
 4. Actionsから `Phase 1 RLS Live Gate` を `main` で手動実行する。
 5. dispatch SHA固定、runtime boundary、Access 2件の存在確認が成功することを確認する。

@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 
 const errors = [];
 
@@ -129,7 +129,9 @@ const required = new Map([
     "OQ-031", "path別Access Bypassを有効化しない"
   ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
-    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate"
+    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate",
+    "退役契約", "Status: Superseded", "## 現行実行に参照する登録済みEnvironment secrets", "既存 `staging` Environment secretsを参照する",
+    "## 現行Accepted transitional gateの実行手順", "M6ではこの退役を実施せず"
   ]],
   ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", [
     "現行Accepted transitional gate", "Issue #176 M5", "同じrollback単位", "canonical workflow"
@@ -147,13 +149,14 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "canonical workflowから実行可能", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "canonical workflowから実行可能",
+    "M5では旧workflow削除", "同名・改名workflowの再追加拒否", "M6は残存legacy資産だけを退役"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "旧live workflow削除、runbook Superseded化", "M6は残存legacy資産だけを退役", "旧live workflow削除とrunbookの `Status: Superseded` 化はM5で完了済み"
   ]],
   ["docs/09-delivery/session-handoff.md", [
     "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
@@ -172,7 +175,9 @@ const required = new Map([
 ]);
 
 const forbidden = new Map([
-  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
+  ["docs/08-operations/phase1-rls-live-gate.md", ["Legacy secret inventory", "登録しない）", "Legacy実行手順", "実行しない）", "Environmentへ上記6件を登録し"]],
+  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可", "M6で退役", "live workflowをM6で退役"]],
+  ["docs/09-delivery/cloudflare-migration-roadmap.md", ["live workflowをM6で退役", "旧Supabase gateのclose／supersede判断"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
@@ -267,11 +272,42 @@ try {
   if (error?.code !== "ENOENT") throw error;
   errors.push("Accepted Phase 1 RLS live gate is missing before the Issue #176 M5 replacement gate lands.");
 }
+
+const canonicalWorkflowPath = ".github/workflows/phase1-rls-live.yml";
+const liveGateIdentity = ["name: Phase 1 RLS Live Gate", "npm run test:rls", "MECCHA_RLS_ALLOW_REMOTE_WRITE"];
+let canonicalWorkflow = "";
 try {
-  await access(".github/workflows/phase1-rls-live.yaml");
-  errors.push("The preserved Phase 1 RLS live gate must use the canonical .yml filename.");
+  canonicalWorkflow = (await readFile(canonicalWorkflowPath, "utf8")).replace(/\r\n/g, "\n");
 } catch (error) {
   if (error?.code !== "ENOENT") throw error;
+}
+for (const marker of liveGateIdentity) {
+  if (canonicalWorkflow && !canonicalWorkflow.includes(marker)) {
+    errors.push(`Canonical live RLS workflow identity is incomplete: ${marker}`);
+  }
+}
+for (const workflowName of await readdir(".github/workflows")) {
+  if (!/\.ya?ml$/i.test(workflowName) || workflowName === "phase1-rls-live.yml") continue;
+  const workflowPath = `.github/workflows/${workflowName}`;
+  const workflow = (await readFile(workflowPath, "utf8")).replace(/\r\n/g, "\n");
+  if (liveGateIdentity.every((marker) => workflow.includes(marker))) {
+    errors.push(`Only the canonical live RLS workflow may contain the live gate identity; M5 atomic retirement rejects renamed or copied variants: ${workflowPath}`);
+  }
+}
+try {
+  await access(".github/workflows/phase1-rls-live.yaml");
+  errors.push("The live RLS gate must keep one canonical .yml identity; M5 atomic retirement rejects a .yaml duplicate.");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
+
+const environmentRows = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").split(/\r?\n/);
+const expectedEnvironmentRow = "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能。M5 replacement gate・旧workflow削除・runbook Superseded化・同名/改名再追加拒否を同一rollback単位でmainへ着地させ、M6は残存legacy資産だけを退役する。 |";
+if (!environmentRows.includes(expectedEnvironmentRow)) {
+  errors.push("Phase 1 RLS immutable preview gate must remain a three-column row with the atomic M5/M6 contract.");
+}
+for (const row of environmentRows.filter((line) => line.startsWith("| Phase 1 RLS immutable preview gate |"))) {
+  if (row.split("|").length !== 5) errors.push("Phase 1 RLS immutable preview gate table row has an invalid column count.");
 }
 
 
@@ -469,4 +505,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Cloudflare source-of-truth OK: Access/Workers/D1/R2 contracts, callback order/recovery, legacy fences, and the preserved-until-M5 live RLS gate are consistent.");
+console.log("Cloudflare source-of-truth OK: Access/Workers/D1/R2 contracts, callback order/recovery, legacy fences, and the canonical live RLS gate atomic-retirement contract are consistent.");

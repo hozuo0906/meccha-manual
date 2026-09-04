@@ -33,7 +33,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
 - Supabase前提文書のSuperseded表示（現行Accepted transitional gate文書を除く）
-- 旧Supabase live workflowはM5置換gate着地まで維持し、着地後の退役と再追加防止checkを同じrollback単位で行う
+- M5 replacement gateと対応docsを同じrollback単位でmainへ着地させ、旧live workflow削除、runbook Superseded化、同名・改名workflowの再追加拒否まで完了する。M6は残存legacy資産だけを退役する。
 - Issue #92/#95/#176/#70の依存関係更新
 
 完了条件:
@@ -146,10 +146,10 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 
 成果:
 
-- 残存runtime、環境変数、harness、文書からSupabase依存を削除（M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役）
+- M5 replacement gateと対応docsを同じrollback単位でmainへ着地させ、旧live workflowを削除し、runbookを `Status: Superseded` 化し、同名・改名workflowの再追加を拒否する。M6では残存legacy runtime、環境変数、harness、証跡などSupabase依存資産の退役だけを行う。
 - 不要なSupabase資格情報の失効
 - 旧migration/RLS harnessを履歴またはarchiveへ整理
-- #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う
+- #92の完了記録を維持し、M6では#95のclose判断と残存legacy資産の退役記録だけを行う。旧live workflow削除とrunbookの `Status: Superseded` 化はM5で完了済みとする。
 
 完了条件:
 

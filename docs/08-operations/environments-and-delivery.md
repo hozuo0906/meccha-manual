@@ -8,7 +8,7 @@ Status: Accepted
 
 既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地後にSupersededとしてM6で退役し、再追加をCIで拒否する。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
+Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで維持する。M5では旧workflow削除、runbookのSuperseded化、同名・改名workflowの再追加拒否までを同じ単位で完了し、M6は残存legacy資産だけを退役する。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
 
 ## 環境対応表
 
@@ -18,7 +18,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 |---|---|---|---|
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
-| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |
+| Phase 1 RLS immutable preview | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行する。M5 replacement gate・旧workflow削除・runbook Superseded化・同名/改名再追加拒否を同一rollback単位でmainへ着地させる。M6は残存legacy資産だけを退役する。 |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
@@ -49,7 +49,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
 | `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。#92由来のblanket holdは解除済みだが、PR通常品質ゲートと公開前チェックリストを必須にする |
-| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |
+| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能。M5 replacement gate・旧workflow削除・runbook Superseded化・同名/改名再追加拒否を同一rollback単位でmainへ着地させ、M6は残存legacy資産だけを退役する。 |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
@@ -76,7 +76,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
 - `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。ADR-0024のCustom Domain設定と切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
-- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。immutable version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を確認する。現行live RLS gateはowner承認済みの既存staging/test契約をcanonical workflowから実行し、Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。
+- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。immutable version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を確認する。現行live RLS gateはowner承認済みの既存staging/test契約をcanonical workflowから実行する。旧workflow削除、runbook Superseded化、同名・改名workflowの再追加拒否はM5 replacement gateと対応docsをmainへ同じrollback単位で着地させる際に完了し、M6は残存legacy資産だけを退役する。
 
 ## Cloudflare Access / D1
 
