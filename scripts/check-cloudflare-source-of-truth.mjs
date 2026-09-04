@@ -259,21 +259,191 @@ for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
 }
-const environmentTransitionLines = [
-  [
-    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
-    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
-  ],
-  [
-    "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。",
-    "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
-  ]
-];
-const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-for (const [oldLine, newLine] of environmentTransitionLines) {
-  const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
-  const newCount = environmentTransitionSource.filter((line) => line === newLine).length;
-  if (oldCount + newCount !== 1) errors.push("Environment transition contract must contain exactly one of the old or new exact lines.");
+function markdownFenceOpening(line) {
+  const match = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!match) return null;
+  const marker = match[2];
+  if (marker[0] === "`" && match[3].includes("`")) return null;
+  return { character: marker[0], length: marker.length };
+}
+
+function isMarkdownFenceClosing(line, fence) {
+  const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+  return Boolean(match && match[1][0] === fence.character && match[1].length >= fence.length);
+}
+
+function markdownFenceMask(lines) {
+  const mask = Array(lines.length).fill(false);
+  let fence = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (fence) {
+      mask[index] = true;
+      if (isMarkdownFenceClosing(lines[index], fence)) fence = null;
+      continue;
+    }
+    const opening = markdownFenceOpening(lines[index]);
+    if (opening) {
+      mask[index] = true;
+      fence = opening;
+    }
+  }
+  return mask;
+}
+
+function isH2(line) {
+  return /^ {0,3}##(?:[ \t]+|$)/.test(line);
+}
+
+function exactOutsideFenceIndexes(lines, fenceMask, expected, start = 0, end = lines.length) {
+  const indexes = [];
+  for (let index = start; index < end; index += 1) {
+    if (!fenceMask[index] && lines[index] === expected) indexes.push(index);
+  }
+  return indexes;
+}
+
+function markdownSection(lines, fenceMask, heading) {
+  const headingIndexes = exactOutsideFenceIndexes(lines, fenceMask, heading);
+  if (headingIndexes.length !== 1) {
+    errors.push(`Environment contract must contain exactly one fence-external heading: ${heading}`);
+    return null;
+  }
+  const start = headingIndexes[0] + 1;
+  let end = lines.length;
+  for (let index = start; index < lines.length; index += 1) {
+    if (!fenceMask[index] && isH2(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+function pipeTableBody(lines, fenceMask, section, header, separator, label) {
+  if (!section) return [];
+  const headerIndexes = exactOutsideFenceIndexes(lines, fenceMask, header, section.start, section.end);
+  const separatorIndexes = exactOutsideFenceIndexes(lines, fenceMask, separator, section.start, section.end);
+  if (headerIndexes.length !== 1) errors.push(`${label} must contain exactly one exact table header.`);
+  if (separatorIndexes.length !== 1) errors.push(`${label} must contain exactly one exact table separator.`);
+  if (headerIndexes.length !== 1 || separatorIndexes.length !== 1) return [];
+  if (separatorIndexes[0] !== headerIndexes[0] + 1) {
+    errors.push(`${label} table separator must be physically adjacent to its header.`);
+    return [];
+  }
+
+  const rows = [];
+  for (let index = separatorIndexes[0] + 1; index < section.end; index += 1) {
+    const line = lines[index];
+    if (fenceMask[index] || !/^\|.*\|$/.test(line)) break;
+    rows.push({ index, line, cells: line.slice(1, -1).split("|").map((cell) => cell.trim()) });
+  }
+  return rows;
+}
+
+function physicalFirstCell(line) {
+  const match = /^\|([^|]*)\|/.exec(line);
+  return match ? match[1].trim() : null;
+}
+
+function requireExactTargetRow({ lines, fenceMask, section, rows, firstCell, expectedLine, expectedCells, markerCell, marker, label }) {
+  const sectionMatches = [];
+  if (section) {
+    for (let index = section.start; index < section.end; index += 1) {
+      if (!fenceMask[index] && physicalFirstCell(lines[index]) === firstCell) {
+        sectionMatches.push({ index, line: lines[index] });
+      }
+    }
+  }
+  if (sectionMatches.length !== 1) {
+    errors.push(`${label} must contain exactly one fence-external physical line whose first cell is: ${firstCell}`);
+  }
+
+  const bodyMatches = rows.filter((row) => row.cells[0] === firstCell);
+  if (bodyMatches.length !== 1) {
+    errors.push(`${label} contiguous table body must contain exactly one row whose first cell is: ${firstCell}`);
+    return;
+  }
+  const [match] = bodyMatches;
+  if (sectionMatches.length !== 1 || sectionMatches[0].index !== match.index) {
+    errors.push(`${label} sole section target must be the row inside the contiguous table body.`);
+  }
+  if (match.line !== expectedLine) errors.push(`${label} target row must match the exact contract line.`);
+  if (match.cells.length !== expectedCells) errors.push(`${label} target row must contain exactly ${expectedCells} cells.`);
+  if (match.cells[markerCell] !== marker) errors.push(`${label} target row must keep the exact marker: ${marker}`);
+}
+
+const environmentContractPath = "docs/08-operations/environments-and-delivery.md";
+const environmentDocumentLines = (contents.get(environmentContractPath) ?? "").split("\n");
+const environmentDocumentFenceMask = markdownFenceMask(environmentDocumentLines);
+const environmentHeading = "## 環境対応表";
+const automaticOperationsHeading = "## 自動操作と承認必須操作";
+const environmentTableHeader = "| 区分 | staging | production | 分離・承認ルール |";
+const environmentTableSeparator = "|---|---|---|---|";
+const automaticOperationsTableHeader = "| 操作 | 自動 / 手動 | ゲート |";
+const automaticOperationsTableSeparator = "|---|---|---|";
+const environmentTargetLine = "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |";
+const automaticOperationsTargetLine = "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |";
+const legacyAutomaticOperationsTargetLine = "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |";
+const accessTargetLine = "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。";
+const legacyAccessTargetLine = "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。";
+
+const environmentSection = markdownSection(environmentDocumentLines, environmentDocumentFenceMask, environmentHeading);
+const automaticOperationsSection = markdownSection(environmentDocumentLines, environmentDocumentFenceMask, automaticOperationsHeading);
+const environmentTableRows = pipeTableBody(
+  environmentDocumentLines,
+  environmentDocumentFenceMask,
+  environmentSection,
+  environmentTableHeader,
+  environmentTableSeparator,
+  "Environment mapping section"
+);
+const automaticOperationsTableRows = pipeTableBody(
+  environmentDocumentLines,
+  environmentDocumentFenceMask,
+  automaticOperationsSection,
+  automaticOperationsTableHeader,
+  automaticOperationsTableSeparator,
+  "Automatic operations section"
+);
+
+requireExactTargetRow({
+  lines: environmentDocumentLines,
+  fenceMask: environmentDocumentFenceMask,
+  section: environmentSection,
+  rows: environmentTableRows,
+  firstCell: "Phase 1 RLS immutable preview",
+  expectedLine: environmentTargetLine,
+  expectedCells: 4,
+  markerCell: 2,
+  marker: "使用しない",
+  label: "Environment mapping section"
+});
+requireExactTargetRow({
+  lines: environmentDocumentLines,
+  fenceMask: environmentDocumentFenceMask,
+  section: automaticOperationsSection,
+  rows: automaticOperationsTableRows,
+  firstCell: "Phase 1 RLS immutable preview gate",
+  expectedLine: automaticOperationsTargetLine,
+  expectedCells: 3,
+  markerCell: 1,
+  marker: "手動（workflow_dispatch）",
+  label: "Automatic operations section"
+});
+
+for (const [line, label] of [
+  [automaticOperationsTargetLine, "current automatic-operations gate line"],
+  [accessTargetLine, "current Access line"]
+]) {
+  const count = exactOutsideFenceIndexes(environmentDocumentLines, environmentDocumentFenceMask, line).length;
+  if (count !== 1) errors.push(`Environment contract requires 1 fence-external exact ${label}; found ${count}.`);
+}
+for (const [line, label] of [
+  [legacyAutomaticOperationsTargetLine, "legacy automatic-operations gate line"],
+  [legacyAccessTargetLine, "legacy Access line"]
+]) {
+  const count = environmentDocumentLines.filter((documentLine) => documentLine === line).length;
+  if (count !== 0) errors.push(`Environment contract requires 0 exact ${label} across all physical lines; found ${count}.`);
 }
 const forbiddenExactLines = new Map([
   ["docs/08-operations/phase1-rls-live-gate.md", [
