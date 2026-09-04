@@ -282,7 +282,7 @@ try {
   if (error?.code !== "ENOENT") throw error;
 }
 for (const marker of liveGateIdentity) {
-  if (canonicalWorkflow && !canonicalWorkflow.includes(marker)) {
+  if (!canonicalWorkflow || !canonicalWorkflow.includes(marker)) {
     errors.push(`Canonical live RLS workflow identity is incomplete: ${marker}`);
   }
 }
@@ -302,6 +302,14 @@ try {
 }
 
 const environmentRows = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").split(/\r?\n/);
+const expectedEnvironmentMatrixRow = "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。M5 replacement gate・旧workflow削除・runbook Superseded化・同名/改名再追加拒否を同一rollback単位でmainへ着地させる。M6は残存legacy資産だけを退役する。 |";
+if (!environmentRows.includes(expectedEnvironmentMatrixRow)) {
+  errors.push("Phase 1 RLS immutable preview environment matrix row must keep four columns and production 使用しない.");
+}
+for (const row of environmentRows.filter((line) => line.startsWith("| Phase 1 RLS immutable preview |"))) {
+  if (row.split("|").length !== 6) errors.push("Phase 1 RLS immutable preview environment matrix row has an invalid column count.");
+  if (!row.includes("| 使用しない |")) errors.push("Phase 1 RLS immutable preview environment matrix row must keep production 使用しない.");
+}
 const expectedEnvironmentRow = "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能。M5 replacement gate・旧workflow削除・runbook Superseded化・同名/改名再追加拒否を同一rollback単位でmainへ着地させ、M6は残存legacy資産だけを退役する。 |";
 if (!environmentRows.includes(expectedEnvironmentRow)) {
   errors.push("Phase 1 RLS immutable preview gate must remain a three-column row with the atomic M5/M6 contract.");
