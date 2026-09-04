@@ -40,9 +40,9 @@ Wranglerのstdout/stderrと構造化結果はGitHub-hosted runnerの一時領域
 
 preview originはHTTPS、認証情報なし、portなし、origin-only、承認済みWorker名とaccount suffixに一致するimmutable hostnameでなければ拒否する。
 
-## Legacy secret inventory（登録しない）
+## 現行実行に参照する既存secret契約
 
-RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。
+既存owner承認済みの `staging` Environment secrets だけを参照する。M5着地前に新規secret、test user、資格情報を登録しない。
 
 ```text
 MECCHA_RLS_USER_A_EMAIL
@@ -73,7 +73,7 @@ CF_ACCESS_CLIENT_SECRET
 - Worker向けrequestだけにAccess headerを付け、Supabase Auth/RESTへの直接requestには付けない。
 - errorへresponse body、email、URL、識別子、資格値を含めない。
 
-## Legacy実行手順（実行しない）
+## 現行Accepted transitional gateの実行手順
 
 1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
 2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。

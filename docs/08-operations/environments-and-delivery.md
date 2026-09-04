@@ -51,7 +51,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
 | `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。#92由来のblanket holdは解除済みだが、PR通常品質ゲートと公開前チェックリストを必須にする |
-| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |
+| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能。M5 replacement gate・旧workflow削除・runbook Superseded化・再追加拒否を同一rollback単位でmainへ着地させ、M6は残存legacy資産だけを退役する。 |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
