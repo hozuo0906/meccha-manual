@@ -38,9 +38,9 @@ Wranglerのstdout/stderrと構造化結果はGitHub-hosted runnerの一時領域
 
 preview originはHTTPS、認証情報なし、portなし、origin-only、承認済みWorker名とaccount suffixに一致するimmutable hostnameでなければ拒否する。
 
-## Legacy secret inventory（登録しない）
+## 現行実行に参照する登録済みEnvironment secrets
 
-RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。
+RLS test用4件とpreview-only Access用2件は、owner承認済み・登録済みの既存 `staging` / test値だけを確認・利用する。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。
 
 ```text
 MECCHA_RLS_USER_A_EMAIL
@@ -51,10 +51,10 @@ CF_ACCESS_CLIENT_ID
 CF_ACCESS_CLIENT_SECRET
 ```
 
-- A/Bは異なる専用テストアカウントとし、実利用者の資格情報を流用しない。
-- Access 2件は必ず一組で登録し、片方欠落時は停止する。
+- A/Bはowner承認済みの既存専用テストアカウントとし、実利用者の資格情報を流用しない。
+- Access 2件は登録済みの既存一組が揃う場合だけ利用し、片方欠落時は停止する。新規登録は行わない。
 - 同名のBusiness OS用service tokenやrepository secretと値を共有しない。
-- GitHub Actionsからsecretのscope由来は判別できないため、owner/adminは6件が `staging` Environmentへ登録済みであることを確認する。
+- GitHub Actionsからsecretのscope由来は判別できないため、owner/adminは6件が `staging` Environmentへ登録済みであることだけを確認する。
 - Access policy側はCloudflare account membersとpreview専用service tokenだけを許可し、その他の未認証requestとservice tokenを拒否する。同名repository secretへのfallback運用は許可しない。
 - workflowはsecret値をechoせず、不足している名前だけを報告する。
 
@@ -71,10 +71,10 @@ CF_ACCESS_CLIENT_SECRET
 - Worker向けrequestだけにAccess headerを付け、Supabase Auth/RESTへの直接requestには付けない。
 - errorへresponse body、email、URL、識別子、資格値を含めない。
 
-## Legacy実行手順（実行しない）
+## 現行Accepted transitional gateの実行手順
 
 1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
-2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。
+2. GitHub `staging` Environmentに上記6件が登録済みであることだけを確認・利用し、Business OS用値と共有していないことを確認する。
 3. Worker version upload用Cloudflare資格情報が利用可能であることを値非表示で確認する。
 4. Actionsから `Phase 1 RLS Live Gate` を `main` で手動実行する。
 5. dispatch SHA固定、runtime boundary、Access 2件の存在確認が成功することを確認する。
