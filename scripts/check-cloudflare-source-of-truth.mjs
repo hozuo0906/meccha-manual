@@ -129,7 +129,10 @@ const required = new Map([
     "OQ-031", "path別Access Bypassを有効化しない"
   ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
-    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate"
+    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate",
+    "## 現行実行に参照する登録済みEnvironment secrets", "owner承認済み・登録済みの既存 `staging` Environment secretsだけを確認・利用する",
+    "新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する", "owner承認済みの既存専用テストアカウント",
+    "登録済みの既存一組が揃う場合だけ利用", "## 現行Accepted transitional gateの実行手順"
   ]],
   ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", [
     "現行Accepted transitional gate", "Issue #176 M5", "同じrollback単位", "canonical workflow"
@@ -147,7 +150,9 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "canonical workflowから実行可能", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "canonical workflowから確認・利用する", "M6で退役",
+    "owner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用", "新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する",
+    "手動（workflow_dispatch）"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
@@ -172,7 +177,15 @@ const required = new Map([
 ]);
 
 const forbidden = new Map([
-  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
+  ["docs/08-operations/phase1-rls-live-gate.md", [
+    "Legacy secret inventory（登録しない）", "Legacy実行手順（実行しない）",
+    "preview-only Access用2件を `staging` Environment secretsとして登録する",
+    "Environmentへ上記6件を登録し", "Access 2件は必ず一組で登録", "新規test userを作成", "新規Supabase test userを作成"
+  ]],
+  ["docs/08-operations/environments-and-delivery.md", [
+    "Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可",
+    "staging` Environmentへ一組で登録し", "新規test userを作成", "新規Supabase test userを作成"
+  ]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
@@ -260,6 +273,28 @@ for (const [path, successor] of superseded) {
   for (const term of ["Status: Superseded", "実行禁止:", "ADR-0028", "Issue #176", successor]) {
     if (!head.includes(term)) errors.push(`Superseded baseline banner is incomplete in ${path}: ${term}`);
   }
+}
+
+const environmentRows = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").split(/\r?\n/);
+const environmentMatrixPrefix = "| Phase 1 RLS immutable preview |";
+const expectedEnvironmentMatrixRow = "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |";
+const environmentMatrixRows = environmentRows.filter((line) => line.startsWith(environmentMatrixPrefix));
+if (environmentMatrixRows.length !== 1 || environmentMatrixRows[0] !== expectedEnvironmentMatrixRow) {
+  errors.push("Phase 1 RLS immutable preview environment matrix row must match the accepted four-column contract exactly.");
+}
+if (environmentMatrixRows.length === 1) {
+  if (environmentMatrixRows[0].split("|").length !== 6) errors.push("Phase 1 RLS immutable preview environment matrix row must have four cells.");
+  if (!environmentMatrixRows[0].includes("| 使用しない |")) errors.push("Phase 1 RLS immutable preview environment matrix row must keep production 使用しない.");
+}
+const environmentGatePrefix = "| Phase 1 RLS immutable preview gate |";
+const expectedEnvironmentGateRow = "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |";
+const environmentGateRows = environmentRows.filter((line) => line.startsWith(environmentGatePrefix));
+if (environmentGateRows.length !== 1 || environmentGateRows[0] !== expectedEnvironmentGateRow) {
+  errors.push("Phase 1 RLS immutable preview gate row must match the accepted three-column manual-dispatch contract exactly.");
+}
+if (environmentGateRows.length === 1) {
+  if (environmentGateRows[0].split("|").length !== 5) errors.push("Phase 1 RLS immutable preview gate row must have three cells.");
+  if (!environmentGateRows[0].includes("| 手動（workflow_dispatch） |")) errors.push("Phase 1 RLS immutable preview gate row must keep manual workflow_dispatch operation.");
 }
 try {
   await access(".github/workflows/phase1-rls-live.yml");
