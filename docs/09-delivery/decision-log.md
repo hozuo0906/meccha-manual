@@ -193,3 +193,43 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176
   - [Cloudflare移行ロードマップ](cloudflare-migration-roadmap.md)
+
+
+## DEC-065: 環境正本をclosed physical-line grammarへ限定する
+
+- Status: Accepted
+- Date: 2026-09-05
+- Scope:
+  - このprofileは `docs/08-operations/environments-and-delivery.md` だけに適用する。
+  - full CommonMark/GFM parserや任意Markdownの安全性は標榜しない。profile外の記法が必要になった場合は、別decisionと独立fixtureを先に追加する。
+- Normalization:
+  - raw string先頭のU+FEFFを最大1文字だけ最初に除去する。2文字目以降または他の位置に残るU+FEFFは `unexpected-bom` とする。
+  - その後、CRLF、LF、bare CRが混在していても、1回の走査でLFへ正規化して `\n` でsplitする。terminal LFごとに末尾の長さ0のsegmentを生成し、空のraw stringは長さ0のsegment 1件になる。以後の全検査は同じphysical-line配列を使う。
+  - 対象fileが存在しない場合は既存のmissing diagnosticだけを返し、profileは評価しない。
+- Global line rules:
+  - blankは長さ0のphysical lineだけとする。U+0020、U+0009、U+00A0だけから成る非空行は `non-exact-blank` とし、blankへ正規化しない。
+  - 非空行はcolumn 0から始め、先頭U+0020、U+0009、U+00A0を拒否する。U+0009は位置を問わず拒否し、末尾U+0020、U+0009、U+00A0も拒否する。
+  - literal `<`、`>`、`[`、`]` は位置を問わず拒否する。raw HTML、comment、autolink、blockquote、reference definition、inline link/image、footnoteはprofile外とする。entity `&lt;` は許可する。
+  - literal `~` は1文字でも位置を問わず拒否し、GFM strikethroughとtilde fenceをprofile外にする。backtickは1〜2文字の連続だけを許可し、3文字以上の連続は位置を問わず拒否する。fenceのcontainer、開閉、info stringは解析しない。
+- Decision order:
+  - `BOM/EOL正規化 -> exact blank -> global禁止文字 -> leading/inline/trailing whitespace -> 予約prefix -> 許可行形 -> plain text` の順に判定する。
+  - `#` または `|` で始まる行、GFM list marker候補 `^(?:[-+*]|[0-9]+[.)])(?: +|\t|$)`、Setext/thematic/frontmatter候補は予約行とし、対応する許可形に一致しない場合もplain textへfallbackさせない。
+- Allowed non-empty line kinds:
+  - `heading`: column 0の `#` または `##`、U+0020 exactly 1文字、非空titleだけを許可する。titleの先頭と末尾はU+0020、U+0009、U+00A0以外とし、title末尾の `#`、H3以上、closing ATX、末尾whitespaceを拒否する。
+  - `pipe-row`: exact regex `^\|.*\|$`、すなわち別位置の先頭・末尾delimiterを持つ2文字以上の行だけを許可する。単独の `|` と、`|` で始まるその他の非canonical行は拒否する。
+  - `bullet`: column 0の `- ` に続き、先頭文字がU+0020、U+0009、U+00A0のいずれでもない本文だけを許可する。marker後のU+0020はexactly 1文字とする。
+  - `ordered`: column 0の `[1-9][0-9]{0,8}\. ` に続き、先頭文字がU+0020、U+0009、U+00A0のいずれでもない本文だけを許可する。leading zero、`)` marker、10桁以上、過剰marker paddingを拒否する。
+  - `bullet` と `ordered` は、本文の先頭文字が `#` または `|`、本文がlist marker候補regexに一致、または本文全体がSetext/thematic/frontmatter exact候補に一致する場合に `invalid-list-payload` とする。canonical markerへ到達しないその他の予約行は `invalid-line-kind` とする。
+  - `plain`: `#` または `|` で始まらず、list marker候補にもSetext/thematic/frontmatter exact候補にも一致しないcolumn-0 textだけを許可する。`-text` と `1.text` はplainとする。
+- Reserved candidates and runs:
+  - Setext候補はU+0020を除くと `=+` または `-+` だけになる行、thematic候補はU+0020を除くと同一の `*`、`_`、`-` が3個以上だけになる行、frontmatter候補はexact `---` または `+++` とする。いずれも拒否する。
+  - list continuation、nested container、alternate bullet `+` / `*` を拒否する。list payloadの候補判定にも前項の同じlist marker regexと、本文全体に対するexact candidate判定を使う。
+  - `bullet` と `ordered` のいずれかが連続するmaximal sequenceを、両kindが混在していても1つのlist runとする。`pipe-row` のmaximal consecutive sequenceを1つのpipe-table runとする。各runの直前と直後には長さ0のexact blankを要求し、文書先頭と文書末尾だけを同等の境界として許可する。
+- Failure and diagnostics:
+  - profileを環境文書のrequired、transition、structure検査より先に評価する。profile違反が1件でもあれば環境文書についてだけそれらの後続検査を停止し、checkerが扱う他fileの独立検査は継続する。
+  - environment profile errorは最大1件とする。候補diagnosticをnormalized line昇順で並べ、同じlineでは `unexpected-bom -> non-exact-blank -> forbidden-literal -> forbidden-tilde -> backtick-fence -> leading-whitespace -> inline-tab -> trailing-whitespace -> invalid-line-kind -> invalid-list-payload -> list-boundary-before -> list-boundary-after -> pipe-boundary-before -> pipe-boundary-after` の順で最初の1件を選ぶ。
+  - boundaryの `before` はrun先頭line、`after` はrun末尾lineを指す。diagnosticはpath、1-based line、classificationだけを出し、行全文、秘密値、個人情報を複製しない。
+- Reason:
+  - 可視性をMarkdown containerの部分parserで推測せず、環境分離とgate契約を検査できる入力面をclosed grammarへ縮小してfail closedにするため。
+- Safety boundary:
+  - この決定だけでは対象環境文書、checker、workflow、runtime、DB、migration、dependency、Secrets、live、deploy、production設定を変更しない。
