@@ -1,10 +1,12 @@
 import { access, readFile } from "node:fs/promises";
 
 const errors = [];
+const environmentContractPath = "docs/08-operations/environments-and-delivery.md";
 
 async function read(path) {
   try {
-    return (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
+    const source = await readFile(path, "utf8");
+    return path === environmentContractPath ? source : source.replace(/\r\n/g, "\n");
   } catch {
     errors.push(`Missing Cloudflare source-of-truth file: ${path}`);
     return "";
@@ -165,7 +167,8 @@ const required = new Map([
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
     "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持",
     "receiptと再実行可能なwork/outbox", "received/processing/retryable/reconcile_required/completed/dead_letter",
-    "結果不明は照合前に自動再送せず", "OQ-031をM2で解決"
+    "結果不明は照合前に自動再送せず", "OQ-031をM2で解決", "DEC-065", "機械検査可能Markdown profile",
+    "禁止profile上の物理行契約", "full CommonMark/GFM parserを実装・標榜しない"
   ]],
   ["docs/09-delivery/open-questions.md", [
     "OQ-031", "Issue #176 M2", "receiptと再実行可能なwork/outbox",
@@ -250,14 +253,37 @@ const superseded = new Map([
 const paths = new Set([...required.keys(), ...forbidden.keys(), ...superseded.keys()]);
 const contents = new Map();
 await Promise.all([...paths].map(async (path) => contents.set(path, await read(path))));
+const environmentPhysicalLines = (contents.get(environmentContractPath) ?? "")
+  .replace(/\r\n|\r|\n/g, "\n")
+  .split("\n");
+const normalizedEnvironmentSource = environmentPhysicalLines.join("\n");
 
 for (const [path, terms] of required) {
-  const content = contents.get(path) ?? "";
+  const content = path === environmentContractPath ? normalizedEnvironmentSource : (contents.get(path) ?? "");
   for (const term of terms) if (!content.includes(term)) errors.push(`Missing Cloudflare source-of-truth term in ${path}: ${term}`);
 }
 for (const [path, terms] of forbidden) {
-  const content = contents.get(path) ?? "";
+  const content = path === environmentContractPath ? normalizedEnvironmentSource : (contents.get(path) ?? "");
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
+}
+const machineCheckableMarkdownProfile = [
+  { classification: "literal-less-than", matches: (line) => line.includes("<") },
+  { classification: "blockquote-candidate", matches: (line) => /^ {0,3}>/.test(line) },
+  { classification: "fence-candidate", matches: (line) => /^ {0,3}(?:`{3,}|~{3,})/.test(line) },
+  {
+    classification: "indented-code-candidate",
+    matches: (line) => /[^ \t]/.test(line) && /^(?: {4,}| {0,3}\t)/.test(line)
+  }
+];
+for (let index = 0; index < environmentPhysicalLines.length; index += 1) {
+  const profileLine = index === 0 && environmentPhysicalLines[index].startsWith("\uFEFF")
+    ? environmentPhysicalLines[index].slice(1)
+    : environmentPhysicalLines[index];
+  for (const rule of machineCheckableMarkdownProfile) {
+    if (rule.matches(profileLine)) {
+      errors.push(`${environmentContractPath}:${index + 1}:${rule.classification}`);
+    }
+  }
 }
 const environmentTransitionLines = [
   [
@@ -269,10 +295,9 @@ const environmentTransitionLines = [
     "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
   ]
 ];
-const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 for (const [oldLine, newLine] of environmentTransitionLines) {
-  const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
-  const newCount = environmentTransitionSource.filter((line) => line === newLine).length;
+  const oldCount = environmentPhysicalLines.filter((line) => line === oldLine).length;
+  const newCount = environmentPhysicalLines.filter((line) => line === newLine).length;
   if (oldCount + newCount !== 1) errors.push("Environment transition contract must contain exactly one of the old or new exact lines.");
 }
 const forbiddenExactLines = new Map([

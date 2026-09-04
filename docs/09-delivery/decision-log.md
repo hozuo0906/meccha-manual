@@ -193,3 +193,20 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176
   - [Cloudflare移行ロードマップ](cloudflare-migration-roadmap.md)
+
+## DEC-065: 環境正本を機械検査可能Markdown profileへ限定する
+
+- Status: Accepted
+- Date: 2026-09-05
+- Decision:
+  - 対象を `docs/08-operations/environments-and-delivery.md` だけに限定し、full CommonMark/GFM parserを実装・標榜しない「禁止profile上の物理行契約」として機械検査する。
+  - 対象文書はCRLF、LF、bare CR、混在改行を一度だけLFへ正規化し、以後の対象文書検査は同じphysical-line配列を使う。
+  - 先頭UTF-8 BOMはrenderer同様に先頭行の禁止候補判定でだけ透過させ、blockquote、fence、indented codeの回避には利用させない。
+  - literal `<` は出現位置を問わず禁止し、HTML comment、CommonMark HTML block type 1〜7、inline raw HTML、autolinkも許可しない。HTML entity `&lt;` は許可する。
+  - 0〜3 spaces後のblockquote候補、0〜3 spaces後のbacktickまたはtilde 3文字以上のfence候補、非空行の4 spaces以上またはleading tabによるindented-code候補を禁止する。fenceのinfo string、opener、closer妥当性は解析せず、候補自体を拒否する。backtickまたはtilde 2文字以下は許可する。
+  - diagnosticは対象path、1-based line、classificationだけを出し、対象行全文や機密情報を複製しない。
+- Reason:
+  - raw HTML等のcontainerにより表・行の可視性が変わる抜け道を、CommonMark HTML block 7種の部分実装へ依存せずfail closedで防ぐため。
+- Boundary:
+  - 対象環境文書の内容、既存の環境表・自動操作表・Access行、M5/M6 semantics、transition bridgeの意味は変更しない。
+  - この限定profileを他のMarkdown文書へ一般化せず、必要な場合は文書ごとに別決定とfixtureを追加する。
