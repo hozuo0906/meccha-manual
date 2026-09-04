@@ -295,10 +295,7 @@ for (const path of [
     if (content.includes(term)) errors.push(`Legacy live-gate retirement must not be deferred to M6 in ${path}: ${term}`);
   }
 }
-const environmentTransitionLines = [];
-/* The pre-M5 exact-line alternatives are retired by Issue #187. */
-/*
-const retiredEnvironmentTransitionLines = [
+const environmentTransitionLines = [
   [
     "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
     "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
@@ -308,7 +305,6 @@ const retiredEnvironmentTransitionLines = [
     "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。"
   ]
 ];
-*/
 const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 for (const [oldLine, newLine] of []) {
   const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
