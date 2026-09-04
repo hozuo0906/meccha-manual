@@ -1,10 +1,8 @@
 # Phase 1 RLS Live Gate
 
-Status: Superseded
+Status: Accepted
 
-本書と `.github/workflows/phase1-rls-live.yml` は、Issue #176 M5のAccess/D1/R2 replacement gateと対応正本が同じrollback単位でmainへ着地した時点で退役したlegacy baselineである。M5の同一rollback単位で旧workflowを削除し、本書をSupersededとして保持する。同名・改名workflowの再追加はCIで拒否し、M6へ先送りしない。
-
-Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and Issue #187。以下は移行前の検証・回帰baselineとしてのみ保持し、実行、staging合格、M5証跡には使用しない。
+`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件で、既存入力だけを使って実行する。将来のIssue #176 M5では、replacement gateと対応正本の着地、旧workflow削除、runbookのSuperseded化、同名・改名workflowの再追加拒否を同じrollback単位で完了する。M6へ先送りしない。
 
 ## 目的
 
