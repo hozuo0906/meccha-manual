@@ -129,7 +129,10 @@ const required = new Map([
     "OQ-031", "path別Access Bypassを有効化しない"
   ]],
   ["docs/08-operations/phase1-rls-live-gate.md", [
-    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "同じrollback単位", "現行Accepted live gate",
+    "Status: Accepted", ".github/workflows/phase1-rls-live.yml", "Issue #176 M5", "現行Accepted live gate",
+    "将来のM5 replacement PRだけ", "M5 replacement gateと対応docsが着地する同一commit/rollback unit内",
+    "旧workflowを削除", "本runbookを `Status: Superseded` へ変更",
+    "source-of-truth checkerとworkflow checkerをcanonical存在必須からcanonical/renamed旧identityの再追加拒否へ反転",
     "## 現行実行に参照する登録済みEnvironment secrets", "owner承認済み・登録済みの既存 `staging` / test値だけを確認・利用する",
     "新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する", "owner承認済みの既存専用テストアカウント",
     "登録済みの既存一組が揃う場合だけ利用", "## 現行Accepted transitional gateの実行手順"
@@ -150,13 +153,23 @@ const required = new Map([
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みeventを黙って失わない"
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
-    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約", "M6で退役"
+    "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約",
+    "将来のM5 replacement PRだけ", "M5 replacement gateと対応docsが着地する同一commit/rollback unit内",
+    "旧workflow削除", "runbookの `Status: Superseded` 化",
+    "source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転",
+    "| Legacy Supabase | 移行前baseline。新規データ・資格情報を追加しない | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |",
+    "- 既存Supabaseは移行前baselineとし、新規ユーザー、データ、資格情報を追加しない。Issue #176 M6でruntime依存と不要資格情報を退役する。"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
-    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal", "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役"
+    "compatibility floor", "code-only rollback", "fail-closed/forward-fix", "選択的rollback rehearsal",
+    "将来のM5 replacement PRだけでworkflow本体", "replacement gateと対応docsの着地", "旧live workflow削除",
+    "runbook `Status: Superseded` 化", "source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転",
+    "同一commit/rollback unitで完了", "## M6: Supabase退役",
+    "M5原子遷移後も残るSupabase runtime参照、環境変数/binding、active docs参照を削除", "不要なSupabase資格情報の失効",
+    "旧migration/RLS harnessを履歴またはarchiveへ整理", "historical/audit evidenceを削除せず保持し、現行合格証跡として流用しない"
   ]],
   ["docs/09-delivery/session-handoff.md", [
     "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
@@ -175,8 +188,16 @@ const required = new Map([
 ]);
 
 const forbidden = new Map([
-  ["docs/08-operations/phase1-rls-live-gate.md", []],
-  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可"]],
+  ["docs/08-operations/phase1-rls-live-gate.md", ["M5着地後の退役", "旧workflowをM6で退役"]],
+  ["docs/08-operations/environments-and-delivery.md", [
+    "Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可",
+    "着地後にSupersededとしてM6で退役", "M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役"
+  ]],
+  ["docs/09-delivery/cloudflare-migration-roadmap.md", [
+    "着地後の退役と再追加防止checkを同じrollback単位で行う",
+    "M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役",
+    "旧Supabase gateのclose／supersede判断"
+  ]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
   ["docs/00-foundation/coding-guidelines.md", ["Durable ObjectsとPostgresの両方を同じ状態の正本にする。"]],
@@ -261,8 +282,8 @@ for (const [path, terms] of forbidden) {
 }
 const environmentTransitionLines = [
   [
-    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する |",
-    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5のreplacement gateと対応docsがmainへ同じrollback単位で着地した後、M6で退役する。 |"
+    "| Phase 1 RLS immutable preview gate | 現行Accepted transitional gate | owner承認済みの既存staging/test契約をcanonical workflowから実行可能 | Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、旧workflow削除、runbook Superseded化、checker反転を完了する |",
+    "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、旧workflow削除、runbook Superseded化、checker反転を完了する。 |"
   ],
   [
     "- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。",
@@ -270,6 +291,16 @@ const environmentTransitionLines = [
   ]
 ];
 const environmentTransitionSource = (contents.get("docs/08-operations/environments-and-delivery.md") ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+const requiredEnvironmentRetirementLines = [
+  "Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、将来のIssue #176 M5 replacement gateと対応docsがmainへ着地するまで維持する。将来のM5 replacement PRだけがworkflow本体、`scripts/check-workflows.mjs`、`tests/cloudflare-access-fetch.test.mjs`をscopeへ加え、M5 replacement gateと対応docsが着地する同一commit/rollback unit内で、旧workflow削除、runbookの `Status: Superseded` 化、source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転を完了する。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。",
+  "| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、旧workflow削除、runbook Superseded化、checker反転を完了する |",
+  "| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、旧workflow削除、runbook Superseded化、checker反転を完了する。 |",
+  "- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。immutable version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を確認する。現行live RLS gateはowner承認済みの既存staging/test契約をcanonical workflowから実行し、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、旧workflow削除、runbook Superseded化、checker反転を完了する。"
+];
+for (const line of requiredEnvironmentRetirementLines) {
+  const count = environmentTransitionSource.filter((candidate) => candidate === line).length;
+  if (count !== 1) errors.push(`Environment M5 retirement contract must contain the exact line once: ${line}`);
+}
 for (const [oldLine, newLine] of environmentTransitionLines) {
   const oldCount = environmentTransitionSource.filter((line) => line === oldLine).length;
   const newCount = environmentTransitionSource.filter((line) => line === newLine).length;

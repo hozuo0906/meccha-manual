@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。M5着地後の退役と同名・改名workflowの再追加拒否は、置換gateと同じrollback単位で行う。
+`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateであり、将来のIssue #176 M5 replacement gateと対応docsがmainへ着地するまで維持する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。将来のM5 replacement PRだけがworkflow本体、`scripts/check-workflows.mjs`、`tests/cloudflare-access-fetch.test.mjs`をscopeへ加え、M5 replacement gateと対応docsが着地する同一commit/rollback unit内で、旧workflowを削除し、本runbookを `Status: Superseded` へ変更し、source-of-truth checkerとworkflow checkerをcanonical存在必須からcanonical/renamed旧identityの再追加拒否へ反転する。
 
 ## 目的
 
