@@ -19,7 +19,7 @@ Status: Accepted
 | OQ-011 | データ保持期間 | ワークスペース設定、監査ログは長期 | データライフサイクル |
 | OQ-012 | 日本国外処理 | Cloudflare Access、D1、R2、Browser Runの処理・保存地域を公開前に確認し、保証できない範囲を明記 | 法務 |
 | OQ-013 | R2のデータ種別ごとの保持期間 | lifecycle ruleは作らず、契約・復旧・法務要件を確認後に決定 | R2自動削除 |
-| OQ-014 | 短命R2 URLとLive View URLの具体的TTL | 用途別の最短時間を採用し、実装前の脅威分析で決定 | URL発行実装 |
+| OQ-014 | 短命R2 URLとLive View URLの具体的TTL | 業務assetのR2 read URL選択肢はADR-0028で失効し、毎回再検証するWorker proxyに限定する。Live View URLのTTLは用途別の最短時間を実装前の脅威分析で決定 | URL発行実装 |
 | OQ-015 | 席数の数え方 | チームは有効owner/admin/editorを作成者5人に数え、viewerは50人。招待中・停止中・猶予中の扱いは実装前に固定 | Stripe/招待 |
 | OQ-016 | 未払い猶予期間とread-only移行 | 即時削除・即時締め出しはせず、顧客通知と復旧手順を含めて決定 | 課金強制 |
 | OQ-017 | 全額・一部返金時のentitlement | 返金とデータ削除を分離し、都度払いは新規再出力を停止。subscriptionの期間按分と一部返金は運用設計後に決定 | 返金自動化 |

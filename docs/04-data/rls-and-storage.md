@@ -31,7 +31,7 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 - membership作成・復帰、参加コード消費、監査追記を同一transactionで確定する。role/status変更も実変更がある場合だけappend-only監査へ追記する。
 - メンバー変更はworkspace行を最初にlockし、並行する管理操作のlock順序を統一する。
 - 認証用RPCは匿名実行を許可せず、メンバー・ロール判定RPCが照会できる対象ユーザーを`auth.uid()`に限定する。
-- ファイル本体の直接公開は禁止し、DBメタデータと署名URL発行時に権限確認する。
+- ファイル本体の直接公開は禁止し、DBメタデータと毎回Access/D1または有効な共有grantを再検証するWorker proxyで権限確認する。業務assetの直接署名URL発行、失効後の新規request、cache reuseによる迂回を許可しない。
 
 ## 補助関数
 
@@ -87,7 +87,7 @@ R2に保存するもの:
 - ファイル本体
 - 必要に応じたオブジェクトmetadata
 
-## 署名URL
+## 配信境界
 
 - WorkerがSupabase Auth sessionを検証する。
 - WorkerがPostgres/RLS相当の権限確認を行う。

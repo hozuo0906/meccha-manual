@@ -7,7 +7,7 @@ Status: Accepted
 役割:
 
 - Access: メールOTP・明示allowlistによる招待制の到達制御
-- Workers: Access JWT検証、業務API認可、Webhook、共有閲覧、署名URL発行
+- Workers: Access JWT検証、業務API認可、Webhook、共有閲覧、業務assetの毎回再検証付きWorker proxy配信（直接署名URLは発行しない）
 - D1: application identity、workspace membership/role、業務データ、ファイルメタデータ、監査ログの正本
 - Durable Objects: 操作記録セッション状態
 - Browser Run: システム内ブラウザ

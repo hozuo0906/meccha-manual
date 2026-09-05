@@ -34,7 +34,7 @@ mainへの直接push、PR自動merge、DB migration自動適用、production資�
 - [ ] staging workflowの候補SHA証跡とproduction workflowの同一SHA照合を通す。
 - [ ] Access JWT、D1 workspace negative test、D1 migration dry-run/rollback、backup/restoreを検証する。
 - [ ] review済みcandidate SHAの実immutable previewがstaging D1/R2だけをbindingし、production backendへ到達できないことを検証する。
-- [ ] R2 private、workspace越境拒否、署名URL、削除再試行、容量上限を検証する。
+- [ ] R2 private、workspace越境拒否、業務assetの毎回Access/D1再検証Worker proxy、失効後新規request拒否、削除再試行、容量上限を検証する。
 - [ ] Browser Run SSRF actual-peer/egress、session破棄、入力値非保存を検証する。
 - [ ] `BILLING_FEATURE_ENABLED=false`、AI API OFF、共有リンクdefault OFFを再確認する。
 - [ ] 最新head SHAのCodex Review、P0/P1 0件、P2対応記録、unresolved thread 0件、全CI成功を確認する。

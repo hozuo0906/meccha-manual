@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-ADR-0028により、認証主体をCloudflare Access、ファイルmetadataと権限の正本をD1へ置換する。private R2、Worker経由配信、adapter境界、短命URLの原則は維持する。
+ADR-0028により、認証主体をCloudflare Access、ファイルmetadataと権限の正本をD1へ置換する。private R2、Worker経由配信、adapter境界は維持する。業務assetの直接presigned/短命URL read選択肢は部分Supersededとし、毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。
 
 ## 決定
 
@@ -36,7 +36,7 @@ Cloudflare R2はCloudflare Worker、Browser Runと同じ実行基盤側で扱え
 ## リスク
 
 - R2はD1のworkspace認可を直接適用できないため、Workerが検証済みAccess identityとactive membership/roleを毎回照合する。
-- Worker側の署名URL発行と権限確認を誤ると情報漏えいになる。
+- Worker proxyの毎回再検証と権限確認を誤ると情報漏えいになる。失効後の新しいrequestとcache迂回は拒否する。
 - object keyとDBメタデータの不整合を掃除する仕組みが必要。
 
 ## 対策
