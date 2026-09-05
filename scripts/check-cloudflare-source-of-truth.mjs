@@ -464,7 +464,7 @@ function findM5RetirementContradiction(line) {
 }
 function findM5EmbeddedTargetContradiction(line, identityPatterns = []) {
   const normalizedLine = normalizePredicateText(line);
-  const embeddedPattern = /M6\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)(.{1,120}?)(?:廃止|退役|削除|維持|残す|先送り|持(?:ち)?越(?:す|し))/gi;
+  const embeddedPattern = /M(?:[6-9]|[1-9]\d+)\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)(.{1,120}?)(?:廃止|退役|削除|維持|残す|先送り|持(?:ち)?越(?:す|し))/gi;
   for (const match of normalizedLine.matchAll(embeddedPattern)) {
     const embeddedTarget = match[1].replace(/^\s*の\s*/, "");
     const actionTimingOverride = /(?:\bM[0-5]\b\s*(?:で|に)|今すぐ|直ちに)\s*(?:を|は)?\s*$/.test(match[1]);
@@ -725,6 +725,9 @@ for (const line of ["M6で、旧workflowを削除する。", "M6まで、旧work
 }
 if (!findM5CarrierContradiction(["M7で、", "旧workflowを削除する。"])) {
   errors.push("M5 later standalone timing fixture failed.");
+}
+if (!findM5CarrierContradiction(["M7で対象となる旧workflowを削除する。"])) {
+  errors.push("M5 later embedded target fixture failed.");
 }
 for (const line of ["M6で旧workflowを削除する。", "M6で旧workflow（M5まで現行）を削除する。", "M6以降に旧workflowを削除する。", "M6以降、旧workflowを削除する。", "M6へ旧workflowを持ち越す。", "M6へ旧workflowを先送りする。", "旧workflowの削除をM6以降、行う。"]) {
   if (!findM5CarrierContradiction([line])) errors.push(`M5 target-order fixture failed: ${line}`);
@@ -1015,6 +1018,15 @@ const m5CarrierEntries = [
     prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
     exact: true,
     terms: ["#95", "旧Supabase live gate", "Superseded"],
+    forbiddenTerms: []
+  },
+  {
+    name: "issue-map Issue 38 baseline live-run policy",
+    path: "docs/09-delivery/issue-map.md",
+    scope: "## EPIC-02: 認証とワークスペース",
+    prefix: "- GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。移行前baselineとして保持し、新規Supabase test userは追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。実アカウントE2EはIssue #176 M3/M5のAccess/D1経路へ継承する。PR #175でAccess保護immutable preview用repo-side経路をmainへ取り込み済みで、`staging` EnvironmentのAccess secretsとAccess外部設定も完了した。",
+    exact: true,
+    terms: ["Issue #38", "移行前baseline", "新規Supabase test user", "live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する"],
     forbiddenTerms: []
   }
 ];
