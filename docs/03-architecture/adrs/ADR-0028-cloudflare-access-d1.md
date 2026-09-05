@@ -24,6 +24,8 @@ Status: Accepted
 
 Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、expiration、issued-at、token typeを検証し、not-beforeはclaimが存在する場合に検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけで人間の業務主体を判定しない。正規のservice-token application tokenは `nbf` を持たない場合があるため、`nbf` の欠落だけでは拒否しない。
 
+M1では、設定済みのHTTPS issuer／JWKS URLだけを信頼し、`jku` などJWT内の鍵URLを参照しない。`RS256`、署名、issuer、audience、exp、iat、typeを必須として検証し、存在するnbfだけを検証する。検証後はactorを明示的なdiscriminated unionへ分類し、`access_user`のissuer+subjectだけをD1 identity repositoryへ渡す。`service_token`は厳密なshapeを満たすmachine actorとして明示allowlistのhealth routeだけで受理し、identity lookupは行わない。OQ-029はこの境界でAcceptedとし、bootstrap／relinkとemail由来のidentity作成は無効のままM2／M3へ送る。
+
 Accessはアプリへの到達可否を制御し、D1はアプリ内の招待、profile、workspace membership、role、statusを管理する。Accessへログインできても、activeな招待またはworkspace membershipがなければ業務APIを拒否する。
 
 アプリ独自のpassword、password hash、refresh tokenをD1、KV、R2、Cookie、ログへ保存しない。ブラウザJavaScriptへAccess JWTを複製しない。

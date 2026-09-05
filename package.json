@@ -31,6 +31,7 @@
     "workflows:check": "node scripts/check-workflows.mjs",
     "test:rls": "node scripts/rls-negative-test.mjs",
     "test:cloudflare-access": "node --test tests/cloudflare-access-fetch.test.mjs",
+    "test:access-identity": "node --experimental-strip-types --test tests/access-identity.test.mjs",
     "test:phase2": "node scripts/phase2-smoke-test.mjs",
     "notify:discord": "node scripts/discord-notify.mjs",
     "notify:discord:dry-run": "node scripts/discord-notify.mjs --dry-run",
@@ -55,7 +56,7 @@
     "secrets:test": "node --test tests/sensitive-values.test.mjs",
     "secrets:check": "node scripts/check-sensitive-values.mjs",
     "encoding:check": "node scripts/check-encoding.mjs",
-    "check": "npm run docs:check && npm run brand:check && npm run worker:check && npm run worker:typecheck && npm run worker:bundle:check && npm run worker:runtime:test && npm run worker:runtime:mutation:test && npm run capture:test && npm run browser-run:egress:test && npm run browser-run:egress:check && npm run app:auth:test && npm run phase1:a11y:check && npm run phase1:a11y:test && npm run test:cloudflare-access && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run phase2:manual-core:preflight && npm run phase2:manual-core:evidence-verdict:test && npm run phase2:manual-core:status:test && npm run phase2:manual-core:timestamp:test && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run runtime-boundary:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run business-os-runner:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run cloudflare-source-of-truth:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check",
+    "check": "npm run docs:check && npm run brand:check && npm run worker:check && npm run worker:typecheck && npm run worker:bundle:check && npm run worker:runtime:test && npm run worker:runtime:mutation:test && npm run capture:test && npm run browser-run:egress:test && npm run browser-run:egress:check && npm run app:auth:test && npm run phase1:a11y:check && npm run phase1:a11y:test && npm run test:cloudflare-access && npm run test:access-identity && npm run workflows:check && npm run migrations:check && npm run migration:safety:check && npm run test:phase1-migration-bundle && npm run harness:check && npm run phase2:manual-core:preflight && npm run phase2:manual-core:evidence-verdict:test && npm run phase2:manual-core:status:test && npm run phase2:manual-core:timestamp:test && npm run notify:discord:check && npm run discord:register-command:check && npm run cloudflare:audit:check && npm run runtime-boundary:check && npm run issue-labels:check && npm run issue-intake:check && npm run issue-codex:check && npm run business-os-runner:check && npm run quality-loop:check && npm run r2-storage:check && npm run test:r2-storage && npm run phase1-readiness:check && npm run codex-cloud:check && npm run environment-separation:check && npm run cloudflare-source-of-truth:check && npm run pr-quality:check && npm run secrets:test && npm run secrets:check && npm run encoding:check",
     "business-os-runner:check": "node scripts/check-business-os-runner.mjs",
     "phase2:manual-core:preflight": "node scripts/check-phase2-manual-core-preflight.mjs",
     "phase2:manual-core:evidence-verdict:test": "node --test tests/phase2-manual-core-preflight-evidence-verdict.test.mjs",
@@ -68,5 +69,8 @@
     "parse5": "^8.0.0",
     "typescript": "7.0.2",
     "wrangler": "4.121.0"
+  },
+  "dependencies": {
+    "jose": "6.2.12"
   }
 }
