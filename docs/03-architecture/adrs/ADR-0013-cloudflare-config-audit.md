@@ -41,6 +41,12 @@ Codex実行環境がCloudflare Dashboardへ未ログインの場合、Workerのs
 - `wrangler.jsonc` にKV binding IDを固定するための材料を、secretを漏らさず取得できる。
 - workflowが失敗した場合は、Worker secrets、KV namespace、Discord allowlist、GitHub Secretsのどれが不足しているかを先に確認する。
 
+## 2026-09-05 read-only診断への改訂
+
+Cloudflare Access / Workers / D1移行方針（ADR-0028）に合わせ、監査を実環境のread-only診断として改訂する。Cloudflare APIのhostとGET endpointをscript内で固定し、Worker設定・binding、Worker secretの取得可否と必須件数、D1/R2/Access applicationの件数を確認する。Worker inputは狭い形式に検証し、redirectを追跡せず、timeoutとresponse上限を適用する。
+
+出力は固定ラベル、状態、件数、許可済みbindingのNAME/種類に限定する。API token、account ID、resource ID、secret値、email、policy内容、response body、実URL、生エラーはログ、summary、artifactへ出さない。Discord通知、resourceの作成・更新・削除、deploy、DB query、secret値取得、Access policy変更は行わない。診断成功は移行・staging合格・alpha完成の判定へ流用しない。
+
 ## References
 
 - `scripts/cloudflare-config-audit.mjs`
