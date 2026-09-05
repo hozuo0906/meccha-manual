@@ -1224,7 +1224,7 @@ const issue182FencingTerms = [
   "sink側で重複を拒否", "single-writer境界", "決定的correlation markerによるoutcome reconciliation",
   "未知結果のまま同じeffectを自動再送せず", "D1 preflight/searchだけを二重実行防止の根拠にしない",
   "CAS成功後停止・lease takeover・旧worker復帰", "expired/old generation worker", "dispatcher/single-writer境界",
-  "sink callを最大1系統", "二重Issue・二重entitlement・二重課金"
+  "sink callを最大1系統", "二重Issue・二重entitlement・二重課金", "store/coordinator選択はIssue #176 M2"
 ];
 function issue182ScopedSection(path) {
   if (path === "docs/05-api/cloudflare-access-d1-api.md") {
@@ -1248,12 +1248,14 @@ for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/
 }
 for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/acceptance-catalog.md", "docs/07-quality/test-strategy.md"]) {
   const original = contents.get(path) ?? "";
-  const mutated = original.replace("stable idempotency/correlation key", "") + "\n\nfixture relocated stable idempotency/correlation key";
-  contents.set(path, mutated);
-  const scoped = issue182ScopedSection(path);
-  contents.set(path, original);
-  if (!issue182FencingTerms.filter((term) => !scoped.includes(term)).includes("stable idempotency/correlation key")) {
-    errors.push(`Issue #182 scoped fixture failed to detect a relocated key term in ${path}`);
+  for (const fixtureTerm of ["stable idempotency/correlation key", "store/coordinator選択はIssue #176 M2"]) {
+    const mutated = original.replace(fixtureTerm, "") + `\n\nfixture relocated ${fixtureTerm}`;
+    contents.set(path, mutated);
+    const scoped = issue182ScopedSection(path);
+    contents.set(path, original);
+    if (!issue182FencingTerms.filter((term) => !scoped.includes(term)).includes(fixtureTerm)) {
+      errors.push(`Issue #182 scoped fixture failed to detect a relocated term in ${path}: ${fixtureTerm}`);
+    }
   }
 }
 
