@@ -1,8 +1,14 @@
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
-import { inspectSupabaseConfig, type SupabaseBindings } from "./server-config.ts";
+import { AccessIdentityError, authenticateApplicationRequest, type ApplicationIdentityRepository } from "./access-identity.ts";
+import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
+import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
+import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
+import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
+import { inspectAccessConfig, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
 
-interface Env extends SupabaseBindings {
+interface Env extends SupabaseBindings, AccessBindings {
+  DB?: D1DatabaseLike;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
@@ -245,6 +251,142 @@ function errorResponse(error: unknown): Response {
     code: "INTERNAL_ERROR",
     message: "予期しないエラーが発生しました。"
   }, { status: 500 });
+}
+
+function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code"): AppError {
+  if (!(error instanceof D1RepositoryError)) {
+    return new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+  }
+  if (error.code === "limit_exceeded") {
+    return new AppError(409, "WORKSPACES_LIMIT_EXCEEDED", "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
+  }
+  if (error.code === "invalid_input") {
+    return new AppError(400, operation === "create_workspace" ? "WORKSPACE_INPUT_INVALID" : "REQUEST_INVALID", "入力内容を確認してください。");
+  }
+  if (error.code === "conflict") {
+    return new AppError(409, operation === "join_code" ? "JOIN_CODE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
+  }
+  if (error.code === "forbidden" || error.code === "not_found") {
+    return new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  return new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+}
+
+function mapAccessIdentityError(error: unknown): AppError {
+  if (error instanceof AccessIdentityError) {
+    return new AppError(error.status, error.code, error.message);
+  }
+  return new AppError(503, "ACCESS_IDENTITY_UNAVAILABLE", "認証サービスを利用できません。時間をおいて、もう一度お試しください。");
+}
+
+function useAccessD1Routes(env: Env): boolean {
+  const access = inspectAccessConfig(env);
+  return access.hasIssuer || access.hasAudience || access.hasJwksUrl;
+}
+
+interface D1RouteContext {
+  actorId: string;
+  repository: D1WorkspaceRepository;
+}
+
+function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
+  if (env.DB) return new D1IdentityRepository(env.DB);
+  return {
+    async findByIssuerAndSubject() {
+      throw new D1RepositoryError("unavailable");
+    }
+  };
+}
+
+async function authenticateD1User(request: Request, env: Env): Promise<D1RouteContext> {
+  let auth;
+  try {
+    auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
+  } catch (error) {
+    if (error instanceof D1RepositoryError) throw d1ErrorResponse(error, "profile");
+    throw mapAccessIdentityError(error);
+  }
+  if (auth.kind !== "application_user") {
+    throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  if (!env.DB) {
+    throw new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+  }
+  return { actorId: auth.identity.applicationId, repository: new D1WorkspaceRepository(env.DB) };
+}
+
+function apiWorkspaceSummary(workspace: Awaited<ReturnType<D1WorkspaceRepository["listWorkspaces"]>>[number]): WorkspaceSummary {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    status: workspace.status === "deleted" ? "suspended" : workspace.status,
+    created_at: workspace.createdAt
+  };
+}
+
+function apiProfile(profile: ProfileRecord | null): unknown {
+  if (!profile) return null;
+  return {
+    id: profile.applicationId,
+    display_name: profile.displayName,
+    locale: profile.locale,
+    timezone: profile.timezone
+  };
+}
+
+async function getD1Session(request: Request, env: Env): Promise<Response> {
+  const { actorId, repository } = await authenticateD1User(request, env);
+  try {
+    const [profile, workspaces] = await Promise.all([
+      repository.getProfile(actorId),
+      repository.listWorkspaces(actorId)
+    ]);
+    return jsonResponse({
+      user: { id: actorId },
+      profile: apiProfile(profile),
+      workspaces: workspaces.map(apiWorkspaceSummary)
+    });
+  } catch (error) {
+    throw d1ErrorResponse(error, "profile");
+  }
+}
+
+async function listD1Workspaces(request: Request, env: Env): Promise<Response> {
+  const { actorId, repository } = await authenticateD1User(request, env);
+  try {
+    return jsonResponse({ workspaces: (await repository.listWorkspaces(actorId)).map(apiWorkspaceSummary) });
+  } catch (error) {
+    throw d1ErrorResponse(error, "workspaces");
+  }
+}
+
+async function createD1Workspace(request: Request, env: Env): Promise<Response> {
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ name?: unknown; slug?: unknown }>(request);
+  if (typeof body.name !== "string" || typeof body.slug !== "string") {
+    throw new AppError(400, "WORKSPACE_INPUT_INVALID", "ワークスペース名とURL用IDを文字で入力してください。");
+  }
+  try {
+    const workspace = await repository.createWorkspace(actorId, { name: body.name, slug: body.slug } satisfies CreateWorkspaceInput, new Date().toISOString());
+    return jsonResponse({ workspaceId: workspace.id }, { status: 201 });
+  } catch (error) {
+    throw d1ErrorResponse(error, "create_workspace");
+  }
+}
+
+async function createD1WorkspaceJoinCode(request: Request, env: Env): Promise<Response> {
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<Record<string, unknown>>(request);
+  if (Object.keys(body).length !== 0) {
+    throw new AppError(400, "JOIN_CODE_INPUT_INVALID", "参加コードの発行には空のJSONを送信してください。");
+  }
+  try {
+    const result = await repository.issueJoinCode(actorId, new Date().toISOString());
+    return jsonResponse({ joinCode: result.code, expiresAt: result.expiresAt }, { status: 201 });
+  } catch (error) {
+    throw d1ErrorResponse(error, "join_code");
+  }
 }
 
 async function readBodyTextLimited(
@@ -1982,16 +2124,23 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (request.method === "GET" && url.pathname === "/health") return basicHealth();
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(env);
-  if (request.method === "GET" && url.pathname === "/api/session") return getSession(request, env);
+  if (request.method === "GET" && url.pathname === "/api/session") {
+    return useAccessD1Routes(env) ? getD1Session(request, env) : getSession(request, env);
+  }
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout(request, env);
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
+    if (useAccessD1Routes(env)) return listD1Workspaces(request, env);
     const session = await requireSession(request, env);
     return jsonResponse({ workspaces: await fetchWorkspaces(env, session.accessToken) }, undefined, session.responseCookies);
   }
-  if (request.method === "POST" && url.pathname === "/api/workspaces") return createWorkspace(request, env);
-  if (request.method === "POST" && url.pathname === "/api/member-join-code") return createWorkspaceJoinCode(request, env);
+  if (request.method === "POST" && url.pathname === "/api/workspaces") {
+    return useAccessD1Routes(env) ? createD1Workspace(request, env) : createWorkspace(request, env);
+  }
+  if (request.method === "POST" && url.pathname === "/api/member-join-code") {
+    return useAccessD1Routes(env) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
+  }
   if (request.method === "GET" && workspaceMembersMatch?.[1]) {
     return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
   }
