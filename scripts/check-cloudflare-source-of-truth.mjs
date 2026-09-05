@@ -1232,7 +1232,8 @@ function issue182ScopedSection(path) {
   }
   const content = contents.get(path) ?? "";
   if (path === "docs/07-quality/acceptance-catalog.md") {
-    return content.split(/\r?\n/).find((line) => line.startsWith("| AC-027 |")) ?? "";
+    const row = content.split(/\r?\n/).find((line) => line.startsWith("| AC-027 |")) ?? "";
+    return row.split("|")[4] ?? "";
   }
   if (path === "docs/07-quality/test-strategy.md") {
     return content.split(/\r?\n/).find((line) => line.startsWith("- Access callback境界。")) ?? "";
@@ -1246,9 +1247,13 @@ for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/
   }
 }
 for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/acceptance-catalog.md", "docs/07-quality/test-strategy.md"]) {
-  const section = issue182ScopedSection(path).replace("stable idempotency/correlation key", "");
-  if (!issue182FencingTerms.filter((term) => !section.includes(term)).includes("stable idempotency/correlation key")) {
-    errors.push(`Issue #182 scoped fixture failed to detect a missing key term in ${path}`);
+  const original = contents.get(path) ?? "";
+  const mutated = original.replace("stable idempotency/correlation key", "") + "\n\nfixture relocated stable idempotency/correlation key";
+  contents.set(path, mutated);
+  const scoped = issue182ScopedSection(path);
+  contents.set(path, original);
+  if (!issue182FencingTerms.filter((term) => !scoped.includes(term)).includes("stable idempotency/correlation key")) {
+    errors.push(`Issue #182 scoped fixture failed to detect a relocated key term in ${path}`);
   }
 }
 
