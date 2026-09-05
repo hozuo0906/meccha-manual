@@ -347,6 +347,16 @@ const m5ScopedForbiddenEntries = [
     path: "docs/09-delivery/decision-log.md",
     scope: "## DEC-064:",
     terms: ["M6で退役", "M6で削除", "M6へ持ち越す", "M6への持越しを許可"]
+  },
+  {
+    name: "phase1 runbook retirement contradiction",
+    path: "docs/08-operations/phase1-rls-live-gate.md",
+    terms: ["M5後も旧workflowの削除はM6へ持ち越す。", "旧workflowはM6で削除する。", "旧workflowはM6で退役する。"]
+  },
+  {
+    name: "session handoff retirement contradiction",
+    path: "docs/09-delivery/session-handoff.md",
+    terms: ["M5後も旧workflowの削除はM6へ持ち越す。", "旧workflowはM6で削除する。", "旧workflowはM6で退役する。"]
   }
 ];
 for (const { name, path, scope, terms } of m5ScopedForbiddenEntries) {
