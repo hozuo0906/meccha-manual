@@ -9,37 +9,30 @@ Codex実行環境がCloudflare Dashboardへ未ログインの場合、Workerのs
 
 ## Decision
 
-`Cloudflare Config Audit` workflowを追加し、Cloudflare Workerの設定監査をGitHub Actionsから実行する。
+`Cloudflare Config Audit` workflowを追加し、Cloudflare APIのread-only設定診断をGitHub Actionsから実行する。
 
 監査対象:
 
-- Worker secret名の存在
-- KV namespace一覧
-- `/health/config` のDiscord bridge設定有無
-- Discord通知への日本語所感
+- Worker設定・bindingの取得可否と件数
+- Worker secret一覧の取得可否と必須secret件数
+- D1 database、R2 bucket、Access applicationの一覧取得可否と件数
+- 401、403、404、timeout、network failureなどの安全な状態分類
 
-監査で出してよい情報:
+診断で出してよい情報:
 
-- Worker名
-- health URL
-- secret名
-- KV namespace title
-- KV namespace ID
-- runtime設定の有無
+- 固定ラベル、状態、件数
+- 許可済みbindingのNAMEと種類
 
 出してはいけない情報:
 
-- secret値
-- token値
-- Discord Webhook URL
-- 実ユーザーの入力内容
-- 操作ログ全文
+- secret値、API token、account ID、resource ID
+- email、Access policy内容、response body、実URL、生エラー
+- Discord通知
 
 ## Consequences
 
-- Cloudflare Dashboardへ毎回ユーザーが入らなくても、Actions SummaryとDiscordで設定状態を確認できる。
-- `wrangler.jsonc` にKV binding IDを固定するための材料を、secretを漏らさず取得できる。
-- workflowが失敗した場合は、Worker secrets、KV namespace、Discord allowlist、GitHub Secretsのどれが不足しているかを先に確認する。
+- Cloudflare Dashboardへ毎回ユーザーが入らなくても、Actions Summaryとartifactで設定状態を確認できる。
+- workflowが失敗した場合は、出力された固定状態分類を手掛かりに外部設定を確認する。
 
 ## 2026-09-05 read-only診断への改訂
 
