@@ -818,6 +818,7 @@ function documentLines(path) {
       return "";
     }
     const visibleLine = removeHtmlCommentSpans(line);
+    const wasBlockquoted = /^\s*>/.test(visibleLine);
     const unquotedLine = visibleLine.replace(/^(?: {0,3}>\s?)+/, "");
     const normalizedIndentedLine = unquotedLine.replace(/^(?:(?: {4,}|\t+))(?=(?:[-*+]|\d+[.)])\s+)/, "");
     if (/^(?: {4}|\t)/.test(normalizedIndentedLine)) return "";
@@ -828,7 +829,8 @@ function documentLines(path) {
       fenceMarker = marker;
       return "";
     }
-    return fenceMarker === null ? normalizedIndentedLine : "";
+    if (fenceMarker !== null) return "";
+    return wasBlockquoted && /^#{1,6}\s/.test(normalizedIndentedLine) ? `\u0001${normalizedIndentedLine}` : normalizedIndentedLine;
   });
 }
 function sectionLines(path, sectionPrefix, anchored = false) {
@@ -936,7 +938,7 @@ const m5CarrierEntries = [
     path: "docs/09-delivery/cloudflare-migration-roadmap.md",
     scope: "## 現在地",
     prefix: "- 現行AcceptedのSupabase RLS live gate workflow",
-    terms: ["現行AcceptedのSupabase RLS live gate workflow", "Issue #176 M5のAccess/D1/R2置換gate", "同じrollback単位", "新規Supabase test user", "資格情報", "live run"]
+    terms: ["現行AcceptedのSupabase RLS live gate workflow", "Issue #176 M5のAccess/D1/R2置換gate", "同じrollback単位", "新規Supabase test user", "資格情報", "live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する"]
   },
   {
     name: "roadmap M0 live-workflow M5 safety",
