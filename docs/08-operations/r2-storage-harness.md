@@ -53,7 +53,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - bucket名は `wrangler.jsonc` の環境別bindingにだけ置き、環境変数へ重複保持しない。
 - Cloudflare R2 binding名は `CAPTURE_ASSETS`、`MANUAL_ASSETS`、`EXPORTS`、`AVATARS` に固定する。
 - secret、共有トークン、個人情報、入力値、実ユーザーの操作内容をR2 metadataへ入れない。
-- 短命URL自体をDBや監査ログへ保存しない。
+- 配信URL自体をDBや監査ログへ保存しない。
 - object keyへ元ファイル名、画面タイトル、メールアドレスなどのPII/機密情報を入れない。
 
 ## 削除と保持
@@ -75,7 +75,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - R2方針docsが存在する。
 - binding名が固定されている。
 - staging/production bucket名が固定されている。
-- bucket公開禁止、Worker経由、D1 assetsメタデータ、短期署名URL方針が文書化されている。
+- bucket公開禁止、毎回Access/D1を再検証するWorker proxy、D1 assetsメタデータ、cache reuse禁止方針が文書化されている。
 - 削除順序、保持期間未決時の扱い、PII/機密情報禁止が文書化されている。
 - `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。

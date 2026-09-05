@@ -145,6 +145,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 未認証health拒否、Access付きhealthのstaging境界一致、同一originへのRLS E2Eを順に検証し、redirect、別origin、HTTP、資格情報欠落はfail closedにする。
   - preview URL、Worker version ID、外部ID、テストデータ識別子、資格値、個人情報をログ、artifact、summary、Issue、PR、文書へ記録しない。
   - production trafficとactive deploymentは変更せず、Issue #92のbackend分離negative proofとmain merge holdは継続する。
+  - 上記main merge holdのうちIssue #92由来のblanket部分は後続DEC-064で失効し、Access deny-by-default等のその他保護は維持する。
 - Reason:
   - 公開previewを閉じたままではimmutable versionを必要とする正式RLS gateが成立しないため、non-production branch自動buildを停止し、`main`は非promoteのversion upload、live gateはAccess保護された明示uploadに限定する。
 - Boundary:
@@ -169,7 +170,6 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
   - DEC-051のSupabase／PostgREST応答としての上限契約。
   - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
-- Supersedes:
   - DEC-063のIssue #92由来blanket main merge holdだけを失効させる。Access deny-by-default、non-production build停止、version upload-only、fail closed、production非変更、秘密値非記録はPreservesとして維持する。
 - Preserves:
   - DEC-034のstaging／production資源分離。

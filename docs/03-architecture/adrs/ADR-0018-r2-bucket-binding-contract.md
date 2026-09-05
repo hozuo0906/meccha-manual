@@ -45,7 +45,7 @@ ADR-0028により、R2の認証・metadata境界をSupabase Auth/Postgres/RLSか
 
 - bucketはprivateとし、公開カスタムドメインを直接割り当てない。
 - Workerは検証済みAccess user identityとD1メタデータの `workspace_id`、削除状態、active membership/roleを検証する。
-- 検証後にWorker proxyまたは短命URLを発行する。URLの有効期限、対象object、用途を限定し、URLそのものをDB・監査ログへ保存しない。
+- 業務assetのreadは、権限確認後も毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy限定で配信する。ブラウザへR2の短期署名read URLを配らず、保護応答を共有cacheへ流さない。
 - 共有リンクが将来有効でも、共有トークンの検証と失効確認をWorkerで行い、R2 objectを直接公開しない。
 
 ## 削除・保持・機密情報

@@ -36,7 +36,7 @@ const requiredTerms = [
   "bucket自体はpublicにしない",
   "Worker経由",
   "D1 assetsメタデータ",
-  "短期署名URL",
+  "cache reuse",
   "保持期間",
   "PII",
   "resource_id",
