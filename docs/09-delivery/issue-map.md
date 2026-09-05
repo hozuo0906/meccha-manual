@@ -2,6 +2,31 @@
 
 Status: Accepted
 
+## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行
+
+親Issue: GitHub Issue #176
+
+正本:
+
+- ADR-0028
+- `docs/09-delivery/cloudflare-migration-roadmap.md`
+- `docs/04-data/d1-and-storage.md`
+- `docs/05-api/cloudflare-access-d1-api.md`
+
+順序:
+
+1. M0 正本移行
+2. M1 Access identity spike
+3. M2 D1 workspace boundary
+4. M3 Phase 1移行
+5. M4 Phase 2 manual移行
+6. M5 staging統合実証
+7. M6 Supabase退役
+8. M7 production準備
+
+EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。
+
+
 ## EPIC-00: 文書正本
 
 目的: 実装前の迷いをなくす。
@@ -26,16 +51,18 @@ Status: Accepted
 
 ## EPIC-02: 認証とワークスペース
 
-Phase 1親Issue: GitHub Issue #32
+Phase 1旧実装親Issue: GitHub Issue #32
+
+この節のSupabase/RLS経路はIssue #176 M3で置換する移行前baselineである。
 
 Phase 1実装Issue:
 
 - GitHub Issue #33 / P1-01 認証状態: SCR-LOGIN、HttpOnly Cookie、ログイン、ログアウト、期限切れ、再ログイン、401と接続障害の分離。対象ACはAC-001、AC-003、AC-004、AC-005。
 - GitHub Issue #34 / P1-02 ワークスペース: SCR-WORKSPACE、一覧、選択、`create_workspace`、空/読込/作成/失敗状態。対象ACはAC-002、AC-006、AC-012。
 - GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
-- GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。実アカウントE2EはIssue #79へ継承し、Draft PR #174でAccess保護immutable preview用repo-side経路を整備中。`staging` EnvironmentのAccess secretsとAccess外部設定は完了した。専用RLSテストユーザー4項目とlive runは未完了。
+- GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。移行前baselineとして保持し、新規Supabase test userは追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。実アカウントE2EはIssue #176 M3/M5のAccess/D1経路へ継承する。PR #175でAccess保護immutable preview用repo-side経路をmainへ取り込み済みで、`staging` EnvironmentのAccess secretsとAccess外部設定も完了した。
 
-リポジトリには認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runが未完了のため合格扱いにしない。招待メールは実装せず、参加コードの平文はStorage、URL、ログへ保存しない。
+リポジトリには移行前baselineとして、Supabase認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runを完了していないため、過去経路の合格証跡にはしない。新規Supabase test userは追加せず、同じ越境拒否・last-owner・停止member要件をIssue #176 M3/M5のAccess/D1 negative testへ継承する。旧参加コード経路は移行まで平文をStorage、URL、ログへ保存しない。
 
 ## EPIC-03: アプリシェル
 
@@ -48,8 +75,8 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 
 外部設定Issue:
 
-- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Supabase project/anon roleはリポジトリ側quality gateで固定する。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
-- GitHub Issue #92: Cloudflare Git integrationのnon-production branch buildは無効化し、`main`はversion uploadだけでactive deploymentへ自動promoteしない。RLS用immutable previewはAccess deny-by-default、Cloudflare account members、preview専用service tokenで保護済み。repo-side契約はDraft PR #174で整備中。専用RLSテストユーザー4項目、live run、backend分離negative proofは未完了であり、main merge holdを維持する。
+- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Access application/audience/policyとstaging D1/R2/Worker bindingはIssue #176 M5のboundary gateで固定し、productionと共有しない。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
+- GitHub Issue #92: non-production branch build停止、`main`のversion upload-only、Access保護は完了し、Issueはcompleted close済みである。これらの保護を維持しつつ、Access/D1/R2移行後の実preview分離はIssue #176 M5の独立migration gateで検証する。これは#92由来のblanket main merge holdを復活させるものではない。
 
 ## EPIC-04: Browser Run
 
@@ -69,6 +96,8 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - 下書き生成
 
 ## EPIC-06: 手順書編集
+
+既存Postgres RPC/RLS実装はIssue #176 M4でD1 transaction/queryへ置換する移行前baselineとする。
 
 - 手順書一覧
 - エディタ
@@ -132,7 +161,7 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 ## EPIC-13: リリース品質
 
 - E2E
-- RLS negative test
+- Access JWT、Worker認可、workspace固定D1 query／制約negative・mutation test（旧RLSは移行baseline変更時だけ）
 - 負荷
 - 障害注入
 - 可観測性

@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+本書は移行前Supabase/Postgres/RLSの暫定Accepted test契約であり、canonical `.github/workflows/phase1-rls-live.yml` からowner承認済みの既存staging/test契約と既存資格情報に限定して実行する。M5 replacement gateと対応正本が同じrollback単位でmainへ着地するまでAcceptedとして維持し、手動無秩序実行、新規環境、production実行、新規project・migration・資格情報追加は禁止する。
+
 ## Purpose
 
 Phase 1の品質ゲートとして、別ユーザーが他ワークスペースのデータを読めないことに加え、匿名RPC、owner/admin/editor/viewerの権限境界、所有境界フィールドの改変拒否、最後のowner保護を確認する。

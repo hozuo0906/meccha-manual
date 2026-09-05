@@ -1,6 +1,8 @@
 # ADR-0004: Supabase Auth/Postgres/RLSを採用する
 
-Status: Accepted
+Status: Superseded
+
+Superseded by [ADR-0028](ADR-0028-cloudflare-access-d1.md)。以下は移行前の判断記録として保持する。
 
 ## 決定
 

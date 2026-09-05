@@ -2,10 +2,12 @@
 
 Status: Accepted
 
+ADR-0028により、認証主体をCloudflare Access、ファイルmetadataと権限の正本をD1へ置換する。private R2、Worker経由配信、adapter境界は維持する。業務assetの直接presigned/短命URL read選択肢は部分Supersededとし、毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。
+
 ## 決定
 
 `めっちゃマニュアル` のスクリーンショット、手順書画像、PDF/HTML出力、avatarなどのファイル本体はCloudflare R2を第一候補にする。
-SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする。
+Cloudflare Accessを認証前段、D1を業務データ・ファイルメタデータ・権限の正本とし、Workerで認可する。
 
 ## 背景
 
@@ -25,7 +27,7 @@ Cloudflare R2はCloudflare Worker、Browser Runと同じ実行基盤側で扱え
 
 - Supabase Storage bucketは初期作成しない。
 - R2 bucketはstaging/production分離後、外部設定の承認を得て作成する。
-- PostgresにはR2 object key、content type、byte size、checksum、作成者、workspace_id、削除状態を保存する。
+- D1にはR2 object key、content type、byte size、checksum、作成者、workspace_id、削除状態を保存する。
 - ファイル配信はWorker経由で権限確認する。
 - bucket自体はpublicにしない。
 - `wrangler.jsonc` のR2 bindingはbucket作成後に追加する。
@@ -33,13 +35,13 @@ Cloudflare R2はCloudflare Worker、Browser Runと同じ実行基盤側で扱え
 
 ## リスク
 
-- R2はSupabase RLSを直接使えない。
-- Worker側の署名URL発行と権限確認を誤ると情報漏えいになる。
+- R2はD1のworkspace認可を直接適用できないため、Workerが検証済みAccess identityとactive membership/roleを毎回照合する。
+- Worker proxyの毎回再検証と権限確認を誤ると情報漏えいになる。失効後の新しいrequestとcache迂回は拒否する。
 - object keyとDBメタデータの不整合を掃除する仕組みが必要。
 
 ## 対策
 
-- ファイル参照は必ずPostgresメタデータを経由する。
-- WorkerはSupabase sessionとworkspace権限を確認してから配信する。
+- ファイル参照は必ずD1メタデータを経由する。
+- Workerは検証済みAccess user identity、D1のactive membership/role、resource workspaceを確認してから配信する。
 - 削除はDBメタデータを先にsoft deleteし、非同期でR2 objectを削除する。
-- 監査ログにファイル作成、閲覧URL発行、削除を記録する。
+- 監査ログにファイル作成、認可済みWorker proxy閲覧、削除を記録する。配信URL自体は保存しない。

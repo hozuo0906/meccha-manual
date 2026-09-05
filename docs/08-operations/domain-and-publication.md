@@ -27,7 +27,7 @@ Status: Accepted
 
 1. `meccha-iiyatsu.com`をCloudflareのactive zoneとして確認する。
 2. `meccha-iiyatsu-web` Workerを`wrangler.brand.jsonc`から作成し、まず`workers.dev` previewで3ページ、404、header、mobile表示を確認する。
-3. `meccha-manual-prod` Workerをproduction用Supabase/Secret/bindingで作成し、`workers.dev`で認証・RLS・メール導線を検証する。
+3. 別承認後にだけproduction専用Access application/audience/policy/session、D1、R2、`meccha-manual-prod` Workerを物理分離して作成し、`workers.dev`でAccess JWT、identity/membership認可、メールOTP導線を検証する。
 4. Custom Domain `meccha-manual.meccha-iiyatsu.com`を`meccha-manual-prod`へ追加し、TLS、`/health`、ログイン、ログアウトを確認する。
 5. `apps/brand-site/apps.json`の対象を`live`へ変更し、3か所の「アプリを開く」を同Custom Domainへのリンクにする公開PRを作成する。`npm run check`と実URL到達確認を必須にする。
 6. 5の合格後にだけCustom Domain `www.meccha-iiyatsu.com`を`meccha-iiyatsu-web`へ追加する。既存CNAMEがある場合は追加前に競合を解消する。
@@ -39,10 +39,12 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 
 ## 認証・Cookie・メールリンク
 
-- アプリCookieは`__Host-mm_access`と`__Host-mm_refresh`を維持し、`Domain`属性を付けない。これにより`www`や将来の別アプリへ送られない。
+- Access session CookieはCloudflare Accessが管理する。production Access application、audience、policy、sessionをアプリ本体hostname専用にし、`www`や別アプリの到達許可と共有しない。アプリはAccess Cookieや独自access/refresh tokenを発行・更新・削除しない。
+- StripeとDiscordの外部callbackは、`POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathごとに、hostname applicationより具体的なpath別Access Bypass applicationへ分離する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。
+- Bypassを認証・認可の代替にしない。Workerはexact POST/body上限、raw bodyのprovider署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。一時失敗・期限切れleaseは同じworkを再開し、結果不明は照合前に自動再送せず、completed再送は冪等successとする。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない。通常アプリAPIはAccess user用application、`GET /health/config`はservice-token用Access application/policyで保護する。
 - LPからアプリへは通常のtop-level GET遷移だけとし、LPからアプリAPIを呼ばない。アプリAPIのCORS許可を`www`へ広げない。
-- write APIは現在どおりアプリ自身のOriginだけを受け付ける。
-- パスワードリセット、メール確認、magic link、OAuthを有効化する場合は、Supabaseのproduction Site URLをアプリ本体URLにし、Redirect URLsへ必要なcallbackだけを完全一致で追加する。wildcardはpreview専用に限定する。
+- 通常のブラウザwrite APIはアプリ自身のOriginだけを受け付ける。Stripe/Discordの2 exact callback pathはserver-to-server例外であり、`Origin`の有無や値を認証根拠にせずprovider署名を正とする。
+- production Access applicationはアプリ本体URL、audience、policy、sessionを専用化し、メールOTPの明示Emails/Groups allowlistを検証する。preview wildcard policyをproductionへ流用しない。
 - 旧`workers.dev` URLは移行期間だけ認証allowlistへ残し、本番callbackの検証後に削除する。
 
 ## 環境変数方針
@@ -50,7 +52,7 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 | 項目 | staging | production | 変更 |
 |---|---|---|---|
 | `APP_BASE_URL` | staging Worker URL | `https://meccha-manual.meccha-iiyatsu.com` | production値の登録が必要 |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | staging project | production project | 物理分離が必要 |
+| Access application/audience/policy + D1/R2/Worker binding | staging専用 | production専用 | 物理分離し、共有・fallbackを禁止 |
 | ブランドサイト | runtime変数なし | runtime変数なし | URLは公開情報としてHTML/OGPへ固定 |
 | Secret / R2 / Discord | staging専用 | production専用 | 共有禁止 |
 
@@ -70,7 +72,7 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 
 ## 変更範囲・リスク・rollback
 
-今回のPRは静的ファイル、検査、Wranglerの未接続設定、設計文書だけを変更する。DNS、Custom Domain、Worker deploy、Supabase、DB、Secretは変更しない。
+今回のPRは静的ファイル、検査、Wranglerの未接続設定、設計文書だけを変更する。DNS、Custom Domain、Worker deploy、Access、D1、R2、legacy Supabase、Secretは変更しない。
 
 | リスク | 対策 | rollback |
 |---|---|---|

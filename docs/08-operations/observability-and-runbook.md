@@ -8,7 +8,8 @@ Status: Proposed
 - Browser Run session start failure
 - Capture session failure
 - Storage upload failure
-- Supabase RLS denial rate
+- Cloudflare Access authentication failure rate
+- Worker authorization / D1 workspace denial rate
 - Stripe webhook failure
 - Share link access denial
 - PDF/export failure
@@ -23,4 +24,4 @@ Status: Proposed
 - P0情報漏えいの疑い: 共有リンク失効、関連セッション破棄、secret rotation要否判断。
 - Browser Run障害: 新規記録停止、既存セッションの保存済み地点を通知。
 - Stripe障害: Webhook再送とidempotency確認。
-- Supabase障害: 読み書き停止範囲を明示し、復旧後整合性確認。
+- D1/R2/Worker障害: 読み書き停止範囲を明示し、復旧後にmetadata/object/監査の整合性を確認。

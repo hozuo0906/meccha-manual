@@ -14,14 +14,14 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 | Capture Session Durable Object | 状態遷移、command直列化、期限、再接続、破棄 | 業務データの永続正本 |
 | Browser Run | 対象ページ実行、Live View、スクリーンショット取得 | 認可、長期状態 |
 | 検証済みegress境界 | DNS解決結果と実接続先の拘束、全通信種別の危険IP拒否 | workspace認可、セッション状態 |
-| Supabase Postgres/RLS | session・event・asset metadata、監査 | Cookie、Live View URL、入力値 |
+| Cloudflare D1 | session・event・asset metadata、監査 | JWT、Cookie、Live View URL、入力値 |
 | Cloudflare R2 | 許可済みスクリーンショット本体 | 権限判断、入力値、共有token |
 
 ## 起動フロー
 
-1. API WorkerがSupabase session、workspace所属、editor以上、同時実行上限を検証する。
+1. API Workerが検証済みAccess user identity、D1のactive workspace membership、editor以上、同時実行上限を検証する。
 2. 入力URLを正規化し、スキーム、host、port、資格情報、DNS結果を検査する。
-3. Postgresへ期限付きjobを作成し、session IDに対応するDurable Objectへ開始commandを送る。
+3. D1へ期限付きjobを作成し、session IDに対応するDurable Objectへ開始commandを送る。
 4. Durable Objectが `created -> starting` を直列遷移し、Browser Run sessionを1件だけ起動する。
 5. navigation直前と全redirectでSSRF検査を再実行し、upstream socketのactual peerを危険IP検査して検査済みIPへ拘束した後にだけHTTP/TLS/application bytesを送信するegress経路を許可する。
 6. ready後、認可済みsession ownerへ用途限定・短命のLive View URLを発行する。
@@ -61,7 +61,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 
 - 操作前後など必要最小限だけ取得し、PII/機密候補のマスキングを保存前に行います。
 - 安全にマスキングできない場合はR2へ保存せず、手順編集画面へ「画像なし」の状態と再取得案内を残します。
-- R2保存後はPostgresへasset metadataを記録し、workspace越境、削除済みasset、期限切れURLの参照を拒否します。
+- R2保存後はD1へasset metadataを記録し、workspace越境、削除済みasset、期限切れURLの参照を拒否します。
 - Session Recordingは初期OFFで、スクリーンショットとは別の承認対象です。
 
 ## 終了・失敗・期限切れ
@@ -69,7 +69,7 @@ Cloudflare Browser Run + Live Viewを操作記録の核とし、起動、操作�
 - 通常終了、取消、idle timeout、最大実行時間、起動失敗を明示状態で扱います。
 - 終了時は未送信eventを期限内でflushし、Browser sessionをcloseし、Cookie、Storage、cache、一時ファイルを破棄します。
 - close失敗は再試行jobと監査イベントを残し、Live View URLを再発行不能にします。
-- Durable Objectは一時状態を保持できますが、完了後の正本はPostgresとし、Browser credentialを残しません。
+- Durable Objectは一時状態を保持できますが、完了後の正本はD1とし、Browser credentialを残しません。
 
 ## 監査ログ
 

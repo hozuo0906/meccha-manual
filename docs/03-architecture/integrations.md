@@ -2,39 +2,34 @@
 
 Status: Accepted
 
-## Supabase
-
-役割:
-
-- Auth: ユーザー認証
-- Postgres: 業務データ、ファイルメタデータ、監査ログの正本
-- RLS: workspace単位のテナント分離
-
-初期方針:
-
-- Supabase Storageは第一保存先にしない。
-- ファイル本体はCloudflare R2へ置く。
-- SupabaseにはR2 object keyと権限判定に必要なメタデータを保存する。
-
-未登録にするsecret:
-
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_DB_PASSWORD`
-- `SUPABASE_JWT_SECRET`
-
 ## Cloudflare
 
 役割:
 
-- Workers: API、Webhook、共有閲覧、署名URL発行
+- Access: メールOTP・明示allowlistによる招待制の到達制御
+- Workers: Access JWT検証、業務API認可、Webhook、共有閲覧、業務assetの毎回再検証付きWorker proxy配信（直接署名URLは発行しない）
+- D1: application identity、workspace membership/role、業務データ、ファイルメタデータ、監査ログの正本
 - Durable Objects: 操作記録セッション状態
 - Browser Run: システム内ブラウザ
-- R2: スクリーンショット、手順書画像、出力ファイル、avatar
+- R2: privateなスクリーンショット、手順書画像、出力ファイル、avatar
 
-Cloudflareのaccount ID、API token、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
+Access到達を業務認可と同一視せず、Workerが検証済みaccess user、D1のactive membership/role、resource workspaceを毎回照合する。service tokenはmachine専用routeだけに許可し、D1 userへ写像しない。
 
-staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production bucketはまだ作成しない。
-bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実bucket作成とbinding追加は承認後に行う。
+Stripe/Discord callbackはexact pathごとのpath別Access Bypassで到達だけを許可する。Bypassを認証・認可の代替にせず、Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit後だけ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。receipt stateにより一時失敗を同じworkで再開し、結果不明は照合前に自動再送せず、completed再送は冪等successとする。既存Discord KV get→putはauthoritative guardにせず、OQ-031完了前はBypassを有効化しない。hostname全体やwildcard pathへBypassを適用せず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。
+
+Cloudflareのaccount ID、API token、Access audience、D1 database ID、実際の権限構成、登録状況はリポジトリ文書へ記録しない。deploy主体ごとに必要最小権限を設定し、外部設定の監査で確認する。
+
+staging 4 bucketは作成済みとのユーザー申告があるが、bindingと接続確認は未実施。production Access/D1/R2はまだ作成しない。bucket名とbinding名はADR-0018で確定済みとし、staging/productionの実binding追加は承認後に行う。
+
+## Legacy Supabase
+
+Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。新規project、user、secret、data、migration、remote write、live workflow、fallback、二重書込みを行わない。ただし、既存staging/test契約に対するcanonical live gateのpre-M5実行では、ownerが実行自体を明示承認した場合に限り、必要な既存staging/test data作成、remote write、live workflowを許可する。M6で残存runtimeと不要資格情報を退役する。
+
+禁止するlegacy secret:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_PASSWORD`
+- `SUPABASE_JWT_SECRET`
 
 ## Discord
 

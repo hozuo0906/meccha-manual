@@ -8,8 +8,9 @@ Status: Accepted
 
 - PR・作業branchはGitHub Actionsのrepo-side CIだけを自動実行してよい。
 - Cloudflare Git integrationのnon-production branch buildは無効のまま維持し、PR pushからpreviewを自動生成しない。
-- `main` のGit連携と `Phase 1 RLS Live Gate` は `wrangler versions upload` だけを使用し、active deploymentへ自動promoteしない。生成したimmutable previewはCloudflare Accessのdeny-by-default、Cloudflare account members、preview専用service tokenで保護する。
-- 暫定Workerの `main` 自動deployを許可する旧prelaunch例外は停止済みである。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。
+- `main` のGit連携は `wrangler versions upload` だけを使用し、active deploymentへ自動promoteしない。immutable previewはCloudflare Accessのdeny-by-default、Cloudflare account members、preview専用service tokenで保護する。
+- `Phase 1 RLS Live Gate` は現行Accepted transitional gateとして、Issue #176 M5のAccess/D1/R2 replacement gateと対応正本が同じrollback単位でmainへ着地するまで維持する。実行はowner承認済みの既存staging/test契約とcanonical workflowに限定し、M5着地時に同じrollback単位で置換する。新規Supabase test user、`MECCHA_RLS_*` secret、環境追加、production実行は行わない。
+- 暫定Workerの `main` 自動deployを許可する旧prelaunch例外は停止済みである。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。各PRは通常品質ゲートを満たせばmainへ統合できるが、Issue #176 M5の実preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。
 - staging環境を毎回経由しないrepo-side開発確認は継続できるが、preview/staging合格やbackend分離の証跡には扱わない。
 
 mainへの直接push、PR自動merge、DB migration自動適用、production資源作成、課金ON、AI API ON、共有リンク公開は許可しない。Cloudflare画面上の `production` という表示はGit連携上のラベルであり、本番公開準備完了の証拠にしない。
@@ -26,13 +27,14 @@ mainへの直接push、PR自動merge、DB migration自動適用、production資�
 ## 本番公開前チェックリスト
 
 - [x] Cloudflare `main` triggerをversion uploadだけにし、active deploymentへの自動promoteを解除した。
-- [x] non-production branch buildが無効であり、RLS用immutable previewがAccess deny-by-default、Cloudflare account members、preview専用service tokenで保護されていることを確認した。
+- [x] non-production branch buildが無効であり、immutable previewがAccess deny-by-default、Cloudflare account members、preview専用service tokenで保護されていることを確認した。
 - [ ] GitHub Environment `staging` / `production` とrequired reviewersを確認する。
 - [ ] main branch protectionでPR必須、status checks必須、up-to-date必須、conversation resolution必須、bypass禁止、直接push禁止を確認する。
-- [ ] staging/production Worker、Supabase project、R2 bucket、Secret、routeを物理分離する。
+- [ ] staging/production Access application、Worker、D1、R2、Secret、routeを物理分離する。
 - [ ] staging workflowの候補SHA証跡とproduction workflowの同一SHA照合を通す。
-- [ ] RLS negative test、migration dry-run/rollback、backup/restoreを検証する。
-- [ ] R2 private、workspace越境拒否、署名URL、削除再試行、容量上限を検証する。
+- [ ] Access JWT、D1 workspace negative test、D1 migration dry-run/rollback、backup/restoreを検証する。
+- [ ] review済みcandidate SHAの実immutable previewがstaging D1/R2だけをbindingし、production backendへ到達できないことを検証する。
+- [ ] R2 private、workspace越境拒否、業務assetの毎回Access/D1再検証Worker proxy、失効後新規request拒否、削除再試行、容量上限を検証する。
 - [ ] Browser Run SSRF actual-peer/egress、session破棄、入力値非保存を検証する。
 - [ ] `BILLING_FEATURE_ENABLED=false`、AI API OFF、共有リンクdefault OFFを再確認する。
 - [ ] 最新head SHAのCodex Review、P0/P1 0件、P2対応記録、unresolved thread 0件、全CI成功を確認する。

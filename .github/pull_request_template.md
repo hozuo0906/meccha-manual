@@ -48,7 +48,9 @@
 - [ ] production変更を含んでいない
 - [ ] 関連する要件、ADR、API、テーブル、テスト文書を確認した
 - [ ] 仕様変更がある場合、docs/09-delivery/decision-log.md またはADRを更新した
-- [ ] DB変更がある場合、テーブル定義、RLS方針、RLSテストを更新した
+- [ ] DB変更がある場合、対象DBのmigration、テーブル定義、データ／認可境界、tenant越境・権限negative testを更新した
+- [ ] D1変更がある場合、D1 migration/schema、Worker認可、workspace固定query、D1制約、negative/mutation testを更新した
+- [ ] 移行前Supabase/Postgres baselineを変更した場合だけ、RLS方針とRLSテストを更新した
 - [ ] API/イベント変更がある場合、契約文書を更新した
 - [ ] secret、共有トークン、個人情報、実ユーザーの操作内容を含めていない
 - [ ] P0/P1リスクが残っていない

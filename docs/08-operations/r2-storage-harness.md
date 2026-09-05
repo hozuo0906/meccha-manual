@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 目的
 
-R2 bucket作成前に、bucket名、binding名、公開禁止、配信経路、Postgresメタデータ方針を固定する。
+R2 bucket作成前に、bucket名、binding名、公開禁止、配信経路、D1 assetsメタデータ方針を固定する。
 
 ## 現在の状態
 
@@ -48,17 +48,17 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 ## 運用ルール
 
 - bucket自体はpublicにしない。
-- R2 objectはWorker経由、またはWorkerが発行する短期署名URLで配信する。
-- 権限の正本はSupabase Auth、RLS、Postgresメタデータに置く。
+- R2 objectは、業務assetでは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy経由だけで配信する。ブラウザへR2の短期署名read URLを配らず、membership/share/asset失効後の新しいrequestを拒否する。保護応答を共有cacheへ流さず、cache reuseで失効を迂回しない。既に受信済みのbytesを回収できるとは主張しない。
+- 認証主体は検証済みAccess JWT、権限とassetsメタデータの正本はD1に置き、Workerがactive membership/roleとresource workspaceを照合する。
 - bucket名は `wrangler.jsonc` の環境別bindingにだけ置き、環境変数へ重複保持しない。
 - Cloudflare R2 binding名は `CAPTURE_ASSETS`、`MANUAL_ASSETS`、`EXPORTS`、`AVATARS` に固定する。
 - secret、共有トークン、個人情報、入力値、実ユーザーの操作内容をR2 metadataへ入れない。
-- 短命URL自体をDBや監査ログへ保存しない。
+- 配信URL自体をDBや監査ログへ保存しない。
 - object keyへ元ファイル名、画面タイトル、メールアドレスなどのPII/機密情報を入れない。
 
 ## 削除と保持
 
-- Postgresメタデータをsoft deleteし、URL発行を即時停止してからR2 objectと派生物を非同期削除する。
+- D1 assetsメタデータをsoft deleteし、URL発行を即時停止してからR2 objectと派生物を非同期削除する。
 - 削除失敗は再試行し、監査ログへasset IDと結果コードを残す。
 - 保持期間はデータ種別ごとに承認後に設定する。期間未決の状態ではR2 lifecycle ruleを作らない。
 
@@ -75,7 +75,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 - R2方針docsが存在する。
 - binding名が固定されている。
 - staging/production bucket名が固定されている。
-- bucket公開禁止、Worker経由、Postgresメタデータ、短期署名URL方針が文書化されている。
+- bucket公開禁止、毎回Access/D1を再検証するWorker proxy、D1 assetsメタデータ、cache reuse禁止方針が文書化されている。
 - 削除順序、保持期間未決時の扱い、PII/機密情報禁止が文書化されている。
 - `wrangler.jsonc` にR2 bindingがある場合、許可済みbucket名とbinding名だけを使っている。
 - domain層がCloudflare/R2 SDK型を参照せず、用途、key、content type、size、checksum、workspace/manual/step metadataの契約を持つ。

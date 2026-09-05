@@ -1,6 +1,10 @@
 # Phase 1 app harness
 
-Status: Accepted
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Auth/Postgres/RLS baselineである。新規資格情報、migration、remote write、live test、staging合格証跡の根拠にしない。後継はIssue #176 M1〜M3。
+
+Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md) and [Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)。以下は移行前の実装・回帰baselineとして保持する。新規Supabase test user、資格情報、migration、live testを追加せず、旧経路をstaging合格証跡へ使用しない。
 
 ## Purpose
 

@@ -1,6 +1,8 @@
 # 残ハーネス整備計画
 
-Status: Accepted
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Postgres/RLS baselineである。新規Supabase project/user/secret、migration、remote write、live workflow、staging合格証跡の根拠にしない。後継は`cloudflare-migration-roadmap.md` のM0〜M7。
 
 ## 目的
 

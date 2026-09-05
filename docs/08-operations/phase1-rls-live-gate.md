@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、着地時に同じ単位で置換する。実行は既存のowner承認、staging Environment、秘密値非記録、immutable preview境界の条件に従う。future M5 replacement PRでは、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、(1) replacement gateと対応docsの着地、(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除、(3) runbookの `Status: Superseded` 化、(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転、(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化を同時に完了する。M6への持越し、replacement未着地のまま先行退役を禁止する。
+
 ## 目的
 
 Issue #79がIssue #38から引き継いだ正式live RLS gateを、秘密値、preview URL、外部ID、テストデータ識別子、個人情報をリポジトリ、artifact、workflow summary、Actionsログへ保存せず、暫定stagingだけに対して実行する。
@@ -36,9 +38,9 @@ Wranglerのstdout/stderrと構造化結果はGitHub-hosted runnerの一時領域
 
 preview originはHTTPS、認証情報なし、portなし、origin-only、承認済みWorker名とaccount suffixに一致するimmutable hostnameでなければ拒否する。
 
-## staging Environment secrets
+## 現行実行に参照する登録済みEnvironment secrets
 
-RLS test用4件とpreview-only Access用2件を `staging` Environment secretsとして登録する。
+RLS test用4件とpreview-only Access用2件は、owner承認済み・登録済みの既存 `staging` / test値だけを確認・利用する。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。
 
 ```text
 MECCHA_RLS_USER_A_EMAIL
@@ -49,10 +51,10 @@ CF_ACCESS_CLIENT_ID
 CF_ACCESS_CLIENT_SECRET
 ```
 
-- A/Bは異なる専用テストアカウントとし、実利用者の資格情報を流用しない。
-- Access 2件は必ず一組で登録し、片方欠落時は停止する。
+- A/Bはowner承認済みの既存専用テストアカウントとし、実利用者の資格情報を流用しない。
+- Access 2件は登録済みの既存一組が揃う場合だけ利用し、片方欠落時は停止する。新規登録は行わない。
 - 同名のBusiness OS用service tokenやrepository secretと値を共有しない。
-- GitHub Actionsからsecretのscope由来は判別できないため、owner/adminは6件が `staging` Environmentへ登録済みであることを確認する。
+- GitHub Actionsからsecretのscope由来は判別できないため、owner/adminは6件が `staging` Environmentへ登録済みであることだけを確認する。
 - Access policy側はCloudflare account membersとpreview専用service tokenだけを許可し、その他の未認証requestとservice tokenを拒否する。同名repository secretへのfallback運用は許可しない。
 - workflowはsecret値をechoせず、不足している名前だけを報告する。
 
@@ -69,10 +71,11 @@ CF_ACCESS_CLIENT_SECRET
 - Worker向けrequestだけにAccess headerを付け、Supabase Auth/RESTへの直接requestには付けない。
 - errorへresponse body、email、URL、識別子、資格値を含めない。
 
-## 実行手順
+## 現行Accepted transitional gateの実行手順
 
+0. Issue #215の文書・checker整合PRとは別に、ownerがこのlive gate実行自体を明示承認したことを確認する。承認がない場合はdispatchしない。
 1. owner/adminがpreview wildcardのAccess deny-by-defaultとCloudflare account members + preview専用service tokenだけのallowを確認する。
-2. GitHub `staging` Environmentへ上記6件を登録し、Business OS用値と共有していないことを確認する。
+2. GitHub `staging` Environmentに上記6件が登録済みであることだけを確認・利用し、Business OS用値と共有していないことを確認する。
 3. Worker version upload用Cloudflare資格情報が利用可能であることを値非表示で確認する。
 4. Actionsから `Phase 1 RLS Live Gate` を `main` で手動実行する。
 5. dispatch SHA固定、runtime boundary、Access 2件の存在確認が成功することを確認する。
@@ -82,7 +85,7 @@ CF_ACCESS_CLIENT_SECRET
 9. 同じimmutable previewで `npm run test:rls` が `status: ok` になることを確認する。
 10. Issue #79へ対象commit SHA、成功/失敗、残存テストデータの有無だけを記録する。run URL、preview URL、Worker version ID、資格値、外部ID、テストデータ識別子は記録しない。
 
-## 成功条件
+## Historical success conditions（M5証跡へ流用しない）
 
 - dispatch SHAとcheckout SHAが一致する。
 - non-production branch buildを再有効化せず、明示uploadしたimmutable versionだけを使う。
@@ -105,4 +108,4 @@ CF_ACCESS_CLIENT_SECRET
 
 ## 残存リスク
 
-repo-side修正だけではAccess外部設定の正しさ、previewとproduction backendの物理分離、staging Environment secretのscope由来を証明できない。Issue #92のbackend negative proofとmain merge holdはowner/adminの外部設定証跡が完了するまで維持する。
+旧workflowはpreview/backend物理分離の成功証跡として扱わない。Issue #92はcompleted close済みでblanket main merge holdを再開しない。Access/D1/R2移行後の実preview分離はIssue #176 M5で検証し、完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。

@@ -107,12 +107,13 @@ test("Access資格情報を別originまたはHTTPへ送らない", async () => {
   assert.equal(calls, 0);
 });
 
-test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定されている", async () => {
-  const [runner, workflow, wranglerText, sensitiveValueScanner] = await Promise.all([
+test("移行前RLS runnerと現行canonical live workflowの安全境界を固定する", async () => {
+  const [runner, wranglerText, sensitiveValueScanner, workflowChecker, workflow] = await Promise.all([
     readFile(new URL("../scripts/rls-negative-test.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../.github/workflows/phase1-rls-live.yml", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
-    readFile(new URL("../scripts/check-sensitive-values.mjs", import.meta.url), "utf8")
+    readFile(new URL("../scripts/check-sensitive-values.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/check-workflows.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/phase1-rls-live.yml", import.meta.url), "utf8")
   ]);
   const wrangler = JSON.parse(wranglerText);
 
@@ -129,6 +130,15 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.doesNotMatch(runner, /JSON\.stringify\(payload\)/);
   assert.doesNotMatch(runner, /actor\.email/);
 
+  assert.match(workflowChecker, /phase1-rls-live/);
+  assert.match(workflowChecker, /MECCHA_RLS_/);
+  assert.match(workflowChecker, /npm run test:rls/);
+  assert.match(workflowChecker, /scripts\\\/rls-negative-test/);
+  assert.match(workflow, /name: Phase 1 RLS Live Gate/);
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /Verify immutable Worker staging boundary/);
+  assert.match(workflow, /Run live RLS negative test against immutable Worker version/);
+  assert.match(workflow, /MECCHA_RLS_ALLOW_REMOTE_WRITE/);
   assert.ok(workflow.includes(`${clientIdName}: ` + "${{ secrets." + clientIdName + " }}"));
   assert.ok(workflow.includes(`${clientSecretName}: ` + "${{ secrets." + clientSecretName + " }}"));
   assert.match(workflow, /fetchWithCloudflareAccess/);
@@ -150,7 +160,6 @@ test("RLS runnerとworkflowがAccess境界・非公開ログ契約へ固定さ�
   assert.doesNotMatch(workflow, /steps\.worker_preview\.outputs\.preview_url/);
   assert.doesNotMatch(workflow, /GITHUB_OUTPUT/);
   assert.doesNotMatch(workflow, /::add-mask::/);
-
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_ID"/);
   assert.match(sensitiveValueScanner, /"CF_ACCESS_CLIENT_SECRET"/);
 });

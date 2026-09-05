@@ -35,14 +35,19 @@ const requiredTerms = [
   "production 4 bucketはまだ作成しない",
   "bucket自体はpublicにしない",
   "Worker経由",
-  "Postgresメタデータ",
-  "短期署名URL",
+  "D1 assetsメタデータ",
+  "cache reuse",
   "保持期間",
   "PII",
   "resource_id",
   "bodyから再計算",
   "完全一致",
   "同じdomain shape",
+  "業務assetのreadは毎回Access/D1",
+  "Worker proxyに限定",
+  "ブラウザへR2の短期署名read URLを配らず",
+  "失効後の新しいrequestを拒否",
+  "共有cacheへ流さずcache reuse",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
 ];
 

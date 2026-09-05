@@ -27,8 +27,8 @@ application/
   commands/
   queries/
 infrastructure/
-  supabase/
   cloudflare/
+  supabase/ # Issue #176 M6までのlegacy adapter
   stripe/
 shared/
   contracts/
@@ -80,4 +80,4 @@ Feature flagを権限管理の代用にしてはいけません。
 - エラーをcatchしてログだけ出し、成功扱いする。
 - SDK型をドメイン型として使い回す。
 - Stripe webhookと画面リダイレクトの両方で課金確定する。
-- Durable ObjectsとPostgresの両方を同じ状態の正本にする。
+- Durable ObjectsとD1の両方を同じ状態の正本にする。

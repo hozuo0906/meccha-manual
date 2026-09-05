@@ -1,6 +1,12 @@
 # Phase 2 手順書コア・隔離staging内部alpha受入Runbook
 
-Status: Proposed
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Auth/Postgres/RLS alpha runbookの履歴baselineである。新規資格情報、migration、remote write、live run、staging／内部alpha合格証跡の根拠にしない。後継はIssue #176 M4/M5。
+
+Superseded by [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md), [DEC-064](../09-delivery/decision-log.md), and Issue #176 M4/M5。本書はSupabase Auth/Postgres/RLS経路の移行前static preflight・受入観点としてのみ保持し、live実行、staging合格、内部alpha合格には使用しない。
+
+Supabase test user、資格情報、migration、live runを追加せず、`phase2:manual-core:preflight`のPASSをAccess/D1/R2実証へ流用しない。Phase 2の正常系・越境・競合・再送・結果不明・途中失敗・atomic rollbackはIssue #176 M4、実immutable preview分離はM5で再構成する。
 
 ## 作成時点の停止状態（2026-08-24 JST）
 

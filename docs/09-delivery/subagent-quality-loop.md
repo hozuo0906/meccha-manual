@@ -12,7 +12,7 @@ Status: Accepted
 |---|---|
 | コーディング | 要件に沿った実装、既存設計との整合、不要な変更の混入防止 |
 | UIUX | 日本語UI、業務画面としての密度、状態表示、アクセシビリティ、文言 |
-| テスト | 自動テスト、RLS negative test、E2E、手動確認、未実施理由 |
+| テスト | Access JWT／Worker認可／D1 workspace negative・mutation test、E2E、手動確認、未実施理由。旧RLSは移行baseline変更時だけ |
 | 辛口レビュー | P0/P1リスク、セキュリティ、プライバシー、UX欠陥、仕様抜け |
 | リファクタリング/コードレビュー | 命名、定数、設定、責務分離、再利用性、依存方向 |
 | ドキュメント記録 | ADR、decision-log、Issue、テスト条件、採否理由、未決事項 |

@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 目的
 
-R2 objectとPostgresメタデータの対応を固定し、ワークスペース越境、公開URL漏れ、削除漏れを防ぐ。
+R2 objectとD1 assetsメタデータの対応を固定し、ワークスペース越境、公開URL漏れ、削除漏れを防ぐ。
 
 ## 保存先
 
@@ -32,9 +32,9 @@ workspace-id/exports/manual-id/export-id.pdf
 workspace-id/avatars/user-id/asset-id.webp
 ```
 
-## Postgresメタデータ
+## D1 assetsメタデータ
 
-Postgresメタデータに保存するもの:
+D1 assetsメタデータに保存するもの:
 
 - `workspace_id`
 - `asset_id`
@@ -69,17 +69,17 @@ secret、共有トークン、個人情報、入力値、実ユーザーの操�
 - domain側のportはR2 SDK型を参照せず、`put`、`get`、`delete` を定義する。
 - 保存要求は用途、object key、kind、content type、byte size、SHA-256 checksum、許可済みmetadataだけを受け付ける。checksumは形式だけでなく受信bodyから再計算して一致を確認する。
 - `manual_id` と `step_id` は認可・DB連携に使うサーバー側metadataとして扱えるが、R2 custom metadataには複製しない。
-- サーバー内部の保存要求metadataは `workspace_id`、object keyの第3要素と一致する `resource_id`、`asset_id`、任意の `manual_id`、`step_id` だけを受け付ける。`resource_id` はkey検証用の一時値でPostgres/R2へ汎用列として保存しない。R2 custom metadataへは `resource_id`、`manual_id`、`step_id` を複製せず、read時のresourceは検証済みobject keyから導出する。
+- サーバー内部の保存要求metadataは `workspace_id`、object keyの第3要素と一致する `resource_id`、`asset_id`、任意の `manual_id`、`step_id` だけを受け付ける。`resource_id` はkey検証用の一時値でD1/R2へ汎用列として保存しない。R2 custom metadataへは `resource_id`、`manual_id`、`step_id` を複製せず、read時のresourceは検証済みobject keyから導出する。
 - Storage adapterは`put`境界でbodyを再snapshotし、byte sizeとSHA-256を再検証してから保存する。検証済みobjectの公開bodyが後から変更されても、不一致のまま保存しない。
 - object keyの各要素は元ファイル名や表示名ではなく、不透明な小文字識別子に限定する。
 - key全体をmetadataから再構築して完全一致を確認する。workspace、resource、assetのいずれかが異なるkeyや、余分・空のpath segmentを拒否する。
-- Storage portの`get`はmemory stubとR2 adapterで同じdomain shapeを返す。R2に複製しない`manual_id`と`step_id`はread結果へ含めず、認可時はPostgres正本から取得する。
+- Storage portの`get`はmemory stubとR2 adapterで同じdomain shapeを返す。R2に複製しない`manual_id`と`step_id`はread結果へ含めず、認可時はD1正本から取得する。
 
 ## 参照
 
 - 認可はWorker経由で行う。
-- WorkerはSupabase sessionとworkspace権限を確認する。
-- 権限確認後、Worker proxyまたは短期署名URLで配信する。
+- Workerは検証済みAccess user identityとD1のactive membership/role、resource workspaceを確認する。
+- 業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。ブラウザへR2の短期署名read URLを配らず、membership/share/asset失効後の新しいrequestを拒否する。保護応答を共有cacheへ流さずcache reuseで失効を迂回しない。既に受信済みのbytesを回収できるとは主張しない。
 - bucket自体はpublicにしない。
 - 共有リンクが有効でも、R2 objectを直接公開しない。
 

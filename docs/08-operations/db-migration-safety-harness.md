@@ -1,6 +1,8 @@
 # DB migration安全ハーネス
 
-Status: Accepted
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、本書は移行前Supabase/Postgres/RLS migration baselineである。新規Supabase project/user/secret、migration、remote write、live workflow、staging合格証跡の根拠にしない。後継は`d1-and-storage.md`とIssue #176 M2/M4。既存SQLへの静的安全検査だけはM6まで維持する。
 
 ## 目的と境界
 

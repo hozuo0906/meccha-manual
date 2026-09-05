@@ -25,7 +25,12 @@ const evidence = await read(paths.evidence);
 for (const term of [
   "GitHub Environment",
   "Cloudflare Worker environment",
-  "Supabase project",
+  "Cloudflare Access",
+  "Cloudflare D1",
+  "staging D1",
+  "production D1",
+  "Access JWT",
+  "Access JWT/D1 workspace negative test",
   "R2 capture",
   "Stripe",
   "Discord通知",
@@ -34,7 +39,8 @@ for (const term of [
   "required reviewers",
   "tattoo-studio-crm.workers.dev",
   "`BILLING_FEATURE_ENABLED=false`",
-  "RLS negative test",
+  "Issue #176 M5",
+  "Superseded",
   "prelaunch"
 ]) {
   if (!docs.includes(term)) errors.push(`Missing environment separation term: ${term}`);

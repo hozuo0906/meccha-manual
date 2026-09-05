@@ -6,7 +6,7 @@ Status: Accepted
 |---|---|---|---|
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |
-| DEC-003 | 2026-07-31 | Supabaseを使う | ユーザー指定。Auth/DB/RLSを一体で扱える |
+| DEC-003 | 2026-07-31 | Supabaseを使う（DEC-064でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |
 | DEC-004 | 2026-07-31 | Cloudflareを使う | ユーザー指定。Workers/Browser Run/R2を使える |
 | DEC-005 | 2026-07-31 | Chrome拡張を第一方式にしない | システム内ブラウザ方式を核にする |
 | DEC-006 | 2026-07-31 | AI APIは初期OFF | 従量課金と機密情報送信リスクを避ける |
@@ -145,7 +145,54 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 未認証health拒否、Access付きhealthのstaging境界一致、同一originへのRLS E2Eを順に検証し、redirect、別origin、HTTP、資格情報欠落はfail closedにする。
   - preview URL、Worker version ID、外部ID、テストデータ識別子、資格値、個人情報をログ、artifact、summary、Issue、PR、文書へ記録しない。
   - production trafficとactive deploymentは変更せず、Issue #92のbackend分離negative proofとmain merge holdは継続する。
+  - 上記main merge holdのうちIssue #92由来のblanket部分は後続DEC-064で失効し、Access deny-by-default等のその他保護は維持する。
 - Reason:
   - 公開previewを閉じたままではimmutable versionを必要とする正式RLS gateが成立しないため、non-production branch自動buildを停止し、`main`は非promoteのversion upload、live gateはAccess保護された明示uploadに限定する。
 - Boundary:
   - Access application/policy/service token、GitHub Environment/secretsの登録、live RLS実行、production deploy、Issue #92 closeはrepo-side変更に含めない。
+
+
+## DEC-064: 認証・業務DBをCloudflare Access / D1へ統一する
+
+- Status: Accepted
+- Date: 2026-08-30
+- Decision:
+  - Cloudflare AccessのメールOTPを初期の招待制ログインにする。
+  - WorkerはAccess application JWTの署名、issuer、audience、expiration、issued-at、token typeを検証し、not-beforeはclaimが存在する場合だけ検証する。`access_user` は `type: "app"`、trim後非空 `sub`、`common_name` 不在、`service_token` は `type: "app"`、空文字 `sub`、trim後非空 `common_name` の各3条件すべてを必須にし、曖昧なactorを全routeで拒否する。
+  - Cloudflare D1を業務データとファイルメタデータの正本にする。
+  - workspace membershipとowner/admin/editor/viewerはD1で管理し、Workerが全業務queryで再認可する。
+  - private R2、Durable Objects、Browser Runは既存Cloudflare方針を維持する。
+  - アプリ独自password、password hash、refresh tokenを保持しない。
+  - ADR-0001/0004/0010に加え、ADR-0003/0011/0018/0019/0024/0025/0027のSupabase/Postgres/RLS固有部分をADR-0028でSupersededにし、各ADRのCloudflare・R2・domain分離・同意・fail-closed安全原則は維持する。
+- Supersedes:
+  - DEC-034のSupabase project分離と、現行Supabase projectを暫定dev/stagingとする部分。環境分離原則はAccess application／D1へ置換して維持する。
+  - DEC-040のSupabase Auth session失効・session再取得に依存する方式と、DEC-042のrefresh token交換・専用refresh endpoint・login/logout/refreshを旧Web Lockで直列化してアプリがCookieを発行／削除する方式。
+  - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
+  - DEC-051のSupabase／PostgREST応答としての上限契約。
+  - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
+  - DEC-063のIssue #92由来blanket main merge holdだけを失効させる。Access deny-by-default、non-production build停止、version upload-only、fail closed、production非変更、秘密値非記録はPreservesとして維持する。
+- Preserves:
+  - DEC-034のstaging／production資源分離。
+  - DEC-040／042のうち、検証済みsessionの認証世代が変わった後の古い応答を破棄し、旧shellと保護データを即時に隠し、状態変更を自動再送せず、401と上流障害を区別する安全原則。Access cookie／refresh tokenをアプリから操作しない。
+  - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
+  - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
+  - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
+  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。pre-M5では `.github/workflows/phase1-rls-live.yml` とrunbook `docs/08-operations/phase1-rls-live-gate.md` の `Status: Accepted` を維持し、現行gateはIssue #215の文書・checker整合PRとは別にownerが明示承認した場合だけ登録済みの既存staging/test入力で実行できる。Issue #215のPRではworkflow dispatchとlive証跡生成を行わず、新規project、test user、資格情報、Environment、Secretを作成・登録しない。future M5ではSafety記載の5操作を同一commit/rollback unit内で完了する。
+- Current gate:
+  - Issue #92は2026-08-30にcompleted closeされた。DEC-063に記録した#92由来のblanket main merge holdは履歴として保持するが、DEC-064により失効した。Access deny-by-default、non-production build停止、version upload-only、fail closed、production非変更、秘密値非記録の保護はPreservesとして継続する。
+  - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。
+- Reason:
+  - runtime、認証、DB、Storage、preview保護のcontrol planeをCloudflare中心へ集約し、production資源作成前に環境分離と運用を単純化するため。
+- Safety:
+  - Access到達許可をworkspace認可と同一視しない。
+  - Postgres RLS置換はWorker認可とworkspace固定D1 queryのnegative testをP0 gateにする。
+  - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
+  - 旧 `phase1-rls-live.yml` はpre-M5では現行Accepted live gateとして維持する。future M5 replacement PRでは、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、(1) replacement gateと対応docsの着地、(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除、(3) runbookの `Status: Superseded` 化、(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転、(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化を同時に完了する。着地後の別変更、M6への持越し、replacement未着地のまま先行退役を禁止する。
+  - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
+  - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
+  - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
+  - receipt/workは `received/processing/retryable/reconcile_required/completed/dead_letter` の状態機械で扱う。一時失敗・期限切れleaseは同じworkを再開し、結果不明は照合前に自動再送せず、completed再送は冪等success、同じID・異なるdigestは拒否とする。通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。OQ-031をM2で解決し、atomic receipt/work、schema/migration、dispatcher、並行再送・途中失敗・結果不明negative testが揃うまでpath別Access Bypassを有効化しない。
+- Evidence:
+  - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
+  - GitHub Issue #176
+  - [Cloudflare移行ロードマップ](cloudflare-migration-roadmap.md)

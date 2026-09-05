@@ -6,9 +6,9 @@ Status: Accepted
 
 `めっちゃマニュアル` の検証資源と本番資源を混在させず、`main` へのマージとproduction反映を別の判断にする。本書はIssue #21と、R2契約を固定したIssue #23を前提とする静的ハーネスであり、外部リソースの作成・変更・deployは行わない。
 
-現在のSupabase projectと単一Worker設定は **暫定dev/staging** として扱う。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、production Supabase project、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
+既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策として無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは `main` から手動実行し、同じAccess保護されたimmutable version経路を使う。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。これはproduction分離完了を意味せず、最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認して解除する。
+Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。新規Supabase test user、資格情報は追加しない。Issue #215の文書・checker整合PRへlive RLS証跡を追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
 
 ## 環境対応表
 
@@ -18,9 +18,11 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 |---|---|---|---|
 | GitHub Environment | `staging` | `production` + required reviewers | Secrets/Variablesを環境別に登録し、共有しない。production jobは必ず`production`を参照する |
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
-| RLS immutable preview | `main` Git buildのversion uploadと手動live gate。Access deny-by-default | 使用しない | non-production branch buildでは生成せず、Cloudflare account membersとpreview専用service tokenだけを許可する |
+| Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
-| Supabase project | 現projectを暫定dev/stagingとして利用 | `meccha-manual-prod`を将来新規作成 | Auth、DB、project ref、migration履歴を共有しない |
+| Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
+| Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
+| Legacy Supabase | 移行前baseline。新規project/user/secretは追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。 | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |
 | R2 manual / `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` | `meccha-manual-manual-assets-prod` | 同上 |
 | R2 exports / `EXPORTS` | `meccha-manual-exports-staging` | `meccha-manual-exports-prod` | 同上 |
@@ -31,11 +33,11 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 
 ## `main` マージ後の扱い
 
-原則として`main` マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在のCloudflare設定では`main`マージ後にGit連携のversion uploadが動き得るが、active deploymentへ自動promoteしない。Issue #92のmain merge holdはbackend分離negative proofとlive RLS証跡が完了するまで維持する。hold解除後もPR・必須check・最新SHAレビューを通過しない変更を`main`へ入れず、以下の正式フローでproduction反映を別承認にする。
+原則として`main`マージはproduction候補のcommit SHAを確定する操作であり、production deployの承認ではない。現在のCloudflare設定では`main`マージ後にGit連携のversion uploadが動き得るが、active deploymentへ自動promoteしない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。各PRは必須check・最新SHAレビュー・未解決thread 0件を含む通常品質ゲートを満たせばmainへ統合できる。ただしIssue #176 M5の実preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を許可せず、以下の正式フローでproduction反映を別承認にする。
 
 1. PR checksを通過したcommitを`main`へマージし、production候補SHAを固定する。
 2. staging workflowを40桁の候補SHA付きで明示的に起動し、workflow実行SHAとの一致を確認してcheckを再実行する。将来deploy stepを有効化した後はstagingへだけ反映する。
-3. stagingでmigration、RLS negative test、smoke/E2E、rollback手順、P0/P1が0件であることを確認する。
+3. stagingでD1 migration、Access JWT・workspace認可negative test、smoke/E2E、backup/restore、rollback手順、P0/P1が0件であることを確認する。
 4. production workflowを`main`から同じ40桁SHA指定で起動し、workflow実行SHAと不一致なら停止する。
 5. GitHub Environment `production` のrequired reviewersによる手動承認後にだけjobを開始する。
 6. 現段階のproduction workflowはcheckで停止する。実deploy step追加、Secret登録、production資源作成はそれぞれ別のユーザー承認対象とする。
@@ -46,8 +48,8 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 |---|---|---|
 | PR上の`npm run check` | 自動 | branch protectionの必須check |
 | `main`へのマージ | レビュー後の手動 | PR reviewと必須check |
-| `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。Issue #92 hold中はmerge禁止。解除後もPRと公開前チェックリストを必須にする |
-| Phase 1 RLS immutable preview | `main`から手動 | `staging` Environment、Access deny-by-default、Cloudflare account members + preview専用service token、production deployなし |
+| `main`マージからWorker version upload | 自動 | active deploymentへpromoteしない。#92由来のblanket holdは解除済みだが、PR通常品質ゲートと公開前チェックリストを必須にする |
+| Phase 1 RLS immutable preview gate | 手動（workflow_dispatch） | owner承認済み・登録済みの既存staging/test契約だけをcanonical workflowから確認・利用する。新規Secret、資格情報、test user、Environment、projectは作成・登録しない。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。 |
 | staging候補check | workflow dispatch | `staging` Environment。外部deploy有効化前は静的checkのみ |
 | staging deploy / migration | 将来の手動操作 | 対象SHA・接続先確認とユーザー承認 |
 | production候補check | workflow dispatch | `production` Environment required reviewers |
@@ -65,7 +67,7 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 - workflowへSecret値を直書きせず、値をecho、artifact、Discord通知へ出さない。
 - reusable workflowを将来導入しても、呼び出し元production jobのEnvironment approvalを省略しない。
 - `.github/workflows/deployment-gates.yml` は既存の汎用検査として維持するが、実deployの正本にはしない。
-- RLS preview用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` は `staging` Environmentへ一組で登録し、Business OS用repository secretと共有・fallback運用しない。
+- immutable preview CI用 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` はowner承認済み・登録済みの既存 `staging` Environmentの一組だけを確認・利用し、Business OS用repository secretと共有・fallback運用しない。新規Secret、資格情報、test user、Environment、projectの作成・登録は禁止する。
 
 ## Cloudflare Worker / Wrangler
 
@@ -74,15 +76,16 @@ Cloudflare Git連携のnon-production branch buildはIssue #92のP0対策とし�
 - 将来はWrangler `env.staging` / `env.production`に同じ論理binding名を置き、参照先ID・bucketだけを分ける。環境をまたぐfallbackは作らない。
 - varsとSecretsを環境別に設定し、deploy前に`APP_ENV`、Worker名、commit SHA、対象GitHub Environmentを照合して不一致ならfail closedにする。
 - `tattoo-studio-crm.workers.dev`のような既存Cloudflare accountの`workers.dev`サブドメインは当面の技術的サブドメインに限る。ADR-0024のCustom Domain設定と切替はproduction deployとは別に承認し、切替前後のrollbackを用意する。
-- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。RLS用version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を同じlive gateで確認する。
+- Cloudflare Git integrationのnon-production branch buildを再有効化しない。production branchのdeploy commandは `npx wrangler versions upload` を維持し、active deploymentへ自動promoteしない。immutable version previewは `preview_urls: true` を正本とし、Access wildcardのdeny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、service token付きhealth成功を確認する。現行live RLS gateはowner承認済みの既存staging/test契約をcanonical workflowから実行し、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。
 
-## Supabase
+## Cloudflare Access / D1
 
-- staging projectとproduction projectを物理的に分ける。現在のprojectは暫定dev/stagingであり、productionデータを保存しない。
-- production projectはまだ作成しない。project ref、Auth設定、DB credential、migration履歴を環境間で共有しない。
-- migration適用はstaging/productionとも承認必須とし、productionへの自動適用を行わない。
-- static migration checkの後、stagingでRLS negative testを先に通す。production適用はbackup/rollback確認とstaging証跡が揃った後に別承認する。
-- service role key、DB password、JWT Secret、connection stringをMarkdown、GitHub Variables、artifact、ログへ保存しない。
+- Access application、audience、policy、session、D1 database、migration履歴をstaging/productionで共有しない。
+- WorkerはAccess JWTの署名、issuer、audience、期限、token typeを検証し、D1のactive identityとworkspace membershipを毎回再認可する。人間向け業務APIは空でない `sub` を必須にし、service-token JWTをD1 userへ写像しない。
+- Access到達許可をworkspace role認可と同一視しない。
+- previewはstaging D1だけをbindingし、production D1をbindingしない。
+- production Access applicationとproduction D1はまだ作成しない。migration、deploy、外部ユーザー招待は別々のowner承認を必須にする。
+- 既存Supabaseは移行前baselineとし、新規ユーザー、資格情報を追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。Issue #176 M6でruntime依存と不要資格情報を退役する。
 
 ## R2
 
@@ -100,8 +103,8 @@ bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding�
 ## Release gate
 
 - 対象commit SHAとstaging検証SHAが一致する。
-- `npm run check`、RLS negative test、smoke/E2Eが成功する。
-- RLS previewの未認証requestが拒否され、Access付きrequestだけが同じimmutable originで成功する。
+- `npm run check`、Access JWT/D1 workspace negative test、smoke/E2Eが成功する。
+- previewの未認証requestがAccessで拒否され、検証済みidentityだけがstaging D1境界へ到達する。
 - P0/P1が0件で、rollback対象SHAと手順が確認済みである。
 - GitHub Environment `production` required reviewersとユーザーの明示承認がある。
 - production接続先、Secrets、binding、domainを環境対応表と照合する。

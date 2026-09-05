@@ -15,7 +15,7 @@ Status: Accepted
 - 課金objectが一度も存在しない初期環境ではStripe APIへ通信しない。既存課金objectがある環境でreconciliationにStripe API照会が必要な場合は、flagがfalseでも照会を許可し、失敗時はeventを再試行待ちへ残す。
 - Stripe Product、Price、Webhook endpoint、Secretは実装とtest modeの承認前に作成・登録しない。
 - Checkout Sessionは短命な申込入口に限定し、課金状態とentitlementの正本は署名検証済みWebhookとする。
-- Webhookはraw bodyで署名検証してから永続化し、`stripe_event_id` の一意制約で重複を拒否する。
+- Webhookはexact POSTとbody上限、raw bodyの署名・署名対象timestampを副作用なしで検証してから有界parse/schema・provider固有allowlist検証を行い、`stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存する。guard commit後だけproviderへ2xxを返し、保存済みoutboxからdispatcherと副作用へ進める。同じID・digestの再送は `received/processing/retryable/reconcile_required/completed/dead_letter` の状態に従って同じworkを再開・照合・冪等successとし、同じID・異なるdigestは拒否する。結果不明は照合前に副作用を自動再送しない。
 - イベントの到着順を信用せず、対象payment、subscription、customerのStripe上の現在状態を使うreconciliation処理へ集約する。
 - Stripe SDK型やstatusをドメインへ直接漏らさず、内部のoffer、purchase、subscription、entitlement状態へ変換する。
 - 課金状態が不明な場合にデータ削除、追加請求、即時ロックを行わない。安全側の読み取り許可と管理者への案内を設計してから強制する。

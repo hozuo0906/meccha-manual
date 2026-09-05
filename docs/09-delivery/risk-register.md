@@ -7,7 +7,7 @@ Status: Accepted
 | RISK-001 | Browser Runが対象サイトにbot扱いされる | 操作記録不可 | 対応できない条件を明記、接続テストを実装 |
 | RISK-002 | 社内IP制限/社内DNSで対象サイトに入れない | 業務利用不可 | 公開HTTPSを正式サポート範囲にする |
 | RISK-003 | 入力値や個人情報が保存される | P0情報漏えい | 入力値非保存、マスキング、公開前確認 |
-| RISK-004 | RLS抜け | P0テナント越境 | deny-by-default、negative test |
+| RISK-004 | Worker認可またはD1 queryのworkspace条件抜け | P0テナント越境 | 用途別repository、workspace必須query、D1制約、negative/mutation test、静的scanner |
 | RISK-005 | 共有リンク失効が遅れる | P0情報漏えい | Worker検証、キャッシュ制御 |
 | RISK-006 | AI APIコストが発生する | 予期せぬ請求 | 初期OFF、feature flag、利用上限 |
 | RISK-007 | サブエージェントが矛盾した実装をする | 品質低下 | 文書正本、Issue分解、統合担当固定 |
@@ -19,7 +19,10 @@ Status: Accepted
 | RISK-013 | Stripe webhookの順不同・遅延で古い状態へ戻る | 誤ったentitlement | object単位reconciliation、冪等処理、状態遷移テスト |
 | RISK-014 | Browser session終了失敗でcredentialやCookieが残る | P0情報漏えい | Live View失効、close再試行、期限切れ、監査alarm |
 | RISK-015 | 都度払いの権利を別workspaceまたは別manualへ付与する | P0越境/誤権限 | checkout intentへworkspace/manualを固定し、PriceとWebhookを照合する |
-| RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、Supabase sessionとcheckout intentを正本にする |
+| RISK-016 | Stripe Linkのメール一致をアプリ認証と誤認する | P0アカウント誤紐付け | Linkを入力支援に限定し、検証済みAccess identityとcheckout intentを正本にする |
 | RISK-017 | Browser RunやStorageの計測誤差で追加請求する | 誤課金/信用失墜 | 初期は自動従量課金せず、上限停止と再集計フローを採用する |
 | RISK-018 | DNS検査後にBrowser Runが再解決しprivate IPへ接続する | P0内部ネットワーク到達 | 検査済みIPへの実接続拘束、全通信種別のegress negative test、実現不能時は任意URL・承認済みhost・mobile previewを含む全Browser Runをfail closed |
-| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | non-production branch build停止、`main`は非promote version upload、Access deny-by-default、Cloudflare account members + preview専用service token、未認証health拒否、staging境界確認、backend negative proof、証明完了までmain merge hold |
+| RISK-019 | Worker previewが未認証公開またはproduction backendを継承する | P0情報漏えい・本番データ変更 | non-production branch build停止、`main`は非promote version upload、Access deny-by-default、Cloudflare account members + preview専用service token、未認証health拒否。Issue #176 M5の実preview negative proof完了までstaging合格、production資源作成・deploy、外部招待を禁止 |
+| RISK-020 | Access policyが未招待者をアプリ内部まで到達させる | P0不正アクセス/情報露出 | Access deny-by-defaultに加え、D1 application identityとactive membershipを全APIで再検証 |
+| RISK-021 | Access JWTの署名・issuer・audience・期限検証が欠ける | P0 identity spoofing | 公式JWKS検証、固定issuer/audience、negative test、検証済みclaim型だけをdomainへ渡す |
+| RISK-022 | D1移行でPostgres transaction/RPCの競合防止が失われる | データ破損/公開版改変 | 用途別transaction、期待version、結果不明時の再照合、並行mutation test |

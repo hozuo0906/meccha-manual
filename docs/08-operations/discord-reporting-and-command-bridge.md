@@ -125,15 +125,18 @@ POST /v1/integrations/discord/interactions
 
 Workerの処理:
 
-1. `x-signature-ed25519` と `x-signature-timestamp` を検証する。
-2. timestampが許容時間外なら拒否する。
-3. `DISCORD_ALLOWED_GUILD_IDS`、`DISCORD_ALLOWED_CHANNEL_IDS`、`DISCORD_ALLOWED_USER_IDS`、`DISCORD_ALLOWED_ROLE_IDS` を確認する。
-4. `DISCORD_INTERACTION_STORE` でinteraction IDを短期保存し、同じDiscord requestから重複Issueを作らない。
-5. command内容を検証する。
-6. Discordへ3秒以内にdeferred ephemeral responseを返す。
-7. `GITHUB_ISSUE_TOKEN` でGitHub Issueを作成する。
-8. Discord original responseをIssue URLで更新する。
-9. CodexはGitHub Issueを正としてtriageする。
+1. exact POSTとbody上限を確認する。
+2. raw bodyの `x-signature-ed25519` と署名対象 `x-signature-timestamp` を副作用なしで検証し、許容時間外を拒否する。
+3. 有界parse/schema検証を行い、interaction ID、command、guild/channel/user/roleを取得する。
+4. `DISCORD_ALLOWED_GUILD_IDS`、`DISCORD_ALLOWED_CHANNEL_IDS`、`DISCORD_ALLOWED_USER_IDS`、`DISCORD_ALLOWED_ROLE_IDS` とcommand内容を検証する。
+5. interaction ID、payload digest、receiptと再実行可能なIssue work/outboxを単一のatomic operationでauthoritative storeへ保存し、`received` にする。
+6. guard commit成功後だけDiscordへ3秒以内にdeferred ephemeral responseを返す。保存失敗時は成功応答しない。
+7. 保存済みoutboxからdispatcherを起動し、`GITHUB_ISSUE_TOKEN` でGitHub Issueを作成する。Issue作成結果が不明な場合は決定的correlation markerで照合するまで作成を自動再送しない。
+8. receipt/workを `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。一時失敗・期限切れleaseは同じworkを再開し、同じID・digestの再送は新しいIssue workを作らず状態別に維持・再開・照合・冪等応答する。同じID・異なるdigestは拒否する。
+9. Discord original responseをIssue URLで更新し、全副作用確認後だけ `completed` にする。retry上限到達は監査・運用アラート・明示再開対象にし、受理済みworkを黙って失わない。
+10. CodexはGitHub Issueを正としてtriageする。
+
+`DISCORD_INTERACTION_STORE` KVの既存get→putはauthoritative replay guardではなく、atomic guard commit後の短期応答cacheにだけ利用できる。OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative test完了前はpath別Access Bypassを有効化しない。
 
 危険操作検知:
 
@@ -165,12 +168,11 @@ Workerに必要なsecret:
 - `DISCORD_PUBLIC_KEY`
 - `GITHUB_ISSUE_TOKEN`
 
-Workerに必要なbinding:
+移行前baseline Workerの任意cache binding:
 
-- `DISCORD_INTERACTION_STORE`
+- `DISCORD_INTERACTION_STORE`（atomic guard commit後の短期応答cache専用。authoritative replay guard不可）
 
-この2つはCloudflare Worker runtimeで使うため、GitHub SecretsだけではなくCloudflare Secretにも登録する。
-値はチャット、Markdown、ログへ貼らない。
+authoritative receipt/work用binding名はOQ-031で方式確定後に追加し、環境変数台帳、ADR、schema/migration、testを同じPRで更新する。`DISCORD_PUBLIC_KEY` と `GITHUB_ISSUE_TOKEN` はCloudflare Worker runtimeで使うため、GitHub SecretsだけではなくCloudflare Secretにも登録する。値はチャット、Markdown、ログへ貼らない。
 
 Workerに設定できる制限:
 
@@ -194,7 +196,7 @@ Workerに設定できる制限:
 - AI API有効化
 - PR merge
 
-GitHub PR、Cloudflare、Supabase側の承認ゲートを正本にする。
+GitHub PR、Cloudflare Access/D1/R2/Workers側の承認ゲートを正本にする。
 
 ## Discord PR review buttons
 

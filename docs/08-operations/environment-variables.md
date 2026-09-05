@@ -11,24 +11,28 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 
 この台帳は名前、分類、用途だけを正本にし、どの環境へ何が登録済みかは記録しない。実際の登録状況、値、token権限はGitHub/Cloudflare/Supabase/Stripe側で権限のある担当者が確認する。
 
-`SUPABASE_SERVICE_ROLE_KEY`、`SUPABASE_DB_PASSWORD`、`SUPABASE_JWT_SECRET` は現Phaseでは登録しない。
+Supabase関連名はIssue #176の移行完了までlegacyとしてのみ扱い、新規環境へ登録しない。Access/D1の実値、audience、team domain、database IDはMarkdownやログへ記録しない。
 
 ## 台帳
 
 | 名前 | 分類 | 用途 | 必須 | クライアント公開 |
 |---|---|---|---|---|
 | `APP_ENV` | server/public | `local`、`preview`、`staging`、`production` の識別 | yes | public版のみ可 |
-| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成。productionは`https://meccha-manual.meccha-iiyatsu.com` | yes | public版のみ可 |
-| `SUPABASE_URL` | server/public | Supabase接続先 | yes | public版のみ可 |
-| `SUPABASE_ANON_KEY` | public | Supabase Auth/RESTの公開anon key | yes | yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | secret | 管理系ジョブ、将来のサーバー専用処理 | phase3以降 | no |
-| `SUPABASE_JWKS_URL` | server | JWT検証 | phase1以降 | no |
-| `SUPABASE_DB_PASSWORD` | secret | migration自動化、DB管理 | 未定 | no |
-| `SUPABASE_JWT_SECRET` | secret | JWT関連の高度な検証、管理作業 | 未定 | no |
+| `APP_BASE_URL` | server/public | 共有URL、callback URL、通知URL生成。productionは正式アプリURL | yes | public版のみ可 |
+| `ACCESS_ISSUER` | server | 許可するCloudflare Access issuer。環境別 | migration | no |
+| `ACCESS_AUDIENCE` | server | Access application JWTのaudience。環境別 | migration | no |
+| `ACCESS_JWKS_URL` | server | Access署名鍵取得先。issuerから許可された規則で導出可能 | migration | no |
+| `DB` | binding | Cloudflare D1業務DB。staging/productionでdatabaseを共有しない | migration | no |
+| `SUPABASE_URL` | legacy | 移行前Supabase接続先。D1切替後に削除し、新規環境へ登録しない | no | no |
+| `SUPABASE_ANON_KEY` | legacy | 移行前Auth/REST。D1切替後に削除し、新規環境へ登録しない | no | no |
+| `SUPABASE_SERVICE_ROLE_KEY` | prohibited legacy secret | 新規登録・利用を禁止し、移行完了後に不要性を確認して失効 | no | no |
+| `SUPABASE_JWKS_URL` | legacy | 移行前JWT検証。Access切替後に削除 | no | no |
+| `SUPABASE_DB_PASSWORD` | prohibited legacy secret | 新規登録・利用を禁止 | no | no |
+| `SUPABASE_JWT_SECRET` | prohibited legacy secret | 新規登録・利用を禁止 | no | no |
 | `CLOUDFLARE_ACCOUNT_ID` | secret/server | Cloudflare API、Browser Run、deploy | harness | no |
 | `CLOUDFLARE_API_TOKEN` | secret | Cloudflare deploy、Workers設定 | harness | no |
-| `CF_ACCESS_CLIENT_ID` | secret | Access保護されたGitHub runner通信のservice token ID | harness | no |
-| `CF_ACCESS_CLIENT_SECRET` | secret | Access保護されたGitHub runner通信のservice token secret | harness | no |
+| `CF_ACCESS_CLIENT_ID` | secret | Issue #176 M5 staging immutable-preview検証用Access service token ID | harness | no |
+| `CF_ACCESS_CLIENT_SECRET` | secret | Issue #176 M5 staging immutable-preview検証用Access service token secret | harness | no |
 | `BROWSER_RUN` | binding | Cloudflare Browser Run | phase3 | no |
 | `CAPTURE_SESSION` | binding | 操作記録sessionのDurable Object | phase3 | no |
 | `CAPTURE_ASSETS` | binding | R2操作記録スクリーンショット | phase3 | no |
@@ -63,7 +67,7 @@ secretをクライアント、Markdown、ログ、エラー詳細、ソースマ
 | `DISCORD_ALLOWED_USER_IDS` | server | 許可Discord user IDのカンマ区切り | discord-bridge | no |
 | `DISCORD_ALLOWED_ROLE_IDS` | server | 許可Discord role IDのカンマ区切り。user allowlistと併用時はuserまたはrole一致で許可 | discord-bridge | no |
 | `DISCORD_ALLOW_UNSCOPED_COMMANDS` | server | `true` の場合のみguild/channel allowlist未設定を許可。既定は禁止 | discord-bridge | no |
-| `DISCORD_INTERACTION_STORE` | binding | Discord interaction IDの短期replay防止KV binding | discord-bridge | no |
+| `DISCORD_INTERACTION_STORE` | binding | 移行前baselineのKV binding。authoritative replay guardには使わず、atomic receipt/work commit後の短期応答cacheだけに限定可能 | discord-bridge | no |
 | `DISCORD_APPLICATION_ID` | secret/server | Slash Command登録 | discord-bridge | no |
 | `DISCORD_BOT_TOKEN` | secret | Slash Command登録用Bot token | discord-bridge | no |
 | `DISCORD_GUILD_ID` | server | 開発用guild command登録 | discord-bridge | no |
@@ -105,16 +109,16 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 ## ルール
 
 - productionとstagingでsecretを共有しない。
-- `SUPABASE_ANON_KEY` は公開前提だが、service role keyと混同しない。
+- Supabase関連値は移行前baselineに限定し、新規環境へ登録しない。service role key、DB password、JWT Secretは引き続き禁止する。
 - GitHub Actionsで使うsecretはworkflow logへ出さない。
-- RLS preview用Access 2件は `staging` Environmentへ一組で登録し、Business OS用repository secretへのfallback運用を許可しない。
+- Issue #176 M5 immutable preview検証用Access service token 2件は `staging` Environmentへ一組で登録し、Business OS用repository secretへのfallback運用を許可しない。
 - Access policyは用途別service tokenだけを許可し、同名secretでも環境・用途をまたいで値を共有しない。
 - Discord通知にはsecret値、実ユーザー情報、長いログ全文を含めない。
 - DiscordからのIssue作成tokenはIssues writeだけに絞る。
 - Discord Interaction endpointでは `DISCORD_PUBLIC_KEY` による署名検証を必須にする。
 - Worker runtimeで使うDiscord/GitHub bridge secretはCloudflare Secretにも登録する。
 - Discord command受付は `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする。未設定運用は `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示した検証環境だけに限定する。
-- `DISCORD_INTERACTION_STORE` KV bindingを設定し、同じDiscord interaction IDから重複Issueを作らない。
+- `DISCORD_INTERACTION_STORE` KVのget→putだけで重複Issue防止を成立させない。authoritativeなatomic receipt/work、state machine、dispatcher、negative testをOQ-031／Issue #176 M2で実装し、そのguard commit後の短期応答cacheとしてだけKVを利用できる。完了前はpath別Access Bypassを有効化しない。
 - `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。PR buttonのマージ依頼もPRのIssue comment/label記録までに限定する。
 - `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。
@@ -137,4 +141,4 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 | `CLOUD_RUNNER_JOB_SIGNING_SECRET` | secret | Business OS job payloadの署名検証 | 有料job実行時 | no |
 | `OPENAI_API_KEY` | secret | Owner承認済みBusiness OS automationでCodexを実行 | optional / paid | no |
 
-Business OS runner secretは既存の `CODEX_ACCESS_TOKEN` と共有しない。`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` の名前は共通規約だが、Business OS用とRLS preview用のservice token値は共有しない。値はGitHub Actions log、Issue、PR、Markdownへ記録しない。`OPENAI_API_KEY` は無料probeと拒否系testでは設定せず、費用、job単位の `maxCostUsd`、月次hard stopをOwnerが承認した後だけ登録する。
+Business OS runner secretは既存の `CODEX_ACCESS_TOKEN` と共有しない。`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` の名前は共通規約だが、Business OS用とIssue #176 M5 immutable preview検証用のservice token値は共有しない。値はGitHub Actions log、Issue、PR、Markdownへ記録しない。`OPENAI_API_KEY` は無料probeと拒否系testでは設定せず、費用、job単位の `maxCostUsd`、月次hard stopをOwnerが承認した後だけ登録する。

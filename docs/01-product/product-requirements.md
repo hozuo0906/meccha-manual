@@ -14,15 +14,15 @@ Status: Accepted
 
 | ID | 要件 | 受入条件 |
 |---|---|---|
-| FR-001 | ユーザーはSupabase Authでログインできる | ログイン、ログアウト、期限切れ、再ログインが動作する |
+| FR-001 | 招待済みユーザーはCloudflare AccessのメールOTPでログインできる | Access JWTの署名・issuer・audience・期限をWorkerが検証し、ログイン、ログアウト、期限切れ、再認証が動作する。アプリ独自passwordは保存しない |
 | FR-002 | ユーザーは必ずワークスペースに所属する | 個人単独利用のデータが作られない |
-| FR-003 | owner/admin/editor/viewerを管理できる | 権限ごとのCRUDがAPIとRLSで制御される |
+| FR-003 | owner/admin/editor/viewerを管理できる | 権限ごとのCRUDがWorker認可とworkspace固定D1 queryで制御され、Accessへ到達できても未所属・停止中は拒否される |
 | FR-004 | 手順書を作成、編集、削除、アーカイブできる | 下書きと公開版が混ざらない |
 | FR-005 | 手順を追加、並べ替え、削除できる | 1手順1操作の構造を維持できる |
 | FR-006 | 日本語テンプレ文を生成できる | `［対象］を［操作］します` 形式で生成される |
 | FR-007 | Cloudflare Browser Runで対象URLを開ける | Live View URLを短命で発行できる |
 | FR-008 | 操作イベントを記録できる | クリック、入力完了、遷移、スクロールが連番で保存される |
-| FR-009 | スクリーンショットを保存できる | private R2 bucketへ保存され、短期署名URL経由で閲覧する |
+| FR-009 | スクリーンショットを保存できる | private R2 bucketへ保存され、業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy経由で閲覧する。ブラウザへR2の短期署名read URLを配らず、失効後の新しいrequestとcache reuseを拒否する |
 | FR-010 | 入力値を原則保存しない | password、カード番号、トークン、個人番号が保存されない |
 | FR-011 | 操作記録から下書きを生成できる | 記録終了後、手順書エディタで編集できる |
 | FR-012 | 共有リンクを作成できる | デフォルトOFF、期限、パスコード、無効化がある |

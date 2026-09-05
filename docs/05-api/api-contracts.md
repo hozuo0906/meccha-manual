@@ -1,12 +1,19 @@
 # API契約
 
-Status: Proposed
+Status: Accepted
+
+本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
 ## 共通
 
-- 認証はSupabase JWT。
-- 業務認可はAPI Workerで判定。
-- 最終防衛線はRLS。
+- 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。
+- 例外は `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` のexact pathだけとし、path別Access Bypassは到達経路に限る。Bypassや `Origin` を認証・認可の代替にしない。
+- callbackはexact POSTとbody上限を確認し、raw bodyのprovider署名・署名対象timestampを副作用なしで検証し、有界parse/schema検証とprovider固有allowlist検証を行う。
+- provider event/interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationでauthoritative storeへ保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
+- receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_required`、`completed`、`dead_letter` で管理する。同じID・同じdigestの再送は既存workを状態別に維持・再開・照合・冪等successとし、同じID・異なるdigestは拒否する。結果不明の副作用は照合前に自動再送せず、受理済みworkを黙って失わない。
+- OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative testが揃うまでpath別Access Bypassを有効化しない。
+- 業務認可はWorkerでactive identity、membership、role、resource workspaceを再照合する。
+- tenant境界はworkspace固定D1 query、D1制約、private R2認可で多層化する。
 - エラーは日本語UI向けコードと運用向け詳細を分ける。
 - 外部イベントと状態変更APIは冪等性を持つ。
 
@@ -14,7 +21,9 @@ Status: Proposed
 
 ### Phase 1ハーネス
 
-この表はADR-0010に基づくAccepted契約である。後段の将来API一覧は、各PhaseのScope CheckでAcceptedへ移すまでProposedとして扱う。
+Status: Superseded
+
+実行禁止: ADR-0028、DEC-064、Issue #176により、このsectionだけを移行前Supabase Auth／PostgREST／RPC baselineとして保持する。新規実装、test user、secret、migration、live実行、staging合格証跡の根拠にしない。後継は[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)とIssue #176 M3。
 
 | API | 目的 | 認可・失敗境界 |
 |---|---|---|
@@ -41,9 +50,12 @@ Status: Proposed
 
 ### 将来の正式API
 
+Status: Proposed
+
+各PhaseのScope CheckでAcceptedへ移すまで、この一覧だけをProposedとして扱う。Accepted継続APIは次sectionへ分離する。
+
 | API | 目的 | 認可 |
 |---|---|---|
-| `GET /health/config` | Cloudflare Workerが必要な公開設定を読めているか確認 | public, secret値は返さない |
 | `POST /v1/workspaces` | ワークスペース作成 | authenticated |
 | `GET /v1/workspaces/{id}` | ワークスペース取得 | member |
 | `POST /v1/workspaces/{id}/invitations` | 招待 | owner/admin + plan limit |
@@ -52,21 +64,31 @@ Status: Proposed
 | `GET /v1/manuals/{id}` | 手順書取得 | can_view_manual |
 | `PATCH /v1/manuals/{id}` | 手順書更新 | can_edit_manual |
 | `POST /v1/manuals/{id}/publish` | 公開版作成 | can_edit_manual |
-| `POST /v1/manuals/{id}/exports` | PDF/HTML/Markdown出力を要求 | can_view_manual + active export entitlement |
-| `POST /v1/workspaces/{workspaceId}/capture-sessions` | 操作記録開始 | editor以上 + Browser Run/同時記録上限 + egress P0検証済みflag |
-| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url` | Live View URL発行 | session owner + egress P0検証済みflag |
-| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/commands` | navigate/reload等 | session owner + egress P0検証済みflag |
-| `GET /v1/workspaces/{workspaceId}/capture-sessions/{id}/events` | 再接続差分 | session owner |
-| `DELETE /v1/workspaces/{workspaceId}/capture-sessions/{id}` | セッション終了 | session owner |
 | `POST /v1/share-links` | 共有リンク作成 | can_edit_manual |
 | `GET /s/{token}` | 共有閲覧 | token検証 |
 | `POST /v1/playback-sessions` | Guide Me風開始 | can_view_manual |
-| `POST /v1/workspaces/{workspaceId}/mobile-preview-sessions` | スマホ表示確認開始 | editor以上 + egress P0検証済みflag |
-| `GET /v1/billing/summary` | 現在プラン、利用量、上限、購入済みmanualを取得 | member。請求詳細はowner/admin |
-| `POST /v1/billing/checkout-intents` | 短命Checkout Session作成前の購入意図を作成 | single exportはeditor以上、subscriptionはowner/admin |
-| `GET /v1/billing/checkout-intents/{id}` | 決済処理状況を確認 | intent作成者またはowner/admin |
-| `POST /v1/webhooks/stripe` | Stripe webhook | signature verified |
-| `POST /v1/integrations/discord/interactions` | Discord Slash Command受信 | Discord Ed25519 signature verified |
+
+### Accepted継続API索引
+
+Status: Accepted
+
+以下は後続のAccepted contractへの索引であり、「将来の正式API」のProposed状態を適用しない。
+
+| API | 正本contract |
+|---|---|
+| `GET /health/config` | Cloudflare Access / D1 API移行契約。`service_token` actorだけを許可し、Access JWTなし・不正・`access_user` actorを拒否する。業務データやsecret値を返さない |
+| `POST /v1/manuals/{id}/exports` | 課金API contract |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions` | Browser Run egress contract |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url` | Browser Run egress contract |
+| `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/commands` | Browser Run egress contract |
+| `GET /v1/workspaces/{workspaceId}/capture-sessions/{id}/events` | Browser Run egress contract |
+| `DELETE /v1/workspaces/{workspaceId}/capture-sessions/{id}` | Browser Run egress contract |
+| `POST /v1/workspaces/{workspaceId}/mobile-preview-sessions` | Browser Run egress contract |
+| `GET /v1/billing/summary` | 課金API contract |
+| `POST /v1/billing/checkout-intents` | 課金API contract |
+| `GET /v1/billing/checkout-intents/{id}` | 課金API contract |
+| `POST /v1/webhooks/stripe` | 課金API contract |
+| `POST /v1/integrations/discord/interactions` | Discord Interaction contract |
 
 `capture.browserRun.egressVerified.enabled=false` の場合、capture session、mobile preview sessionの作成とnavigate/reload commandはBrowser Runへ通信する前に `503 BROWSER_EGRESS_NOT_VERIFIED` で拒否する。hostnameのallowlistや運営承認はこの拒否を迂回できず、Browser Runを起動する新しいAPIにも同じgateを必須にする。
 
@@ -132,7 +154,7 @@ runnerはproduction deploy、rollback、DB migration、secret変更をこの契�
 - 必須header: `x-signature-ed25519`, `x-signature-timestamp`
 - timestamp許容: 5分以内
 - body上限: 64KB
-- replay防止: `DISCORD_INTERACTION_STORE` KVにinteraction IDを10分保存する
+- replay/idempotency: 署名・timestamp検証後に有界parse/schema検証とallowlist検証を行い、interaction ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。`DISCORD_INTERACTION_STORE` KVの既存get→putは移行前baselineであり、単独のreplay guard正本にせず、guard commit後の短期応答cacheに限定できる。再送はreceipt stateに従って同じworkを維持・再開・照合・冪等successとし、新しいIssue workを作らない。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない
 - 許可範囲: `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする
 - 応答: slash commandは3秒以内にdeferred ephemeral responseを返し、GitHub Issue作成後にoriginal responseを更新する
 - GitHub Issue labels: `from-discord`, `needs-triage`, `user-request`, `status/triage`, `priority/P0|P1|P2|P3`
