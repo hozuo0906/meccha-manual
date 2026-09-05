@@ -13,6 +13,12 @@ test("manual navigation and editor states are embedded in the app shell", async 
     'id="manual-publish-button"',
     'id="manual-create-draft-button"',
     'id="manual-archive-button"',
+    'id="manual-reading-preview-button"',
+    'manual-reading-preview',
+    'function openManualReadingPreview',
+    'function closeManualReadingPreview',
+    '保存済み内容のみ',
+    'manualRevisionReadOnlyLabel',
     'id="manual-step-add-form"',
     'steps.length >= 200',
     '手順は200件までです',
@@ -62,7 +68,7 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
   assert.match(source, /querySelectorAll\('\[data-manual-busy-rendered=\"true\"\]'\)[\s\S]*control\.disabled = false/);
-  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button, #manual-archive-button"\)[\s\S]*control\.disabled = true/);
+  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-reading-preview-button"\)[\s\S]*control\.disabled = true/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /function isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*currentScreen === "manual-detail"[\s\S]*manualDetailState\.manualId === manualId/);
   assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);
@@ -96,6 +102,10 @@ test("viewer and accessible UI contracts remain explicit", async () => {
   assert.match(source, /<div role="listitem"><button class="manual-list-item" type="button" data-manual-id=/);
   assert.doesNotMatch(source, /<button[^>]*role="listitem"/);
   assert.match(source, /id="members-heading" tabindex="-1"/);
+  assert.match(source, /createElement\("dialog"\)/);
+  assert.match(source, /showModal\(\)/);
+  assert.match(source, /aria-modal/);
+  assert.doesNotMatch(source, /manual-reading-preview[\s\S]{0,400}requestJson/);
 });
 
 test("Phase 2 browser config runs only the manual editor flow", async () => {
