@@ -4,7 +4,7 @@ Status: Accepted
 
 | 要件 | 画面 | API | テーブル | ADR | テスト | Issue |
 |---|---|---|---|---|---|---|
-| FR-001 | SCR-LOGIN, SCR-SHELL | Access callback/JWT検証, session API | identities, profiles | ADR-0028 | AC-001, AC-003, AC-004, AC-005, Access JWT negative tests | #176, EPIC-02, EPIC-03 |
+| FR-001 | SCR-LOGIN, SCR-SHELL | Access callback/JWT検証, session API | identities, profiles | ADR-0028 | AC-001, AC-003, AC-004, AC-005, Access JWT negative tests, `tests/access-identity.test.mjs`（M1 verifier／actor／identity DI） | #176, EPIC-02, EPIC-03 |
 | FR-002 | SCR-WORKSPACE, SCR-SHELL | workspace APIs | workspaces, workspace_members | ADR-0028 | AC-002, AC-006, AC-007, D1 workspace negative tests | #176, EPIC-02, EPIC-03 |
 | FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs | workspace_members, identities, profiles | ADR-0028 | AC-007, AC-008, AC-009, AC-014, role/status negative tests | #176, EPIC-02, EPIC-03 |
 | FR-004 | SCR-MANUAL-EDITOR（保存済み内容の閲覧プレビューを含む） | `GET/POST /api/workspaces/{id}/manuals`, manual detail/draft/publish/archive APIs | manuals, manual_revisions, manual_steps, audit_logs | ADR-0028, ADR-0004, ADR-0005, DEC-058 | 移行前Supabase／Postgres baseline（D1合格証跡には使用しない）: `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。保存済み閲覧プレビューの未保存入力保持・保存済み版表示・書込みなしを検証。Issue #176 M4のD1 gateでは、作成・編集・公開・次draft・archiveの正常系、別workspace、role/status、ID差し替え、期待version競合、再送、結果不明、batch途中失敗とatomic rollbackをAPI／repository／E2Eで検証する。AC-010の公開版revision作成まで。未ログイン公開URL、物理削除・復元はOQ-028の後続 | #176（M4、未完了）, #63, #64, #65, #74, #80, #82（移行前baseline）, EPIC-06 |

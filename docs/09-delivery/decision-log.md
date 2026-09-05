@@ -192,7 +192,22 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
   - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
   - receipt/workは `received/processing/retryable/reconcile_required/completed/dead_letter` の状態機械で扱う。一時失敗・期限切れleaseは同じworkを再開し、結果不明は照合前に自動再送せず、completed再送は冪等success、同じID・異なるdigestは拒否とする。通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。OQ-031をM2で解決し、atomic receipt/work、schema/migration、dispatcher、並行再送・途中失敗・結果不明negative testが揃うまでpath別Access Bypassを有効化しない。
+
 - Evidence:
   - [ADR-0028](../03-architecture/adrs/ADR-0028-cloudflare-access-d1.md)
   - GitHub Issue #176
   - [Cloudflare移行ロードマップ](cloudflare-migration-roadmap.md)
+
+## DEC-065: M1 Access identity verifierの依存とDI境界
+
+- Status: Accepted
+- Date: 2026-09-05
+- Decision:
+  - JWTの署名検証は`jose` v6.2.12をruntime依存としてexact pinする。RS256、設定済みissuer／audience、設定済みHTTPS JWKS、exp／iat／存在するnbf、typeを検証し、JWT内の`jku`等から鍵URLを選ばない。
+  - `createAccessAuthenticator`が作る認証器内でJWKS resolverを再利用し、request間のuser dataをmodule-globalへ保存しない。
+  - 検証後actorを`access_user | service_token`に固定し、issuer+subjectでのapplication identity lookupはuserだけに限定する。service tokenは明示allowlist health routeだけに許可し、identity lookupを0回にする。
+  - 設定envの前後空白は既存の設定窓口と同様に除去するが、issuer／JWKS URLの末尾slash等のURL正規化は行わず、署名済みissuer／subjectは原文字列で扱う。
+- Reason:
+  - 暗号実装を自作せず、Workers対応の署名検証と鍵cacheを既存ライブラリへ委譲し、issuer／subjectをemailや未検証headerから分離するため。
+- Boundary:
+  - M1はDI spikeと検証可能なローカルfixtureに限定し、実HTTP path／UIの切替、D1 schema／migration、OTP／招待、production Access変更を含めない。

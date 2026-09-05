@@ -61,6 +61,13 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - production Access変更
 - 旧Supabase経路へのfallback
 
+実装状況（M1）:
+
+- `apps/worker/src/access-identity.ts` にAccess JWT検証、actor分離、machine route allowlist、application identity DIを追加した。
+- `ACCESS_ISSUER`、`ACCESS_AUDIENCE`、`ACCESS_JWKS_URL`は`server-config.ts`を唯一の設定窓口とし、issuer／JWKSは安全性検証済みHTTPS設定だけを使う。
+- 実HTTP request path、UI、D1 schema、migration、外部ログインはM3／M2以降の範囲として変更していない。
+- `tests/access-identity.test.mjs` はローカルRSA署名JWTとmock JWKS HTTPを使い、正常系、actor shape、期限、署名、鍵取得障害、identity状態、秘密値非露出を検証する。
+
 ## M2: D1 workspace boundary
 
 成果:
