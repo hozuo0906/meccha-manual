@@ -281,28 +281,70 @@ const m5CarrierRetirementContradictionTerms = [
   "M6で退役",
   "M6で削除",
   "M6へ持ち越す",
-  "M6への持越しを許可",
+  "M6への持越し",
   "着地後に退役する",
   "M6へ持ち越して退役する",
   "旧workflowの廃止をM6に延期",
   "着地後の別PRで削除",
   "replacement未着地のまま先行退役を禁止しない"
 ];
-const m5CarrierIdentityTerms = [
-  "phase1-rls-live.yml",
-  "Phase 1 RLS",
-  "live RLS gate",
-  "live gate",
-  "live workflow",
-  "旧workflow",
-  "旧Supabase live gate"
-];
+const m5CarrierIdentityTermsByName = new Map([
+  ["DEC-064 pre-M5 transition", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate"]],
+  ["DEC-064 Safety", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate"]],
+  ["phase1 runbook M5 safety", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate", "旧workflow"]],
+  ["session handoff M5 safety", ["phase1-rls-live.yml", "live RLS gate", "旧workflow"]],
+  ["environments intro M5 safety", ["Phase 1 RLS Live Gate", "Issue #176 M5 replacement gate"]],
+  ["environments preview matrix M5 safety", ["Phase 1 RLS immutable preview", "Phase 1 RLS immutable preview gate"]],
+  ["environments dispatch matrix M5 safety", ["Phase 1 RLS immutable preview gate", "Issue #176 M5 replacement gate"]],
+  ["environments boundary M5 safety", ["現行live RLS gate", "Issue #176 M5 replacement gate", "旧workflow削除"]],
+  ["roadmap current live-gate M5 safety", ["Supabase RLS live gate", "Issue #176 M5"]],
+  ["roadmap M0 live-workflow M5 safety", ["旧Supabase live workflow", "M5 replacement gate"]],
+  ["roadmap M5 five-actions safety", ["DEC-064 Safetyの5操作", "旧workflow削除"]],
+  ["roadmap M6 residual safety", ["旧live workflow", "M5 replacement gate"]],
+  ["prelaunch M5 safety", ["Phase 1 RLS Live Gate", "canonical workflow"]],
+  ["rls negative-test M5 safety", ["phase1-rls-live.yml", "M5 replacement gate"]],
+  ["phase1 setup active exception", ["Supabase/Auth/Postgres/RLS", "canonical live gate"]],
+  ["phase1 setup frozen baseline", ["Supabase project", "canonical workflow"]],
+  ["phase1 setup superseded gate exception", ["Supabaseテストユーザー", "canonical live gate"]]
+]);
+function normalizePredicateText(line) {
+  return line
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/[*_~]+/g, "");
+}
+function matchesCarrierIdentity(line, identity) {
+  const normalizedLine = normalizePredicateText(line);
+  if (identity === "旧workflow") return /(?:^|\s)旧workflow/.test(normalizedLine);
+  return normalizedLine.includes(identity);
+}
 function containsAffirmativeForbiddenAssertion(line, term) {
-  let offset = line.indexOf(term);
+  const normalizedLine = normalizePredicateText(line);
+  let offset = normalizedLine.indexOf(term);
   while (offset >= 0) {
-    const suffix = line.slice(offset + term.length);
-    if (term.endsWith("禁止しない") || !/^(?:しない|ない|することを禁止する|ことを禁止する|許可しない|してはならない|することは禁止する)/.test(suffix)) return true;
-    offset = line.indexOf(term, offset + 1);
+    const sentence = normalizedLine.slice(offset + term.length).split(/[。！？\n]/, 1)[0];
+    if (term === "M6への持越し") {
+      let predicate = sentence.trimStart();
+      predicate = predicate.replace(/^(?:を|は|が|の)\s*/, "").trimStart();
+      predicate = predicate.replace(/^[、,;；]\s*/, "");
+      const targetClause = predicate;
+      if (!targetClause.trim()) {
+        offset = normalizedLine.indexOf(term, offset + 1);
+        continue;
+      }
+      const safePermissionPattern = /許可しない|許可されない|認めない|認められない|禁止する|禁止とする|不可/g;
+      const hasSafeNegative = safePermissionPattern.test(targetClause);
+      const withoutSafeNegative = targetClause.replace(safePermissionPattern, "");
+      const hasAffirmativeOrAmbiguousPermission = /許可|認め|容認|可/.test(withoutSafeNegative);
+      const allowsProhibitedCarryover = /禁止しない|禁止されない/.test(targetClause);
+      if (allowsProhibitedCarryover || hasAffirmativeOrAmbiguousPermission) return true;
+      if (hasSafeNegative) {
+        offset = normalizedLine.indexOf(term, offset + 1);
+        continue;
+      }
+      return true;
+    } else if (term.endsWith("禁止しない") || !/^\s*(?:しない|ない|することを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|することは禁止する|禁止する|禁止とする|不可)/.test(sentence)) return true;
+    offset = normalizedLine.indexOf(term, offset + 1);
   }
   return false;
 }
@@ -364,7 +406,9 @@ function sectionLines(path, sectionPrefix, anchored = false) {
   const headingIndexes = lines.flatMap((line, index) => (anchored ? line.startsWith(sectionPrefix) : line === sectionPrefix) ? [index] : []);
   if (headingIndexes.length !== 1) return [];
   const start = headingIndexes[0];
-  const end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
+  const scopeLevel = /^(#+)\s/.exec(sectionPrefix)?.[1].length ?? 2;
+  const endHeading = new RegExp(`^#{1,${scopeLevel}}\\s`);
+  const end = lines.findIndex((line, index) => index > start && endHeading.test(line));
   return lines.slice(start, end < 0 ? lines.length : end);
 }
 const decisionLogLines = documentLines("docs/09-delivery/decision-log.md");
@@ -541,21 +585,21 @@ const m5CarrierResolutions = m5CarrierEntries.map(({ name, path, scope, scopeAnc
   if (lines.length !== 1) {
     errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
   }
-  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms };
+  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms: m5CarrierIdentityTermsByName.get(name) ?? [] };
 });
 const exemptCarrierLines = new Set(
   m5CarrierResolutions
     .filter(({ forbiddenTerms, lines }) => forbiddenTerms.length === 0 && lines.length === 1)
     .map(({ path, scope, boundedLines, lines }) => `${path}\u0000${scope}\u0000${boundedLines.indexOf(lines[0])}`)
 );
-for (const { name, path, scope, boundedLines, lines, terms, forbiddenTerms } of m5CarrierResolutions) {
+for (const { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms } of m5CarrierResolutions) {
   if (lines.length !== 1) continue;
   for (const term of terms) {
     if (!lines[0].includes(term)) errors.push(`${name} is missing a required contract term in ${path}: ${term}`);
   }
   for (const term of forbiddenTerms) {
     if (containsAffirmativeForbiddenAssertion(lines[0], term)) errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
-    if (boundedLines.some((line, index) => line !== lines[0] && !exemptCarrierLines.has(`${path}\u0000${scope}\u0000${index}`) && m5CarrierIdentityTerms.some((identity) => line.includes(identity)) && containsAffirmativeForbiddenAssertion(line, term))) {
+    if (boundedLines.some((line, index) => line !== lines[0] && !exemptCarrierLines.has(`${path}\u0000${scope}\u0000${index}`) && identityTerms.some((identity) => matchesCarrierIdentity(line, identity)) && containsAffirmativeForbiddenAssertion(line, term))) {
       errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
     }
   }
