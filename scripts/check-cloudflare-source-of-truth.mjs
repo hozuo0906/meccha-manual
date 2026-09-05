@@ -517,7 +517,7 @@ function visibleSentenceFragments(text) {
   return text.split(/(?:[。！？]+|[!?]+|\.(?=\s|$)|(?<=[^A-Za-z0-9_.-])\.|[;；]+)/).map((sentence) => sentence.trim()).filter(Boolean);
 }
 function hasExplicitNonTargetBinding(clause, hasPendingM6Timing = false) {
-  let markerIndex = clause.search(/M6|着地後|replacement未着地/);
+  let markerIndex = clause.search(/M(?:[6-9]|[1-9]\d+)|着地後|replacement未着地/);
   if (markerIndex < 0 && hasPendingM6Timing) markerIndex = clause.search(/廃止|退役|削除|維持|残す|先送り|持(?:ち)?越/);
   if (markerIndex < 0) return false;
   const binding = clause.slice(0, markerIndex).trim();
@@ -526,7 +526,7 @@ function hasExplicitNonTargetBinding(clause, hasPendingM6Timing = false) {
 }
 function m5ClauseFragments(sentence) {
   const explicitSubjectBreaks = sentence.replace(
-    /((?:(?:廃止|退役|削除|維持|先送り)(?:する一方で|させて|させ|して|し)|残(?:す一方で|して|し)|持(?:ち)?越(?:す一方で|して|し)))(?=[^、，,|。！？]{1,80}(?:は|を|が|も|だけ|のみ|に限り)\s*M6)/g,
+    /((?:(?:廃止|退役|削除|維持|先送り)(?:する一方で|させて|させ|して|し)|残(?:す一方で|して|し)|持(?:ち)?越(?:す一方で|して|し)))(?=[^、，,|。！？]{1,80}(?:は|を|が|も|だけ|のみ|に限り)\s*M(?:[6-9]|[1-9]\d+))/g,
     "$1|"
   );
   return explicitSubjectBreaks.split(/[、，,|]/).map((value) => value.trim()).filter(Boolean);
@@ -550,8 +550,8 @@ function findM5SentenceContradiction(sentence, identityPatterns = []) {
     if (hasTargetIdentity) carriesTargetIdentity = true;
     else if (hasOtherBinding) carriesTargetIdentity = false;
     pendingM6Timing = null;
-    const pendingAction = /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*以降\s*(?:に|は)?\s*$/.exec(clause);
-    const trailingM6Timing = /M6\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)\s*$/.exec(clause);
+    const pendingAction = /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M(?:[6-9]|[1-9]\d+)\s*以降\s*(?:に|は)?\s*$/.exec(clause);
+    const trailingM6Timing = /M(?:[6-9]|[1-9]\d+)\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)\s*$/.exec(clause);
     if (targetIsBound && pendingAction) pendingM6Timing = pendingAction[0];
     else if (trailingM6Timing && (targetIsBound || trailingM6Timing.index === 0)) pendingM6Timing = trailingM6Timing[0];
   }
@@ -722,6 +722,9 @@ for (const line of ["旧workflowはM6以降に、削除する。", "旧workflow�
 }
 for (const line of ["M6で、旧workflowを削除する。", "M6まで、旧workflowを維持する。", "M6へ、旧workflowを持ち越す。"]) {
   if (!findM5CarrierContradiction([line])) errors.push(`M5 standalone timing fixture failed: ${line}`);
+}
+if (!findM5CarrierContradiction(["M7で、", "旧workflowを削除する。"])) {
+  errors.push("M5 later standalone timing fixture failed.");
 }
 for (const line of ["M6で旧workflowを削除する。", "M6で旧workflow（M5まで現行）を削除する。", "M6以降に旧workflowを削除する。", "M6以降、旧workflowを削除する。", "M6へ旧workflowを持ち越す。", "M6へ旧workflowを先送りする。", "旧workflowの削除をM6以降、行う。"]) {
   if (!findM5CarrierContradiction([line])) errors.push(`M5 target-order fixture failed: ${line}`);
@@ -1009,7 +1012,7 @@ const m5CarrierEntries = [
     name: "issue-map Issue 95 Superseded context",
     path: "docs/09-delivery/issue-map.md",
     scope: "## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行",
-    prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報やlive runを追加しない。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
+    prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
     exact: true,
     terms: ["#95", "旧Supabase live gate", "Superseded"],
     forbiddenTerms: []
