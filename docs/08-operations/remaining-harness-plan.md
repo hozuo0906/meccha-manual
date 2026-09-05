@@ -15,7 +15,7 @@ Status: Superseded
 - 必要な外部設定: staging/production別private bucket、Worker環境別R2 binding、保持ルール。
 - まだやらないこと: bucket作成、binding追加、実ファイルupload、公開ドメイン設定。
 - 承認が必要な操作: 各bucket作成、production binding追加、保持・自動削除の有効化。
-- 完了条件: 指定bucket名、binding名、業務assetのWorker proxy再検証、失効後新規request拒否、PII、削除順序が正本間で一致し、`npm run r2-storage:check` が成功する。
+- 完了条件: 指定bucket名、binding名、短命URL、PII、削除順序が正本間で一致し、`npm run r2-storage:check` が成功する。
 
 ## Staging/Production分離ハーネス
 

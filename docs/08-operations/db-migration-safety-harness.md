@@ -37,7 +37,7 @@ migrationファイルの静的確認、適用前判断、適用後検証を分�
 - anon、未所属、別workspace、viewer、editor、admin、ownerの拒否/許可を対にする。
 - 同一APIのアプリ認可とDB RLSを別々に検証する。
 - `workspace_id`、所有者、作成監査項目、公開状態の差し替えをnegative testへ含める。
-- Storage/R2ではDBメタデータ越境、業務assetの直接短命URL発行拒否、Worker proxyでの毎回再検証と失効後新規request拒否を確認する。
+- Storage/R2ではDBメタデータ越境と短命URL発行拒否を確認する。
 - 実DB testはstaging migration適用の承認後だけ行い、productionでテストデータを作らない。
 
 ## 適用後チェック

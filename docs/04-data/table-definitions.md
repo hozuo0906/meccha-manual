@@ -35,7 +35,7 @@ Superseded by [D1データ・認可境界](d1-and-storage.md)。以下はSupabas
 | `browser_sessions` | `workspace_id`, `user_id`, `state`, `do_key`, `region`, `started_at`, `expires_at`, `ended_at`, `error_code` | 所有者とadminのみ閲覧。Live View秘密情報は保存しない |
 | `capture_sessions` | `workspace_id`, `browser_session_id`, `manual_id`, `state`, `started_at`, `stopped_at`, `event_count`, `error_code` | 所有者・editor以上。確定後は追記制限 |
 | `capture_events` | `workspace_id`, `capture_session_id`, `sequence_no`, `event_type`, `payload`, `asset_id`, `captured_at` | Workerのみ追加、関連権限で閲覧。navigation URLはpathにも秘密値が埋め込まれ得るため列・payloadへ保存しない |
-| `assets` | `workspace_id`, `bucket`, `object_path`, `kind`, `mime_type`, `size_bytes`, `sha256`, `width`, `height`, `status`, `deleted_at` | workspace境界。直接公開せず、毎回Access/D1を再検証するWorker proxyで配信 |
+| `assets` | `workspace_id`, `bucket`, `object_path`, `kind`, `mime_type`, `size_bytes`, `sha256`, `width`, `height`, `status`, `deleted_at` | workspace境界。直接公開せず署名URL |
 | `share_links` | `workspace_id`, `manual_id`, `token_hash`, `permission`, `expires_at`, `password_hash`, `revoked_at`, `created_by` | editor以上で管理。匿名アクセスはWorker経由 |
 | `comments` | `workspace_id`, `manual_id`, `revision_id`, `step_id`, `author_id`, `body`, `resolved_at`, `resolved_by` | メンバー閲覧/投稿、本人またはeditor以上で更新 |
 | `manual_views` | `workspace_id`, `manual_id`, `revision_id`, `viewer_user_id`, `share_link_id`, `session_hash`, `started_at`, `completed_at` | Worker追加。editor以上は集計閲覧 |

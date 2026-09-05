@@ -114,6 +114,7 @@ previewはstaging専用D1だけをbindingし、production D1をbindingしない�
 - ADR-0010のSupabase token、refresh、sign-out、PostgREST/RPCに依存する認証方式
 - ADR-0012の `DISCORD_INTERACTION_STORE` KVによるget→putをauthoritative replay guardとする部分
 - ADR-0003の永続正本をSupabase Postgresとする部分
+- ADR-0011、ADR-0018のSupabase Auth/RLS/PostgresをR2認可・メタデータ正本とする部分
 - ADR-0006、ADR-0011、ADR-0018の直接presigned/短期署名read URLを許可する部分はSuperseded。private R2、adapter境界、環境別binding、Worker proxy配信は維持する。
 - ADR-0019のPhase 1 Supabase/RLS着手前gate
 - ADR-0024のSupabase production設定・redirect allowlist固有手順
