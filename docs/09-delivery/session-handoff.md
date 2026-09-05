@@ -233,7 +233,7 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 
 - M0: PR #180はmainへmerge済み。実main merge SHAは`d19ab714cfc09710eeb3dc624a0b7f0438bebfc5`。M1 branchはこのSHAを起点にする。
 - M1実装: `apps/worker/src/access-identity.ts` に、jose v6.2.12によるRS256／issuer／audience／期限／iat／存在するnbfの検証、`access_user | service_token` actor分離、machine health allowlist、検証済みissuer+subjectのapplication identity DIを追加した。
-- 設定: `ACCESS_ISSUER`、`ACCESS_AUDIENCE`、`ACCESS_JWKS_URL`は`server-config.ts`を唯一の読込窓口とし、issuer／JWKS URLのcredential・query・fragment・HTTPを拒否する。設定値とJWT issuer／subjectを正規化しない。
+- 設定: `ACCESS_ISSUER`、`ACCESS_AUDIENCE`、`ACCESS_JWKS_URL`は`server-config.ts`を唯一の読込窓口とし、env値の前後空白は除去する。issuer／JWKS URLのcredential・query・fragment・HTTPを拒否し、末尾slash等のURL正規化は行わない。署名済みJWTのissuer／subjectは原文字列で扱う。
 - 検証: `tests/access-identity.test.mjs` はローカルRSA署名JWT／mock JWKS HTTPで正常系・negative・identity状態・service lookup 0回・秘密値非露出を確認する。`npm run worker:typecheck`と`npm run test:access-identity`は成功。
 - 範囲外: 実HTTP request path／UI切替、D1 schema／migration、OTP／招待、production Access変更、旧Supabase経路の変更は行わない。
 - 次の1マイルストーン: M2でD1 schema／migrationとworkspace固定repositoryを実装し、identity状態・membership・競合・途中失敗のnegative testを追加する。
