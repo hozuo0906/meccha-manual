@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { unlink } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import test from "node:test";
 import { execFile as execFileCallback } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import {
   CLOUDFLARE_API_ORIGIN,
@@ -138,14 +141,17 @@ test("CLI runs on Windows file URL entrypoint and fails safely when auth is abse
   const env = { ...process.env };
   delete env.CLOUDFLARE_ACCOUNT_ID;
   delete env.CLOUDFLARE_API_TOKEN;
+  delete env.GITHUB_STEP_SUMMARY;
+  const tempDir = await mkdtemp(join(tmpdir(), "meccha-cloudflare-audit-test-"));
+  const scriptPath = fileURLToPath(new URL("../scripts/cloudflare-config-audit.mjs", import.meta.url));
   try {
-    await execFile(process.execPath, ["scripts/cloudflare-config-audit.mjs"], { env });
+    await execFile(process.execPath, [scriptPath], { cwd: tempDir, env });
     assert.fail("CLI should fail when credentials are absent");
   } catch (error) {
     assert.equal(error.code, 1);
     assert.match(error.stdout, /認証設定: 不足/);
     assert.doesNotMatch(`${error.stdout}${error.stderr}`, /token-must-never-appear|response body|https?:\/\//i);
   } finally {
-    await unlink("cloudflare-config-audit.md").catch(() => {});
+    await rm(tempDir, { recursive: true, force: true });
   }
 });

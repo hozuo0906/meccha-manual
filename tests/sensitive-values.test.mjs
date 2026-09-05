@@ -292,3 +292,27 @@ test("単一のGitHub Secrets参照は許可する", async () => {
 
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("空文字列secretの閉じ区切りだけは許可し、非空値とfallback連結は拒否する", async () => {
+  const secretName = ["CLOUDFLARE", "API", "TOKEN"].join("_");
+  const cases = [
+    ["empty", `const config = { ${secretName}: \"\" };\n`, 0],
+    ["literal", `const config = { ${secretName}: \"literal-value\" };\n`, 1],
+    ["fallback", `const config = { ${secretName}: \"\" || \"fallback-value\" };\n`, 1],
+  ];
+  for (const [name, content, expectedStatus] of cases) {
+    const repository = await mkdtemp(path.join(tmpdir(), `meccha-secret-scan-${name}-`));
+    temporaryDirectories.push(repository);
+    const secretFile = path.join(repository, "settings.js");
+    assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: repository }).status, 0);
+    await writeFile(secretFile, content);
+    assert.equal(spawnSync("git", ["add", "settings.js"], { cwd: repository }).status, 0);
+    const result = spawnSync(process.execPath, [scannerPath], {
+      cwd: repository,
+      encoding: "utf8",
+      env: { ...process.env, SECRET_SCAN_BASE_SHA: "" },
+    });
+    assert.equal(result.status, expectedStatus, `${name}: ${result.stderr}`);
+    if (expectedStatus === 1) assert.match(result.stderr, /known secret name has a literal-looking assigned value/);
+  }
+});
