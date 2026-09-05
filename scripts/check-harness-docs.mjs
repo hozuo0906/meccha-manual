@@ -47,7 +47,7 @@ const requiredDocs = {
     "解約",
     "返金",
     "席数",
-    "flagに関係なく継続",
+    "exact POSTは常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とする",
     "自動返金queue",
     "idempotency key",
     "PLAN_CHANGE_UNRESOLVED"
