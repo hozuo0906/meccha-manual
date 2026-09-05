@@ -21,6 +21,8 @@ Workerは `Cf-Access-Jwt-Assertion` の署名、algorithm、issuer、audience、
 
 Bypassは到達だけを許可し、認証・認可の代替にしない。Workerはexact POST/body上限、raw bodyのprovider署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、Queue、外部API、業務D1、entitlementその他の副作用へ進める。receiptは `received/processing/retryable/reconcile_required/completed/dead_letter` で管理し、同じID・digestの再送は既存workを状態別に維持・再開・照合・冪等successとする。callbackを `access_user | service_token`、D1 identity、workspace membershipへ写像しない。通常ブラウザwrite APIだけに同一Originを必須とし、この2 callbackでは `Origin` で認証しない。通常アプリAPIと `GET /health/config` は引き続きAccessで保護する。OQ-031完了前はBypassを有効化しない。
 
+M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、body読取、署名処理、KV／Queue／D1、外部fetch、`waitUntil`、成功ackを行わない。上記callback契約はC1で再開し、path別Access BypassはOFFを維持する。
+
 ## テナント境界
 
 全ユーザーはD1のapplication identityを持ち、業務データ操作時はactiveなworkspace membershipを必要とする。Accessへ到達できても、未招待、未登録、disabled、未所属、停止中は業務APIを拒否する。

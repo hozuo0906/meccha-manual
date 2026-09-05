@@ -111,6 +111,11 @@ const DISCORD_RESPONSE_TYPE_CHANNEL_MESSAGE = 4;
 const DISCORD_RESPONSE_TYPE_DEFERRED_CHANNEL_MESSAGE = 5;
 const DISCORD_EPHEMERAL_FLAG = 1 << 6;
 const DISCORD_REPLAY_TTL_SECONDS = 60 * 10;
+const DISABLED_CALLBACK_PATHS = new Set([
+  "/v1/webhooks/stripe",
+  "/v1/integrations/discord/interactions"
+]);
+const CALLBACK_MIGRATION_CODE = "CALLBACK_MIGRATION_IN_PROGRESS";
 const GITHUB_FETCH_TIMEOUT_MS = 2500;
 const DISCORD_COMMAND_MECCHA = "meccha";
 const DISCORD_COMMAND_MECCHA_TASK = "meccha-task";
@@ -1946,15 +1951,25 @@ function basicHealth(): Response {
   } satisfies HealthResponse);
 }
 
+function callbackMigrationResponse(): Response {
+  return jsonResponse({
+    code: CALLBACK_MIGRATION_CODE,
+    message: "外部連携は移行中のため現在利用できません。"
+  }, { status: 503 });
+}
+
 async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  if (DISABLED_CALLBACK_PATHS.has(url.pathname)) {
+    if (request.method === "POST") return callbackMigrationResponse();
+    return jsonResponse({
+      code: "METHOD_NOT_ALLOWED",
+      message: "この操作には対応していません。"
+    }, { status: 405 });
+  }
   const hasCurrentAssetVersion = url.searchParams.get("v") === APP_ASSET_VERSION;
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
-
-  if (url.pathname === "/v1/integrations/discord/interactions") {
-    return discordInteractions(request, env, ctx);
-  }
 
   verifySameOriginWrite(request);
 

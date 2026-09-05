@@ -35,6 +35,8 @@ CodexはGitHub Issueを正としてtriageし、PR運用で作業する。
 - label付与に失敗した場合は、labelなしIssueへfallbackしない。
 - DiscordへGitHub APIの詳細エラー本文を返さない。
 
+M2ではDiscord Interaction callback本体を有効化せず、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。署名、receipt/work、Issue作成、PR操作、Discord followupの契約は削除せず、独立callbackマイルストーンC1で再開する。C1有効化前に元の並行再送・途中失敗・結果不明・lease recovery試験全件と別リリース判断を完了する。
+
 ## 非対象
 
 - DiscordからCodexを直接実行すること。

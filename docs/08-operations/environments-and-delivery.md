@@ -95,7 +95,7 @@ bindingとbucketの対応は上表およびADR-0018を正とし、同じbinding�
 
 ## Stripe
 
-- 初期はStripe設定なし、`BILLING_FEATURE_ENABLED=false`とする。falseの間は新規Checkout Sessionを作成しないが、既存課金objectがある環境では署名済みWebhookとreconciliationを停止しない。
+- 初期はStripe設定なし、`BILLING_FEATURE_ENABLED=false`とする。M2ではcallback本体を無効化し、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。既存課金objectの署名済みWebhookとreconciliationを継続する契約はC1再開後に適用し、C1完了までStripe外部設定を作成しない。
 - stagingはtest mode、productionはlive modeとし、Secret、Product、Price、Webhook endpointを共有しない。
 - live Secret登録、Webhook endpoint作成はまだ行わない。test modeの外部設定も別承認とする。
 - production live有効化は署名検証、冪等性、順不同、entitlement、negative test、運用Runbookのstaging合格後に別承認する。

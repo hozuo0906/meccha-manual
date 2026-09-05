@@ -24,6 +24,8 @@ Status: Accepted
 7. M6 Supabase退役
 8. M7 production準備
 
+外部provider callbackはM2のD1 coreから分離したC1マイルストーンで扱う。M2期間中は両exact POST pathを `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、path別Access Bypassを有効化しない。C1ではOQ-031のatomic receipt/work、lease fencing、sink idempotencyまたはsingle-writer、結果不明照合、recovery testを完了してから再開可否を判断する。
+
 EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。
 
 

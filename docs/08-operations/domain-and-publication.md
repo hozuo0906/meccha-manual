@@ -44,6 +44,7 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 - Bypassを認証・認可の代替にしない。Workerはexact POST/body上限、raw bodyのprovider署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。一時失敗・期限切れleaseは同じworkを再開し、結果不明は照合前に自動再送せず、completed再送は冪等successとする。OQ-031の実装・negative test完了前はpath別Access Bypassを有効化しない。通常アプリAPIはAccess user用application、`GET /health/config`はservice-token用Access application/policyで保護する。
 - LPからアプリへは通常のtop-level GET遷移だけとし、LPからアプリAPIを呼ばない。アプリAPIのCORS許可を`www`へ広げない。
 - 通常のブラウザwrite APIはアプリ自身のOriginだけを受け付ける。Stripe/Discordの2 exact callback pathはserver-to-server例外であり、`Origin`の有無や値を認証根拠にせずprovider署名を正とする。
+- M2ではStripe/Discordの2 exact callback pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、path別Access BypassはOFFを維持する。callback本体の有効化はC1の全recovery試験と別リリース判断後に行う。
 - production Access applicationはアプリ本体URL、audience、policy、sessionを専用化し、メールOTPの明示Emails/Groups allowlistを検証する。preview wildcard policyをproductionへ流用しない。
 - 旧`workers.dev` URLは移行期間だけ認証allowlistへ残し、本番callbackの検証後に削除する。
 

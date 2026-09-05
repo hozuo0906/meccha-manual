@@ -237,3 +237,12 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 検証: `tests/access-identity.test.mjs` はローカルRSA署名JWT／mock JWKS HTTPで正常系・negative・identity状態・service lookup 0回・秘密値非露出を確認する。`npm run worker:typecheck`と`npm run test:access-identity`は成功。
 - 範囲外: 実HTTP request path／UI切替、D1 schema／migration、OTP／招待、production Access変更、旧Supabase経路の変更は行わない。
 - 次の1マイルストーン: M2でD1 schema／migrationとworkspace固定repositoryを実装し、identity状態・membership・競合・途中失敗のnegative testを追加する。
+
+## Cloudflare Access / D1移行 M2 実装（未staging）（2026-09-05）
+
+- D1 migration／identity・workspace・member repositoryを実装中。manual coreはM4、Stripe/Discord callback本体はC1へ分離し、M2のexact POSTは503・副作用0、path別Access BypassはOFFとする。
+- ローカルNode24 SQL suite、repository negative、Worker phase1/phase2 callback停止境界を確認済み。local SQL suiteはHosted Cloudflare D1 bindingやstaging資源の証明ではない。
+- PR #221のmain統合後SHAは`46e7a406f2f61c72a0db509e94d4de941e88052d`。read-only Cloudflare診断run `33963225925` では対象Worker設定取得に成功したが、許可bindingはDiscord KVのみでD1 bindingなし、D1一覧401、R2一覧403、Access取得ページ0件、secret一覧はnetwork failure。資格値は記録しない。
+- 2026-09-05のCloudflareブラウザ確認では対象プロジェクト用D1は未作成、staging用R2 4 bucketは存在し全て空だった。capture-assets bucketのpublic access無効を確認した。他bucketのprivate設定・binding分離はまだ個別検証していない。
+- M2の実staging D1 binding、dynamic negative、backup/export/restore、production分離証跡は未実施。M3 HTTP接続と、これらのM2実staging証跡が残っている。
+- 次の1マイルストーン（本節を最新の引き継ぎ正本とする）: M2実staging binding／migration・backup/restore証跡を別途完了判定し、その後M3 HTTP/UI接続へ進む。callbackのC1復帰条件は緩和しない。

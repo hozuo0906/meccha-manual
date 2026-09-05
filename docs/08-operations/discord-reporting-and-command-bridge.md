@@ -136,7 +136,7 @@ Workerの処理:
 9. Discord original responseをIssue URLで更新し、全副作用確認後だけ `completed` にする。retry上限到達は監査・運用アラート・明示再開対象にし、受理済みworkを黙って失わない。
 10. CodexはGitHub Issueを正としてtriageする。
 
-`DISCORD_INTERACTION_STORE` KVの既存get→putはauthoritative replay guardではなく、atomic guard commit後の短期応答cacheにだけ利用できる。OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative test完了前はpath別Access Bypassを有効化しない。
+M2ではDiscord Interaction endpointを常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、署名検証、KV、GitHub Issue、Discord followupを行わない。`DISCORD_INTERACTION_STORE` KVの既存get→putはauthoritative replay guardではなく、C1のatomic guard commit後の短期応答cacheにだけ利用できる。OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative testは独立callbackマイルストーンC1で完了させ、完了前はpath別Access Bypassを有効化しない。C1再開時は下記の元契約と回復試験全件を再検証する。
 
 危険操作検知:
 

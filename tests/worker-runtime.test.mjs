@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, test } from "node:test";
 
 import { APP_ASSET_VERSION, APP_CSS, APP_JS } from "../apps/worker/src/app-assets.ts";
@@ -11,6 +11,10 @@ const env = {
   SUPABASE_ANON_KEY: "public-anon-key"
 };
 const ctx = { waitUntil() {} };
+const CALLBACK_PATHS = [
+  "/v1/webhooks/stripe",
+  "/v1/integrations/discord/interactions"
+];
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -68,6 +72,83 @@ function streamRequest(path, body, headers = {}) {
     wasCancelled: () => cancelled,
     bytesRead: () => offset
   };
+}
+
+function trackedCallbackEnvironment(bodyText = "{}") {
+  const calls = {
+    fetch: 0,
+    kvGet: 0,
+    kvPut: 0,
+    waitUntil: 0,
+    bodyRead: 0,
+    d1: 0,
+    queue: 0
+  };
+  const bytes = new TextEncoder().encode(bodyText);
+  let bodySent = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      calls.bodyRead += 1;
+      if (bodySent) return controller.close();
+      bodySent = true;
+      controller.enqueue(bytes);
+      controller.close();
+    }
+  }, { highWaterMark: 0 });
+  const db = {
+    prepare() {
+      calls.d1 += 1;
+      throw new Error("D1 must not be reached while callback migration is in progress");
+    }
+  };
+  const queue = {
+    async send() {
+      calls.queue += 1;
+      throw new Error("Queue must not be reached while callback migration is in progress");
+    }
+  };
+  const env = {
+    DISCORD_PUBLIC_KEY: "00".repeat(32),
+    DISCORD_ALLOWED_GUILD_IDS: "guild-id",
+    DISCORD_ALLOWED_CHANNEL_IDS: "channel-id",
+    GITHUB_ISSUE_TOKEN: "EXAMPLE_GITHUB_ISSUE_TOKEN",
+    DISCORD_INTERACTION_STORE: {
+      async get() {
+        calls.kvGet += 1;
+        return null;
+      },
+      async put() {
+        calls.kvPut += 1;
+      }
+    },
+    DB: db,
+    CALLBACK_QUEUE: queue
+  };
+  const context = {
+    waitUntil() {
+      calls.waitUntil += 1;
+    }
+  };
+  return { body, calls, context, env };
+}
+
+function validDiscordHeaders(bodyText = "{}") {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const publicDer = publicKey.export({ format: "der", type: "spki" });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = sign(null, Buffer.from(`${timestamp}${bodyText}`), privateKey).toString("hex");
+  return {
+    headers: {
+      "x-signature-ed25519": signature,
+      "x-signature-timestamp": timestamp
+    },
+    publicKeyHex: publicDer.subarray(-32).toString("hex")
+  };
+}
+
+function trackedCallbackRequest(path, headers = {}, bodyText = "{}") {
+  const tracked = trackedCallbackEnvironment(bodyText);
+  return { ...tracked, path, headers, bodyText };
 }
 
 test("app HTMLはversion付きasset URLを参照してdeploy前cacheを再利用しない", async () => {
@@ -726,17 +807,140 @@ test("認証JSONはnullと配列をplain objectではないとして400にする
   }
 });
 
-test("Discord bodyはContent-Lengthなしでも64KB超過をstream途中で拒否する", async () => {
+test("無効化中のDiscord callbackはbody上限処理より前に503にする", async () => {
   const body = jsonObjectAtByteLength(64 * 1024 + 4096);
   const streamed = streamRequest("/v1/integrations/discord/interactions", body);
 
   const response = await worker.fetch(streamed.request, env, ctx);
 
-  assert.equal(response.status, 413);
-  assert.equal((await response.json()).code, "DISCORD_BODY_TOO_LARGE");
-  assert.equal(streamed.wasCancelled(), true);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "CALLBACK_MIGRATION_IN_PROGRESS");
+  assert.equal(streamed.wasCancelled(), false);
   assert.ok(streamed.bytesRead() < byteLength(body));
 });
+
+const callbackRequestKinds = [
+  {
+    name: "有効署名",
+    configure(fixture) {
+      const signed = validDiscordHeaders(fixture.bodyText);
+      fixture.env.DISCORD_PUBLIC_KEY = signed.publicKeyHex;
+      return signed.headers;
+    }
+  },
+  {
+    name: "無署名",
+    configure() {
+      return {};
+    }
+  },
+  {
+    name: "不正body",
+    configure() {
+      return { "content-type": "application/json" };
+    },
+    bodyText: "not-json"
+  },
+  {
+    name: "未設定env",
+    configure(fixture) {
+      fixture.env = {};
+      return {};
+    }
+  }
+];
+
+for (const [entryName, candidate] of [["phase1", worker]]) {
+  for (const path of CALLBACK_PATHS) {
+    for (const requestKind of callbackRequestKinds) {
+      test(`${entryName} ${path} は${requestKind.name}でも副作用なしで503にする`, async () => {
+        const fixture = trackedCallbackRequest(path, {}, requestKind.bodyText ?? "{}");
+        const headers = requestKind.configure(fixture);
+        const request = new Request(`https://app.example${path}`, {
+          method: "POST",
+          headers,
+          body: fixture.body,
+          duplex: "half"
+        });
+        const bodyReadsBeforeDispatch = fixture.calls.bodyRead;
+        assert.equal(bodyReadsBeforeDispatch, 0);
+        globalThis.fetch = async () => {
+          fixture.calls.fetch += 1;
+          throw new Error("callback external fetch must not run while migration is in progress");
+        };
+
+        const response = await candidate.fetch(request, fixture.env, fixture.context);
+        const payload = await response.json();
+
+        assert.equal(response.status, 503);
+        assert.equal(payload.code, "CALLBACK_MIGRATION_IN_PROGRESS");
+        assert.equal(payload.message, "外部連携は移行中のため現在利用できません。");
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        assert.equal(fixture.calls.bodyRead, bodyReadsBeforeDispatch);
+        assert.equal(fixture.calls.kvGet, 0);
+        assert.equal(fixture.calls.kvPut, 0);
+        assert.equal(fixture.calls.fetch, 0);
+        assert.equal(fixture.calls.waitUntil, 0);
+        assert.equal(fixture.calls.d1, 0);
+        assert.equal(fixture.calls.queue, 0);
+      });
+    }
+  }
+}
+
+for (const [entryName, candidate] of [["phase1", worker]]) {
+  for (const path of CALLBACK_PATHS) {
+    test(`${entryName} ${path} のPOST以外は旧callbackへ進まず405にする`, async () => {
+      const fixture = trackedCallbackEnvironment();
+      const bodyReadsBeforeDispatch = fixture.calls.bodyRead;
+      assert.equal(bodyReadsBeforeDispatch, 0);
+      globalThis.fetch = async () => {
+        fixture.calls.fetch += 1;
+        throw new Error("callback external fetch must not run while migration is in progress");
+      };
+      const response = await candidate.fetch(new Request(`https://app.example${path}`, {
+        method: "GET"
+      }), fixture.env, fixture.context);
+
+      assert.equal(response.status, 405);
+      assert.equal((await response.json()).code, "METHOD_NOT_ALLOWED");
+      assert.equal(fixture.calls.bodyRead, bodyReadsBeforeDispatch);
+      assert.equal(fixture.calls.kvGet, 0);
+      assert.equal(fixture.calls.kvPut, 0);
+      assert.equal(fixture.calls.waitUntil, 0);
+      assert.equal(fixture.calls.fetch, 0);
+      assert.equal(fixture.calls.d1, 0);
+      assert.equal(fixture.calls.queue, 0);
+    });
+
+    test(`${entryName} ${path}/subpath は旧callbackへ進まず404にする`, async () => {
+      const fixture = trackedCallbackEnvironment();
+      const request = new Request(`https://app.example${path}/subpath`, {
+        method: "POST",
+        headers: { origin: "https://app.example" },
+        body: fixture.body,
+        duplex: "half"
+      });
+      const bodyReadsBeforeDispatch = fixture.calls.bodyRead;
+      assert.equal(bodyReadsBeforeDispatch, 0);
+      globalThis.fetch = async () => {
+        fixture.calls.fetch += 1;
+        throw new Error("callback external fetch must not run while migration is in progress");
+      };
+      const response = await candidate.fetch(request, fixture.env, fixture.context);
+
+      assert.equal(response.status, 404);
+      assert.equal((await response.json()).code, "NOT_FOUND");
+      assert.equal(fixture.calls.bodyRead, bodyReadsBeforeDispatch);
+      assert.equal(fixture.calls.kvGet, 0);
+      assert.equal(fixture.calls.kvPut, 0);
+      assert.equal(fixture.calls.waitUntil, 0);
+      assert.equal(fixture.calls.fetch, 0);
+      assert.equal(fixture.calls.d1, 0);
+      assert.equal(fixture.calls.queue, 0);
+    });
+  }
+}
 
 test("不正な認証成功payloadではCookieを発行しない", async () => {
   globalThis.fetch = async () => Response.json({

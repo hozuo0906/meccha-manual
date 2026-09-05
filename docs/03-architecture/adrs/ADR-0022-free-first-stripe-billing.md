@@ -19,6 +19,7 @@ Status: Accepted
 - イベントの到着順を信用せず、対象payment、subscription、customerのStripe上の現在状態を使うreconciliation処理へ集約する。
 - Stripe SDK型やstatusをドメインへ直接漏らさず、内部のoffer、purchase、subscription、entitlement状態へ変換する。
 - 課金状態が不明な場合にデータ削除、追加請求、即時ロックを行わない。安全側の読み取り許可と管理者への案内を設計してから強制する。
+- M2では上記の既存Webhook継続契約に先立ち、Stripe callback本体を一時無効化し、exact POSTへ `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。これはC1までの明示的な移行例外であり、C1有効化前に元のWebhook、reconciliation、結果不明、recovery試験全件と別リリース判断を完了する。
 
 ## entitlementの基本状態
 
