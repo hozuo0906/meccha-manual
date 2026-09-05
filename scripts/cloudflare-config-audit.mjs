@@ -15,8 +15,8 @@ export const ALLOWED_BINDINGS = new Map([
   ["EXPORTS", new Set(["r2_bucket"])],
   ["AVATARS", new Set(["r2_bucket"])],
 ]);
-export const REQUIRED_SECRET_COUNT = 2;
 const REQUIRED_SECRET_NAMES = new Set(["DISCORD_PUBLIC_KEY", "GITHUB_ISSUE_TOKEN"]);
+export const REQUIRED_SECRET_COUNT = REQUIRED_SECRET_NAMES.size;
 const API_BASE_URL = new URL(CLOUDFLARE_API_ORIGIN);
 
 const ACCOUNT_ID_PATTERN = /^[a-f0-9]{32}$/i;
@@ -140,9 +140,7 @@ export async function fetchCloudflareJson(path, {
   }
 }
 
-function totalCount(result, resultInfo) {
-  if (Number.isInteger(resultInfo?.total_count) && resultInfo.total_count >= 0) return resultInfo.total_count;
-  if (Number.isInteger(resultInfo?.count) && resultInfo.count >= 0) return resultInfo.count;
+function pageCount(result) {
   return Array.isArray(result) ? result.length : 0;
 }
 
@@ -159,13 +157,12 @@ function summarizeBindings(result) {
   return { total: bindings.length, allowed };
 }
 
-function summarizeSecretState(result, resultInfo) {
+function summarizeSecretState(result) {
   const secrets = Array.isArray(result) ? result : [];
-  const total = totalCount(secrets, resultInfo);
-  const presentRequired = secrets.reduce(
-    (count, secret) => count + (REQUIRED_SECRET_NAMES.has(secret?.name) ? 1 : 0),
-    0,
-  );
+  const total = secrets.length;
+  const presentRequired = new Set(
+    secrets.map((secret) => secret?.name).filter((name) => REQUIRED_SECRET_NAMES.has(name)),
+  ).size;
   return { total, presentRequired, required: REQUIRED_SECRET_COUNT };
 }
 
@@ -192,7 +189,7 @@ function tableRow(cells) {
 export function buildReport({ settings, secrets, d1, r2, access, accountConfigured = true } = {}) {
   const bindingSummary = settings?.ok ? summarizeBindings(settings.result) : { total: 0, allowed: [] };
   const secretSummary = secrets?.ok
-    ? summarizeSecretState(secrets.result, secrets.resultInfo)
+    ? summarizeSecretState(secrets.result)
     : { total: 0, presentRequired: 0, required: REQUIRED_SECRET_COUNT };
   const allApiReadsSucceeded = [settings, secrets, d1, r2, access].every((item) => item?.ok === true);
   const requiredStateOk = secretSummary.presentRequired === secretSummary.required;
@@ -214,18 +211,18 @@ export function buildReport({ settings, secrets, d1, r2, access, accountConfigur
     "",
     "## Worker secret",
     "",
-    tableRow(["項目", "状態", "件数"]),
+    tableRow(["項目", "状態", "今回取得ページ内件数"]),
     tableRow(["---", "---", "---"]),
     tableRow(["secret一覧取得", operationState(secrets || {}), secrets?.ok ? String(secretSummary.total) : "-"]),
     tableRow(["旧連携必須secret", secrets?.ok ? (requiredStateOk ? "そろっている" : "不足") : operationState(secrets || {}), `${secretSummary.presentRequired}/${secretSummary.required}`]),
     "",
     "## Cloudflare資源の存在確認",
     "",
-    tableRow(["資源", "状態", "件数"]),
+    tableRow(["資源", "状態", "今回取得ページ内件数"]),
     tableRow(["---", "---", "---"]),
-    tableRow(["D1", operationState(d1 || {}), d1?.ok ? String(totalCount(d1.result, d1.resultInfo)) : "-" ]),
-    tableRow(["R2", operationState(r2 || {}), r2?.ok ? String(totalCount(r2.result, r2.resultInfo)) : "-" ]),
-    tableRow(["Access application", operationState(access || {}), access?.ok ? String(totalCount(access.result, access.resultInfo)) : "-" ]),
+    tableRow(["D1", operationState(d1 || {}), d1?.ok ? String(pageCount(d1.result)) : "-" ]),
+    tableRow(["R2", operationState(r2 || {}), r2?.ok ? String(pageCount(r2.result)) : "-" ]),
+    tableRow(["Access application", operationState(access || {}), access?.ok ? String(pageCount(access.result)) : "-" ]),
     "",
     "## 許可済みbinding",
     "",
@@ -238,6 +235,7 @@ export function buildReport({ settings, secrets, d1, r2, access, accountConfigur
     "## 注意",
     "",
     "- この診断は読み取り専用です。資源作成・更新・削除、deploy、DB query、secret値取得、Access policy変更は行いません。",
+    "- D1、R2、Access application、secretの件数は今回取得したページ内の件数であり、全資源の総数を意味しません。",
     "- token、account ID、resource ID、secret値、email、policy内容、API本文、実URLは出力しません。",
     "- 確認完了は実環境の取得結果を示すだけで、移行・staging合格・alpha完成を意味しません。",
   ];
