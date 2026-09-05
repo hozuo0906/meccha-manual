@@ -213,8 +213,8 @@ test("署名、algorithm、issuer、audience、期限、iat、nbfのnegativeを�
     ["audience", { aud: "other-audience" }],
     ["expiration", { exp: now - 1 }],
     ["issued-at missing", { iat: undefined }],
-    ["issued-at future", { iat: now + 1 }],
-    ["not-before future", { nbf: now + 60 }],
+    ["issued-at future", { iat: now + 3_600, exp: now + 7_200 }],
+    ["not-before future", { nbf: now + 3_600, exp: now + 7_200 }],
     ["not-before wrong type", { nbf: "later" }],
     ["type missing", { type: undefined, expectedStatus: 403 }]
   ];
