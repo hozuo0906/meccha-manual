@@ -763,6 +763,9 @@ if (findM5CarrierContradiction(["Stripeで使う旧workflowはM6で削除する�
 if (!findM5CarrierContradiction(["補足: 旧workflowはM6で削除する。"])) {
   errors.push("M5 discourse-label identity fixture failed.");
 }
+if (!findM5CarrierContradiction(["> [!IMPORTANT]", "> 旧workflowはM6で削除する。"])) {
+  errors.push("M5 blockquote callout contradiction fixture failed.");
+}
 if (!findM5CarrierContradiction(["- 旧workflowの履歴", "- 旧workflowはM6で削除する。"], [], (index) => index === 0)) {
   errors.push("M5 history sibling contradiction fixture failed.");
 }
@@ -806,16 +809,16 @@ function documentLines(path) {
       return "";
     }
     const visibleLine = removeHtmlCommentSpans(line);
-    const visibleTrimmed = visibleLine.trimStart();
-    if (/^(?: {4}|\t)/.test(visibleLine) || visibleTrimmed.startsWith(">")) return "";
-    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(visibleLine);
+    const unquotedLine = visibleLine.replace(/^(?: {0,3}>\s?)+/, "");
+    if (/^(?: {4}|\t)/.test(unquotedLine)) return "";
+    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(unquotedLine);
     if (fenceMatch) {
       const marker = fenceMatch.groups.marker;
-      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return visibleLine;
+      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return unquotedLine;
       fenceMarker = marker;
       return "";
     }
-    return fenceMarker === null ? visibleLine : "";
+    return fenceMarker === null ? unquotedLine : "";
   });
 }
 function sectionLines(path, sectionPrefix, anchored = false) {
