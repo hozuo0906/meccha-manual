@@ -24,7 +24,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 入力値非保存。
 - SSRF、危険URL拒否。DNS検査時はpublic、実接続時はprivateを返すrebindingと、redirect/subresource/WebSocket/Service Worker/download/WebTransport/QUIC/WebRTC ICE・STUN・TURNのegress迂回を含む。application bytes送信前にpeer拒否が完了することも検証する。
 - Browser Run egress実証は`docs/08-operations/browser-run-egress-proof.md`の隔離fixture契約に従い、全経路の重複・欠落・未知経路も不合格にする。
-- 共有リンクの期限、失効、パスコード。
+- 共有リンクの期限、失効、パスコード。取得済みURLまたは同じWorker URLを再requestしてもmembership/share/asset失効後は拒否され、保護応答を共有cacheへ流してcache reuseで迂回できないことを確認する。業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定し、ブラウザへR2短期署名read URLを配らない。既に受信済みbytesの回収は主張しない。
 - PDF/Markdown/HTMLで日本語とぼかし維持。
 - Stripe webhookの署名、重複、遅延、順不同。
 - `single_export` が購入対象manualだけに30日間付与されること。

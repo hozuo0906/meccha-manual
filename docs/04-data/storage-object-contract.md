@@ -79,7 +79,7 @@ secret、共有トークン、個人情報、入力値、実ユーザーの操�
 
 - 認可はWorker経由で行う。
 - Workerは検証済みAccess user identityとD1のactive membership/role、resource workspaceを確認する。
-- 権限確認後、Worker proxyまたは短期署名URLで配信する。
+- 業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。ブラウザへR2の短期署名read URLを配らず、membership/share/asset失効後の新しいrequestを拒否する。保護応答を共有cacheへ流さずcache reuseで失効を迂回しない。既に受信済みのbytesを回収できるとは主張しない。
 - bucket自体はpublicにしない。
 - 共有リンクが有効でも、R2 objectを直接公開しない。
 

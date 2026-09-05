@@ -48,7 +48,7 @@ bucket作成後は、対象環境の4 bucketがprivateであることを確認�
 ## 運用ルール
 
 - bucket自体はpublicにしない。
-- R2 objectはWorker経由、またはWorkerが発行する短期署名URLで配信する。
+- R2 objectは、業務assetでは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy経由だけで配信する。ブラウザへR2の短期署名read URLを配らず、membership/share/asset失効後の新しいrequestを拒否する。保護応答を共有cacheへ流さず、cache reuseで失効を迂回しない。既に受信済みのbytesを回収できるとは主張しない。
 - 認証主体は検証済みAccess JWT、権限とassetsメタデータの正本はD1に置き、Workerがactive membership/roleとresource workspaceを照合する。
 - bucket名は `wrangler.jsonc` の環境別bindingにだけ置き、環境変数へ重複保持しない。
 - Cloudflare R2 binding名は `CAPTURE_ASSETS`、`MANUAL_ASSETS`、`EXPORTS`、`AVATARS` に固定する。

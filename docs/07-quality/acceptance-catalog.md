@@ -32,7 +32,7 @@ Status: Accepted
 | AC-026 | click、input completion、navigation、scroll eventに入力値、秘密値を含み得るnavigation URL、未知field、機密target labelが含まれる | 保存可能eventを正規化し、日本語draft stepを生成する | sequence順の決定的なstepとなり、生入力値、秘密値、navigation URLのorigin／path／query／fragment、Cookie、Authorizationはeventにもdraftにも含まれず、外部AI APIを呼ばない |
 | AC-027 | 署名済みcallbackのguard commit後にQueue投入、外部API、業務D1の一時失敗、processing lease期限、結果不明、同一ID・同一digestの並行再送が起きる | receipt/workを再開または照合する | 新しいworkを作らず、`received/processing/retryable/reconcile_required/completed/dead_letter` の状態に従って同じworkを維持・再開・照合・冪等successとする。receipt/effect由来のstable idempotency/correlation keyはoutboxのatomic保存時に確定し、lease generationをまたぐretryでも同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを自動再送せず、D1 preflight/searchだけを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のnegative/recovery testでexpired/old generation workerをdispatcher/single-writer境界へ入れず、sink callを最大1系統にし、二重Issue・二重entitlement・二重課金を作らない。OQ-031のstore/coordinator選択はIssue #176 M2に残し、実装で推測しない。受理済みworkを黙って失わない。 |
 | AC-030 | 共有リンクが期限切れ | 閲覧する | 閲覧できない |
-| AC-031 | 共有リンクを失効する | 直後に閲覧する | 閲覧できない |
+| AC-031 | 共有リンクを失効する、またはmembership/assetを失効する | 取得済みURLまたは同じWorker URLを再requestする | 毎回Access/D1または有効な共有grantとD1状態を再検証し、新しいrequestを拒否する。ブラウザへR2短期署名read URLを配らず、共有cacheのreuseで失効を迂回しない。既に受信済みbytesの回収は主張しない |
 | AC-040 | Guide Me風再生中 | 対象DOMが見つからない | 勝手に進まず停止し理由を表示する |
 | AC-050 | Stripe webhookが重複送信される | 処理する | purchaseまたはsubscription entitlementが二重反映されない |
 | AC-051 | manual Aの都度払いが成功している | manual Bをエクスポートする | 権利なしとして拒否され、manual Aだけ30日間再出力できる |

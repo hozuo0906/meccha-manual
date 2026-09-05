@@ -13,7 +13,7 @@ ADR-0028により、R2の認証・metadata境界をSupabase Auth/Postgres/RLSか
 - staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。
 - bucket作成までは `wrangler.jsonc` に `r2_buckets` を追加しない。
 - bucket自体はpublicにしない。
-- ファイル配信はWorker経由、またはWorkerが発行する短期署名URL経由にする。
+- （部分失効）業務assetのファイル配信を短期署名URLへ委譲する選択肢はSuperseded。後継ADR-0028に従い、毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。private bucket、環境別binding、共有リンク初期OFFは維持する。
 - Cloudflare Accessを認証前段、D1をファイル権限とメタデータの正本とし、Workerで認可する。
 - R2はファイル本体だけを保存する。
 

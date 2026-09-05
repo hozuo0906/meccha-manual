@@ -35,7 +35,7 @@ flowchart LR
 - ブラウザクライアントは信用しない。
 - API Workerで業務認可を行う。
 - Accessの到達許可とアプリ内権限を分離し、Worker認可とworkspace固定D1 queryを二重の防衛線にする。
-- Storage objectはCloudflare R2のprivate bucketに保存し、Worker検証後に短期署名URLを発行する。
+- Storage objectはCloudflare R2のprivate bucketに保存する。業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定し、ブラウザへR2の短期署名read URLを配らない。失効後の新しいrequestは拒否し、保護応答を共有cacheへ流さない。
 - Live View URL、共有生トークン、secretはDBやログへ保存しない。
 
 ## 主要リスク

@@ -43,6 +43,11 @@ const requiredTerms = [
   "bodyから再計算",
   "完全一致",
   "同じdomain shape",
+  "業務assetのreadは毎回Access/D1",
+  "Worker proxyに限定",
+  "ブラウザへR2の短期署名read URLを配らず",
+  "失効後の新しいrequestを拒否",
+  "共有cacheへ流さずcache reuse",
   "{workspace_id}/{resource_type}/{resource_id}/{asset_id}.{ext}"
 ];
 

@@ -18,6 +18,7 @@ Status: Accepted
 - アプリ/API: Cloudflare Workers
 - 業務DB・ファイルメタデータ: Cloudflare D1
 - ファイル本体: private Cloudflare R2
+- 業務asset read: 毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyのみ。ブラウザへR2の短期署名read URLを配らず、保護応答を共有cacheへ流さない。共有リンクは初期OFFを維持する。
 - 操作記録session: Durable Objects
 - ワークスペース所属・owner/admin/editor/viewer: D1を正本とし、Workerで毎回認可する
 

@@ -99,6 +99,7 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 - object操作はWorkerのworkspace認可後だけ許可する。
 - D1 metadataとR2 objectの部分失敗は状態機械と再試行で回収する。
 - 共有リンクや短期URLはbucket公開の代わりに使わず、失効をWorkerで即時判定する。
+- 業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定し、ブラウザへR2の短期署名read URLを配らない。membership/share/asset失効後の新しいrequestは拒否し、保護応答を共有cacheへ流さずcache reuseで失効を迂回しない。既に受信済みのbytesを回収できるとは主張しない。共有リンクは初期OFFを維持する。
 
 ## Quality gate
 

@@ -169,6 +169,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-050の動的RLS検証を別gateとする部分。Issue #176のD1境界gateへ置換する。
   - DEC-051のSupabase／PostgREST応答としての上限契約。
   - DEC-052のmanual／revision／step writeをSECURITY DEFINER RPCへ集約する実装方式。
+- Supersedes:
+  - DEC-063のIssue #92由来blanket main merge holdだけを失効させる。Access deny-by-default、non-production build停止、version upload-only、fail closed、production非変更、秘密値非記録はPreservesとして維持する。
 - Preserves:
   - DEC-034のstaging／production資源分離。
   - DEC-040／042のうち、検証済みsessionの認証世代が変わった後の古い応答を破棄し、旧shellと保護データを即時に隠し、状態変更を自動再送せず、401と上流障害を区別する安全原則。Access cookie／refresh tokenをアプリから操作しない。
@@ -177,7 +179,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
   - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。pre-M5では `.github/workflows/phase1-rls-live.yml` とrunbook `docs/08-operations/phase1-rls-live-gate.md` の `Status: Accepted` を維持し、現行gateはIssue #215の文書・checker整合PRとは別にownerが明示承認した場合だけ登録済みの既存staging/test入力で実行できる。Issue #215のPRではworkflow dispatchとlive証跡生成を行わず、新規project、test user、資格情報、Environment、Secretを作成・登録しない。future M5ではSafety記載の5操作を同一commit/rollback unit内で完了する。
 - Current gate:
-  - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
+  - Issue #92は2026-08-30にcompleted closeされた。DEC-063に記録した#92由来のblanket main merge holdは履歴として保持するが、DEC-064により失効した。Access deny-by-default、non-production build停止、version upload-only、fail closed、production非変更、秘密値非記録の保護はPreservesとして継続する。
   - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。
 - Reason:
   - runtime、認証、DB、Storage、preview保護のcontrol planeをCloudflare中心へ集約し、production資源作成前に環境分離と運用を単純化するため。
