@@ -48,7 +48,9 @@ guard commitだけを業務処理前に唯一許すstate changeとする。recei
 
 別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落・allowlist不一致はguard commit前に拒否する。Access user、service token、D1 identity、workspace membershipへ写像しない。通常アプリAPIと `GET /health/config` はAccess保護を維持する。OQ-031の方式決定、実装、schema/migration、並行再送・途中失敗・結果不明negative test完了前はpath別Access Bypassを有効化しない。
 
-外部副作用はlease generationでfenceする。receipt/effect由来のstable idempotency/correlation keyはoutboxのatomic保存時に確定し、lease generationをまたぐretryでも同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを自動再送せず、D1 preflight/searchだけを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のnegative/recovery testで、expired/old generation workerをdispatcher/single-writer境界へ入れず、sink callを最大1系統にし、二重Issue・二重entitlement・二重課金を作らない。OQ-031のstore/coordinator選択はIssue #176 M2に残し、実装で推測しない。
+外部副作用はlease generationでfenceする。receipt/effect由来のstable idempotency/correlation keyはoutboxのatomic保存時に確定し、lease generationをまたぐretryでも同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを自動再送せず、D1 preflight/searchだけを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のnegative/recovery testで、expired/old generation workerをdispatcher/single-writer境界へ入れず、sink callを最大1系統にし、二重Issue・二重entitlement・二重課金を作らない。OQ-031のstore/coordinator選択は独立callbackマイルストーンC1に残し、実装で推測しない。
+
+M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、body読取、Origin／署名処理、KV／Queue／D1、外部fetch、`waitUntil`、成功ackへ進めない。path別Access BypassはOFFを維持する。OQ-031の順序と全回復条件は保持し、store/coordinatorの選択・callback本体の有効化・全callback試験を独立callbackマイルストーンC1へ移す。M5でcallbackが無効な候補は503と副作用0だけをnegative proofとし、C1有効化前に元のrecovery試験全件と別リリース判断を要求する。
 
 ## Application session
 
@@ -78,6 +80,8 @@ guard commitだけを業務処理前に唯一許すstate changeとする。recei
 | `PATCH /api/workspaces/{id}/members/{userId}` | owner/admin。owner変更は禁止 |
 
 WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないworkspace、別workspace、停止memberは存在を推測できない応答へ統一する。
+
+`GET /api/session`と`GET /api/workspaces`の所属workspace一覧は最大1000件までを完全な一覧として返し、1001件目を検出した場合は `409 WORKSPACES_LIMIT_EXCEEDED` とする。D1 repositoryでsentinel行を取得して超過を検出し、先頭1000件だけの成功応答へ切り詰めない。
 
 ## Manual API
 

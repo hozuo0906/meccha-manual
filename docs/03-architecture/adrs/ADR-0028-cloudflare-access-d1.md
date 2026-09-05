@@ -54,13 +54,17 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 別method、subpath、body超過、署名欠落・不正、期限外はparse前、payload不正・ID欠落・provider allowlist不一致はguard commit前にfail closedで拒否する。callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。
 
-通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。authoritative store、atomic receipt/work、lease、dispatcherの具体方式はOQ-031をIssue #176 M2で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
+通常のブラウザwrite APIは同一Originを必須にするが、この2 callbackでは `Origin` をcredentialや認証根拠にせずprovider署名を正とする。通常アプリAPIはAccess user用applicationで保護し、`GET /health/config` はservice-token用Access application/policyで保護する。authoritative store、atomic receipt/work、lease、dispatcherの具体方式はOQ-031の独立callbackマイルストーンC1で解決し、実装・schema/migration・negative testが揃うまで環境を問わずpath別Access Bypassを有効化しない。productionでの作成・変更はM7の個別owner承認対象とする。
 
 ### Lease fencing
 
 `processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。state更新、完了遷移、outbox予約、外部副作用直前は、authoritative storeのlatest `lease_generation`に対するCASが成功した場合だけ許可する。期限切れworker、旧owner、再試行worker、二重dispatcherは古いgenerationのままcommit・dispatchできず、期限切れを検知したら副作用を行わず同じworkの再取得へ戻る。lease期限だけを見た無条件更新は合格にしない。
 
-各外部effectのstable idempotency/correlation keyはreceipt/effect由来でoutboxのatomic保存時に確定し、lease generationをまたぐ全retryで同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを再送せず、単なるD1 preflight/searchを二重実行防止の根拠にしない。CAS成功後にworkerが停止し、takeover後に旧workerが復帰するrecovery negative testでも、expired/old generation workerはdispatcher/single-writer境界へ入れず、sink callが最大1系統になることを確認する。具体的なstore/coordinatorはOQ-031/Issue #176 M2で決定し、実装・検証完了までpath別Access Bypassは無効とする。
+各外部effectのstable idempotency/correlation keyはreceipt/effect由来でoutboxのatomic保存時に確定し、lease generationをまたぐ全retryで同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを再送せず、単なるD1 preflight/searchを二重実行防止の根拠にしない。CAS成功後にworkerが停止し、takeover後に旧workerが復帰するrecovery negative testでも、expired/old generation workerはdispatcher/single-writer境界へ入れず、sink callが最大1系統になることを確認する。具体的なstore/coordinatorはOQ-031の独立callbackマイルストーンC1で決定し、実装・検証完了までpath別Access Bypassは無効とする。
+
+### M2 callback disabled boundary
+
+M2ではStripe/Discord callback本体を有効化せず、上記2つのexact POST pathをbody読取、Origin／署名処理、KV／Queue／D1、外部fetch、`waitUntil`、成功ackより前に、安定した `503 CALLBACK_MIGRATION_IN_PROGRESS` でfail closedにする。path別Access BypassはOFFのまま維持する。これはcallbackの署名、receipt/work、lease fencing、stable key、sink冪等性またはsingle-writer、結果不明照合、並行再送・停止・recovery条件を削除または緩和するものではない。これらの実装と検証、store/coordinator選択は独立callbackマイルストーンC1で行い、M5では無効callbackの503と副作用0だけを確認する。C1有効化は元の回復試験全件と別リリース判断を完了してから行う。
 
 ## Authorization boundary
 

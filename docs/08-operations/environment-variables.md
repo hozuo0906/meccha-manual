@@ -118,7 +118,7 @@ stagingとproductionで同じbinding名を使い、参照bucketだけを環境�
 - Discord Interaction endpointでは `DISCORD_PUBLIC_KEY` による署名検証を必須にする。
 - Worker runtimeで使うDiscord/GitHub bridge secretはCloudflare Secretにも登録する。
 - Discord command受付は `DISCORD_ALLOWED_GUILD_IDS` と `DISCORD_ALLOWED_CHANNEL_IDS` を既定必須にする。未設定運用は `DISCORD_ALLOW_UNSCOPED_COMMANDS=true` を明示した検証環境だけに限定する。
-- `DISCORD_INTERACTION_STORE` KVのget→putだけで重複Issue防止を成立させない。authoritativeなatomic receipt/work、state machine、dispatcher、negative testをOQ-031／Issue #176 M2で実装し、そのguard commit後の短期応答cacheとしてだけKVを利用できる。完了前はpath別Access Bypassを有効化しない。
+- M2ではcallbackを503・副作用0で無効化する。`DISCORD_INTERACTION_STORE` KVのget→putだけで重複Issue防止を成立させない。authoritativeなatomic receipt/work、state machine、dispatcher、negative testはOQ-031の独立callbackマイルストーンC1で実装し、そのguard commit後の短期応答cacheとしてだけKVを利用できる。完了前はpath別Access Bypassを有効化しない。
 - `GITHUB_ISSUE_TOKEN` はGitHub Issues writeに限定し、repo管理、Actions管理、Secrets管理の権限を付けない。PR buttonのマージ依頼もPRのIssue comment/label記録までに限定する。
 - `/meccha task` の危険操作検知時は `approval-required` と `blocked-from-discord` ラベルを付け、Discord指示だけで本番反映、DB migration、課金、AI API、共有リンク公開を進めない。
 - 新しい環境変数を追加したら、この台帳と該当ADR、CI設定を同じPRで更新する。

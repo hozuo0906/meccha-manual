@@ -17,3 +17,4 @@ Status: Proposed
 - 追加時に所有者、有効期限、削除条件を必須にする。
 - 古いコード経路を永続保存しない。
 - `BILLING_FEATURE_ENABLED` を課金導線の唯一の外部kill switchとする。falseは新規購入と新規制限強制を止めるが、既存課金objectの署名済みWebhookとreconciliationは止めない。
+- M2ではbilling flagと独立してStripe/Discord callbackを無効化し、2つのexact POST pathは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。既存課金objectのWebhook継続契約はC1再開後に適用し、callback停止をbilling flagだけで解除しない。

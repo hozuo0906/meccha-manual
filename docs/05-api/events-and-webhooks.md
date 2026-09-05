@@ -23,6 +23,8 @@ Status: Proposed
 
 ## Stripe webhook
 
+M2ではStripe callback本体を有効化せず、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。署名済みWebhookの受信、既存課金objectの永続化、reconciliation、返金・解約反映を行う契約はC1でcallback本体を再開した後に適用する。C1有効化前に元のatomic receipt/workとrecovery条件を再検証する。
+
 - raw bodyで署名検証する。
 - `stripe_event_id` をuniqueにする。
 - 重複、遅延、順不同を前提にする。

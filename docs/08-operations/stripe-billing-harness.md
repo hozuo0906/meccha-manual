@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 現在の状態
 
-`BILLING_FEATURE_ENABLED=false` を既定とし、新しいCheckout Session作成、購入導線、プラン制限強制を有効化しない。署名済みWebhookと既存課金objectのreconciliationはflagに関係なく継続する。Stripe商品、Price、Webhook endpoint、Secretはまだ作成・登録しない。
+`BILLING_FEATURE_ENABLED=false` を既定とし、新しいCheckout Session作成、購入導線、プラン制限強制を有効化しない。Stripe商品、Price、Webhook endpoint、Secretはまだ作成・登録しない。M2ではWebhook endpointも有効化せず、exact POSTは常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。署名済みWebhookと既存課金objectのreconciliationを継続する契約はC1でcallback本体を再開するときに適用し、C1完了までは外部課金設定を作成しない。
 
 本書は将来のtest mode実装に必要な境界を固定するものであり、外部課金設定を実行する手順ではない。
 
@@ -57,6 +57,8 @@ testとliveで値を共有しない。値をMarkdown、PR本文、ログ、ク�
 9. subscriptionはCheckout Session作成時にもWebhook時にも同じworkspaceの競合契約・別subscription intentを検査する。Webhookの競合契約判定からreconciliation対象自身の `stripe_subscription_id` を除外する。PersonalとTeamの支払い可能Sessionを同時に残さない。
 
 ## Webhook処理
+
+この処理契約はC1でcallback本体を再開した後に適用する。M2ではbody読取、署名検証、receipt/outbox、Stripe API、reconciliation、成功ackを行わず、503と副作用0を返す。C1有効化前に元の署名・receipt・recovery試験全件と別リリース判断を完了する。
 
 1. exact POSTとbody上限を確認する。
 2. raw bodyと `Stripe-Signature` を使い、署名対象timestampの時刻許容を含めて副作用なしで検証する。署名検証前はJSON parse、監査payload保存、状態変更をしない。

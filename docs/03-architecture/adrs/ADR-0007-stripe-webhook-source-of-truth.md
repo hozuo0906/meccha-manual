@@ -16,3 +16,5 @@ Status: Accepted
 - `payment_events.stripe_event_id`、payload digest、receiptと再実行可能なreconciliation work/outboxを単一のatomic operationで保存する。guard commit後だけproviderへ2xxを返し、保存済みoutboxからdispatcherと副作用へ進める。
 - receipt/workは `received/processing/retryable/reconcile_required/completed/dead_letter` で管理し、同じID・digestの再送は同じworkを再開・照合・冪等successとする。結果不明は照合前に自動再送しない。
 - entitlement変更は一元化し、全副作用確認後だけcompletedにする。
+
+M2ではStripe callback本体を有効化せず、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。上記の署名、receipt/work、reconciliation、結果不明照合の契約は削除せず、独立callbackマイルストーンC1で再開する。C1有効化前に元のrecovery試験全件と別リリース判断を完了する。

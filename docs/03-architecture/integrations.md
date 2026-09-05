@@ -70,6 +70,7 @@ Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。�
 - `BILLING_FEATURE_ENABLED=false`
 - Stripe関連Secret、Price IDは未登録
 - Stripe外部API呼び出しなし
+- M2ではStripe/Discordのcallback本体を有効化せず、2つのexact POST pathは `503 CALLBACK_MIGRATION_IN_PROGRESS` とする。path別Access BypassはOFFを維持し、callbackの完全な実装・検証はC1へ移す。
 
 課金のアプリ境界だけを先に固定し、外部設定は後回しにする。
 アプリ側の `/v1/webhooks/stripe` とCheckout Session作成処理が未実装のため、Stripe webhook endpointや商品をまだ作らない。

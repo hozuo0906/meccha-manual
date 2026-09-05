@@ -72,22 +72,31 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 
 成果:
 
-- staging用D1 schema/migration
+- staging用D1 schema/migration（[D1 workspace schema](../04-data/d1-workspace-schema.md)）
 - identities、profiles、workspaces、workspace_members、join codes、audit logs
-- OQ-031を解決し、Stripe/Discordのprovider ID、payload digest、receiptと再実行可能なwork/outboxをCloudflare-native authoritative storeへ単一のatomic operationで保存する。`received/processing/retryable/reconcile_required/completed/dead_letter`、processing lease、dispatcher、結果不明照合を実装する。D1を選ぶ場合はschema/migration/unique/state CHECK/lease index/outboxを同じPRへ含め、既存Discord KV get→putを単独のreplay guard正本にしない
+- Worker認可、D1制約、workspace固定repository、identity/workspace/memberのcoreを先に実装する。manual coreはM4で扱い、callback本体はM2では有効化しない。
+- M2の2つのexact POST callback pathはbody読取、Origin／署名処理、KV／Queue／D1、外部fetch、`waitUntil`、成功ackより前に、安定した `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。path別Access BypassはOFFを維持する。OQ-031のcallback安全条件は削除・緩和せず、独立callbackマイルストーンC1へ移す
 - workspace固定repository API
 - 別workspace、viewer、disabled、last-owner、ID差し替えnegative test
-- backup/export/restore rehearsal
+- backup/export/restore rehearsal（local SQLだけを完了扱いにせず、実staging D1 bindingの確認は未実証）
 - staging/production binding分離scanner
-- callbackのguard commit失敗、commit直後・Queue投入前停止、processing lease期限、一時失敗、結果不明、同一ID・同一digest並行再送、同一ID・異なるdigest、completed再送、CAS成功後停止→lease takeover→旧worker復帰のnegative/recovery test。receipt/effect由来のstable idempotency/correlation keyをoutbox保存時に確定し、sink側idempotencyまたはeffect単位single-writer/correlation reconciliationを強制して、受理済みworkの消失・二重副作用がなくsink call最大1系統であることを証明し、完了までは環境を問わずpath別Access Bypassを有効化しない
+- callbackのguard commit失敗、commit直後・Queue投入前停止、processing lease期限、一時失敗、結果不明、同一ID・同一digest並行再送、同一ID・異なるdigest、completed再送、CAS成功後停止→lease takeover→旧worker復帰のnegative/recovery testはC1で実施する。M2ではcallback停止境界の503・副作用0だけを確認し、D1 coreの実staging binding検証とは混同しない
 
 完了条件:
 
 - Worker認可とD1制約の両方を破壊するmutation testが失敗する
 - workspace条件なしqueryを静的検出する
 - stagingだけで動的negative testが成功する
+- callback停止中の両入口503・副作用0が確認できる。これはcallback本体のstaging成功やC1完了を意味しない。
+- backup/export/restore rehearsal、実staging D1 binding smoke、production分離の実環境証跡は未実証であり、local SQL suiteの成功だけではM2完了・staging合格としない。
 
 M2のscanner、repository negative test、staging D1 testはM5の実preview証跡に向けた準備であり、staging合格やproduction準備開始の根拠にはしない。
+
+## C1: 外部provider callback復帰
+
+M2から独立したマイルストーンとして、Stripe/Discord callbackのstore/coordinator選択、実装、schema/migration、path別Access Bypassの再判断を行う。OQ-031を解決するため、raw body署名・timestampの副作用なし検証、有界parse/schema・allowlist検証、provider ID・payload digest・receiptと再実行可能なwork/outboxの単一atomic保存、`received/processing/retryable/reconcile_required/completed/dead_letter`、processing lease期限、dispatcher、結果不明照合を実装する。既存Discord KV get→putを単独のreplay guard正本にしない。receipt/effect由来のstable idempotency/correlation key、sink側idempotencyまたはeffect単位single-writer、旧lease worker fencing、並行再送、CAS成功後停止→lease takeover→旧worker復帰、sink call最大1系統のrecovery negative testを完了するまで、callbackは503のまま、path別Access BypassはOFFのままとする。
+
+C1有効化前にはM2の503・副作用0証跡に加え、元のcallback回復試験全件と別リリース判断を完了する。M5の無効callback候補では稼働callback向けsink試験を内部alphaの前提にしない。
 
 ## M3: Phase 1移行
 
@@ -140,7 +149,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - 未認証requestがAccessで拒否される。
 - Access認証後もstaging D1/R2だけが利用可能で、production binding、route、secret、backendへのfallbackまたは到達経路がないことをnegative proofで確認する。
 - candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
-- candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。外部effectのstable idempotency/correlation key、sink側idempotencyまたはsingle-writer境界、CAS後停止→takeover→旧worker復帰時のsink call最大1系統も同じ候補証跡で確認する。
+- candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。callbackを有効化した候補をM5へ載せる場合だけ、C1の別リリース判断と全recovery証跡を前提に、外部effectのstable idempotency/correlation key、sink側idempotencyまたはsingle-writer境界、CAS後停止→takeover→旧worker復帰時のsink call最大1系統も同じ候補証跡で確認する。callback無効候補では `503 CALLBACK_MIGRATION_IN_PROGRESS` と副作用0のnegative proofだけを行う。
 - DEC-064 Safetyの5操作（replacement gateと対応docs、旧workflow削除、runbook Superseded、両checker反転、直接依存test同一scope）を同一commit/rollback unitで完了する。
 - この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
 

@@ -62,13 +62,13 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 
 同じprovider ID・同じpayload digestの再送は新しいreceipt/workを作らず、状態に応じて維持、再開、照合、冪等successとする。同じID・異なるdigestは拒否して監査する。既存のDiscord KV get→putはatomic compare-and-setではないため、単独のauthoritative replay guardにしない。
 
-具体的なCloudflare-native store、atomic receipt/work、lease、dispatcher、保持する最小payloadはOQ-031をIssue #176 M2で解決する。D1を選ぶ場合はtable定義、migration、unique constraint、state CHECK、lease index、outbox、途中失敗・並行再送・結果不明negative testを同じPRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
+具体的なCloudflare-native store、atomic receipt/work、lease、dispatcher、保持する最小payloadはOQ-031の独立callbackマイルストーンC1で解決する。M2ではcallbackを503・副作用0で無効化し、D1 workspace coreを先行する。D1を選ぶ場合はtable定義、migration、unique constraint、state CHECK、lease index、outbox、途中失敗・並行再送・結果不明negative testを同じC1 PRへ含める。選択・実装・検証が完了するまでpath別Access Bypassを有効化しない。
 
 ### Lease fencing
 
 `processing` の取得または再開ごとに単調増加する `lease_generation`（fencing token）を発行する。state更新・完了・outbox予約・外部副作用直前はlatest `lease_generation`へのCAS一致を条件にし、古いleaseのworkerと旧ownerはcommit・副作用を行えない。期限切れは同じworkの再取得へ戻し、lease期限だけを見た無条件更新は合格にしない。
 
-各外部effectのstable idempotency/correlation keyはreceipt/effect由来でoutboxのatomic保存時に確定し、lease generationをまたぐ全retryで同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを再送せず、単なるD1 preflight/searchを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のrecovery negative testでも、expired/old generation workerはdispatcher/single-writer境界へ入れず、sink callが最大1系統になることを確認する。具体的なstore/coordinatorはOQ-031/Issue #176 M2で決定する。
+各外部effectのstable idempotency/correlation keyはreceipt/effect由来でoutboxのatomic保存時に確定し、lease generationをまたぐ全retryで同じkeyを使う。sinkがidempotency keyを強制できる場合はsink側で重複を拒否し、強制できない場合はeffect単位のsingle-writer境界と決定的correlation markerによるoutcome reconciliationを必須にする。未知結果のまま同じeffectを再送せず、単なるD1 preflight/searchを二重実行防止の根拠にしない。CAS成功後停止・lease takeover・旧worker復帰のrecovery negative testでも、expired/old generation workerはdispatcher/single-writer境界へ入れず、sink callが最大1系統になることを確認する。具体的なstore/coordinatorはOQ-031の独立callbackマイルストーンC1で決定する。
 
 ## Query contract
 

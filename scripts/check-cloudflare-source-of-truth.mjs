@@ -98,7 +98,7 @@ const required = new Map([
     "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否",
     "single-writer境界", "未知結果のまま同じeffectを自動再送せず", "D1 preflight/searchだけを二重実行防止の根拠にしない",
     "CAS成功後停止・lease takeover・旧worker復帰", "expired/old generation worker", "sink callを最大1系統",
-    "store/coordinator選択はIssue #176 M2"
+    "store/coordinator選択は独立callbackマイルストーンC1"
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
@@ -117,7 +117,7 @@ const required = new Map([
     "outboxのatomic保存時に確定", "sink側で重複を拒否", "single-writer境界", "決定的correlation markerによるoutcome reconciliation",
     "D1 preflight/searchだけを二重実行防止の根拠にしない", "CAS成功後停止・lease takeover・旧worker復帰",
     "expired/old generation worker", "sink callを最大1系統", "二重Issue・二重entitlement・二重課金",
-    "store/coordinator選択はIssue #176 M2"
+    "store/coordinator選択は独立callbackマイルストーンC1"
   ]],
   ["docs/07-quality/test-strategy.md", [
     "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ",
@@ -128,7 +128,7 @@ const required = new Map([
     "single-writer境界", "決定的correlation markerによるoutcome reconciliation", "未知結果のまま同じeffectを自動再送せず",
     "D1 preflight/searchだけを二重実行防止の根拠にしない", "CAS成功後停止・lease takeover・旧worker復帰",
     "expired/old generation worker", "sink callを最大1系統", "二重Issue・二重entitlement・二重課金",
-    "store/coordinator選択はIssue #176 M2"
+    "store/coordinator選択は独立callbackマイルストーンC1"
   ]],
   ["docs/08-operations/domain-and-publication.md", [
     "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない",
@@ -141,7 +141,7 @@ const required = new Map([
     "Issue #176 M5 staging immutable-preview検証用Access service token ID",
     "Issue #176 M5 immutable preview検証用Access service token 2件",
     "authoritative replay guardには使わず", "atomic receipt/work commit後の短期応答cache",
-    "OQ-031／Issue #176 M2", "path別Access Bypassを有効化しない"
+    "独立callbackマイルストーンC1", "path別Access Bypassを有効化しない"
   ]],
   ["docs/08-operations/discord-reporting-and-command-bridge.md", [
     "exact POSTとbody上限", "署名対象 `x-signature-timestamp` を副作用なしで検証",
@@ -191,10 +191,10 @@ const required = new Map([
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
     "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持",
     "receiptと再実行可能なwork/outbox", "received/processing/retryable/reconcile_required/completed/dead_letter",
-    "結果不明は照合前に自動再送せず", "OQ-031をM2で解決"
+    "結果不明は照合前に自動再送せず", "OQ-031をC1で解決"
   ]],
   ["docs/09-delivery/open-questions.md", [
-    "OQ-031", "Issue #176 M2", "receiptと再実行可能なwork/outbox",
+    "OQ-031", "独立callbackマイルストーンC1", "receiptと再実行可能なwork/outbox",
     "received/processing/retryable/reconcile_required/completed/dead_letter",
     "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない"
   ]]
@@ -1336,7 +1336,7 @@ const issue182FencingTerms = [
   "sink側で重複を拒否", "single-writer境界", "決定的correlation markerによるoutcome reconciliation",
   "未知結果のまま同じeffectを自動再送せず", "D1 preflight/searchだけを二重実行防止の根拠にしない",
   "CAS成功後停止・lease takeover・旧worker復帰", "expired/old generation worker", "dispatcher/single-writer境界",
-  "sink callを最大1系統", "二重Issue・二重entitlement・二重課金", "store/coordinator選択はIssue #176 M2"
+  "sink callを最大1系統", "二重Issue・二重entitlement・二重課金", "store/coordinator選択は独立callbackマイルストーンC1"
 ];
 function issue182ScopedSection(path) {
   if (path === "docs/05-api/cloudflare-access-d1-api.md") {
@@ -1360,7 +1360,7 @@ for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/
 }
 for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/acceptance-catalog.md", "docs/07-quality/test-strategy.md"]) {
   const original = contents.get(path) ?? "";
-  for (const fixtureTerm of ["stable idempotency/correlation key", "store/coordinator選択はIssue #176 M2"]) {
+  for (const fixtureTerm of ["stable idempotency/correlation key", "store/coordinator選択は独立callbackマイルストーンC1"]) {
     const mutated = original.replace(fixtureTerm, "") + `\n\nfixture relocated ${fixtureTerm}`;
     contents.set(path, mutated);
     const scoped = issue182ScopedSection(path);
