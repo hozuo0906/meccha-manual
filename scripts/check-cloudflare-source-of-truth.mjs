@@ -288,34 +288,37 @@ const m5CarrierRetirementContradictionTerms = [
   "着地後の別PRで削除",
   "replacement未着地のまま先行退役を禁止しない"
 ];
+const m5CommonLegacyGateIdentityTerms = [
+  ".github/workflows/phase1-rls-live.yml",
+  "phase1-rls-live.yml",
+  "Phase 1 RLS Live Gate",
+  "Supabase RLS live gate",
+  "現行live RLS gate",
+  "live RLS gate",
+  "旧Supabase live gate",
+  "旧Supabase live workflow"
+];
 const m5CarrierIdentityTermsByName = new Map([
-  ["DEC-064 pre-M5 transition", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate"]],
-  ["DEC-064 Safety", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate"]],
-  ["phase1 runbook M5 safety", ["phase1-rls-live.yml", "Phase 1 RLS Live Gate", "旧workflow"]],
-  ["session handoff M5 safety", ["phase1-rls-live.yml", "live RLS gate", "旧workflow"]],
-  ["environments intro M5 safety", ["Phase 1 RLS Live Gate", "Issue #176 M5 replacement gate"]],
-  ["environments preview matrix M5 safety", ["Phase 1 RLS immutable preview", "Phase 1 RLS immutable preview gate"]],
-  ["environments dispatch matrix M5 safety", ["Phase 1 RLS immutable preview gate", "Issue #176 M5 replacement gate"]],
-  ["environments boundary M5 safety", ["現行live RLS gate", "Issue #176 M5 replacement gate", "旧workflow削除"]],
-  ["roadmap current live-gate M5 safety", ["Supabase RLS live gate", "Issue #176 M5"]],
-  ["roadmap M0 live-workflow M5 safety", ["旧Supabase live workflow", "M5 replacement gate"]],
-  ["roadmap M5 five-actions safety", ["DEC-064 Safetyの5操作", "旧workflow削除"]],
-  ["roadmap M6 residual safety", ["旧live workflow", "M5 replacement gate"]],
-  ["prelaunch M5 safety", ["Phase 1 RLS Live Gate", "canonical workflow"]],
-  ["rls negative-test M5 safety", ["phase1-rls-live.yml", "M5 replacement gate"]],
-  ["phase1 setup active exception", ["Supabase/Auth/Postgres/RLS", "canonical live gate"]],
-  ["phase1 setup frozen baseline", ["Supabase project", "canonical workflow"]],
-  ["phase1 setup superseded gate exception", ["Supabaseテストユーザー", "canonical live gate"]]
+  ["environments preview matrix M5 safety", ["Phase 1 RLS immutable preview"]],
+  ["environments dispatch matrix M5 safety", ["Phase 1 RLS immutable preview gate"]]
 ]);
+const m5SafeNegativeEndings = /^\s*(?:しない|ない|することを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|することは禁止する|禁止する|禁止とする|不可)\s*$/;
 function normalizePredicateText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]*)`/g, "$1")
-    .replace(/[*_~]+/g, "");
+    .replace(/[*_]+/g, "");
+}
+function normalizeIdentityText(line) {
+  return line
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/~~.*?~~/g, "")
+    .replace(/[~*_]+/g, "");
 }
 function matchesCarrierIdentity(line, identity) {
-  const normalizedLine = normalizePredicateText(line);
-  if (identity === "旧workflow") return /(?:^|\s)旧workflow/.test(normalizedLine);
+  const normalizedLine = normalizeIdentityText(line);
+  if (identity === "旧workflow") return /(?:^|\s)(?:(?:canonical|renamed)(?:\/(?:canonical|renamed))?|改名後(?:の)?)?\s*旧workflow/.test(normalizedLine);
   return normalizedLine.includes(identity);
 }
 function containsAffirmativeForbiddenAssertion(line, term) {
@@ -333,20 +336,51 @@ function containsAffirmativeForbiddenAssertion(line, term) {
         continue;
       }
       const safePermissionPattern = /許可しない|許可されない|認めない|認められない|禁止する|禁止とする|不可/g;
-      const hasSafeNegative = safePermissionPattern.test(targetClause);
+      const safeMatches = [...targetClause.matchAll(safePermissionPattern)];
+      const lastSafeMatch = safeMatches.at(-1);
+      const hasSafeNegative = Boolean(safeMatches.length === 1 && lastSafeMatch && targetClause.slice(lastSafeMatch.index + lastSafeMatch[0].length).trim() === "");
       const withoutSafeNegative = targetClause.replace(safePermissionPattern, "");
       const hasAffirmativeOrAmbiguousPermission = /許可|認め|容認|可/.test(withoutSafeNegative);
       const allowsProhibitedCarryover = /禁止しない|禁止されない/.test(targetClause);
       if (allowsProhibitedCarryover || hasAffirmativeOrAmbiguousPermission) return true;
+      if (safeMatches.length > 0 && !hasSafeNegative) return true;
       if (hasSafeNegative) {
         offset = normalizedLine.indexOf(term, offset + 1);
         continue;
       }
       return true;
-    } else if (term.endsWith("禁止しない") || !/^\s*(?:しない|ない|することを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|することは禁止する|禁止する|禁止とする|不可)/.test(sentence)) return true;
+    } else if (term.endsWith("禁止しない") || !m5SafeNegativeEndings.test(sentence)) return true;
     offset = normalizedLine.indexOf(term, offset + 1);
   }
   return false;
+}
+const m5PredicateFixtures = [
+  ["M6への持越しは許可しないわけではない", "M6への持越し", true],
+  ["M6への持越しは許可しないとは認めない", "M6への持越し", true],
+  ["M6への持越しは不可とは認めない", "M6への持越し", true],
+  ["M6で削除しないわけではない", "M6で削除", true],
+  ["M6で削除~~しない~~", "M6で削除", true],
+  ["M6で削除~しない~", "M6で削除", true],
+  ["M6で削除~~~しない~~~", "M6で削除", true],
+  ["M6で削除~~しない", "M6で削除", true],
+  ["M6への持越しは**許可しない**", "M6への持越し", false],
+  ["M6で削除__しない__", "M6で削除", false]
+];
+for (const [line, term, expected] of m5PredicateFixtures) {
+  if (containsAffirmativeForbiddenAssertion(line, term) !== expected) {
+    errors.push(`M5 predicate fixture failed: ${line}`);
+  }
+}
+for (const line of ["renamed旧workflowはM6で削除する", "canonical旧workflowはM6で削除する", "canonical/renamed旧workflowはM6で削除する", "改名後旧workflowはM6で削除する", "改名後の旧workflowはM6で削除する", "~~renamed~~旧workflowはM6で削除する", "~旧workflowはM6で削除する"]) {
+  if (!matchesCarrierIdentity(line, "旧workflow")) errors.push(`Legacy workflow identity fixture failed: ${line}`);
+}
+if (matchesCarrierIdentity("Stripeの旧workflowはM6で削除する", "旧workflow")) {
+  errors.push("Stripe workflow identity fixture failed.");
+}
+for (const line of ["旧Supabase live runtimeはM6で削除する", "旧Supabase live APIはM6で削除する"]) {
+  if (m5CommonLegacyGateIdentityTerms.some((identity) => matchesCarrierIdentity(line, identity))) {
+    errors.push(`Unrelated Supabase identity fixture failed: ${line}`);
+  }
 }
 function documentLines(path) {
   const rawLines = (contents.get(path) ?? "").split("\n");
@@ -585,7 +619,7 @@ const m5CarrierResolutions = m5CarrierEntries.map(({ name, path, scope, scopeAnc
   if (lines.length !== 1) {
     errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
   }
-  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms: m5CarrierIdentityTermsByName.get(name) ?? [] };
+  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms: [...m5CommonLegacyGateIdentityTerms, ...(m5CarrierIdentityTermsByName.get(name) ?? []), "旧workflow"] };
 });
 const exemptCarrierLines = new Set(
   m5CarrierResolutions
