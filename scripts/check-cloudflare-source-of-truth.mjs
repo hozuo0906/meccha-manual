@@ -94,7 +94,11 @@ const required = new Map([
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
     "External provider callback", "receiptと再実行可能なwork/outboxを単一のatomic operation",
     "guard commit成功後だけproviderへ成功応答", "lease付き`processing`", "`reconcile_required`", "`dead_letter`",
-    "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない"
+    "通常のブラウザ状態変更APIは同一origin", "path別Access Bypassを有効化しない",
+    "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否",
+    "single-writer境界", "未知結果のまま同じeffectを自動再送せず", "D1 preflight/searchだけを二重実行防止の根拠にしない",
+    "CAS成功後停止・lease takeover・旧worker復帰", "expired/old generation worker", "sink callを最大1系統",
+    "store/coordinator選択はIssue #176 M2"
   ]],
   ["docs/05-api/api-contracts.md", [
     "# API契約\n\nStatus: Accepted", "### Phase 1ハーネス\n\nStatus: Superseded",
@@ -108,14 +112,23 @@ const required = new Map([
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
     "Access session終了導線", "Access cookieやrefresh tokenをアプリから操作しない", "認証世代",
     "AC-018", "AC-019", "AC-027", "receiptと再実行可能なwork/outbox",
-    "received/processing/retryable/reconcile_required/completed/dead_letter", "受理済みworkを黙って失わず",
-    "`Origin`をcallback認証に使わない", "path別Access Bypassを有効化しない"
+    "received/processing/retryable/reconcile_required/completed/dead_letter", "受理済みworkを黙って失わない",
+    "`Origin`をcallback認証に使わない", "path別Access Bypassを有効化しない", "stable idempotency/correlation key",
+    "outboxのatomic保存時に確定", "sink側で重複を拒否", "single-writer境界", "決定的correlation markerによるoutcome reconciliation",
+    "D1 preflight/searchだけを二重実行防止の根拠にしない", "CAS成功後停止・lease takeover・旧worker復帰",
+    "expired/old generation worker", "sink callを最大1系統", "二重Issue・二重entitlement・二重課金",
+    "store/coordinator選択はIssue #176 M2"
   ]],
   ["docs/07-quality/test-strategy.md", [
     "Access JWT／Worker認可／D1 tenant", "移行前Postgres baselineを変更する場合だけ",
     "Access session終了導線", "refresh token交換やAccess cookie削除を行わない", "認証世代",
     "Access callback境界", "receiptと再実行可能なwork/outbox", "processing lease期限",
-    "結果不明照合", "KV get→putだけでは原子性合格にせず", "path別Access Bypassを有効化しない"
+    "結果不明照合", "KV get→putだけでは原子性合格にせず", "path別Access Bypassを有効化しない",
+    "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否",
+    "single-writer境界", "決定的correlation markerによるoutcome reconciliation", "未知結果のまま同じeffectを自動再送せず",
+    "D1 preflight/searchだけを二重実行防止の根拠にしない", "CAS成功後停止・lease takeover・旧worker復帰",
+    "expired/old generation worker", "sink callを最大1系統", "二重Issue・二重entitlement・二重課金",
+    "store/coordinator選択はIssue #176 M2"
   ]],
   ["docs/08-operations/domain-and-publication.md", [
     "Access session CookieはCloudflare Accessが管理", "Access Cookieや独自access/refresh tokenを発行・更新・削除しない",
@@ -265,9 +278,23 @@ const paths = new Set([...required.keys(), ...forbidden.keys(), ...superseded.ke
 const contents = new Map();
 await Promise.all([...paths].map(async (path) => contents.set(path, await read(path))));
 
+function missingRequiredTerms(content, terms) {
+  return terms.filter((term) => !content.includes(term));
+}
 for (const [path, terms] of required) {
   const content = contents.get(path) ?? "";
-  for (const term of terms) if (!content.includes(term)) errors.push(`Missing Cloudflare source-of-truth term in ${path}: ${term}`);
+  for (const term of missingRequiredTerms(content, terms)) errors.push(`Missing Cloudflare source-of-truth term in ${path}: ${term}`);
+}
+const issue182FixtureTerms = [
+  ["docs/05-api/cloudflare-access-d1-api.md", "stable idempotency/correlation key"],
+  ["docs/07-quality/acceptance-catalog.md", "二重Issue・二重entitlement・二重課金"],
+  ["docs/07-quality/test-strategy.md", "CAS成功後停止・lease takeover・旧worker復帰"]
+];
+for (const [path, term] of issue182FixtureTerms) {
+  const fixture = (contents.get(path) ?? "").replace(term, "");
+  if (!missingRequiredTerms(fixture, required.get(path) ?? []).includes(term)) {
+    errors.push(`Issue #182 fencing fixture failed to detect a missing term in ${path}: ${term}`);
+  }
 }
 for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
@@ -1190,6 +1217,46 @@ function callbackSection(path, startMarker, endMarker) {
     return "";
   }
   return content.slice(start, end);
+}
+
+const issue182FencingTerms = [
+  "stable idempotency/correlation key", "outboxのatomic保存時に確定", "lease generationをまたぐretryでも同じkeyを使う",
+  "sink側で重複を拒否", "single-writer境界", "決定的correlation markerによるoutcome reconciliation",
+  "未知結果のまま同じeffectを自動再送せず", "D1 preflight/searchだけを二重実行防止の根拠にしない",
+  "CAS成功後停止・lease takeover・旧worker復帰", "expired/old generation worker", "dispatcher/single-writer境界",
+  "sink callを最大1系統", "二重Issue・二重entitlement・二重課金", "store/coordinator選択はIssue #176 M2"
+];
+function issue182ScopedSection(path) {
+  if (path === "docs/05-api/cloudflare-access-d1-api.md") {
+    return callbackSection(path, "## External provider callback", "## Application session");
+  }
+  const content = contents.get(path) ?? "";
+  if (path === "docs/07-quality/acceptance-catalog.md") {
+    const row = content.split(/\r?\n/).find((line) => line.startsWith("| AC-027 |")) ?? "";
+    return row.split("|")[4] ?? "";
+  }
+  if (path === "docs/07-quality/test-strategy.md") {
+    return content.split(/\r?\n/).find((line) => line.startsWith("- Access callback境界。")) ?? "";
+  }
+  return "";
+}
+for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/acceptance-catalog.md", "docs/07-quality/test-strategy.md"]) {
+  const section = issue182ScopedSection(path);
+  for (const term of issue182FencingTerms) {
+    if (!section.includes(term)) errors.push(`Issue #182 fencing term escaped its scoped contract in ${path}: ${term}`);
+  }
+}
+for (const path of ["docs/05-api/cloudflare-access-d1-api.md", "docs/07-quality/acceptance-catalog.md", "docs/07-quality/test-strategy.md"]) {
+  const original = contents.get(path) ?? "";
+  for (const fixtureTerm of ["stable idempotency/correlation key", "store/coordinator選択はIssue #176 M2"]) {
+    const mutated = original.replace(fixtureTerm, "") + `\n\nfixture relocated ${fixtureTerm}`;
+    contents.set(path, mutated);
+    const scoped = issue182ScopedSection(path);
+    contents.set(path, original);
+    if (!issue182FencingTerms.filter((term) => !scoped.includes(term)).includes(fixtureTerm)) {
+      errors.push(`Issue #182 scoped fixture failed to detect a relocated term in ${path}: ${fixtureTerm}`);
+    }
+  }
 }
 
 function requireOrderedCallbackMarkers({ path, start, end, markers }) {
