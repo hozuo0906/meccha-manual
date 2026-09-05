@@ -8,7 +8,7 @@ Status: Accepted
 
 既存Supabase projectと単一Worker設定は移行前baselineであり、新規検証の正本にしない。Issue #176でCloudflare Access/D1へ移行中である。staging R2 4 bucketはユーザーの作成完了申告があるがbinding未追加で、staging/production D1、production Access application、production R2 bucket、Stripe設定、独自ドメインのCloudflare接続は未作成である。ドメイン`meccha-iiyatsu.com`と正式URLはADR-0024で確定したが、`wrangler.jsonc` にproduction route、環境別binding、Durable Object migrationをまだ追加しない。
 
-Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。新規Supabase test user、資格情報、live RLS証跡を追加しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
+Cloudflare Git連携のnon-production branch buildは無効化している。production branchは `main` のまま、deploy commandを `npx wrangler versions upload` とし、push時にversionを作成してもactive deploymentへ自動promoteしない。Phase 1 RLS Live Gateは現行Accepted transitional gateとして、M5置換gateと対応正本が同じrollback単位でmainへ着地するまで維持し、M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない。新規Supabase test user、資格情報は追加しない。Issue #215の文書・checker整合PRへlive RLS証跡を追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。Access保護とversion upload-onlyを維持し、Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する。最初の外部ユーザー登録または「本番公開」判断の前に `prelaunch-shortcut-and-launch-gate.md` を全項目確認する。
 
 ## 環境対応表
 
@@ -22,7 +22,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
 | Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
-| Legacy Supabase | 移行前baseline。新規データ・資格情報を追加しない | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
+| Legacy Supabase | 移行前baseline。新規project/user/secretは追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。 | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |
 | R2 manual / `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` | `meccha-manual-manual-assets-prod` | 同上 |
 | R2 exports / `EXPORTS` | `meccha-manual-exports-staging` | `meccha-manual-exports-prod` | 同上 |
@@ -85,7 +85,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 - Access到達許可をworkspace role認可と同一視しない。
 - previewはstaging D1だけをbindingし、production D1をbindingしない。
 - production Access applicationとproduction D1はまだ作成しない。migration、deploy、外部ユーザー招待は別々のowner承認を必須にする。
-- 既存Supabaseは移行前baselineとし、新規ユーザー、データ、資格情報を追加しない。Issue #176 M6でruntime依存と不要資格情報を退役する。
+- 既存Supabaseは移行前baselineとし、新規ユーザー、資格情報を追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。Issue #176 M6でruntime依存と不要資格情報を退役する。
 
 ## R2
 

@@ -161,7 +161,8 @@ const required = new Map([
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
     "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約",
-    "M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"
+    "M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない",
+    "Issue #215の文書・checker整合PRへlive RLS証跡を追加しない", "ownerが実行自体を明示承認したpre-M5 canonical live runに限り", "既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
@@ -491,7 +492,12 @@ function logicalAssertionBlocks(lines) {
       flush();
       return;
     }
-    if (/^#{1,6}\s/.test(trimmed) || /^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+    if (/^#{1,6}\s/.test(trimmed)) {
+      flush();
+      blocks.push({ text: line, indexes: [index] });
+      return;
+    }
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
       flush();
       return;
     }
@@ -878,6 +884,9 @@ if (!findM5CarrierContradiction(documentLines(nestedListFixturePath))) {
   errors.push("M5 nested list continuation fixture failed.");
 }
 contents.delete(nestedListFixturePath);
+if (!findM5CarrierContradiction(["## 旧workflowはM7で削除する"])) {
+  errors.push("M5 explicit retirement heading fixture failed.");
+}
 const decisionLogLines = documentLines("docs/09-delivery/decision-log.md");
 const dec064HeadingCount = decisionLogLines.filter((line) => line.startsWith("## DEC-064:")).length;
 if (dec064HeadingCount !== 1) errors.push(`DEC-064 must have exactly one section heading in docs/09-delivery/decision-log.md (found ${dec064HeadingCount})`);
@@ -944,7 +953,7 @@ const m5CarrierEntries = [
     path: "docs/08-operations/environments-and-delivery.md",
     scope: "## 目的と現在地",
     prefix: "Cloudflare Git連携",
-    terms: ["Cloudflare Git連携", "Phase 1 RLS Live Gate", "現行Accepted transitional gate", "Issue #176 M5", "M5 replacement gate", "同じrollback単位", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"]
+    terms: ["Cloudflare Git連携", "Phase 1 RLS Live Gate", "現行Accepted transitional gate", "Issue #176 M5", "M5 replacement gate", "同じrollback単位", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない", "Issue #215の文書・checker整合PRへlive RLS証跡を追加しない", "ownerが実行自体を明示承認したpre-M5 canonical live runに限り", "既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する"]
   },
   {
     name: "environments preview matrix M5 safety",
