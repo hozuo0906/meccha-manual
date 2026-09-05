@@ -301,13 +301,6 @@ for (const [path, terms] of forbidden) {
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
 }
-const legacyAssetReadContracts = [
-  ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", "## 対策", ["認可済みWorker proxy閲覧"], ["Worker側の署名URL発行"]],
-  ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", "## Supersedes", ["Worker proxyのみ"], ["Workerが発行する短期署名URL"]],
-  ["docs/03-architecture/integrations.md", "##", ["Workers:", "Worker proxy"], ["署名URL発行"]],
-  ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", "##", ["Worker proxy", "新規request拒否"], ["署名URL"]],
-  ["docs/09-delivery/open-questions.md", "OQ-014", ["ADR-0028", "Live View URLのTTL"], ["用途別の最短時間を採用"]]
-];
 const currentAssetReadContracts = [
   ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", "## 対策", ["Worker proxy"], ["Worker issues signed URL"]],
   ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", "", ["Worker proxy"], ["Worker issues signed URL"]],
