@@ -771,6 +771,111 @@ a.nav-item:hover {
   margin: 16px 20px;
 }
 
+.manual-reading-preview {
+  width: min(640px, calc(100% - 40px));
+  max-width: 640px;
+  max-height: calc(100vh - 40px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.manual-reading-preview::backdrop {
+  background: rgba(22, 32, 51, 0.58);
+}
+
+.manual-reading-preview-panel {
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.manual-reading-preview-panel > * {
+  min-width: 0;
+}
+
+.manual-reading-preview-header,
+.manual-reading-preview-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.manual-reading-preview-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-strong);
+}
+
+.manual-reading-preview-header h2 {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.manual-reading-preview-content {
+  overflow: auto;
+  padding: 20px;
+}
+
+.manual-reading-preview-content h3,
+.manual-reading-preview-content p {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.manual-reading-preview-description {
+  margin-bottom: 20px;
+  color: var(--muted);
+}
+
+.manual-reading-preview-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.manual-reading-preview-step {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.manual-reading-preview-step h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.manual-reading-preview-step dl {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.manual-reading-preview-step dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.manual-reading-preview-step dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.manual-reading-preview-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+
 @media (max-width: 900px) {
   .manual-layout,
   .manual-step-grid {
@@ -841,6 +946,21 @@ a.nav-item:hover {
   .table td {
     padding: 12px;
   }
+
+  .manual-reading-preview {
+    width: calc(100% - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .manual-reading-preview-panel {
+    max-height: calc(100vh - 20px);
+  }
+
+  .manual-reading-preview-header,
+  .manual-reading-preview-content,
+  .manual-reading-preview-footer {
+    padding: 14px;
+  }
 }
 
 @media (forced-colors: active) {
@@ -871,6 +991,7 @@ const manualCreateReconciliationByWorkspace = new Map();
 let manualDetailState = { workspaceId: "", manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
 let manualRequestSequence = 0;
 let manualMutationInFlight = false;
+let manualReadingPreview = null;
 const manualStatusLabels = {
   draft: "下書き",
   reviewing: "確認中",
@@ -894,6 +1015,7 @@ const manualActionTypeLabels = {
 };
 
 function resetManualUiState() {
+  closeManualReadingPreview(false);
   currentScreen = "workspace";
   manualsState = { workspaceId: "", status: "idle", items: [], message: "", messageKind: "notice" };
   manualCreateReconciliationByWorkspace.clear();
@@ -2134,7 +2256,7 @@ function setManualMutationBusyState(isBusy, messageId = "", message = "") {
       }
     }
   }
-  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button")) {
+  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-reading-preview-button")) {
     if (isBusy) {
       if (!control.hasAttribute("data-manual-disabled-before")) {
         control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
@@ -2331,6 +2453,64 @@ function manualStepHtml(step, index, count, canEdit) {
     '</form></article>';
 }
 
+function manualRevisionState(value) {
+  const revisionState = value?.draft?.state;
+  if (revisionState === "draft" || revisionState === "published") return revisionState;
+  return value?.manual?.currentPublishedRevisionId ? "published" : "";
+}
+
+function manualRevisionReadOnlyLabel(value) {
+  const revisionState = manualRevisionState(value);
+  if (revisionState === "draft") return "下書き（読み取り専用）";
+  if (revisionState === "published") return "公開版（読み取り専用）";
+  return "保存済み内容（読み取り専用）";
+}
+
+function closeManualReadingPreview(restoreFocus = true) {
+  const preview = manualReadingPreview;
+  if (!preview) return;
+  manualReadingPreview = null;
+  if (preview.element.open) preview.element.close();
+  preview.element.remove();
+  if (restoreFocus && preview.opener?.isConnected) preview.opener.focus();
+}
+
+function openManualReadingPreview() {
+  const value = manualDetailState.value;
+  const opener = document.getElementById("manual-reading-preview-button");
+  if (!value || !opener) return;
+  closeManualReadingPreview(false);
+  const revisionState = manualRevisionState(value);
+  const title = value.draft?.title || value.manual?.title || "手順書";
+  const description = value.draft?.description || "";
+  const steps = Array.isArray(value.steps) ? value.steps : [];
+  const stepsHtml = steps.length
+    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabels[step.type] || step.type || "-") + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
+    : '<p role="status">手順はまだありません。</p>';
+  const overlay = document.createElement("dialog");
+  overlay.className = "manual-reading-preview";
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "manual-reading-preview-title");
+  overlay.innerHTML = '<div class="manual-reading-preview-panel">' +
+    '<header class="manual-reading-preview-header"><div><p class="eyebrow">保存済み内容のみ</p><h2 id="manual-reading-preview-title">' + escapeHtml(title) + '</h2><span class="badge">' + escapeHtml(revisionState === "draft" ? "下書き" : revisionState === "published" ? "公開版" : "保存済み") + '</span></div><button id="manual-reading-preview-close" class="secondary-button" type="button">閉じる</button></header>' +
+    '<div class="manual-reading-preview-content"><p class="manual-reading-preview-description">' + escapeHtml(description || "説明はありません。") + '</p><div class="manual-reading-preview-steps">' + stepsHtml + '</div></div>' +
+    '<footer class="manual-reading-preview-footer"><button id="manual-reading-preview-close-footer" class="primary-button" type="button">' + (value.permissions?.canEdit ? "編集画面へ戻る" : "手順書へ戻る") + '</button></footer>' +
+    '</div>';
+  app.appendChild(overlay);
+  const close = () => closeManualReadingPreview(true);
+  manualReadingPreview = { element: overlay, opener };
+  overlay.querySelector("#manual-reading-preview-close")?.addEventListener("click", close);
+  overlay.querySelector("#manual-reading-preview-close-footer")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.addEventListener("close", () => {
+    if (manualReadingPreview?.element === overlay) close();
+  });
+  overlay.showModal();
+  overlay.querySelector("#manual-reading-preview-close")?.focus();
+}
+
 function manualDetailHtml(currentWorkspace) {
   const state = manualDetailState;
   if (state.status === "idle" || state.status === "loading") {
@@ -2351,7 +2531,7 @@ function manualDetailHtml(currentWorkspace) {
           '<div class="field"><label for="manual-draft-description">説明</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
           '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>基本情報を保存</button>' +
         '</form>'
-      : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>状態</dt><dd>公開版（読み取り専用）</dd></dl>' +
+      : '<div class="manual-step-view"><dl><dt>説明</dt><dd>' + escapeHtml(draft.description || "未入力") + '</dd><dt>状態</dt><dd>' + escapeHtml(manualRevisionReadOnlyLabel(value)) + '</dd></dl>' +
           (canEdit && draft.state === "published" ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>編集用下書きを作成</button>' : '') +
         '</div>'
     : '<div class="empty"><strong>編集できる下書きがありません。</strong><br>' +
@@ -2387,12 +2567,13 @@ function manualDetailHtml(currentWorkspace) {
       '</form>'
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
-    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div></div>' + metadata + '</section>' +
+    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>保存済み内容を閲覧プレビュー</button></div>' + metadata + '</section>' +
     '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + archiveActions + '</div>' +
   '</div>';
 }
 
 function renderManualShell(session, notice = "", noticeKind = "notice", focusId = null) {
+  closeManualReadingPreview(false);
   const currentWorkspace = resolveCurrentWorkspace(session);
   prepareWorkspaceMembersState(session, currentWorkspace);
   if (!currentWorkspace) {
@@ -2428,6 +2609,9 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   });
   document.getElementById("manuals-retry-button")?.addEventListener("click", () => loadManuals(currentWorkspace.id));
   document.getElementById("manual-detail-retry-button")?.addEventListener("click", () => loadManualDetail(currentWorkspace.id, manualDetailState.manualId));
+  document.getElementById("manual-reading-preview-button")?.addEventListener("click", () => {
+    if (!manualMutationInFlight) openManualReadingPreview();
+  });
   for (const button of document.querySelectorAll("[data-manual-id]")) {
     button.addEventListener("click", () => openManualDetail(currentWorkspace.id, button.dataset.manualId));
   }
