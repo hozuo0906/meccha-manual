@@ -15,6 +15,7 @@
     "apps/worker/src/index.ts",
     "apps/worker/src/index-phase2.ts",
     "apps/worker/src/manual-router.ts",
-    "apps/worker/src/server-config.ts"
+    "apps/worker/src/server-config.ts",
+    "apps/worker/src/access-identity.ts"
   ]
 }

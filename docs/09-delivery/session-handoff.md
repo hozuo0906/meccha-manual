@@ -228,3 +228,12 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - ローカルPC依存の作業は行わず、GitHub上のbranch/PR/CIを正本の実状態として照合する。
 
 次の1マイルストーンはIssue #176 M0の文書PRを品質ゲートまで完了し、その後M1 Access identity spikeを別Issue・別PRで開始することである。
+
+## Cloudflare Access / D1移行 M1 引き継ぎ（2026-09-05）
+
+- M0: PR #180はmainへmerge済み。実main merge SHAは`d19ab714cfc09710eeb3dc624a0b7f0438bebfc5`。M1 branchはこのSHAを起点にする。
+- M1実装: `apps/worker/src/access-identity.ts` に、jose v6.2.12によるRS256／issuer／audience／期限／iat／存在するnbfの検証、`access_user | service_token` actor分離、machine health allowlist、検証済みissuer+subjectのapplication identity DIを追加した。
+- 設定: `ACCESS_ISSUER`、`ACCESS_AUDIENCE`、`ACCESS_JWKS_URL`は`server-config.ts`を唯一の読込窓口とし、issuer／JWKS URLのcredential・query・fragment・HTTPを拒否する。設定値とJWT issuer／subjectを正規化しない。
+- 検証: `tests/access-identity.test.mjs` はローカルRSA署名JWT／mock JWKS HTTPで正常系・negative・identity状態・service lookup 0回・秘密値非露出を確認する。`npm run worker:typecheck`と`npm run test:access-identity`は成功。
+- 範囲外: 実HTTP request path／UI切替、D1 schema／migration、OTP／招待、production Access変更、旧Supabase経路の変更は行わない。
+- 次の1マイルストーン: M2でD1 schema／migrationとworkspace固定repositoryを実装し、identity状態・membership・競合・途中失敗のnegative testを追加する。

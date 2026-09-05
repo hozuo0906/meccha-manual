@@ -23,6 +23,8 @@ ADR-0028とIssue #176の目標API契約である。既存の `api-contracts.md`�
 
 email、任意header、未検証payloadだけで認証しない。ブラウザJavaScriptへJWTを複製しない。
 
+M1のDI spikeは `createAccessAuthenticator` を境界とする。認証器は起動時に設定済みissuerとJWKS URLを検証し、同じ認証器のverify／authorize呼出しでJWKS resolverを再利用する。認証済みのuser actorだけをissuer+subject lookupへ渡し、lookup結果はactive／disabled／unknown／unavailableに分類する。active以外は業務主体として返さず、disabled／unknownは403、repository障害は503とする。service tokenはmachine allowlistの`GET /health/config`だけに許可し、identity lookup、session、workspace、manualへの写像を行わない。M3まで実HTTP request pathへ接続しない。
+
 Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけでactorを決めない。
 
 - 人間向け業務APIは `access_user`、`type: "app"`、trim後非空の `sub`、`common_name` 不在の3条件すべてを必須にする。空の `sub`、service token固有の `common_name`、actor種別が曖昧なtokenを403で拒否する。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
