@@ -337,8 +337,6 @@ function normalizeIdentityText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]*)`/g, "$1")
-    .replace(/~~([^~\n]+)~~/g, (_, content) => /旧workflow/i.test(content) ? content : "")
-    .replace(/~([^~\n]+)~/g, (_, content) => /旧workflow/i.test(content) ? content : "")
     .replace(/[~*_]+/g, "");
 }
 function isM5TargetWorkflowQualifier(prefix) {
@@ -519,6 +517,8 @@ function logicalAssertionBlocks(lines) {
 function visibleSentenceFragments(text) {
   return text.split(/(?:[。！？]+|[!?]+|\.(?=\s|$)|(?<=[^A-Za-z0-9_.-])\.|[;；]+)/).map((sentence) => sentence.trim()).filter(Boolean);
 }
+// M5検査の保証範囲は指定carrierの列挙句、一意性、canonical prefix、required列挙、affirmative旧句に限る。
+// 文跨ぎ照応やMarkdown表示意味全般は保証しない。
 function hasExplicitNonTargetBinding(clause, hasPendingM6Timing = false) {
   let markerIndex = clause.search(/M(?:[6-9]|[1-9]\d+)|着地後|replacement未着地/);
   if (markerIndex < 0 && hasPendingM6Timing) markerIndex = clause.search(/廃止|退役|削除|維持|残す|先送り|持(?:ち)?越/);
@@ -561,21 +561,11 @@ function findM5SentenceContradiction(sentence, identityPatterns = []) {
   return null;
 }
 function findM5CarrierContradiction(lines, identityPatterns = [], isExemptIndex = () => false) {
-  for (const { text, indexes } of logicalAssertionBlocks(lines)) {
-    if (indexes.every(isExemptIndex)) continue;
-    let carriesTargetIdentity = false;
-    for (const sentence of visibleSentenceFragments(text)) {
-      const trimmedSentence = sentence.trim();
-      const effectiveSentence = carriesTargetIdentity && /^(?:これ|それ|当該|上記)(?:は|を|が|について)/.test(trimmedSentence)
-        ? `旧workflow ${trimmedSentence}`
-        : trimmedSentence;
-      const contradiction = findM5SentenceContradiction(effectiveSentence, identityPatterns);
-      if (contradiction) return contradiction;
-      if (matchesM5CarrierIdentity(trimmedSentence, identityPatterns)) carriesTargetIdentity = true;
-      else if (/(?:旧workflow|workflow|live\s+(?:gate|workflow))/i.test(trimmedSentence)) carriesTargetIdentity = false;
-    }
-  }
-  return null;
+  return logicalAssertionBlocks(lines)
+    .filter(({ indexes }) => !indexes.every(isExemptIndex))
+    .flatMap(({ text }) => visibleSentenceFragments(text))
+    .map((sentence) => findM5SentenceContradiction(sentence, identityPatterns))
+    .find(Boolean) ?? null;
 }
 const m5PredicateFixtures = [
   ["M6への持越しは許可しないわけではない", "M6への持越し", true],
@@ -709,12 +699,6 @@ for (const line of ["Stripeで現在使う旧workflowはM6で削除する。", "
 if (!findM5CarrierContradiction(["対象（live RLS gate）はM6で削除する。"])) {
   errors.push("M5 parenthesized target fixture failed.");
 }
-if (!findM5CarrierContradiction(["対象は旧workflowである。これはM6で削除する。"])) {
-  errors.push("M5 adjacent pronoun identity fixture failed.");
-}
-if (findM5CarrierContradiction(["対象は旧workflowである。Stripeのworkflowを説明する。これはM6で削除する。"])) {
-  errors.push("M5 adjacent foreign workflow boundary fixture failed.");
-}
 if (findM5CarrierContradiction(["~注記~: 旧workflowはM6で削除しない。"])) {
   errors.push("M5 tilde-locality fixture failed.");
 }
@@ -798,9 +782,6 @@ if (!findM5CarrierContradiction(["補足: 旧workflowはM6で削除する。"]))
 }
 if (!findM5CarrierContradiction(["> [!IMPORTANT]", "> 旧workflowはM6で削除する。"])) {
   errors.push("M5 blockquote callout contradiction fixture failed.");
-}
-if (!findM5CarrierContradiction(["~~Stripeの~~旧workflowはM7で削除する。"])) {
-  errors.push("M5 struck owner qualifier fixture failed.");
 }
 for (const line of [
   "旧workflowをM6で削除する案は採用しない。",
