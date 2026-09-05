@@ -174,7 +174,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - DEC-050のstrict typecheck、bundle dry-run、production code mutation、実Chromium 4ロールE2E、外部環境の無承認変更禁止。
   - DEC-051／052の件数・byte・文字数・200 step上限、応答の有界化、部分更新防止、atomic write。D1での実現方式と検証はIssue #176 M4で確定する。
   - DEC-063のAccess deny-by-default、immutable non-promote upload、fail closed、秘密値非記録、production非変更。
-  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。Issue #176 M5のAccess/D1/R2置換gateと対応正本がmainへ同じrollback単位で着地した時点で、現行gateを同じ単位で置換する。
+  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。pre-M5では `.github/workflows/phase1-rls-live.yml` とrunbook `docs/08-operations/phase1-rls-live-gate.md` の `Status: Accepted` を維持し、現行gateはIssue #215の文書・checker整合PRとは別にownerが明示承認した場合だけ登録済みの既存staging/test入力で実行できる。Issue #215のPRではworkflow dispatchとlive証跡生成を行わず、新規project、test user、資格情報、Environment、Secretを作成・登録しない。future M5ではSafety記載の5操作を同一commit/rollback unit内で完了する。
 - Current gate:
   - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
   - Issue #176 M5の実immutable preview negative proofが完了するまでは、staging合格、production資源作成・migration・deploy、外部招待を禁止する。これはIssue #92の再openやblanket holdの復活を意味しない。
@@ -184,7 +184,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - Access到達許可をworkspace認可と同一視しない。
   - Postgres RLS置換はWorker認可とworkspace固定D1 queryのnegative testをP0 gateにする。
   - 旧Supabase経路へのfallback、二重書込み、production変更、実データ移行、外部ユーザー招待をこの決定だけでは行わない。
-  - 旧 `phase1-rls-live.yml` は、Issue #176 M5のAccess/D1/R2置換gateと対応正本が同じrollback単位でmainへ着地するまで現行Accepted live gateとして維持し、着地後に退役する。退役後はworkflow checkerで同名・改名再追加を拒否する。
+  - 旧 `phase1-rls-live.yml` はpre-M5では現行Accepted live gateとして維持する。future M5 replacement PRでは、Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で、(1) replacement gateと対応docsの着地、(2) 旧 `.github/workflows/phase1-rls-live.yml` の削除、(3) runbookの `Status: Superseded` 化、(4) source-of-truth checkerとworkflow checkerのcanonical存在必須からcanonical/renamed旧identity再追加拒否への反転、(5) workflow本体、`scripts/check-workflows.mjs`、`scripts/check-cloudflare-source-of-truth.mjs`、`tests/cloudflare-access-fetch.test.mjs` の同一PR scope化を同時に完了する。着地後の別変更、M6への持越し、replacement未着地のまま先行退役を禁止する。
   - service tokenはmachine専用routeだけに限定し、D1 identity/workspace/roleへ昇格させない。
   - StripeとDiscordのexact callback pathだけをpath別Access Bypassへ分離する。hostname全体やwildcard pathへBypassを適用せず、Bypassを認証・認可の代替にしない。Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit成功後だけproviderへ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。
   - 通常アプリAPIと`GET /health/config`はAccess保護を維持し、callbackをAccess user、service token、D1 identity、workspace membershipへ写像しない。

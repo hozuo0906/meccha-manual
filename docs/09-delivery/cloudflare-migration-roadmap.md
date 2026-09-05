@@ -13,7 +13,7 @@ Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装を
 - production D1、production Access application、実データ、外部ユーザーは未作成・未移行である。
 - Issue #92は2026-08-30にcompleted closeされ、#92由来のblanket main merge holdは解除済みである。
 - PR #175でmainへ取り込まれたnon-production branch build停止、version upload-only、Access deny-by-defaultは移行中も維持する。
-- 現行AcceptedのSupabase RLS live gate workflowは、Issue #176 M5のAccess/D1/R2置換gateと正本が同じrollback単位でmainへ着地するまで維持する。新規Supabase test user、資格情報、live runは追加しない。
+- 現行AcceptedのSupabase RLS live gate workflowは、Issue #176 M5のAccess/D1/R2置換gateと正本が同じrollback単位でmainへ着地するまで維持する。新規Supabase test user、資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。
 
 ## Migration safety gate
 
@@ -33,7 +33,7 @@ M0〜M4のPull Requestは、それぞれの通常品質ゲートを満たせばm
 - ADR-0028
 - FR、データ、API、運用、リスク、Issue mapの整合
 - Supabase前提文書のSuperseded表示（現行Accepted transitional gate文書を除く）
-- 旧Supabase live workflowはM5置換gate着地まで維持し、着地後の退役と再追加防止checkを同じrollback単位で行う
+- 旧Supabase live workflowはM5置換gate着地まで維持し、M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で退役と再追加防止checkの反転を完了する。M6へ持ち越さない
 - Issue #92/#95/#176/#70の依存関係更新
 
 完了条件:
@@ -134,6 +134,7 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 - Access認証後もstaging D1/R2だけが利用可能で、production binding、route、secret、backendへのfallbackまたは到達経路がないことをnegative proofで確認する。
 - candidate SHA、Access policy、D1 migration履歴、R2 bindingの対応を値非表示で照合する。
 - candidate code SHAと各schema migrationのcompatibility floorを照合し、code-only rollback可能条件、不可逆後のfail-closed/forward-fix条件、選択的rollback rehearsalを実証する。外部effectのstable idempotency/correlation key、sink側idempotencyまたはsingle-writer境界、CAS後停止→takeover→旧worker復帰時のsink call最大1系統も同じ候補証跡で確認する。
+- DEC-064 Safetyの5操作（replacement gateと対応docs、旧workflow削除、runbook Superseded、両checker反転、直接依存test同一scope）を同一commit/rollback unitで完了する。
 - この条件を満たした後にだけstaging合格を判断する。production資源作成・deployはM7の別承認とする。
 
 禁止:
@@ -146,10 +147,10 @@ M2のscanner、repository negative test、staging D1 testはM5の実preview証�
 
 成果:
 
-- 残存runtime、環境変数、harness、文書からSupabase依存を削除（M5 replacement gateと対応docsが同じrollback単位でmainへ着地した後、live workflowをM6で退役）
+- 残存runtime、環境変数、harness、文書からSupabase依存を削除（旧live workflowの削除、runbookのStatus: Superseded化、canonical/renamed旧workflow再追加拒否はM5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で完了し、M6へ持ち越さない）
 - 不要なSupabase資格情報の失効
 - 旧migration/RLS harnessを履歴またはarchiveへ整理
-- #92の完了記録を維持し、#95と旧Supabase gateのclose／supersede判断を行う
+- #92の完了記録を維持し、M5で退役済みの旧gateについてIssue #95の完了記録と残存履歴を整理する
 
 完了条件:
 
