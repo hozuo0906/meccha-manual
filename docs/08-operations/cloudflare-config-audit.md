@@ -17,65 +17,50 @@ GitHub Actionsで `Cloudflare Config Audit` を手動実行する。
 既定値:
 
 - Worker name: `meccha-manual`
-- Health URL: `https://meccha-manual.tattoo-studio-crm.workers.dev/health/config`
+
+Worker名はworkflow inputから受け取るが、監査scriptで狭い形式に検証する。Cloudflare APIのhostとGET endpointはscript内で固定し、入力からURLを組み立てない。
+
+使用するendpointは、Workers設定・secret一覧、D1 database一覧、R2 bucket一覧、Access application一覧の各GETに限定する。API仕様はCloudflare公式API Reference（Workers Scripts Settings、D1 Database、R2 Buckets、Zero Trust Access Applications）を基準にする。
 
 ## 必要なGitHub Secrets
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`
-- `DISCORD_WEBHOOK_URL` または `MECCHA_DISCORD_WEBHOOK_URL` または `DISCORD_DEVELOPMENT_WEBHOOK_URL`
+
+Discord webhookは使用しない。
 
 ## 確認するもの
 
-- `DISCORD_PUBLIC_KEY` secret名がWorkerに存在すること
-- `GITHUB_ISSUE_TOKEN` secret名がWorkerに存在すること
-- Discord interaction用と思われるKV namespaceが存在すること
-- `/health/config` でDiscord bridge設定がそろっていること
+- Worker設定とbindingの取得可否、binding総数
+- 許可済みbindingのNAMEと種類（`DB`、`DISCORD_INTERACTION_STORE`、将来のD1/R2/Browser Run/Durable Object候補）
+- Worker secret一覧の取得可否と必須secretの件数（secret名・値は出さない）
+- D1、R2、Access applicationの一覧取得可否と件数
+- 401、403、404、timeout、network failureなどの安全な状態分類
+
+一覧件数は今回取得したページ内の配列件数であり、APIの総数メタデータや未取得ページを含む全資源数ではない。
 
 ## 出力してよいもの
 
-- secret名
-- KV namespace title
-- KV namespace ID
-- runtime設定の有無
-- Codex所感
+- 固定ラベル、状態、件数
+- 許可済みbindingのNAMEと種類
+- read-only診断であることと移行判断へ流用できない注意書き
 
 ## 出力してはいけないもの
 
-- secret値
-- token値
-- Discord Webhook URL
-- 実ユーザーの入力内容
-- 操作ログ全文
+- secret値、API token、account ID、resource ID
+- email、Access policy内容、response body、実URL
+- 入力されたWorker名、APIの生エラー
+- Discord通知
 
 ## 監査後の判断
 
-監査がOKの場合:
+監査が確認完了の場合でも、これはCloudflare APIのread-only取得が成功したことだけを示し、移行・staging合格・alpha完成を意味しない。資源作成、binding変更、deploy、DB query、secret値取得、Access policy変更は別承認とする。
 
-- KV namespace IDを `wrangler.jsonc` の `kv_namespaces` bindingへ固定する。
-- Discord commandを再実行し、GitHub Issue作成まで確認する。
+取得失敗の場合は、出力された固定状態分類（認証無効、権限不足、対象なし、タイムアウト等）だけを手掛かりにowner/adminが外部設定を確認する。API本文や実URLを転載しない。
 
-監査がNGの場合:
+## 旧監査履歴
 
-- Worker secrets、KV namespace、Discord allowlist、GitHub Secretsのどれが不足しているかをActions Summaryで確認する。
-- Cloudflare Dashboardまたは `wrangler.jsonc` を修正してから再監査する。
-
-## 2026-08-02監査結果から固定した設定
-
-`Cloudflare Config Audit` で次のKV namespaceを確認した。
-
-- Title: `meccha-manual-discord-interactions`
-- ID: `cce0d3a23f034c6b9a83d86422c73863`
-
-このIDはsecretではないため、`wrangler.jsonc` の `DISCORD_INTERACTION_STORE` bindingへ固定する。
-`GITHUB_ISSUE_REPOSITORY=hozuo0906/meccha-manual` もsecretではないため、`wrangler.jsonc` のvarsへ固定する。
-
-引き続きCloudflare Worker runtimeへ入れる必要があるもの:
-
-- `DISCORD_PUBLIC_KEY`
-- `GITHUB_ISSUE_TOKEN`
-- `DISCORD_ALLOWED_GUILD_IDS`
-- `DISCORD_ALLOWED_CHANNEL_IDS`
+2026-08-02のWrangler監査は移行前baselineとして保持する。現在のread-only診断はresource IDやDiscord runtime値を出力せず、Cloudflare APIの取得可否・状態・件数と許可済みbindingのNAME/種類だけを扱う。
 
 ## 2026-08-13 Phase 1外部設定の確定
 

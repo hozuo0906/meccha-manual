@@ -39,7 +39,7 @@
     "discord:register-command": "node scripts/register-discord-command.mjs",
     "discord:register-command:dry-run": "node scripts/register-discord-command.mjs --dry-run",
     "discord:register-command:check": "node --check scripts/register-discord-command.mjs",
-    "cloudflare:audit:check": "node --check scripts/cloudflare-config-audit.mjs",
+    "cloudflare:audit:check": "node --check scripts/cloudflare-config-audit.mjs && node --test tests/cloudflare-config-audit.test.mjs",
     "runtime-boundary:check": "node scripts/check-runtime-boundary.mjs",
     "issue-labels:check": "node scripts/sync-issue-labels.mjs --check",
     "issue-labels:dry-run": "node scripts/sync-issue-labels.mjs --dry-run",

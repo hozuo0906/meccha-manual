@@ -1,0 +1,157 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import test from "node:test";
+import { execFile as execFileCallback } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+import {
+  CLOUDFLARE_API_ORIGIN,
+  buildReport,
+  fetchCloudflareJson,
+  validateResourceShape,
+  validateAuditConfig,
+} from "../scripts/cloudflare-config-audit.mjs";
+
+const execFile = promisify(execFileCallback);
+
+const accountId = "0123456789abcdef0123456789abcdef";
+const apiCredential = "fixture-auth-value";
+const sensitiveId = "0123456789abcdef0123456789abcdef";
+
+function response(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
+  };
+}
+
+test("audit config accepts only a narrow account and worker shape", () => {
+  assert.equal(validateAuditConfig({ accountId, workerName: "meccha-manual", token: apiCredential }), true);
+  assert.equal(validateAuditConfig({ accountId: "account/redirect", workerName: "meccha-manual", token: apiCredential }), false);
+  assert.equal(validateAuditConfig({ accountId, workerName: "meccha manual", token: apiCredential }), false);
+  assert.equal(validateAuditConfig({ accountId, workerName: "meccha-manual", token: "" }), false);
+});
+
+test("Cloudflare API requests are GET-only, fixed-host, bounded and classify forbidden responses", async () => {
+  const calls = [];
+  const result = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/d1/database", {
+    token: apiCredential,
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return response(JSON.stringify({ success: true, result: [], result_info: { total_count: 0 } }));
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.startsWith(`${CLOUDFLARE_API_ORIGIN}/`), true);
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.redirect, "error");
+  assert.equal(calls[0].init.headers.Authorization, `Bearer ${apiCredential}`);
+
+  const arbitrary = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/https://example.invalid", {
+    token: apiCredential,
+    fetchImpl: async () => {
+      throw new Error("must not be called");
+    },
+  });
+  assert.deepEqual(arbitrary, { ok: false, classification: "内部設定不正" });
+
+  for (const [status, classification] of [[401, "認証無効"], [403, "権限不足"], [404, "対象なし"]]) {
+    const denied = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/r2/buckets", {
+      token: apiCredential,
+      fetchImpl: async () => response("sensitive raw error", status),
+    });
+    assert.deepEqual(denied, { ok: false, classification });
+  }
+});
+
+test("timeout, malformed and oversized responses are safe classifications", async () => {
+  const timeout = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/access/apps", {
+    token: apiCredential,
+    timeoutMs: 1,
+    fetchImpl: (_url, init) => new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => {
+        const error = new Error("secret token and raw URL");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    }),
+  });
+  assert.deepEqual(timeout, { ok: false, classification: "タイムアウト" });
+
+  const malformed = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/access/apps", {
+    token: apiCredential,
+    fetchImpl: async () => response("email@example.com raw body"),
+  });
+  assert.deepEqual(malformed, { ok: false, classification: "応答不正" });
+
+  const oversized = await fetchCloudflareJson("/accounts/0123456789abcdef0123456789abcdef/access/apps", {
+    token: apiCredential,
+    fetchImpl: async () => response("x".repeat(256 * 1024 + 1)),
+  });
+  assert.deepEqual(oversized, { ok: false, classification: "応答上限超過" });
+});
+
+test("report contains only fixed labels, counts and allowlisted binding name/type", () => {
+  const report = buildReport({
+    settings: {
+      ok: true,
+      result: {
+        bindings: [
+          { name: "DB", type: "d1", id: sensitiveId },
+          { name: "MANUAL_ASSETS", type: "r2_bucket", bucket_name: "private-sensitive-bucket" },
+          { name: "UNKNOWN_SECRET_BINDING", type: "secret_text", text: apiCredential },
+        ],
+        raw: "raw response body",
+      },
+    },
+    secrets: { ok: true, result: [{ name: "DISCORD_PUBLIC_KEY" }, { name: "DISCORD_PUBLIC_KEY" }] },
+    d1: { ok: true, result: [{ uuid: sensitiveId }], resultInfo: { total_count: 99 } },
+    r2: { ok: true, result: [{ name: "bucket-private-id" }], resultInfo: { count: 88 } },
+    access: { ok: true, result: [{ id: sensitiveId, policies: [{ email: "user@example.com" }] }], resultInfo: { total_count: 77 } },
+  });
+  assert.match(report.markdown, /DB \| d1/);
+  assert.match(report.markdown, /MANUAL_ASSETS \| r2_bucket/);
+  assert.match(report.markdown, /\| D1 \| 取得済み \| 1 \|/);
+  assert.match(report.markdown, /\| R2 \| 取得済み \| 1 \|/);
+  assert.match(report.markdown, /\| Access application \| 取得済み \| 1 \|/);
+  assert.match(report.markdown, /\| 旧連携必須secret \| 不足 \| 1\/2 \|/);
+  assert.doesNotMatch(report.markdown, /UNKNOWN_SECRET_BINDING|secret_text|private-sensitive-bucket|raw response body/);
+  assert.doesNotMatch(report.markdown, new RegExp(`${sensitiveId}|${apiCredential}|email@example\\.com|user@example\\.com`));
+  assert.doesNotMatch(report.markdown, /Health URL|Discord runtime|KV namespace|https?:\/\//);
+});
+
+test("resource response shapes are normalized without exposing identifiers", () => {
+  const r2 = validateResourceShape("r2", {
+    ok: true,
+    result: { buckets: [{ name: "private-bucket", creation_date: "sensitive" }] },
+    resultInfo: { count: 1 },
+  });
+  assert.deepEqual(r2.result, [{ name: "private-bucket", creation_date: "sensitive" }]);
+  assert.deepEqual(validateResourceShape("r2", { ok: true, result: [] }), { ok: false, classification: "応答不正" });
+  assert.deepEqual(validateResourceShape("settings", { ok: true, result: { bindings: [] } }).result.bindings, []);
+  assert.deepEqual(validateResourceShape("access", { ok: true, result: {} }), { ok: false, classification: "応答不正" });
+});
+
+test("CLI runs on Windows file URL entrypoint and fails safely when auth is absent", async () => {
+  const env = { ...process.env };
+  delete env.CLOUDFLARE_ACCOUNT_ID;
+  delete env.CLOUDFLARE_API_TOKEN;
+  delete env.GITHUB_STEP_SUMMARY;
+  const tempDir = await mkdtemp(join(tmpdir(), "meccha-cloudflare-audit-test-"));
+  const scriptPath = fileURLToPath(new URL("../scripts/cloudflare-config-audit.mjs", import.meta.url));
+  try {
+    await execFile(process.execPath, [scriptPath], { cwd: tempDir, env });
+    assert.fail("CLI should fail when credentials are absent");
+  } catch (error) {
+    assert.equal(error.code, 1);
+    assert.match(error.stdout, /認証設定: 不足/);
+    assert.doesNotMatch(`${error.stdout}${error.stderr}`, /token-must-never-appear|response body|https?:\/\//i);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
