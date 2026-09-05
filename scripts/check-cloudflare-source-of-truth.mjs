@@ -305,7 +305,10 @@ const m5RetirementContradictionPatterns = [
   /M6\s*へ\s*先送り/,
   /M6\s*(?:へ|に)\s*持(?:ち)?越す/,
   /M6\s*(?:へ|に)\s*持(?:ち)?越さない(?:わけではない|とは限らない)/,
-  /M6\s*(?:へ|に)の\s*持(?:ち)?越し/
+  /M6\s*(?:へ|に)の\s*持(?:ち)?越し/,
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は|が)\s*M(?:[6-9]|[1-9]\d+)\s*(?:に|へ|まで)\s*(?:延期|先送り)/,
+  /M(?:[6-9]|[1-9]\d+)\s*(?:で|に|へ|以降(?:に|で|は)?|になってから|から|まで(?:は)?)\s*(?:旧workflow\s*)?(?:を|は|が)?\s*(?:廃止|退役|削除|維持|残す|先送り|持(?:ち)?越(?:す|し))/,
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:は|を|が)\s*M(?:[6-9]|[1-9]\d+)\s*(?:とする|と定める|に設定|に決定)/
 ];
 const m5CommonLegacyGateIdentityPatterns = [
   /(?:^|[^A-Za-z0-9_.-])(?:(?:canonical|renamed)[-_])?phase1-rls-live\.yml\b/i,
@@ -623,6 +626,8 @@ const m5RetirementPhraseFixtures = [
   ["旧workflowはM6から削除する", true],
   ["旧workflowの削除時期はM6とする", true],
   ["旧workflowの削除予定をM6と定める", true],
+  ["旧workflowはM7で削除する", true],
+  ["旧workflowの削除時期はM7とする", true],
   ["旧workflowの退役をM6に延期しない", false],
   ["旧workflowはM6まで維持しない", false],
   ["旧workflowはM6で廃止しない", false],
@@ -804,7 +809,8 @@ function documentLines(path) {
   }
   return rawLines.map((line) => {
     const trimmed = line.trimStart();
-    const rawFenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(line);
+    const normalizedRawLine = line.replace(/^(?: {0,3}>\s?)+/, "");
+    const rawFenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(normalizedRawLine);
     if (fenceMarker !== null) {
       const marker = rawFenceMatch?.groups.marker;
       const sameFence = marker !== undefined && marker[0] === fenceMarker[0] && marker.length >= fenceMarker.length && /^\s*$/.test(rawFenceMatch.groups.rest);
