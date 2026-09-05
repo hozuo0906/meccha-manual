@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-39c1cb087bfba340";
+export const APP_ASSET_VERSION = "sha256-ba81329c9021f346";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -812,6 +812,10 @@ a.nav-item:hover {
 .manual-reading-preview-header {
   border-bottom: 1px solid var(--border);
   background: var(--surface-strong);
+}
+
+.manual-reading-preview-header .eyebrow {
+  color: var(--text);
 }
 
 .manual-reading-preview-header h2 {
