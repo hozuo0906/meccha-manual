@@ -23,7 +23,7 @@ staging 4 bucketは作成済みとのユーザー申告があるが、bindingと
 
 ## Legacy Supabase
 
-Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。新規project、user、secret、data、migration、remote write、live workflow、fallback、二重書込みを行わない。M6で残存runtimeと不要資格情報を退役する。
+Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。新規project、user、secret、data、migration、remote write、live workflow、fallback、二重書込みを行わない。ただし、既存staging/test契約に対するcanonical live gateのpre-M5実行では、ownerが実行自体を明示承認した場合に限り、必要な既存staging/test data作成、remote write、live workflowを許可する。M6で残存runtimeと不要資格情報を退役する。
 
 禁止するlegacy secret:
 

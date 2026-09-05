@@ -78,6 +78,7 @@ const required = new Map([
   ]],
   ["docs/03-architecture/integrations.md", [
     "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
+    "canonical live gateのpre-M5実行", "ownerが実行自体を明示承認した場合に限り", "既存staging/test data作成、remote write、live workflowを許可する",
     "Stripe/Discord callback", "receiptと再実行可能なwork/outbox", "結果不明は照合前に自動再送せず",
     "既存Discord KV get→putはauthoritative guardにせず", "callbackでは`Origin`を認証根拠にしない"
   ]],
@@ -325,7 +326,7 @@ const m5CarrierIdentityPatternsByName = new Map([
   ["phase1 setup frozen baseline", [/canonical workflow\b/i]],
   ["phase1 setup superseded gate exception", [/canonical live gate\b/i]]
 ]);
-const m5SafeNegativeEndings = /^\s*(?:しない|させない|行わない|実施しない|ない|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?(?:予定|必要|方針|意図|意向)(?:は|が|では)?ない)|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?ことはない)|(?:す)?べき(?:で|では)ない|することを禁止する|させることを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|させてはならない|することは禁止する|禁止する|禁止とする|不可)(?:\s*(?:もの|こと)とする)?\s*$/;
+const m5SafeNegativeEndings = /^\s*(?:しない|させない|行わない|実施しない|ない|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?(?:予定|必要|方針|意図|意向)(?:は|が|では)?ない)|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?ことはない)|(?:す)?べき(?:で|では)ない|(?:する)?(?:案|提案)(?:は|を)?(?:採用しない|却下(?:する|した)|否決(?:する|した))|(?:する\s*(?:[、,]\s*)?と?)?記載してはならない|することを禁止する|させることを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|させてはならない|することは禁止する|禁止する|禁止とする|不可)(?:\s*(?:もの|こと)とする)?\s*$/;
 function normalizePredicateText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -336,6 +337,8 @@ function normalizeIdentityText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]*)`/g, "$1")
+    .replace(/~~([^~\n]+)~~/g, (_, content) => /旧workflow/i.test(content) ? content : "")
+    .replace(/~([^~\n]+)~/g, (_, content) => /旧workflow/i.test(content) ? content : "")
     .replace(/[~*_]+/g, "");
 }
 function isM5TargetWorkflowQualifier(prefix) {
@@ -558,11 +561,21 @@ function findM5SentenceContradiction(sentence, identityPatterns = []) {
   return null;
 }
 function findM5CarrierContradiction(lines, identityPatterns = [], isExemptIndex = () => false) {
-  return logicalAssertionBlocks(lines)
-    .filter(({ indexes }) => !indexes.every(isExemptIndex))
-    .flatMap(({ text }) => visibleSentenceFragments(text))
-    .map((sentence) => findM5SentenceContradiction(sentence, identityPatterns))
-    .find(Boolean) ?? null;
+  for (const { text, indexes } of logicalAssertionBlocks(lines)) {
+    if (indexes.every(isExemptIndex)) continue;
+    let carriesTargetIdentity = false;
+    for (const sentence of visibleSentenceFragments(text)) {
+      const trimmedSentence = sentence.trim();
+      const effectiveSentence = carriesTargetIdentity && /^(?:これ|それ|当該|上記)(?:は|を|が|について)/.test(trimmedSentence)
+        ? `旧workflow ${trimmedSentence}`
+        : trimmedSentence;
+      const contradiction = findM5SentenceContradiction(effectiveSentence, identityPatterns);
+      if (contradiction) return contradiction;
+      if (matchesM5CarrierIdentity(trimmedSentence, identityPatterns)) carriesTargetIdentity = true;
+      else if (/(?:旧workflow|workflow|live\s+(?:gate|workflow))/i.test(trimmedSentence)) carriesTargetIdentity = false;
+    }
+  }
+  return null;
 }
 const m5PredicateFixtures = [
   ["M6への持越しは許可しないわけではない", "M6への持越し", true],
@@ -696,6 +709,12 @@ for (const line of ["Stripeで現在使う旧workflowはM6で削除する。", "
 if (!findM5CarrierContradiction(["対象（live RLS gate）はM6で削除する。"])) {
   errors.push("M5 parenthesized target fixture failed.");
 }
+if (!findM5CarrierContradiction(["対象は旧workflowである。これはM6で削除する。"])) {
+  errors.push("M5 adjacent pronoun identity fixture failed.");
+}
+if (findM5CarrierContradiction(["対象は旧workflowである。Stripeのworkflowを説明する。これはM6で削除する。"])) {
+  errors.push("M5 adjacent foreign workflow boundary fixture failed.");
+}
 if (findM5CarrierContradiction(["~注記~: 旧workflowはM6で削除しない。"])) {
   errors.push("M5 tilde-locality fixture failed.");
 }
@@ -780,6 +799,16 @@ if (!findM5CarrierContradiction(["補足: 旧workflowはM6で削除する。"]))
 if (!findM5CarrierContradiction(["> [!IMPORTANT]", "> 旧workflowはM6で削除する。"])) {
   errors.push("M5 blockquote callout contradiction fixture failed.");
 }
+if (!findM5CarrierContradiction(["~~Stripeの~~旧workflowはM7で削除する。"])) {
+  errors.push("M5 struck owner qualifier fixture failed.");
+}
+for (const line of [
+  "旧workflowをM6で削除する案は採用しない。",
+  "旧workflowをM6で削除する提案を却下した。",
+  "旧workflowをM6で削除すると記載してはならない。"
+]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 rejected alternative fixture failed: ${line}`);
+}
 if (!findM5CarrierContradiction(["- 旧workflowの履歴", "- 旧workflowはM6で削除する。"], [], (index) => index === 0)) {
   errors.push("M5 history sibling contradiction fixture failed.");
 }
@@ -787,6 +816,7 @@ function documentLines(path) {
   const rawLines = (contents.get(path) ?? "").split("\n");
   let fenceMarker = null;
   let inComment = false;
+  let activeListIndent = null;
   function removeHtmlCommentSpans(line) {
     let visible = "";
     let cursor = 0;
@@ -826,17 +856,28 @@ function documentLines(path) {
     const visibleLine = removeHtmlCommentSpans(line);
     const wasBlockquoted = /^\s*>/.test(visibleLine);
     const unquotedLine = visibleLine.replace(/^(?: {0,3}>\s?)+/, "");
+    const rawIndent = /^(?<indent>[ \t]*)/.exec(unquotedLine)?.groups.indent ?? "";
+    const indentWidth = rawIndent.replace(/\t/g, "    ").length;
+    const rawListMatch = /^(?<indent>[ \t]*)(?:[-*+]|\d+[.)])\s+/.exec(unquotedLine);
+    const listIndent = rawListMatch?.groups.indent.replace(/\t/g, "    ").length ?? null;
     const normalizedIndentedLine = unquotedLine.replace(/^(?:(?: {4,}|\t+))(?=(?:[-*+]|\d+[.)])\s+)/, "");
-    if (/^(?: {4}|\t)/.test(normalizedIndentedLine)) return "";
-    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(normalizedIndentedLine);
+    const isIndentedContinuation = listIndent === null
+      && activeListIndent !== null
+      && Boolean(unquotedLine.trim())
+      && indentWidth > activeListIndent;
+    const semanticLine = isIndentedContinuation ? unquotedLine.trimStart() : normalizedIndentedLine;
+    if (listIndent !== null) activeListIndent = listIndent;
+    else if (!isIndentedContinuation && (!unquotedLine.trim() || indentWidth <= (activeListIndent ?? -1))) activeListIndent = null;
+    if (/^(?: {4}|\t)/.test(semanticLine)) return "";
+    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(semanticLine);
     if (fenceMatch) {
       const marker = fenceMatch.groups.marker;
-      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return normalizedIndentedLine;
+      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return semanticLine;
       fenceMarker = marker;
       return "";
     }
     if (fenceMarker !== null) return "";
-    return wasBlockquoted && /^#{1,6}\s/.test(normalizedIndentedLine) ? `\u0001${normalizedIndentedLine}` : normalizedIndentedLine;
+    return wasBlockquoted && /^#{1,6}\s/.test(semanticLine) ? `\u0001${semanticLine}` : semanticLine;
   });
 }
 function sectionLines(path, sectionPrefix, anchored = false) {
@@ -850,6 +891,12 @@ function sectionLines(path, sectionPrefix, anchored = false) {
   const end = lines.findIndex((line, index) => index > start && endHeading.test(line));
   return lines.slice(start, end < 0 ? lines.length : end);
 }
+const nestedListFixturePath = "__m5_nested_list_fixture__";
+contents.set(nestedListFixturePath, "- 補足\n    旧workflowはM6で削除する。\n");
+if (!findM5CarrierContradiction(documentLines(nestedListFixturePath))) {
+  errors.push("M5 nested list continuation fixture failed.");
+}
+contents.delete(nestedListFixturePath);
 const decisionLogLines = documentLines("docs/09-delivery/decision-log.md");
 const dec064HeadingCount = decisionLogLines.filter((line) => line.startsWith("## DEC-064:")).length;
 if (dec064HeadingCount !== 1) errors.push(`DEC-064 must have exactly one section heading in docs/09-delivery/decision-log.md (found ${dec064HeadingCount})`);
