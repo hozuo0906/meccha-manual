@@ -44,4 +44,4 @@ Cloudflare R2はCloudflare Worker、Browser Runと同じ実行基盤側で扱え
 - ファイル参照は必ずD1メタデータを経由する。
 - Workerは検証済みAccess user identity、D1のactive membership/role、resource workspaceを確認してから配信する。
 - 削除はDBメタデータを先にsoft deleteし、非同期でR2 objectを削除する。
-- 監査ログにファイル作成、閲覧URL発行、削除を記録する。
+- 監査ログにファイル作成、認可済みWorker proxy閲覧、削除を記録する。配信URL自体は保存しない。

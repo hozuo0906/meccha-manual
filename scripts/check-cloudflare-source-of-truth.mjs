@@ -210,7 +210,7 @@ const forbidden = new Map([
   ["docs/01-product/product-requirements.md", ["ユーザーはSupabase Authでログインできる", "権限ごとのCRUDがAPIとRLSで制御される"]],
   ["docs/01-product/non-functional-requirements.md", ["全テナントデータはRLSで分離する", "Supabase service role", "Supabaseは東京リージョン"]],
   ["docs/03-architecture/adrs/ADR-0003-durable-object-session-state.md", ["永続データの正本はSupabase Postgres"]],
-  ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", ["SupabaseはAuth、Postgres、RLS", "PostgresにはR2 object key", "WorkerはSupabase session"]],
+  ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", ["SupabaseはAuth、Postgres、RLS", "PostgresにはR2 object key", "WorkerはSupabase session", "業務assetの直接presigned/短命URL read選択肢は部分Superseded", "毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy"]],
   ["docs/03-architecture/adrs/ADR-0018-r2-bucket-binding-contract.md", ["Supabase PostgresはAuth", "WorkerはSupabase Auth session"]],
   ["docs/03-architecture/adrs/ADR-0024-domain-and-publication-boundary.md", ["Supabase production設定", "Supabase Site URL", "Supabaseのredirect allowlist"]],
   ["docs/03-architecture/adrs/ADR-0025-consent-based-member-join-codes.md", ["SECURITY DEFINER RPC", "RLS経由"]],
@@ -297,8 +297,54 @@ for (const [path, term] of issue182FixtureTerms) {
   }
 }
 for (const [path, terms] of forbidden) {
+  if (path === "docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md") continue;
   const content = contents.get(path) ?? "";
   for (const term of terms) if (content.includes(term)) errors.push(`Active source contains a forbidden legacy or unsafe term in ${path}: ${term}`);
+}
+const legacyAssetReadContracts = [
+  ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", "## 対策", ["認可済みWorker proxy閲覧"], ["Worker側の署名URL発行"]],
+  ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", "## Supersedes", ["Worker proxyのみ"], ["Workerが発行する短期署名URL"]],
+  ["docs/03-architecture/integrations.md", "##", ["Workers:", "Worker proxy"], ["署名URL発行"]],
+  ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", "##", ["Worker proxy", "新規request拒否"], ["署名URL"]],
+  ["docs/09-delivery/open-questions.md", "OQ-014", ["ADR-0028", "Live View URLのTTL"], ["用途別の最短時間を採用"]]
+];
+const currentAssetReadContracts = [
+  ["docs/03-architecture/adrs/ADR-0011-cloudflare-r2-file-storage.md", "## 対策", ["Worker proxy"], ["Worker issues signed URL"]],
+  ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", "", ["Worker proxy"], ["Worker issues signed URL"]],
+  ["docs/03-architecture/integrations.md", "", ["Workers:", "Worker proxy"], ["signed URL issuing"]],
+  ["docs/08-operations/prelaunch-shortcut-and-launch-gate.md", "", ["R2 private", "Worker proxy"], ["signed URL"]],
+  ["docs/09-delivery/open-questions.md", "", ["OQ-014", "ADR-0028", "Live View URL"], ["choose shortest TTL"]]
+];
+function assetReadScope(path, marker) {
+  const content = contents.get(path) ?? "";
+  if (path.includes("integrations")) return content.split(/\r?\n/).find((line) => line.startsWith("- Workers:")) ?? "";
+  if (path.includes("prelaunch")) return content.split(/\r?\n/).find((line) => line.startsWith("- [ ] R2 private")) ?? "";
+  if (path.includes("ADR-0028")) return content.split(/\r?\n/).find((line) => line.startsWith("- ") && line.includes("read:")) ?? "";
+  if (path.includes("open-questions")) return content.split(/\r?\n/).find((line) => line.startsWith("| OQ-014 |")) ?? "";
+  if (path.includes("integrations")) return content.split(/\r?\n/).find((line) => line.startsWith("- Workers:")) ?? "";
+  if (path.includes("prelaunch")) return content.split(/\r?\n/).find((line) => line.startsWith("- [ ] R2 private")) ?? "";
+  if (path.includes("ADR-0028")) return content.split(/\r?\n/).find((line) => line.startsWith("- 業務asset read:")) ?? "";
+  const start = content.indexOf(marker);
+  const end = content.indexOf("\n## ", start + marker.length);
+  return start >= 0 ? content.slice(start, end >= 0 ? end : content.length) : "";
+}
+function validateAssetReadContract(scope, requiredTerms, forbiddenTerms) {
+  return { missing: requiredTerms.filter((term) => !scope.includes(term)), legacy: forbiddenTerms.filter((term) => scope.includes(term)) };
+}
+for (const [path, marker, requiredTerms, forbiddenTerms] of currentAssetReadContracts) {
+  const scope = assetReadScope(path, marker);
+  const result = validateAssetReadContract(scope, requiredTerms, forbiddenTerms);
+  for (const term of result.missing) errors.push(`Current asset read contract missing in ${path}: ${term}`);
+  for (const term of result.legacy) errors.push(`Current asset read contract permits legacy URL in ${path}: ${term}`);
+  for (const term of forbiddenTerms) {
+    const original = contents.get(path) ?? "";
+    const anchor = requiredTerms[requiredTerms.length - 1] ?? "";
+    const originalScope = assetReadScope(path, marker);
+    contents.set(path, original.replace(originalScope, originalScope.replace(anchor, "") + ` ${term}`));
+    const fixtureResult = validateAssetReadContract(assetReadScope(path, marker), requiredTerms, forbiddenTerms);
+    contents.set(path, original);
+    if (!fixtureResult.legacy.includes(term)) errors.push(`Asset read forbidden fixture failed in ${path}: ${term}`);
+  }
 }
 const m5SafetyTerms = [
   ...m5RetirementTerms,
