@@ -259,7 +259,7 @@ const superseded = new Map([
   ["docs/09-delivery/phase1-entry-gate.md", "M1〜M3"]
 ]);
 
-const paths = new Set([...required.keys(), ...forbidden.keys(), ...superseded.keys()]);
+const paths = new Set([...required.keys(), ...forbidden.keys(), ...superseded.keys(), "docs/09-delivery/issue-map.md"]);
 const contents = new Map();
 await Promise.all([...paths].map(async (path) => contents.set(path, await read(path))));
 
@@ -277,15 +277,97 @@ const m5SafetyTerms = [
   "M6への持越し",
   "replacement未着地のまま先行退役を禁止"
 ];
-function sectionLines(path, sectionPrefix) {
-  const lines = (contents.get(path) ?? "").split("\n");
+const m5CarrierRetirementContradictionTerms = [
+  "M6で退役",
+  "M6で削除",
+  "M6へ持ち越す",
+  "M6への持越しを許可",
+  "着地後に退役する",
+  "M6へ持ち越して退役する",
+  "旧workflowの廃止をM6に延期",
+  "着地後の別PRで削除",
+  "replacement未着地のまま先行退役を禁止しない"
+];
+const m5CarrierIdentityTerms = [
+  "phase1-rls-live.yml",
+  "Phase 1 RLS",
+  "live RLS gate",
+  "live gate",
+  "live workflow",
+  "旧workflow",
+  "旧Supabase live gate"
+];
+function containsAffirmativeForbiddenAssertion(line, term) {
+  let offset = line.indexOf(term);
+  while (offset >= 0) {
+    const suffix = line.slice(offset + term.length);
+    if (term.endsWith("禁止しない") || !/^(?:しない|ない|することを禁止する|ことを禁止する|許可しない|してはならない|することは禁止する)/.test(suffix)) return true;
+    offset = line.indexOf(term, offset + 1);
+  }
+  return false;
+}
+function documentLines(path) {
+  const rawLines = (contents.get(path) ?? "").split("\n");
+  let fenceMarker = null;
+  let inComment = false;
+  function removeHtmlCommentSpans(line) {
+    let visible = "";
+    let cursor = 0;
+    while (cursor < line.length) {
+      if (inComment) {
+        const commentEnd = line.indexOf("-->", cursor);
+        if (commentEnd < 0) return visible;
+        inComment = false;
+        cursor = commentEnd + 3;
+        continue;
+      }
+      const commentStart = line.indexOf("<!--", cursor);
+      if (commentStart < 0) {
+        visible += line.slice(cursor);
+        return visible;
+      }
+      visible += line.slice(cursor, commentStart);
+      const commentEnd = line.indexOf("-->", commentStart + 4);
+      if (commentEnd < 0) {
+        inComment = true;
+        return visible;
+      }
+      cursor = commentEnd + 3;
+    }
+    return visible;
+  }
+  return rawLines.map((line) => {
+    const trimmed = line.trimStart();
+    const rawFenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(line);
+    if (fenceMarker !== null) {
+      const marker = rawFenceMatch?.groups.marker;
+      const sameFence = marker !== undefined && marker[0] === fenceMarker[0] && marker.length >= fenceMarker.length && /^\s*$/.test(rawFenceMatch.groups.rest);
+      if (sameFence) fenceMarker = null;
+      return "";
+    }
+    const visibleLine = removeHtmlCommentSpans(line);
+    const visibleTrimmed = visibleLine.trimStart();
+    if (/^(?: {4}|\t)/.test(visibleLine) || visibleTrimmed.startsWith(">")) return "";
+    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(visibleLine);
+    if (fenceMatch) {
+      const marker = fenceMatch.groups.marker;
+      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return visibleLine;
+      fenceMarker = marker;
+      return "";
+    }
+    return fenceMarker === null ? visibleLine : "";
+  });
+}
+function sectionLines(path, sectionPrefix, anchored = false) {
+  const lines = documentLines(path);
   if (!sectionPrefix) return lines;
-  const start = lines.findIndex((line) => line.startsWith(sectionPrefix));
-  if (start < 0) return [];
+  const headingIndexes = lines.flatMap((line, index) => (anchored ? line.startsWith(sectionPrefix) : line === sectionPrefix) ? [index] : []);
+  if (headingIndexes.length !== 1) return [];
+  const start = headingIndexes[0];
   const end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
   return lines.slice(start, end < 0 ? lines.length : end);
 }
-const decisionLogLines = (contents.get("docs/09-delivery/decision-log.md") ?? "").split("\n");
+const decisionLogLines = documentLines("docs/09-delivery/decision-log.md");
 const dec064HeadingCount = decisionLogLines.filter((line) => line.startsWith("## DEC-064:")).length;
 if (dec064HeadingCount !== 1) errors.push(`DEC-064 must have exactly one section heading in docs/09-delivery/decision-log.md (found ${dec064HeadingCount})`);
 const m5CarrierEntries = [
@@ -293,6 +375,7 @@ const m5CarrierEntries = [
     name: "DEC-064 Preserves section",
     path: "docs/09-delivery/decision-log.md",
     scope: "## DEC-064:",
+    scopeAnchored: true,
     prefix: "- Preserves:",
     exact: true,
     terms: []
@@ -301,6 +384,7 @@ const m5CarrierEntries = [
     name: "DEC-064 pre-M5 transition",
     path: "docs/09-delivery/decision-log.md",
     scope: "## DEC-064:",
+    scopeAnchored: true,
     prefix: "  - DEC-063のAccess境界と現行Accepted Phase 1 RLS Live Gate。",
     terms: [
       "pre-M5では `.github/workflows/phase1-rls-live.yml`",
@@ -309,60 +393,171 @@ const m5CarrierEntries = [
       "登録済みの既存staging/test入力",
       "future M5ではSafety記載の5操作",
       "同一commit/rollback unit"
-    ]
+    ],
+    forbiddenTerms: m5CarrierRetirementContradictionTerms
   },
   {
     name: "DEC-064 Safety",
     path: "docs/09-delivery/decision-log.md",
     scope: "## DEC-064:",
+    scopeAnchored: true,
     prefix: "  - 旧 `phase1-rls-live.yml` はpre-M5では現行Accepted live gateとして維持する。",
-    terms: m5SafetyTerms
+    terms: m5SafetyTerms,
+    forbiddenTerms: m5CarrierRetirementContradictionTerms
   },
   {
     name: "phase1 runbook M5 safety",
     path: "docs/08-operations/phase1-rls-live-gate.md",
+    scope: "# Phase 1 RLS Live Gate",
     prefix: "`.github/workflows/phase1-rls-live.yml` は現行Accepted live gateである。",
     terms: m5SafetyTerms
   },
   {
     name: "session handoff M5 safety",
     path: "docs/09-delivery/session-handoff.md",
+    scope: "## Cloudflare Access / D1移行引き継ぎ（2026-08-30）",
     prefix: "- 現行live RLS gate workflow `.github/workflows/phase1-rls-live.yml` とrunbook",
     terms: m5SafetyTerms
+  },
+  {
+    name: "session handoff Issue 95 history",
+    path: "docs/09-delivery/session-handoff.md",
+    scope: "## Cloudflare Access / D1移行引き継ぎ（2026-08-30）",
+    prefix: "- Issue #95のSupabase staging内部alphaはIssue #176 M5のAccess/D1/R2 staging実証へ置換し、旧経路を実行しない。",
+    terms: ["Issue #95", "Issue #176 M5", "旧経路を実行しない"],
+    forbiddenTerms: []
+  },
+  {
+    name: "environments intro M5 safety",
+    path: "docs/08-operations/environments-and-delivery.md",
+    scope: "## 目的と現在地",
+    prefix: "Cloudflare Git連携",
+    terms: ["Cloudflare Git連携", "Phase 1 RLS Live Gate", "現行Accepted transitional gate", "Issue #176 M5", "M5 replacement gate", "同じrollback単位", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"]
+  },
+  {
+    name: "environments preview matrix M5 safety",
+    path: "docs/08-operations/environments-and-delivery.md",
+    scope: "## 環境対応表",
+    prefix: "| Phase 1 RLS immutable preview |",
+    terms: ["Phase 1 RLS immutable preview", "現行Accepted transitional gate", "使用しない", "owner承認済みの既存staging/test契約", "canonical workflow", "Issue #176 M5 replacement gate", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"]
+  },
+  {
+    name: "environments dispatch matrix M5 safety",
+    path: "docs/08-operations/environments-and-delivery.md",
+    scope: "## 自動操作と承認必須操作",
+    prefix: "| Phase 1 RLS immutable preview gate |",
+    terms: ["Phase 1 RLS immutable preview gate", "workflow_dispatch", "owner承認済み・登録済みの既存staging/test契約", "canonical workflow", "新規Secret、資格情報、test user、Environment、projectは作成・登録しない", "Issue #176 M5 replacement gate", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"]
+  },
+  {
+    name: "environments boundary M5 safety",
+    path: "docs/08-operations/environments-and-delivery.md",
+    scope: "## Cloudflare Worker / Wrangler",
+    prefix: "- Cloudflare Git integration",
+    terms: ["現行live RLS gate", "owner承認済みの既存staging/test契約", "canonical workflow", "Issue #176 M5 replacement gate", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない"]
+  },
+  {
+    name: "roadmap current live-gate M5 safety",
+    path: "docs/09-delivery/cloudflare-migration-roadmap.md",
+    scope: "## 現在地",
+    prefix: "- 現行AcceptedのSupabase RLS live gate workflow",
+    terms: ["現行AcceptedのSupabase RLS live gate workflow", "Issue #176 M5のAccess/D1/R2置換gate", "同じrollback単位", "新規Supabase test user", "資格情報", "live run"]
+  },
+  {
+    name: "roadmap M0 live-workflow M5 safety",
+    path: "docs/09-delivery/cloudflare-migration-roadmap.md",
+    scope: "## M0: 正本移行",
+    prefix: "- 旧Supabase live workflow",
+    terms: ["旧Supabase live workflow", "M5置換gate着地まで維持", "M5 replacement gate", "同一commit/rollback unit", "退役", "再追加防止check", "M6へ持ち越さない"]
+  },
+  {
+    name: "roadmap M5 five-actions safety",
+    path: "docs/09-delivery/cloudflare-migration-roadmap.md",
+    scope: "## M5: staging統合実証",
+    prefix: "- DEC-064 Safetyの5操作",
+    terms: ["DEC-064 Safetyの5操作", "replacement gateと対応docs", "旧workflow削除", "runbook Superseded", "両checker反転", "直接依存test同一scope", "同一commit/rollback unit"]
+  },
+  {
+    name: "roadmap M6 residual safety",
+    path: "docs/09-delivery/cloudflare-migration-roadmap.md",
+    scope: "## M6: Supabase退役",
+    prefix: "- 残存runtime、環境変数、harness、文書からSupabase依存を削除",
+    terms: ["残存runtime、環境変数、harness、文書からSupabase依存を削除", "旧live workflowの削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M5 replacement gate", "同一commit/rollback unit", "M6へ持ち越さない"]
+  },
+  {
+    name: "roadmap Issue 95 history safety",
+    path: "docs/09-delivery/cloudflare-migration-roadmap.md",
+    scope: "## M6: Supabase退役",
+    prefix: "- #92の完了記録を維持し",
+    terms: ["M5で退役済みの旧gate", "Issue #95", "完了記録と残存履歴を整理する"],
+    forbiddenTerms: []
+  },
+  {
+    name: "prelaunch M5 safety",
+    path: "docs/08-operations/prelaunch-shortcut-and-launch-gate.md",
+    scope: "## 現在の暫定運用",
+    prefix: "- `Phase 1 RLS Live Gate`",
+    terms: ["Phase 1 RLS Live Gate", "現行Accepted transitional gate", "Issue #176 M5", "Access/D1/R2 replacement gate", "同じrollback単位", "既存staging/test契約", "canonical workflow", "M5着地時", "新規Supabase test user", "MECCHA_RLS_*"]
+  },
+  {
+    name: "rls negative-test M5 safety",
+    path: "docs/07-quality/rls-negative-test.md",
+    scope: "# RLS negative test",
+    prefix: "本書は移行前Supabase/Postgres/RLS",
+    terms: ["Supabase/Postgres/RLS", "canonical `.github/workflows/phase1-rls-live.yml`", "owner承認済み", "既存staging/test契約", "既存資格情報", "M5 replacement gate", "同じrollback単位", "Acceptedとして維持", "新規環境", "production実行"]
+  },
+  {
+    name: "phase1 setup active exception",
+    path: "docs/04-data/phase1-supabase-setup.md",
+    scope: "# Phase 1 Supabase setup",
+    prefix: "本書は新規Supabase/Auth/Postgres/RLS setup手順としてはSuperseded",
+    terms: ["Superseded", "既存staging/test契約", "owner承認済み", "canonical live gate", "Issue #176 M5", "replacement gate", "同じrollback単位", "Accepted例外", "新規project", "migration", "資格情報", "remote write"]
+  },
+  {
+    name: "phase1 setup frozen baseline",
+    path: "docs/04-data/phase1-supabase-setup.md",
+    scope: "# Phase 1 Supabase setup",
+    prefix: "新規Supabase project、migration、test user",
+    terms: ["新規Supabase project", "migration", "test user", "データ", "資格情報", "`MECCHA_RLS_*` secret", "`npm run test:rls`", "owner承認済み", "canonical workflow", "Issue #176 M5", "replacement gate", "同じrollback単位", "Issue #176 M6"]
+  },
+  {
+    name: "phase1 setup superseded gate exception",
+    path: "docs/04-data/phase1-supabase-setup.md",
+    scope: "## Superseded gateと移管先",
+    prefix: "専用Supabaseテストユーザー2名",
+    terms: ["専用Supabaseテストユーザー2名", "CI secret登録", "実stagingでの`npm run test:rls`", "既存staging/test契約", "owner承認済みcanonical live gate", "M5 replacement gate", "同じrollback単位", "Accepted例外", "無秩序な手動実行", "新規環境", "production実行"]
+  },
+  {
+    name: "issue-map Issue 95 Superseded context",
+    path: "docs/09-delivery/issue-map.md",
+    scope: "## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行",
+    prefix: "EPIC-02、EPIC-03、EPIC-06",
+    terms: ["#95", "旧Supabase live gate", "Superseded"],
+    forbiddenTerms: []
   }
 ];
-for (const { name, path, scope, prefix, exact = false, terms } of m5CarrierEntries) {
-  const lines = sectionLines(path, scope).filter((line) => exact ? line === prefix : line.includes(prefix));
+const m5CarrierResolutions = m5CarrierEntries.map(({ name, path, scope, scopeAnchored = false, prefix, exact = false, terms, forbiddenTerms = path === "docs/09-delivery/decision-log.md" ? [] : m5CarrierRetirementContradictionTerms }) => {
+  const boundedLines = sectionLines(path, scope, scopeAnchored);
+  const lines = boundedLines.filter((line) => exact ? line === prefix : line.startsWith(prefix));
   if (lines.length !== 1) {
     errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
-    continue;
   }
+  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms };
+});
+const exemptCarrierLines = new Set(
+  m5CarrierResolutions
+    .filter(({ forbiddenTerms, lines }) => forbiddenTerms.length === 0 && lines.length === 1)
+    .map(({ path, scope, boundedLines, lines }) => `${path}\u0000${scope}\u0000${boundedLines.indexOf(lines[0])}`)
+);
+for (const { name, path, scope, boundedLines, lines, terms, forbiddenTerms } of m5CarrierResolutions) {
+  if (lines.length !== 1) continue;
   for (const term of terms) {
     if (!lines[0].includes(term)) errors.push(`${name} is missing a required contract term in ${path}: ${term}`);
   }
-}
-const m5ScopedForbiddenEntries = [
-  {
-    name: "DEC-064 retirement contradiction",
-    path: "docs/09-delivery/decision-log.md",
-    scope: "## DEC-064:",
-    terms: ["M6で退役", "M6で削除", "M6へ持ち越す", "M6への持越しを許可"]
-  },
-  {
-    name: "phase1 runbook retirement contradiction",
-    path: "docs/08-operations/phase1-rls-live-gate.md",
-    terms: ["M5後も旧workflowの削除はM6へ持ち越す。", "旧workflowはM6で削除する。", "旧workflowはM6で退役する。"]
-  },
-  {
-    name: "session handoff retirement contradiction",
-    path: "docs/09-delivery/session-handoff.md",
-    terms: ["M5後も旧workflowの削除はM6へ持ち越す。", "旧workflowはM6で削除する。", "旧workflowはM6で退役する。"]
-  }
-];
-for (const { name, path, scope, terms } of m5ScopedForbiddenEntries) {
-  const lines = sectionLines(path, scope);
-  for (const term of terms) {
-    if (lines.some((line) => line.includes(term))) errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
+  for (const term of forbiddenTerms) {
+    if (containsAffirmativeForbiddenAssertion(lines[0], term)) errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
+    if (boundedLines.some((line, index) => line !== lines[0] && !exemptCarrierLines.has(`${path}\u0000${scope}\u0000${index}`) && m5CarrierIdentityTerms.some((identity) => line.includes(identity)) && containsAffirmativeForbiddenAssertion(line, term))) {
+      errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
+    }
   }
 }
 const environmentTransitionLines = [
