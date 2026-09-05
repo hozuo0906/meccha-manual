@@ -288,21 +288,40 @@ const m5CarrierRetirementContradictionTerms = [
   "着地後の別PRで削除",
   "replacement未着地のまま先行退役を禁止しない"
 ];
-const m5CommonLegacyGateIdentityTerms = [
-  ".github/workflows/phase1-rls-live.yml",
-  "phase1-rls-live.yml",
-  "Phase 1 RLS Live Gate",
-  "Supabase RLS live gate",
-  "現行live RLS gate",
-  "live RLS gate",
-  "旧Supabase live gate",
-  "旧Supabase live workflow"
+const m5RetirementContradictionPatterns = [
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は|が)?\s*M6\s*(?:に|へ|まで)\s*(?:延期|先送り)/,
+  /M6\s*まで\s*(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は|が)?\s*(?:延期|先送り)/,
+  /M6\s*(?:で|に|へ)\s*(?:廃止|退役|削除)/,
+  /M6\s*以降\s*(?:(?:に|で|は)\s*)?(?:[、，,]\s*)?(?:廃止|退役|削除)/,
+  /M6\s*以降\s*(?:に|で)?\s*旧workflow\s*(?:を|は|が)?\s*(?:廃止|退役|削除)/i,
+  /M6\s*になってから\s*(?:[、，,]\s*)?(?:廃止|退役|削除)/,
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*(?:で|に)\s*(?:行う|行わないわけではない|実施する|実施しないわけではない)/,
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*以降\s*(?:に|で)?\s*(?:行う|行わないわけではない|実施する|実施しないわけではない)/,
+  /M6\s*まで(?:は)?\s*維持/,
+  /M6\s*まで(?:は)?\s*残す/,
+  /M6\s*まで(?:は)?\s*残さない(?:わけではない|とは限らない)/,
+  /M6\s*から\s*(?:廃止|退役|削除)/,
+  /M6\s*へ\s*先送り/,
+  /M6\s*(?:へ|に)\s*持(?:ち)?越す/,
+  /M6\s*(?:へ|に)\s*持(?:ち)?越さない(?:わけではない|とは限らない)/,
+  /M6\s*(?:へ|に)の\s*持(?:ち)?越し/
 ];
-const m5CarrierIdentityTermsByName = new Map([
-  ["environments preview matrix M5 safety", ["Phase 1 RLS immutable preview"]],
-  ["environments dispatch matrix M5 safety", ["Phase 1 RLS immutable preview gate"]]
+const m5CommonLegacyGateIdentityPatterns = [
+  /(?:^|[^A-Za-z0-9_.-])(?:(?:canonical|renamed)[-_])?phase1-rls-live\.yml\b/i,
+  /Phase 1 RLS Live Gate\b/i,
+  /Supabase\s+RLS\s+live\s+gate\b/i,
+  /(?:^|\s|現行)live\s+RLS\s+gate\b/i,
+  /(?:対象|該当|当該)\s*[（(]\s*live\s+RLS\s+gate\b/i,
+  /旧Supabase(?:\s*の\s*|\s+)(?:RLS\s+)?live\s+(?:gate|workflow)\b/i
+];
+const m5CarrierIdentityPatternsByName = new Map([
+  ["environments preview matrix M5 safety", [/Phase 1 RLS immutable preview(?=$|[^A-Za-z0-9])/i]],
+  ["environments dispatch matrix M5 safety", [/Phase 1 RLS immutable preview gate\b/i]],
+  ["phase1 setup active exception", [/canonical live gate\b/i]],
+  ["phase1 setup frozen baseline", [/canonical workflow\b/i]],
+  ["phase1 setup superseded gate exception", [/canonical live gate\b/i]]
 ]);
-const m5SafeNegativeEndings = /^\s*(?:しない|ない|することを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|することは禁止する|禁止する|禁止とする|不可)\s*$/;
+const m5SafeNegativeEndings = /^\s*(?:しない|させない|行わない|実施しない|ない|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?(?:予定|必要|方針|意図|意向)(?:は|が|では)?ない)|(?:(?:する|させる|を(?:行う|実施する)|(?:許可|容認|承認)する|認める)?ことはない)|(?:す)?べき(?:で|では)ない|することを禁止する|させることを禁止する|ことを禁止する|許可しない|許可されない|認めない|認められない|してはならない|させてはならない|することは禁止する|禁止する|禁止とする|不可)(?:\s*(?:もの|こと)とする)?\s*$/;
 function normalizePredicateText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -313,16 +332,76 @@ function normalizeIdentityText(line) {
   return line
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]*)`/g, "$1")
-    .replace(/~~.*?~~/g, "")
     .replace(/[~*_]+/g, "");
 }
-function matchesCarrierIdentity(line, identity) {
+function isM5TargetWorkflowQualifier(prefix) {
+  return /(?:^|[\s、,;；])(?:対象|該当|当該|現行|削除対象)(?:となる)?の$/.test(prefix)
+    || /owner承認済みの$/.test(prefix)
+    || /既存staging\/test契約の$/.test(prefix)
+    || /既存staging\/test契約で(?:(?:現在|現に)\s*)?(?:使う|利用する)$/.test(prefix)
+    || /(?:^|[\s、,;；])(?:本書|ここ|この(?:carrier|手順|文書|PR))で(?:使う|利用する)$/.test(prefix)
+    || /(?:^|[\s、,;；])(?:Phase 1 RLS|Supabase RLS|旧Supabase(?:\s+RLS)?\s+live)\s*(?:(?:の|[:：]|[（(]|用|向け(?:の)?)|(?:で|が)(?:(?:現在|現に)\s*)?(?:使う|利用する)|に属する)?$/.test(prefix);
+}
+function hasExplicitForeignWorkflowOwner(prefix) {
+  return /(?:[:：(（]|の|用|向け(?:の)?|(?:で|が)(?:(?:現在|現に)\s*)?(?:使う|利用する)|に属する)$/.test(prefix)
+    && !isM5TargetWorkflowQualifier(prefix);
+}
+function stripM5IdentityPreamble(line) {
+  return line
+    .replace(/^\s*(?:(?:[-*+]|\d+[.)])\s+)?/, "")
+    .replace(/^(?:(?:補足|注記|注意)\s*[:：]\s*)+/, "");
+}
+function matchesLegacyWorkflowIdentity(normalizedLine) {
+  const candidateLine = stripM5IdentityPreamble(normalizedLine).replace(/旧workflow/gi, "旧workflow");
+  let offset = candidateLine.indexOf("旧workflow");
+  while (offset >= 0) {
+    const rawPrefix = candidateLine.slice(0, offset).trimEnd();
+    const alias = /(?:(?:canonical|renamed)(?:\/(?:canonical|renamed))?|改名後(?:の)?|Phase 1 RLSの)$/.exec(rawPrefix);
+    const qualifierPrefix = alias ? rawPrefix.slice(0, alias.index).trimEnd() : rawPrefix;
+    if (!hasExplicitForeignWorkflowOwner(qualifierPrefix)) return true;
+    offset = candidateLine.indexOf("旧workflow", offset + 1);
+  }
+  return false;
+}
+function matchesCarrierSpecificM5Identity(normalizedLine, extraPatterns) {
+  const candidateLine = stripM5IdentityPreamble(normalizedLine);
+  return extraPatterns.some((pattern) => {
+    const match = pattern.exec(candidateLine);
+    return Boolean(match && !hasExplicitForeignWorkflowOwner(candidateLine.slice(0, match.index).trimEnd()));
+  });
+}
+function matchesM5CarrierIdentity(line, extraPatterns = []) {
   const normalizedLine = normalizeIdentityText(line);
-  if (identity === "旧workflow") return /(?:^|\s)(?:(?:canonical|renamed)(?:\/(?:canonical|renamed))?|改名後(?:の)?)?\s*旧workflow/.test(normalizedLine);
-  return normalizedLine.includes(identity);
+  return m5CommonLegacyGateIdentityPatterns.some((pattern) => pattern.test(normalizedLine))
+    || matchesCarrierSpecificM5Identity(normalizedLine, extraPatterns)
+    || matchesLegacyWorkflowIdentity(normalizedLine);
+}
+function hasTildeObfuscatedTerm(line, term) {
+  const normalizedLine = normalizePredicateText(line);
+  const compactTerm = term.replace(/\s+/g, "");
+  let compactLine = "";
+  const sourceIndexes = [];
+  for (let index = 0; index < normalizedLine.length; index += 1) {
+    const character = normalizedLine[index];
+    if (character === "~" || /\s/.test(character)) continue;
+    compactLine += character;
+    sourceIndexes.push(index);
+  }
+  let offset = compactLine.indexOf(compactTerm);
+  while (offset >= 0) {
+    const start = sourceIndexes[offset];
+    const end = sourceIndexes[offset + compactTerm.length - 1];
+    const before = normalizedLine.slice(0, start);
+    const span = normalizedLine.slice(start, end + 1);
+    const after = normalizedLine.slice(end + 1);
+    if (span.includes("~") || /~+\s*$/.test(before) || /^\s*~+/.test(after)) return true;
+    offset = compactLine.indexOf(compactTerm, offset + 1);
+  }
+  return false;
 }
 function containsAffirmativeForbiddenAssertion(line, term) {
   const normalizedLine = normalizePredicateText(line);
+  if (line.includes("~") && hasTildeObfuscatedTerm(line, term)) return true;
   let offset = normalizedLine.indexOf(term);
   while (offset >= 0) {
     const sentence = normalizedLine.slice(offset + term.length).split(/[。！？\n]/, 1)[0];
@@ -332,6 +411,10 @@ function containsAffirmativeForbiddenAssertion(line, term) {
       predicate = predicate.replace(/^[、,;；]\s*/, "");
       const targetClause = predicate;
       if (!targetClause.trim()) {
+        offset = normalizedLine.indexOf(term, offset + 1);
+        continue;
+      }
+      if (m5SafeNegativeEndings.test(targetClause)) {
         offset = normalizedLine.indexOf(term, offset + 1);
         continue;
       }
@@ -349,10 +432,133 @@ function containsAffirmativeForbiddenAssertion(line, term) {
         continue;
       }
       return true;
-    } else if (term.endsWith("禁止しない") || !m5SafeNegativeEndings.test(sentence)) return true;
+    } else {
+      const predicate = sentence.trimStart().replace(/^(?:を|は|が|の)\s*/, "");
+      if (term.endsWith("禁止しない") || !m5SafeNegativeEndings.test(predicate)) return true;
+    }
     offset = normalizedLine.indexOf(term, offset + 1);
   }
   return false;
+}
+function findM5RetirementContradiction(line) {
+  for (const term of m5CarrierRetirementContradictionTerms) {
+    if (containsAffirmativeForbiddenAssertion(line, term)) return term;
+  }
+  const normalizedLine = normalizePredicateText(line);
+  for (const pattern of m5RetirementContradictionPatterns) {
+    const match = pattern.exec(normalizedLine);
+    if (match) {
+      if (containsAffirmativeForbiddenAssertion(line, match[0])) return match[0];
+      continue;
+    }
+    if (line.includes("~")) {
+      const obfuscatedMatch = pattern.exec(normalizedLine.replace(/~/g, ""));
+      if (obfuscatedMatch && hasTildeObfuscatedTerm(line, obfuscatedMatch[0])) return "tilde-obfuscated M6 retirement";
+    }
+  }
+  return null;
+}
+function findM5EmbeddedTargetContradiction(line, identityPatterns = []) {
+  const normalizedLine = normalizePredicateText(line);
+  const embeddedPattern = /M6\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)(.{1,120}?)(?:廃止|退役|削除|維持|残す|先送り|持(?:ち)?越(?:す|し))/gi;
+  for (const match of normalizedLine.matchAll(embeddedPattern)) {
+    const embeddedTarget = match[1].replace(/^\s*の\s*/, "");
+    const actionTimingOverride = /(?:\bM[0-5]\b\s*(?:で|に)|今すぐ|直ちに)\s*(?:を|は)?\s*$/.test(match[1]);
+    const followingPredicate = normalizedLine.slice((match.index ?? 0) + match[0].length);
+    const postfixedActionTimingOverride = /^\s*(?:(?:(?:する|した|される|された)|を(?:行う|行った|実施する|実施した))\s*の|(?:予定|時期|時点|判断))?\s*(?:は|が)\s*(?:\bM[0-5]\b|今すぐ|直ちに)/.test(followingPredicate)
+      || /^\s*(?:(?:する|した|される|された)|を(?:行う|行った|実施する|実施した))\s*(?:予定|時期|時点|判断)\s*(?:は|が)\s*(?:\bM[0-5]\b|今すぐ|直ちに)/.test(followingPredicate)
+      || /^\s*(?:(?:の\s*)?(?:予定|時期|時点|判断)\s*)?を\s*(?:\bM[0-5]\b|今すぐ|直ちに)\s*(?:と(?:する|定める)|に(?:設定|決定)する)/.test(followingPredicate);
+    if (actionTimingOverride || postfixedActionTimingOverride || !matchesM5CarrierIdentity(embeddedTarget, identityPatterns)) continue;
+    if (containsAffirmativeForbiddenAssertion(line, match[0])) return match[0];
+  }
+  return null;
+}
+function logicalAssertionBlocks(lines) {
+  const blocks = [];
+  let current = null;
+  const flush = () => {
+    if (current) blocks.push(current);
+    current = null;
+  };
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flush();
+      return;
+    }
+    if (/^#{1,6}\s/.test(trimmed) || /^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      flush();
+      return;
+    }
+    if (trimmed.startsWith("|")) {
+      flush();
+      blocks.push({ text: line, indexes: [index] });
+      return;
+    }
+    if (/^(?:[-*+]\s+|\d+[.)]\s+)/.test(trimmed)) flush();
+    if (current) {
+      const leftVisible = normalizeIdentityText(current.text).trimEnd();
+      const rightVisible = normalizeIdentityText(trimmed).trimStart();
+      const separator = /[.!?]$/.test(leftVisible) || (/[A-Za-z0-9]$/.test(leftVisible) && /^[A-Za-z0-9]/.test(rightVisible)) ? " " : "";
+      current.text += separator + trimmed;
+      current.indexes.push(index);
+    } else {
+      current = { text: line, indexes: [index] };
+    }
+  });
+  flush();
+  return blocks;
+}
+function visibleSentenceFragments(text) {
+  return text.split(/(?:[。！？]+|[!?]+|\.(?=\s|$)|(?<=[^A-Za-z0-9_.-])\.|[;；]+)/).map((sentence) => sentence.trim()).filter(Boolean);
+}
+function hasExplicitNonTargetBinding(clause, hasPendingM6Timing = false) {
+  let markerIndex = clause.search(/M6|着地後|replacement未着地/);
+  if (markerIndex < 0 && hasPendingM6Timing) markerIndex = clause.search(/廃止|退役|削除|維持|残す|先送り|持(?:ち)?越/);
+  if (markerIndex < 0) return false;
+  const binding = clause.slice(0, markerIndex).trim();
+  if (/^(?:(?:廃止|退役|削除)(?:予定|時期|時点|判断)?|これ|それ)(?:は|を|が|も|について(?:は)?|に関して(?:は)?)?$/.test(binding)) return false;
+  return /(?:は|を|が|も|だけ|のみ|に限り|について(?:は)?|に関して(?:は)?)$/.test(binding);
+}
+function m5ClauseFragments(sentence) {
+  const explicitSubjectBreaks = sentence.replace(
+    /((?:(?:廃止|退役|削除|維持|先送り)(?:する一方で|させて|させ|して|し)|残(?:す一方で|して|し)|持(?:ち)?越(?:す一方で|して|し)))(?=[^、，,|。！？]{1,80}(?:は|を|が|も|だけ|のみ|に限り)\s*M6)/g,
+    "$1|"
+  );
+  return explicitSubjectBreaks.split(/[、，,|]/).map((value) => value.trim()).filter(Boolean);
+}
+function findM5SentenceContradiction(sentence, identityPatterns = []) {
+  let carriesTargetIdentity = false;
+  let pendingM6Timing = null;
+  for (const clause of m5ClauseFragments(sentence)) {
+    const directEmbeddedContradiction = findM5EmbeddedTargetContradiction(clause, identityPatterns);
+    if (directEmbeddedContradiction) return directEmbeddedContradiction;
+    const hasTargetIdentity = matchesM5CarrierIdentity(clause, identityPatterns);
+    const hasOtherBinding = !hasTargetIdentity && hasExplicitNonTargetBinding(clause, Boolean(pendingM6Timing));
+    const targetIsBound = hasTargetIdentity || (carriesTargetIdentity && !hasOtherBinding);
+    if (targetIsBound) {
+      const pendingClause = pendingM6Timing ? `${pendingM6Timing}${clause}` : null;
+      const contradiction = findM5RetirementContradiction(clause)
+        ?? (pendingClause ? findM5RetirementContradiction(pendingClause) : null)
+        ?? (pendingClause ? findM5EmbeddedTargetContradiction(pendingClause, identityPatterns) : null);
+      if (contradiction) return contradiction;
+    }
+    if (hasTargetIdentity) carriesTargetIdentity = true;
+    else if (hasOtherBinding) carriesTargetIdentity = false;
+    pendingM6Timing = null;
+    const pendingAction = /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*以降\s*(?:に|は)?\s*$/.exec(clause);
+    const trailingM6Timing = /M6\s*(?:まで(?:は)?|以降(?:に|で|は)?|になってから|から|で|に|へ)\s*$/.exec(clause);
+    if (targetIsBound && pendingAction) pendingM6Timing = pendingAction[0];
+    else if (trailingM6Timing && (targetIsBound || trailingM6Timing.index === 0)) pendingM6Timing = trailingM6Timing[0];
+  }
+  return null;
+}
+function findM5CarrierContradiction(lines, identityPatterns = [], isExemptIndex = () => false) {
+  return logicalAssertionBlocks(lines)
+    .filter(({ indexes }) => !indexes.every(isExemptIndex))
+    .flatMap(({ text }) => visibleSentenceFragments(text))
+    .map((sentence) => findM5SentenceContradiction(sentence, identityPatterns))
+    .find(Boolean) ?? null;
 }
 const m5PredicateFixtures = [
   ["M6への持越しは許可しないわけではない", "M6への持越し", true],
@@ -363,6 +569,9 @@ const m5PredicateFixtures = [
   ["M6で削除~しない~", "M6で削除", true],
   ["M6で削除~~~しない~~~", "M6で削除", true],
   ["M6で削除~~しない", "M6で削除", true],
+  ["旧workflowはM6で~~削除~~する", "M6で削除", true],
+  ["旧workflowはM6で~削除する", "M6で削除", true],
+  ["~~M6で削除しない~~", "M6で削除", true],
   ["M6への持越しは**許可しない**", "M6への持越し", false],
   ["M6で削除__しない__", "M6で削除", false]
 ];
@@ -371,16 +580,191 @@ for (const [line, term, expected] of m5PredicateFixtures) {
     errors.push(`M5 predicate fixture failed: ${line}`);
   }
 }
-for (const line of ["renamed旧workflowはM6で削除する", "canonical旧workflowはM6で削除する", "canonical/renamed旧workflowはM6で削除する", "改名後旧workflowはM6で削除する", "改名後の旧workflowはM6で削除する", "~~renamed~~旧workflowはM6で削除する", "~旧workflowはM6で削除する"]) {
-  if (!matchesCarrierIdentity(line, "旧workflow")) errors.push(`Legacy workflow identity fixture failed: ${line}`);
+for (const line of ["renamed旧workflowはM6で削除する", "canonical旧workflowはM6で削除する", "canonical/renamed旧workflowはM6で削除する", "改名後旧workflowはM6で削除する", "改名後の旧workflowはM6で削除する", "旧WorkflowはM6で削除する", "~~renamed~~旧workflowはM6で削除する", "~~旧workflow~~はM6で削除する", "~旧workflowはM6で削除する"]) {
+  if (!matchesM5CarrierIdentity(line)) errors.push(`Legacy workflow identity fixture failed: ${line}`);
 }
-if (matchesCarrierIdentity("Stripeの旧workflowはM6で削除する", "旧workflow")) {
-  errors.push("Stripe workflow identity fixture failed.");
+for (const line of ["Stripeの旧workflowはM6で削除する", "Stripeのcanonical旧workflowはM6で削除する", "Stripe（旧workflow）はM6で削除する", "Stripe: 旧workflowはM6で削除する", "Stripeに属する旧workflowはM6で削除する", "Stripe用旧workflowはM6で削除する", "Stripe向けcanonical旧workflowはM6で削除する", "決済で使う旧workflowはM6で削除する", "Phase 1 RLS Live GatewayはM6で削除する"]) {
+  if (matchesM5CarrierIdentity(line)) errors.push(`Unrelated workflow identity fixture failed: ${line}`);
 }
 for (const line of ["旧Supabase live runtimeはM6で削除する", "旧Supabase live APIはM6で削除する"]) {
-  if (m5CommonLegacyGateIdentityTerms.some((identity) => matchesCarrierIdentity(line, identity))) {
-    errors.push(`Unrelated Supabase identity fixture failed: ${line}`);
+  if (matchesM5CarrierIdentity(line)) errors.push(`Unrelated Supabase identity fixture failed: ${line}`);
+}
+for (const line of ["旧Supabaseのlive gateはM6で削除する", "旧Supabase の live gateはM6で削除する", "旧Supabaseの live gateはM6で削除する", "旧Supabase live workflowはM6で削除する", "旧Supabase live  workflowはM6で削除する", "旧Supabase RLS live workflowはM6で削除する", ".github/workflows/phase1-rls-live.yml はM6で削除する", "renamed-phase1-rls-live.ymlはM6で削除する"]) {
+  if (!matchesM5CarrierIdentity(line)) errors.push(`Legacy gate identity fixture failed: ${line}`);
+}
+for (const line of ["対象のrenamed旧workflowはM6で削除する", "Phase 1 RLS: 旧workflowはM6で削除する", "補足: 旧workflowはM6で削除する"]) {
+  if (!matchesM5CarrierIdentity(line)) errors.push(`Attached legacy workflow alias fixture failed: ${line}`);
+}
+const m5RetirementPhraseFixtures = [
+  ["旧workflowの退役をM6に延期する", true],
+  ["旧workflowの廃止はM6まで延期する", true],
+  ["旧workflowの退役時期をM6まで延期する", true],
+  ["旧workflowはM6で廃止する", true],
+  ["旧workflowの削除をM6で行う", true],
+  ["旧workflowをM6に退役させる", true],
+  ["旧workflowはM6まで維持し、その後削除する", true],
+  ["旧workflowの廃止をM6へ先送りする", true],
+  ["旧workflowの削除はM6で行う", true],
+  ["旧workflowはM6以降に削除する", true],
+  ["旧workflowはM6になってから廃止する", true],
+  ["旧workflowはM6まで残す", true],
+  ["旧workflowをM6に持ち越す", true],
+  ["旧workflowのM6への持ち越しを許可する", true],
+  ["旧workflowの削除はM6で行わないわけではない", true],
+  ["旧workflowはM6以降、削除する", true],
+  ["M6以降に旧workflowを削除する", true],
+  ["旧workflowの削除をM6以降に行う", true],
+  ["旧workflowはM6まで残さないわけではない", true],
+  ["旧workflowはM6まで残さないとは限らない", true],
+  ["旧workflowをM6に持ち越さないわけではない", true],
+  ["旧workflowをM6に持ち越さないとは限らない", true],
+  ["旧workflowはM6までは維持する", true],
+  ["旧workflowはM6から削除する", true],
+  ["旧workflowの退役をM6に延期しない", false],
+  ["旧workflowはM6まで維持しない", false],
+  ["旧workflowはM6で廃止しない", false],
+  ["旧workflowをM6に退役させない", false],
+  ["旧workflowはM6で削除する予定はない", false],
+  ["旧workflowの廃止予定をM6に延期しない", false],
+  ["旧workflowはM6へ先送りしない", false],
+  ["旧workflowはM6まで残す予定はない", false],
+  ["旧workflowのM6への持ち越しを許可しない", false],
+  ["旧workflowのM6への持越し予定はない", false],
+  ["旧workflowのM6への持越しは行わない", false],
+  ["旧workflowはM6まで残すことはない", false],
+  ["旧workflowをM6に持ち越すことはない", false],
+  ["旧workflowはM6で削除する予定ではない", false],
+  ["旧workflowはM6までは維持すべきではない", false],
+  ["旧workflowをM6に持ち越すべきではない", false],
+  ["旧workflowはM6まで維持しないものとする", false],
+  ["旧workflowはM6まで維持しないこととする", false],
+  ["旧workflowはM6まで維持する必要はない", false],
+  ["旧workflowはM6まで維持する方針ではない", false],
+  ["旧workflowはM6までは維持すべきだ", true],
+  ["旧workflowをM6に持ち越すべきだ", true],
+  ["旧workflowはM6まで維持するものとする", true],
+  ["旧workflowはM6まで維持しないものとはしない", true],
+  ["旧workflowはM6まで維持する必要がある", true],
+  ["旧workflowはM6まで維持する方針である", true]
+];
+for (const [line, expected] of m5RetirementPhraseFixtures) {
+  if (Boolean(findM5RetirementContradiction(line)) !== expected) errors.push(`M5 retirement phrase fixture failed: ${line}`);
+}
+for (const lines of [["- 旧Supabase live workflowはM6で", "  削除する。"], ["- 旧Supabase live", "  workflowはM6で削除する。"]]) {
+  if (!findM5CarrierContradiction(lines)) {
+    errors.push(`M5 soft-wrap contradiction fixture failed: ${lines.join(" / ")}`);
   }
+}
+if (findM5CarrierContradiction(["- 旧Supabase live work", "  flowはM6で削除する。"])) {
+  errors.push("M5 soft-wrap unrelated identity fixture failed.");
+}
+for (const line of ["phase1-rls-live.yml はM5で削除する。Stripeの旧workflowはM6で削除する。", "phase1-rls-live.yml はM5で削除する. Stripeの旧workflowはM6で削除する!", "| phase1-rls-live.yml はM5で削除する | Stripeの旧workflowはM6で削除する |"]) {
+  if (findM5CarrierContradiction([line])) {
+    errors.push(`M5 sentence-local identity fixture failed: ${line}`);
+  }
+}
+for (const line of ["phase1-rls-live.yml はM5で削除する!Stripeの旧workflowはM6で削除する。", "phase1-rls-live.yml はM5で削除する?Stripeの旧workflowはM6で削除する。", "phase1-rls-live.yml はM5で削除する.Stripeの旧workflowはM6で削除する。", "phase1-rls-live.yml はM5で削除する,Stripeの旧workflowはM6で削除する。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 adjacent ASCII boundary fixture failed: ${line}`);
+}
+for (const [line, carrierName] of [["Phase 1 RLS immutable previewerはM6で削除する。", "environments preview matrix M5 safety"], ["Stripe canonical live gatewayはM6で削除する。", "phase1 setup active exception"]]) {
+  if (findM5CarrierContradiction([line], m5CarrierIdentityPatternsByName.get(carrierName))) {
+    errors.push(`M5 carrier-specific identity boundary fixture failed: ${line}`);
+  }
+}
+for (const [line, carrierName] of [["Stripeのcanonical workflowはM6で削除する。", "phase1 setup frozen baseline"], ["Stripeのcanonical live gateはM6で削除する。", "phase1 setup active exception"]]) {
+  if (findM5CarrierContradiction([line], m5CarrierIdentityPatternsByName.get(carrierName))) {
+    errors.push(`M5 carrier-specific owner fixture failed: ${line}`);
+  }
+}
+if (!findM5CarrierContradiction(["既存staging/test契約のcanonical workflowはM6で削除する。"], m5CarrierIdentityPatternsByName.get("phase1 setup frozen baseline"))) {
+  errors.push("M5 carrier-specific target owner fixture failed.");
+}
+if (!findM5CarrierContradiction(["既存staging/test契約で使うcanonical workflowはM6で削除する。"], m5CarrierIdentityPatternsByName.get("phase1 setup frozen baseline"))) {
+  errors.push("M5 carrier-specific target usage fixture failed.");
+}
+for (const line of ["Stripeで現在使う旧workflowはM6で削除する。", "Stripeが使う旧workflowはM6で削除する。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 current foreign-owner fixture failed: ${line}`);
+}
+if (!findM5CarrierContradiction(["対象（live RLS gate）はM6で削除する。"])) {
+  errors.push("M5 parenthesized target fixture failed.");
+}
+if (findM5CarrierContradiction(["~注記~: 旧workflowはM6で削除しない。"])) {
+  errors.push("M5 tilde-locality fixture failed.");
+}
+if (findM5CarrierContradiction(["phase1-rls-live.yml はM5で削除する.", "  Stripeの旧workflowはM6で削除する。"])) {
+  errors.push("M5 soft-wrap sentence-local identity fixture failed.");
+}
+for (const line of ["旧workflowはM5で削除し、監査資料はM6まで維持する。", "旧workflowはM5で削除し、監査資料をM6へ先送りする。", "旧workflowはM5で削除し、監査資料についてM6まで維持する。", "旧workflowはM5で削除し、監査資料もM6まで維持する。", "旧workflowはM5で削除し、監査資料だけM6まで維持する。", "旧workflowはM5で削除し、監査資料のみM6まで維持する。", "旧workflowはM5で削除し、監査資料に限りM6まで維持する。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 clause-local identity fixture failed: ${line}`);
+}
+for (const line of ["旧workflowはM5で削除し監査資料をM6まで維持する。", "旧workflowはM5で削除して監査資料をM6まで維持する。", "旧workflowはM5で削除する一方で監査資料をM6まで維持する。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 conjunction binding fixture failed: ${line}`);
+}
+for (const line of ["旧workflowはM5まで維持し監査資料をM6で削除する。", "旧workflowはM5で退役させ監査資料をM6まで維持する。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 alternate-action binding fixture failed: ${line}`);
+}
+if (!findM5CarrierContradiction(["旧workflowについては、M6で削除する。"])) {
+  errors.push("M5 inherited clause identity fixture failed.");
+}
+for (const line of ["旧workflowはM5まで維持し、削除はM6で行う。", "旧workflowはM5まで維持し、廃止時期はM6まで延期する。", "旧workflowはM5まで維持し、これはM6で削除する。"]) {
+  if (!findM5CarrierContradiction([line])) errors.push(`M5 continuation binding fixture failed: ${line}`);
+}
+for (const line of ["旧workflowはM6以降に、削除する。", "旧workflowはM6以降は、削除する。", "旧workflowはM6になってから、廃止する。"]) {
+  if (!findM5CarrierContradiction([line])) errors.push(`M5 deferred-clause fixture failed: ${line}`);
+}
+for (const line of ["M6で、旧workflowを削除する。", "M6まで、旧workflowを維持する。", "M6へ、旧workflowを持ち越す。"]) {
+  if (!findM5CarrierContradiction([line])) errors.push(`M5 standalone timing fixture failed: ${line}`);
+}
+for (const line of ["M6で旧workflowを削除する。", "M6で旧workflow（M5まで現行）を削除する。", "M6以降に旧workflowを削除する。", "M6以降、旧workflowを削除する。", "M6へ旧workflowを持ち越す。", "M6へ旧workflowを先送りする。", "旧workflowの削除をM6以降、行う。"]) {
+  if (!findM5CarrierContradiction([line])) errors.push(`M5 target-order fixture failed: ${line}`);
+}
+if (findM5CarrierContradiction(["M6までの計画では旧workflowをM5で削除する。"])) {
+  errors.push("M5 intervening milestone fixture failed.");
+}
+if (findM5CarrierContradiction(["M6までの計画では旧workflowを今すぐ削除する。"])) {
+  errors.push("M5 planning-context fixture failed.");
+}
+if (findM5CarrierContradiction(["M6までの計画で旧workflowを削除するのはM5である。"])) {
+  errors.push("M5 postfixed planning milestone fixture failed.");
+}
+for (const line of ["M6までの計画で旧workflowを削除したのはM5である。", "M6までの計画で旧workflowの削除予定はM5である。", "M6までの計画で旧workflowの削除時期をM5とする。", "M6までの計画で旧workflowの削除予定をM5とする。", "M6までの計画で旧workflowを削除する時期はM5とする。", "M6までの計画で旧workflowを削除する予定はM5である。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 postfixed planning variant fixture failed: ${line}`);
+}
+if (!findM5CarrierContradiction(["M6までの計画で旧workflowの削除時期をM6とする。"])) {
+  errors.push("M5 postfixed M6 planning contradiction fixture failed.");
+}
+if (!findM5CarrierContradiction(["M6までの計画では旧workflowを維持し続ける。"])) {
+  errors.push("M5 planning-context contradiction fixture failed.");
+}
+if (!findM5CarrierContradiction(["M6への旧workflowの持ち越しを許可する。"])) {
+  errors.push("M5 embedded carryover noun fixture failed.");
+}
+if (findM5CarrierContradiction(["M6への旧workflowの持ち越しを許可しない。"])) {
+  errors.push("M5 embedded carryover negative fixture failed.");
+}
+for (const line of ["M6への旧workflowの持ち越しを許可する予定ではない。", "M6への旧workflowの持ち越しを許可することはない。", "M6への旧workflowの持ち越しを認める予定はない。"]) {
+  if (findM5CarrierContradiction([line])) errors.push(`M5 embedded carryover negative-modal fixture failed: ${line}`);
+}
+for (const line of ["M6への旧workflowの持ち越しを許可する予定である。", "M6への旧workflowの持ち越しを認める。"]) {
+  if (!findM5CarrierContradiction([line])) errors.push(`M5 embedded carryover affirmative-modal fixture failed: ${line}`);
+}
+if (findM5CarrierContradiction(["M6へのStripeの旧workflowの持ち越しを許可する。"])) {
+  errors.push("M5 embedded carryover foreign-owner fixture failed.");
+}
+if (!findM5CarrierContradiction(["M6でStripeの旧workflowを削除してからM6で旧workflowを削除する。"])) {
+  errors.push("M5 later embedded target fixture failed.");
+}
+if (!findM5CarrierContradiction(["| 旧Supabase live workflow | transitional | M6で削除する |"])) {
+  errors.push("M5 table-row inherited identity fixture failed.");
+}
+if (findM5CarrierContradiction(["Stripeで使う旧workflowはM6で削除する。"])) {
+  errors.push("M5 foreign-owner identity fixture failed.");
+}
+if (!findM5CarrierContradiction(["補足: 旧workflowはM6で削除する。"])) {
+  errors.push("M5 discourse-label identity fixture failed.");
+}
+if (!findM5CarrierContradiction(["- 旧workflowの履歴", "- 旧workflowはM6で削除する。"], [], (index) => index === 0)) {
+  errors.push("M5 history sibling contradiction fixture failed.");
 }
 function documentLines(path) {
   const rawLines = (contents.get(path) ?? "").split("\n");
@@ -502,6 +886,7 @@ const m5CarrierEntries = [
     path: "docs/09-delivery/session-handoff.md",
     scope: "## Cloudflare Access / D1移行引き継ぎ（2026-08-30）",
     prefix: "- Issue #95のSupabase staging内部alphaはIssue #176 M5のAccess/D1/R2 staging実証へ置換し、旧経路を実行しない。",
+    exact: true,
     terms: ["Issue #95", "Issue #176 M5", "旧経路を実行しない"],
     forbiddenTerms: []
   },
@@ -565,7 +950,8 @@ const m5CarrierEntries = [
     name: "roadmap Issue 95 history safety",
     path: "docs/09-delivery/cloudflare-migration-roadmap.md",
     scope: "## M6: Supabase退役",
-    prefix: "- #92の完了記録を維持し",
+    prefix: "- #92の完了記録を維持し、M5で退役済みの旧gateについてIssue #95の完了記録と残存履歴を整理する",
+    exact: true,
     terms: ["M5で退役済みの旧gate", "Issue #95", "完了記録と残存履歴を整理する"],
     forbiddenTerms: []
   },
@@ -608,7 +994,8 @@ const m5CarrierEntries = [
     name: "issue-map Issue 95 Superseded context",
     path: "docs/09-delivery/issue-map.md",
     scope: "## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行",
-    prefix: "EPIC-02、EPIC-03、EPIC-06",
+    prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報やlive runを追加しない。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
+    exact: true,
     terms: ["#95", "旧Supabase live gate", "Superseded"],
     forbiddenTerms: []
   }
@@ -619,23 +1006,28 @@ const m5CarrierResolutions = m5CarrierEntries.map(({ name, path, scope, scopeAnc
   if (lines.length !== 1) {
     errors.push(`${name} must contain exactly one canonical line in ${path}: ${prefix}`);
   }
-  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms: [...m5CommonLegacyGateIdentityTerms, ...(m5CarrierIdentityTermsByName.get(name) ?? []), "旧workflow"] };
+  return { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityPatterns: m5CarrierIdentityPatternsByName.get(name) ?? [] };
 });
 const exemptCarrierLines = new Set(
   m5CarrierResolutions
     .filter(({ forbiddenTerms, lines }) => forbiddenTerms.length === 0 && lines.length === 1)
     .map(({ path, scope, boundedLines, lines }) => `${path}\u0000${scope}\u0000${boundedLines.indexOf(lines[0])}`)
 );
-for (const { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityTerms } of m5CarrierResolutions) {
+for (const { name, path, scope, boundedLines, lines, terms, forbiddenTerms, identityPatterns } of m5CarrierResolutions) {
   if (lines.length !== 1) continue;
   for (const term of terms) {
     if (!lines[0].includes(term)) errors.push(`${name} is missing a required contract term in ${path}: ${term}`);
   }
-  for (const term of forbiddenTerms) {
-    if (containsAffirmativeForbiddenAssertion(lines[0], term)) errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
-    if (boundedLines.some((line, index) => line !== lines[0] && !exemptCarrierLines.has(`${path}\u0000${scope}\u0000${index}`) && identityTerms.some((identity) => matchesCarrierIdentity(line, identity)) && containsAffirmativeForbiddenAssertion(line, term))) {
-      errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${term}`);
-    }
+  if (forbiddenTerms.length > 0 && !matchesM5CarrierIdentity(lines[0], identityPatterns)) {
+    errors.push(`${name} canonical line is missing a typed legacy-gate identity in ${path}`);
+  }
+  const contradiction = findM5CarrierContradiction(
+    boundedLines,
+    identityPatterns,
+    (index) => exemptCarrierLines.has(`${path}\u0000${scope}\u0000${index}`)
+  );
+  if (contradiction) {
+    errors.push(`${name} contains a forbidden retirement assertion in ${path}: ${contradiction}`);
   }
 }
 const environmentTransitionLines = [
