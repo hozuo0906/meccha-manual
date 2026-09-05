@@ -295,6 +295,7 @@ const m5RetirementContradictionPatterns = [
   /M6\s*以降\s*(?:(?:に|で|は)\s*)?(?:[、，,]\s*)?(?:廃止|退役|削除)/,
   /M6\s*以降\s*(?:に|で)?\s*旧workflow\s*(?:を|は|が)?\s*(?:廃止|退役|削除)/i,
   /M6\s*になってから\s*(?:[、，,]\s*)?(?:廃止|退役|削除)/,
+  /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:は|を|が)\s*M6\s*(?:とする|と定める|に設定|に決定)/,
   /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*(?:で|に)\s*(?:行う|行わないわけではない|実施する|実施しないわけではない)/,
   /(?:廃止|退役|削除)(?:予定|時期|時点|判断)?\s*(?:を|は)\s*M6\s*以降\s*(?:に|で)?\s*(?:行う|行わないわけではない|実施する|実施しないわけではない)/,
   /M6\s*まで(?:は)?\s*維持/,
@@ -620,6 +621,8 @@ const m5RetirementPhraseFixtures = [
   ["旧workflowをM6に持ち越さないとは限らない", true],
   ["旧workflowはM6までは維持する", true],
   ["旧workflowはM6から削除する", true],
+  ["旧workflowの削除時期はM6とする", true],
+  ["旧workflowの削除予定をM6と定める", true],
   ["旧workflowの退役をM6に延期しない", false],
   ["旧workflowはM6まで維持しない", false],
   ["旧workflowはM6で廃止しない", false],
@@ -810,15 +813,16 @@ function documentLines(path) {
     }
     const visibleLine = removeHtmlCommentSpans(line);
     const unquotedLine = visibleLine.replace(/^(?: {0,3}>\s?)+/, "");
-    if (/^(?: {4}|\t)/.test(unquotedLine)) return "";
-    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(unquotedLine);
+    const normalizedIndentedLine = unquotedLine.replace(/^(?:(?: {4,}|\t+))(?=(?:[-*+]|\d+[.)])\s+)/, "");
+    if (/^(?: {4}|\t)/.test(normalizedIndentedLine)) return "";
+    const fenceMatch = /^(?: {0,3})(?<marker>`{3,}|~{3,})(?<rest>.*)$/.exec(normalizedIndentedLine);
     if (fenceMatch) {
       const marker = fenceMatch.groups.marker;
-      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return unquotedLine;
+      if (marker[0] === "`" && fenceMatch.groups.rest.includes("`")) return normalizedIndentedLine;
       fenceMarker = marker;
       return "";
     }
-    return fenceMarker === null ? unquotedLine : "";
+    return fenceMarker === null ? normalizedIndentedLine : "";
   });
 }
 function sectionLines(path, sectionPrefix, anchored = false) {
