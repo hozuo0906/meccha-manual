@@ -54,7 +54,13 @@ beforeEach(async () => {
   database.exec(await readFile(migrationPath, "utf8"));
   database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run("app-user-1", issuer, "subject-1", now, now);
   database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run("app-user-1", "テスト利用者", "ja-JP", "Asia/Tokyo", now, now);
-  env = { ACCESS_ISSUER: issuer, ACCESS_AUDIENCE: audience, ACCESS_JWKS_URL: jwksUrl, DB: new LocalD1(database) };
+  env = {
+    ACCESS_ISSUER: issuer,
+    ACCESS_AUDIENCE: audience,
+    ACCESS_JWKS_URL: jwksUrl,
+    ACCESS_HEALTH_SERVICE_TOKEN_NAMES: "runner.example",
+    DB: new LocalD1(database)
+  };
   globalThis.fetch = async (url) => {
     assert.equal(String(url), jwksUrl);
     return Response.json({ keys: [publicJwk] });
@@ -89,7 +95,8 @@ test("Access userからD1 profile/workspacesへ解決する", async () => {
   assert.deepEqual(await response.json(), {
     user: { id: "app-user-1" },
     profile: { id: "app-user-1", display_name: "テスト利用者", locale: "ja-JP", timezone: "Asia/Tokyo" },
-    workspaces: []
+    workspaces: [],
+    manuals: { status: "migration" }
   });
 });
 
@@ -174,6 +181,20 @@ test("service tokenは対象業務routeへ昇格しない", async () => {
   assert.equal((await response.json()).code, "ACCESS_ACTOR_FORBIDDEN");
 });
 
+test("/health/config requires an allowlisted Access service token", async () => {
+  let healthResponse = await worker.fetch(request("/health/config"), env, {});
+  assert.equal(healthResponse.status, 401);
+  assert.equal((await healthResponse.json()).code, "ACCESS_JWT_REQUIRED");
+
+  healthResponse = await worker.fetch(await accessRequest("/health/config", {}, { sub: "", common_name: "not-allowed" }), env, {});
+  assert.equal(healthResponse.status, 403);
+  assert.equal((await healthResponse.json()).code, "ACCESS_FORBIDDEN");
+
+  healthResponse = await worker.fetch(await accessRequest("/health/config", {}, { sub: "", common_name: "runner.example" }), env, {});
+  assert.equal(healthResponse.status, 200);
+  assert.equal((await healthResponse.json()).status, "ok");
+});
+
 test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止する", async () => {
   let supabaseCalled = false;
   globalThis.fetch = async () => {
@@ -183,7 +204,6 @@ test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止�
   for (const path of [
     "/api/auth/login",
     "/api/auth/refresh",
-    "/api/auth/logout",
     "/api/workspaces/11111111-1111-4111-8111-111111111111/members",
     "/api/workspaces/11111111-1111-4111-8111-111111111111/members/22222222-2222-4222-8222-222222222222"
   ]) {
@@ -192,4 +212,14 @@ test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止�
     assert.equal((await response.json()).code, "MANUAL_MIGRATION_IN_PROGRESS");
   }
   assert.equal(supabaseCalled, false);
+});
+
+test("Access user logout returns the Access session termination URL", async () => {
+  const response = await worker.fetch(await accessRequest("/api/auth/logout", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: "{}"
+  }), env, {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
 });

@@ -207,6 +207,21 @@ for (const [entryName, candidate] of [["phase1", worker], ["phase2", phase2Worke
   }
 }
 
+test("phase2 Access migration keeps capture and mobile preview on the Browser egress contract", async () => {
+  for (const [path, code] of [
+    ["/api/workspaces/workspace/capture-sessions", "BROWSER_EGRESS_NOT_VERIFIED"],
+    ["/v1/workspaces/workspace/capture-sessions/session/live-url", "BROWSER_EGRESS_NOT_VERIFIED"],
+    ["/api/workspaces/workspace/mobile-preview-sessions", "BROWSER_EGRESS_NOT_VERIFIED"],
+    ["/v1/workspaces/workspace/mobile-preview-sessions", "BROWSER_EGRESS_NOT_VERIFIED"]
+  ]) {
+    const response = await phase2Worker.fetch(new Request(`https://app.example${path}`, { method: "POST" }), {
+      ACCESS_AUDIENCE: "access-configured"
+    }, { waitUntil() {} });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, code);
+  }
+});
+
 for (const [entryName, candidate] of [["phase1", worker], ["phase2", phase2Worker]]) {
   test(`${entryName} guard前のbody読取りmutationはbody read 0 assertionで失敗する`, async () => {
     const fixture = trackedCallbackEnvironment("{}");

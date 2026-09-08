@@ -8,6 +8,7 @@ import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAccessConfig, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings {
+  ACCESS_HEALTH_SERVICE_TOKEN_NAMES?: string;
   DB?: D1DatabaseLike;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
@@ -346,7 +347,8 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
     return jsonResponse({
       user: { id: actorId },
       profile: apiProfile(profile),
-      workspaces: workspaces.map(apiWorkspaceSummary)
+      workspaces: workspaces.map(apiWorkspaceSummary),
+      manuals: { status: "migration" }
     });
   } catch (error) {
     throw d1ErrorResponse(error, "profile");
@@ -2039,6 +2041,20 @@ async function logout(request: Request, env: Env): Promise<Response> {
   return jsonResponse({ status: "ok" }, undefined, clearSessionCookies());
 }
 
+async function accessLogout(request: Request, env: Env): Promise<Response> {
+  await readJsonBody<Record<string, never>>(request);
+  let auth;
+  try {
+    auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
+  } catch (error) {
+    throw mapAccessIdentityError(error);
+  }
+  if (auth.kind !== "application_user") {
+    throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  return jsonResponse({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
+}
+
 function logoutRevokeFailureResponse(): Response {
   return jsonResponse({
     code: "LOGOUT_REVOKE_FAILED",
@@ -2046,7 +2062,22 @@ function logoutRevokeFailureResponse(): Response {
   }, { status: 502 }, clearSessionCookies());
 }
 
-function configHealth(env: Env): Response {
+function accessHealthServiceTokenNames(env: Env): Set<string> {
+  return splitCsv(env.ACCESS_HEALTH_SERVICE_TOKEN_NAMES);
+}
+
+async function configHealth(request: Request, env: Env): Promise<Response> {
+  if (useAccessD1Routes(env)) {
+    let auth;
+    try {
+      auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
+    } catch (error) {
+      throw mapAccessIdentityError(error);
+    }
+    if (auth.kind !== "machine" || !accessHealthServiceTokenNames(env).has(auth.actor.commonName)) {
+      throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+    }
+  }
   const supabase = inspectSupabaseConfig(env);
   const { hasUrl, hasAnonKey } = supabase;
   const hasAllowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS).size > 0;
@@ -2110,7 +2141,7 @@ function accessLegacyRouteMigrationResponse(): Response {
 
 function isLegacySupabaseProtectedRoute(pathname: string): boolean {
   return (
-    /^\/api\/auth\/(?:login|refresh|logout)$/.test(pathname) ||
+    /^\/api\/auth\/(?:login|refresh)$/.test(pathname) ||
     /^\/api\/workspaces\/[^/]+\/members(?:\/[^/]+)?$/.test(pathname)
   );
 }
@@ -2141,13 +2172,15 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
     return assetResponse(APP_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
   if (request.method === "GET" && url.pathname === "/health") return basicHealth();
-  if (request.method === "GET" && url.pathname === "/health/config") return configHealth(env);
+  if (request.method === "GET" && url.pathname === "/health/config") return configHealth(request, env);
   if (request.method === "GET" && url.pathname === "/api/session") {
     return useAccessD1Routes(env) ? getD1Session(request, env) : getSession(request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
-  if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout(request, env);
+  if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+    return useAccessD1Routes(env) ? accessLogout(request, env) : logout(request, env);
+  }
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
     if (useAccessD1Routes(env)) return listD1Workspaces(request, env);
     const session = await requireSession(request, env);

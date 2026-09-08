@@ -56,6 +56,8 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。
 
+Access modeのsession応答は `manuals.status: "migration"` を含む。M4完了まではUIの手順書入口を無効化し、移行中の状態を表示する。
+
 - Access JWTなし・不正・期限切れ: 401
 - Access認証済みだが未招待または未登録: 403
 - service-token actor、空の `sub`、`common_name` を持つtoken: 人間向け業務APIでは403
@@ -65,6 +67,8 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 - 内部JWT、subject、email、binding情報をエラーへ含めない
 
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
+
+Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了する。service token、未認証request、allowlist外actorは拒否する。
 
 ## Workspace API
 
@@ -125,3 +129,5 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 ## Migration gate
 
 Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。M3でPhase 1をAccess/D1へ切り替えた後、Phase 2 manualのD1切替が完了するM4までは全manual read/mutation routeとUI入口をfail closedで一時停止する。APIは安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返し、Supabase Auth/PostgREST/RPC呼出し、自動再送、queued write、fallback、二重認証、二重書込みを行わない。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
+
+Capture/mobile-preview routeはmanual migrationとは別契約で、Access modeでも `503 BROWSER_EGRESS_NOT_VERIFIED` を返す。検証済みegressが有効になるまでSupabase fallbackやBrowser Run通信を行わない。

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-ba81329c9021f346";
+export const APP_ASSET_VERSION = "sha256-c5ad709595bf3651";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -996,6 +996,10 @@ let manualDetailState = { workspaceId: "", manualId: "", status: "idle", value: 
 let manualRequestSequence = 0;
 let manualMutationInFlight = false;
 let manualReadingPreview = null;
+
+function manualMigrationInProgress(session = currentSession) {
+  return session?.manuals?.status === "migration";
+}
 const manualStatusLabels = {
   draft: "下書き",
   reviewing: "確認中",
@@ -1201,9 +1205,9 @@ async function logoutWithAuthenticationLock(expectedVersion) {
     if (readAuthenticationVersion() !== expectedVersion) return false;
     advanceAuthenticationVersion();
     try {
-      await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false);
+      const logoutSent = await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false);
       announceAuthenticationChange();
-      return true;
+      return logoutSent;
     } catch (error) {
       if (error.code === "LOGOUT_REVOKE_FAILED") announceAuthenticationChange();
       throw error;
@@ -2286,12 +2290,15 @@ function manualCanEdit(currentWorkspace) {
 }
 
 function manualSidebarHtml(session, activeScreen) {
+  const manualNavigation = manualMigrationInProgress(session)
+    ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
+    : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
   return '<aside class="sidebar" aria-label="アプリメニュー">' +
     '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
     '<nav class="nav" aria-label="主要メニュー">' +
       '<button id="workspace-nav-button" class="nav-item nav-button' + (activeScreen === "workspace" ? ' active' : '') + '" type="button"' + (activeScreen === "workspace" ? ' aria-current="page"' : '') + '>ワークスペース</button>' +
       '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>' +
-      '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>' +
+      manualNavigation +
       '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
     '</nav>' +
     '<div class="user-box">' +
@@ -2315,6 +2322,11 @@ function wireManualNavigation(currentWorkspace) {
 }
 
 function openManualList(currentWorkspace, message = "", messageKind = "notice") {
+  if (manualMigrationInProgress()) {
+    currentScreen = "workspace";
+    renderShell(currentSession, "手順書機能は移行中のため、現在利用できません。", "warning", "shell-message");
+    return;
+  }
   if (!currentWorkspace) {
     currentScreen = "workspace";
     renderShell(currentSession, "利用中のワークスペースを選択してください。", "error", "shell-message");
@@ -3213,6 +3225,9 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
     : null;
   const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
   const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
+  const manualMigration = manualMigrationInProgress(session);
+  const effectiveNotice = notice || (manualMigration ? "手順書機能は移行中のため、現在利用できません。" : "");
+  const effectiveNoticeKind = notice ? noticeKind : (manualMigration ? "warning" : "notice");
   const rows = workspaces.map((workspace) =>
     '<tr>' +
       '<td><div class="workspace-name">' + escapeHtml(workspace.name) + '</div><div class="muted">' + escapeHtml(workspace.slug) + '</div></td>' +
@@ -3220,15 +3235,15 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
       '<td>' + escapeHtml(workspace.created_at ? workspace.created_at.slice(0, 10) : "") + '</td>' +
     '</tr>'
   ).join("");
-  const shellMessageClass = notice
-    ? noticeKind === "error"
+  const shellMessageClass = effectiveNotice
+    ? effectiveNoticeKind === "error"
       ? "error-box show"
-      : (creationUncertain || noticeKind === "warning")
+      : (creationUncertain || effectiveNoticeKind === "warning")
         ? "warning-box show"
         : "notice-box show"
     : "notice-box";
-  const shellMessageRole = noticeKind === "error" ? "alert" : "status";
-  const shellMessageLive = noticeKind === "error" ? "assertive" : "polite";
+  const shellMessageRole = effectiveNoticeKind === "error" ? "alert" : "status";
+  const shellMessageLive = effectiveNoticeKind === "error" ? "assertive" : "polite";
 
   app.innerHTML =
     '<section class="shell">' +
@@ -3237,7 +3252,9 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
         '<nav class="nav" aria-label="主要メニュー">' +
           '<button id="workspace-nav-button" class="nav-item nav-button active" type="button" aria-current="page">ワークスペース</button>' +
           '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>' +
-          '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>' +
+          (manualMigration
+            ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
+            : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
           '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
         '</nav>' +
         '<div class="user-box">' +
@@ -3259,7 +3276,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
           '</div>' +
           '<button id="reload-button" class="secondary-button" type="button">一覧を更新</button>' +
         '</header>' +
-        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(notice) + '</div>' +
+        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(effectiveNotice) + '</div>' +
         '<div class="dashboard-grid">' +
           '<section id="workspace-overview" class="section" aria-labelledby="workspace-list-heading">' +
             '<div class="section-header"><h2 id="workspace-list-heading">所属ワークスペース</h2><span class="badge">' + workspaces.length + '件</span></div>' +
@@ -3359,7 +3376,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
     document.getElementById("member-save-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, false));
     document.getElementById("member-stop-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, true));
   }
-  if (notice) document.getElementById("shell-message").focus();
+  if (effectiveNotice) document.getElementById("shell-message").focus();
   else if (focusId) document.getElementById(focusId)?.focus();
 }
 
@@ -3660,6 +3677,10 @@ async function logout() {
     if (!logoutSent) {
       renderAuthenticationReload();
       await loadSession();
+      return;
+    }
+    if (logoutSent.redirectUrl) {
+      window.location.assign(logoutSent.redirectUrl);
       return;
     }
     if (requestSessionGeneration !== sessionGeneration) return;

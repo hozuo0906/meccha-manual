@@ -20,7 +20,8 @@ type Env = ManualEnv & {
 };
 
 const MANUAL_MIGRATION_CODE = "MANUAL_MIGRATION_IN_PROGRESS";
-const LEGACY_PHASE2_ROUTE = /^\/(?:api|v1)\/workspaces\/[^/]+\/(?:manuals(?:\/|$)|capture-sessions(?:\/|$)|mobile-preview-sessions(?:\/|$))/;
+const LEGACY_MANUAL_ROUTE = /^\/(?:api|v1)\/workspaces\/[^/]+\/manuals(?:\/|$)/;
+const LEGACY_CAPTURE_ROUTE = /^\/(?:api|v1)\/workspaces\/[^/]+\/(?:capture-sessions|mobile-preview-sessions)(?:\/|$)/;
 
 function accessModeEnabled(env: Env): boolean {
   const access = inspectAccessConfig(env);
@@ -42,10 +43,27 @@ function manualMigrationResponse(): Response {
   });
 }
 
+function browserEgressNotVerifiedResponse(): Response {
+  return new Response(JSON.stringify({
+    code: "BROWSER_EGRESS_NOT_VERIFIED",
+    message: "安全な接続先の検証が完了していないため、現在は操作を記録できません。"
+  }), {
+    status: 503,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "same-origin"
+    }
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (accessModeEnabled(env) && LEGACY_PHASE2_ROUTE.test(new URL(request.url).pathname)) {
-      return manualMigrationResponse();
+    if (accessModeEnabled(env)) {
+      const pathname = new URL(request.url).pathname;
+      if (LEGACY_MANUAL_ROUTE.test(pathname)) return manualMigrationResponse();
+      if (LEGACY_CAPTURE_ROUTE.test(pathname)) return browserEgressNotVerifiedResponse();
     }
     const captureResponse = await handleCaptureRoute(request, env);
     if (captureResponse) return captureResponse;

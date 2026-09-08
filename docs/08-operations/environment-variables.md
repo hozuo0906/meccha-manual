@@ -22,6 +22,7 @@ Supabase関連名はIssue #176の移行完了までlegacyとしてのみ扱い�
 | `ACCESS_ISSUER` | server | 許可するCloudflare Access issuer。環境別 | migration | no |
 | `ACCESS_AUDIENCE` | server | Access application JWTのaudience。環境別 | migration | no |
 | `ACCESS_JWKS_URL` | server | Access署名鍵取得先。issuerから許可された規則で導出可能 | migration | no |
+| `ACCESS_HEALTH_SERVICE_TOKEN_NAMES` | server | `GET /health/config`へ許可するservice-tokenの`common_name` CSV。未設定は拒否 | migration | no |
 | `DB` | binding | Cloudflare D1業務DB。staging/productionでdatabaseを共有しない | migration | no |
 | `SUPABASE_URL` | legacy | 移行前Supabase接続先。D1切替後に削除し、新規環境へ登録しない | no | no |
 | `SUPABASE_ANON_KEY` | legacy | 移行前Auth/REST。D1切替後に削除し、新規環境へ登録しない | no | no |
