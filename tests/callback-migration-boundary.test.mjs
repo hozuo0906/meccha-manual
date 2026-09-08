@@ -207,18 +207,21 @@ for (const [entryName, candidate] of [["phase1", worker], ["phase2", phase2Worke
   }
 }
 
-test("phase2 Access migration keeps capture and mobile preview on the Browser egress contract", async () => {
-  for (const [path, code] of [
-    ["/api/workspaces/workspace/capture-sessions", "BROWSER_EGRESS_NOT_VERIFIED"],
-    ["/v1/workspaces/workspace/capture-sessions/session/live-url", "BROWSER_EGRESS_NOT_VERIFIED"],
-    ["/api/workspaces/workspace/mobile-preview-sessions", "BROWSER_EGRESS_NOT_VERIFIED"],
-    ["/v1/workspaces/workspace/mobile-preview-sessions", "BROWSER_EGRESS_NOT_VERIFIED"]
+test("phase2 Access migration preserves capture authorization before the Browser egress contract", async () => {
+  for (const path of [
+    "/api/workspaces/11111111-1111-4111-8111-111111111111/capture-sessions",
+    "/v1/workspaces/11111111-1111-4111-8111-111111111111/capture-sessions/22222222-2222-4222-8222-222222222222/live-url",
+    "/api/workspaces/11111111-1111-4111-8111-111111111111/mobile-preview-sessions",
+    "/v1/workspaces/11111111-1111-4111-8111-111111111111/mobile-preview-sessions"
   ]) {
-    const response = await phase2Worker.fetch(new Request(`https://app.example${path}`, { method: "POST" }), {
+    const response = await phase2Worker.fetch(new Request(`https://app.example${path}`, {
+      method: "POST",
+      headers: { origin: "https://app.example" }
+    }), {
       ACCESS_AUDIENCE: "access-configured"
     }, { waitUntil() {} });
-    assert.equal(response.status, 503);
-    assert.equal((await response.json()).code, code);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, "SESSION_REQUIRED");
   }
 });
 

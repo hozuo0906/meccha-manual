@@ -96,7 +96,8 @@ test("Access userからD1 profile/workspacesへ解決する", async () => {
     user: { id: "app-user-1" },
     profile: { id: "app-user-1", display_name: "テスト利用者", locale: "ja-JP", timezone: "Asia/Tokyo" },
     workspaces: [],
-    manuals: { status: "migration" }
+    manuals: { status: "migration" },
+    members: { status: "migration" }
   });
 });
 
@@ -220,6 +221,16 @@ test("Access user logout returns the Access session termination URL", async () =
     headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
     body: "{}"
   }), env, {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
+});
+
+test("Access user logout does not require D1 identity resolution", async () => {
+  const response = await worker.fetch(await accessRequest("/api/auth/logout", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: "{}"
+  }), { ...env, DB: undefined }, {});
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
 });

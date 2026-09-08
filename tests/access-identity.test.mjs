@@ -12,7 +12,14 @@ import {
   resolveApplicationIdentity,
   verifyAccessJwt
 } from "../apps/worker/src/access-identity.ts";
-import { inspectAccessConfig } from "../apps/worker/src/server-config.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames } from "../apps/worker/src/server-config.ts";
+
+test("health service token allowlist is parsed by the server config gateway", () => {
+  assert.deepEqual(
+    [...inspectAccessHealthServiceTokenNames({ ACCESS_HEALTH_SERVICE_TOKEN_NAMES: " runner.example, ,ops.example,runner.example " })],
+    ["runner.example", "ops.example"]
+  );
+});
 
 const issuer = "https://team.example.invalid/";
 const audience = "meccha-manual-staging";

@@ -142,3 +142,8 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(spec, /編集権限がありません。/);
   assert.match(spec, /横スクロールせずキーボードで移動できる/);
 });
+test("Access migration中はmember APIがfencedされるためmember UIも無効化する", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /memberMigrationInProgress/);
+  assert.match(source, /メンバー管理は移行中のため、現在は利用できません。/);
+});

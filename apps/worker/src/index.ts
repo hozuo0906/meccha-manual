@@ -1,14 +1,13 @@
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
-import { AccessIdentityError, authenticateApplicationRequest, type ApplicationIdentityRepository } from "./access-identity.ts";
+import { AccessIdentityError, authenticateApplicationRequest, requireHumanActor, verifyAccessJwt, type ApplicationIdentityRepository } from "./access-identity.ts";
 import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
-import { inspectAccessConfig, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings {
-  ACCESS_HEALTH_SERVICE_TOKEN_NAMES?: string;
   DB?: D1DatabaseLike;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
@@ -348,7 +347,8 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
       user: { id: actorId },
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
-      manuals: { status: "migration" }
+      manuals: { status: "migration" },
+      members: { status: "migration" }
     });
   } catch (error) {
     throw d1ErrorResponse(error, "profile");
@@ -2043,14 +2043,10 @@ async function logout(request: Request, env: Env): Promise<Response> {
 
 async function accessLogout(request: Request, env: Env): Promise<Response> {
   await readJsonBody<Record<string, never>>(request);
-  let auth;
   try {
-    auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
+    requireHumanActor(await verifyAccessJwt(request, env));
   } catch (error) {
     throw mapAccessIdentityError(error);
-  }
-  if (auth.kind !== "application_user") {
-    throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
   }
   return jsonResponse({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
 }
@@ -2062,10 +2058,6 @@ function logoutRevokeFailureResponse(): Response {
   }, { status: 502 }, clearSessionCookies());
 }
 
-function accessHealthServiceTokenNames(env: Env): Set<string> {
-  return splitCsv(env.ACCESS_HEALTH_SERVICE_TOKEN_NAMES);
-}
-
 async function configHealth(request: Request, env: Env): Promise<Response> {
   if (useAccessD1Routes(env)) {
     let auth;
@@ -2074,7 +2066,7 @@ async function configHealth(request: Request, env: Env): Promise<Response> {
     } catch (error) {
       throw mapAccessIdentityError(error);
     }
-    if (auth.kind !== "machine" || !accessHealthServiceTokenNames(env).has(auth.actor.commonName)) {
+    if (auth.kind !== "machine" || !inspectAccessHealthServiceTokenNames(env).has(auth.actor.commonName)) {
       throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
     }
   }

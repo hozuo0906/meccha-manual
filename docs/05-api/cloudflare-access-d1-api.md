@@ -131,3 +131,9 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。M3でPhase 1をAccess/D1へ切り替えた後、Phase 2 manualのD1切替が完了するM4までは全manual read/mutation routeとUI入口をfail closedで一時停止する。APIは安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返し、Supabase Auth/PostgREST/RPC呼出し、自動再送、queued write、fallback、二重認証、二重書込みを行わない。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
 
 Capture/mobile-preview routeはmanual migrationとは別契約で、Access modeでも `503 BROWSER_EGRESS_NOT_VERIFIED` を返す。検証済みegressが有効になるまでSupabase fallbackやBrowser Run通信を行わない。
+
+### M3 review boundary update (2026-09-08)
+
+- Access modeの`POST /api/auth/logout`はAccess JWTの検証だけで完了し、D1のapplication identity解決には依存しない。
+- Access modeの`GET /api/session`は`members.status: "migration"`も返し、メンバー管理UIをmember APIの移行完了まで無効化する。
+- capture/mobile-previewはAccess modeでも、legacy session・same-origin・workspace roleの認可確認を先に行う。認証済みeditor等に限り`503 BROWSER_EGRESS_NOT_VERIFIED`を返し、未認証・権限外の要求は認証・認可エラーを返す。

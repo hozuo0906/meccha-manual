@@ -43,3 +43,7 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 ### Access mode migration boundary
 
 Access modeでは移行前Supabase認証へfallbackせず、WorkerのAccess境界で同じ `503 BROWSER_EGRESS_NOT_VERIFIED` と副作用0を返す。
+
+### Access mode authorization ordering (2026-09-08)
+
+Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateより前にlegacy session、same-origin、workspace roleを確認する。認証・認可済みのowner/admin/editorだけが`503 BROWSER_EGRESS_NOT_VERIFIED`へ到達し、未認証やviewerは認証・認可エラーで終了する。
