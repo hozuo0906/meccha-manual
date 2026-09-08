@@ -122,6 +122,7 @@ const DISABLED_CALLBACK_PATHS = new Set([
   "/v1/integrations/discord/interactions"
 ]);
 const CALLBACK_MIGRATION_CODE = "CALLBACK_MIGRATION_IN_PROGRESS";
+const ACCESS_LEGACY_ROUTE_MIGRATION_CODE = "MANUAL_MIGRATION_IN_PROGRESS";
 const GITHUB_FETCH_TIMEOUT_MS = 2500;
 const DISCORD_COMMAND_MECCHA = "meccha";
 const DISCORD_COMMAND_MECCHA_TASK = "meccha-task";
@@ -2100,8 +2101,25 @@ function callbackMigrationResponse(): Response {
   }, { status: 503 });
 }
 
+function accessLegacyRouteMigrationResponse(): Response {
+  return jsonResponse({
+    code: ACCESS_LEGACY_ROUTE_MIGRATION_CODE,
+    message: "認証・メンバー機能は移行中のため、現在利用できません。"
+  }, { status: 503 });
+}
+
+function isLegacySupabaseProtectedRoute(pathname: string): boolean {
+  return (
+    /^\/api\/auth\/(?:login|refresh|logout)$/.test(pathname) ||
+    /^\/api\/workspaces\/[^/]+\/members(?:\/[^/]+)?$/.test(pathname)
+  );
+}
+
 async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  if (useAccessD1Routes(env) && isLegacySupabaseProtectedRoute(url.pathname)) {
+    return accessLegacyRouteMigrationResponse();
+  }
   if (DISABLED_CALLBACK_PATHS.has(url.pathname)) {
     if (request.method === "POST") return callbackMigrationResponse();
     return jsonResponse({

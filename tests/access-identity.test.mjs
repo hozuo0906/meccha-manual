@@ -163,7 +163,12 @@ test("identityのunknown/disabled/unavailableをactiveと取り違えない", as
 });
 
 test("合成entrypointは検証済みactorだけをroute判定とidentity lookupへ渡す", async () => {
-  configureJwks();
+  let fetchCount = 0;
+  configureJwks(async (url) => {
+    fetchCount += 1;
+    assert.equal(url, jwksUrl);
+    return Response.json({ keys: [publicJwk] });
+  });
   const calls = [];
   const repository = {
     async findByIssuerAndSubject(receivedIssuer, receivedSubject) {
@@ -185,6 +190,7 @@ test("合成entrypointは検証済みactorだけをroute判定とidentity lookup
   await assertIdentityErrorAsync(() => authenticateApplicationRequest(request("/api/session", unknownToken), env, unknownRepository), 403, "ACCESS_ACTOR_FORBIDDEN");
   const unavailableToken = await accessToken();
   await assertIdentityErrorAsync(() => authenticateApplicationRequest(request("/api/session", unavailableToken), env, { async findByIssuerAndSubject() { throw new Error("D1 failure"); } }), 503, "ACCESS_IDENTITY_UNAVAILABLE");
+  assert.equal(fetchCount, 1);
 });
 
 test("JWTなし、設定不備、JWKS取得障害は安全な401/503になる", async () => {

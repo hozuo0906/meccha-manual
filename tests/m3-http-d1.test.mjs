@@ -173,3 +173,23 @@ test("service tokenは対象業務routeへ昇格しない", async () => {
   assert.equal(response.status, 403);
   assert.equal((await response.json()).code, "ACCESS_ACTOR_FORBIDDEN");
 });
+
+test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止する", async () => {
+  let supabaseCalled = false;
+  globalThis.fetch = async () => {
+    supabaseCalled = true;
+    throw new Error("legacy route must not be called");
+  };
+  for (const path of [
+    "/api/auth/login",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+    "/api/workspaces/11111111-1111-4111-8111-111111111111/members",
+    "/api/workspaces/11111111-1111-4111-8111-111111111111/members/22222222-2222-4222-8222-222222222222"
+  ]) {
+    const response = await worker.fetch(request(path), env, {});
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "MANUAL_MIGRATION_IN_PROGRESS");
+  }
+  assert.equal(supabaseCalled, false);
+});
