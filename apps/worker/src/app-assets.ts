@@ -1692,426 +1692,2039 @@ function validWorkspaceMembersPayload(payload, workspaceId) {
       member && workspaceIdPattern.test(member.userId) &&
       typeof member.displayName === "string" && member.displayName.trim() &&
       validRoles.has(member.role) && validStatuses.has(member.status) &&
-      (member.joinenxÛ¾-¢G§²ÚîÆ­yÜ™ÙXX›HOOH[™Yš[™YBˆÈº*"9ë¥ù.+HƒBˆˆ‹›Y\™ÙXX›HÈ¹cëú ïHˆˆ¹.#ycëÈÃBˆÛÛœİÚXÚÔİ]HHİ]\ÏËœİ]H¹§*¹cå¹o¥ÈÃBˆÛÛœİİ[ÚXÚÜÈH\[Ùˆİ]\ÏËİ[ØÛİ[OOH›[X™\ˆˆÈ	Üİ]\Ëİ[ØÛİ[y.í˜ˆ¹.#y¦#ˆÃBƒBˆ™]\›ˆÃBˆˆÉÜ‹›[X™\ŸNˆ	Ü‹]H¹á(zhcŸXBˆ‹š[İ\›ˆ‹Bˆˆ‹BˆH9â­¹¡bÎˆ	Ü‹œİ]H¹.#y¦#ˆŸIÜ‹™˜YÈˆÈ˜YˆˆˆŸIÜ‹›Y\™ÙYÈˆÈY\™ÙYˆˆˆŸXBˆH˜\ÙNˆ	Ü‹˜˜\ÙOËœ™Yˆ¹.#y¦#ˆŸXBˆHXYˆ	Ü‹šXYËœ™Yˆ¹.#y¦#ˆŸXBˆHY\™ÙXX›Nˆ	ÛY\™ÙXX›SX™[XBˆHÚXÚÜÎˆ	ØÚXÚÔİ]_H
-	İİ[ÚXÚÜßJXBˆˆ‹Bˆ‹›Y\™ÙYBˆÈ¸àdøàk”¸àkøàfxàiøàjÛY\™Ùy®"8àoøàiøàfxà ˆƒBˆˆ¹k§ÛY\™ÙxàkÑÚ]X¹."¸àk¹oázh"ÚXÚøà xàë8àäøàéxàï8à [İÛ™\¹¢oú*£xà¤¹è®º*£xàeøài¸àbøà¢z(c8àa8ào¸àfxà ˆƒBˆK™š[\Š›ÛÛX[ŠKš›Ú[Š—ˆŠNÃBŸCBƒB™[˜İ[Ûˆ\ØÛÜ™™\]Y\İ\Š[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[ÛŠNˆÈYˆİš[™ÎÈ˜[YNˆİš[™ÈHÃBˆÛÛœİ\Ù\ˆH[\˜Xİ[Û‹›Y[X™\Ë\Ù\ˆÏÈ[\˜Xİ[Û‹\Ù\ÃBˆ™]\›ˆÃBˆYˆ\Ù\ËšY[šÛ›İÛˆ‹Bˆ˜[YNˆ\Ù\Ë™ÛØ˜[Û˜[YH\Ù\Ë\Ù\›˜[YH[šÛ›İÛˆƒBˆNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆYÚ]X”“X™[Ê[ˆ[‹İÛ™\ˆİš[™Ë™\Îˆİš[™Ë[X™\ˆ[X™\‹X™[Îˆİš[™Ö×JNˆ›ÛZ\ÙO›ÛÛX[ˆÃBˆHÃBˆ]ØZ]Ú]X\OÈX™[ÏÎˆ[šÛ›İÛ–×HOŠBˆ[‹BˆÜ™\ÜËÉÛİÛ™\ŸKÉÜ™\ßKÚ\ÜİY\ËÉÛ[X™\ŸKÛX™[ØBˆÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÈX™[ÈJCBˆKBˆYCBˆ
-NÃBˆ™]\›ˆYNÃBˆHØ]ÚÃBˆ™]\›ˆ˜[ÙNÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÜ™X]QÚ]X”ÛÛ[Y[
-[ˆ[‹İÛ™\ˆİš[™Ë™\Îˆİš[™Ë[X™\ˆ[X™\‹›ÙNˆİš[™ÊNˆ›ÛZ\ÙO›ÚYˆÃBˆ]ØZ]Ú]X\OÈ[İ\›Îˆİš[™ÈOŠBˆ[‹BˆÜ™\ÜËÉÛİÛ™\ŸKÉÜ™\ßKÚ\ÜİY\ËÉÛ[X™\ŸKØÛÛ[Y[ØBˆÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÈ›ÙHJCBˆKBˆYCBˆ
-NÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™\]Y\İÚ]X”“Y\™ÙJ[ˆ[‹[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[Û‹Xİ[ÛˆÚ]X”Xİ[Û‹ˆÚ]X”[™\]Y\İ™\ÜÛœÙJNˆ›ÛZ\ÙOİš[™ÏˆÃBˆÛÛœİÈİÛ™\‹™\ÈHH\ÜÙ\”™\ÜÚ]ÜP[İÙY
-[‹Xİ[ÛŠNÃBˆÛÛœİ™\]Y\İ\ˆH\ØÛÜ™™\]Y\İ\Š[\˜Xİ[ÛŠNÃBˆÛÛœİX™[\YYH]ØZ]YÚ]X”“X™[Ê[‹İÛ™\‹™\ËXİ[Û‹›[X™\‹ÑÒUP—ÓQT‘ÑWÔ‘TUQTÕÓP‘SJNÃBˆÛÛœİÛÛ[Y[›ÙHHÃBˆ‘\ØÛÜ™8àbøà¢xàç¸àï8à®9/§zh/8àc:*&:c,¸àexà£8ào¸àeøàgøà ˆ‹Bˆˆ‹BˆˆÈÈ™\]Y\İ\ˆ‹Bˆˆ‹BˆH\ØÛÜ™İ\Ù\ˆ	Ü™\]Y\İ\‹›˜[Y_XBˆH\ØÛÜ™İ\Ù\—ÚYˆ	Ü™\]Y\İ\‹šYXBˆHİZ[ÚYˆ	Ú[\˜Xİ[Û‹™İZ[ÚYÏÈ[šÛ›İÛˆŸXBˆHÚ[›™[ÚYˆ	Ú[\˜Xİ[Û‹˜Ú[›™[ÚYÏÈ[šÛ›İÛˆŸXBˆH[\˜Xİ[Û—ÚYˆ	Ú[\˜Xİ[Û‹šYÏÈ[šÛ›İÛˆŸXBˆˆ‹BˆˆÈÈ[\È‹Bˆˆ‹Bˆ‹H8àdøàk¸à¬øàèxàìøàâ8àkÛY\™Ùy/§zh/8àkº*&:c,¸àiøà`¸à¢¸à Q\ØÛÜ™8àç8à¯øàìøàh8àdxàiøàkÛY\™Ùxàeøào¸àføà¤øà ˆ‹Bˆ‹HÚ]X¹."¸àiùoázh"ÚXÚøà XÛÛ™›Xİ8à Y˜Y8à xàë8àäøàéxàï8à [İÛ™\¹¢oú*£xà¤¹è®º*£xàeøài¸àbøà¢[Y\™Ùxàeøào¸àfxà ˆƒBˆKš›Ú[Š—ˆŠNÃBƒBˆ]ØZ]Ü™X]QÚ]X”ÛÛ[Y[
-[‹İÛ™\‹™\ËXİ[Û‹›[X™\‹ÛÛ[Y[›ÙJNÃBƒBˆ™]\›ˆÃBˆˆÉÜ‹›[X™\ŸH8àjøàç¸àï8à®9/§zh/8à¤º*&:c,¸àeøào¸àeøàgøà ˜Bˆ‹š[İ\›ˆ‹BˆX™[\YYBˆÈ	ÑÒUP—ÓQT‘ÑWÔ‘TUQTÕÓP‘SWX™[8à¤¹.æ8àdxào¸àeøàgøà ˜Bˆˆ	ÑÒUP—ÓQT‘ÑWÔ‘TUQTÕÓP‘SWX™[9.æ9.#¸àkùi,y¥eøàeøào¸àeøàgøàc8à T¸à¬øàèxàìøàâ8àkù«¢øàeøào¸àeøàgøà ˜Bˆ¹k§ÛY\™ÙxàkÑÚ]X¹."¸àiùè®º*£xàeøài¸àbøà¢z(c8àa8ào¸àfxà ˆƒBˆK™š[\Š›ÛÛX[ŠKš›Ú[Š—ˆŠNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ›ØÙ\ÜÑ\ØÛÜ™ÛÛ\Û™[
-[ˆ[‹[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[ÛŠNˆ›ÛZ\ÙO›ÚYˆÃBˆÛÛœİXİ[ÛˆH\œÙQÚ]X”Xİ[ÛŠ[\˜Xİ[Û‹™]OË˜İ\İÛWÚY
-NÃBˆÛÛœİ^\İ[™ÈH]ØZ]™\Ù\™Q\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[Û‹šYÏÈ[
-NÃBƒBˆYˆ
-^\İ[™ÈOOHœ[™[™ÈŠHÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Û‹•\È\ØÛÜ™™\]Y\İ\È[™XYH™Z[™È›ØÙ\ÜÙYˆŠNÃBˆ™]\›ÃBˆCBƒBˆYˆ
-^\İ[™È	‰ˆ^\İ[™ÈOOH™˜Z[YŠHÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Û‹^\İ[™ÊNÃBˆ™]\›ÃBˆCBƒBˆHÃBˆÛÛœİˆH]ØZ]™]ÚÚ]X”[™\]Y\İ
-[‹Xİ[ÛŠNÃBƒBˆYˆ
-Xİ[Û‹šÚ[™OOHœİ]\ÈŠHÃBˆÛÛœİÈİÛ™\‹™\ÈHH\ÜÙ\”™\ÜÚ]ÜP[İÙY
-[‹Xİ[ÛŠNÃBˆÛÛœİİ]\ÈH]ØZ]™]ÚÚ]XÛÛXš[™Yİ]\Ê[‹İÛ™\‹™\Ë‹šXYËœÚJNÃBˆÛÛœİY\ÜØYÙHHÚ]X””İ]\Õ^
-‹İ]\ÊNÃBˆ]ØZ]ÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[Û‹šYÏÈ[Y\ÜØYÙJNÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Û‹Y\ÜØYÙJNÃBˆ™]\›ÃBˆCBƒBˆÛÛœİY\ÜØYÙHH]ØZ]™\]Y\İÚ]X”“Y\™ÙJ[‹[\˜Xİ[Û‹Xİ[Û‹ŠNÃBˆ]ØZ]ÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[Û‹šYÏÈ[Y\ÜØYÙJNÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Û‹Y\ÜØYÙJNÃBˆHØ]Ú
-\œ›ÜŠHÃBˆ]ØZ]ÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[Û‹šYÏÈ[™˜Z[YŠNÃBˆ›İÈ\œ›ÜÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™XY\ØÛÜ™›ÙJ™\]Y\İˆ™\]Y\İ
-Nˆ›ÛZ\ÙOİš[™ÏˆÃBˆ™]\›ˆ™XY›ÙU^[Z]Y
-Bˆ™\]Y\İBˆPVÑTĞÓÔ‘Ğ“ÑWĞ–UTËBˆ‘TĞÓÔ‘Ğ“ÑWÕÓ×ÓT‘ÑH‹Bˆ‘\ØÛÜ™™\]Y\İ›ÙH\ÈÛÈ\™ÙKˆƒBˆ
-NÃBŸCBƒB™[˜İ[Ûˆ[\˜Xİ[Û”™\^RÙ^J[\˜Xİ[Û’Yˆİš[™ÊNˆİš[™ÈÃBˆ™]\›ˆ\ØÛÜ™Z[\˜Xİ[Û‰Ú[\˜Xİ[Û’YXÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™\Ù\™Q\ØÛÜ™[\˜Xİ[ÛŠ[ˆ[‹[\˜Xİ[Û’Yˆİš[™È[
-Nˆ›ÛZ\ÙOİš[™È[ˆÃBˆYˆ
-Z[\˜Xİ[Û’Y
-H™]\›ˆ[ÃBƒBˆÛÛœİİÜ™HH™\]Z\™Q\ØÛÜ™[\˜Xİ[Û”İÜ™J[ŠNÃBˆÛÛœİÙ^HH[\˜Xİ[Û”™\^RÙ^J[\˜Xİ[Û’Y
-NÃBˆÛÛœİ^\İ[™ÈH]ØZ]İÜ™K™Ù]
-Ù^JNÃBˆYˆ
-^\İ[™ÊH™]\›ˆ^\İ[™ÎÃBƒBˆ]ØZ]İÜ™Kœ]
-Ù^Kœ[™[™È‹È^\˜][Û•ˆTĞÓÔ‘Ô‘TVWÕÔÑPÓÓ‘ÈJNÃBˆ™]\›ˆ[ÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[ˆ[‹[\˜Xİ[Û’Yˆİš[™È[˜[YNˆİš[™ÊNˆ›ÛZ\ÙO›ÚYˆÃBˆYˆ
-Z[\˜Xİ[Û’Y
-H™]\›ÃBƒBˆÛÛœİİÜ™HH™\]Z\™Q\ØÛÜ™[\˜Xİ[Û”İÜ™J[ŠNÃBˆ]ØZ]İÜ™Kœ]
-[\˜Xİ[Û”™\^RÙ^J[\˜Xİ[Û’Y
-K˜[YKÈ^\˜][Û•ˆTĞÓÔ‘Ô‘TVWÕÔÑPÓÓ‘ÈJNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[Û‹ÛÛ[ˆİš[™ÊNˆ›ÛZ\ÙO›ÚYˆÃBˆYˆ
-Z[\˜Xİ[Û‹˜\XØ][Û—ÚYZ[\˜Xİ[Û‹ÚÙ[ŠHÃBˆ›İÈ™]È\\œ›ÜŠL‘TĞÓÔ‘Ñ“ÓÕÕTĞÓÓ•VÓRTÔÒS‘È‹‘\ØÛÜ™›Ûİİ\ÛÛ^\ÈZ\ÜÚ[™ËˆŠNÃBˆCBƒBˆÛÛœİ™\ÜÛœÙHH]ØZ]™]Ú
-BˆÎ‹ËÙ\ØÛÜ™˜ÛÛKØ\KİŒLİÙXšÛÚÜËÉÚ[\˜Xİ[Û‹˜\XØ][Û—ÚYKÉÚ[\˜Xİ[Û‹ÚÙ[ŸKÛY\ÜØYÙ\ËĞÜšYÚ[˜[BˆÃBˆY]Ùˆ”UÒ‹BˆXY\œÎˆÃBˆ˜ÛÛ[]\Hˆ˜\XØ][Û‹ÚœÛÛˆƒBˆKBˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÈÛÛ[JCBˆCBˆ
-NÃBƒBˆYˆ
-\™\ÜÛœÙK›ÚÊHÃBˆ›İÈ™]È\\œ›ÜŠ™\ÜÛœÙKœİ]\Ë‘TĞÓÔ‘Ñ“ÓÕÕTÑRSQ‹‘\ØÛÜ™›Ûİİ\˜Z[YˆŠNÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ›ØÙ\ÜÑ\ØÛÜ™\ÚÊ[ˆ[‹[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[Û‹ÛÛ[X[™ˆ\ØÛÜ™\ÚĞÛÛ[X[™
-Nˆ›ÛZ\ÙO›ÚYˆÃBˆHÃBˆÛÛœİ\ÜİYU\›H]ØZ]Ü™X]QÚ]X’\ÜİYJ[‹ÛÛ[X[™
-NÃBˆ]ØZ]ÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[‹ÛÛ[X[™š[\˜Xİ[Û’Y\ÜİYU\›
-NÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Û‹Ú]Xˆ\ÜİYHÜ™X]Yˆ	Ú\ÜİYU\›X
-NÃBˆHØ]ÚÃBˆ]ØZ]ÛÛ\]Q\ØÛÜ™[\˜Xİ[ÛŠ[‹ÛÛ[X[™š[\˜Xİ[Û’Y™˜Z[YŠNÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Û‹‘˜Z[YÈÜ™X]HÚ]Xˆ\ÜİYKˆÚXÚÈÛÜšÙ\ˆÙÜËˆŠNÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[Û‹ÛÛ[ˆİš[™ÊNˆ›ÛZ\ÙO›ÚYˆÃBˆHÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙJ[\˜Xİ[Û‹ÛÛ[
-NÃBˆHØ]ÚÃBˆËÈ\ØÛÜ™›Ûİİ\˜Z[\™\ÈÚİ[›İXZÙHH[š]X[[\˜Xİ[Ûˆ[Y[İ]ƒBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ›ØÙ\ÜÑ\ØÛÜ™[\˜Xİ[ÛŠ[ˆ[‹[\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[ÛŠNˆ›ÛZ\ÙO›ÚYˆÃBˆHÃBˆ\ÜÙ\\ØÛÜ™[İÙY
-[\˜Xİ[Û‹[ŠNÃBƒBˆYˆ
-[\˜Xİ[Û‹\HOOHTĞÓÔ‘ÒS•TPÕSÓ—ÕTWÓQTÔĞQÑWĞÓÓTÓ‘S•
-HÃBˆ]ØZ]›ØÙ\ÜÑ\ØÛÜ™ÛÛ\Û™[
-[‹[\˜Xİ[ÛŠNÃBˆ™]\›ÃBˆCBƒBˆÛÛœİÛÛ[X[™H\œÙQ\ØÛÜ™\ÚĞÛÛ[X[™
-[\˜Xİ[ÛŠNÃBˆÛÛœİ^\İ[™ÈH]ØZ]™\Ù\™Q\ØÛÜ™[\˜Xİ[ÛŠ[‹ÛÛ[X[™š[\˜Xİ[Û’Y
-NÃBƒBˆYˆ
-^\İ[™ÈOOHœ[™[™ÈŠHÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Û‹•\È\ØÛÜ™™\]Y\İ\È[™XYH™Z[™È›ØÙ\ÜÙYˆŠNÃBˆ™]\›ÃBˆCBƒBˆYˆ
-^\İ[™È	‰ˆ^\İ[™ÈOOH™˜Z[YŠHÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Û‹Ú]Xˆ\ÜİYH[™XYH^\İÎˆ	Ù^\İ[™ßX
-NÃBˆ™]\›ÃBˆCBƒBˆ]ØZ]›ØÙ\ÜÑ\ØÛÜ™\ÚÊ[‹[\˜Xİ[Û‹ÛÛ[X[™
-NÃBˆHØ]Ú
-\œ›ÜŠHÃBˆÛÛœİY\ÜØYÙHH\œ›Üˆ[œİ[˜Ù[Ùˆ\\œ›Üˆ	‰ˆ\œ›Ü‹œİ]\ÈLBˆÈ\œ›Ü‹›Y\ÜØYÙCBˆˆ‘˜Z[YÈ›ØÙ\ÜÈ\ØÛÜ™™\]Y\İˆÚXÚÈÛÜšÙ\ˆÙÜËˆÃBˆ]ØZ]\]Q\ØÛÜ™ÜšYÚ[˜[™\ÜÛœÙTØY™J[\˜Xİ[Û‹Y\ÜØYÙJNÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ\ØÛÜ™[\˜Xİ[ÛœÊ™\]Y\İˆ™\]Y\İ[ˆ[‹İÎˆ^Xİ][ÛÛÛ^
-Nˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕŠHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈÛÙNˆ“QUÑÓ“ÕĞSÕÑQˆKÈİ]\ÎˆHJNÃBˆCBƒBˆÛÛœİ›ÙU^H]ØZ]™XY\ØÛÜ™›ÙJ™\]Y\İ
-NÃBˆ]ØZ]™\šYQ\ØÛÜ™ÚYÛ˜]\™J™\]Y\İ[‹›ÙU^
-NÃBƒBˆ][\˜Xİ[Ûˆ\ØÛÜ™[\˜Xİ[ÛÃBˆHÃBˆ[\˜Xİ[ÛˆH”ÓÓ‹œ\œÙJ›ÙU^
-H\È\ØÛÜ™[\˜Xİ[ÛÃBˆHØ]ÚÃBˆ™]\›ˆ\ØÛÜ™™\ÜÛœÙJ’[˜[Y\ØÛÜ™™\]Y\İ›ÙKˆ‹
-NÃBˆCBˆYˆ
-[\˜Xİ[Û‹\HOOHTĞÓÔ‘ÒS•TPÕSÓ—ÕTWÔS‘ÊHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈ\NˆTĞÓÔ‘Ô‘TÔÓ”ÑWÕTWÔÓ‘ÈJNÃBˆCBƒBˆYˆ
-Bˆ[\˜Xİ[Û‹\HOOHTĞÓÔ‘ÒS•TPÕSÓ—ÕTWĞTPĞUSÓ—ĞÓÓSPS‘	‰ƒBˆ[\˜Xİ[Û‹\HOOHTĞÓÔ‘ÒS•TPÕSÓ—ÕTWÓQTÔĞQÑWĞÓÓTÓ‘S•Bˆ
-HÃBˆ™]\›ˆ\ØÛÜ™™\ÜÛœÙJ•[œİ\ÜY\ØÛÜ™[\˜Xİ[Ûˆ\Kˆ‹
-NÃBˆCBƒBˆYˆ
-Xİ
-HÃBˆ]ØZ]›ØÙ\ÜÑ\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[ÛŠNÃBˆ™]\›ˆ\ØÛÜ™™\ÜÛœÙJ‘\ØÛÜ™™\]Y\İ›ØÙ\ÜÚ[™Èš[š\ÚYˆŠNÃBˆCBƒBˆİØZ][[
-›ØÙ\ÜÑ\ØÛÜ™[\˜Xİ[ÛŠ[‹[\˜Xİ[ÛŠJNÃBˆ™]\›ˆ\ØÛÜ™Y™\œ™Y™\ÜÛœÙJ
-NÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙNˆ™\ÜÛœÙKX^]\ÈHPVÔÕTPTÑWÒ”ÓÓ—Ğ–UTÊNˆ›ÛZ\ÙO[šÛ›İÛˆÃBˆÛÛœİÛÛ[[™İH™\ÜÛœÙKšXY\œË™Ù]
-˜ÛÛ[[[™İŠNÃBˆYˆ
-ÛÛ[[™İ	‰ˆ[X™\ŠÛÛ[[™İ
-HˆX^]\ÊHÃBˆ›İÈ™]È\œ›ÜŠ”İ\X˜\ÙH™\ÜÛœÙH›ÙH\ÈÛÈ\™ÙKˆŠNÃBˆCBˆYˆ
-\™\ÜÛœÙK˜›ÙJH™]\›ˆ[ÃBƒBˆÛÛœİ™XY\ˆH™\ÜÛœÙK˜›ÙK™Ù]™XY\Š
-NÃBˆÛÛœİÚ[šÜÎˆZ[\œ˜^V×HH×NÃBˆ]İ[]\ÈHÃBˆHÃBˆÚ[H
-YJHÃBˆÛÛœİÈÛ™K˜[YHHH]ØZ]™XY\‹œ™XY
+      (member.joinedAt === null || (typeof member.joinedAt === "string" && !Number.isNaN(Date.parse(member.joinedAt))))
+    );
+}
 
-NÃBˆYˆ
-Û™JHœ™XZÎÃBˆİ[]\È
-ÏH˜[YK˜]S[™İÃBˆYˆ
-İ[]\ÈˆX^]\ÊHÃBˆ]ØZ]™XY\‹˜Ø[˜Ù[
-œ™\ÜÛœÙH›ÙHÛÈ\™ÙHŠK˜Ø]Ú
+function memberMessageHtml(state) {
+  if (!state?.message) return '<div id="members-message" class="error-box" role="status" aria-live="polite" tabindex="-1"></div>';
+  const className = state.messageKind === "error" ? "error-box show" :
+    state.messageKind === "warning" ? "warning-box show" : "notice-box show";
+  const role = state.messageKind === "error" ? "alert" : "status";
+  return '<div id="members-message" class="' + className + '" role="' + role + '" aria-live="' + (state.messageKind === "error" ? "assertive" : "polite") + '" aria-atomic="true" tabindex="-1">' + escapeHtml(state.message) + '</div>';
+}
+
+function clearExpiredWorkspaceJoinCode() {
+  if (!workspaceJoinCodeState.joinCode || !workspaceJoinCodeState.expiresAt) return false;
+  if (Date.parse(workspaceJoinCodeState.expiresAt) > Date.now()) return false;
+  workspaceJoinCodeState = {
+    status: "expired",
+    joinCode: "",
+    expiresAt: "",
+    message: "å‚åŠ ã‚³ãƒ¼ãƒ‰ã®æœ‰åŠ¹æœŸé™ãŒåˆ‡ã‚Œã¾ã—ãŸã€‚æ–°ã—ã„ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œã—ã¦ãã ã•ã„ã€‚"
+  };
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  return true;
+}
+
+function scheduleWorkspaceJoinCodeExpiry() {
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  if (!workspaceJoinCodeState.joinCode || !workspaceJoinCodeState.expiresAt) return;
+  const delay = Math.max(0, Date.parse(workspaceJoinCodeState.expiresAt) - Date.now());
+  workspaceJoinCodeExpiryTimer = setTimeout(() => {
+    workspaceJoinCodeExpiryTimer = null;
+    if (clearExpiredWorkspaceJoinCode()) renderShell(currentSession, "", "notice", "join-code-message");
+  }, delay);
+}
+
+function renderWorkspaceJoinCodeIssuer() {
+  clearExpiredWorkspaceJoinCode();
+  const state = workspaceJoinCodeState;
+  const issuing = state.status === "issuing";
+  const code = state.joinCode
+    ? '<div class="notice-box show" role="status"><p><strong>å‚åŠ ã‚³ãƒ¼ãƒ‰</strong></p><p><code id="workspace-join-code">' + escapeHtml(state.joinCode) + '</code></p><p class="muted">æœ‰åŠ¹æœŸé™ï¼š' + escapeHtml(new Date(state.expiresAt).toLocaleString("ja-JP")) + '</p><button id="copy-join-code-button" class="secondary-button compact-button" type="button">ã‚³ãƒ¼ãƒ‰ã‚’ã‚³ãƒ”ãƒ¼</button></div>'
+    : '';
+  const message = state.message
+    ? '<div id="join-code-message" class="' + (state.status === "error" ? 'error-box show' : state.status === "expired" ? 'warning-box show' : 'notice-box show') + '" role="' + (state.status === "error" ? 'alert' : 'status') + '" aria-live="' + (state.status === "error" ? 'assertive' : 'polite') + '" aria-atomic="true" tabindex="-1">' + escapeHtml(state.message) + '</div>'
+    : '<div id="join-code-message" class="notice-box" role="status" tabindex="-1"></div>';
+  return '<section class="section join-code-section" aria-labelledby="join-code-heading" aria-describedby="join-code-warning"' + (issuing ? ' aria-busy="true"' : '') + '>' +
+    '<div class="section-header"><div><h2 id="join-code-heading">è‡ªåˆ†ã®å‚åŠ ã‚³ãƒ¼ãƒ‰</h2><p class="muted">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¸å‚åŠ ã™ã‚‹ã¨ãã«ç™ºè¡Œã—ã¾ã™ã€‚ã‚³ãƒ¼ãƒ‰ã¯10åˆ†é–“ãƒ»1å›ã ã‘æœ‰åŠ¹ã§ã™ã€‚</p></div></div>' +
+    '<div id="join-code-warning" class="warning-box show"><strong>å‚åŠ ã‚³ãƒ¼ãƒ‰ã¯ç§˜å¯†æƒ…å ±ã§ã™ã€‚</strong>ã‚³ãƒ¼ãƒ‰ã‚’å—ã‘å–ã£ãŸç®¡ç†è€…ã¯ã€ãã®ç®¡ç†è€…ãŒç®¡ç†ã™ã‚‹ä»»æ„ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¸ã€ã‚ãªãŸã‚’é¸æŠã—ãŸæ¨©é™ã§1å›è¿½åŠ ã§ãã¾ã™ã€‚å‚åŠ å…ˆã‚’ç¢ºèªã—ã€ä¿¡é ¼ã§ãã‚‹ç®¡ç†è€…1äººã¸å®‰å…¨ãª1å¯¾1ã®æ–¹æ³•ã§æ¸¡ã—ã¦ãã ã•ã„ã€‚ã‚°ãƒ«ãƒ¼ãƒ—ãƒãƒ£ãƒƒãƒˆã‚„å…±æœ‰ãƒãƒ£ãƒ³ãƒãƒ«ã«ã¯é€ã‚‰ãªã„ã§ãã ã•ã„ã€‚</div>' +
+    message + code +
+    '<button id="issue-join-code-button" class="secondary-button" type="button"' + (issuing ? ' disabled' : '') + '>' + (issuing ? 'ç™ºè¡Œä¸­' : state.joinCode ? 'æ–°ã—ã„ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œ' : 'å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œ') + '</button>' +
+    (state.joinCode ? '<p class="muted">æ–°ã—ãç™ºè¡Œã™ã‚‹ã¨ã€ç¾åœ¨ã®ã‚³ãƒ¼ãƒ‰ã¯ç„¡åŠ¹ã«ãªã‚Šã¾ã™ã€‚</p>' : '') +
+  '</section>';
+}
+
+function workspaceMemberRows(state) {
+  const canManage = state.currentUserRole === "owner" || state.currentUserRole === "admin";
+  const saving = state.status === "saving";
+  return state.members.map((member) => {
+    const stopControl = member.userId === currentSession?.user?.id
+      ? '<span class="muted">è‡ªåˆ†è‡ªèº«ã®åˆ©ç”¨åœæ­¢ã¯ã§ãã¾ã›ã‚“</span>'
+      : '<button id="member-stop-' + escapeHtml(member.userId) + '" class="danger-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'ã•ã‚“ã®</span>åˆ©ç”¨ã‚’åœæ­¢</button>';
+    const roleControl = canManage && member.role !== "owner" && member.status === "active"
+      ? '<div class="member-actions">' +
+          '<label class="visually-hidden" for="member-role-' + escapeHtml(member.userId) + '">' + escapeHtml(member.displayName) + 'ã•ã‚“ã®æ¨©é™</label>' +
+          '<select id="member-role-' + escapeHtml(member.userId) + '" class="inline-select" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '>' +
+            ['admin', 'editor', 'viewer'].map((role) =>
+              '<option value="' + role + '"' + (member.role === role ? ' selected' : '') + '>' + escapeHtml(workspaceRoleLabels[role]) + '</option>'
+            ).join('') +
+          '</select>' +
+          '<button id="member-save-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'ã•ã‚“ã®</span>æ¨©é™ã‚’ä¿å­˜</button>' +
+          stopControl +
+        '</div>'
+      : '<span class="muted">' + (member.role === "owner" ? 'å°‚ç”¨ã®ç§»ç®¡æ‰‹ç¶šããŒå¿…è¦ã§ã™' : 'å¤‰æ›´ã§ãã¾ã›ã‚“') + '</span>';
+    return '<tr>' +
+      '<td><div class="workspace-name">' + escapeHtml(member.displayName) + '</div>' +
+        (member.userId === currentSession?.user?.id ? '<span class="muted">ã‚ãªãŸ</span>' : '') + '</td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceRoleLabels[member.role] || "æ¨©é™ä¸æ˜") + '</span></td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceMemberStatusLabels[member.status] || "çŠ¶æ…‹ä¸æ˜") + '</span></td>' +
+      '<td>' + roleControl + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function renderWorkspaceMembers(currentWorkspace) {
+  if (memberMigrationInProgress()) {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2></div>' +
+      '<div class="warning-box show" role="status" aria-live="polite">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†ã¯ç§»è¡Œä¸­ã®ãŸã‚ã€ç¾åœ¨ã¯åˆ©ç”¨ã§ãã¾ã›ã‚“ã€‚</div>' +
+    '</section>';
+  }
+  if (!currentWorkspace || !workspaceMembersState) {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2></div>' +
+      '<div class="empty">åˆ©ç”¨ä¸­ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é¸æŠã™ã‚‹ã¨ãƒ¡ãƒ³ãƒãƒ¼ã‚’ç¢ºèªã§ãã¾ã™ã€‚</div>' +
+    '</section>';
+  }
+  const state = workspaceMembersState;
+  if (state.status === "idle") {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><div><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2><p class="muted">ç¾åœ¨ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ï¼š' + escapeHtml(currentWorkspace.name) + '</p></div></div>' +
+      '<p>æ‰€å±ãƒ¡ãƒ³ãƒãƒ¼ã¨æ¨©é™ã‚’ç¢ºèªã—ã¾ã™ã€‚</p>' +
+      '<button id="members-reload-button" class="secondary-button" type="button">ãƒ¡ãƒ³ãƒãƒ¼ä¸€è¦§ã‚’è¡¨ç¤º</button>' +
+    '</section>';
+  }
+  if (state.status === "loading") {
+    return '<section class="section members-section" aria-labelledby="members-heading" aria-busy="true">' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2></div>' +
+      '<div id="members-loading-status" class="empty" role="status" aria-live="polite" aria-atomic="true" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ã‚’èª­ã¿è¾¼ã‚“ã§ã„ã¾ã™ã€‚</div>' +
+    '</section>';
+  }
+  if (state.status === "error") {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2></div>' +
+      memberMessageHtml(state) +
+      '<button id="members-reload-button" class="secondary-button" type="button">ã‚‚ã†ä¸€åº¦èª­ã¿è¾¼ã‚€</button>' +
+    '</section>';
+  }
+  const canManage = state.currentUserRole === "owner" || state.currentUserRole === "admin";
+  const saving = state.status === "saving";
+  const rows = workspaceMemberRows(state);
+  const addDraftJoinCode = escapeHtml(state.addDraftJoinCode || "");
+  const addJoinCodeError = state.addJoinCodeError || "";
+  const roleHelp = '<p id="member-role-help" class="muted permission-note">ç®¡ç†è€…ï¼šãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†ã¨è¨­å®šãŒã§ãã¾ã™ã€‚ç·¨é›†è€…ï¼šæ‰‹é †æ›¸ã‚’ä½œæˆãƒ»ç·¨é›†ã§ãã¾ã™ã€‚é–²è¦§è€…ï¼šæ‰‹é †æ›¸ã®é–²è¦§ã ã‘ãŒã§ãã¾ã™ã€‚</p>';
+  return '<section class="section members-section" aria-labelledby="members-heading"' + (saving ? ' aria-busy="true"' : '') + '>' +
+    '<div class="section-header"><div><h2 id="members-heading" tabindex="-1">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</h2><p class="muted">ç¾åœ¨ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ï¼š' + escapeHtml(currentWorkspace.name) + '</p></div>' +
+      '<div class="member-header-actions"><span class="badge">' + state.members.length + 'ä»¶</span><button id="members-reload-button" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '>ä¸€è¦§ã‚’æ›´æ–°</button></div></div>' +
+    memberMessageHtml(state) +
+    (canManage ? roleHelp : '') +
+    (state.members.length
+      ? '<div class="table-scroll" role="region" tabindex="0" aria-label="ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ãƒ¡ãƒ³ãƒãƒ¼ä¸€è¦§"><table class="table"><caption class="visually-hidden">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ãƒ¡ãƒ³ãƒãƒ¼ä¸€è¦§</caption><thead><tr><th scope="col">åå‰</th><th scope="col">æ¨©é™</th><th scope="col">çŠ¶æ…‹</th><th scope="col">æ“ä½œ</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty">ãƒ¡ãƒ³ãƒãƒ¼ãŒã„ã¾ã›ã‚“ã€‚</div>') +
+    (canManage
+      ? '<form id="member-add-form" class="member-add-form" novalidate>' +
+          '<h3>å‚åŠ ã‚³ãƒ¼ãƒ‰ã§ãƒ¡ãƒ³ãƒãƒ¼ã‚’è¿½åŠ </h3>' +
+          '<p class="muted">è¿½åŠ ã™ã‚‹æœ¬äººãŒç™ºè¡Œã—ãŸ10åˆ†é–“æœ‰åŠ¹ã®å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚ã‚³ãƒ¼ãƒ‰ã¯æˆåŠŸæ™‚ã«1å›ã ã‘ä½¿ç”¨ã•ã‚Œã¾ã™ã€‚</p>' +
+          '<div class="member-add-grid">' +
+            '<div class="field"><label for="member-join-code">å‚åŠ ã‚³ãƒ¼ãƒ‰</label><input id="member-join-code" name="memberJoinCode" type="text" autocomplete="off" spellcheck="false" data-max-normalized-length="47" required value="' + addDraftJoinCode + '"' + (addJoinCodeError ? ' aria-invalid="true" aria-describedby="member-join-code-error"' : '') + (saving ? ' disabled' : '') + '><span id="member-join-code-error" class="field-error" role="alert" aria-live="assertive" aria-atomic="true"' + (addJoinCodeError ? '' : ' hidden') + '>' + escapeHtml(addJoinCodeError) + '</span></div>' +
+            '<div class="field"><label for="member-role">æ¨©é™</label><select id="member-role" name="memberRole" aria-describedby="member-role-help"' + (saving ? ' disabled' : '') + '><option value="editor">ç·¨é›†è€…</option><option value="viewer">é–²è¦§è€…</option><option value="admin">ç®¡ç†è€…</option></select></div>' +
+            '<button class="primary-button" type="submit"' + (saving ? ' disabled' : '') + '>' + (saving ? 'ä¿å­˜ä¸­' : 'ãƒ¡ãƒ³ãƒãƒ¼ã‚’è¿½åŠ ') + '</button>' +
+          '</div>' +
+        '</form>'
+      : '<p class="muted permission-note">ç¾åœ¨ã®æ¨©é™ã¯ã€Œ' + escapeHtml(workspaceRoleLabels[state.currentUserRole]) + 'ã€ã§ã™ã€‚ãƒ¡ãƒ³ãƒãƒ¼ã®å¤‰æ›´ã¯ç®¡ç†è²¬ä»»è€…ã¾ãŸã¯ç®¡ç†è€…ã¸ä¾é ¼ã—ã¦ãã ã•ã„ã€‚</p>') +
+  '</section>';
+}
+
+async function loadWorkspaceMembers(workspaceId, options = {}) {
+  const userId = currentSession?.user?.id;
+  if (!userId || currentWorkspaceSelection?.workspaceId !== workspaceId) return;
+  const requestGeneration = sessionGeneration;
+  const requestSequence = ++workspaceMemberRequestSequence;
+  const previousMembers = workspaceMembersState?.workspaceId === workspaceId ? workspaceMembersState.members : [];
+  workspaceMembersState = {
+    userId,
+    workspaceId,
+    status: "loading",
+    currentUserRole: workspaceMembersState?.currentUserRole || null,
+    members: previousMembers,
+    message: "",
+    addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+    addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+  };
+  if (!options.alreadyRendered) renderShell(currentSession, "", "notice", "members-loading-status");
+  try {
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/members");
+    if (
+      requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence ||
+      currentSession?.user?.id !== userId || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) return;
+    if (!validWorkspaceMembersPayload(payload, workspaceId)) {
+      throw new AppRequestError("ãƒ¡ãƒ³ãƒãƒ¼ä¸€è¦§ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦ã€ã‚‚ã†ä¸€åº¦ãŠè©¦ã—ãã ã•ã„ã€‚", 502, "WORKSPACE_MEMBERS_RESPONSE_INVALID");
+    }
+    workspaceMembersState = {
+      userId,
+      workspaceId,
+      status: "loaded",
+      currentUserRole: payload.currentUserRole,
+      members: payload.members,
+      message: options.message || "",
+      messageKind: options.messageKind || "notice",
+      addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+      addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+    };
+    if (
+      pendingWorkspaceMemberMutation?.userId === userId &&
+      pendingWorkspaceMemberMutation.workspaceId === workspaceId
+    ) {
+      pendingWorkspaceMemberMutation = null;
+    }
+    renderShell(currentSession, "", "notice", options.focusId || null);
+  } catch (error) {
+    if (requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence) return;
+    if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    const preserveKnownRole = error.status === 0 || error.status === 429 || error.status >= 500;
+    workspaceMembersState = {
+      userId,
+      workspaceId,
+      status: "error",
+      currentUserRole: preserveKnownRole ? workspaceMembersState?.currentUserRole || null : null,
+      members: [],
+      message: error.status === 404
+        ? "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¸ã®æ‰€å±ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚ä¸€è¦§ã‚’æ›´æ–°ã—ã¦ãã ã•ã„ã€‚"
+        : error.message,
+      messageKind: "error",
+      addDraftJoinCode: workspaceMembersState?.addDraftJoinCode || "",
+      addJoinCodeError: workspaceMembersState?.addJoinCodeError || ""
+    };
+    renderShell(currentSession, "", "notice", "members-message");
+  }
+}
+
+async function addWorkspaceMember(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const workspaceId = workspaceMembersState?.workspaceId;
+  const joinCodeField = form.elements.memberJoinCode;
+  const roleField = form.elements.memberRole;
+  const joinCode = String(joinCodeField?.value || "").trim();
+  workspaceMembersState.addDraftJoinCode = String(joinCodeField?.value || "");
+  if (!/^mmj_[A-Za-z0-9_-]{43}$/.test(joinCode)) {
+    workspaceMembersState.addJoinCodeError = "å‚åŠ ã‚³ãƒ¼ãƒ‰ã®å½¢å¼ã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚";
+    workspaceMembersState.message = "å…¥åŠ›å†…å®¹ã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚";
+    workspaceMembersState.messageKind = "error";
+    renderShell(currentSession, "", "notice", "member-join-code");
+    return;
+  }
+  workspaceMembersState.addJoinCodeError = "";
+  if (roleField.value === "admin" && !confirm("ç®¡ç†è€…ã¯ãƒ¡ãƒ³ãƒãƒ¼ã®è¿½åŠ ãƒ»æ¨©é™å¤‰æ›´ãƒ»åˆ©ç”¨åœæ­¢ã‚’è¡Œãˆã¾ã™ã€‚ã“ã®æ¨©é™ã§è¿½åŠ ã—ã¾ã™ã‹ï¼Ÿ")) return;
+  // A join code is a bearer secret. Remove it from the DOM/state before any
+  // network result, including ambiguous or failed redemption.
+  workspaceMembersState.addDraftJoinCode = "";
+  await changeWorkspaceMember(
+    workspaceId,
+    "/api/workspaces/" + encodeURIComponent(workspaceId) + "/members",
+    { method: "POST", body: JSON.stringify({ joinCode, role: roleField.value }) },
+    "ãƒ¡ãƒ³ãƒãƒ¼ã‚’è¿½åŠ ã—ã¾ã—ãŸã€‚"
+  );
+}
+
+function clearWorkspaceMemberJoinCodeError(field) {
+  if (!workspaceMembersState) return;
+  workspaceMembersState.addDraftJoinCode = String(field?.value || "");
+  workspaceMembersState.addJoinCodeError = "";
+  field?.removeAttribute?.("aria-invalid");
+  field?.removeAttribute?.("aria-describedby");
+  const error = document.getElementById("member-join-code-error");
+  if (error) {
+    error.textContent = "";
+    error.hidden = true;
+  }
+}
+
+function limitWorkspaceMemberJoinCodeLength(field) {
+  const rawValue = String(field?.value || "");
+  const normalizedValue = rawValue.trim();
+  if (normalizedValue.length <= 47) return false;
+  const leadingWhitespace = rawValue.match(/^\\s*/u)?.[0] || "";
+  const trailingWhitespace = rawValue.match(/\\s*$/u)?.[0] || "";
+  field.value = leadingWhitespace + normalizedValue.slice(0, 47) + trailingWhitespace;
+  if (workspaceMembersState) {
+    workspaceMembersState.addDraftJoinCode = field.value;
+    workspaceMembersState.addJoinCodeError = "å‚åŠ ã‚³ãƒ¼ãƒ‰ã¯47æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚";
+  }
+  field.setAttribute?.("aria-invalid", "true");
+  field.setAttribute?.("aria-describedby", "member-join-code-error");
+  const error = document.getElementById("member-join-code-error");
+  if (error) {
+    error.textContent = "å‚åŠ ã‚³ãƒ¼ãƒ‰ã¯47æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚";
+    error.hidden = false;
+    error.setAttribute?.("role", "alert");
+    error.setAttribute?.("aria-live", "assertive");
+    error.setAttribute?.("aria-atomic", "true");
+  }
+  return true;
+}
+
+async function finalizeWorkspaceJoinCodeIssuance(issuance) {
+  if (
+    pendingWorkspaceJoinCodeIssuance !== issuance ||
+    issuance.authReconciled !== true ||
+    currentSession?.user?.id !== issuance.userId
+  ) {
+    if (pendingWorkspaceJoinCodeIssuance !== issuance) issuance.payload = null;
+    return;
+  }
+  pendingWorkspaceJoinCodeIssuance = null;
+  if (issuance.error) {
+    if (isTerminalSessionError(issuance.error)) {
+      workspaceJoinCodeState = { status: "idle", joinCode: "", expiresAt: "", message: "" };
+      await loadSession();
+      return;
+    }
+    workspaceJoinCodeState = { status: "error", joinCode: "", expiresAt: "", message: issuance.error.message };
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  const payload = issuance.payload;
+  issuance.payload = null;
+  if (
+    !payload || typeof payload.joinCode !== "string" || !/^mmj_[A-Za-z0-9_-]{43}$/.test(payload.joinCode) ||
+    typeof payload.expiresAt !== "string" || Number.isNaN(Date.parse(payload.expiresAt))
+  ) {
+    workspaceJoinCodeState = {
+      status: "error",
+      joinCode: "",
+      expiresAt: "",
+      message: "å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚ã‚‚ã†ä¸€åº¦ç™ºè¡Œã™ã‚‹ã¨ã€ä»¥å‰ã®ã‚³ãƒ¼ãƒ‰ã¯ç„¡åŠ¹ã«ãªã‚Šã¾ã™ã€‚"
+    };
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  workspaceJoinCodeState = {
+    status: "ready",
+    joinCode: payload.joinCode,
+    expiresAt: payload.expiresAt,
+    message: "å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œã—ã¾ã—ãŸã€‚å‚åŠ ã—ãŸã„ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã®ä¿¡é ¼ã§ãã‚‹ç®¡ç†è€…ã¸ã€1å¯¾1ã§æ¸¡ã—ã¦ãã ã•ã„ã€‚"
+  };
+  scheduleWorkspaceJoinCodeExpiry();
+  renderShell(currentSession, "", "notice", "join-code-message");
+}
+
+async function issueWorkspaceJoinCode() {
+  if (workspaceJoinCodeState.status === "issuing") return;
+  if (
+    workspaceJoinCodeState.joinCode &&
+    !confirm("æ–°ã—ã„å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œã™ã‚‹ã¨ã€ç¾åœ¨ã®ã‚³ãƒ¼ãƒ‰ã¯ã™ãã«ç„¡åŠ¹ã«ãªã‚Šã¾ã™ã€‚æ–°ã—ãç™ºè¡Œã—ã¾ã™ã‹ï¼Ÿ")
+  ) return;
+  const userId = currentSession?.user?.id;
+  if (!userId) return;
+  const issuance = { userId, settled: false, authReconciled: true, payload: null, error: null };
+  pendingWorkspaceJoinCodeIssuance = issuance;
+  if (workspaceJoinCodeExpiryTimer !== null) clearTimeout(workspaceJoinCodeExpiryTimer);
+  workspaceJoinCodeExpiryTimer = null;
+  workspaceJoinCodeState = { status: "issuing", joinCode: "", expiresAt: "", message: "å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ç™ºè¡Œã—ã¦ã„ã¾ã™ã€‚" };
+  renderShell(currentSession, "", "notice", "join-code-message");
+  try {
+    issuance.payload = await requestJson("/api/member-join-code", { method: "POST", body: "{}" });
+  } catch (error) {
+    issuance.error = error;
+  }
+  issuance.settled = true;
+  await finalizeWorkspaceJoinCodeIssuance(issuance);
+}
+
+async function copyWorkspaceJoinCode() {
+  if (clearExpiredWorkspaceJoinCode()) {
+    renderShell(currentSession, "", "notice", "join-code-message");
+    return;
+  }
+  const joinCode = workspaceJoinCodeState.joinCode;
+  if (!joinCode) return;
+  try {
+    await navigator.clipboard.writeText(joinCode);
+    workspaceJoinCodeState.message = "å‚åŠ ã‚³ãƒ¼ãƒ‰ã‚’ã‚³ãƒ”ãƒ¼ã—ã¾ã—ãŸã€‚";
+    renderShell(currentSession, "", "notice", "join-code-message");
+  } catch {
+    workspaceJoinCodeState.message = "ã‚³ãƒ”ãƒ¼ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚è¡¨ç¤ºä¸­ã®ã‚³ãƒ¼ãƒ‰ã‚’é¸æŠã—ã¦ã‚³ãƒ”ãƒ¼ã—ã¦ãã ã•ã„ã€‚";
+    workspaceJoinCodeState.status = "error";
+    renderShell(currentSession, "", "notice", "join-code-message");
+  }
+}
+
+async function updateWorkspaceMemberFromUi(userId, stop) {
+  const workspaceId = workspaceMembersState?.workspaceId;
+  const member = workspaceMembersState?.members.find((item) => item.userId === userId);
+  if (!workspaceId || !member || member.role === "owner" || member.status !== "active") return;
+  if (stop && member.userId === currentSession?.user?.id) {
+    workspaceMembersState.message = "è‡ªåˆ†è‡ªèº«ã®åˆ©ç”¨ã¯åœæ­¢ã§ãã¾ã›ã‚“ã€‚ç®¡ç†è²¬ä»»è€…ã¾ãŸã¯åˆ¥ã®ç®¡ç†è€…ã¸ä¾é ¼ã—ã¦ãã ã•ã„ã€‚";
+    workspaceMembersState.messageKind = "error";
+    renderShell(currentSession, "", "notice", "members-message");
+    return;
+  }
+  const roleField = document.getElementById("member-role-" + userId);
+  const role = stop ? member.role : roleField?.value;
+  if (stop && !confirm("ã€Œ" + member.displayName + "ã€ã•ã‚“ã®åˆ©ç”¨ã‚’åœæ­¢ã—ã¾ã™ã€‚åœæ­¢å¾Œã¯ä¸€è¦§ã‹ã‚‰è¡¨ç¤ºã•ã‚Œãªããªã‚Šã¾ã™ã€‚ã‚ˆã‚ã—ã„ã§ã™ã‹ï¼Ÿ")) return;
+  if (!stop && member.role !== "admin" && role === "admin" && !confirm("ã€Œ" + member.displayName + "ã€ã•ã‚“ã‚’ç®¡ç†è€…ã«å¤‰æ›´ã—ã¾ã™ã€‚ç®¡ç†è€…ã¯ãƒ¡ãƒ³ãƒãƒ¼ã®è¿½åŠ ãƒ»æ¨©é™å¤‰æ›´ãƒ»åˆ©ç”¨åœæ­¢ã‚’è¡Œãˆã¾ã™ã€‚ã‚ˆã‚ã—ã„ã§ã™ã‹ï¼Ÿ")) return;
+  await changeWorkspaceMember(
+    workspaceId,
+    "/api/workspaces/" + encodeURIComponent(workspaceId) + "/members/" + encodeURIComponent(userId),
+    { method: "PATCH", body: JSON.stringify({ role, status: stop ? "removed" : "active" }) },
+    stop ? "ãƒ¡ãƒ³ãƒãƒ¼ã®åˆ©ç”¨ã‚’åœæ­¢ã—ã¾ã—ãŸã€‚" : "ãƒ¡ãƒ³ãƒãƒ¼ã®æ¨©é™ã‚’å¤‰æ›´ã—ã¾ã—ãŸã€‚"
+  );
+}
+
+async function reconcilePendingWorkspaceMemberMutation(mutation) {
+  if (
+    pendingWorkspaceMemberMutation !== mutation ||
+    mutation.authReconciled !== true ||
+    mutation.reconciling === true ||
+    currentSession?.user?.id !== mutation.userId ||
+    !(currentSession.workspaces || []).some((workspace) =>
+      workspace.id === mutation.workspaceId && workspace.status === "active"
+    )
+  ) return;
+  mutation.reconciling = true;
+  currentWorkspaceSelection = { userId: mutation.userId, workspaceId: mutation.workspaceId };
+  try {
+    await loadWorkspaceMembers(mutation.workspaceId, {
+      message: "èªè¨¼çŠ¶æ…‹ãŒæ›´æ–°ã•ã‚ŒãŸãŸã‚ã€å¤‰æ›´çµæœã‚’æœ€æ–°ã®ä¸€è¦§ã§ç¢ºèªã—ã¾ã—ãŸã€‚",
+      messageKind: "warning",
+      focusId: "members-message"
+    });
+  } finally {
+    mutation.reconciling = false;
+  }
+}
+
+async function changeWorkspaceMember(workspaceId, path, requestOptions, successMessage) {
+  const userId = currentSession?.user?.id;
+  const requestGeneration = sessionGeneration;
+  const previous = workspaceMembersState;
+  if (!workspaceId || !userId || previous?.status === "saving") return;
+  const mutation = { userId, workspaceId, settled: false, authReconciled: true, reconciling: false };
+  pendingWorkspaceMemberMutation = mutation;
+  workspaceMembersState = { ...previous, status: "saving", message: "ä¿å­˜ã—ã¦ã„ã¾ã™ã€‚", messageKind: "notice" };
+  renderShell(currentSession, "", "notice", "members-message");
+  try {
+    await requestJson(path, requestOptions);
+    mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
+    if (requestGeneration !== sessionGeneration || currentSession?.user?.id !== userId) {
+      await reconcilePendingWorkspaceMemberMutation(mutation);
+      return;
+    }
+    await loadWorkspaceMembers(workspaceId, { message: successMessage, focusId: "members-message" });
+  } catch (error) {
+    mutation.settled = true;
+    if (pendingWorkspaceMemberMutation !== mutation) return;
+    if (requestGeneration !== sessionGeneration) {
+      await reconcilePendingWorkspaceMemberMutation(mutation);
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    if (
+      error.code === "MEMBER_CHANGE_RESULT_UNKNOWN" ||
+      error.code === "NETWORK_ERROR" ||
+      error.code === "INVALID_RESPONSE"
+    ) {
+      await loadWorkspaceMembers(workspaceId, {
+        message: "å¤‰æ›´çµæœã‚’ä¸€è¦§ã§ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+        messageKind: "warning",
+        focusId: "members-message"
+      });
+      return;
+    }
+    const accessRejected = error.status === 403 || error.status === 404;
+    workspaceMembersState = accessRejected
+      ? {
+          ...previous,
+          status: "error",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        }
+      : {
+          ...previous,
+          status: "loaded",
+          message: error.message,
+          messageKind: "error"
+        };
+    pendingWorkspaceMemberMutation = null;
+    renderShell(currentSession, "", "notice", "members-message");
+  }
+}
 
 
-HOˆ[™Yš[™Y
-NÃBˆ›İÈ™]È\œ›ÜŠ”İ\X˜\ÙH™\ÜÛœÙH›ÙH\ÈÛÈ\™ÙKˆŠNÃBˆCBˆÚ[šÜËœ\Ú
-˜[YJNÃBˆCBˆHš[˜[HÃBˆ™XY\‹œ™[X\ÙSØÚÊ
-NÃBˆCBƒBˆÛÛœİ]\ÈH™]ÈZ[\œ˜^Jİ[]\ÊNÃBˆ]Ù™œÙ]HÃBˆ›Üˆ
-ÛÛœİÚ[šÈÙˆÚ[šÜÊHÃBˆ]\ËœÙ]
-Ú[šËÙ™œÙ]
-NÃBˆÙ™œÙ]
-ÏHÚ[šË˜]S[™İÃBˆCBˆÛÛœİ^H™]È^XÛÙ\Š
-K™XÛÙJ]\ÊNÃBˆYˆ
-]^
-H™]\›ˆ[ÃBƒBˆHÃBˆ™]\›ˆ”ÓÓ‹œ\œÙJ^
-NÃBˆHØ]ÚÃBˆ™]\›ˆ^ÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ\ÜÙ\İ\X˜\ÙSÚÊ™\ÜÛœÙNˆ™\ÜÛœÙK˜[˜XÚĞÛÙNˆİš[™Ë˜[˜XÚÓY\ÜØYÙNˆİš[™ÊNˆ›ÛZ\ÙO[šÛ›İÛˆÃBˆÛÛœİ^[ØYH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBƒBˆYˆ
-™\ÜÛœÙK›ÚÊH™]\›ˆ^[ØYÃBƒBˆ›İÈ™]È\\œ›ÜŠ™\ÜÛœÙKœİ]\Ë˜[˜XÚĞÛÙK˜[˜XÚÓY\ÜØYÙJNÃBŸCBƒB™[˜İ[Ûˆ\œÙP]]ÚÙ[”™\ÜÛœÙJBˆ^[ØYˆ[šÛ›İÛ‹Bˆ[˜[YÛÙNˆİš[™ËBˆ[˜[YY\ÜØYÙNˆİš[™ËBˆ[˜[Yİ]\ÈHLƒBŠNˆİ\X˜\ÙP]]ÚÙ[”™\ÜÛœÙHÃBˆYˆ
-\^[ØY\[Ùˆ^[ØYOOH›Øš™XİŠHÃBˆ›İÈ™]È\\œ›ÜŠ[˜[Yİ]\Ë[˜[YÛÙK[˜[YY\ÜØYÙJNÃBˆCBƒBˆÛÛœİ]]H^[ØY\È\X[İ\X˜\ÙP]]ÚÙ[”™\ÜÛœÙOÃBˆÛÛœİ^\™\Ò[ˆH]]™^\™\×Ú[ÃBˆYˆ
-Bˆ\[Ùˆ]]˜XØÙ\Ü×İÚÙ[ˆOOHœİš[™ÈˆX]]˜XØÙ\Ü×İÚÙ[ˆBˆ\[Ùˆ]]œ™Yœ™\ÚİÚÙ[ˆOOHœİš[™ÈˆX]]œ™Yœ™\ÚİÚÙ[ˆBˆX]]\Ù\ˆ\[Ùˆ]]\Ù\‹šYOOHœİš[™ÈˆX]]\Ù\‹šYBˆ\[Ùˆ^\™\Ò[ˆOOH›[X™\ˆˆS[X™\‹š\ÔØY™R[YÙ\Š^\™\Ò[ŠH^\™\Ò[ˆHBˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠ[˜[Yİ]\Ë[˜[YÛÙK[˜[YY\ÜØYÙJNÃBˆCBƒBˆ™]\›ˆÃBˆXØÙ\Ü×İÚÙ[ˆ]]˜XØÙ\Ü×İÚÙ[‹Bˆ™Yœ™\ÚİÚÙ[ˆ]]œ™Yœ™\ÚİÚÙ[‹Bˆ^\™\×Ú[ˆX]›Z[ŠX]™›ÛÜŠ^\™\Ò[ŠKPVĞPĞÑTÔ×ĞÓÓÒÒQWĞQÑWÔÑPÓÓ‘ÊKBˆ\Ù\ˆ]]\Ù\ƒBˆNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÙÚ[Š™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆÛÛœİ›ÙHH]ØZ]™XYœÛÛ›ÙOÈ[XZ[Îˆİš[™ÎÈ\ÜİÛÜ™Îˆİš[™ÈOŠ™\]Y\İ
-NÃBˆÛÛœİ[XZ[Hİš[™Ê›ÙK™[XZ[ÏÈˆŠKš[J
-NÃBˆÛÛœİ\ÜİÛÜ™Hİš[™Ê›ÙKœ\ÜİÛÜ™ÏÈˆŠNÃBƒBˆYˆ
-Y[XZ[\\ÜİÛÜ™
-HÃBˆ›İÈ™]È\\œ›ÜŠ“ÑÒS—ÒS”UÔ‘TURT‘Q‹¸àèxàï8àêøà¨¸àâxàë8à®xàj8àäxà®xàëøàï8àâxà¤¹aiyb¦øàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆ]™\ÜÛœÙNˆ™\ÜÛœÙNÃBˆHÃBˆ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹‹Ø]]İŒKİÚÙ[ÙÜ˜[İ\O\\ÜİÛÜ™‹ÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÈ[XZ[\ÜİÛÜ™JCBˆJNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠBˆL‹Bˆ“ÑÒS—ÔÑT•’PÑWÕSURSP“H‹Bˆº*£z*/8à­xàï8àäøà®xàjù£©yí¦¸àiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆƒBˆ
-NÃBˆCBƒBˆYˆ
-\™\ÜÛœÙK›ÚÊHÃBˆ]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJK˜Ø]Ú
 
+function manualDetailFormKey(form) {
+  if (!form) return "";
+  if (form.id === "manual-draft-form") return "draft";
+  if (form.id === "manual-step-add-form") return "new-step";
+  if (form.classList.contains("manual-step-form") && form.dataset.stepId) return "step:" + form.dataset.stepId;
+  return "";
+}
 
-HOˆ[
-NÃBˆYˆ
-ÍKŒ—Kš[˜ÛY\Ê™\ÜÛœÙKœİ]\ÊJHÃBˆ›İÈ™]È\\œ›ÜŠBˆBˆ“ÑÒS—ÑRSQ‹Bˆ¸àèxàï8àêøà¨¸àâxàë8à®xào¸àgøàkøàäxà®xàëøàï8àâxà¤¹è®º*£xàeøài¸à xà ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆƒBˆ
-NÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠK“ÑÒS—ÔUWÓSRUQ‹¸àëxà¬8à©8àìú*iº(c8àc9i&¸àfxàc¸ào¸àfxà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ›İÈ™]È\\œ›ÜŠBˆL‹Bˆ“ÑÒS—ÔÑT•’PÑWÕSURSP“H‹Bˆº*£z*/8à­xàï8àäøà®xà¤¹b*yå*8àiøàcxào¸àføà¤øà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆƒBˆ
-NÃBˆCBƒBˆÛÛœİ]]H\œÙP]]ÚÙ[”™\ÜÛœÙJBˆ]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJKBˆ“ÑÒS—Ô‘TÔÓ”ÑWÒS•SQ‹Bˆº*£z*/8àë8à®xàçxàìøà®xà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆƒBˆ
-NÃBƒBˆÛÛœİÛÛÚÚY\ÈHÃBˆÙ\ÜÚ[ÛÛÛÚÚYJÓÓÒÒQWĞPĞÑTÔ×ÕÒÑS‹]]˜XØÙ\Ü×İÚÙ[‹]]™^\™\×Ú[ŠKBˆÙ\ÜÚ[ÛÛÛÚÚYJÓÓÒÒQWÔ‘Q”‘TÒÕÒÑS‹]]œ™Yœ™\ÚİÚÙ[‹Œ
-ˆŒ
-ˆ
-ˆÌ
-CBˆNÃBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈ\Ù\ˆØ[š]^™U\Ù\Š]]\Ù\ŠHK[™Yš[™YÛÛÚÚY\ÊNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™Yœ™\ÚÙ\ÜÚ[ÛŠ[ˆ[‹™Yœ™\ÚÚÙ[ˆİš[™ÊNˆ›ÛZ\ÙOÙ\ÜÚ[Û”™\İ[ˆÃBˆ]™\ÜÛœÙNˆ™\ÜÛœÙNÃBˆHÃBˆ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹‹Ø]]İŒKİÚÙ[ÙÜ˜[İ\O\™Yœ™\ÚİÚÙ[ˆ‹ÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÈ™Yœ™\ÚİÚÙ[ˆ™Yœ™\ÚÚÙ[ˆJCBˆJNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠL‹”ÑTÔÒSÓ—Ô‘Q”‘TÒÑRSQ‹¸à®øààøà­øàéøàìùâ­¹¡bøà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-\™\ÜÛœÙK›ÚÊHÃBˆYˆ
-ÍWKš[˜ÛY\Ê™\ÜÛœÙKœİ]\ÊJHÃBˆ›İÈ™]È\\œ›ÜŠBˆKBˆ”ÑTÔÒSÓ—ÑVT‘Q‹Bˆ¸à®øààøà­øàéøàìøàk¹§"yb®y§'úfd8àc9b!øà£8ào¸àeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆ‹BˆÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-CBˆ
-NÃBˆCBˆ›İÈ™]È\\œ›ÜŠL‹”ÑTÔÒSÓ—Ô‘Q”‘TÒÑRSQ‹¸à®øààøà­øàéøàìùâ­¹¡bøà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ]]]ˆİ\X˜\ÙP]]ÚÙ[”™\ÜÛœÙNÃBˆHÃBˆ]]H\œÙP]]ÚÙ[”™\ÜÛœÙJBˆ]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJKBˆ”ÑTÔÒSÓ—Ô‘Q”‘TÒÒS•SQ‹Bˆ¸à®øààøà­øàéøàìøàk¹§"yb®y§'úfd8àc9b!øà£8ào¸àeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆ‹BˆCBˆ
-NÃBˆHØ]Ú
-\œ›ÜŠHÃBˆYˆ
-\œ›Üˆ[œİ[˜Ù[Ùˆ\\œ›Üˆ	‰ˆ\œ›Ü‹˜ÛÙHOOH”ÑTÔÒSÓ—Ô‘Q”‘TÒÒS•SQŠHÃBˆ\œ›Ü‹œ™\ÜÛœÙPÛÛÚÚY\ÈHÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-NÃBˆCBˆ›İÈ\œ›ÜÃBˆCBƒBˆ™]\›ˆÃBˆ\Ù\ˆ]]\Ù\‹BˆXØÙ\ÜÕÚÙ[ˆ]]˜XØÙ\Ü×İÚÙ[‹Bˆ™\ÜÛœÙPÛÛÚÚY\ÎˆÃBˆÙ\ÜÚ[ÛÛÛÚÚYJÓÓÒÒQWĞPĞÑTÔ×ÕÒÑS‹]]˜XØÙ\Ü×İÚÙ[‹]]™^\™\×Ú[ŠKBˆÙ\ÜÚ[ÛÛÛÚÚYJÓÓÒÒQWÔ‘Q”‘TÒÕÒÑS‹]]œ™Yœ™\ÚİÚÙ[‹Œ
-ˆŒ
-ˆ
-ˆÌ
-CBˆCBˆNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™\]Z\™TÙ\ÜÚ[ÛŠBˆ™\]Y\İˆ™\]Y\İBˆ[ˆ[‹BˆÛÛÚÚY\ÏÎˆX\İš[™Ëİš[™Ï‹Bˆ[İÔ™Yœ™\ÚH˜[ÙCBŠNˆ›ÛZ\ÙOÙ\ÜÚ[Û”™\İ[ˆÃBˆÛÛœİÙ\ÜÚ[ÛÛÛÚÚY\ÈHÛÛÚÚY\ÈÏÈ\œÙPÛÛÚÚY\Ê™\]Y\İ˜[ÙK[İÔ™Yœ™\Ú
-NÃBˆÛÛœİXØÙ\ÜÕÚÙ[ˆHÙ\ÜÚ[ÛÛÛÚÚY\Ë™Ù]
-ÓÓÒÒQWĞPĞÑTÔ×ÕÒÑSŠNÃBˆÛÛœİ™Yœ™\ÚÚÙ[ˆHÙ\ÜÚ[ÛÛÛÚÚY\Ë™Ù]
-ÓÓÒÒQWÔ‘Q”‘TÒÕÒÑSŠNÃBƒBˆYˆ
-XXØÙ\ÜÕÚÙ[ˆ	‰ˆ\™Yœ™\ÚÚÙ[ŠHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘TURT‘Q‹¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆYˆ
-XØÙ\ÜÕÚÙ[ŠHÃBˆ]™\ÜÛœÙNˆ™\ÜÛœÙNÃBˆHÃBˆ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹‹Ø]]İŒKİ\Ù\ˆ‹ÈY]Ùˆ‘ÑUˆKXØÙ\ÜÕÚÙ[ŠNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠL‹”ÑTÔÒSÓ—Õ‘T’Q–WÑRSQ‹¸à®øààøà­øàéøàìùâ­¹¡bøà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙK›ÚÊHÃBˆÛÛœİ\Ù\ˆH]ØZ]™\ÜÛœÙKšœÛÛŠ
-K˜Ø]Ú
+function manualDetailBaselineValue(key, name) {
+  const detail = manualDetailState.value;
+  if (!detail) return "";
+  if (key === "draft") {
+    if (name === "title") return String(detail.draft?.title || "");
+    if (name === "description") return String(detail.draft?.description || "");
+    return "";
+  }
+  if (key === "new-step") {
+    if (name === "type") return "action";
+    if (name === "actionType") return "click";
+    return "";
+  }
+  if (!key.startsWith("step:")) return "";
+  const step = (detail.steps || []).find((item) => item.id === key.slice(5));
+  if (!step) return "";
+  const values = {
+    type: step.type,
+    title: step.title,
+    actionType: step.actionType,
+    targetText: step.targetText,
+    instruction: step.instruction,
+    url: step.url
+  };
+  return String(values[name] ?? "");
+}
 
+function captureManualDetailDrafts(excludedKeys = []) {
+  const excluded = new Set(excludedKeys);
+  const drafts = {};
+  const forms = document.querySelectorAll("#manual-draft-form, #manual-step-add-form, .manual-step-form");
+  for (const form of forms) {
+    const key = manualDetailFormKey(form);
+    if (!key || excluded.has(key)) continue;
+    const changed = {};
+    for (const field of form.querySelectorAll("input[name], select[name], textarea[name]")) {
+      const value = String(field.value ?? "");
+      if (value !== manualDetailBaselineValue(key, field.name)) changed[field.name] = value;
+    }
+    if (Object.keys(changed).length > 0) {
+      drafts[key] = {
+        values: changed,
+        stepUpdatedAt: key.startsWith("step:") ? String(form.dataset.stepUpdatedAt || "") : "",
+        draftUpdatedAt: key === "draft" ? String(form.dataset.draftUpdatedAt || "") : ""
+      };
+    }
+  }
+  return drafts;
+}
 
-HOˆ[
-H\Èİ\X˜\ÙU\Ù\ˆ[ÃBˆYˆ
-]\Ù\ˆ\[Ùˆ\Ù\‹šYOOHœİš[™Èˆ]\Ù\‹šY
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹”ÑTÔÒSÓ—Õ‘T’Q–WÑRSQ‹¸à®øààøà­øàéøàìùâ­¹¡bøà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆÈ\Ù\‹XØÙ\ÜÕÚÙ[‹™\ÜÛœÙPÛÛÚÚY\Îˆ×HNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈHL™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠL‹”ÑTÔÒSÓ—Õ‘T’Q–WÑRSQ‹¸à®øààøà­øàéøàìùâ­¹¡bøà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆCBƒBˆYˆ
-™Yœ™\ÚÚÙ[ŠHÃBˆYˆ
-X[İÔ™Yœ™\Ú
-HÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘Q‹¸àëxà¬8à©8àìùâ­¹¡bøà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆ™Yœ™\ÚÙ\ÜÚ[ÛŠ[‹™Yœ™\ÚÚÙ[ŠNÃBˆCBƒBˆ›İÈ™]È\\œ›ÜŠBˆKBˆ”ÑTÔÒSÓ—ÑVT‘Q‹Bˆ¸à®øààøà­øàéøàìøàk¹§"yb®y§'úfd8àc9b!øà£8ào¸àeøàgøà ˆ‹Bˆ[İÔ™Yœ™\ÚÈÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-Hˆ×CBˆ
-NÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™Yœ™\Ú]][XØ][ÛŠ™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆ]ØZ]™XYœÛÛ›ÙO™XÛÜ™İš[™Ë™]™\Š™\]Y\İ
-NÃBˆÛÛœİÛÛÚÚY\ÈH\œÙPÛÛÚÚY\Ê™\]Y\İ˜[ÙKYJNÃBˆÛÛœİ™Yœ™\ÚÚÙ[ˆHÛÛÚÚY\Ë™Ù]
-ÓÓÒÒQWÔ‘Q”‘TÒÕÒÑSŠNÃBˆYˆ
-\™Yœ™\ÚÚÙ[ŠHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—ÑVT‘Q‹¸à®øààøà­øàéøàìøàk¹§"yb®y§'úfd8àc9b!øà£8ào¸àeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆ‹ÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-JNÃBˆCBƒBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™Yœ™\ÚÙ\ÜÚ[ÛŠ[‹™Yœ™\ÚÚÙ[ŠNÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈİ]\Îˆ›ÚÈ‹\Ù\ˆØ[š]^™U\Ù\ŠÙ\ÜÚ[Û‹\Ù\ŠHK[™Yš[™YÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB™[˜İ[ÛˆØ[š]^™U\Ù\Š\Ù\ˆİ\X˜\ÙU\Ù\ŠNˆİ\X˜\ÙU\Ù\ˆÃBˆ™]\›ˆÃBˆYˆ\Ù\‹šYBˆ[XZ[ˆ\Ù\‹™[XZ[BˆNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÙ]Ù\ÜÚ[ÛŠ™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆÛÛœİÜ›Ùš[T™\İ[ÛÜšÜÜXÙ\Ô™\İ[HH]ØZ]›ÛZ\ÙK˜[Ù]Y
-ÃBˆ™]Ú›Ùš[J[‹Ù\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[‹Ù\ÜÚ[Û‹\Ù\‹šY
-KBˆ™]ÚÛÜšÜÜXÙ\Ê[‹Ù\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[ŠCBˆJNÃBƒBˆ›Üˆ
-ÛÛœİ™\İ[ÙˆÜ›Ùš[T™\İ[ÛÜšÜÜXÙ\Ô™\İ[JHÃBˆYˆ
-™\İ[œİ]\ÈOOHœ™Z™XİYˆ	‰ˆ™\İ[œ™X\ÛÛˆ[œİ[˜Ù[Ùˆ\\œ›Üˆ	‰ˆ™\İ[œ™X\ÛÛ‹˜ÛÙHOOH”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘QŠHÃBˆ›İÈ™\İ[œ™X\ÛÛÃBˆCBˆCBˆYˆ
-›Ùš[T™\İ[œİ]\ÈOOHœ™Z™XİYŠH›İÈ›Ùš[T™\İ[œ™X\ÛÛÃBˆYˆ
-ÛÜšÜÜXÙ\Ô™\İ[œİ]\ÈOOHœ™Z™XİYŠH›İÈÛÜšÜÜXÙ\Ô™\İ[œ™X\ÛÛÃBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆ\Ù\ˆØ[š]^™U\Ù\ŠÙ\ÜÚ[Û‹\Ù\ŠKBˆ›Ùš[Nˆ›Ùš[T™\İ[˜[YKBˆÛÜšÜÜXÙ\ÎˆÛÜšÜÜXÙ\Ô™\İ[˜[YCBˆK[™Yš[™YÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÚ]İ\X˜\ÙT™XY[Y[İ]ŠBˆÜ\˜][Ûˆ
-ÚYÛ˜[ˆX›ÜÚYÛ˜[
-HOˆ›ÛZ\ÙO‹Bˆ˜[˜XÚĞÛÙNˆİš[™ËBˆ˜[˜XÚÓY\ÜØYÙNˆİš[™ÃBŠNˆ›ÛZ\ÙOˆÃBˆÛÛœİÛÛ›Û\ˆH™]ÈX›ÜÛÛ›Û\Š
-NÃBˆ][Y[İ]Yˆ™]\›•\O\[ÙˆÙ][Y[İ]ˆ[™Yš[™YÃBˆÛÛœİ[Y[İ]H™]È›ÛZ\ÙO™]™\Š
-Ë™Z™Xİ
-HOˆÃBˆ[Y[İ]YHÙ][Y[İ]
+function findManualDetailForm(key) {
+  if (key === "draft") return document.getElementById("manual-draft-form");
+  if (key === "new-step") return document.getElementById("manual-step-add-form");
+  if (!key.startsWith("step:")) return null;
+  const stepId = key.slice(5);
+  return [...document.querySelectorAll(".manual-step-form")].find((form) => form.dataset.stepId === stepId) || null;
+}
 
+function restoreManualDetailDrafts(drafts) {
+  if (!drafts || typeof drafts !== "object") return;
+  for (const [key, draft] of Object.entries(drafts)) {
+    const form = findManualDetailForm(key);
+    if (!form) continue;
+    const values = draft && typeof draft === "object" && "values" in draft ? draft.values : draft;
+    const stepUpdatedAt = draft && typeof draft === "object" && "stepUpdatedAt" in draft
+      ? String(draft.stepUpdatedAt || "")
+      : "";
+    const draftUpdatedAt = draft && typeof draft === "object" && "draftUpdatedAt" in draft
+      ? String(draft.draftUpdatedAt || "")
+      : "";
+    if (key.startsWith("step:") && stepUpdatedAt) form.dataset.stepUpdatedAt = stepUpdatedAt;
+    if (key === "draft" && draftUpdatedAt) form.dataset.draftUpdatedAt = draftUpdatedAt;
+    for (const [name, value] of Object.entries(values || {})) {
+      const field = form.elements.namedItem(name);
+      if (field && typeof field.value !== "undefined") field.value = value;
+    }
+  }
+}
 
-HOˆÃBˆÛÛ›Û\‹˜X›Ü
+function setManualMutationBusyState(isBusy, messageId = "", message = "") {
+  manualMutationInFlight = isBusy;
+  const screen = document.getElementById("screen-content");
+  if (isBusy) screen?.setAttribute("aria-busy", "true");
+  else screen?.removeAttribute("aria-busy");
+  const forms = document.querySelectorAll("#manual-create-form, #manual-draft-form, #manual-step-add-form, .manual-step-form");
+  for (const form of forms) {
+    for (const control of form.querySelectorAll("button, input, select, textarea")) {
+      if (isBusy) {
+        if (!control.hasAttribute("data-manual-disabled-before")) {
+          control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
+        }
+        control.disabled = true;
+      } else if (control.hasAttribute("data-manual-disabled-before")) {
+        control.disabled = control.getAttribute("data-manual-disabled-before") === "true";
+        control.removeAttribute("data-manual-disabled-before");
+      }
+    }
+  }
+  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-reading-preview-button")) {
+    if (isBusy) {
+      if (!control.hasAttribute("data-manual-disabled-before")) {
+        control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
+      }
+      control.disabled = true;
+    } else if (control.hasAttribute("data-manual-disabled-before")) {
+      control.disabled = control.getAttribute("data-manual-disabled-before") === "true";
+      control.removeAttribute("data-manual-disabled-before");
+    }
+  }
+  if (!isBusy) {
+    for (const control of document.querySelectorAll('[data-manual-busy-rendered="true"]')) {
+      control.disabled = false;
+      control.removeAttribute("data-manual-busy-rendered");
+    }
+  }
+  if (messageId && message) setBox(messageId, message, "notice", false);
+}
 
-NÃBˆ™Z™Xİ
-™]È\\œ›ÜŠL‹˜[˜XÚĞÛÙK˜[˜XÚÓY\ÜØYÙJJNÃBˆKÕTPTÑWÔ‘PQÕSQSÕUÓTÊNÃBˆJNÃBˆHÃBˆ™]\›ˆ]ØZ]›ÛZ\ÙKœ˜XÙJÛÜ\˜][ÛŠÛÛ›Û\‹œÚYÛ˜[
-K[Y[İ]JNÃBˆHØ]Ú
-\œ›ÜŠHÃBˆYˆ
-\œ›Üˆ[œİ[˜Ù[Ùˆ\\œ›ÜŠH›İÈ\œ›ÜÃBˆ›İÈ™]È\\œ›ÜŠL‹˜[˜XÚĞÛÙK˜[˜XÚÓY\ÜØYÙJNÃBˆHš[˜[HÃBˆYˆ
-[Y[İ]YOOH[™Yš[™Y
-HÛX\•[Y[İ]
-[Y[İ]Y
-NÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™]Ú›Ùš[J[ˆ[‹XØÙ\ÜÕÚÙ[ˆİš[™Ë\Ù\’Yˆİš[™ÊNˆ›ÛZ\ÙO[šÛ›İÛˆÃBˆÛÛœİ]Y\HHÜ™\İİŒKÜ›Ùš[\ÏÜÙ[XİZY\Ü^WÛ˜[YKØØ[K[Y^›Û™IšYY\K‰Ù[˜ÛÙUT’PÛÛ\Û™[
-\Ù\’Y
-_I›[Z]LXÃBˆÛÛœİ˜[˜XÚÓY\ÜØYÙHH¸àåøàëxàåxà¨øàï8àêøà¤¹cå¹o¥øàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆÃBˆ™]\›ˆÚ]İ\X˜\ÙT™XY[Y[İ]
-\Ş[˜È
-ÚYÛ˜[
-HOˆÃBˆÛÛœİ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹]Y\KÈY]Ùˆ‘ÑU‹ÚYÛ˜[KXØÙ\ÜÕÚÙ[ŠNÃBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘Q‹¸àëxà¬8à©8àìùâ­¹¡bøà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHÊHÃBˆ›İÈ™]È\\œ›ÜŠË”“Ñ’SWĞPĞÑTÔ×ÑS’QQ‹¸àåøàëxàåxà¨øàï8àêøà¤º(j9é.¸àfxà¢ùª*zfd8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-\™\ÜÛœÙK›ÚÊH›İÈ™]È\\œ›ÜŠL‹”“Ñ’SWÑ‘UÒÑRSQ‹˜[˜XÚÓY\ÜØYÙJNÃBˆÛÛœİ^[ØYH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBˆ™]\›ˆ\œ˜^Kš\Ğ\œ˜^J^[ØY
-HÈ^[ØYÌHÏÈ[ˆ[ÃBˆK”“Ñ’SWÑ‘UÒÑRSQ‹˜[˜XÚÓY\ÜØYÙJNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™]ÚÛÜšÜÜXÙ\Ê[ˆ[‹XØÙ\ÜÕÚÙ[ˆİš[™ÊNˆ›ÛZ\ÙOÛÜšÜÜXÙTİ[[X\V×OˆÃBˆÛÛœİ]Y\HHÜ™\İİŒKİÛÜšÜÜXÙ\ÏÜÙ[XİZY˜[YKÛYËİ]\ËÜ™X]YØ]	œİ]\Ï[™\K™[]Y	›Ü™\XÜ™X]YØ]™\ØÉ›[Z]IÓPVÕÓÔ’ÔÔPÑWÓTÕÒUSTÈ
-È_XÃBˆÛÛœİ˜[˜XÚÓY\ÜØYÙHH¸àëøàï8à«øà®xàæ¸àï8à®xà¤¹cå¹o¥øàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆÃBˆ™]\›ˆÚ]İ\X˜\ÙT™XY[Y[İ]
-\Ş[˜È
-ÚYÛ˜[
-HOˆÃBˆÛÛœİ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹]Y\KÃBˆY]Ùˆ‘ÑU‹BˆXY\œÎˆÈ™Y™\ˆ˜Ûİ[Y^XİˆKBˆÚYÛ˜[BˆKXØÙ\ÜÕÚÙ[ŠNÃBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘Q‹¸àëxà¬8à©8àìùâ­¹¡bøà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHÊHÃBˆ›İÈ™]È\\œ›ÜŠË•ÓÔ’ÔÔPÑT×ĞPĞÑTÔ×ÑS’QQ‹¸àëøàï8à«øà®xàæ¸àï8à®xà¤º(j9é.¸àfxà¢ùª*zfd8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-\™\ÜÛœÙK›ÚÊH›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑT×Ñ‘UÒÑRSQ‹˜[˜XÚÓY\ÜØYÙJNÃBˆÛÛœİ^[ØYH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBˆYˆ
-P\œ˜^Kš\Ğ\œ˜^J^[ØY
-H\^[ØY™]™\J\ÕÛÜšÜÜXÙTİ[[X\JH™]ÈÙ]
-^[ØY›X\
+function manualCanEdit(currentWorkspace) {
+  if (!currentWorkspace || workspaceMembersState?.workspaceId !== currentWorkspace.id) return false;
+  return ["owner", "admin", "editor"].includes(workspaceMembersState.currentUserRole);
+}
 
-ÛÜšÜÜXÙJHOˆÛÜšÜÜXÙKšY
-JKœÚ^™HOOH^[ØY›[™İ
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑT×Ô‘TÔÓ”ÑWÒS•SQ‹¸àëøàï8à«øà®xàæ¸àï8à®y. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİÛÛ[˜[™ÙHH™\ÜÛœÙKšXY\œË™Ù]
-˜ÛÛ[\˜[™ÙHŠHÏÈˆÃBˆÛÛœİÜ[]Y˜[™ÙHHÛÛ[˜[™ÙK›X]Ú
-×Š
-ÊKJ
-ÊWÊ
-ÊIÊNÃBˆÛÛœİ[\T˜[™ÙHHÛÛ[˜[™ÙK›X]Ú
-×—
-—Ê
-ÊIÊNÃBˆÛÛœİ˜[™ÙTİ\HÜ[]Y˜[™ÙHÈ[X™\ŠÜ[]Y˜[™ÙVÌWJHˆ[ÃBˆÛÛœİ˜[™ÙQ[™HÜ[]Y˜[™ÙHÈ[X™\ŠÜ[]Y˜[™ÙVÌ—JHˆ[ÃBˆÛÛœİ^Xİİ[HÜ[]Y˜[™ÙHÈ[X™\ŠÜ[]Y˜[™ÙVÌ×JHˆ[\T˜[™ÙHÈ[X™\Š[\T˜[™ÙVÌWJHˆ[ÃBˆÛÛœİ˜[™ÙR\Õ˜[YH^[ØY›[™İOOHBˆÈ[\T˜[™ÙHOOH[	‰ˆ^Xİİ[OOHBˆˆÜ[]Y˜[™ÙHOOH[	‰ƒBˆ\[Ùˆ˜[™ÙTİ\OOH›[X™\ˆˆ	‰ƒBˆ\[Ùˆ˜[™ÙQ[™OOH›[X™\ˆˆ	‰ƒBˆ˜[™ÙTİ\OOH	‰ƒBˆ[X™\‹š\ÔØY™R[YÙ\Š˜[™ÙQ[™
-H	‰ƒBˆ˜[™ÙQ[™H˜[™ÙTİ\
-ÈHOOH^[ØY›[™İ	‰ƒBˆ\[Ùˆ^Xİİ[OOH›[X™\ˆˆ	‰ƒBˆ[X™\‹š\ÔØY™R[YÙ\Š^Xİİ[
-H	‰ƒBˆ^Xİİ[H^[ØY›[™İÃBˆYˆ
-\˜[™ÙR\Õ˜[Y^Xİİ[OOH[S[X™\‹š\ÔØY™R[YÙ\Š^Xİİ[
-JHÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑT×Ô‘TÔÓ”ÑWÒS•SQ‹¸àëøàï8à«øà®xàæ¸àï8à®y. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİ˜[Y]Y^Xİİ[H^Xİİ[ÃBˆYˆ
-Bˆ^[ØY›[™İˆPVÕÓÔ’ÔÔPÑWÓTÕÒUSTÈBˆ˜[Y]Y^Xİİ[ˆPVÕÓÔ’ÔÔPÑWÓTÕÒUSTÃBˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠK•ÓÔ’ÔÔPÑT×ÓSRUÑVÑQQQ‹¹¢`9lg¸àëøàï8à«øà®xàæ¸àï8à®xàc9i&¸àa8àgøà y. :)©øà¤º(j9é.¸àiøàcxào¸àføà¤øà ¹ë¨yä!º !xàjù¥m9ä!¸à¤¹/§zh/8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-˜[Y]Y^Xİİ[OOH^[ØY›[™İ
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑT×Ô‘TÔÓ”ÑWÒS•SQ‹¸àëøàï8à«øà®xàæ¸àï8à®y. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆ^[ØYÃBˆK•ÓÔ’ÔÔPÑT×Ñ‘UÒÑRSQ‹˜[˜XÚÓY\ÜØYÙJNÃBŸCBƒB™[˜İ[Ûˆ\ÕÛÜšÜÜXÙTİ[[X\J˜[YNˆ[šÛ›İÛŠNˆ˜[YH\ÈÛÜšÜÜXÙTİ[[X\HÃBˆYˆ
-]˜[YH\[Ùˆ˜[YHOOH›Øš™XİŠH™]\›ˆ˜[ÙNÃBˆÛÛœİÛÜšÜÜXÙHH˜[YH\È\X[ÛÜšÜÜXÙTİ[[X\OÃBˆ™]\›ˆ
-Bˆ\[ÙˆÛÜšÜÜXÙKšYOOHœİš[™Èˆ	‰ˆURQÔUT“‹\İ
-ÛÜšÜÜXÙKšY
-H	‰ƒBˆ\[ÙˆÛÜšÜÜXÙK›˜[YHOOHœİš[™Èˆ	‰ˆÛÜšÜÜXÙK›˜[YKš[J
-K›[™İˆ	‰ˆ\œ˜^K™œ›ÛJÛÜšÜÜXÙK›˜[YJK›[™İH	‰ƒBˆ\[ÙˆÛÜšÜÜXÙKœÛYÈOOHœİš[™Èˆ	‰ˆ×–ØK^ŒNWVØK^ŒNKW^ÌKŒ_VØK^ŒNWIË\İ
-ÛÜšÜÜXÙKœÛYÊH	‰ƒBˆ
-ÛÜšÜÜXÙKœİ]\ÈOOH˜Xİ]™HˆÛÜšÜÜXÙKœİ]\ÈOOHœİ\Ü[™YŠH	‰ƒBˆ\[ÙˆÛÜšÜÜXÙK˜Ü™X]YØ]OOHœİš[™Èˆ	‰ˆS[X™\‹š\Ó˜SŠ]Kœ\œÙJÛÜšÜÜXÙK˜Ü™X]YØ]
-JCBˆ
-NÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÜ™X]UÛÜšÜÜXÙJ™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆÛÛœİ›ÙHH]ØZ]™XYœÛÛ›ÙOÈ˜[YOÎˆİš[™ÎÈÛYÏÎˆİš[™ÈOŠ™\]Y\İ
-NÃBˆYˆ
-\[Ùˆ›ÙK›˜[YHOOHœİš[™Èˆ\[Ùˆ›ÙKœÛYÈOOHœİš[™ÈŠHÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWÒS”UÒS•SQ‹¸àëøàï8à«øà®xàæ¸àï8à®yd#xàjT“9å*Q8à¤¹¥¡ùkeøàiùaiyb¦øàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİ˜[YHH›ÙK›˜[YKš[J
-NÃBˆÛÛœİÛYÈH›ÙKœÛYËš[J
-KÓİÙ\Ø\ÙJ
-NÃBƒBˆYˆ
-\œ˜^K™œ›ÛJ˜[YJK›[™İH\œ˜^K™œ›ÛJ˜[YJK›[™İˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWÓSQWÒS•SQ‹¸àëøàï8à«øà®xàæ¸àï8à®yd#xàkÌxà'9¥¡ùkeøàiùaiyb¦øàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆYˆ
-K×–ØK^ŒNWVØK^ŒNKW^ÌKŒ_VØK^ŒNWIË\İ
-ÛYÊJHÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWÔÓQ×ÒS•SQ‹•T“9å*Q8àkùcbº)äº"ìy¥l9keøàj8àãøà©8àåxàìøàiÌøà'Œù¥¡ùkeøàjøàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆ]™\ÜÛœÙNˆ™\ÜÛœÙNÃBˆHÃBˆ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹‹Ü™\İİŒKÜœËØÜ™X]WİÛÜšÜÜXÙH‹ÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÃBˆÛÜšÜÜXÙWÛ˜[YNˆ˜[YKBˆÛÜšÜÜXÙWÜÛYÎˆÛYÃBˆJCBˆKÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[ŠNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹/g9¢$9aé¹ä!¸àk¹íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ºaãxàkxài¹/g9¢$8àføàf¸à y. :)©øà¤¹¦í9¥¬8àeøài¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘Q‹¸àëxà¬8à©8àìùâ­¹¡bøà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHÊHÃBˆ›İÈ™]È\\œ›ÜŠË•ÓÔ’ÔÔPÑWĞÔ‘PUWÑ“Ô’QSˆ‹¸àëøàï8à«øà®xàæ¸àï8à®xà¤¹/g9¢$8àfxà¢ùª*zfd8àc8à`¸à¢¸ào¸àføà¤øà ¹ë¨yä!º !xàjùè®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-\™\ÜÛœÙK›ÚÊHÃBˆYˆ
-™\ÜÛœÙKœİ]\ÈHL
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹/g9¢$9aé¹ä!¸àk¹íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ºaãxàkxài¹/g9¢$8àføàf¸à y. :)©øà¤¹¦í9¥¬8àeøài¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÑRSQ‹¸àëøàï8à«øà®xàæ¸àï8à®xà¤¹/g9¢$8àiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ]\İ™X[PÛÙHHˆÃBˆHÃBˆÛÛœİ\İ™X[Q\œ›ÜˆH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBˆYˆ
-\İ™X[Q\œ›Üˆ	‰ˆ\[Ùˆ\İ™X[Q\œ›ÜˆOOH›Øš™Xİˆ	‰ˆ˜ÛÙHˆ[ˆ\İ™X[Q\œ›ÜŠHÃBˆ\İ™X[PÛÙHHİš[™Ê\İ™X[Q\œ›Ü‹˜ÛÙJNÃBˆCBˆHØ]ÚÃBˆËÈ9.#y«høàj¹."¹­`xàª8àêxàï9§+9¥¡øàkùaiyb¦ù.#y«høàj9¬n¸à xài8àdxàf¸à xà­xàï8àäøà®zf§9k¬øàj8àeøài¹¢lxàa¸à ƒBˆCBˆYˆ
+function manualSidebarHtml(session, activeScreen) {
+  const memberNavigation = memberMigrationInProgress(session)
+    ? '<span class="nav-item" aria-disabled="true"><span>ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</span><span class="nav-status">ç§»è¡Œä¸­</span></span>'
+    : '<button id="members-nav-button" class="nav-item nav-button" type="button">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</button>';
+  const manualNavigation = manualMigrationInProgress(session)
+    ? '<span class="nav-item" aria-disabled="true"><span>æ‰‹é †æ›¸</span><span class="nav-status">ç§»è¡Œä¸­</span></span>'
+    : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>æ‰‹é †æ›¸</button>';
+  return '<aside class="sidebar" aria-label="ã‚¢ãƒ—ãƒªãƒ¡ãƒ‹ãƒ¥ãƒ¼">' +
+    '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>ã‚</span></div><span>ã‚ã£ã¡ã‚ƒãƒãƒ‹ãƒ¥ã‚¢ãƒ«</span></div>' +
+    '<nav class="nav" aria-label="ä¸»è¦ãƒ¡ãƒ‹ãƒ¥ãƒ¼">' +
+      '<button id="workspace-nav-button" class="nav-item nav-button' + (activeScreen === "workspace" ? ' active' : '') + '" type="button"' + (activeScreen === "workspace" ? ' aria-current="page"' : '') + '>ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹</button>' +
+      memberNavigation +
+      manualNavigation +
+      '<span class="nav-item" aria-disabled="true"><span>æ“ä½œã‚’è¨˜éŒ²</span><span class="nav-status">æº–å‚™ä¸­</span></span>' +
+    '</nav>' +
+    '<div class="user-box">' +
+      '<span>ãƒ­ã‚°ã‚¤ãƒ³ä¸­ï¼š' + escapeHtml(session.user.email || "ãƒ¡ãƒ¼ãƒ«ã‚¢ãƒ‰ãƒ¬ã‚¹æœªè¨­å®š") + '</span>' +
+      '<button id="logout-button" class="secondary-button" type="button">ãƒ­ã‚°ã‚¢ã‚¦ãƒˆ</button>' +
+    '</div>' +
+  '</aside>';
+}
 
-™\ÜÛœÙKœİ]\ÈOOH™\ÜÛœÙKœİ]\ÈOOHJH	‰ˆÓÔ’ÔÔPÑWÒS”UÑT”“Ô—ĞÓÑTËš\Ê\İ™X[PÛÙJJHÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWĞÔ‘PUWÑRSQ‹¸àëøàï8à«øà®xàæ¸àï8à®xà¤¹/g9¢$8àiøàcxào¸àføà¤øàiøàeøàgøà ¹aiyb¦ùa¡yk®xà¤¹è®º*£xàeøài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÔÑT•’PÑWÕSURSP“H‹¸àëøàï8à«øà®xàæ¸àï8à®y/g9¢$8à­xàï8àäøà®xà¤¹b*yå*8àiøàcxào¸àføà¤øà ¹aiyb¦øà¤¹i"xàb8àf¸à yë¨yä!º !xàjùè®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆ]ÛÜšÜÜXÙRYˆ[šÛ›İÛÃBˆHÃBˆÛÜšÜÜXÙRYH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹/g9¢$9aé¹ä!¸àk¹íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ºaãxàkxài¹/g9¢$8àføàf¸à y. :)©øà¤¹¦í9¥¬8àeøài¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-\[ÙˆÛÜšÜÜXÙRYOOHœİš[™ÈˆUURQÔUT“‹\İ
-ÛÜšÜÜXÙRY
-JHÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹/g9¢$9aé¹ä!¸àk¹íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ºaãxàkxài¹/g9¢$8àføàf¸à y. :)©øà¤¹¦í9¥¬8àeøài¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÜšÜÜXÙRYBˆKÈİ]\ÎˆŒHKÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB™[˜İ[Ûˆ\ÕÛÜšÜÜXÙT›ÛJ˜[YNˆ[šÛ›İÛŠNˆ˜[YH\ÈÛÜšÜÜXÙT›ÛHÃBˆ™]\›ˆÈ›İÛ™\ˆ‹˜YZ[ˆ‹™Y]Üˆ‹šY]Ù\ˆ—Kš[˜ÛY\Êİš[™Ê˜[YJJNÃBŸCBƒB™[˜İ[Ûˆ\ÕÛÜšÜÜXÙSY[X™\”İ]\Ê˜[YNˆ[šÛ›İÛŠNˆ˜[YH\ÈÛÜšÜÜXÙSY[X™\”İ]\ÈÃBˆ™]\›ˆÈ˜Xİ]™H‹š[š]Y‹œ™[[İ™Y—Kš[˜ÛY\Êİš[™Ê˜[YJJNÃBŸCBƒB™[˜İ[Ûˆ\œÙUÛÜšÜÜXÙSY[X™\”›İÊ˜[YNˆ[šÛ›İÛŠNˆÛÜšÜÜXÙSY[X™\”œÔ›İÈ[ÃBˆYˆ
-]˜[YH\[Ùˆ˜[YHOOH›Øš™XİŠH™]\›ˆ[ÃBˆÛÛœİY[X™\ˆH˜[YH\È\X[ÛÜšÜÜXÙSY[X™\”œÔ›İÏÃBˆYˆ
-Bˆ\[ÙˆY[X™\‹\Ù\—ÚYOOHœİš[™ÈˆUURQÔUT“‹\İ
-Y[X™\‹\Ù\—ÚY
-HBˆ\[ÙˆY[X™\‹™\Ü^WÛ˜[YHOOHœİš[™ÈˆY[X™\‹™\Ü^WÛ˜[YKš[J
-K›[™İOOHBˆ\œ˜^K™œ›ÛJY[X™\‹™\Ü^WÛ˜[YJK›[™İˆBˆZ\ÕÛÜšÜÜXÙT›ÛJY[X™\‹œ›ÛJHBˆZ\ÕÛÜšÜÜXÙSY[X™\”İ]\ÊY[X™\‹œİ]\ÊHBˆ
-Y[X™\‹š›Ú[™YØ]OOH[	‰ˆ
-Bˆ\[ÙˆY[X™\‹š›Ú[™YØ]OOHœİš[™Èˆ[X™\‹š\Ó˜SŠ]Kœ\œÙJY[X™\‹š›Ú[™YØ]
-JCBˆ
-JCBˆ
-HÃBˆ™]\›ˆ[ÃBˆCBˆ™]\›ˆY[X™\ˆ\ÈÛÜšÜÜXÙSY[X™\”œÔ›İÎÃBŸCBƒB™[˜İ[ÛˆÛÜšÜÜXÙSY[X™\”İ[[X\JY[X™\ˆÛÜšÜÜXÙSY[X™\”œÔ›İÊNˆÛÜšÜÜXÙSY[X™\”İ[[X\HÃBˆ™]\›ˆÃBˆ\Ù\’YˆY[X™\‹\Ù\—ÚYBˆ\Ü^S˜[YNˆY[X™\‹™\Ü^WÛ˜[YKBˆ›ÛNˆY[X™\‹œ›ÛKBˆİ]\ÎˆY[X™\‹œİ]\ËBˆ›Ú[™Y]ˆY[X™\‹š›Ú[™YØ]BˆNÃBŸCBƒB™[˜İ[ÛˆY[X™\”œÓY\ÜØYÙJ^[ØYˆ[šÛ›İÛŠNˆİš[™ÈÃBˆYˆ
-\^[ØY\[Ùˆ^[ØYOOH›Øš™XİˆJ›Y\ÜØYÙHˆ[ˆ^[ØY
-JH™]\›ˆˆÃBˆ™]\›ˆ\[Ùˆ^[ØY›Y\ÜØYÙHOOHœİš[™ÈˆÈ^[ØY›Y\ÜØYÙHˆˆÃBŸCBƒB™[˜İ[Ûˆ›İÓY[X™\”œÑ˜Z[\™JBˆ^[ØYˆ[šÛ›İÛ‹Bˆ]]][Ûˆ›ÛÛX[‹Bˆ˜[˜XÚÏÎˆÈÛÙNˆİš[™ÎÈY\ÜØYÙNˆİš[™ÈCBŠNˆ™]™\ˆÃBˆÛÛœİY\ÜØYÙHHY[X™\”œÓY\ÜØYÙJ^[ØY
-NÃBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÕÓÔ’ÔÔPÑWÓQSP‘T”×Ó“ÕÑ“ÕS‘ŠJHÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWÓQSP‘T”×Ó“ÕÑ“ÕS‘‹¸àëøàï8à«øà®xàæ¸àï8à®xào¸àgøàkøàèxàìøàä8àï9 áyh,xà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÓQSP‘T—ÓPSQÑWÑ“Ô’QSˆŠJHÃBˆ›İÈ™]È\\œ›ÜŠË“QSP‘T—ÓPSQÑWÑ“Ô’QSˆ‹¸àèxàìøàä8àï8à¤¹i"y¦í8àfxà¢ùª*zfd8àc8à`¸à¢¸ào¸àføà¤øà ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÓÕÓ‘T—ÕS”Ñ‘T—Ô‘TURT‘QŠJHÃBˆ›İÈ™]È\\œ›ÜŠK“ÕÓ‘T—ÕS”Ñ‘T—Ô‘TURT‘Q‹¹ë¨yä!º,«9.îú !xàk¹i"y¦í8àîù`g9«h¸àkøà yl ¹å*8àk¹éîùë¨y¢bùí¦¸àcxàc9b*yå*8àiøàcxà¢øào¸àiú(c8àb8ào¸àføà¤øà ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÒ“ÒS—ĞÓÑWÕSURSP“HŠJHÃBˆ›İÈ™]È\\œ›ÜŠK’“ÒS—ĞÓÑWÕSURSP“H‹¹cà¹b¨8à¬øàï8àâxà¤¹b*yå*8àiøàcxào¸àføà¤øà ¹§"yb®y§'úfd8ào¸àgøàkùaiyb¦ùa¡yk®xà¤¹è®º*£xàeøà y§+9.®¸àjùa£yænº(c8à¤¹/§zh/8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÒ“ÒS—ĞÓÑWĞÔ‘PUWÑRSQŠJHÃBˆ›İÈ™]È\\œ›ÜŠL‹’“ÒS—ĞÓÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹cà¹b¨8à¬øàï8àâxà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¸à ¸àa¹. 9n©¹ænº(c8àfxà¢øàj8à y.éybcxàk¸à¬øàï8àâxàkùá(yb®xàjøàj¸à¢¸ào¸àfxà ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÓQSP‘T—ÕTUWÕSURSP“HŠJHÃBˆ›İÈ™]È\\œ›ÜŠK“QSP‘T—ÕTUWÕSURSP“H‹¹kïº,hxàèxàìøàä8àï8àk¹â­¹¡bøàc9i"xà£øàhøàgøàgøà y¦í9¥¬8àiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÓQSP‘T—ÔÕUT×ÒS•SQŠJHÃBˆ›İÈ™]È\\œ›ÜŠ“QSP‘T—ÔÕUT×ÒS•SQ‹¸àèxàìøàä8àï9â­¹¡bøàk¹£!ùk¦¸àc9«høàeøàcøà`¸à¢¸ào¸àføà¤øà ˆŠNÃBˆCBˆYˆ
-Y\ÜØYÙKš[˜ÛY\Ê“SWÕÓÔ’ÔÔPÑWÓQSP‘T”×ÓSRUÑVÑQQQŠJHÃBˆ›İÈ™]È\\œ›ÜŠK•ÓÔ’ÔÔPÑWÓQSP‘T”×ÓSRUÑVÑQQQ‹¸àèxàìøàä8àï8àc9i&¸àa8àgøà y. :)©øà¤º(j9é.¸àiøàcxào¸àføà¤øà ¹ë¨yä!º !xàjù¥m9ä!¸à¤¹/§zh/8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆYˆ
-]]][ÛŠHÃBˆ›İÈ™]È\\œ›ÜŠBˆL‹Bˆ˜[˜XÚÏË˜ÛÙHÏÈ“QSP‘T—ĞÒS‘ÑWÔ‘TÕSÕS’Ó“ÕÓˆ‹Bˆ˜[˜XÚÏË›Y\ÜØYÙHÏÈ¹i"y¦í9íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¹â­¹¡bøà¤¹è®º*£xàeøài¸àcøàh8àexàa8à ˆƒBˆ
-NÃBˆCBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWÓQSP‘T”×Ñ‘UÒÑRSQ‹¸àèxàìøàä8àï9. :)©øà¤¹cå¹o¥øàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆØ[ÛÜšÜÜXÙSY[X™\”œÊBˆ[ˆ[‹BˆXØÙ\ÜÕÚÙ[ˆİš[™ËBˆœÓ˜[YNˆİš[™ËBˆ›ÙNˆ™XÛÜ™İš[™Ë[šÛ›İÛ‹Bˆ]]][Ûˆ›ÛÛX[‹Bˆ˜[˜XÚÏÎˆÈÛÙNˆİš[™ÎÈY\ÜØYÙNˆİš[™ÈCBŠNˆ›ÛZ\ÙO[šÛ›İÛˆÃBˆÛÛœİ˜[˜XÚĞÛÙHH˜[˜XÚÏË˜ÛÙHÏÈ
-]]][ÛˆÈ“QSP‘T—ĞÒS‘ÑWÔ‘TÕSÕS’Ó“ÕÓˆˆˆ•ÓÔ’ÔÔPÑWÓQSP‘T”×Ñ‘UÒÑRSQŠNÃBˆÛÛœİ˜[˜XÚÓY\ÜØYÙHH˜[˜XÚÏË›Y\ÜØYÙHÏÈ
-]]][ÛƒBˆÈ¹i"y¦í9íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¹â­¹¡bøà¤¹è®º*£xàeøài¸àcøàh8àexàa8à ˆƒBˆˆ¸àèxàìøàä8àï9. :)©øà¤¹cå¹o¥øàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆ™]\›ˆÚ]İ\X˜\ÙT™XY[Y[İ]
-\Ş[˜È
-ÚYÛ˜[
-HOˆÃBˆÛÛœİ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹Ü™\İİŒKÜœËÉÜœÓ˜[Y_XÃBˆY]Ùˆ”ÔÕ‹Bˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJ›ÙJKBˆÚYÛ˜[BˆKXØÙ\ÜÕÚÙ[ŠNÃBˆYˆ
-™\ÜÛœÙKœİ]\ÈOOHJHÃBˆ›İÈ™]È\\œ›ÜŠK”ÑTÔÒSÓ—Ô‘Q”‘TÒÔ‘TURT‘Q‹¸àëxà¬8à©8àìùâ­¹¡bøà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆ]^[ØYˆ[šÛ›İÛÃBˆHÃBˆ^[ØYH]ØZ]™XYİ\X˜\ÙRœÛÛŠ™\ÜÛœÙJNÃBˆHØ]ÚÃBˆ›İÈ™]È\\œ›ÜŠL‹˜[˜XÚĞÛÙK˜[˜XÚÓY\ÜØYÙJNÃBˆCBˆYˆ
-\™\ÜÛœÙK›ÚÊH›İÓY[X™\”œÑ˜Z[\™J^[ØY]]][Û‹˜[˜XÚÊNÃBˆ™]\›ˆ^[ØYÃBˆK˜[˜XÚĞÛÙK˜[˜XÚÓY\ÜØYÙJNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÜ™X]UÛÜšÜÜXÙR›Ú[ÛÙJ™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆ]ØZ]™XYœÛÛ›ÙO™XÛÜ™İš[™Ë™]™\Š™\]Y\İ
-NÃBˆÛÛœİ[šÛ›İÛˆHÃBˆÛÙNˆ’“ÒS—ĞÓÑWĞÔ‘PUWÔ‘TÕSÕS’Ó“ÕÓˆ‹BˆY\ÜØYÙNˆ¹cà¹b¨8à¬øàï8àâxà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¸à ¸àa¹. 9n©¹ænº(c8àfxà¢øàj8à y.éybcxàk¸à¬øàï8àâxàkùá(yb®xàjøàj¸à¢¸ào¸àfxà ˆƒBˆNÃBˆÛÛœİ^[ØYH]ØZ]Ø[ÛÜšÜÜXÙSY[X™\”œÊBˆ[‹BˆÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[‹Bˆ˜Ü™X]WİÛÜšÜÜXÙWÚ›Ú[—ØÛÙH‹BˆßKBˆYKBˆ[šÛ›İÛƒBˆ
-NÃBˆYˆ
-P\œ˜^Kš\Ğ\œ˜^J^[ØY
-H^[ØY›[™İOOHJHÃBˆ›İÈ™]È\\œ›ÜŠL‹[šÛ›İÛ‹˜ÛÙK[šÛ›İÛ‹›Y\ÜØYÙJNÃBˆCBˆÛÛœİ›İÈH^[ØYÌNÃBˆYˆ
-\›İÈ\[Ùˆ›İÈOOH›Øš™XİŠHÃBˆ›İÈ™]È\\œ›ÜŠL‹[šÛ›İÛ‹˜ÛÙK[šÛ›İÛ‹›Y\ÜØYÙJNÃBˆCBˆÛÛœİØ[™Y]HH›İÈ\ÈÈ›Ú[—ØÛÙOÎˆ[šÛ›İÛÈ^\™\×Ø]Îˆ[šÛ›İÛˆNÃBˆÛÛœİ^\™\Ğ]H\[ÙˆØ[™Y]K™^\™\×Ø]OOHœİš[™ÈˆÈ]Kœ\œÙJØ[™Y]K™^\™\×Ø]
-Hˆ[X™\‹“˜SÃBˆÛÛœİ›İÈH]K››İÊ
-NÃBˆYˆ
-Bˆ\[ÙˆØ[™Y]Kš›Ú[—ØÛÙHOOHœİš[™ÈˆR“ÒS—ĞÓÑWÔUT“‹\İ
-Ø[™Y]Kš›Ú[—ØÛÙJHBˆS[X™\‹š\Ñš[š]J^\™\Ğ]
-H^\™\Ğ]H›İÈ^\™\Ğ]ˆ›İÈ
-ÈLH
-ˆŒ
-ˆLBˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹[šÛ›İÛ‹˜ÛÙK[šÛ›İÛ‹›Y\ÜØYÙJNÃBˆCBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆ›Ú[ÛÙNˆØ[™Y]Kš›Ú[—ØÛÙKBˆ^\™\Ğ]ˆØ[™Y]K™^\™\×Ø]BˆKÈİ]\ÎˆŒHKÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB™[˜İ[Ûˆ™\]Z\™UÛÜšÜÜXÙRY
-ÛÜšÜÜXÙRYˆİš[™ÊNˆ›ÚYÃBˆYˆ
-UURQÔUT“‹\İ
-ÛÜšÜÜXÙRY
-JHÃBˆ›İÈ™]È\\œ›ÜŠ•ÓÔ’ÔÔPÑWÓQSP‘T”×Ó“ÕÑ“ÕS‘‹¸àëøàï8à«øà®xàæ¸àï8à®xào¸àgøàkøàèxàìøàä8àï9 áyh,xà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ˆŠNÃBˆCBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÙ]ÛÜšÜÜXÙSY[X™\œÊ™\]Y\İˆ™\]Y\İ[ˆ[‹ÛÜšÜÜXÙRYˆİš[™ÊNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆ™\]Z\™UÛÜšÜÜXÙRY
-ÛÜšÜÜXÙRY
-NÃBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆÛÛœİ^[ØYH]ØZ]Ø[ÛÜšÜÜXÙSY[X™\”œÊBˆ[‹BˆÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[‹Bˆ›\İİÛÜšÜÜXÙWÛY[X™\œÈ‹BˆÈ\™Ù]İÛÜšÜÜXÙWÚYˆÛÜšÜÜXÙRYKBˆ˜[ÙCBˆ
-NÃBˆYˆ
-P\œ˜^Kš\Ğ\œ˜^J^[ØY
-H^[ØY›[™İOOH^[ØY›[™İˆPVÕÓÔ’ÔÔPÑWÓQSP‘T—ÓTÕÒUSTÊHÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWÓQSP‘T”×Ô‘TÔÓ”ÑWÒS•SQ‹¸àèxàìøàä8àï9. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİ›İÜÈH^[ØY›X\
-\œÙUÛÜšÜÜXÙSY[X™\”›İÊNÃBˆYˆ
-›İÜËœÛÛYJ
-Y[X™\ŠHOˆY[X™\ˆOOH[
-JHÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWÓQSP‘T”×Ô‘TÔÓ”ÑWÒS•SQ‹¸àèxàìøàä8àï9. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİY[X™\œÈH›İÜÈ\ÈÛÜšÜÜXÙSY[X™\”œÔ›İÖ×NÃBˆÛÛœİXİÜ”›ÛHHY[X™\œÖÌOË˜XİÜ—Ü›ÛNÃBˆÛÛœİİ[Ûİ[HY[X™\œÖÌOËİ[ØÛİ[ÃBˆYˆ
-BˆZ\ÕÛÜšÜÜXÙT›ÛJXİÜ”›ÛJHBˆ\[Ùˆİ[Ûİ[OOH›[X™\ˆˆS[X™\‹š\ÔØY™R[YÙ\Šİ[Ûİ[
-Hİ[Ûİ[OOHY[X™\œË›[™İBˆY[X™\œËœÛÛYJ
-Y[X™\ŠHOˆY[X™\‹œİ]\ÈOOH˜Xİ]™HŠHBˆY[X™\œËœÛÛYJ
-Y[X™\ŠHOˆY[X™\‹˜XİÜ—Ü›ÛHOOHXİÜ”›ÛHY[X™\‹İ[ØÛİ[OOHİ[Ûİ[
-HBˆ™]ÈÙ]
-Y[X™\œË›X\
+function wireManualNavigation(currentWorkspace) {
+  document.getElementById("workspace-nav-button")?.addEventListener("click", () => {
+    currentScreen = "workspace";
+    renderShell(currentSession, "", "notice", "workspace-heading");
+  });
+  document.getElementById("members-nav-button")?.addEventListener("click", () => {
+    currentScreen = "workspace";
+    renderShell(currentSession, "", "notice", "members-heading");
+    document.getElementById("members-heading")?.scrollIntoView({ block: "start" });
+  });
+  document.getElementById("manual-nav-button")?.addEventListener("click", () => openManualList(currentWorkspace));
+}
 
-Y[X™\ŠHOˆY[X™\‹\Ù\—ÚY
-JKœÚ^™HOOHY[X™\œË›[™İBˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹•ÓÔ’ÔÔPÑWÓQSP‘T”×Ô‘TÔÓ”ÑWÒS•SQ‹¸àèxàìøàä8àï9. :)©øà¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹¦`ºe¤øà¤¸àb¸àa8ài¸à xà ¸àa¹. 9n©¸àbº*i¸àeøàcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÜšÜÜXÙRYBˆİ\œ™[\Ù\”›ÛNˆXİÜ”›ÛKBˆY[X™\œÎˆY[X™\œË›X\
-ÛÜšÜÜXÙSY[X™\”İ[[X\JCBˆK[™Yš[™YÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB™[˜İ[Ûˆ™\]Z\™SX[˜YÙXX›T›ÛJ˜[YNˆ[šÛ›İÛŠNˆ˜YZ[ˆˆ™Y]ÜˆˆšY]Ù\ˆˆÃBˆYˆ
-˜[YHOOH˜YZ[ˆˆ	‰ˆ˜[YHOOH™Y]Üˆˆ	‰ˆ˜[YHOOHšY]Ù\ˆŠHÃBˆYˆ
-˜[YHOOH›İÛ™\ˆŠHÃBˆ›İÈ™]È\\œ›ÜŠK“ÕÓ‘T—ÕS”Ñ‘T—Ô‘TURT‘Q‹¹ë¨yä!º,«9.îú !xàk¹i"y¦í8àîù`g9«h¸àkøà yl ¹å*8àk¹éîùë¨y¢bùí¦¸àcxàc9b*yå*8àiøàcxà¢øào¸àiú(c8àb8ào¸àføà¤øà ˆŠNÃBˆCBˆ›İÈ™]È\\œ›ÜŠ“QSP‘T—Ô“ÓWÒS•SQ‹¹ª*zfd8àkùë¨yä!º !xàîùíê:fáº !xàîúe¬º)©ú !xàbøà¢z`n9¢§¸àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆ˜[YNÃBŸCBƒB™[˜İ[Ûˆ™\]Z\™SY[X™\“]]][Û”™\İ[
-Bˆ^[ØYˆ[šÛ›İÛ‹Bˆ^XİYˆÈ\Ù\’YÎˆİš[™ÎÈ›ÛNˆ˜YZ[ˆˆ™Y]ÜˆˆšY]Ù\ˆÈİ]\Îˆ˜Xİ]™Hˆœ™[[İ™YˆCBŠNˆÛÜšÜÜXÙSY[X™\”İ[[X\HÃBˆYˆ
-P\œ˜^Kš\Ğ\œ˜^J^[ØY
-H^[ØY›[™İOOHJHÃBˆ›İÈ™]È\\œ›ÜŠL‹“QSP‘T—ĞÒS‘ÑWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹i"y¦í9íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¹â­¹¡bøà¤¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİY[X™\ˆH\œÙUÛÜšÜÜXÙSY[X™\”›İÊ^[ØYÌJNÃBˆYˆ
-Bˆ[Y[X™\ˆBˆ
-^XİY\Ù\’YOOH[™Yš[™Y	‰ˆY[X™\‹\Ù\—ÚYOOH^XİY\Ù\’Y
-HBˆY[X™\‹œ›ÛHOOH^XİYœ›ÛHBˆY[X™\‹œİ]\ÈOOH^XİYœİ]\ÃBˆ
-HÃBˆ›İÈ™]È\\œ›ÜŠL‹“QSP‘T—ĞÒS‘ÑWÔ‘TÕSÕS’Ó“ÕÓˆ‹¹i"y¦í9íd9§§8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¹â­¹¡bøà¤¹è®º*£xàeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆ™]\›ˆÛÜšÜÜXÙSY[X™\”İ[[X\JY[X™\ŠNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆYÛÜšÜÜXÙSY[X™\Š™\]Y\İˆ™\]Y\İ[ˆ[‹ÛÜšÜÜXÙRYˆİš[™ÊNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆ™\]Z\™UÛÜšÜÜXÙRY
-ÛÜšÜÜXÙRY
-NÃBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆÛÛœİ›ÙHH]ØZ]™XYœÛÛ›ÙOÈ›Ú[ÛÙOÎˆİš[™ÎÈ›ÛOÎˆİš[™ÈOŠ™\]Y\İ
-NÃBˆYˆ
-\[Ùˆ›ÙKš›Ú[ÛÙHOOHœİš[™ÈˆR“ÒS—ĞÓÑWÔUT“‹\İ
-›ÙKš›Ú[ÛÙKš[J
-JJHÃBˆ›İÈ™]È\\œ›ÜŠK’“ÒS—ĞÓÑWÕSURSP“H‹¹cà¹b¨8à¬øàï8àâxà¤¹b*yå*8àiøàcxào¸àføà¤øà ¹§"yb®y§'úfd8ào¸àgøàkùaiyb¦ùa¡yk®xà¤¹è®º*£xàeøà y§+9.®¸àjùa£yænº(c8à¤¹/§zh/8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİ›Ú[ÛÙHH›ÙKš›Ú[ÛÙKš[J
-NÃBˆÛÛœİ›ÛHH™\]Z\™SX[˜YÙXX›T›ÛJ›ÙKœ›ÛJNÃBˆÛÛœİ^[ØYH]ØZ]Ø[ÛÜšÜÜXÙSY[X™\”œÊBˆ[‹BˆÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[‹Bˆœ™YY[WİÛÜšÜÜXÙWÚ›Ú[—ØÛÙH‹BˆÈ\™Ù]İÛÜšÜÜXÙWÚYˆÛÜšÜÜXÙRY›Ú[—ØÛÙNˆ›Ú[ÛÙK\™Ù]Ü›ÛNˆ›ÛHKBˆYCBˆ
-NÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆY[X™\ˆ™\]Z\™SY[X™\“]]][Û”™\İ[
-^[ØYÈ›ÛKİ]\Îˆ˜Xİ]™HˆJCBˆKÈİ]\ÎˆŒHKÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ\]UÛÜšÜÜXÙSY[X™\ŠBˆ™\]Y\İˆ™\]Y\İBˆ[ˆ[‹BˆÛÜšÜÜXÙRYˆİš[™ËBˆ\Ù\’Yˆİš[™ÃBŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆ™\]Z\™UÛÜšÜÜXÙRY
-ÛÜšÜÜXÙRY
-NÃBˆYˆ
-UURQÔUT“‹\İ
-\Ù\’Y
-JHÃBˆ›İÈ™]È\\œ›ÜŠK“QSP‘T—ÕTUWÕSURSP“H‹¹kïº,hxàèxàìøàä8àï8àk¹â­¹¡bøàc9i"xà£øàhøàgøàgøà y¦í9¥¬8àiøàcxào¸àføà¤øàiøàeøàgøà ¹. :)©øà¤¹¦í9¥¬8àeøài¸àcøàh8àexàa8à ˆŠNÃBˆCBˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÃBˆÛÛœİ›ÙHH]ØZ]™XYœÛÛ›ÙOÈ›ÛOÎˆİš[™ÎÈİ]\ÏÎˆİš[™ÈOŠ™\]Y\İ
-NÃBˆÛÛœİ›ÛHH™\]Z\™SX[˜YÙXX›T›ÛJ›ÙKœ›ÛJNÃBˆYˆ
-›ÙKœİ]\ÈOOH˜Xİ]™Hˆ	‰ˆ›ÙKœİ]\ÈOOHœ™[[İ™YŠHÃBˆ›İÈ™]È\\œ›ÜŠ“QSP‘T—ÔÕUT×ÒS•SQ‹¸àèxàìøàä8àï9â­¹¡bøàk¹£!ùk¦¸àc9«høàeøàcøà`¸à¢¸ào¸àføà¤øà ˆŠNÃBˆCBˆÛÛœİ^[ØYH]ØZ]Ø[ÛÜšÜÜXÙSY[X™\”œÊBˆ[‹BˆÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[‹Bˆ\]WİÛÜšÜÜXÙWÛY[X™\ˆ‹BˆÃBˆ\™Ù]İÛÜšÜÜXÙWÚYˆÛÜšÜÜXÙRYBˆ\™Ù]İ\Ù\—ÚYˆ\Ù\’YBˆ\™Ù]Ü›ÛNˆ›ÛKBˆ\™Ù]Üİ]\Îˆ›ÙKœİ]\ÃBˆKBˆYCBˆ
-NÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆY[X™\ˆ™\]Z\™SY[X™\“]]][Û”™\İ[
-^[ØYÃBˆ\Ù\’YBˆ›ÛKBˆİ]\Îˆ›ÙKœİ]\ÃBˆJCBˆK[™Yš[™YÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÙÛİ]
-™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÂˆ]ØZ]™XYœÛÛ›ÙO™XÛÜ™İš[™Ë™]™\Š™\]Y\İ
-NÃBˆÛÛœİÛÛÚÚY\ÈH\œÙPÛÛÚÚY\Ê™\]Y\İYJNÃBˆYˆ
-XÛÛÚÚY\Ëš\ÊÓÓÒÒQWĞPĞÑTÔ×ÕÒÑSŠH	‰ˆXÛÛÚÚY\Ëš\ÊÓÓÒÒQWÔ‘Q”‘TÒÕÒÑSŠJHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈİ]\Îˆ›ÚÈˆK[™Yš[™YÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-JNÃBˆCBƒBˆ]Ù\ÜÚ[ÛˆÙ\ÜÚ[Û”™\İ[ÃBˆHÃBˆÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[‹ÛÛÚÚY\ËYJNÃBˆHØ]Ú
-\œ›ÜŠHÃBˆYˆ
-\œ›Üˆ[œİ[˜Ù[Ùˆ\\œ›Üˆ	‰ˆ\œ›Ü‹˜ÛÙHOOH”ÑTÔÒSÓ—ÑVT‘QŠHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈİ]\Îˆ›ÚÈˆK[™Yš[™YÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-JNÃBˆCBˆ™]\›ˆÙÛİ]™]›ÚÙQ˜Z[\™T™\ÜÛœÙJ
-NÃBˆCBƒBˆ]™\ÜÛœÙNˆ™\ÜÛœÙNÃBˆHÃBˆ™\ÜÛœÙHH]ØZ]İ\X˜\ÙQ™]Ú
-[‹‹Ø]]İŒKÛÙÛİ]ÜØÛÜO[ØØ[‹ÃBˆY]Ùˆ”ÔÕƒBˆKÙ\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[ŠNÃBˆHØ]ÚÃBˆ™]\›ˆÙÛİ]™]›ÚÙQ˜Z[\™T™\ÜÛœÙJ
-NÃBˆCBƒBˆYˆ
-\™\ÜÛœÙK›ÚÊHÃBˆ™]\›ˆÙÛİ]™]›ÚÙQ˜Z[\™T™\ÜÛœÙJ
-NÃBˆCBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈİ]\Îˆ›ÚÈˆK[™Yš[™YÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-JNÂŸB‚˜\Ş[˜È[˜İ[ÛˆXØÙ\ÜÓÙÛİ]
-™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÂˆ]ØZ]™XYœÛÛ›ÙO™XÛÜ™İš[™Ë™]™\Š™\]Y\İ
-NÂˆHÂˆ™\]Z\™R[X[XİÜŠ]ØZ]™\šYPXØÙ\ÜÒİ
-™\]Y\İ[ŠJNÂˆHØ]Ú
-\œ›ÜŠHÂˆ›İÈX\XØÙ\ÜÒY[]Q\œ›ÜŠ\œ›ÜŠNÂˆBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈİ]\Îˆ›ÚÈ‹™Y\™Xİ\›ˆ‹ØÙ‹XÙÚKØXØÙ\ÜËÛÙÛİ]ˆJNÂŸBƒB™[˜İ[ÛˆÙÛİ]™]›ÚÙQ˜Z[\™T™\ÜÛœÙJ
-Nˆ™\ÜÛœÙHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÙNˆ“ÑÓÕUÔ‘U“ÒÑWÑRSQ‹BˆY\ÜØYÙNˆ¸àdøàk¹êëù§*øàk¸àëxà¬8à©8àìù áyh,xàkùbbºfi8àeøào¸àeøàgøàc8à z*£z*/8à­xàï8àä8àï9`m8àk¸àëxà¬8à¨¸à©¸àâ8à¤¹è®º*£xàiøàcxào¸àføà¤øàiøàeøàgøà ¸à ¸àa¹. 9n©¸àëxà¬8à©8àìøàeøài¸àbøà¢xàëxà¬8à¨¸à©¸àâ8àeøài¸àcøàh8àexàa8à ˆƒBˆKÈİ]\ÎˆLˆKÛX\”Ù\ÜÚ[ÛÛÛÚÚY\Ê
-JNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÛÛ™šYÒX[
-™\]Y\İˆ™\]Y\İ[ˆ[ŠNˆ›ÛZ\ÙO™\ÜÛœÙOˆÂˆYˆ
-\ÙPXØÙ\ÜÑT›İ]\Ê[ŠJHÂˆ]]]ÂˆHÂˆ]]H]ØZ]]][XØ]P\XØ][Û”™\]Y\İ
-™\]Y\İ[‹RY[]T™\ÜÚ]ÜJ[ŠJNÂˆHØ]Ú
-\œ›ÜŠHÂˆ›İÈX\XØÙ\ÜÒY[]Q\œ›ÜŠ\œ›ÜŠNÂˆBˆYˆ
-]]šÚ[™OOH›XXÚ[™HˆZ[œÜXİXØÙ\ÜÒX[Ù\šXÙUÚÙ[“˜[Y\Ê[ŠKš\Ê]]˜XİÜ‹˜ÛÛ[[Û“˜[YJJHÂˆ›İÈ™]È\\œ›ÜŠËPĞÑTÔ×Ñ“Ô’QSˆ‹¸àdøàk¹¤ãy/g8à¤º(c8àa¹ª*zfd8àc8à`¸à¢¸ào¸àføà¤øà ˆŠNÂˆBˆBˆÛÛœİİ\X˜\ÙHH[œÜXİİ\X˜\ÙPÛÛ™šYÊ[ŠNÂˆÛÛœİÈ\Õ\›\Ğ[›Û’Ù^HHHİ\X˜\ÙNÃBˆÛÛœİ\Ğ[İÙYİZ[YÈHÜ]ÜİŠ[‹‘TĞÓÔ‘ĞSÕÑQÑÕRSÒQÊKœÚ^™HˆÃBˆÛÛœİ\Ğ[İÙYÚ[›™[YÈHÜ]ÜİŠ[‹‘TĞÓÔ‘ĞSÕÑQĞÒS“‘SÒQÊKœÚ^™HˆÃBˆÛÛœİ[İÕ[œØÛÜYÛÛ[X[™ÈH[İÕ[œØÛÜY\ØÛÜ™ÛÛ[X[™Ê[ŠNÃBˆÛÛœİ\ØÛÜ™\ÜİYPœšYÙPÛÛ™šYİ\™YH›ÛÛX[ŠBˆ[‹‘TĞÓÔ‘ÔP“P×ÒÑVH	‰ƒBˆ[‹‘ÒUP—ÒTÔÕQWÕÒÑSˆ	‰ƒBˆ[‹‘TĞÓÔ‘ÒS•TPÕSÓ—ÔÕÔ‘H	‰ƒBˆ
-[İÕ[œØÛÜYÛÛ[X[™È
-\Ğ[İÙYİZ[YÈ	‰ˆ\Ğ[İÙYÚ[›™[YÊJCBˆ
-NÃBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÙ\šXÙNˆ›YXØÚK[X[X[‹Bˆİ]\Îˆ›ÚÈ‹Bˆ\ÙNˆœ\ÙKLKX]]]ÛÜšÜÜXÙKZ\›™\ÜÈ‹Bˆ[Y\İ[\ˆ™]È]J
-KÒTÓÔİš[™Ê
-KBˆÛÛ™šYÎˆÃBˆİ\X˜\ÙNˆÃBˆÛÛ™šYİ\™Yˆİ\X˜\ÙK˜ÛÛ™šYİ\™YBˆ\Õ\›Bˆ\Ğ[›Û’Ù^KBˆ›Ú™Xİ™Yˆİ\X˜\ÙKœ›Ú™Xİ™YƒBˆKBˆ\ØÛÜ™ˆÃBˆ\ÜİYPœšYÙPÛÛ™šYİ\™Yˆ\ØÛÜ™\ÜİYPœšYÙPÛÛ™šYİ\™YBˆ\ÔX›XÒÙ^Nˆ›ÛÛX[Š[‹‘TĞÓÔ‘ÔP“P×ÒÑVJKBˆ\Ò\ÜİYUÚÙ[ˆ›ÛÛX[Š[‹‘ÒUP—ÒTÔÕQWÕÒÑSŠKBˆ\Ò\ÜİYT™\ÜÚ]ÜNˆ›ÛÛX[Š[‹‘ÒUP—ÒTÔÕQWÔ‘TÔÒUÔ–JKBˆ\Ò[\˜Xİ[Û”İÜ™Nˆ›ÛÛX[Š[‹‘TĞÓÔ‘ÒS•TPÕSÓ—ÔÕÔ‘JKBˆ\Ğ[İÙYİZ[YËBˆ\Ğ[İÙYÚ[›™[YËBˆ[İÕ[œØÛÜYÛÛ[X[™ÃBˆCBˆCBˆHØ]\ÙšY\ÈÛÛ™šYÒX[™\ÜÛœÙJNÃBŸCBƒB™[˜İ[Ûˆ˜\ÚXÒX[
+function openManualList(currentWorkspace, message = "", messageKind = "notice") {
+  if (manualMigrationInProgress()) {
+    currentScreen = "workspace";
+    renderShell(currentSession, "æ‰‹é †æ›¸æ©Ÿèƒ½ã¯ç§»è¡Œä¸­ã®ãŸã‚ã€ç¾åœ¨åˆ©ç”¨ã§ãã¾ã›ã‚“ã€‚", "warning", "shell-message");
+    return;
+  }
+  if (!currentWorkspace) {
+    currentScreen = "workspace";
+    renderShell(currentSession, "åˆ©ç”¨ä¸­ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é¸æŠã—ã¦ãã ã•ã„ã€‚", "error", "shell-message");
+    return;
+  }
+  currentScreen = "manuals";
+  manualDetailState = { workspaceId: currentWorkspace.id, manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
+  if (message) {
+    manualsState = { ...manualsState, workspaceId: currentWorkspace.id, message, messageKind };
+  }
+  renderShell(currentSession, "", "notice", "manuals-heading");
+  if (workspaceMembersState?.status === "idle") {
+    loadWorkspaceMembers(currentWorkspace.id, { alreadyRendered: true });
+  }
+  if (manualsState.workspaceId !== currentWorkspace.id || manualsState.status === "idle") {
+    loadManuals(currentWorkspace.id);
+  }
+}
 
-Nˆ™\ÜÛœÙHÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÙ\šXÙNˆ›YXØÚK[X[X[‹Bˆİ]\Îˆ›ÚÈ‹Bˆ\ÙNˆœ\ÙKLKX]]]ÛÜšÜÜXÙKZ\›™\ÜÈ‹Bˆ[Y\İ[\ˆ™]È]J
-KÒTÓÔİš[™Ê
-CBˆHØ]\ÙšY\ÈX[™\ÜÛœÙJNÃBŸCBƒB™[˜İ[ÛˆØ[˜XÚÓZYÜ˜][Û”™\ÜÛœÙJ
-Nˆ™\ÜÛœÙHÂˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÙNˆĞSPÒ×ÓRQÔUSÓ—ĞÓÑKBˆY\ÜØYÙNˆ¹i%º`ê:`(ù¤.¸àkùéîú(c9.+xàk¸àgøà yãï¹g*9b*yå*8àiøàcxào¸àføà¤øà ˆƒBˆKÈİ]\ÎˆLÈJNÃBŸB‚™[˜İ[ÛˆXØÙ\ÜÓYØXŞT›İ]SZYÜ˜][Û”™\ÜÛœÙJ
-Nˆ™\ÜÛœÙHÂˆ™]\›ˆœÛÛ”™\ÜÛœÙJÂˆÛÙNˆPĞÑTÔ×ÓQĞPÖWÔ“ÕUWÓRQÔUSÓ—ĞÓÑKˆY\ÜØYÙNˆº*£z*/8àîøàèxàìøàä8àï9ªgú ïxàkùéîú(c9.+xàk¸àgøà xà yãï¹g*9b*yå*8àiøàcxào¸àføà¤øà ˆ‚ˆKÈİ]\ÎˆLÈJNÂŸB‚™[˜İ[Ûˆ\ÓYØXŞTİ\X˜\ÙT›İXİY›İ]J]˜[YNˆİš[™ÊNˆ›ÛÛX[ˆÂˆ™]\›ˆ
-ˆ×—Ø\WØ]]ÊÎ›ÙÚ[Ÿ™Yœ™\Ú
-IË\İ
-]˜[YJHˆ×—Ø\WİÛÜšÜÜXÙ\×Ö×‹×J×ÛY[X™\œÊÎ—Ö×‹×JÊOÉË\İ
-]˜[YJBˆ
-NÂŸB‚˜\Ş[˜È[˜İ[Ûˆ›İ]J™\]Y\İˆ™\]Y\İ[ˆ[‹İÎˆ^Xİ][ÛÛÛ^
-Nˆ›ÛZ\ÙO™\ÜÛœÙOˆÂˆÛÛœİ\›H™]ÈT“
-™\]Y\İ\›
-NÂˆYˆ
-\ÙPXØÙ\ÜÑT›İ]\Ê[ŠH	‰ˆ\ÓYØXŞTİ\X˜\ÙT›İXİY›İ]J\›œ]˜[YJJHÂˆ™]\›ˆXØÙ\ÜÓYØXŞT›İ]SZYÜ˜][Û”™\ÜÛœÙJ
-NÂˆBˆYˆ
-TĞP“QĞĞSPÒ×ÔUËš\Ê\›œ]˜[YJJHÂˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕŠH™]\›ˆØ[˜XÚÓZYÜ˜][Û”™\ÜÛœÙJ
-NÃBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÙNˆ“QUÑÓ“ÕĞSÕÑQ‹BˆY\ÜØYÙNˆ¸àdøàk¹¤ãy/g8àjøàkùkï¹oç8àeøài¸àa8ào¸àføà¤øà ˆƒBˆKÈİ]\ÎˆHJNÃBˆCBˆÛÛœİ\Ğİ\œ™[\ÜÙ]™\œÚ[ÛˆH\›œÙX\˜Ú\˜[\Ë™Ù]
-ˆŠHOOHTĞTÔÑUÕ‘T”ÒSÓÃBˆÛÛœİÛÜšÜÜXÙSY[X™\œÓX]ÚH\›œ]˜[YK›X]Ú
-×—Ø\WİÛÜšÜÜXÙ\×Ê×‹×JÊWÛY[X™\œÉÊNÃBˆÛÛœİÛÜšÜÜXÙSY[X™\“X]ÚH\›œ]˜[YK›X]Ú
-×—Ø\WİÛÜšÜÜXÙ\×Ê×‹×JÊWÛY[X™\œ×Ê×‹×JÊIÊNÃBƒBˆ™\šYTØ[YSÜšYÚ[•Üš]J™\]Y\İ
-NÃBƒBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹ÈŠH™]\›ˆ[™\ÜÛœÙJTÒS
-NÃBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹Ø\ÜÙ]ËØ\˜ÜÜÈŠHÃBˆ™]\›ˆ\ÜÙ]™\ÜÛœÙJTĞÔÔË^ØÜÜÎÈÚ\œÙ]]]‹N‹\Ğİ\œ™[\ÜÙ]™\œÚ[ÛŠNÃBˆCBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹Ø\ÜÙ]ËØ\šœÈŠHÃBˆ™]\›ˆ\ÜÙ]™\ÜÛœÙJTÒ”Ë˜\XØ][Û‹Ú˜]˜\ØÜš\ÈÚ\œÙ]]]‹N‹\Ğİ\œ™[\ÜÙ]™\œÚ[ÛŠNÃBˆCBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹ÚX[ŠH™]\›ˆ˜\ÚXÒX[
+function wireManualCodePointLimit(field) {
+  const maxLength = Number(field?.dataset?.codePointMax || 0);
+  if (!Number.isSafeInteger(maxLength) || maxLength < 1) return;
+  let composing = false;
+  let acceptedValue = String(field.value || "");
+  let acceptedSelectionStart = typeof field.selectionStart === "number" ? field.selectionStart : acceptedValue.length;
+  let acceptedSelectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : acceptedSelectionStart;
 
-NÃBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹ÚX[ØÛÛ™šYÈŠH™]\›ˆÛÛ™šYÒX[
-™\]Y\İ[ŠNÂˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KÜÙ\ÜÚ[ÛˆŠHÂˆ™]\›ˆ\ÙPXØÙ\ÜÑT›İ]\Ê[ŠHÈÙ]TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠHˆÙ]Ù\ÜÚ[ÛŠ™\]Y\İ[ŠNÂˆBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KØ]]ÛÙÚ[ˆŠH™]\›ˆÙÚ[Š™\]Y\İ[ŠNÃBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KØ]]Ü™Yœ™\ÚŠH™]\›ˆ™Yœ™\Ú]][XØ][ÛŠ™\]Y\İ[ŠNÃBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KØ]]ÛÙÛİ]ŠHÂˆ™]\›ˆ\ÙPXØÙ\ÜÑT›İ]\Ê[ŠHÈXØÙ\ÜÓÙÛİ]
-™\]Y\İ[ŠHˆÙÛİ]
-™\]Y\İ[ŠNÂˆBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KİÛÜšÜÜXÙ\ÈŠHÂˆYˆ
-\ÙPXØÙ\ÜÑT›İ]\Ê[ŠJH™]\›ˆ\İUÛÜšÜÜXÙ\Ê™\]Y\İ[ŠNÂˆÛÛœİÙ\ÜÚ[ÛˆH]ØZ]™\]Z\™TÙ\ÜÚ[ÛŠ™\]Y\İ[ŠNÂˆ™]\›ˆœÛÛ”™\ÜÛœÙJÈÛÜšÜÜXÙ\Îˆ]ØZ]™]ÚÛÜšÜÜXÙ\Ê[‹Ù\ÜÚ[Û‹˜XØÙ\ÜÕÚÙ[ŠHK[™Yš[™YÙ\ÜÚ[Û‹œ™\ÜÛœÙPÛÛÚÚY\ÊNÂˆBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KİÛÜšÜÜXÙ\ÈŠHÂˆ™]\›ˆ\ÙPXØÙ\ÜÑT›İ]\Ê[ŠHÈÜ™X]QUÛÜšÜÜXÙJ™\]Y\İ[ŠHˆÜ™X]UÛÜšÜÜXÙJ™\]Y\İ[ŠNÂˆBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆ\›œ]˜[YHOOH‹Ø\KÛY[X™\‹Z›Ú[‹XÛÙHŠHÂˆ™]\›ˆ\ÙPXØÙ\ÜÑT›İ]\Ê[ŠHÈÜ™X]QUÛÜšÜÜXÙR›Ú[ÛÙJ™\]Y\İ[ŠHˆÜ™X]UÛÜšÜÜXÙR›Ú[ÛÙJ™\]Y\İ[ŠNÂˆBˆYˆ
-™\]Y\İ›Y]ÙOOH‘ÑUˆ	‰ˆÛÜšÜÜXÙSY[X™\œÓX]ÚË–ÌWJHÃBˆ™]\›ˆÙ]ÛÜšÜÜXÙSY[X™\œÊ™\]Y\İ[‹ÛÜšÜÜXÙSY[X™\œÓX]ÚÌWJNÃBˆCBˆYˆ
-™\]Y\İ›Y]ÙOOH”ÔÕˆ	‰ˆÛÜšÜÜXÙSY[X™\œÓX]ÚË–ÌWJHÃBˆ™]\›ˆYÛÜšÜÜXÙSY[X™\Š™\]Y\İ[‹ÛÜšÜÜXÙSY[X™\œÓX]ÚÌWJNÃBˆCBˆYˆ
-™\]Y\İ›Y]ÙOOH”UÒˆ	‰ˆÛÜšÜÜXÙSY[X™\“X]ÚË–ÌWH	‰ˆÛÜšÜÜXÙSY[X™\“X]ÚÌ—JHÃBˆ™]\›ˆ\]UÛÜšÜÜXÙSY[X™\Š™\]Y\İ[‹ÛÜšÜÜXÙSY[X™\“X]ÚÌWKÛÜšÜÜXÙSY[X™\“X]ÚÌ—JNÃBˆCBƒBˆ™]\›ˆœÛÛ”™\ÜÛœÙJÃBˆÛÙNˆ““ÕÑ“ÕS‘‹BˆY\ÜØYÙNˆ¹£!ùk¦¸àexà£8àgøàæ¸àï8à®8ào¸àgøàkĞTxàc:)¢øài8àbøà¢¸ào¸àføà¤øà ˆƒBˆKÈİ]\ÎˆJNÃBŸCBƒB™^ÜY˜][ÃBˆ\Ş[˜È™]Ú
-™\]Y\İˆ™\]Y\İ[ˆ[‹İˆ^Xİ][ÛÛÛ^
-Nˆ›ÛZ\ÙO™\ÜÛœÙOˆÃBˆHÃBˆ™]\›ˆ]ØZ]›İ]J™\]Y\İ[‹İ
-NÃBˆHØ]Ú
-\œ›ÜŠHÃBˆ™]\›ˆ\œ›Ü”™\ÜÛœÙJ\œ›ÜŠNÃBˆCBˆCBŸHØ]\ÙšY\È^ÜY[™\[ÃB
+  const rememberAccepted = () => {
+    const value = String(field.value || "");
+    if (Array.from(value).length > maxLength) return false;
+    acceptedValue = value;
+    acceptedSelectionStart = typeof field.selectionStart === "number" ? field.selectionStart : value.length;
+    acceptedSelectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : acceptedSelectionStart;
+    return true;
+  };
+  const rejectOverflow = () => {
+    if (rememberAccepted()) return false;
+    field.value = acceptedValue;
+    if (typeof field.setSelectionRange === "function") {
+      field.setSelectionRange(acceptedSelectionStart, acceptedSelectionEnd);
+    }
+    return true;
+  };
+
+  field.addEventListener("beforeinput", () => {
+    if (!composing) rememberAccepted();
+  });
+  field.addEventListener("compositionstart", () => {
+    rememberAccepted();
+    composing = true;
+  });
+  field.addEventListener("compositionend", () => {
+    composing = false;
+    rejectOverflow();
+  });
+  field.addEventListener("input", () => {
+    if (!composing) rejectOverflow();
+  });
+  rejectOverflow();
+}
+
+function manualMessageHtml(state, id) {
+  const kind = state.messageKind || "notice";
+  const className = state.message
+    ? kind === "error" ? "error-box show" : kind === "warning" ? "warning-box show" : "notice-box show"
+    : "notice-box";
+  return '<div id="' + id + '" class="' + className + '" role="' + (kind === "error" ? 'alert' : 'status') + '" aria-live="' + (kind === "error" ? 'assertive' : 'polite') + '" aria-atomic="true" tabindex="-1">' + escapeHtml(state.message || "") + '</div>';
+}
+
+function manualListHtml(currentWorkspace) {
+  const state = manualsState;
+  const canEdit = manualCanEdit(currentWorkspace);
+  const roleKnown = workspaceMembersState?.workspaceId === currentWorkspace.id && Boolean(workspaceMembersState.currentUserRole);
+  let body = "";
+  if (state.status === "idle" || state.status === "loading") {
+    body = '<div class="empty" role="status" aria-live="polite" aria-busy="true">æ‰‹é †æ›¸ã‚’èª­ã¿è¾¼ã‚“ã§ã„ã¾ã™ã€‚</div>';
+  } else if (state.status === "error") {
+    body = '<div class="empty"><p>æ‰‹é †æ›¸ä¸€è¦§ã‚’è¡¨ç¤ºã§ãã¾ã›ã‚“ã§ã—ãŸã€‚</p><button id="manuals-retry-button" class="secondary-button" type="button">ã‚‚ã†ä¸€åº¦èª­ã¿è¾¼ã‚€</button></div>';
+  } else if (state.items.length === 0) {
+    body = '<div class="empty" role="status"><strong>æ‰‹é †æ›¸ã¯ã¾ã ã‚ã‚Šã¾ã›ã‚“ã€‚</strong><br>' + (canEdit ? 'å³å´ã®ãƒ•ã‚©ãƒ¼ãƒ ã‹ã‚‰æœ€åˆã®æ‰‹é †æ›¸ã‚’ä½œæˆã§ãã¾ã™ã€‚' : 'ç·¨é›†è€…ä»¥ä¸Šã®æ¨©é™ã‚’æŒã¤ãƒ¡ãƒ³ãƒãƒ¼ãŒä½œæˆã§ãã¾ã™ã€‚') + '</div>';
+  } else {
+    body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
+      '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +
+        '<span><span class="manual-list-item-title">' + escapeHtml(manual.title) + '</span><span class="muted">æ›´æ–°ï¼š' + escapeHtml(new Date(manual.updatedAt).toLocaleString("ja-JP")) + '</span></span>' +
+        '<span class="badge">' + escapeHtml(manualStatusLabels[manual.status] || manual.status) + '</span>' +
+      '</button></div>'
+    ).join("") + '</div>';
+  }
+  const createPanel = canEdit
+    ? '<form id="manual-create-form" class="workspace-form manual-form" novalidate>' +
+        '<h2>æ–°ã—ã„æ‰‹é †æ›¸</h2><p>ã‚¿ã‚¤ãƒˆãƒ«ã ã‘ã§ã‚‚ä½œæˆã§ãã¾ã™ã€‚èª¬æ˜ã¯å¾Œã‹ã‚‰å¤‰æ›´ã§ãã¾ã™ã€‚</p>' +
+        '<div class="field"><label for="manual-create-title">ã‚¿ã‚¤ãƒˆãƒ«</label><input id="manual-create-title" name="title" data-code-point-max="64" required></div>' +
+        '<div class="field"><label for="manual-create-description">èª¬æ˜</label><textarea id="manual-create-description" name="description" data-code-point-max="10000"></textarea></div>' +
+        '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>' + (manualMutationInFlight ? 'ä½œæˆä¸­' : 'æ‰‹é †æ›¸ã‚’ä½œæˆ') + '</button>' +
+      '</form>'
+    : '<section class="workspace-form" aria-labelledby="manual-permission-heading"><h2 id="manual-permission-heading">ä½œæˆæ¨©é™</h2><p>' + (roleKnown ? 'ç¾åœ¨ã®æ¨©é™ã§ã¯æ‰‹é †æ›¸ã‚’ä½œæˆãƒ»ç·¨é›†ã§ãã¾ã›ã‚“ã€‚é–²è¦§ã¯ã§ãã¾ã™ã€‚' : 'ãƒ¡ãƒ³ãƒãƒ¼æ¨©é™ã‚’ç¢ºèªã—ã¦ã„ã¾ã™ã€‚') + '</p></section>';
+  return '<div class="manual-layout">' +
+    '<section class="section" aria-labelledby="manual-list-heading">' +
+      '<div class="section-header"><h2 id="manual-list-heading">æ‰‹é †æ›¸ä¸€è¦§</h2><span class="badge">' + (state.status === "loaded" ? state.items.length : "-") + 'ä»¶</span></div>' +
+      body +
+    '</section>' + createPanel +
+  '</div>';
+}
+
+function stepTypeOptions(value) {
+  return Object.entries(manualStepTypeLabels).map(([key, label]) => '<option value="' + key + '"' + (value === key ? ' selected' : '') + '>' + label + '</option>').join("");
+}
+
+function actionTypeOptions(value) {
+  return '<option value="">æ“ä½œãªã—</option>' + Object.entries(manualActionTypeLabels).map(([key, label]) => '<option value="' + key + '"' + (value === key ? ' selected' : '') + '>' + label + '</option>').join("");
+}
+
+function manualStepHtml(step, index, count, canEdit) {
+  const heading = 'æ‰‹é † ' + (index + 1) + 'ï¼š' + step.title;
+  const header = '<div class="manual-step-card-header"><h3 id="step-heading-' + escapeHtml(step.id) + '">' + escapeHtml(heading) + '</h3><span class="badge">' + escapeHtml(manualStepTypeLabels[step.type] || step.type) + '</span></div>';
+  if (!canEdit) {
+    return '<article class="manual-step-card" aria-labelledby="step-heading-' + escapeHtml(step.id) + '">' + header +
+      '<div class="manual-step-view"><dl>' +
+        '<dt>æ‰‹é †æ–‡</dt><dd>' + escapeHtml(step.instruction || "æœªå…¥åŠ›") + '</dd>' +
+        '<dt>æ“ä½œå¯¾è±¡</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' +
+        '<dt>URL</dt><dd>' + escapeHtml(step.url || "-") + '</dd>' +
+      '</dl></div></article>';
+  }
+  return '<article class="manual-step-card" aria-labelledby="step-heading-' + escapeHtml(step.id) + '">' + header +
+    '<form class="manual-step-form" data-step-id="' + escapeHtml(step.id) + '" data-step-updated-at="' + escapeHtml(step.updatedAt) + '">' +
+      '<div class="manual-step-grid">' +
+        '<div class="field"><label for="step-type-' + escapeHtml(step.id) + '">ç¨®é¡</label><select id="step-type-' + escapeHtml(step.id) + '" name="type">' + stepTypeOptions(step.type) + '</select></div>' +
+        '<div class="field"><label for="step-action-' + escapeHtml(step.id) + '">æ“ä½œ</label><select id="step-action-' + escapeHtml(step.id) + '" name="actionType">' + actionTypeOptions(step.actionType) + '</select></div>' +
+      '</div>' +
+      '<div class="field"><label for="step-title-' + escapeHtml(step.id) + '">è¦‹å‡ºã—</label><input id="step-title-' + escapeHtml(step.id) + '" name="title" data-code-point-max="128" required value="' + escapeHtml(step.title) + '"></div>' +
+      '<div class="field"><label for="step-target-' + escapeHtml(step.id) + '">æ“ä½œå¯¾è±¡</label><input id="step-target-' + escapeHtml(step.id) + '" name="targetText" data-code-point-max="256" value="' + escapeHtml(step.targetText || "") + '"></div>' +
+      '<div class="field"><label for="step-instruction-' + escapeHtml(step.id) + '">æ‰‹é †æ–‡</label><textarea id="step-instruction-' + escapeHtml(step.id) + '" name="instruction" data-code-point-max="4000">' + escapeHtml(step.instruction || "") + '</textarea><span class="muted">ä¿å­˜æ¸ˆã¿ã®æ‰‹é †æ–‡ã¯ã€æ“ä½œå¯¾è±¡ã‚’å¤‰ãˆã¦ã‚‚è‡ªå‹•ã§ä¸Šæ›¸ãã—ã¾ã›ã‚“ã€‚</span></div>' +
+      '<div class="field"><label for="step-url-' + escapeHtml(step.id) + '">URL</label><input id="step-url-' + escapeHtml(step.id) + '" name="url" data-code-point-max="2048" inputmode="url" value="' + escapeHtml(step.url || "") + '"></div>' +
+      '<div class="manual-step-actions">' +
+        '<button class="secondary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>æ‰‹é †ã‚’ä¿å­˜</button>' +
+        '<button class="secondary-button compact-button manual-step-up" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === 0 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'ã‚’</span>ä¸Šã¸</button>' +
+        '<button class="secondary-button compact-button manual-step-down" type="button" data-step-id="' + escapeHtml(step.id) + '"' + (index === count - 1 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '><span class="visually-hidden">' + escapeHtml(step.title) + 'ã‚’</span>ä¸‹ã¸</button>' +
+        '<button class="danger-button compact-button manual-step-delete" type="button" data-step-id="' + escapeHtml(step.id) + '" data-step-title="' + escapeHtml(step.title) + '"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>æ‰‹é †ã‚’å‰Šé™¤</button>' +
+      '</div>' +
+    '</form></article>';
+}
+
+function manualRevisionState(value) {
+  const revisionState = value?.draft?.state;
+  if (revisionState === "draft" || revisionState === "published") return revisionState;
+  return value?.manual?.currentPublishedRevisionId ? "published" : "";
+}
+
+function manualRevisionReadOnlyLabel(value) {
+  const revisionState = manualRevisionState(value);
+  if (revisionState === "draft") return "ä¸‹æ›¸ãï¼ˆèª­ã¿å–ã‚Šå°‚ç”¨ï¼‰";
+  if (revisionState === "published") return "å…¬é–‹ç‰ˆï¼ˆèª­ã¿å–ã‚Šå°‚ç”¨ï¼‰";
+  return "ä¿å­˜æ¸ˆã¿å†…å®¹ï¼ˆèª­ã¿å–ã‚Šå°‚ç”¨ï¼‰";
+}
+
+function closeManualReadingPreview(restoreFocus = true) {
+  const preview = manualReadingPreview;
+  if (!preview) return;
+  manualReadingPreview = null;
+  if (preview.element.open) preview.element.close();
+  preview.element.remove();
+  if (restoreFocus && preview.opener?.isConnected) preview.opener.focus();
+}
+
+function openManualReadingPreview() {
+  const value = manualDetailState.value;
+  const opener = document.getElementById("manual-reading-preview-button");
+  if (!value || !opener) return;
+  closeManualReadingPreview(false);
+  const revisionState = manualRevisionState(value);
+  const title = value.draft?.title || value.manual?.title || "æ‰‹é †æ›¸";
+  const description = value.draft?.description || "";
+  const steps = Array.isArray(value.steps) ? value.steps : [];
+  const stepsHtml = steps.length
+    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "æ‰‹é †")) + '</h3><dl><dt>ç¨®é¡</dt><dd>' + escapeHtml(manualStepTypeLabels[step.type] || step.type || "-") + '</dd><dt>æ‰‹é †</dt><dd>' + escapeHtml(step.instruction || "æ‰‹é †æ–‡ãªã—") + '</dd><dt>æ“ä½œå¯¾è±¡</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
+    : '<p role="status">æ‰‹é †ã¯ã¾ã ã‚ã‚Šã¾ã›ã‚“ã€‚</p>';
+  const overlay = document.createElement("dialog");
+  overlay.className = "manual-reading-preview";
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "manual-reading-preview-title");
+  overlay.innerHTML = '<div class="manual-reading-preview-panel">' +
+    '<header class="manual-reading-preview-header"><div><p class="eyebrow">ä¿å­˜æ¸ˆã¿å†…å®¹ã®ã¿</p><h2 id="manual-reading-preview-title">' + escapeHtml(title) + '</h2><span class="badge">' + escapeHtml(revisionState === "draft" ? "ä¸‹æ›¸ã" : revisionState === "published" ? "å…¬é–‹ç‰ˆ" : "ä¿å­˜æ¸ˆã¿") + '</span></div><button id="manual-reading-preview-close" class="secondary-button" type="button">é–‰ã˜ã‚‹</button></header>' +
+    '<div class="manual-reading-preview-content"><p class="manual-reading-preview-description">' + escapeHtml(description || "èª¬æ˜ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚") + '</p><div class="manual-reading-preview-steps">' + stepsHtml + '</div></div>' +
+    '<footer class="manual-reading-preview-footer"><button id="manual-reading-preview-close-footer" class="primary-button" type="button">' + (value.permissions?.canEdit ? "ç·¨é›†ç”»é¢ã¸æˆ»ã‚‹" : "æ‰‹é †æ›¸ã¸æˆ»ã‚‹") + '</button></footer>' +
+    '</div>';
+  app.appendChild(overlay);
+  const close = () => closeManualReadingPreview(true);
+  manualReadingPreview = { element: overlay, opener };
+  overlay.querySelector("#manual-reading-preview-close")?.addEventListener("click", close);
+  overlay.querySelector("#manual-reading-preview-close-footer")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.addEventListener("close", () => {
+    if (manualReadingPreview?.element === overlay) close();
+  });
+  overlay.showModal();
+  overlay.querySelector("#manual-reading-preview-close")?.focus();
+}
+
+function manualDetailHtml(currentWorkspace) {
+  const state = manualDetailState;
+  if (state.status === "idle" || state.status === "loading") {
+    return '<section class="section"><div class="empty" role="status" aria-live="polite" aria-busy="true">æ‰‹é †æ›¸ã‚’èª­ã¿è¾¼ã‚“ã§ã„ã¾ã™ã€‚</div></section>';
+  }
+  if (state.status === "error" || !state.value) {
+    return '<section class="section"><div class="empty"><p>æ‰‹é †æ›¸ã‚’è¡¨ç¤ºã§ãã¾ã›ã‚“ã§ã—ãŸã€‚</p><button id="manual-detail-retry-button" class="secondary-button" type="button">ã‚‚ã†ä¸€åº¦èª­ã¿è¾¼ã‚€</button></div></section>';
+  }
+  const value = state.value;
+  const canEdit = Boolean(value.permissions?.canEdit);
+  const draft = value.draft;
+  const hasEditableDraft = draft?.state === "draft";
+  const steps = value.steps || [];
+  const metadata = draft
+    ? canEdit && hasEditableDraft
+      ? '<form id="manual-draft-form" class="manual-detail-form" data-draft-updated-at="' + escapeHtml(draft.updatedAt) + '" novalidate>' +
+          '<div class="field"><label for="manual-draft-title">ã‚¿ã‚¤ãƒˆãƒ«</label><input id="manual-draft-title" name="title" data-code-point-max="64" required value="' + escapeHtml(draft.title) + '"></div>' +
+          '<div class="field"><label for="manual-draft-description">èª¬æ˜</label><textarea id="manual-draft-description" name="description" data-code-point-max="10000">' + escapeHtml(draft.description || "") + '</textarea></div>' +
+          '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>åŸºæœ¬æƒ…å ±ã‚’ä¿å­˜</button>' +
+        '</form>'
+      : '<div class="manual-step-view"><dl><dt>èª¬æ˜</dt><dd>' + escapeHtml(draft.description || "æœªå…¥åŠ›") + '</dd><dt>çŠ¶æ…‹</dt><dd>' + escapeHtml(manualRevisionReadOnlyLabel(value)) + '</dd></dl>' +
+          (canEdit && draft.state === "published" ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>ç·¨é›†ç”¨ä¸‹æ›¸ãã‚’ä½œæˆ</button>' : '') +
+        '</div>'
+    : '<div class="empty"><strong>ç·¨é›†ã§ãã‚‹ä¸‹æ›¸ããŒã‚ã‚Šã¾ã›ã‚“ã€‚</strong><br>' +
+        (canEdit && value.manual.currentPublishedRevisionId
+          ? '<button id="manual-create-draft-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>ç·¨é›†ç”¨ä¸‹æ›¸ãã‚’ä½œæˆ</button>'
+          : 'å…¬é–‹æ¸ˆã¿ã®å†…å®¹ã¯é–²è¦§ã§ãã¾ã™ã€‚') +
+      '</div>';
+  const publicationActions = canEdit && hasEditableDraft
+    ? '<section class="workspace-form" aria-labelledby="manual-publication-heading"><h2 id="manual-publication-heading">å…¬é–‹</h2>' +
+        '<p>ç¾åœ¨ã®ä¸‹æ›¸ãã‚’å¤‰æ›´ã§ããªã„å…¬é–‹ç‰ˆã«ã—ã¾ã™ã€‚å…¬é–‹å‰ã«æ©Ÿå¯†æƒ…å ±ã¨ãƒã‚¹ã‚­ãƒ³ã‚°ã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚</p>' +
+        '<label><input id="manual-sensitive-review-confirmation" type="checkbox"> æ©Ÿå¯†æƒ…å ±ãŒå«ã¾ã‚Œãšã€å¿…è¦ãªãƒã‚¹ã‚­ãƒ³ã‚°ãŒå®Œäº†ã—ã¦ã„ã‚‹ã“ã¨ã‚’ç¢ºèªã—ã¾ã—ãŸ</label>' +
+        '<button id="manual-publish-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>ã“ã®å†…å®¹ã‚’å…¬é–‹</button>' +
+      '</section>'
+    : '';
+  const archiveActions = canEdit
+    ? '<section class="workspace-form" aria-labelledby="manual-archive-heading"><h2 id="manual-archive-heading">ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–</h2>' +
+        '<p>æ‰‹é †æ›¸ã‚’ä¸€è¦§ã‹ã‚‰éè¡¨ç¤ºã«ã—ã¾ã™ã€‚ä¸‹æ›¸ããƒ»å…¬é–‹ç‰ˆãƒ»æ‰‹é †ã¯å‰Šé™¤ã›ãšä¿æŒã—ã¾ã™ã€‚</p>' +
+        '<button id="manual-archive-button" class="danger-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>æ‰‹é †æ›¸ã‚’ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–</button>' +
+      '</section>'
+    : '';
+  const stepsHtml = steps.length
+    ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit && hasEditableDraft)).join("") + '</div>'
+    : '<div class="empty" role="status">æ‰‹é †ã¯ã¾ã ã‚ã‚Šã¾ã›ã‚“ã€‚</div>';
+  const addForm = canEdit && hasEditableDraft
+    ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +
+        '<h2>æ‰‹é †ã‚’è¿½åŠ </h2><p>å…¥åŠ›ã—ãŸå€¤ã‚„ãƒ‘ã‚¹ãƒ¯ãƒ¼ãƒ‰ã¯è¨˜éŒ²ã›ãšã€æ“ä½œå¯¾è±¡åã ã‘ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚</p>' +
+        '<div class="manual-step-grid"><div class="field"><label for="new-step-type">ç¨®é¡</label><select id="new-step-type" name="type">' + stepTypeOptions("action") + '</select></div><div class="field"><label for="new-step-action">æ“ä½œ</label><select id="new-step-action" name="actionType">' + actionTypeOptions("click") + '</select></div></div>' +
+        '<div class="field"><label for="new-step-title">è¦‹å‡ºã—</label><input id="new-step-title" name="title" data-code-point-max="128" required></div>' +
+        '<div class="field"><label for="new-step-target">æ“ä½œå¯¾è±¡</label><input id="new-step-target" name="targetText" data-code-point-max="256" placeholder="ä¾‹ï¼šä¿å­˜ãƒœã‚¿ãƒ³"></div>' +
+        '<div class="field"><label for="new-step-instruction">æ‰‹é †æ–‡ï¼ˆä»»æ„ï¼‰</label><textarea id="new-step-instruction" name="instruction" data-code-point-max="4000"></textarea><span class="muted">ç©ºæ¬„ã®å ´åˆã¯æ“ä½œå¯¾è±¡ã‹ã‚‰ãƒ­ãƒ¼ã‚«ãƒ«ã§å€™è£œã‚’ä½œæˆã—ã¾ã™ã€‚å¤–éƒ¨AIã¯ä½¿ç”¨ã—ã¾ã›ã‚“ã€‚</span></div>' +
+        '<div class="field"><label for="new-step-url">URLï¼ˆä»»æ„ï¼‰</label><input id="new-step-url" name="url" data-code-point-max="2048" inputmode="url"></div>' +
+        '<button class="primary-button" type="submit"' + (steps.length >= 200 ? ' disabled' : manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>' + (steps.length >= 200 ? 'æ‰‹é †ã¯200ä»¶ã¾ã§ã§ã™' : 'æ‰‹é †ã‚’è¿½åŠ ') + '</button>' +
+      '</form>'
+    : '<section class="workspace-form"><h2>ç·¨é›†æ¨©é™</h2><p>' + (canEdit ? 'ç·¨é›†ã§ãã‚‹ä¸‹æ›¸ããŒã‚ã‚Šã¾ã›ã‚“ã€‚' : 'ç¾åœ¨ã®æ¨©é™ã§ã¯é–²è¦§ã®ã¿åˆ©ç”¨ã§ãã¾ã™ã€‚') + '</p></section>';
+  return '<div class="manual-detail-grid">' +
+    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">åŸºæœ¬æƒ…å ±</h2><p class="muted">çŠ¶æ…‹ï¼š' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>ä¿å­˜æ¸ˆã¿å†…å®¹ã‚’é–²è¦§ãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼</button></div>' + metadata + '</section>' +
+    '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">æ‰‹é †</h2><span class="badge">' + steps.length + 'ä»¶</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + archiveActions + '</div>' +
+  '</div>';
+}
+
+function renderManualShell(session, notice = "", noticeKind = "notice", focusId = null) {
+  closeManualReadingPreview(false);
+  const currentWorkspace = resolveCurrentWorkspace(session);
+  prepareWorkspaceMembersState(session, currentWorkspace);
+  if (!currentWorkspace) {
+    currentScreen = "workspace";
+    renderShell(session, "åˆ©ç”¨ä¸­ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é¸æŠã—ã¦ãã ã•ã„ã€‚", "error", "shell-message");
+    return;
+  }
+  const isDetail = currentScreen === "manual-detail";
+  const heading = isDetail && manualDetailState.value?.manual?.title ? manualDetailState.value.manual.title : "æ‰‹é †æ›¸";
+  const subheading = isDetail ? "ä¸‹æ›¸ãã¨æ‰‹é †ã‚’ç·¨é›†ã—ã¾ã™ã€‚" : "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹å†…ã®æ‰‹é †æ›¸ã‚’ç¢ºèªãƒ»ä½œæˆã—ã¾ã™ã€‚";
+  const state = isDetail ? manualDetailState : manualsState;
+  if (notice) {
+    state.message = notice;
+    state.messageKind = noticeKind;
+  }
+  app.innerHTML = '<section class="shell">' + manualSidebarHtml(session, isDetail ? "manual-detail" : "manuals") +
+    '<div id="screen-content" class="main" tabindex="-1">' +
+      '<header class="topbar"><div>' +
+        (isDetail ? '<button id="manual-back-button" class="secondary-button compact-button manual-back-button" type="button">æ‰‹é †æ›¸ä¸€è¦§ã¸æˆ»ã‚‹</button>' : '') +
+        '<h1 id="' + (isDetail ? 'manual-detail-heading' : 'manuals-heading') + '" tabindex="-1">' + escapeHtml(heading) + '</h1><p>' + escapeHtml(subheading) + '</p>' +
+        '<div class="context-summary"><span class="badge">' + escapeHtml(currentWorkspace.name) + '</span>' +
+          (workspaceMembersState?.currentUserRole ? '<span class="badge">' + escapeHtml(workspaceRoleLabels[workspaceMembersState.currentUserRole]) + '</span>' : '') + '</div>' +
+      '</div><div class="manual-page-actions"><button id="manual-reload-button" class="secondary-button" type="button">å†èª­ã¿è¾¼ã¿</button></div></header>' +
+      manualMessageHtml(state, isDetail ? "manual-detail-message" : "manuals-message") +
+      (isDetail ? manualDetailHtml(currentWorkspace) : manualListHtml(currentWorkspace)) +
+    '</div></section>';
+  document.getElementById("logout-button")?.addEventListener("click", logout);
+  wireManualNavigation(currentWorkspace);
+  document.getElementById("manual-back-button")?.addEventListener("click", () => openManualList(currentWorkspace));
+  document.getElementById("manual-reload-button")?.addEventListener("click", () => {
+    if (isDetail) loadManualDetail(currentWorkspace.id, manualDetailState.manualId, { focusId: "manual-detail-message" });
+    else loadManuals(currentWorkspace.id, { focusId: "manuals-message" });
+  });
+  document.getElementById("manuals-retry-button")?.addEventListener("click", () => loadManuals(currentWorkspace.id));
+  document.getElementById("manual-detail-retry-button")?.addEventListener("click", () => loadManualDetail(currentWorkspace.id, manualDetailState.manualId));
+  document.getElementById("manual-reading-preview-button")?.addEventListener("click", () => {
+    if (!manualMutationInFlight) openManualReadingPreview();
+  });
+  for (const button of document.querySelectorAll("[data-manual-id]")) {
+    button.addEventListener("click", () => openManualDetail(currentWorkspace.id, button.dataset.manualId));
+  }
+  document.getElementById("manual-create-form")?.addEventListener("submit", createManualFromUi);
+  document.getElementById("manual-draft-form")?.addEventListener("submit", updateManualDraftFromUi);
+  document.getElementById("manual-publish-button")?.addEventListener("click", publishManualFromUi);
+  document.getElementById("manual-archive-button")?.addEventListener("click", archiveManualFromUi);
+  document.getElementById("manual-create-draft-button")?.addEventListener("click", createManualDraftFromUi);
+  document.getElementById("manual-step-add-form")?.addEventListener("submit", addManualStepFromUi);
+  for (const form of document.querySelectorAll(".manual-step-form")) form.addEventListener("submit", updateManualStepFromUi);
+  for (const button of document.querySelectorAll(".manual-step-delete")) button.addEventListener("click", deleteManualStepFromUi);
+  for (const button of document.querySelectorAll(".manual-step-up, .manual-step-down")) button.addEventListener("click", reorderManualStepFromUi);
+  for (const field of document.querySelectorAll("[data-code-point-max]")) wireManualCodePointLimit(field);
+  if (focusId) document.getElementById(focusId)?.focus();
+  else document.getElementById(isDetail ? "manual-detail-heading" : "manuals-heading")?.focus();
+}
+
+async function loadManuals(workspaceId, options = {}) {
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const sequence = ++manualRequestSequence;
+  const pendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+  const carriedMessage = options.message ?? pendingManualCreate?.message ?? (
+    manualsState.workspaceId === workspaceId && manualsState.status === "idle"
+      ? manualsState.message
+      : ""
+  );
+  const carriedMessageKind = options.messageKind ?? pendingManualCreate?.messageKind ?? (
+    manualsState.workspaceId === workspaceId && manualsState.status === "idle"
+      ? manualsState.messageKind
+      : "notice"
+  );
+  manualsState = {
+    workspaceId,
+    status: "loading",
+    items: manualsState.workspaceId === workspaceId ? manualsState.items : [],
+    message: carriedMessage,
+    messageKind: carriedMessageKind
+  };
+  renderShell(currentSession, "", "notice", options.focusId || null);
+  try {
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals");
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) return;
+    if (!Array.isArray(payload.manuals)) throw new AppRequestError("æ‰‹é †æ›¸ä¸€è¦§ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚", 502, "MANUALS_RESPONSE_INVALID");
+    const currentPendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+    if (currentPendingManualCreate && currentPendingManualCreate !== pendingManualCreate) {
+      manualsState = {
+        workspaceId,
+        status: "idle",
+        items: payload.manuals,
+        message: currentPendingManualCreate.message,
+        messageKind: currentPendingManualCreate.messageKind
+      };
+      if (currentScreen === "manuals") {
+        renderShell(currentSession, "", "notice", options.focusId || null);
+        await loadManuals(workspaceId, {
+          message: currentPendingManualCreate.message,
+          messageKind: currentPendingManualCreate.messageKind,
+          focusId: options.focusId || "manuals-message"
+        });
+      }
+      return;
+    }
+    manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
+    if (manualCreateReconciliationByWorkspace.get(workspaceId) === pendingManualCreate) {
+      manualCreateReconciliationByWorkspace.delete(workspaceId);
+    }
+    renderShell(currentSession, "", "notice", options.focusId || null);
+  } catch (error) {
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence
+    ) return;
+    if (isTerminalSessionError(error)) return loadSession();
+    manualsState = { workspaceId, status: "error", items: [], message: error.message, messageKind: "error" };
+    renderShell(currentSession, "", "notice", "manuals-message");
+  }
+}
+
+function openManualDetail(workspaceId, manualId) {
+  currentScreen = "manual-detail";
+  manualDetailState = { workspaceId, manualId, status: "loading", value: null, message: "", messageKind: "notice" };
+  renderShell(currentSession, "", "notice", "manual-detail-heading");
+  loadManualDetail(workspaceId, manualId);
+}
+
+async function loadManualDetail(workspaceId, manualId, options = {}) {
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const sequence = ++manualRequestSequence;
+  manualDetailState = { ...manualDetailState, workspaceId, manualId, status: "loading", message: "", messageKind: "notice" };
+  if (!options.preserveDomUntilLoaded) renderShell(currentSession, "", "notice", options.focusId || null);
+  try {
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId));
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
+    ) {
+      if (options.finishMutation) {
+        setManualMutationBusyState(false);
+        loadSession({ focusId: "workspace-heading" });
+      }
+      return;
+    }
+    if (options.finishMutation) manualMutationInFlight = false;
+    manualDetailState = { workspaceId, manualId, status: "loaded", value: payload, message: options.message || "", messageKind: options.messageKind || "notice" };
+    renderShell(currentSession, "", "notice", options.focusId || null);
+    restoreManualDetailDrafts(options.restoreDrafts);
+  } catch (error) {
+    if (
+      requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
+      sequence !== manualRequestSequence
+    ) {
+      if (options.finishMutation) {
+        setManualMutationBusyState(false);
+        loadSession({ focusId: "workspace-heading" });
+      }
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isManualPermissionRevocation(error)) {
+      setManualMutationBusyState(false);
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
+      const currentDetail =
+        currentScreen === "manual-detail" &&
+        currentWorkspaceSelection?.workspaceId === workspaceId &&
+        manualDetailState.workspaceId === workspaceId &&
+        manualDetailState.manualId === manualId;
+      if (currentDetail) {
+        if (manualDetailState.value) {
+          manualDetailState = {
+            ...manualDetailState,
+            status: "loaded",
+            value: {
+              ...manualDetailState.value,
+              permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
+            },
+            message: error.message,
+            messageKind: "error"
+          };
+        } else {
+          manualDetailState = {
+            workspaceId,
+            manualId,
+            status: "error",
+            value: null,
+            message: error.message,
+            messageKind: "error"
+          };
+        }
+        renderShell(currentSession, "", "notice", "manual-detail-message");
+        await loadWorkspaceMembers(workspaceId, {
+          message: error.message,
+          messageKind: "error",
+          focusId: "manual-detail-message",
+          alreadyRendered: true
+        });
+      } else if (currentWorkspaceSelection?.workspaceId === workspaceId) {
+        const focusId = currentScreen === "manuals" ? "manuals-message" : "shell-message";
+        renderShell(currentSession, error.message, "error", focusId);
+        await loadWorkspaceMembers(workspaceId, {
+          message: error.message,
+          messageKind: "error",
+          focusId,
+          alreadyRendered: true
+        });
+      }
+      return;
+    }
+    if (
+      options.preserveDomOnError && currentScreen === "manual-detail" &&
+      manualDetailState.workspaceId === workspaceId && manualDetailState.manualId === manualId && manualDetailState.value
+    ) {
+      manualDetailState = { ...manualDetailState, status: "loaded", message: error.message, messageKind: "error" };
+      setManualMutationBusyState(false);
+      setBox("manual-detail-message", error.message, "error");
+      return;
+    }
+    if (options.finishMutation) manualMutationInFlight = false;
+    manualDetailState = { workspaceId, manualId, status: "error", value: null, message: error.message, messageKind: "error" };
+    renderShell(currentSession, "", "notice", "manual-detail-message");
+  }
+}
+
+function manualMutationUnknown(error) {
+  return error.code === "NETWORK_ERROR" || error.code === "INVALID_RESPONSE" || String(error.code || "").endsWith("_RESULT_UNKNOWN");
+}
+
+async function createManualFromUi(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const workspaceId = currentWorkspaceSelection?.workspaceId;
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const title = String(form.elements.title.value || "").trim();
+  const description = String(form.elements.description.value || "");
+  if (!workspaceId) {
+    const message = "åˆ©ç”¨ä¸­ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’é¸æŠã—ã¦ãã ã•ã„ã€‚";
+    manualsState = { ...manualsState, message, messageKind: "error" };
+    setBox("manuals-message", message, "error");
+    return;
+  }
+  if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
+    const message = "ã‚¿ã‚¤ãƒˆãƒ«ã¯1ã€œ64æ–‡å­—ã€èª¬æ˜ã¯10,000æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚";
+    manualsState = { ...manualsState, message, messageKind: "error" };
+    setBox("manuals-message", message, "error");
+    const invalidField = !title || Array.from(title).length > 64 ? form.elements.title : form.elements.description;
+    invalidField.setAttribute("aria-invalid", "true");
+    invalidField.focus();
+    return;
+  }
+  form.elements.title.removeAttribute("aria-invalid");
+  form.elements.description.removeAttribute("aria-invalid");
+  setManualMutationBusyState(true, "manuals-message", "æ‰‹é †æ›¸ã‚’ä½œæˆã—ã¦ã„ã¾ã™ã€‚");
+  try {
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals", { method: "POST", body: JSON.stringify({ title, description, folderId: null }) });
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    manualCreateReconciliationByWorkspace.delete(workspaceId);
+    if (manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, workspaceId, status: "idle", message: "", messageKind: "notice" };
+    }
+    if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
+      setManualMutationBusyState(false);
+      return;
+    }
+    setManualMutationBusyState(false);
+    openManualDetail(workspaceId, payload.manualId);
+  } catch (error) {
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    const resultUnknown = manualMutationUnknown(error);
+    if (resultUnknown) {
+      const warning = {
+        message: "ä½œæˆçµæœã‚’ä¸€è¦§ã§ç¢ºèªã—ã¦ãã ã•ã„ã€‚é‡ã­ã¦ä½œæˆã—ãªã„ã§ãã ã•ã„ã€‚",
+        messageKind: "warning"
+      };
+      manualCreateReconciliationByWorkspace.set(workspaceId, warning);
+      if (manualsState.workspaceId === workspaceId) {
+        manualsState = { ...manualsState, status: "idle", ...warning };
+      }
+    }
+    if (currentWorkspaceSelection?.workspaceId !== workspaceId || currentScreen !== "manuals") {
+      setManualMutationBusyState(false);
+      return;
+    }
+    if (error.status === 403 || error.status === 404) {
+      manualsState = { ...manualsState, message: error.message, messageKind: "error" };
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
+      setManualMutationBusyState(false);
+      renderShell(currentSession, "", "notice", "manuals-message");
+      await loadWorkspaceMembers(workspaceId, {
+        message: error.message,
+        messageKind: "error",
+        focusId: "manuals-message",
+        alreadyRendered: true
+      });
+      return;
+    }
+    if (resultUnknown) {
+      setManualMutationBusyState(false);
+      await loadManuals(workspaceId, { message: "ä½œæˆçµæœã‚’ä¸€è¦§ã§ç¢ºèªã—ã¦ãã ã•ã„ã€‚é‡ã­ã¦ä½œæˆã—ãªã„ã§ãã ã•ã„ã€‚", messageKind: "warning", focusId: "manuals-message" });
+      return;
+    }
+    manualsState = { ...manualsState, message: error.message, messageKind: "error" };
+    setManualMutationBusyState(false);
+    setBox("manuals-message", error.message, "error");
+  }
+}
+
+function isCurrentManualDetailContext(workspaceId, manualId) {
+  return currentScreen === "manual-detail" &&
+    currentWorkspaceSelection?.workspaceId === workspaceId &&
+    manualDetailState.workspaceId === workspaceId &&
+    manualDetailState.manualId === manualId;
+}
+
+function isManualPermissionRevocation(error) {
+  return error?.code === "MANUAL_EDIT_FORBIDDEN" || error?.code === "MANUALS_NOT_FOUND";
+}
+
+async function runDetailMutation(operation, successMessage, options = {}) {
+  const workspaceId = manualDetailState.workspaceId;
+  const manualId = manualDetailState.manualId;
+  const requestGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const retainedDrafts = captureManualDetailDrafts(options.excludeDraftKeys || []);
+  setManualMutationBusyState(true, "manual-detail-message", "ä¿å­˜ã—ã¦ã„ã¾ã™ã€‚");
+  try {
+    await operation(workspaceId, manualId);
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (options.invalidateManuals && manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, status: "idle" };
+    }
+    if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+      setManualMutationBusyState(false);
+      return;
+    }
+    if (options.returnToListOnSuccess) {
+      setManualMutationBusyState(false);
+      openManualList(selectedActiveWorkspace(), successMessage, "notice");
+      return;
+    }
+    await loadManualDetail(workspaceId, manualId, {
+      message: successMessage,
+      messageKind: "notice",
+      focusId: "manual-detail-message",
+      preserveDomUntilLoaded: true,
+      preserveDomOnError: true,
+      finishMutation: true,
+      restoreDrafts: retainedDrafts
+    });
+  } catch (error) {
+    if (requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id) {
+      setManualMutationBusyState(false);
+      await loadSession({ focusId: "workspace-heading" });
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isManualPermissionRevocation(error)) {
+      setManualMutationBusyState(false);
+      if (workspaceMembersState?.workspaceId === workspaceId) {
+        workspaceMembersState = {
+          ...workspaceMembersState,
+          status: "loading",
+          currentUserRole: null,
+          members: [],
+          message: error.message,
+          messageKind: "error"
+        };
+      }
+      const activeManualId =
+        currentScreen === "manual-detail" &&
+        currentWorkspaceSelection?.workspaceId === workspaceId &&
+        manualDetailState.workspaceId === workspaceId
+          ? manualDetailState.manualId
+          : "";
+      if (activeManualId && manualDetailState.value) {
+        const safeValue = {
+          ...manualDetailState.value,
+          permissions: { ...(manualDetailState.value.permissions || {}), canEdit: false }
+        };
+        manualDetailState = { ...manualDetailState, status: "loaded", value: safeValue, message: error.message, messageKind: "error" };
+      } else if (currentScreen === "manuals" && currentWorkspaceSelection?.workspaceId === workspaceId) {
+        manualsState = { ...manualsState, message: error.message, messageKind: "error" };
+      }
+      const focusId = activeManualId
+        ? "manual-detail-message"
+        : currentScreen === "manuals"
+          ? "manuals-message"
+          : null;
+      renderShell(currentSession, "", "notice", focusId);
+      await loadWorkspaceMembers(workspaceId, {
+        message: error.message,
+        messageKind: "error",
+        focusId,
+        alreadyRendered: true
+      });
+      if (activeManualId && isCurrentManualDetailContext(workspaceId, activeManualId)) {
+        await loadManualDetail(workspaceId, activeManualId, { message: error.message, messageKind: "error", focusId: "manual-detail-message" });
+      }
+      return;
+    }
+    if (error.status === 404) {
+      if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+        setManualMutationBusyState(false);
+        return;
+      }
+      await loadManualDetail(workspaceId, manualId, {
+        message: error.message,
+        messageKind: "error",
+        focusId: "manual-detail-message",
+        preserveDomUntilLoaded: true,
+        preserveDomOnError: true,
+        finishMutation: true,
+        restoreDrafts: retainedDrafts
+      });
+      return;
+    }
+    const resultUnknown = manualMutationUnknown(error);
+    if (resultUnknown && options.invalidateManuals && manualsState.workspaceId === workspaceId) {
+      manualsState = { ...manualsState, status: "idle" };
+    }
+    if (!isCurrentManualDetailContext(workspaceId, manualId)) {
+      setManualMutationBusyState(false);
+      return;
+    }
+    if (resultUnknown) {
+      if (options.resultUnknownToList) {
+        setManualMutationBusyState(false);
+        openManualList(selectedActiveWorkspace(), "ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–çµæœã‚’ä¸€è¦§ã§ç¢ºèªã—ã¦ãã ã•ã„ã€‚é‡ã­ã¦æ“ä½œã—ãªã„ã§ãã ã•ã„ã€‚", "warning");
+        return;
+      }
+      await loadManualDetail(workspaceId, manualId, {
+        message: "å‡¦ç†çµæœã‚’è©³ç´°ã§ç¢ºèªã—ã¦ãã ã•ã„ã€‚é‡ã­ã¦æ“ä½œã—ãªã„ã§ãã ã•ã„ã€‚",
+        messageKind: "warning",
+        focusId: "manual-detail-message",
+        preserveDomUntilLoaded: true,
+        preserveDomOnError: true,
+        finishMutation: true,
+        restoreDrafts: retainedDrafts
+      });
+      return;
+    }
+    manualDetailState = { ...manualDetailState, status: "loaded", message: error.message, messageKind: "error" };
+    setManualMutationBusyState(false);
+    setBox("manual-detail-message", error.message, "error");
+  }
+}
+
+function updateManualDraftFromUi(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const title = String(form.elements.title.value || "").trim();
+  const description = String(form.elements.description.value || "");
+  const expectedUpdatedAt = String(form.dataset.draftUpdatedAt || "");
+  if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000) {
+    const message = "ã‚¿ã‚¤ãƒˆãƒ«ã¯1ã€œ64æ–‡å­—ã€èª¬æ˜ã¯10,000æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚";
+    manualDetailState = { ...manualDetailState, status: "loaded", message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    const invalidField = !title || Array.from(title).length > 64 ? form.elements.title : form.elements.description;
+    invalidField.setAttribute("aria-invalid", "true");
+    invalidField.focus();
+    return;
+  }
+  if (!expectedUpdatedAt) {
+    const message = "åŸºæœ¬æƒ…å ±ã‚’å†èª­ã¿è¾¼ã¿ã—ã¦ã‹ã‚‰ä¿å­˜ã—ã¦ãã ã•ã„ã€‚";
+    manualDetailState = { ...manualDetailState, status: "loaded", message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  form.elements.title.removeAttribute("aria-invalid");
+  form.elements.description.removeAttribute("aria-invalid");
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "PATCH", body: JSON.stringify({ title, description, expectedUpdatedAt }) }), "åŸºæœ¬æƒ…å ±ã‚’ä¿å­˜ã—ã¾ã—ãŸã€‚", { excludeDraftKeys: ["draft"], invalidateManuals: true });
+}
+
+function publishManualFromUi() {
+  const unsaved = captureManualDetailDrafts();
+  if (Object.keys(unsaved).length > 0) {
+    const message = "æœªä¿å­˜ã®å¤‰æ›´ãŒã‚ã‚Šã¾ã™ã€‚ã™ã¹ã¦ä¿å­˜ã™ã‚‹ã‹å…¥åŠ›ã‚’å…ƒã«æˆ»ã—ã¦ã‹ã‚‰å…¬é–‹ã—ã¦ãã ã•ã„ã€‚";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  const confirmedSensitiveDataReview = document.getElementById("manual-sensitive-review-confirmation")?.checked === true;
+  if (!confirmedSensitiveDataReview) {
+    const message = "æ©Ÿå¯†æƒ…å ±ã¨ãƒã‚¹ã‚­ãƒ³ã‚°ã®ç¢ºèªã«ãƒã‚§ãƒƒã‚¯ã—ã¦ãã ã•ã„ã€‚";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  if (!window.confirm("ç¢ºèªæ¸ˆã¿ã®ç¾åœ¨ã®ä¸‹æ›¸ãã‚’å…¬é–‹ã—ã¾ã™ã‹ï¼Ÿ å…¬é–‹ç‰ˆã¯å¾Œã‹ã‚‰ç›´æ¥å¤‰æ›´ã§ãã¾ã›ã‚“ã€‚")) return;
+  const expectedDraftRevisionId = manualDetailState.value?.draft?.id;
+  const expectedContentVersion = manualDetailState.value?.draft?.contentVersion;
+  if (!expectedDraftRevisionId || !expectedContentVersion) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/publish", { method: "POST", body: JSON.stringify({ expectedDraftRevisionId, expectedContentVersion, confirmedSensitiveDataReview }) }),
+    "æ‰‹é †æ›¸ã‚’å…¬é–‹ã—ã¾ã—ãŸã€‚",
+    { invalidateManuals: true }
+  );
+}
+
+function archiveManualFromUi() {
+  const unsaved = captureManualDetailDrafts();
+  if (Object.keys(unsaved).length > 0) {
+    const message = "æœªä¿å­˜ã®å¤‰æ›´ãŒã‚ã‚Šã¾ã™ã€‚ã™ã¹ã¦ä¿å­˜ã™ã‚‹ã‹å…¥åŠ›ã‚’å…ƒã«æˆ»ã—ã¦ã‹ã‚‰ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–ã—ã¦ãã ã•ã„ã€‚";
+    manualDetailState = { ...manualDetailState, message, messageKind: "error" };
+    setBox("manual-detail-message", message, "error");
+    return;
+  }
+  const expectedUpdatedAt = manualDetailState.value?.manual?.updatedAt;
+  if (!expectedUpdatedAt) return;
+  if (!window.confirm("ã“ã®æ‰‹é †æ›¸ã‚’ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–ã—ã¾ã™ã‹ï¼Ÿ ä¸€è¦§ã‹ã‚‰éè¡¨ç¤ºã«ãªã‚Šã¾ã™ãŒã€ä¸‹æ›¸ããƒ»å…¬é–‹ç‰ˆãƒ»æ‰‹é †ã¯å‰Šé™¤ã•ã‚Œã¾ã›ã‚“ã€‚")) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/archive", { method: "POST", body: JSON.stringify({ expectedUpdatedAt }) }),
+    "æ‰‹é †æ›¸ã‚’ã‚¢ãƒ¼ã‚«ã‚¤ãƒ–ã—ã¾ã—ãŸã€‚",
+    { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true }
+  );
+}
+
+function createManualDraftFromUi() {
+  const expectedPublishedRevisionId = manualDetailState.value?.manual?.currentPublishedRevisionId;
+  if (!expectedPublishedRevisionId) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/draft", { method: "POST", body: JSON.stringify({ expectedPublishedRevisionId }) }),
+    "ç·¨é›†ç”¨ã®ä¸‹æ›¸ãã‚’ä½œæˆã—ã¾ã—ãŸã€‚",
+    { invalidateManuals: true }
+  );
+}
+
+function stepPayloadFromForm(form, isNew) {
+  const type = form.elements.type.value;
+  const isAction = type === "action";
+  const payload = {
+    type,
+    title: String(form.elements.title.value || "").trim(),
+    actionType: isAction ? form.elements.actionType.value || null : null,
+    targetText: isAction ? String(form.elements.targetText.value || "").trim() || null : null,
+    url: String(form.elements.url.value || "").trim() || null
+  };
+  const instruction = String(form.elements.instruction.value || "");
+  if (!isNew || instruction) payload.instruction = instruction;
+  if (!isNew) payload.expectedUpdatedAt = String(form.dataset.stepUpdatedAt || "");
+  return payload;
+}
+
+function addManualStepFromUi(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = stepPayloadFromForm(form, true);
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps", { method: "POST", body: JSON.stringify(payload) }), "æ‰‹é †ã‚’è¿½åŠ ã—ã¾ã—ãŸã€‚", { excludeDraftKeys: ["new-step"] });
+}
+
+function updateManualStepFromUi(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const stepId = form.dataset.stepId;
+  const payload = stepPayloadFromForm(form, false);
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "PATCH", body: JSON.stringify(payload) }), "æ‰‹é †ã‚’ä¿å­˜ã—ã¾ã—ãŸã€‚", { excludeDraftKeys: ["step:" + stepId] });
+}
+
+function deleteManualStepFromUi(event) {
+  const button = event.currentTarget;
+  const stepId = button.dataset.stepId;
+  const title = button.dataset.stepTitle || "ã“ã®æ‰‹é †";
+  if (!window.confirm("ã€Œ" + title + "ã€ã‚’å‰Šé™¤ã—ã¾ã™ã‹ï¼Ÿ")) return;
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/" + encodeURIComponent(stepId), { method: "DELETE" }), "æ‰‹é †ã‚’å‰Šé™¤ã—ã¾ã—ãŸã€‚", { excludeDraftKeys: ["step:" + stepId] });
+}
+
+function reorderManualStepFromUi(event) {
+  const button = event.currentTarget;
+  const stepId = button.dataset.stepId;
+  const steps = [...(manualDetailState.value?.steps || [])];
+  const index = steps.findIndex((step) => step.id === stepId);
+  const direction = button.classList.contains("manual-step-up") ? -1 : 1;
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= steps.length) return;
+  [steps[index], steps[targetIndex]] = [steps[targetIndex], steps[index]];
+  return runDetailMutation((workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/steps/reorder", { method: "POST", body: JSON.stringify({ orderedStepIds: steps.map((step) => step.id) }) }), "æ‰‹é †ã®é †ç•ªã‚’å¤‰æ›´ã—ã¾ã—ãŸã€‚");
+}
+
+function renderShell(session, notice = "", noticeKind = "notice", focusId = null) {
+  if (currentScreen === "manuals" || currentScreen === "manual-detail") {
+    renderManualShell(session, notice, noticeKind, focusId);
+    return;
+  }
+  const workspaces = session.workspaces || [];
+  restoreUncertainWorkspaceCreation(session.user?.id);
+  const currentWorkspace = resolveCurrentWorkspace(session);
+  prepareWorkspaceMembersState(session, currentWorkspace);
+  const currentRole = currentWorkspace && workspaceMembersState &&
+    workspaceMembersState.workspaceId === currentWorkspace.id
+    ? workspaceMembersState.currentUserRole
+    : null;
+  const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
+  const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
+  const manualMigration = manualMigrationInProgress(session);
+  const memberMigration = memberMigrationInProgress(session);
+  const effectiveNotice = notice || (manualMigration ? "æ‰‹é †æ›¸æ©Ÿèƒ½ã¯ç§»è¡Œä¸­ã®ãŸã‚ã€ç¾åœ¨åˆ©ç”¨ã§ãã¾ã›ã‚“ã€‚" : "");
+  const effectiveNoticeKind = notice ? noticeKind : (manualMigration ? "warning" : "notice");
+  const rows = workspaces.map((workspace) =>
+    '<tr>' +
+      '<td><div class="workspace-name">' + escapeHtml(workspace.name) + '</div><div class="muted">' + escapeHtml(workspace.slug) + '</div></td>' +
+      '<td><span class="badge">' + escapeHtml(workspaceStatusLabels[workspace.status] || "çŠ¶æ…‹ä¸æ˜") + '</span></td>' +
+      '<td>' + escapeHtml(workspace.created_at ? workspace.created_at.slice(0, 10) : "") + '</td>' +
+    '</tr>'
+  ).join("");
+  const shellMessageClass = effectiveNotice
+    ? effectiveNoticeKind === "error"
+      ? "error-box show"
+      : (creationUncertain || effectiveNoticeKind === "warning")
+        ? "warning-box show"
+        : "notice-box show"
+    : "notice-box";
+  const shellMessageRole = effectiveNoticeKind === "error" ? "alert" : "status";
+  const shellMessageLive = effectiveNoticeKind === "error" ? "assertive" : "polite";
+
+  app.innerHTML =
+    '<section class="shell">' +
+      '<aside class="sidebar" aria-label="ã‚¢ãƒ—ãƒªãƒ¡ãƒ‹ãƒ¥ãƒ¼">' +
+        '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>ã‚</span></div><span>ã‚ã£ã¡ã‚ƒãƒãƒ‹ãƒ¥ã‚¢ãƒ«</span></div>' +
+        '<nav class="nav" aria-label="ä¸»è¦ãƒ¡ãƒ‹ãƒ¥ãƒ¼">' +
+          '<button id="workspace-nav-button" class="nav-item nav-button active" type="button" aria-current="page">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹</button>' +
+          (memberMigration
+             ? '<span class="nav-item" aria-disabled="true"><span>ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</span><span class="nav-status">ç§»è¡Œä¸­</span></span>'
+             : '<button id="members-nav-button" class="nav-item nav-button" type="button">ãƒ¡ãƒ³ãƒãƒ¼ç®¡ç†</button>') +
+          (manualMigration
+            ? '<span class="nav-item" aria-disabled="true"><span>æ‰‹é †æ›¸</span><span class="nav-status">ç§»è¡Œä¸­</span></span>'
+            : '<button id="manual-nav-button" class="nav-item nav-button" type="button">æ‰‹é †æ›¸</button>') +
+          '<span class="nav-item" aria-disabled="true"><span>æ“ä½œã‚’è¨˜éŒ²</span><span class="nav-status">æº–å‚™ä¸­</span></span>' +
+        '</nav>' +
+        '<div class="user-box">' +
+          '<span>ãƒ­ã‚°ã‚¤ãƒ³ä¸­ï¼š' + escapeHtml(session.user.email || "ãƒ¡ãƒ¼ãƒ«ã‚¢ãƒ‰ãƒ¬ã‚¹æœªè¨­å®š") + '</span>' +
+          '<button id="logout-button" class="secondary-button" type="button">ãƒ­ã‚°ã‚¢ã‚¦ãƒˆ</button>' +
+        '</div>' +
+      '</aside>' +
+      '<div id="screen-content" class="main" tabindex="-1">' +
+        '<header class="topbar">' +
+          '<div><h1 id="workspace-heading" tabindex="-1">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹</h1><p>æ‰€å±ã—ã¦ã„ã‚‹ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã ã‘ãŒè¡¨ç¤ºã•ã‚Œã¾ã™ã€‚</p>' +
+            '<div class="context-summary" aria-label="ç¾åœ¨ã®åˆ©ç”¨çŠ¶æ³">' +
+              (currentWorkspace ? '<span class="badge">é¸æŠä¸­ï¼š' + escapeHtml(currentWorkspace.name) + '</span>' : '<span class="badge">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹æœªé¸æŠ</span>') +
+              (currentRole
+                ? '<span class="badge">' + (workspaceMembersState?.status === "error" ? 'å‰å›ç¢ºèªã—ãŸæ¨©é™ï¼š' : 'ç¾åœ¨ã®æ¨©é™ï¼š') + escapeHtml(workspaceRoleLabels[currentRole]) + '</span>'
+                : currentWorkspace
+                  ? '<span class="badge">ç¾åœ¨ã®æ¨©é™ï¼š' + (workspaceMembersState?.status === "error" ? 'ç¢ºèªã§ãã¾ã›ã‚“' : 'ãƒ¡ãƒ³ãƒãƒ¼ä¸€è¦§ã§ç¢ºèª') + '</span>'
+                  : '') +
+            '</div>' +
+          '</div>' +
+          '<button id="reload-button" class="secondary-button" type="button">ä¸€è¦§ã‚’æ›´æ–°</button>' +
+        '</header>' +
+        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(effectiveNotice) + '</div>' +
+        '<div class="dashboard-grid">' +
+          '<section id="workspace-overview" class="section" aria-labelledby="workspace-list-heading">' +
+            '<div class="section-header"><h2 id="workspace-list-heading">æ‰€å±ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹</h2><span class="badge">' + workspaces.length + 'ä»¶</span></div>' +
+            (workspaces.length > 0
+              ? '<div class="workspace-selector field">' +
+                  '<label for="current-workspace">ç¾åœ¨ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹</label>' +
+                  '<select id="current-workspace"' + (currentWorkspace ? '' : ' disabled') + '>' +
+                    workspaces.map((workspace) =>
+                      '<option value="' + escapeHtml(workspace.id) + '"' +
+                        (workspace.id === currentWorkspace?.id ? ' selected' : '') +
+                        (workspace.status !== 'active' ? ' disabled' : '') + '>' +
+                        escapeHtml(workspace.name + 'ï¼ˆ' + workspace.slug + 'ï¼‰' + (workspace.status === 'active' ? '' : 'ï¼ˆåœæ­¢ä¸­ï¼‰')) +
+                      '</option>'
+                    ).join('') +
+                  '</select>' +
+                  (currentWorkspace
+                    ? '<p class="muted">ç¾åœ¨é¸æŠä¸­ï¼š' + escapeHtml(currentWorkspace.name) + '</p>'
+                    : '<p class="muted">åˆ©ç”¨ä¸­ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ãŒã‚ã‚Šã¾ã›ã‚“ã€‚ç®¡ç†è€…ã«ç¢ºèªã—ã¦ãã ã•ã„ã€‚</p>') +
+                '</div>' +
+                '<div class="table-scroll" role="region" tabindex="0" aria-label="æ‰€å±ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ä¸€è¦§">' +
+                  '<table class="table"><caption class="visually-hidden">æ‰€å±ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ä¸€è¦§</caption><thead><tr><th scope="col">åå‰</th><th scope="col">çŠ¶æ…‹</th><th scope="col">ä½œæˆæ—¥</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+                '</div>'
+              : '<div class="empty" role="status"><strong>ã¾ã æ‰€å±ã—ã¦ã„ã‚‹ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚</strong><br>æœ€åˆã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä½œæˆã—ã¦ãã ã•ã„ã€‚æ‰‹é †æ›¸ã¯ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹å†…ã«ä¿å­˜ã•ã‚Œã¾ã™ã€‚</div>') +
+          '</section>' +
+          (creationInFlight
+            ? '<section class="workspace-form" aria-labelledby="workspace-creating-title" aria-busy="true">' +
+                '<h2 id="workspace-creating-title">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä½œæˆä¸­</h2>' +
+                '<p>URLç”¨IDã€Œ' + escapeHtml(workspaceCreationInFlight.slug) + 'ã€ã‚’ä½œæˆã—ã¦ã„ã¾ã™ã€‚å®Œäº†ã™ã‚‹ã¾ã§ãŠå¾…ã¡ãã ã•ã„ã€‚</p>' +
+                '<p class="notice-box show" role="status" aria-live="polite">é‡è¤‡ã‚’é˜²ããŸã‚ã€æ–°ã—ã„ä½œæˆã¯ä¸€æ™‚åœæ­¢ã—ã¦ã„ã¾ã™ã€‚</p>' +
+              '</section>'
+            : creationUncertain
+              ? '<section class="workspace-form" aria-labelledby="workspace-uncertain-title">' +
+                '<h2 id="workspace-uncertain-title">ä½œæˆçµæœã‚’ç¢ºèªä¸­</h2>' +
+                '<p>URLç”¨IDã€Œ' + escapeHtml(uncertainWorkspaceCreation.slug) + 'ã€ã®å‡¦ç†çµæœã‚’ã¾ã ç¢ºèªã§ãã¾ã›ã‚“ã€‚</p>' +
+                '<p class="warning-box show">é‡è¤‡ã‚’é˜²ããŸã‚ã€æ–°ã—ã„ä½œæˆã¯åœæ­¢ã—ã¦ã„ã¾ã™ã€‚ã€Œä¸€è¦§ã‚’æ›´æ–°ã€ã‚’æŠ¼ã—ã€ä¸€è¦§ã§çµæœã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚</p>' +
+              '</section>'
+            : '<form id="workspace-form" class="workspace-form" novalidate>' +
+                '<h2>ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ä½œæˆ</h2>' +
+                '<p>ä½œæˆã—ãŸãƒ¦ãƒ¼ã‚¶ãƒ¼ãŒç®¡ç†è²¬ä»»è€…ã«ãªã‚Šã¾ã™ã€‚</p>' +
+                '<div id="workspace-message" class="error-box" role="alert" aria-live="assertive" tabindex="-1"></div>' +
+                '<div class="field">' +
+                  '<label for="workspace-name">åå‰</label>' +
+                  '<input id="workspace-name" name="name" data-max-code-points="64" required placeholder="ä¾‹ï¼šå–¶æ¥­éƒ¨">' +
+                '</div>' +
+                '<div class="field">' +
+                  '<label for="workspace-slug">URLç”¨ID</label>' +
+                  '<input id="workspace-slug" name="slug" data-max-normalized-length="63" inputmode="url" autocapitalize="none" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" aria-describedby="workspace-slug-help" placeholder="ä¾‹ï¼šsales-team">' +
+                  '<span id="workspace-slug-help" class="muted">åŠè§’è‹±æ•°å­—ã¨ãƒã‚¤ãƒ•ãƒ³ã‚’ä½¿ã„ã€3ã€œ63æ–‡å­—ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚</span>' +
+                '</div>' +
+                '<button class="primary-button" type="submit">ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä½œæˆ</button>' +
+              '</form>') +
+          renderWorkspaceJoinCodeIssuer() +
+          renderWorkspaceMembers(currentWorkspace) +
+        '</div>' +
+      '</div>' +
+    '</section>';
+
+  document.getElementById("logout-button").addEventListener("click", logout);
+  wireManualNavigation(currentWorkspace);
+  document.getElementById("reload-button").addEventListener("click", reloadWorkspaces);
+  document.getElementById("workspace-form")?.addEventListener("submit", createWorkspace);
+  const workspaceNameField = document.getElementById("workspace-name");
+  let workspaceNameComposing = false;
+  const enforceWorkspaceNameLimit = () => {
+    clearWorkspaceFieldError(workspaceNameField);
+    if (!limitWorkspaceNameCodePoints(workspaceNameField)) {
+      clearWorkspaceLimitMessage("ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹åã¯64æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚");
+    }
+  };
+  workspaceNameField?.addEventListener("compositionstart", () => { workspaceNameComposing = true; });
+  workspaceNameField?.addEventListener("compositionend", () => {
+    workspaceNameComposing = false;
+    enforceWorkspaceNameLimit();
+  });
+  workspaceNameField?.addEventListener("input", () => {
+    if (!workspaceNameComposing) enforceWorkspaceNameLimit();
+  });
+  const workspaceSlugField = document.getElementById("workspace-slug");
+  workspaceSlugField?.addEventListener("input", () => {
+    clearWorkspaceFieldError(workspaceSlugField);
+    if (!limitWorkspaceSlugLength(workspaceSlugField)) {
+      clearWorkspaceLimitMessage("URLç”¨IDã¯63æ–‡å­—ä»¥å†…ã§å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚");
+    }
+  });
+  document.getElementById("current-workspace")?.addEventListener("change", selectCurrentWorkspace);
+  document.getElementById("members-reload-button")?.addEventListener("click", () => {
+    if (currentWorkspace?.id) loadWorkspaceMembers(currentWorkspace.id, { focusId: "members-reload-button" });
+  });
+  document.getElementById("member-add-form")?.addEventListener("submit", addWorkspaceMember);
+  document.getElementById("member-join-code")?.addEventListener("input", (event) => {
+    clearWorkspaceMemberJoinCodeError(event.currentTarget);
+    limitWorkspaceMemberJoinCodeLength(event.currentTarget);
+  });
+  document.getElementById("issue-join-code-button")?.addEventListener("click", issueWorkspaceJoinCode);
+  document.getElementById("copy-join-code-button")?.addEventListener("click", copyWorkspaceJoinCode);
+  for (const member of workspaceMembersState?.members || []) {
+    document.getElementById("member-save-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, false));
+    document.getElementById("member-stop-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, true));
+  }
+  if (effectiveNotice) document.getElementById("shell-message").focus();
+  else if (focusId) document.getElementById(focusId)?.focus();
+}
+
+async function reloadWorkspaces(event) {
+  const button = event.currentTarget;
+  const form = document.getElementById("workspace-form");
+  const workspaceDraft = {
+    name: form?.elements?.name?.value || "",
+    slug: form?.elements?.slug?.value || ""
+  };
+  button.disabled = true;
+  button.textContent = "æ›´æ–°ä¸­";
+  button.setAttribute("aria-busy", "true");
+  try {
+    await loadSession({ preserveShell: true, workspaceDraft });
+  } finally {
+    if (document.getElementById("reload-button") === button) {
+      button.disabled = false;
+      button.textContent = "ä¸€è¦§ã‚’æ›´æ–°";
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function loadSession(options = {}) {
+  const requestSessionGeneration = sessionGeneration;
+  const requestReloadSequence = ++sessionReloadSequence;
+  try {
+    const session = await requestJson("/api/session");
+    if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (currentSession?.user?.id !== session.user?.id) {
+      replaceCurrentSession(session);
+    } else {
+      currentSession = session;
+    }
+    const pendingJoinCodeIssuance = pendingWorkspaceJoinCodeIssuance?.userId === session.user?.id
+      ? pendingWorkspaceJoinCodeIssuance
+      : null;
+    if (pendingJoinCodeIssuance) pendingJoinCodeIssuance.authReconciled = true;
+    const pendingMemberReconciliation = pendingWorkspaceMemberMutation?.userId === session.user?.id &&
+      (session.workspaces || []).some((workspace) =>
+        workspace.id === pendingWorkspaceMemberMutation.workspaceId && workspace.status === "active"
+      )
+      ? pendingWorkspaceMemberMutation
+      : null;
+    if (pendingMemberReconciliation) {
+      pendingWorkspaceMemberMutation.authReconciled = true;
+      currentWorkspaceSelection = {
+        userId: session.user.id,
+        workspaceId: pendingMemberReconciliation.workspaceId
+      };
+    } else if (pendingWorkspaceMemberMutation?.userId === session.user?.id) {
+      pendingWorkspaceMemberMutation = null;
+    }
+    restoreUncertainWorkspaceCreation(session.user?.id);
+    let notice = "";
+    if (uncertainWorkspaceCreation?.userId === session.user?.id) {
+      const created = (session.workspaces || []).find(
+        (workspace) => workspace.slug === uncertainWorkspaceCreation.slug
+      );
+      if (created) {
+        if (
+          workspaceCreationInFlight?.userId === session.user?.id &&
+          workspaceCreationInFlight.slug === created.slug
+        ) {
+          workspaceCreationInFlight.confirmed = true;
+          workspaceCreationInFlight = null;
+        }
+        clearUncertainWorkspaceCreation();
+        notice = "ä½œæˆæ¸ˆã¿ã®ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä¸€è¦§ã§ç¢ºèªã§ãã¾ã—ãŸã€‚";
+      } else {
+        notice = "ä½œæˆçµæœã‚’ã¾ã ä¸€è¦§ã§ç¢ºèªã§ãã¾ã›ã‚“ã€‚æ™‚é–“ã‚’ãŠã„ã¦ã€ã‚‚ã†ä¸€åº¦ä¸€è¦§ã‚’æ›´æ–°ã—ã¦ãã ã•ã„ã€‚";
+      }
+    }
+    if (!notice && options.preserveShell) notice = "ä¸€è¦§ã‚’æ›´æ–°ã—ã¾ã—ãŸã€‚";
+    renderShell(currentSession, notice, "notice", options.focusId || null);
+    if (pendingJoinCodeIssuance?.settled) await finalizeWorkspaceJoinCodeIssuance(pendingJoinCodeIssuance);
+    if (pendingMemberReconciliation?.settled) await reconcilePendingWorkspaceMemberMutation(pendingMemberReconciliation);
+    if (options.preserveShell) document.getElementById("reload-button")?.focus();
+  } catch (error) {
+    if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (options.preserveShell && currentSession && !isTerminalSessionError(error)) {
+      const message = error.code === "WORKSPACES_LIMIT_EXCEEDED"
+        ? "æ‰€å±ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ãŒå¤šã„ãŸã‚ä¸€è¦§ã‚’æ›´æ–°ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚è¡¨ç¤ºä¸­ã®ä¸€è¦§ã¯æ›´æ–°å‰ã§ã™ã€‚ç®¡ç†è€…ã«æ•´ç†ã‚’ä¾é ¼ã—ã¦ãã ã•ã„ã€‚"
+        : error.status === 403
+          ? "ä¸€è¦§ã‚’æ›´æ–°ã™ã‚‹æ¨©é™ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚è¡¨ç¤ºä¸­ã®ä¸€è¦§ã¯æ›´æ–°å‰ã§ã™ã€‚ã‚‚ã†ä¸€åº¦ãƒ­ã‚°ã‚¤ãƒ³ã™ã‚‹ã‹ã€ç®¡ç†è€…ã«ç¢ºèªã—ã¦ãã ã•ã„ã€‚"
+          : "ä¸€è¦§ã‚’æ›´æ–°ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚è¡¨ç¤ºä¸­ã®ä¸€è¦§ã¯æ›´æ–°å‰ã§ã™ã€‚é€šä¿¡ç’°å¢ƒã‚’ç¢ºèªã—ã¦ã€ã‚‚ã†ä¸€åº¦ãŠè©¦ã—ãã ã•ã„ã€‚";
+      if (error.status === 403 && currentWorkspaceSelection?.workspaceId) {
+        workspaceMemberRequestSequence += 1;
+        pendingWorkspaceMemberMutation = null;
+        workspaceMembersState = {
+          userId: currentSession.user?.id,
+          workspaceId: currentWorkspaceSelection.workspaceId,
+          status: "error",
+          currentUserRole: null,
+          members: [],
+          message: "ç¾åœ¨ã®æ¨©é™ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚ã‚‚ã†ä¸€åº¦ãƒ­ã‚°ã‚¤ãƒ³ã™ã‚‹ã‹ã€ç®¡ç†è€…ã«ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+          messageKind: "error",
+          addDraftJoinCode: "",
+          addJoinCodeError: ""
+        };
+      }
+      renderShell(currentSession, message, error.status === 403 ? "error" : "warning");
+      const form = document.getElementById("workspace-form");
+      if (form?.elements?.name && form?.elements?.slug && options.workspaceDraft) {
+        form.elements.name.value = options.workspaceDraft.name;
+        form.elements.slug.value = options.workspaceDraft.slug;
+      }
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      replaceCurrentSession(null);
+      let message = "";
+      if (error.code === "SESSION_INVALID") {
+        message = "ãƒ­ã‚°ã‚¤ãƒ³çŠ¶æ…‹ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã€‚ã‚‚ã†ä¸€åº¦ãƒ­ã‚°ã‚¤ãƒ³ã—ã¦ãã ã•ã„ã€‚";
+      } else if (error.code !== "SESSION_REQUIRED") {
+        message = "ã‚»ãƒƒã‚·ãƒ§ãƒ³ã®æœ‰åŠ¹æœŸé™ãŒåˆ‡ã‚Œã¾ã—ãŸã€‚ã‚‚ã†ä¸€åº¦ãƒ­ã‚°ã‚¤ãƒ³ã—ã¦ãã ã•ã„ã€‚";
+      }
+      renderLogin(message);
+      return;
+    }
+    if (error.status === 0) {
+      if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
+        renderLoadFailure("ã“ã®ãƒ–ãƒ©ã‚¦ã‚¶ã§ã¯å®‰å…¨ã«ç¶šè¡Œã§ãã¾ã›ã‚“", error.message);
+        return;
+      }
+      renderLoadFailure("ã‚µãƒ¼ãƒãƒ¼ã«æ¥ç¶šã§ãã¾ã›ã‚“", error.message);
+      return;
+    }
+    if (error.status === 403) {
+      renderLoadFailure("ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’è¡¨ç¤ºã§ãã¾ã›ã‚“", "è¡¨ç¤ºã™ã‚‹æ¨©é™ã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚ã‚‚ã†ä¸€åº¦ãƒ­ã‚°ã‚¤ãƒ³ã™ã‚‹ã‹ã€ç®¡ç†è€…ã«ç¢ºèªã—ã¦ãã ã•ã„ã€‚");
+      return;
+    }
+    renderLoadFailure("ã‚µãƒ¼ãƒ“ã‚¹ã‚’èª­ã¿è¾¼ã‚ã¾ã›ã‚“", error.message);
+  }
+}
+
+async function createWorkspace(event) {
+  event.preventDefault();
+  if (uncertainWorkspaceCreation?.userId === currentSession?.user?.id) return;
+  if (workspaceCreationInFlight?.userId === currentSession?.user?.id) return;
+  if (event.currentTarget.getAttribute?.("aria-busy") === "true" || event.currentTarget["aria-busy"] === "true") return;
+  clearBox("workspace-message");
+  const validationError = validateWorkspaceForm(event.currentTarget);
+  updateWorkspaceFieldErrors(event.currentTarget, validationError);
+  if (validationError) {
+    setBox("workspace-message", validationError.message, "error");
+    validationError.field?.focus?.();
+    return;
+  }
+  const button = event.currentTarget.querySelector("button");
+  button.disabled = true;
+  button.textContent = "ä½œæˆä¸­";
+  event.currentTarget.setAttribute("aria-busy", "true");
+  const requestSessionGeneration = sessionGeneration;
+  const requestUserId = currentSession?.user?.id;
+  const submittedWorkspace = {
+    userId: requestUserId,
+    name: event.currentTarget.elements.name.value.trim(),
+    slug: event.currentTarget.elements.slug.value.trim().toLowerCase(),
+    confirmed: false
+  };
+  workspaceCreationInFlight = submittedWorkspace;
+  saveUncertainWorkspaceCreation(submittedWorkspace);
+  let workspaceCreated = false;
+  let requestWorkspaceSequence = ++sessionReloadSequence;
+  try {
+    const creationResult = await requestJson("/api/workspaces", {
+      method: "POST",
+      body: JSON.stringify({
+        name: submittedWorkspace.name,
+        slug: submittedWorkspace.slug
+      })
+    });
+    if (!creationResult || typeof creationResult.workspaceId !== "string" || !workspaceIdPattern.test(creationResult.workspaceId)) {
+      throw new AppRequestError(
+        "ä½œæˆå‡¦ç†ã®çµæœã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚é‡ã­ã¦ä½œæˆã›ãšã€ä¸€è¦§ã‚’æ›´æ–°ã—ã¦ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+        502,
+        "WORKSPACE_CREATE_RESULT_UNKNOWN"
+      );
+    }
+    workspaceCreated = true;
+    if (requestSessionGeneration !== sessionGeneration) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) loadSession();
+      return;
+    }
+    requestWorkspaceSequence = ++sessionReloadSequence;
+    const session = await requestJson("/api/session");
+    if (requestSessionGeneration !== sessionGeneration || requestWorkspaceSequence !== sessionReloadSequence) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) loadSession();
+      return;
+    }
+    if (session.user?.id !== requestUserId) {
+      replaceCurrentSession(session);
+      renderShell(currentSession);
+      return;
+    }
+    currentSession = session;
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+    const created = (session.workspaces || []).some((workspace) => workspace.slug === submittedWorkspace.slug);
+    if (
+      created &&
+      uncertainWorkspaceCreation?.userId === submittedWorkspace.userId &&
+      uncertainWorkspaceCreation.slug === submittedWorkspace.slug
+    ) {
+      clearUncertainWorkspaceCreation();
+    }
+    renderShell(
+      currentSession,
+      created
+        ? "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä½œæˆã—ã¾ã—ãŸã€‚"
+        : "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¯ä½œæˆã•ã‚Œã¾ã—ãŸã€‚é‡ã­ã¦ä½œæˆã›ãšã€ä¸€è¦§ã‚’æ›´æ–°ã—ã¦ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+      created ? "notice" : "warning"
+    );
+  } catch (error) {
+    if (submittedWorkspace.confirmed) {
+      if (
+        uncertainWorkspaceCreation?.userId === submittedWorkspace.userId &&
+        uncertainWorkspaceCreation.slug === submittedWorkspace.slug
+      ) {
+        clearUncertainWorkspaceCreation();
+      }
+      return;
+    }
+    const resultUnknown = !workspaceCreated && (
+      error.code === "WORKSPACE_CREATE_RESULT_UNKNOWN" ||
+      error.code === "NETWORK_ERROR" ||
+      error.code === "INVALID_RESPONSE" ||
+      (error.status >= 500 && ![
+        "WORKSPACE_CREATE_FAILED",
+        "WORKSPACE_CREATE_SERVICE_UNAVAILABLE"
+      ].includes(error.code))
+    );
+    if (resultUnknown) {
+      if (currentSession?.user?.id === requestUserId) {
+        saveUncertainWorkspaceCreation(submittedWorkspace);
+        if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+        if (requestSessionGeneration !== sessionGeneration) {
+          loadSession();
+          return;
+        }
+        renderShell(
+          currentSession,
+          "ä½œæˆå‡¦ç†ã®çµæœã‚’ç¢ºèªã§ãã¾ã›ã‚“ã§ã—ãŸã€‚é‡ã­ã¦ä½œæˆã›ãšã€ä¸€è¦§ã‚’æ›´æ–°ã—ã¦ç¢ºèªã—ã¦ãã ã•ã„ã€‚"
+        );
+      }
+      return;
+    }
+    if (!workspaceCreated && uncertainWorkspaceCreation?.userId === requestUserId && uncertainWorkspaceCreation.slug === submittedWorkspace.slug) {
+      clearUncertainWorkspaceCreation();
+    }
+    if (error.status === 401) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      await loadSession();
+      return;
+    }
+    if (requestSessionGeneration !== sessionGeneration) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) renderShell(currentSession, error.message, "warning");
+      return;
+    }
+    if (requestWorkspaceSequence !== sessionReloadSequence) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      if (currentSession?.user?.id === requestUserId) renderShell(currentSession, error.message, "warning");
+      return;
+    }
+    if (workspaceCreated) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      renderShell(
+        currentSession,
+        "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã¯ä½œæˆã•ã‚Œã¾ã—ãŸãŒã€æœ€æ–°ã®ä¸€è¦§ã‚’å–å¾—ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚ã€Œä¸€è¦§ã‚’æ›´æ–°ã€ã‚’ãŠè©¦ã—ãã ã•ã„ã€‚",
+        "warning"
+      );
+      return;
+    }
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+    setBox("workspace-message", error.message, "error");
+  } finally {
+    if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+    button.disabled = false;
+    button.textContent = "ãƒ¯ãƒ¼ã‚¯ã‚¹ãƒšãƒ¼ã‚¹ã‚’ä½œæˆ";
+    event.currentTarget.removeAttribute?.("aria-busy");
+  }
+}
+
+async function logout() {
+  clearBox("shell-message");
+  const button = document.getElementById("logout-button");
+  button.disabled = true;
+  button.textContent = "ãƒ­ã‚°ã‚¢ã‚¦ãƒˆä¸­";
+  button.setAttribute("aria-busy", "true");
+  const requestSessionGeneration = ++sessionGeneration;
+  try {
+    const requestAuthenticationVersion = readAuthenticationVersion();
+    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion);
+    if (!logoutSent) {
+      renderAuthenticationReload();
+      await loadSession();
+      return;
+    }
+    if (logoutSent.redirectUrl) {
+      window.location.assign(logoutSent.redirectUrl);
+      return;
+    }
+    if (requestSessionGeneration !== sessionGeneration) return;
+    replaceCurrentSession(null);
+    renderLogin();
+  } catch (error) {
+    if (requestSessionGeneration !== sessionGeneration) return;
+    if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
+      setBox("shell-message", error.message, "error");
+      return;
+    }
+    if (error.code !== "LOGOUT_REVOKE_FAILED") {
+      const message = error.code === "NETWORK_ERROR"
+        ? "ã‚µãƒ¼ãƒãƒ¼ã«æ¥ç¶šã§ããšã€ãƒ­ã‚°ã‚¢ã‚¦ãƒˆã‚’å®Œäº†ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚é€šä¿¡ç’°å¢ƒã‚’ç¢ºèªã—ã¦ã€ã‚‚ã†ä¸€åº¦ãŠè©¦ã—ãã ã•ã„ã€‚"
+        : "ã‚µãƒ¼ãƒãƒ¼ã®å¿œç­”ã‚’ç¢ºèªã§ããšã€ãƒ­ã‚°ã‚¢ã‚¦ãƒˆã‚’å®Œäº†ã§ãã¾ã›ã‚“ã§ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦ã€ã‚‚ã†ä¸€åº¦ãŠè©¦ã—ãã ã•ã„ã€‚";
+      setBox("shell-message", message, "error");
+      return;
+    }
+    replaceCurrentSession(null);
+    renderLogin(error.message);
+  } finally {
+    const activeButton = document.getElementById("logout-button");
+    if (activeButton) {
+      activeButton.disabled = false;
+      activeButton.textContent = "ãƒ­ã‚°ã‚¢ã‚¦ãƒˆ";
+      activeButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
+loadSession();
+`;
