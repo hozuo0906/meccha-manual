@@ -36,9 +36,11 @@ Discordから作成されたIssueを15分ポーリングだけに頼らず、Git
 
 ## Issue実装workflowの同時実行境界
 
-複数Issueの自動実装が同時に進まないよう、workflowはリポジトリ内のIssue実装で共通のconcurrency groupを使い、`cancel-in-progress: false`を維持する。これは親PMの通常worktree上の作業やGitHub Actionsとの競合まで排除するものではない。親PMは `approved-for-codex` を付ける前に稼働中の担当と編集範囲を照合し、重複があれば必要に応じて待機する。
+複数Issueの自動実装が同時に進まないよう、`jobs.implement` はリポジトリ内のIssue実装で共通のconcurrency groupを使い、`cancel-in-progress: false` と `queue: max` を指定する。承認条件も同じjobの `if` に置き、`approved-for-codex` 以外のラベルイベントはjob skipとしてキューを消費しない。これは親PMの通常worktree上の作業やGitHub Actionsとの競合まで排除するものではない。親PMは `approved-for-codex` を付ける前に稼働中の担当と編集範囲を照合し、重複があれば必要に応じて待機する。
 
-GitHub標準のconcurrencyは永続FIFOキューではなく、待機中の実行が取消・置換されることがある。そのため、runが開始できたことだけを実装開始成功とは扱わない。親PMが未完了Issueを回収し、必要なら再度指示して、実行状態と成果物を実SHAで確認する。
+`queue: max` はGitHub標準の同一concurrency group内の待機上限を最大100件まで拡張する設定であり、`cancel-in-progress: true` とは併用しない。待機開始順に処理するが、workflowのdispatch順や無制限・永続の待機は保証しないため、runが開始できたことだけを実装開始成功とは扱わない。上限超過や取消が発生した場合は、親PMが未完了Issueを回収し、必要なら再度指示する。実起動は未検証のままにせず、実行状態と成果物を実SHAで確認する。
+
+仕様の根拠は [Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) と [Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency) を参照する。
 
 ## Secret
 

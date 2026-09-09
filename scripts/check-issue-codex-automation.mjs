@@ -40,17 +40,35 @@ for (const token of ["approved-for-codex", "CODEX_ACCESS_TOKEN", "npm install -g
   if (!codexWorkflow.includes(token)) errors.push(`Codex issue implement workflow must include ${token}`);
 }
 if (codexWorkflow.includes("gpt-5.6-terra")) errors.push("Codex issue implement workflow must not use gpt-5.6-terra.");
-const concurrencyGroupMatch = codexWorkflow.match(/concurrency:\r?\n\s+group:\s+([^\r\n]+)/);
-if (!concurrencyGroupMatch) {
-  errors.push("Codex issue implement workflow must define a shared concurrency group.");
+if (/^concurrency:\s*$/m.test(codexWorkflow)) {
+  errors.push("Codex issue implement workflow must not define root-level concurrency.");
+}
+const implementMarker = /^  implement:\r?\n/m.exec(codexWorkflow);
+if (!implementMarker) {
+  errors.push("Codex issue implement workflow must define the implement job.");
 } else {
-  const concurrencyGroup = concurrencyGroupMatch[1].trim();
-  const groupForIssue = (issueNumber) => concurrencyGroup.replace(/\$\{\{\s*github\.event\.issue\.number\s*\}\}/g, String(issueNumber));
-  if (concurrencyGroup !== "codex-issue-implement") {
-    errors.push("Codex issue implement workflow must use the repository-wide issue implementation concurrency group.");
+  const jobBodyStart = implementMarker.index + implementMarker[0].length;
+  const remainingWorkflow = codexWorkflow.slice(jobBodyStart);
+  const nextJobOffset = remainingWorkflow.search(/^  [A-Za-z0-9_-]+:/m);
+  const implementJob = remainingWorkflow.slice(0, nextJobOffset === -1 ? remainingWorkflow.length : nextJobOffset);
+  if (!/^    if:\s*\$\{\{\s*github\.event\.label\.name\s*==\s*'approved-for-codex'\s*&&\s*!github\.event\.issue\.pull_request\s*\}\}\s*$/m.test(implementJob)) {
+    errors.push("Codex issue implement job must be gated by the approved-for-codex label.");
   }
-  if (groupForIssue(101) !== groupForIssue(202)) {
-    errors.push("Codex issue implement workflow must serialize different issue numbers in the same concurrency group.");
+  const concurrencyMatch = implementJob.match(/^    concurrency:\r?\n([\s\S]*?)(?=^    \S)/m);
+  if (!concurrencyMatch) {
+    errors.push("Codex issue implement job must define its shared concurrency settings.");
+  } else {
+    const concurrency = concurrencyMatch[1];
+    const groupMatch = concurrency.match(/^      group:\s+([^\r\n]+)$/m);
+    if (!groupMatch || groupMatch[1].trim() !== "codex-issue-implement") {
+      errors.push("Codex issue implement job must use the repository-wide issue implementation concurrency group.");
+    }
+    if (!/^      cancel-in-progress:\s+false\s*$/m.test(concurrency)) {
+      errors.push("Codex issue implement job must keep cancel-in-progress false.");
+    }
+    if (!/^      queue:\s+max\s*$/m.test(concurrency)) {
+      errors.push("Codex issue implement job must use the standard max concurrency queue.");
+    }
   }
 }
 

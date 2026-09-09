@@ -10,15 +10,15 @@ permissions:
   pull-requests: write
   issues: write
 
-concurrency:
-  group: codex-issue-implement
-  cancel-in-progress: false
-
 jobs:
   implement:
     name: Implement approved issue
     runs-on: ubuntu-latest
     if: ${{ github.event.label.name == 'approved-for-codex' && !github.event.issue.pull_request }}
+    concurrency:
+      group: codex-issue-implement
+      cancel-in-progress: false
+      queue: max
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
