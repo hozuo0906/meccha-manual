@@ -11,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: codex-issue-${{ github.event.issue.number }}
+  group: codex-issue-implement
   cancel-in-progress: false
 
 jobs:

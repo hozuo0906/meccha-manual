@@ -40,6 +40,19 @@ for (const token of ["approved-for-codex", "CODEX_ACCESS_TOKEN", "npm install -g
   if (!codexWorkflow.includes(token)) errors.push(`Codex issue implement workflow must include ${token}`);
 }
 if (codexWorkflow.includes("gpt-5.6-terra")) errors.push("Codex issue implement workflow must not use gpt-5.6-terra.");
+const concurrencyGroupMatch = codexWorkflow.match(/concurrency:\r?\n\s+group:\s+([^\r\n]+)/);
+if (!concurrencyGroupMatch) {
+  errors.push("Codex issue implement workflow must define a shared concurrency group.");
+} else {
+  const concurrencyGroup = concurrencyGroupMatch[1].trim();
+  const groupForIssue = (issueNumber) => concurrencyGroup.replace(/\$\{\{\s*github\.event\.issue\.number\s*\}\}/g, String(issueNumber));
+  if (concurrencyGroup !== "codex-issue-implement") {
+    errors.push("Codex issue implement workflow must use the repository-wide issue implementation concurrency group.");
+  }
+  if (groupForIssue(101) !== groupForIssue(202)) {
+    errors.push("Codex issue implement workflow must serialize different issue numbers in the same concurrency group.");
+  }
+}
 
 const envDocs = await read("docs/08-operations/environment-variables.md");
 if (!envDocs.includes("CODEX_ACCESS_TOKEN")) errors.push("environment-variables.md must document CODEX_ACCESS_TOKEN.");

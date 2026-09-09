@@ -34,6 +34,12 @@ Discordから作成されたIssueを15分ポーリングだけに頼らず、Git
 
 `approval-required` または `blocked-from-discord` が残っているIssueは、`approved-for-codex` が付いても自動実装全体を停止する。これは危険操作の自動開始を防ぐ既存フィルタであり、通常操作への一律ユーザー承認を意味しない。通常作業の承認判断はDEC-067に従い、自動workflowの危険ラベル停止とは区別する。通常範囲と危険範囲が混在する場合は、親セッションで切り分けてから進める。Discordボタンからの直接merge、初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作は既存の別承認境界に従う。
 
+## Issue実装workflowの同時実行境界
+
+複数Issueの自動実装が同時に進まないよう、workflowはリポジトリ内のIssue実装で共通のconcurrency groupを使い、`cancel-in-progress: false`を維持する。これは親PMの通常worktree上の作業やGitHub Actionsとの競合まで排除するものではない。親PMは `approved-for-codex` を付ける前に稼働中の担当と編集範囲を照合し、重複があれば必要に応じて待機する。
+
+GitHub標準のconcurrencyは永続FIFOキューではなく、待機中の実行が取消・置換されることがある。そのため、runが開始できたことだけを実装開始成功とは扱わない。親PMが未完了Issueを回収し、必要なら再度指示して、実行状態と成果物を実SHAで確認する。
+
 ## Secret
 
 GitHub Actions secretに `CODEX_ACCESS_TOKEN` を登録する。
