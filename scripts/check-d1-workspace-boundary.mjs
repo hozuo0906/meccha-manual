@@ -47,7 +47,8 @@ function methodBody(source, name, nextName) {
 const methodContracts = [
   ["listWorkspaces", "getProfile", [["m.application_id = ?1", "i.status = 'active'", "m.status = 'active'", "m.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "LIMIT ?2"]]],
   ["getProfile", "listMembers", [["p.application_id = ?1", "i.status = 'active'"]]],
-  ["listMembers", "createWorkspace", [["actor_member.application_id = ?1", "actor_member.workspace_id = ?2", "actor_member.status = 'active'", "actor_member.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "target.status = 'active'", "LIMIT ?3"]]],
+  ["listMembers", "getMemberRole", [["actor_member.application_id = ?1", "actor_member.workspace_id = ?2", "actor_member.status = 'active'", "actor_member.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "target.status = 'active'", "LIMIT ?3"]]],
+  ["getMemberRole", "createWorkspace", [["actor_member.application_id = ?1", "actor_member.workspace_id = ?2", "actor_member.status = 'active'", "actor_member.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "LIMIT 1"]]],
   ["createWorkspace", "issueJoinCode", [["i.application_id = ?5 AND i.status = 'active'"], ["w.id = ?1", "w.created_by = ?3", "w.status = 'active'"], ["workspace_id = ?3", "role = 'owner'"]]],
   ["issueJoinCode", "consumeJoinCode", [["application_id = ?1 AND status = 'active'"], ["i.application_id = ?5 AND i.status = 'active'"], ["issuer_application_id = ?2 AND digest = ?5"]]],
   ["consumeJoinCode", "updateMember", [["c.digest = ?3", "admin_member.workspace_id = ?5"], ["w.status = 'active'", "c.consumption_nonce = ?6"], ["workspace_id = ?3", "c.consumption_nonce = ?7"]]],
