@@ -211,3 +211,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 暗号実装を自作せず、Workers対応の署名検証と鍵cacheを既存ライブラリへ委譲し、issuer／subjectをemailや未検証headerから分離するため。
 - Boundary:
   - M1はDI spikeと検証可能なローカルfixtureに限定し、実HTTP path／UIの切替、D1 schema／migration、OTP／招待、production Access変更を含めない。
+
+## DEC-066: 実装担当は独立タスク単位で運用しGitHubを引き継ぎ正本にする
+
+- Status: Accepted
+- Date: 2026-09-09
+- Decision:
+  - 親PMは`gpt-6-astra`、作業担当は`gpt-5.6-luna`（既定reasoning `high`）とし、作成時モデルを明示・確認する。各作業単位は新しい独立タスクとして作成し、担当はサブエージェントを使わず、次タスクを自己増殖させない。
+  - 作業担当は限定範囲の実装・テスト・文書編集を行い、親は報告後にbranch／PR／head SHAと検証結果を実取得・照合する。必要な修正は新しい独立タスクへ指示し、親の直接修正はユーザー明示時に限る。
+  - GitHubを別PCから復元できる作業正本とし、秘密値を除外した必要成果物を専用branchへcommit・pushしてremote SHAを確認する。未検証の途中作業はWIPとして保存し、Issue #70またはPRへrepo／branch／SHA／未完了／次マイルストーン／再現コマンドを記録する。
+- Reason:
+  - 独立した作業単位と実取得による検証を分け、会話・端末・ローカルcheckoutに依存せず、安全に再開できるようにするため。
+- Boundary:
+  - 本判断は運用と引き継ぎの規則であり、製品コード、依存、deploy、merge、DB migrationの承認を追加しない。push失敗、未検証、設定未確認は完了扱いにしない。
