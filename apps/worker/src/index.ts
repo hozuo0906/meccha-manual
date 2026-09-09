@@ -267,6 +267,9 @@ function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "
   if (error.code === "conflict") {
     return new AppError(409, operation === "join_code" ? "JOIN_CODE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
   }
+  if (error.code === "actor_forbidden") {
+    return new AppError(403, operation === "create_workspace" ? "ACCESS_ACTOR_FORBIDDEN" : "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
   if (error.code === "forbidden" || error.code === "not_found") {
     return new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
   }

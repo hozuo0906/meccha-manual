@@ -278,7 +278,12 @@ export class D1WorkspaceRepository {
           )
           .bind(randomId(), actorId, id, AUDIT_METADATA, now)
       ]);
-      if (runCount(results[0]) !== 1 || runCount(results[1]) !== 1 || runCount(results[2]) !== 1) {
+      // The first INSERT SELECT is the identity fence. If authentication succeeded
+      // but the actor was disabled before this batch, it intentionally affects zero rows.
+      if (runCount(results[0]) !== 1) {
+        throw new D1RepositoryError("actor_forbidden");
+      }
+      if (runCount(results[1]) !== 1 || runCount(results[2]) !== 1) {
         throw new D1RepositoryError("forbidden");
       }
       return { id, name: normalized.name, slug: normalized.slug, status: "active", createdAt: now };

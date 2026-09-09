@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-f907eb2466a6912d";
+export const APP_ASSET_VERSION = "sha256-ca5359e873a8aea2";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1239,8 +1239,7 @@ async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, op
 async function logoutWithAuthenticationLock(expectedVersion, requestAccessMode) {
   return withAuthenticationLock(async () => {
     if (readAuthenticationVersion() !== expectedVersion) return false;
-    advanceAuthenticationVersion();
-    if (requestAccessMode) announceAuthenticationChange("reauthentication-required");
+    if (!requestAccessMode) advanceAuthenticationVersion();
     try {
       const logoutSent = await requestJsonOnce("/api/auth/logout", { method: "POST", body: "{}" }, requestAccessMode);
       announceAuthenticationChange(requestAccessMode ? "reauthentication-required" : "");
@@ -1265,20 +1264,31 @@ function renderAuthenticationReload() {
 authenticationChannel?.addEventListener("message", (event) => {
   if (event.data?.type !== "authentication-changed") return;
   const incomingVersion = typeof event.data.version === "string" ? event.data.version : null;
+  let terminalVersion = incomingVersion || "";
+  let incomingVersionComparable = false;
   if (incomingVersion) {
     try {
       if (readAuthenticationVersion() !== incomingVersion) return;
+      incomingVersionComparable = true;
     } catch {
       // 世代を比較できない場合は、通知された認証変更を安全側で処理する。
+    }
+  } else if (event.data.reason === "reauthentication-required") {
+    try {
+      // versionなし通知でも、受信側で保持する既存versionを終端の基準にする。
+      terminalVersion = readAuthenticationVersion();
+    } catch {
+      // storageを読めない間は既存versionを特定できないため、sentinelで保護状態を維持する。
+      terminalVersion = "";
     }
   }
   if (
     event.data.reason !== "reauthentication-required" &&
-    terminalAuthenticationVersion &&
-    (!incomingVersion || terminalAuthenticationVersion === incomingVersion)
+    terminalAuthenticationVersion !== null &&
+    (!incomingVersion || !incomingVersionComparable || terminalAuthenticationVersion === incomingVersion)
   ) return;
   terminalAuthenticationVersion = event.data.reason === "reauthentication-required"
-    ? incomingVersion
+    ? terminalVersion
     : null;
   // 次のsessionを取得するまでは同一ユーザーの再ログインか判定できない。
   // 表示と進行中応答だけを無効化し、ユーザー固有の選択・結果不明ロックは
@@ -3844,11 +3854,25 @@ async function logout() {
   else renderLogin();
   const logoutStateGeneration = sessionGeneration;
   try {
-    const requestAuthenticationVersion = readAuthenticationVersion();
+    let requestAuthenticationVersion;
+    if (requestAccessMode) {
+      // Accessのフェンスと通知はlock待機より先に行う。兄弟タブが保護shellを表示し続けないようにし、
+      // lock取得後の再照合・成功・結果不明の通知まで、このlogout固有のversionを保持する。
+      try {
+        requestAuthenticationVersion = advanceAuthenticationVersion();
+      } catch (error) {
+        // versionを保存できない場合も、versionなしの通知を送って兄弟タブを安全側へ倒す。
+        announceAuthenticationChange("reauthentication-required");
+        throw error;
+      }
+      announceAuthenticationChange("reauthentication-required");
+    } else {
+      requestAuthenticationVersion = readAuthenticationVersion();
+    }
     const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion, requestAccessMode);
     if (!logoutSent) {
       renderAuthenticationReload();
-      await loadSession();
+      await loadSession({ requestAccessMode });
       return;
     }
     if (logoutSent.redirectUrl) {

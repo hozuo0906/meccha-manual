@@ -34,7 +34,7 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 ### ブラウザのAccess認証遷移
 
 - Access保護中のブラウザAPIが終端401（`ACCESS_JWT_REQUIRED`、`ACCESS_JWT_INVALID`、またはAccess応答を同じ401へ正規化したもの）を返した場合、ブラウザは共有認証versionを更新し、`authentication-changed` 通知を兄弟タブへ一度だけ送る。通知には終端Access失効を示すreasonを含める。
-- 通知を受けたタブは、通知versionと現在versionを比較できる場合は一致した通知だけを採用し、保護中のメモリUI、進行中要求の採用、遅着応答を無効化する。不一致の遅い通知は無視し、versionを比較できない場合は安全側で同じ破棄を行う。終端Access通知ではアプリ独自password formへ戻らずAccess再認証画面を表示する。version読取・保存に失敗しても元のAccess401と通知処理を別の失敗へ置き換えず、403権限拒否と503一時障害は終端認証失効へ混同しない。
+- 通知を受けたタブは、通知versionと現在versionを比較できる場合は一致した通知だけを採用し、保護中のメモリUI、進行中要求の採用、遅着応答を無効化する。不一致の遅い通知は無視し、versionを比較できない場合は安全側で同じ破棄を行う。versionなしの終端通知でも受信側の保存領域から現versionを取得できればそれを終端の基準として保持し、取得できない間はversion付き通常通知も採用しない。終端Access通知ではアプリ独自password formへ戻らずAccess再認証画面を表示する。version読取・保存に失敗しても元のAccess401と通知処理を別の失敗へ置き換えず、403権限拒否と503一時障害は終端認証失効へ混同しない。
 - logoutは`currentSession`を消去する前に、その要求の認証方式を確定して保持し、Access要求では終端401をAccess再認証、503・通信失敗・lock失敗・失効確認不明を再試行可能な状態として分類する。成功応答を受けるまでlogout完了とは表示せず、Access要求でpassword formを表示しない。Access logoutの開始時、成功時、結果不明時は同じ認証versionの`authentication-changed`通知を`reauthentication-required` reasonで送信し、兄弟タブは保護UIと進行中応答を破棄したまま`/api/session`を再取得せず再認証画面に留める。後着した同versionの通常通知はこの保護状態を解除しない。legacy logout/loginの通常通知は従来どおり再調整する。
 
 ## External provider callback
@@ -92,6 +92,8 @@ Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済み
 | `PATCH /api/workspaces/{id}/members/{userId}` | owner/admin。owner変更は禁止 |
 
 WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないworkspace、別workspace、停止memberは存在を推測できない応答へ統一する。
+
+`POST /api/workspaces`のD1 atomic batchは、最初の`INSERT SELECT`でactive identityを再確認する。Access認証後、batch開始前に主体がdisabledへ変わり、このidentity fenceが0行になった場合は`403 ACCESS_ACTOR_FORBIDDEN`へ写像する。その他の業務上の403（通常の`forbidden`）は`403 ACCESS_FORBIDDEN`のままとし、ブラウザは認証主体失効として保護shell全体を終端化しない。
 
 `GET /api/session`と`GET /api/workspaces`の所属workspace一覧は最大1000件までを完全な一覧として返し、1001件目を検出した場合は `409 WORKSPACES_LIMIT_EXCEEDED` とする。D1 repositoryでsentinel行を取得して超過を検出し、先頭1000件だけの成功応答へ切り詰めない。
 

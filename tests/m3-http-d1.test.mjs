@@ -30,9 +30,13 @@ class LocalStatement {
 }
 
 class LocalD1 {
-  constructor(database) { this.database = database; }
+  constructor(database, beforeBatch = null) {
+    this.database = database;
+    this.beforeBatch = beforeBatch;
+  }
   prepare(sql) { return new LocalStatement(this.database, sql); }
   async batch(statements) {
+    this.beforeBatch?.();
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const results = [];
@@ -122,6 +126,21 @@ test("workspace作成と一覧は同じAccess identityのD1 repositoryを使う"
     status: "active",
     created_at: payload.workspaces[0].created_at
   });
+});
+
+test("workspace作成batch直前に無効化された主体はACCESS_ACTOR_FORBIDDENへ写像し、旧shellを残さない", async () => {
+  const racedD1 = new LocalD1(database, () => {
+    database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = ?").run("app-user-1");
+  });
+  const response = await worker.fetch(await accessRequest("/api/workspaces", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ name: "営業部", slug: "sales" })
+  }), { ...env, DB: racedD1 }, {});
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "ACCESS_ACTOR_FORBIDDEN");
+  assert.equal(database.prepare("SELECT count(*) AS count FROM workspaces").get().count, 0);
 });
 
 test("本人参加コード発行は空JSONだけを受け付け、平文をDBへ保存しない", async () => {
