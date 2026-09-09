@@ -48,7 +48,7 @@ Phase 1/2の移行実装では、画面、API、Worker認可、D1 schema/query�
 M3の現行API契約は[Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)を正本とし、次の対応を同じheadで確認する。
 
 - 認証・workspace・member: Access JWT検証、D1 identity解決、workspace固定query、`GET /api/session`、`GET/POST /api/workspaces`、`POST /api/auth/logout`を`tests/m3-http-d1.test.mjs`で検証する。旧member APIはM3で`503`停止し、Supabase fallbackしないことを同テストで確認する。unknown／disabled identityとservice-token actorは403、Access JWTなし／不正は401、鍵取得・D1障害は503として区別する。D1メンバー管理本体はM3の提供範囲外である。
-- 画面状態: `tests/app-auth.test.mjs`でAccess JWTの401は共有認証versionを更新して兄弟タブへ通知し、旧workspace・手順書・メンバー状態を破棄してAccess再認証へ遷移し、遅着in-flight応答が復元・再通知しないことを検証する。Access actor拒否403は再認証へ混同せず旧シェルを破棄し、一時503は表示中一覧と編集中入力を保持して再試行できること、logoutはcurrentSession消去後もAccess方式を保ちpassword formへ戻らないことを検証する。
+- 画面状態: `tests/app-auth.test.mjs`でAccess JWTの401は共有認証versionを更新して兄弟タブへ通知し、旧workspace・手順書・メンバー状態を破棄してAccess再認証へ遷移し、遅着in-flight応答が復元・再通知しないことを検証する。Access actor拒否403は再認証へ混同せず旧シェルを破棄し、一時503は表示中一覧と編集中入力を保持して再試行できること、workspace作成時の主体拒否403もcurrentSessionと保護shellを破棄し通常business403とは分離することを検証する。Access logoutは開始・成功・結果不明を同じversionの再認証通知で兄弟タブに伝え、session再取得や遅着成功によるshell復活を許さず、currentSession消去後もAccess方式を保ちpassword formへ戻らないことを検証する。
 - capture/mobile preview: same-origin、Access JWT、D1 identity、workspace roleの順で認可し、認証・認可エラーと`503 BROWSER_EGRESS_NOT_VERIFIED`を`tests/callback-migration-boundary.test.mjs`、`tests/capture-foundation.test.mjs`で検証する。`tests/m3-http-d1.test.mjs`はcapture実行ではなく、共通Access認証とD1主体解決の補助証跡である。
 
 商用実証、staging成功、production migration／deployはこの差分では実施・記録していない。

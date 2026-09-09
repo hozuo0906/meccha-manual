@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-5dcd476dd0d17b90";
+export const APP_ASSET_VERSION = "sha256-f907eb2466a6912d";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1240,12 +1240,15 @@ async function logoutWithAuthenticationLock(expectedVersion, requestAccessMode) 
   return withAuthenticationLock(async () => {
     if (readAuthenticationVersion() !== expectedVersion) return false;
     advanceAuthenticationVersion();
+    if (requestAccessMode) announceAuthenticationChange("reauthentication-required");
     try {
-      const logoutSent = await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false, requestAccessMode);
-      announceAuthenticationChange();
+      const logoutSent = await requestJsonOnce("/api/auth/logout", { method: "POST", body: "{}" }, requestAccessMode);
+      announceAuthenticationChange(requestAccessMode ? "reauthentication-required" : "");
       return logoutSent;
     } catch (error) {
-      if (error.code === "LOGOUT_REVOKE_FAILED") announceAuthenticationChange();
+      if (requestAccessMode || error.code === "LOGOUT_REVOKE_FAILED") {
+        announceAuthenticationChange(requestAccessMode ? "reauthentication-required" : "");
+      }
       throw error;
     }
   });
@@ -1269,6 +1272,11 @@ authenticationChannel?.addEventListener("message", (event) => {
       // 世代を比較できない場合は、通知された認証変更を安全側で処理する。
     }
   }
+  if (
+    event.data.reason !== "reauthentication-required" &&
+    terminalAuthenticationVersion &&
+    (!incomingVersion || terminalAuthenticationVersion === incomingVersion)
+  ) return;
   terminalAuthenticationVersion = event.data.reason === "reauthentication-required"
     ? incomingVersion
     : null;
@@ -3782,6 +3790,12 @@ async function createWorkspace(event) {
     }
     if (!workspaceCreated && uncertainWorkspaceCreation?.userId === requestUserId && uncertainWorkspaceCreation.slug === submittedWorkspace.slug) {
       clearUncertainWorkspaceCreation();
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      replaceCurrentSession(null);
+      renderLoadFailure("ワークスペースを表示できません", "このアカウントでは利用できません。管理者に確認してください。");
+      return;
     }
     if (error.status === 401) {
       if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;

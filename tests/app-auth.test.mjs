@@ -10,6 +10,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
   const sessionStorageValues = new Map();
   const lockCalls = [];
   const broadcastMessages = [];
+  const locationAssignments = [];
   const confirmationMessages = [];
   let broadcastChannelInstance = null;
   const elements = new Map();
@@ -120,6 +121,13 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
         return element(id);
       }
     },
+    window: {
+      location: {
+        assign(url) {
+          locationAssignments.push(url);
+        }
+      }
+    },
     fetch: (...args) => (fetch ?? (async () => Response.json({})))(...args, { insideLock, storage }),
     confirm(message) {
       confirmationMessages.push(message);
@@ -206,6 +214,7 @@ globalThis.__appAuthTest = {
     focusedId: () => focusedId,
     broadcastMessages,
     confirmationMessages,
+    locationAssignments,
     lockCalls,
     storage,
     sessionStorageValues,
@@ -802,6 +811,99 @@ test("Access logout成功はpassword画面ではなくAccessログイン導線�
   assert.match(app.innerHTML, /ログアウトしました/);
   assert.match(app.innerHTML, /ログインし直す/);
   assert.doesNotMatch(app.innerHTML, /login-screen|login-form|メールアドレスとパスワード/);
+});
+
+test("Access logout中の兄弟タブはsessionを再取得せず遅着成功でも保護shellを復活させない", async () => {
+  const versionKey = "meccha-manual-authentication-version";
+  const logoutStarted = deferred();
+  const logoutResponse = deferred();
+  const source = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path !== "/api/auth/logout") throw new Error(`unexpected source fetch: ${path}`);
+      logoutStarted.resolve();
+      return logoutResponse.promise;
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+  const logoutRequest = source.element("logout-button").listeners.get("click")();
+  await logoutStarted.promise;
+
+  const startMessage = source.broadcastMessages[0].message;
+  assert.equal(startMessage.reason, "reauthentication-required");
+  const delayedSession = deferred();
+  const sessionStarted = deferred();
+  let sessionCalls = 0;
+  const sibling = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path !== "/api/session") throw new Error(`unexpected sibling fetch: ${path}`);
+      sessionCalls += 1;
+      sessionStarted.resolve();
+      return delayedSession.promise;
+    }
+  });
+  sibling.storage.set(versionKey, startMessage.version);
+  sibling.api.replaceCurrentSession(session);
+  sibling.api.renderShell(session);
+  const pendingSession = sibling.api.loadSession();
+  await sessionStarted.promise;
+
+  sibling.emitBroadcast(startMessage);
+  assert.match(sibling.app.innerHTML, /再認証が必要です/);
+  assert.equal(sessionCalls, 1);
+  sibling.emitBroadcast({ type: "authentication-changed", version: startMessage.version });
+  assert.equal(sessionCalls, 1);
+
+  delayedSession.resolve(Response.json(session));
+  await pendingSession;
+  assert.match(sibling.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(sibling.app.innerHTML, /機密ワークスペース|secret/);
+
+  logoutResponse.resolve(Response.json({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" }));
+  await logoutRequest;
+  assert.deepEqual(source.locationAssignments, ["/cdn-cgi/access/logout"]);
+  assert.equal(source.broadcastMessages.length, 2);
+  assert.equal(source.broadcastMessages[1].message.version, startMessage.version);
+  assert.equal(source.broadcastMessages[1].message.reason, "reauthentication-required");
+});
+
+test("Access logoutの401・503・通信失敗でも兄弟タブ保護通知を同じversionで維持する", async () => {
+  for (const [label, response] of [
+    ["401", Response.json({ code: "ACCESS_JWT_INVALID", message: "認証状態を確認できませんでした。" }, { status: 401 })],
+    ["503", Response.json({ code: "ACCESS_IDENTITY_UNAVAILABLE", message: "認証サービスを利用できません。" }, { status: 503 })],
+    ["network", new Error("offline")]
+  ]) {
+    const source = createHarness({
+      enableBroadcast: true,
+      fetch: async () => {
+        if (response instanceof Error) throw response;
+        return response;
+      }
+    });
+    const session = {
+      user: { id: "user-1", email: "user@example.invalid" },
+      workspaces: [],
+      manuals: { status: "migration" },
+      members: { status: "migration" }
+    };
+    source.api.replaceCurrentSession(session);
+    source.api.renderShell(session);
+
+    await source.api.logout();
+
+    assert.equal(source.broadcastMessages.length, 2, label);
+    assert.equal(source.broadcastMessages[0].message.reason, "reauthentication-required", label);
+    assert.equal(source.broadcastMessages[1].message.reason, "reauthentication-required", label);
+    assert.equal(source.broadcastMessages[1].message.version, source.broadcastMessages[0].message.version, label);
+  }
 });
 
 test("Access logoutの一時失敗はpassword画面を出さず再試行可能な障害画面に分類する", async () => {
@@ -1608,6 +1710,33 @@ test("workspace作成結果不明は再作成させず一覧確認を案内す�
   assert.match(app.innerHTML, /一覧で結果を確認してください/);
   await api.createWorkspace({ preventDefault() {}, currentTarget: form });
   assert.equal(postCalls, 1);
+});
+
+test("workspace作成のAccess主体拒否403は旧sessionと保護shellを破棄する", async () => {
+  let postCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/workspaces") throw new Error(`unexpected fetch: ${path}`);
+      postCalls += 1;
+      return Response.json({ code: "ACCESS_ACTOR_FORBIDDEN", message: "この操作を行う権限がありません。" }, { status: 403 });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const form = harness.element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  await harness.api.createWorkspace({ preventDefault() {}, currentTarget: form });
+
+  assert.equal(postCalls, 1);
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /ワークスペースを表示できません|管理者に確認/);
+  assert.doesNotMatch(harness.app.innerHTML, /機密ワークスペース|secret|workspace-form/);
 });
 
 test("workspace作成中の再submitはRPCを重複送信しない", async () => {

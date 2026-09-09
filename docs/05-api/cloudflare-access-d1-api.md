@@ -35,7 +35,7 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 
 - Access保護中のブラウザAPIが終端401（`ACCESS_JWT_REQUIRED`、`ACCESS_JWT_INVALID`、またはAccess応答を同じ401へ正規化したもの）を返した場合、ブラウザは共有認証versionを更新し、`authentication-changed` 通知を兄弟タブへ一度だけ送る。通知には終端Access失効を示すreasonを含める。
 - 通知を受けたタブは、通知versionと現在versionを比較できる場合は一致した通知だけを採用し、保護中のメモリUI、進行中要求の採用、遅着応答を無効化する。不一致の遅い通知は無視し、versionを比較できない場合は安全側で同じ破棄を行う。終端Access通知ではアプリ独自password formへ戻らずAccess再認証画面を表示する。version読取・保存に失敗しても元のAccess401と通知処理を別の失敗へ置き換えず、403権限拒否と503一時障害は終端認証失効へ混同しない。
-- logoutは`currentSession`を消去する前に、その要求の認証方式を確定して保持し、Access要求では終端401をAccess再認証、503・通信失敗・lock失敗・失効確認不明を再試行可能な状態として分類する。成功応答を受けるまでlogout完了とは表示せず、Access要求でpassword formを表示しない。
+- logoutは`currentSession`を消去する前に、その要求の認証方式を確定して保持し、Access要求では終端401をAccess再認証、503・通信失敗・lock失敗・失効確認不明を再試行可能な状態として分類する。成功応答を受けるまでlogout完了とは表示せず、Access要求でpassword formを表示しない。Access logoutの開始時、成功時、結果不明時は同じ認証versionの`authentication-changed`通知を`reauthentication-required` reasonで送信し、兄弟タブは保護UIと進行中応答を破棄したまま`/api/session`を再取得せず再認証画面に留める。後着した同versionの通常通知はこの保護状態を解除しない。legacy logout/loginの通常通知は従来どおり再調整する。
 
 ## External provider callback
 
@@ -76,7 +76,7 @@ Access modeのsession応答は `manuals.status: "migration"` を含む。M4完�
 
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
 
-Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了する。service token、未認証request、allowlist外actorは拒否する。
+Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明では同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
 
 ## Workspace API
 
