@@ -147,3 +147,8 @@ test("Access migration中はmember APIがfencedされるためmember UIも無効
   assert.match(source, /memberMigrationInProgress/);
   assert.match(source, /メンバー管理は移行中のため、現在は利用できません。/);
 });
+test("Access member migration中はjoin-code発行UIも無効化する", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /memberMigration[\s\S]{0,1000}renderWorkspaceJoinCodeIssuer/);
+  assert.match(source, /参加コードの発行はメンバー管理の移行が完了するまで利用できません。/);
+});

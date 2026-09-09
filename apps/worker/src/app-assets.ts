@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-af160699471b1f6b";
+export const APP_ASSET_VERSION = "sha256-650bb1916dc1c93f";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -3343,7 +3343,9 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
                 '</div>' +
                 '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
               '</form>') +
-          renderWorkspaceJoinCodeIssuer() +
+          (memberMigration
+            ? '<section class="section join-code-section" aria-labelledby="join-code-heading"><div class="section-header"><div><h2 id="join-code-heading">自分の参加コード</h2></div></div><div class="warning-box show" role="status" aria-live="polite">参加コードの発行はメンバー管理の移行が完了するまで利用できません。</div></section>'
+            : renderWorkspaceJoinCodeIssuer()) +
           renderWorkspaceMembers(currentWorkspace) +
         '</div>' +
       '</div>' +
