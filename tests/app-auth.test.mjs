@@ -727,11 +727,10 @@ test("ログアウト通信失敗ではshellを維持して再試行を案内す
 
   await api.logout();
 
-  assert.match(app.innerHTML, /class="shell"/);
-  assert.equal(api.getCurrentSession().user.id, "user-1");
-  assert.match(element("shell-message").textContent, /ログアウトを完了できませんでした/);
-  assert.equal(element("shell-message").role, "alert");
-  assert.equal(element("shell-message")["aria-live"], "assertive");
+  assert.match(app.innerHTML, /class="login-screen"/);
+  assert.equal(api.getCurrentSession(), null);
+  assert.match(app.innerHTML, /ログアウトを完了できませんでした/);
+  assert.match(app.innerHTML, /id="login-message" class="error-box show" role="alert" aria-live="assertive"/);
 });
 
 test("ログアウト成功で保護sessionを消去してログイン表示へ戻る", async () => {
@@ -750,7 +749,7 @@ test("ログアウト成功で保護sessionを消去してログイン表示へ�
 
 test("ログアウト処理中状態を表示し完了後に解除する", async () => {
   const logoutPending = deferred();
-  const { api, element } = createHarness({
+  const { api, app, element } = createHarness({
     fetch: async () => {
       await logoutPending.promise;
       return Response.json({ status: "ok" });
@@ -765,6 +764,8 @@ test("ログアウト処理中状態を表示し完了後に解除する", async
   assert.equal(button.disabled, true);
   assert.equal(button.textContent, "ログアウト中");
   assert.equal(button["aria-busy"], "true");
+  assert.equal(api.getCurrentSession(), null);
+  assert.match(app.innerHTML, /class="login-screen"/);
   logoutPending.resolve();
   await logoutRequest;
   assert.equal(button.disabled, false);

@@ -38,23 +38,29 @@ function accessModeEnabled(env: CaptureEnv): boolean {
 }
 
 async function assertAccessCaptureEditor(request: Request, env: CaptureEnv, workspaceId: string): Promise<void> {
-  if (!env.DB) throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   let auth;
   try {
-    auth = await authenticateApplicationRequest(request, env, new D1IdentityRepository(env.DB));
+    const identityRepository = env.DB
+      ? new D1IdentityRepository(env.DB)
+      : {
+          async findByIssuerAndSubject() {
+            throw new D1RepositoryError("unavailable");
+          }
+        };
+    auth = await authenticateApplicationRequest(request, env, identityRepository);
   } catch (error) {
     if (error instanceof AccessIdentityError) {
       throw new ManualError(error.status, error.code, error.message);
     }
     throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   }
+  if (!env.DB) throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   if (auth.kind !== "application_user") {
     throw new ManualError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
   }
   try {
-    const members = await new D1WorkspaceRepository(env.DB).listMembers(auth.identity.applicationId, workspaceId);
-    const actor = members.find((member) => member.applicationId === auth.identity.applicationId);
-    if (!actor || !["owner", "admin", "editor"].includes(actor.role)) {
+    const role = await new D1WorkspaceRepository(env.DB).getMemberRole(auth.identity.applicationId, workspaceId);
+    if (!role || !["owner", "admin", "editor"].includes(role)) {
       throw new ManualError(403, "CAPTURE_FORBIDDEN", "操作を記録する権限がありません。");
     }
   } catch (error) {

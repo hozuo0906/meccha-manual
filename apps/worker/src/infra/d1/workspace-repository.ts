@@ -220,6 +220,30 @@ export class D1WorkspaceRepository {
     }
   }
 
+  async getMemberRole(actorId: string, workspaceId: string): Promise<WorkspaceRole | null> {
+    try {
+      const row = await this.db
+        .prepare(
+          `SELECT actor_member.role
+             FROM workspace_members AS actor_member
+             JOIN identities AS actor_identity ON actor_identity.application_id = actor_member.application_id
+             JOIN workspaces AS w ON w.id = actor_member.workspace_id
+            WHERE actor_member.application_id = ?1
+              AND actor_member.workspace_id = ?2
+              AND actor_identity.status = 'active'
+              AND actor_member.status = 'active'
+              AND actor_member.role IN ('owner', 'admin', 'editor', 'viewer')
+              AND w.status = 'active'
+            LIMIT 1`
+        )
+        .bind(actorId, workspaceId)
+        .first<{ role: WorkspaceRole }>();
+      return row?.role ?? null;
+    } catch (error) {
+      throw ensureRepositoryError(error);
+    }
+  }
+
   async createWorkspace(actorId: string, input: CreateWorkspaceInput, now: string): Promise<WorkspaceSummary> {
     const normalized = normalizeWorkspace(input);
     nowOrThrow(now);

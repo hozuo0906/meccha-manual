@@ -2,12 +2,11 @@ import phase1Worker from "./index.ts";
 import { handleCaptureRoute } from "./capture-router.ts";
 import { handleManualEditRoute } from "./manual-edit-router.ts";
 import { handleManualRoute, type ManualEnv } from "./manual-router.ts";
-import { inspectAccessConfig } from "./server-config.ts";
+import { inspectAccessConfig, type AccessBindings } from "./server-config.ts";
+import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 
-type Env = ManualEnv & {
-  ACCESS_ISSUER?: string;
-  ACCESS_AUDIENCE?: string;
-  ACCESS_JWKS_URL?: string;
+type Env = ManualEnv & AccessBindings & {
+  DB?: D1DatabaseLike;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;

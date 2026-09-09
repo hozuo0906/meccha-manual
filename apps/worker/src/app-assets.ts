@@ -3687,7 +3687,10 @@ async function logout() {
   button.disabled = true;
   button.textContent = "ログアウト中";
   button.setAttribute("aria-busy", "true");
-  const requestSessionGeneration = ++sessionGeneration;
+  ++sessionGeneration;
+  replaceCurrentSession(null);
+  renderLogin();
+  const logoutStateGeneration = sessionGeneration;
   try {
     const requestAuthenticationVersion = readAuthenticationVersion();
     const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion);
@@ -3700,23 +3703,21 @@ async function logout() {
       window.location.assign(logoutSent.redirectUrl);
       return;
     }
-    if (requestSessionGeneration !== sessionGeneration) return;
-    replaceCurrentSession(null);
+    if (logoutStateGeneration !== sessionGeneration) return;
     renderLogin();
   } catch (error) {
-    if (requestSessionGeneration !== sessionGeneration) return;
+    if (logoutStateGeneration !== sessionGeneration) return;
     if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
-      setBox("shell-message", error.message, "error");
+      renderLogin(error.message);
       return;
     }
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
       const message = error.code === "NETWORK_ERROR"
         ? "サーバーに接続できず、ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。"
         : "サーバーの応答を確認できず、ログアウトを完了できませんでした。時間をおいて、もう一度お試しください。";
-      setBox("shell-message", message, "error");
+      renderLogin(message);
       return;
     }
-    replaceCurrentSession(null);
     renderLogin(error.message);
   } finally {
     const activeButton = document.getElementById("logout-button");
