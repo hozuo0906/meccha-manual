@@ -61,7 +61,7 @@ export interface AccessAuthenticator {
   authenticate(request: Request, repository: ApplicationIdentityRepository): Promise<ApplicationAuthContext>;
 }
 
-const authenticatorCache = new Map<string, AccessAuthenticator>();
+const authenticatorCache = new Map<string, { fetch: typeof globalThis.fetch; authenticator: AccessAuthenticator }>();
 
 export class AccessIdentityError extends Error {
   readonly status: 401 | 403 | 503;
@@ -225,15 +225,15 @@ function cachedAccessAuthenticator(env: AccessBindings): AccessAuthenticator {
   const config = configOrThrow(env);
   const cacheKey = JSON.stringify([config.issuer, config.audience, config.jwksUrl]);
   const cached = authenticatorCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached?.fetch === globalThis.fetch) return cached.authenticator;
 
   const authenticator = createAccessAuthenticator(env);
-  authenticatorCache.set(cacheKey, authenticator);
+  authenticatorCache.set(cacheKey, { fetch: globalThis.fetch, authenticator });
   return authenticator;
 }
 
 export async function verifyAccessJwt(request: Request, env: AccessBindings): Promise<AccessActor> {
-  return createAccessAuthenticator(env).verify(request);
+  return cachedAccessAuthenticator(env).verify(request);
 }
 
 export async function authenticateApplicationRequest(

@@ -200,6 +200,24 @@ test("合成entrypointは検証済みactorだけをroute判定とidentity lookup
   assert.equal(fetchCount, 1);
 });
 
+test("verifyAccessJwtも設定単位でJWKS resolverを再利用する", async () => {
+  const cacheEnv = {
+    ACCESS_ISSUER: "https://cache.example.invalid/",
+    ACCESS_AUDIENCE: "cache-audience",
+    ACCESS_JWKS_URL: "https://cache.example.invalid/.well-known/jwks.json"
+  };
+  let fetchCount = 0;
+  globalThis.fetch = async (url) => {
+    fetchCount += 1;
+    assert.equal(url, cacheEnv.ACCESS_JWKS_URL);
+    return Response.json({ keys: [publicJwk] });
+  };
+  const token = await accessToken({ iss: cacheEnv.ACCESS_ISSUER, aud: cacheEnv.ACCESS_AUDIENCE });
+  assert.equal((await verifyAccessJwt(request("/api/session", token), cacheEnv)).kind, "access_user");
+  assert.equal((await verifyAccessJwt(request("/api/session", token), cacheEnv)).kind, "access_user");
+  assert.equal(fetchCount, 1);
+});
+
 test("JWTなし、設定不備、JWKS取得障害は安全な401/503になる", async () => {
   await assertIdentityErrorAsync(() => verifyAccessJwt(request(), env), 401, "ACCESS_JWT_REQUIRED");
   const validToken = await accessToken();
