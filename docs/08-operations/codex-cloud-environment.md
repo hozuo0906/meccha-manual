@@ -29,7 +29,7 @@ PCの電源が切れていても、GitHub上の正本repoを使ってCodex Cloud
 4. task本文には `docs/09-delivery/codex-cloud-task-template.md` を使う。
 5. branchは `feature/*`、`fix/*`、`review/*`、`chore/*`、`phase/*` を使う。
 6. mainへ直接pushしない。
-7. PR作成後は、GitHub Actions、品質loop、Astra high親PMによる実SHA確認を通す。商用リリース前の通常のpush、PR作成・更新、mergeは、この確認と保護ブランチ・必須CI・review threadの条件を満たせばユーザーの都度承認を要しない。商用リリース後は操作ごとにユーザーの事前承認を得る。
+7. PR作成後は、GitHub Actions、既存CI／PRテンプレートの旧来の名称「サブエージェント品質loop」に対応する品質確認、Astra high親PMによる実SHA確認、ユーザー承認を通す。現行の独立タスク体制では、親PMが要件・統合判断・品質ゲートを担い、Luna high作業担当が限定実装・検証・報告を担う。商用リリース前の通常のpush、PR作成・更新、mergeは、この確認と保護ブランチ・必須CI・review threadの条件を満たせばユーザーの都度承認を要しない。商用リリース後は操作ごとにユーザーの事前承認を得る。
 
 ### task作成前の担当・モデル確認
 
