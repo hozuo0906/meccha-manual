@@ -39,3 +39,11 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 - 連続する同方向scroll: 1件のnoteへ集約
 
 このPRではDB保存、Browser session、Live View、Durable Object、R2を実装しない。将来の永続化は検証済みAccess identity、active D1 membership/role、workspace固定query/constraint、manual→revision lock、archive version、job期限・取消・再試行・監査を同じ縦切りで実装する。
+
+### Access mode migration boundary
+
+Access modeでは移行前Supabase認証へfallbackせず、WorkerのAccess境界で同じ `503 BROWSER_EGRESS_NOT_VERIFIED` と副作用0を返す。
+
+### Access mode authorization ordering (2026-09-08)
+
+Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateより前にAccess JWT、D1 identity、same-origin、workspace roleを確認する。Access/D1で認証・認可済みのowner/admin/editorだけが`503 BROWSER_EGRESS_NOT_VERIFIED`へ到達し、未認証やviewerは認証・認可エラーで終了する。legacy Supabase sessionへfallbackしない。

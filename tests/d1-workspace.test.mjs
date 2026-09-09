@@ -158,6 +158,23 @@ test("every workspace query is actor and workspace scoped", async () => {
   ]);
 });
 
+test("member role lookup is not limited by the member list page size", async () => {
+  let sql = "";
+  const fakeD1 = {
+    prepare(statement) {
+      sql = statement;
+      return {
+        bind() { return this; },
+        async first() { return { role: "editor" }; }
+      };
+    }
+  };
+  const repository = new D1WorkspaceRepository(fakeD1);
+  assert.equal(await repository.getMemberRole("actor", "workspace"), "editor");
+  assert.match(sql, /WHERE actor_member\.application_id = \?1/);
+  assert.match(sql, /LIMIT 1/);
+});
+
 test("disabled identities do not count as effective owners for disable, update, or delete", async () => {
   const soleEffectiveOwner = await createOwnedWorkspace("alice", "sole-effective-owner");
   database.prepare(

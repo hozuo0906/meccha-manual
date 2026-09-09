@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-ba81329c9021f346";
+export const APP_ASSET_VERSION = "sha256-ca5359e873a8aea2";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -996,6 +996,18 @@ let manualDetailState = { workspaceId: "", manualId: "", status: "idle", value: 
 let manualRequestSequence = 0;
 let manualMutationInFlight = false;
 let manualReadingPreview = null;
+
+function isAccessModeSession(session = currentSession) {
+  // M3のAccess session marker。M4でsession契約を更新するときに再評価する。
+  return Boolean(session?.manuals?.status === "migration" || session?.members?.status === "migration");
+}
+
+function manualMigrationInProgress(session = currentSession) {
+  return session?.manuals?.status === "migration";
+}
+function memberMigrationInProgress(session = currentSession) {
+  return session?.members?.status === "migration";
+}
 const manualStatusLabels = {
   draft: "下書き",
   reviewing: "確認中",
@@ -1030,6 +1042,7 @@ function resetManualUiState() {
 
 let pendingWorkspaceJoinCodeIssuance = null;
 let workspaceJoinCodeExpiryTimer = null;
+let terminalAuthenticationVersion = null;
 const currentWorkspaceStorageKey = "meccha-manual-current-workspace";
 const uncertainWorkspaceStorageKey = "meccha-manual-uncertain-workspace";
 const authenticationChannel = typeof BroadcastChannel === "function"
@@ -1097,8 +1110,16 @@ function clearUncertainWorkspaceCreation() {
   }
 }
 
-function announceAuthenticationChange() {
-  authenticationChannel?.postMessage({ type: "authentication-changed" });
+function announceAuthenticationChange(reason = "") {
+  if (!reason) terminalAuthenticationVersion = null;
+  const message = { type: "authentication-changed" };
+  try {
+    message.version = readAuthenticationVersion();
+  } catch {
+    // 認証世代を読めなくても、現在タブの状態破棄と兄弟タブ通知は続ける。
+  }
+  if (reason) message.reason = reason;
+  authenticationChannel?.postMessage(message);
 }
 
 function readAuthenticationVersion() {
@@ -1120,7 +1141,9 @@ function readAuthenticationVersion() {
 
 function advanceAuthenticationVersion() {
   try {
-    localStorage.setItem(authenticationVersionKey, crypto.randomUUID());
+    const version = crypto.randomUUID();
+    localStorage.setItem(authenticationVersionKey, version);
+    return version;
   } catch {
     throw new AppRequestError(
       "このブラウザでは安全にログイン状態を変更できません。最新版のChromeでお試しください。",
@@ -1130,12 +1153,26 @@ function advanceAuthenticationVersion() {
   }
 }
 
-function announceTerminalAuthenticationChange() {
+function announceTerminalAuthenticationChange(reason = "reauthentication-required") {
   try {
-    advanceAuthenticationVersion();
+    terminalAuthenticationVersion = advanceAuthenticationVersion();
+  } catch {
+    // 元の認証失敗を維持し、世代更新不能を別の例外として見せない。
+    terminalAuthenticationVersion = null;
   } finally {
-    announceAuthenticationChange();
+    announceAuthenticationChange(reason);
   }
+}
+
+function announceAccessReauthentication(expectedVersion = null) {
+  try {
+    const currentVersion = readAuthenticationVersion();
+    if (terminalAuthenticationVersion === currentVersion) return;
+    if (expectedVersion && currentVersion !== expectedVersion) return;
+  } catch {
+    // 認証世代を読めない場合も、元の401を再認証要求として扱う。
+  }
+  announceTerminalAuthenticationChange();
 }
 
 async function withAuthenticationLock(operation) {
@@ -1174,12 +1211,12 @@ function reconcileAuthenticationVersion(expectedVersion, options) {
   );
 }
 
-async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options) {
+async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options, requestAccessMode) {
   return withAuthenticationLock(async () => {
     expectedVersion = reconcileAuthenticationVersion(expectedVersion, options);
 
     try {
-      return await requestJsonOnce(path, options);
+      return await requestJsonOnce(path, options, requestAccessMode);
     } catch (error) {
       if (error.code !== "SESSION_REFRESH_REQUIRED") throw error;
     }
@@ -1188,24 +1225,29 @@ async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, op
     try {
       await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
     } catch (error) {
-      if (isTerminalSessionError(error)) announceTerminalAuthenticationChange();
+      if (isTerminalSessionError(error)) {
+        if (isAccessReauthenticationError(error)) announceAccessReauthentication(expectedVersion);
+        else announceTerminalAuthenticationChange("");
+      }
       throw error;
     }
     reconcileAuthenticationVersion(expectedVersion, options);
-    return requestJsonOnce(path, options);
+    return requestJsonOnce(path, options, requestAccessMode);
   });
 }
 
-async function logoutWithAuthenticationLock(expectedVersion) {
+async function logoutWithAuthenticationLock(expectedVersion, requestAccessMode) {
   return withAuthenticationLock(async () => {
     if (readAuthenticationVersion() !== expectedVersion) return false;
-    advanceAuthenticationVersion();
+    if (!requestAccessMode) advanceAuthenticationVersion();
     try {
-      await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false);
-      announceAuthenticationChange();
-      return true;
+      const logoutSent = await requestJsonOnce("/api/auth/logout", { method: "POST", body: "{}" }, requestAccessMode);
+      announceAuthenticationChange(requestAccessMode ? "reauthentication-required" : "");
+      return logoutSent;
     } catch (error) {
-      if (error.code === "LOGOUT_REVOKE_FAILED") announceAuthenticationChange();
+      if (requestAccessMode || error.code === "LOGOUT_REVOKE_FAILED") {
+        announceAuthenticationChange(requestAccessMode ? "reauthentication-required" : "");
+      }
       throw error;
     }
   });
@@ -1221,6 +1263,33 @@ function renderAuthenticationReload() {
 
 authenticationChannel?.addEventListener("message", (event) => {
   if (event.data?.type !== "authentication-changed") return;
+  const incomingVersion = typeof event.data.version === "string" ? event.data.version : null;
+  let terminalVersion = incomingVersion || "";
+  let incomingVersionComparable = false;
+  if (incomingVersion) {
+    try {
+      if (readAuthenticationVersion() !== incomingVersion) return;
+      incomingVersionComparable = true;
+    } catch {
+      // 世代を比較できない場合は、通知された認証変更を安全側で処理する。
+    }
+  } else if (event.data.reason === "reauthentication-required") {
+    try {
+      // versionなし通知でも、受信側で保持する既存versionを終端の基準にする。
+      terminalVersion = readAuthenticationVersion();
+    } catch {
+      // storageを読めない間は既存versionを特定できないため、sentinelで保護状態を維持する。
+      terminalVersion = "";
+    }
+  }
+  if (
+    event.data.reason !== "reauthentication-required" &&
+    terminalAuthenticationVersion !== null &&
+    (!incomingVersion || !incomingVersionComparable || terminalAuthenticationVersion === incomingVersion)
+  ) return;
+  terminalAuthenticationVersion = event.data.reason === "reauthentication-required"
+    ? terminalVersion
+    : null;
   // 次のsessionを取得するまでは同一ユーザーの再ログインか判定できない。
   // 表示と進行中応答だけを無効化し、ユーザー固有の選択・結果不明ロックは
   // replaceCurrentSessionで主体変更を確認できた場合にだけ破棄する。
@@ -1230,6 +1299,11 @@ authenticationChannel?.addEventListener("message", (event) => {
   manualRequestSequence += 1;
   if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
   if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
+  if (event.data.reason === "reauthentication-required") {
+    replaceCurrentSession(null);
+    renderAccessReauthentication();
+    return;
+  }
   renderAuthenticationReload();
   loadSession({ focusId: "workspace-heading" });
 });
@@ -1364,13 +1438,14 @@ function clearBox(id) {
   box.className = box.className.includes("notice") ? "notice-box" : "error-box";
 }
 
-async function requestJsonOnce(path, options = {}) {
+async function requestJsonOnce(path, options = {}, requestAccessMode = isAccessModeSession()) {
   let response;
   try {
     response = await fetch(path, {
       ...options,
       headers: {
         "content-type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
         ...(options.headers || {})
       }
     });
@@ -1379,6 +1454,14 @@ async function requestJsonOnce(path, options = {}) {
       "サーバーに接続できませんでした。通信環境を確認して、もう一度お試しください。",
       0,
       "NETWORK_ERROR"
+    );
+  }
+
+  if (response.status === 401 && requestAccessMode) {
+    throw new AppRequestError(
+      "認証状態を確認できませんでした。ログインし直してください。",
+      401,
+      "ACCESS_JWT_INVALID"
     );
   }
 
@@ -1424,7 +1507,7 @@ async function requestJsonOnce(path, options = {}) {
   return payload;
 }
 
-async function requestJson(path, options = {}, allowSessionRefresh = true) {
+async function requestJson(path, options = {}, allowSessionRefresh = true, requestAccessMode = isAccessModeSession()) {
   let expectedVersion = null;
   let coordinationError = null;
   if (allowSessionRefresh) {
@@ -1436,11 +1519,18 @@ async function requestJson(path, options = {}, allowSessionRefresh = true) {
   }
 
   try {
-    return await requestJsonOnce(path, options);
+    return await requestJsonOnce(path, options, requestAccessMode);
   } catch (error) {
+    if (isAccessReauthenticationError(error)) {
+      if (requestAccessMode) announceAccessReauthentication(expectedVersion);
+      throw error;
+    }
     if (!allowSessionRefresh || error.code !== "SESSION_REFRESH_REQUIRED") throw error;
     if (coordinationError) throw coordinationError;
-    return retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options);
+    return retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options, requestAccessMode).catch((error) => {
+      if (isAccessReauthenticationError(error) && requestAccessMode) announceAccessReauthentication(expectedVersion);
+      throw error;
+    });
   }
 }
 
@@ -1448,11 +1538,21 @@ const terminalSessionCodes = new Set([
   "SESSION_REQUIRED",
   "SESSION_INVALID",
   "SESSION_EXPIRED",
-  "SESSION_REFRESH_INVALID"
+  "SESSION_REFRESH_INVALID",
+  "ACCESS_JWT_REQUIRED",
+  "ACCESS_JWT_INVALID"
 ]);
 
 function isTerminalSessionError(error) {
   return error.status === 401 && terminalSessionCodes.has(error.code);
+}
+
+function isTerminalAccessAuthorizationError(error) {
+  return error.status === 403 && error.code === "ACCESS_ACTOR_FORBIDDEN";
+}
+
+function isAccessReauthenticationError(error) {
+  return error.status === 401 && ["ACCESS_JWT_REQUIRED", "ACCESS_JWT_INVALID"].includes(error.code);
 }
 
 function validateLoginForm(form) {
@@ -1631,7 +1731,33 @@ function renderLogin(message = "") {
   }
 }
 
-function renderLoadFailure(title, message) {
+function renderAccessReauthentication() {
+  app.innerHTML =
+    '<section id="screen-content" class="boot access-reauthentication" role="alert" aria-live="assertive" tabindex="-1">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<h1>再認証が必要です</h1>' +
+      '<p>認証状態を確認できませんでした。ログインし直してから、もう一度お試しください。</p>' +
+      '<a class="primary-button" href="/">ログインし直す</a>' +
+    '</section>';
+  document.getElementById("screen-content")?.focus();
+}
+
+function renderAccessLogoutComplete() {
+  app.innerHTML =
+    '<section id="screen-content" class="boot access-reauthentication" role="status" aria-live="polite" tabindex="-1">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<h1>ログアウトしました</h1>' +
+      '<p>もう一度利用するには、Cloudflare Accessで認証してください。</p>' +
+      '<a class="primary-button" href="/">ログインし直す</a>' +
+    '</section>';
+  document.getElementById("screen-content")?.focus();
+}
+
+function renderAccessLogoutFailure(message) {
+  renderLoadFailure("ログアウトを完了できませんでした", message, { requestAccessMode: true });
+}
+
+function renderLoadFailure(title, message, retryOptions = {}) {
   app.innerHTML =
     '<section id="screen-content" class="boot" role="alert" aria-live="assertive" tabindex="-1">' +
       '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
@@ -1644,7 +1770,7 @@ function renderLoadFailure(title, message) {
     retryButton.disabled = true;
     retryButton.textContent = "読み込み中";
     retryButton.setAttribute("aria-busy", "true");
-    await loadSession({ focusId: "workspace-heading" });
+    await loadSession({ ...retryOptions, focusId: "workspace-heading" });
   });
   retryButton.focus();
 }
@@ -1771,6 +1897,12 @@ function workspaceMemberRows(state) {
 }
 
 function renderWorkspaceMembers(currentWorkspace) {
+  if (memberMigrationInProgress()) {
+    return '<section class="section members-section" aria-labelledby="members-heading">' +
+      '<div class="section-header"><h2 id="members-heading" tabindex="-1">メンバー管理</h2></div>' +
+      '<div class="warning-box show" role="status" aria-live="polite">メンバー管理は移行中のため、現在は利用できません。</div>' +
+    '</section>';
+  }
   if (!currentWorkspace || !workspaceMembersState) {
     return '<section class="section members-section" aria-labelledby="members-heading">' +
       '<div class="section-header"><h2 id="members-heading" tabindex="-1">メンバー管理</h2></div>' +
@@ -1872,7 +2004,16 @@ async function loadWorkspaceMembers(workspaceId, options = {}) {
     renderShell(currentSession, "", "notice", options.focusId || null);
   } catch (error) {
     if (requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence) return;
+    if (isAccessReauthenticationError(error)) {
+      replaceCurrentSession(null);
+      renderAccessReauthentication();
+      return;
+    }
     if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       await loadSession();
       return;
     }
@@ -2119,6 +2260,10 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
       await loadSession();
       return;
     }
+    if (isTerminalAccessAuthorizationError(error)) {
+      await loadSession();
+      return;
+    }
     if (
       error.code === "MEMBER_CHANGE_RESULT_UNKNOWN" ||
       error.code === "NETWORK_ERROR" ||
@@ -2286,12 +2431,18 @@ function manualCanEdit(currentWorkspace) {
 }
 
 function manualSidebarHtml(session, activeScreen) {
+  const memberNavigation = memberMigrationInProgress(session)
+    ? '<span class="nav-item" aria-disabled="true"><span>メンバー管理</span><span class="nav-status">移行中</span></span>'
+    : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>';
+  const manualNavigation = manualMigrationInProgress(session)
+    ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
+    : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
   return '<aside class="sidebar" aria-label="アプリメニュー">' +
     '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
     '<nav class="nav" aria-label="主要メニュー">' +
       '<button id="workspace-nav-button" class="nav-item nav-button' + (activeScreen === "workspace" ? ' active' : '') + '" type="button"' + (activeScreen === "workspace" ? ' aria-current="page"' : '') + '>ワークスペース</button>' +
-      '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>' +
-      '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>' +
+      memberNavigation +
+      manualNavigation +
       '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
     '</nav>' +
     '<div class="user-box">' +
@@ -2315,6 +2466,11 @@ function wireManualNavigation(currentWorkspace) {
 }
 
 function openManualList(currentWorkspace, message = "", messageKind = "notice") {
+  if (manualMigrationInProgress()) {
+    currentScreen = "workspace";
+    renderShell(currentSession, "手順書機能は移行中のため、現在利用できません。", "warning", "shell-message");
+    return;
+  }
   if (!currentWorkspace) {
     currentScreen = "workspace";
     renderShell(currentSession, "利用中のワークスペースを選択してください。", "error", "shell-message");
@@ -2692,7 +2848,7 @@ async function loadManuals(workspaceId, options = {}) {
       requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
       sequence !== manualRequestSequence
     ) return;
-    if (isTerminalSessionError(error)) return loadSession();
+    if (isTerminalSessionError(error) || isTerminalAccessAuthorizationError(error)) return loadSession();
     manualsState = { workspaceId, status: "error", items: [], message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manuals-message");
   }
@@ -2739,6 +2895,10 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
       return;
     }
     if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
     }
@@ -2872,6 +3032,10 @@ async function createManualFromUi(event) {
       setManualMutationBusyState(false);
       return loadSession();
     }
+    if (isTerminalAccessAuthorizationError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
     const resultUnknown = manualMutationUnknown(error);
     if (resultUnknown) {
       const warning = {
@@ -2973,6 +3137,10 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       return;
     }
     if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
     }
@@ -3213,6 +3381,10 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
     : null;
   const creationUncertain = uncertainWorkspaceCreation?.userId === session.user?.id;
   const creationInFlight = workspaceCreationInFlight?.userId === session.user?.id;
+  const manualMigration = manualMigrationInProgress(session);
+  const memberMigration = memberMigrationInProgress(session);
+  const effectiveNotice = notice || (manualMigration ? "手順書機能は移行中のため、現在利用できません。" : "");
+  const effectiveNoticeKind = notice ? noticeKind : (manualMigration ? "warning" : "notice");
   const rows = workspaces.map((workspace) =>
     '<tr>' +
       '<td><div class="workspace-name">' + escapeHtml(workspace.name) + '</div><div class="muted">' + escapeHtml(workspace.slug) + '</div></td>' +
@@ -3220,15 +3392,15 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
       '<td>' + escapeHtml(workspace.created_at ? workspace.created_at.slice(0, 10) : "") + '</td>' +
     '</tr>'
   ).join("");
-  const shellMessageClass = notice
-    ? noticeKind === "error"
+  const shellMessageClass = effectiveNotice
+    ? effectiveNoticeKind === "error"
       ? "error-box show"
-      : (creationUncertain || noticeKind === "warning")
+      : (creationUncertain || effectiveNoticeKind === "warning")
         ? "warning-box show"
         : "notice-box show"
     : "notice-box";
-  const shellMessageRole = noticeKind === "error" ? "alert" : "status";
-  const shellMessageLive = noticeKind === "error" ? "assertive" : "polite";
+  const shellMessageRole = effectiveNoticeKind === "error" ? "alert" : "status";
+  const shellMessageLive = effectiveNoticeKind === "error" ? "assertive" : "polite";
 
   app.innerHTML =
     '<section class="shell">' +
@@ -3236,8 +3408,12 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
         '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
         '<nav class="nav" aria-label="主要メニュー">' +
           '<button id="workspace-nav-button" class="nav-item nav-button active" type="button" aria-current="page">ワークスペース</button>' +
-          '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>' +
-          '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>' +
+          (memberMigration
+             ? '<span class="nav-item" aria-disabled="true"><span>メンバー管理</span><span class="nav-status">移行中</span></span>'
+             : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>') +
+          (manualMigration
+            ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
+            : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
           '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
         '</nav>' +
         '<div class="user-box">' +
@@ -3259,7 +3435,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
           '</div>' +
           '<button id="reload-button" class="secondary-button" type="button">一覧を更新</button>' +
         '</header>' +
-        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(notice) + '</div>' +
+        '<div id="shell-message" class="' + shellMessageClass + '" role="' + shellMessageRole + '" aria-live="' + shellMessageLive + '" aria-atomic="true" tabindex="-1">' + escapeHtml(effectiveNotice) + '</div>' +
         '<div class="dashboard-grid">' +
           '<section id="workspace-overview" class="section" aria-labelledby="workspace-list-heading">' +
             '<div class="section-header"><h2 id="workspace-list-heading">所属ワークスペース</h2><span class="badge">' + workspaces.length + '件</span></div>' +
@@ -3311,7 +3487,9 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
                 '</div>' +
                 '<button class="primary-button" type="submit">ワークスペースを作成</button>' +
               '</form>') +
-          renderWorkspaceJoinCodeIssuer() +
+          (memberMigration
+            ? '<section class="section join-code-section" aria-labelledby="join-code-heading"><div class="section-header"><div><h2 id="join-code-heading">自分の参加コード</h2></div></div><div class="warning-box show" role="status" aria-live="polite">参加コードの発行はメンバー管理の移行が完了するまで利用できません。</div></section>'
+            : renderWorkspaceJoinCodeIssuer()) +
           renderWorkspaceMembers(currentWorkspace) +
         '</div>' +
       '</div>' +
@@ -3359,7 +3537,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
     document.getElementById("member-save-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, false));
     document.getElementById("member-stop-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, true));
   }
-  if (notice) document.getElementById("shell-message").focus();
+  if (effectiveNotice) document.getElementById("shell-message").focus();
   else if (focusId) document.getElementById(focusId)?.focus();
 }
 
@@ -3388,7 +3566,7 @@ async function loadSession(options = {}) {
   const requestSessionGeneration = sessionGeneration;
   const requestReloadSequence = ++sessionReloadSequence;
   try {
-    const session = await requestJson("/api/session");
+    const session = await requestJson("/api/session", {}, true, options.requestAccessMode ?? isAccessModeSession());
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     if (currentSession?.user?.id !== session.user?.id) {
       replaceCurrentSession(session);
@@ -3441,6 +3619,11 @@ async function loadSession(options = {}) {
     if (options.preserveShell) document.getElementById("reload-button")?.focus();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (isTerminalAccessAuthorizationError(error)) {
+      replaceCurrentSession(null);
+      renderLoadFailure("ワークスペースを表示できません", "このアカウントでは利用できません。管理者に確認してください。");
+      return;
+    }
     if (options.preserveShell && currentSession && !isTerminalSessionError(error)) {
       const message = error.code === "WORKSPACES_LIMIT_EXCEEDED"
         ? "所属ワークスペースが多いため一覧を更新できませんでした。表示中の一覧は更新前です。管理者に整理を依頼してください。"
@@ -3468,6 +3651,11 @@ async function loadSession(options = {}) {
         form.elements.name.value = options.workspaceDraft.name;
         form.elements.slug.value = options.workspaceDraft.slug;
       }
+      return;
+    }
+    if (isAccessReauthenticationError(error)) {
+      replaceCurrentSession(null);
+      renderAccessReauthentication();
       return;
     }
     if (isTerminalSessionError(error)) {
@@ -3613,6 +3801,12 @@ async function createWorkspace(event) {
     if (!workspaceCreated && uncertainWorkspaceCreation?.userId === requestUserId && uncertainWorkspaceCreation.slug === submittedWorkspace.slug) {
       clearUncertainWorkspaceCreation();
     }
+    if (isTerminalAccessAuthorizationError(error)) {
+      if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
+      replaceCurrentSession(null);
+      renderLoadFailure("ワークスペースを表示できません", "このアカウントでは利用できません。管理者に確認してください。");
+      return;
+    }
     if (error.status === 401) {
       if (workspaceCreationInFlight === submittedWorkspace) workspaceCreationInFlight = null;
       await loadSession();
@@ -3648,37 +3842,70 @@ async function createWorkspace(event) {
 }
 
 async function logout() {
+  const requestAccessMode = isAccessModeSession();
   clearBox("shell-message");
   const button = document.getElementById("logout-button");
   button.disabled = true;
   button.textContent = "ログアウト中";
   button.setAttribute("aria-busy", "true");
-  const requestSessionGeneration = ++sessionGeneration;
+  ++sessionGeneration;
+  replaceCurrentSession(null);
+  if (requestAccessMode) renderAuthenticationReload();
+  else renderLogin();
+  const logoutStateGeneration = sessionGeneration;
   try {
-    const requestAuthenticationVersion = readAuthenticationVersion();
-    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion);
+    let requestAuthenticationVersion;
+    if (requestAccessMode) {
+      // Accessのフェンスと通知はlock待機より先に行う。兄弟タブが保護shellを表示し続けないようにし、
+      // lock取得後の再照合・成功・結果不明の通知まで、このlogout固有のversionを保持する。
+      try {
+        requestAuthenticationVersion = advanceAuthenticationVersion();
+      } catch (error) {
+        // versionを保存できない場合も、versionなしの通知を送って兄弟タブを安全側へ倒す。
+        announceAuthenticationChange("reauthentication-required");
+        throw error;
+      }
+      announceAuthenticationChange("reauthentication-required");
+    } else {
+      requestAuthenticationVersion = readAuthenticationVersion();
+    }
+    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion, requestAccessMode);
     if (!logoutSent) {
       renderAuthenticationReload();
-      await loadSession();
+      await loadSession({ requestAccessMode });
       return;
     }
-    if (requestSessionGeneration !== sessionGeneration) return;
-    replaceCurrentSession(null);
-    renderLogin();
+    if (logoutSent.redirectUrl) {
+      window.location.assign(logoutSent.redirectUrl);
+      return;
+    }
+    if (logoutStateGeneration !== sessionGeneration) return;
+    if (requestAccessMode) renderAccessLogoutComplete();
+    else renderLogin();
   } catch (error) {
-    if (requestSessionGeneration !== sessionGeneration) return;
+    if (logoutStateGeneration !== sessionGeneration) return;
+    if (isAccessReauthenticationError(error)) {
+      renderAccessReauthentication();
+      return;
+    }
+    if (requestAccessMode) {
+      const message = error.code === "NETWORK_ERROR"
+        ? "サーバーに接続できず、ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。"
+        : error.message || "サーバーの応答を確認できず、ログアウトを完了できませんでした。時間をおいて、もう一度お試しください。";
+      renderAccessLogoutFailure(message);
+      return;
+    }
     if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
-      setBox("shell-message", error.message, "error");
+      renderLogin(error.message);
       return;
     }
     if (error.code !== "LOGOUT_REVOKE_FAILED") {
       const message = error.code === "NETWORK_ERROR"
         ? "サーバーに接続できず、ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。"
         : "サーバーの応答を確認できず、ログアウトを完了できませんでした。時間をおいて、もう一度お試しください。";
-      setBox("shell-message", message, "error");
+      renderLogin(message);
       return;
     }
-    replaceCurrentSession(null);
     renderLogin(error.message);
   } finally {
     const activeButton = document.getElementById("logout-button");

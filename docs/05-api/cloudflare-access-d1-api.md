@@ -31,6 +31,12 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 - `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、`/health/config` 等の明示allowlistしたmachine専用routeだけに許可する。session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
 - machine専用routeは業務データを返さず、状態変更を行わず、許可routeを列挙してdefault denyにする。
 
+### ブラウザのAccess認証遷移
+
+- Access保護中のブラウザAPIが終端401（`ACCESS_JWT_REQUIRED`、`ACCESS_JWT_INVALID`、またはAccess応答を同じ401へ正規化したもの）を返した場合、ブラウザは共有認証versionを更新し、`authentication-changed` 通知を兄弟タブへ一度だけ送る。通知には終端Access失効を示すreasonを含める。
+- 通知を受けたタブは、通知versionと現在versionを比較できる場合は一致した通知だけを採用し、保護中のメモリUI、進行中要求の採用、遅着応答を無効化する。不一致の遅い通知は無視し、versionを比較できない場合は安全側で同じ破棄を行う。versionなしの終端通知でも受信側の保存領域から現versionを取得できればそれを終端の基準として保持し、取得できない間はversion付き通常通知も採用しない。終端Access通知ではアプリ独自password formへ戻らずAccess再認証画面を表示する。version読取・保存に失敗しても元のAccess401と通知処理を別の失敗へ置き換えず、403権限拒否と503一時障害は終端認証失効へ混同しない。
+- logoutは`currentSession`を消去する前に、その要求の認証方式を確定して保持し、Access要求では終端401をAccess再認証、503・通信失敗・lock失敗・失効確認不明を再試行可能な状態として分類する。成功応答を受けるまでlogout完了とは表示せず、Access要求でpassword formを表示しない。Access logoutの開始時、成功時、結果不明時は同じ認証versionの`authentication-changed`通知を`reauthentication-required` reasonで送信し、兄弟タブは保護UIと進行中応答を破棄したまま`/api/session`を再取得せず再認証画面に留める。後着した同versionの通常通知はこの保護状態を解除しない。legacy logout/loginの通常通知は従来どおり再調整する。
+
 ## External provider callback
 
 `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Access Bypassは到達だけを許可し、認証・認可の代替にしない。
@@ -56,6 +62,8 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。
 
+Access modeのsession応答は `manuals.status: "migration"` を含む。M4完了まではUIの手順書入口を無効化し、移行中の状態を表示する。
+
 - Access JWTなし・不正・期限切れ: 401
 - Access認証済みだが未招待または未登録: 403
 - service-token actor、空の `sub`、`common_name` を持つtoken: 人間向け業務APIでは403
@@ -64,7 +72,11 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 - 上流鍵取得またはD1障害: 503
 - 内部JWT、subject、email、binding情報をエラーへ含めない
 
+ブラウザの保護API呼出しには`X-Requested-With: XMLHttpRequest`を付ける。Cloudflare AccessのAJAX session-management仕様では、期限切れsubrequestは401として扱い、画面の再入場または期限切れ案内へ遷移する。Access modeで認証済みだった画面が401（JSON／非JSON）を受けた場合、ブラウザは旧workspace・手順書・進行中応答を破棄し、保護対象アプリの`/`へ再入場する「ログインし直す」導線を表示する。固定のAccess内部endpointをアプリ契約へ埋め込まない。M3のAccess mode判定はsessionの`manuals.status`または`members.status`が`migration`であることに依存し、M4でsession契約を更新する際に再評価する。legacy session modeの非JSON 401はAccess再認証へ正規化しない。仕様根拠: [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)。
+
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
+
+Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明では同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
 
 ## Workspace API
 
@@ -80,6 +92,8 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 | `PATCH /api/workspaces/{id}/members/{userId}` | owner/admin。owner変更は禁止 |
 
 WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないworkspace、別workspace、停止memberは存在を推測できない応答へ統一する。
+
+`POST /api/workspaces`のD1 atomic batchは、最初の`INSERT SELECT`でactive identityを再確認する。Access認証後、batch開始前に主体がdisabledへ変わり、このidentity fenceが0行になった場合は`403 ACCESS_ACTOR_FORBIDDEN`へ写像する。その他の業務上の403（通常の`forbidden`）は`403 ACCESS_FORBIDDEN`のままとし、ブラウザは認証主体失効として保護shell全体を終端化しない。
 
 `GET /api/session`と`GET /api/workspaces`の所属workspace一覧は最大1000件までを完全な一覧として返し、1001件目を検出した場合は `409 WORKSPACES_LIMIT_EXCEEDED` とする。D1 repositoryでsentinel行を取得して超過を検出し、先頭1000件だけの成功応答へ切り詰めない。
 
@@ -125,3 +139,11 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 ## Migration gate
 
 Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。M3でPhase 1をAccess/D1へ切り替えた後、Phase 2 manualのD1切替が完了するM4までは全manual read/mutation routeとUI入口をfail closedで一時停止する。APIは安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返し、Supabase Auth/PostgREST/RPC呼出し、自動再送、queued write、fallback、二重認証、二重書込みを行わない。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
+
+Capture/mobile-preview routeはmanual migrationとは別契約で、Access modeでも `503 BROWSER_EGRESS_NOT_VERIFIED` を返す。検証済みegressが有効になるまでSupabase fallbackやBrowser Run通信を行わない。
+
+### M3 review boundary update (2026-09-08)
+
+- Access modeの`POST /api/auth/logout`はAccess JWTの検証だけで完了し、D1のapplication identity解決には依存しない。
+- Access modeの`GET /api/session`は`members.status: "migration"`も返し、メンバー管理UIをmember APIの移行完了まで無効化する。
+- capture/mobile-previewはAccess modeでも、Access JWT、D1 application identity、same-origin、workspace roleの認可確認を先に行う。認証済みowner/admin/editorに限り`503 BROWSER_EGRESS_NOT_VERIFIED`を返し、未認証・権限外の要求は認証・認可エラーを返す。legacy sessionへfallbackしない。

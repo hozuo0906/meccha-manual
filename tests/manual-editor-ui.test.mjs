@@ -36,6 +36,13 @@ test("manual navigation and editor states are embedded in the app shell", async 
   }
 });
 
+test("Access migration中は手順書入口を無効化し状態を表示する", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /manualMigrationInProgress/);
+  assert.match(source, /手順書機能は移行中のため、現在利用できません。/);
+  assert.match(source, /aria-disabled="true"><span>手順書<\/span><span class="nav-status">移行中<\/span>/);
+});
+
 test("manual UI does not persist manual content or input values in browser storage", async () => {
   const source = await readFile(appPath, "utf8");
   assert.doesNotMatch(source, /localStorage\.(?:setItem|getItem)\([^\n]*(?:manual|step|instruction|targetText)/i);
@@ -134,4 +141,14 @@ test("Phase 2 browser config runs only the manual editor flow", async () => {
   assert.match(spec, /権限失効時は編集UIを閉じて最新権限を再取得する/);
   assert.match(spec, /編集権限がありません。/);
   assert.match(spec, /横スクロールせずキーボードで移動できる/);
+});
+test("Access migration中はmember APIがfencedされるためmember UIも無効化する", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /memberMigrationInProgress/);
+  assert.match(source, /メンバー管理は移行中のため、現在は利用できません。/);
+});
+test("Access member migration中はjoin-code発行UIも無効化する", async () => {
+  const source = await readFile(appPath, "utf8");
+  assert.match(source, /memberMigration[\s\S]{0,1000}renderWorkspaceJoinCodeIssuer/);
+  assert.match(source, /参加コードの発行はメンバー管理の移行が完了するまで利用できません。/);
 });

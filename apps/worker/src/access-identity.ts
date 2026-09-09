@@ -61,6 +61,8 @@ export interface AccessAuthenticator {
   authenticate(request: Request, repository: ApplicationIdentityRepository): Promise<ApplicationAuthContext>;
 }
 
+const authenticatorCache = new Map<string, { fetch: typeof globalThis.fetch; authenticator: AccessAuthenticator }>();
+
 export class AccessIdentityError extends Error {
   readonly status: 401 | 403 | 503;
   readonly code: "ACCESS_JWT_REQUIRED" | "ACCESS_JWT_INVALID" | "ACCESS_CONFIG_UNAVAILABLE" | "ACCESS_JWKS_UNAVAILABLE" | "ACCESS_IDENTITY_UNAVAILABLE" | "ACCESS_ACTOR_FORBIDDEN";
@@ -219,8 +221,19 @@ export function createAccessAuthenticator(env: AccessBindings): AccessAuthentica
   };
 }
 
+function cachedAccessAuthenticator(env: AccessBindings): AccessAuthenticator {
+  const config = configOrThrow(env);
+  const cacheKey = JSON.stringify([config.issuer, config.audience, config.jwksUrl]);
+  const cached = authenticatorCache.get(cacheKey);
+  if (cached?.fetch === globalThis.fetch) return cached.authenticator;
+
+  const authenticator = createAccessAuthenticator(env);
+  authenticatorCache.set(cacheKey, { fetch: globalThis.fetch, authenticator });
+  return authenticator;
+}
+
 export async function verifyAccessJwt(request: Request, env: AccessBindings): Promise<AccessActor> {
-  return createAccessAuthenticator(env).verify(request);
+  return cachedAccessAuthenticator(env).verify(request);
 }
 
 export async function authenticateApplicationRequest(
@@ -228,7 +241,7 @@ export async function authenticateApplicationRequest(
   env: AccessBindings,
   repository: ApplicationIdentityRepository
 ): Promise<ApplicationAuthContext> {
-  return createAccessAuthenticator(env).authenticate(request, repository);
+  return cachedAccessAuthenticator(env).authenticate(request, repository);
 }
 
 export function isMachineRouteAllowed(actor: AccessActor, request: Request): boolean {

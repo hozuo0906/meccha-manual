@@ -5,11 +5,12 @@ import vm from "node:vm";
 
 import { APP_JS } from "../apps/worker/src/app-assets.ts";
 
-function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sessionStorageSetThrows = false, confirmResult = true, nowMs = Date.now() } = {}) {
+function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sessionStorageSetThrows = false, localStorageSetThrows = false, confirmResult = true, nowMs = Date.now() } = {}) {
   const storage = new Map();
   const sessionStorageValues = new Map();
   const lockCalls = [];
   const broadcastMessages = [];
+  const locationAssignments = [];
   const confirmationMessages = [];
   let broadcastChannelInstance = null;
   const elements = new Map();
@@ -120,6 +121,13 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
         return element(id);
       }
     },
+    window: {
+      location: {
+        assign(url) {
+          locationAssignments.push(url);
+        }
+      }
+    },
     fetch: (...args) => (fetch ?? (async () => Response.json({})))(...args, { insideLock, storage }),
     confirm(message) {
       confirmationMessages.push(message);
@@ -130,6 +138,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
         return storage.get(key) ?? null;
       },
       setItem(key, value) {
+        if (localStorageSetThrows) throw new Error("localStorage unavailable");
         storage.set(key, String(value));
       }
     },
@@ -176,6 +185,8 @@ globalThis.__appAuthTest = {
   validateWorkspaceForm,
   updateWorkspaceFieldErrors,
   isTerminalSessionError,
+  isTerminalAccessAuthorizationError,
+  isAccessReauthenticationError,
   readAuthenticationVersion,
   loadSession,
   logout,
@@ -203,7 +214,11 @@ globalThis.__appAuthTest = {
     focusedId: () => focusedId,
     broadcastMessages,
     confirmationMessages,
+    locationAssignments,
     lockCalls,
+    holdAuthenticationLock(operation) {
+      return context.navigator?.locks?.request("meccha-manual-authentication", { mode: "exclusive" }, operation);
+    },
     storage,
     sessionStorageValues,
     sessionStorage: context.sessionStorage,
@@ -363,6 +378,7 @@ test("refreshが終端的に失敗したら認証世代を更新して他タブ�
     assert.equal(broadcastMessages.length, 1, terminalCode);
     assert.equal(broadcastMessages[0].channel, "meccha-manual-authentication", terminalCode);
     assert.equal(broadcastMessages[0].message.type, "authentication-changed", terminalCode);
+    assert.equal(broadcastMessages[0].message.reason, undefined, terminalCode);
   }
 });
 
@@ -473,11 +489,21 @@ test("初回要求中に認証世代が変わった状態変更はrefreshも再�
   assert.deepEqual(calls, ["/api/workspaces"]);
 });
 
-test("既知のセッション401だけを再ログイン状態として扱う", () => {
+test("既知のセッションまたはAccess JWT 401だけを再ログイン状態として扱う", () => {
   const { api } = createHarness();
 
   assert.equal(api.isTerminalSessionError({ status: 401, code: "SESSION_EXPIRED" }), true);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "SESSION_INVALID" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 401, code: "ACCESS_JWT_REQUIRED" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 401, code: "ACCESS_JWT_INVALID" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 403, code: "ACCESS_ACTOR_FORBIDDEN" }), false);
+  assert.equal(api.isTerminalSessionError({ status: 503, code: "ACCESS_IDENTITY_UNAVAILABLE" }), false);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 403, code: "ACCESS_ACTOR_FORBIDDEN" }), true);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 403, code: "WORKSPACES_ACCESS_DENIED" }), false);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 503, code: "ACCESS_IDENTITY_UNAVAILABLE" }), false);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "ACCESS_JWT_REQUIRED" }), true);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "ACCESS_JWT_INVALID" }), true);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "SESSION_EXPIRED" }), false);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "INVALID_RESPONSE" }), false);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "UNKNOWN_PROXY_ERROR" }), false);
   assert.equal(api.isTerminalSessionError({ status: 502, code: "SESSION_EXPIRED" }), false);
@@ -727,11 +753,10 @@ test("ログアウト通信失敗ではshellを維持して再試行を案内す
 
   await api.logout();
 
-  assert.match(app.innerHTML, /class="shell"/);
-  assert.equal(api.getCurrentSession().user.id, "user-1");
-  assert.match(element("shell-message").textContent, /ログアウトを完了できませんでした/);
-  assert.equal(element("shell-message").role, "alert");
-  assert.equal(element("shell-message")["aria-live"], "assertive");
+  assert.match(app.innerHTML, /class="login-screen"/);
+  assert.equal(api.getCurrentSession(), null);
+  assert.match(app.innerHTML, /ログアウトを完了できませんでした/);
+  assert.match(app.innerHTML, /id="login-message" class="error-box show" role="alert" aria-live="assertive"/);
 });
 
 test("ログアウト成功で保護sessionを消去してログイン表示へ戻る", async () => {
@@ -748,9 +773,328 @@ test("ログアウト成功で保護sessionを消去してログイン表示へ�
   assert.match(app.innerHTML, /class="login-screen"/);
 });
 
+test("Access logoutの401は旧password画面へ戻らず再認証へ進める", async () => {
+  const { api, app, element } = createHarness({
+    fetch: async () => new Response("access expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  await element("logout-button").listeners.get("click")();
+
+  assert.equal(api.getCurrentSession(), null);
+  assert.match(app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(app.innerHTML, /login-form|メールアドレスとパスワード/);
+});
+
+test("Access logout成功はpassword画面ではなくAccessログイン導線を表示する", async () => {
+  const { api, app, element } = createHarness({
+    fetch: async () => Response.json({ status: "ok" })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  await element("logout-button").listeners.get("click")();
+
+  assert.match(app.innerHTML, /ログアウトしました/);
+  assert.match(app.innerHTML, /ログインし直す/);
+  assert.doesNotMatch(app.innerHTML, /login-screen|login-form|メールアドレスとパスワード/);
+});
+
+test("Access logout中の兄弟タブはsessionを再取得せず遅着成功でも保護shellを復活させない", async () => {
+  const versionKey = "meccha-manual-authentication-version";
+  const logoutStarted = deferred();
+  const logoutResponse = deferred();
+  const source = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path !== "/api/auth/logout") throw new Error(`unexpected source fetch: ${path}`);
+      logoutStarted.resolve();
+      return logoutResponse.promise;
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+  const logoutRequest = source.element("logout-button").listeners.get("click")();
+  await logoutStarted.promise;
+
+  const startMessage = source.broadcastMessages[0].message;
+  assert.equal(startMessage.reason, "reauthentication-required");
+  const delayedSession = deferred();
+  const sessionStarted = deferred();
+  let sessionCalls = 0;
+  const sibling = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path !== "/api/session") throw new Error(`unexpected sibling fetch: ${path}`);
+      sessionCalls += 1;
+      sessionStarted.resolve();
+      return delayedSession.promise;
+    }
+  });
+  sibling.storage.set(versionKey, startMessage.version);
+  sibling.api.replaceCurrentSession(session);
+  sibling.api.renderShell(session);
+  const pendingSession = sibling.api.loadSession();
+  await sessionStarted.promise;
+
+  sibling.emitBroadcast(startMessage);
+  assert.match(sibling.app.innerHTML, /再認証が必要です/);
+  assert.equal(sessionCalls, 1);
+  sibling.emitBroadcast({ type: "authentication-changed", version: startMessage.version });
+  assert.equal(sessionCalls, 1);
+
+  delayedSession.resolve(Response.json(session));
+  await pendingSession;
+  assert.match(sibling.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(sibling.app.innerHTML, /機密ワークスペース|secret/);
+
+  logoutResponse.resolve(Response.json({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" }));
+  await logoutRequest;
+  assert.deepEqual(source.locationAssignments, ["/cdn-cgi/access/logout"]);
+  assert.equal(source.broadcastMessages.length, 2);
+  assert.equal(source.broadcastMessages[1].message.version, startMessage.version);
+  assert.equal(source.broadcastMessages[1].message.reason, "reauthentication-required");
+});
+
+test("Access logoutはlock待機前に同じversionの再認証要求を通知する", async () => {
+  const logoutStarted = deferred();
+  const logoutResponse = deferred();
+  const source = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path !== "/api/auth/logout") throw new Error(`unexpected source fetch: ${path}`);
+      logoutStarted.resolve();
+      return logoutResponse.promise;
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+
+  const logoutRequest = source.api.logout();
+  assert.equal(source.broadcastMessages.length, 1);
+  const startMessage = source.broadcastMessages[0].message;
+  assert.equal(startMessage.reason, "reauthentication-required");
+  assert.equal(typeof startMessage.version, "string");
+  await logoutStarted.promise;
+  assert.equal(source.broadcastMessages.length, 1);
+
+  logoutResponse.resolve(Response.json({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" }));
+  await logoutRequest;
+  assert.equal(source.broadcastMessages.length, 2);
+  assert.equal(source.broadcastMessages[1].message.version, startMessage.version);
+  assert.equal(source.broadcastMessages[1].message.reason, "reauthentication-required");
+});
+
+test("Access logoutのlock待機中も開始通知を先に送り、完了通知は同じversionを維持する", async () => {
+  const logoutResponse = deferred();
+  const source = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      if (path === "/api/auth/logout") {
+        return logoutResponse.promise;
+      }
+      throw new Error(`unexpected source fetch: ${path}`);
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+
+  const lockRelease = deferred();
+  const heldLock = source.holdAuthenticationLock(() => lockRelease.promise);
+  await waitForCondition(() => source.lockCalls.length === 1, "先行lockを取得できませんでした");
+  const logoutRequest = source.api.logout();
+
+  assert.equal(source.broadcastMessages.length, 1);
+  const startMessage = source.broadcastMessages[0].message;
+  assert.equal(startMessage.reason, "reauthentication-required");
+  assert.equal(source.lockCalls.length, 2);
+
+  logoutResponse.resolve(Response.json({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" }));
+  lockRelease.resolve();
+  await heldLock;
+  await logoutRequest;
+
+  assert.equal(source.broadcastMessages.length, 2);
+  assert.equal(source.broadcastMessages[1].message.version, startMessage.version);
+});
+
+test("Access logout待機中に新version loginが先行したら古いlogoutを送らずAccess sessionを再取得する", async () => {
+  let lockCount = 0;
+  const calls = [];
+  const source = createHarness({
+    enableBroadcast: true,
+    beforeLock(storage) {
+      lockCount += 1;
+      if (lockCount === 2) storage.set("meccha-manual-authentication-version", "new-login");
+    },
+    fetch: async (path) => {
+      calls.push(path);
+      if (path === "/api/session") {
+        return Response.json({
+          user: { id: "new-user", email: "new@example.invalid" },
+          workspaces: [],
+          manuals: { status: "migration" },
+          members: { status: "migration" }
+        });
+      }
+      throw new Error("先行login後に古いlogoutを送ってはいけません");
+    }
+  });
+  const session = {
+    user: { id: "old-user", email: "old@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+
+  const lockRelease = deferred();
+  const heldLock = source.holdAuthenticationLock(() => lockRelease.promise);
+  await waitForCondition(() => lockCount === 1, "先行lockを取得できませんでした");
+  const logoutRequest = source.api.logout();
+  assert.equal(source.broadcastMessages.length, 1);
+  lockRelease.resolve();
+  await heldLock;
+  await logoutRequest;
+
+  assert.deepEqual(calls, ["/api/session"]);
+  assert.equal(source.api.getCurrentSession().user.id, "new-user");
+  assert.match(source.app.innerHTML, /new@example\.invalid/);
+});
+
+test("lock APIなしでもAccess logoutの開始通知はlock待機前に送る", async () => {
+  const source = createHarness({
+    enableBroadcast: true,
+    disableLocks: true,
+    fetch: async () => Response.json({ status: "ok" })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+
+  await source.api.logout();
+
+  assert.equal(source.broadcastMessages.length, 1);
+  assert.equal(source.broadcastMessages[0].message.reason, "reauthentication-required");
+  assert.match(source.app.innerHTML, /安全に続行できません|ログアウトを完了できませんでした/);
+});
+
+test("Access logoutのversion保存に失敗してもversionなしの再認証通知を送る", async () => {
+  const source = createHarness({
+    enableBroadcast: true,
+    localStorageSetThrows: true,
+    fetch: async () => Response.json({ status: "ok" })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  source.api.replaceCurrentSession(session);
+  source.api.renderShell(session);
+
+  await source.api.logout();
+
+  assert.equal(source.broadcastMessages.length, 1);
+  assert.equal(source.broadcastMessages[0].message.reason, "reauthentication-required");
+  assert.equal(source.broadcastMessages[0].message.version, undefined);
+});
+
+test("Access logoutの401・503・通信失敗でも兄弟タブ保護通知を同じversionで維持する", async () => {
+  for (const [label, response] of [
+    ["401", Response.json({ code: "ACCESS_JWT_INVALID", message: "認証状態を確認できませんでした。" }, { status: 401 })],
+    ["503", Response.json({ code: "ACCESS_IDENTITY_UNAVAILABLE", message: "認証サービスを利用できません。" }, { status: 503 })],
+    ["network", new Error("offline")]
+  ]) {
+    const source = createHarness({
+      enableBroadcast: true,
+      fetch: async () => {
+        if (response instanceof Error) throw response;
+        return response;
+      }
+    });
+    const session = {
+      user: { id: "user-1", email: "user@example.invalid" },
+      workspaces: [],
+      manuals: { status: "migration" },
+      members: { status: "migration" }
+    };
+    source.api.replaceCurrentSession(session);
+    source.api.renderShell(session);
+
+    await source.api.logout();
+
+    assert.equal(source.broadcastMessages.length, 2, label);
+    assert.equal(source.broadcastMessages[0].message.reason, "reauthentication-required", label);
+    assert.equal(source.broadcastMessages[1].message.reason, "reauthentication-required", label);
+    assert.equal(source.broadcastMessages[1].message.version, source.broadcastMessages[0].message.version, label);
+  }
+});
+
+test("Access logoutの一時失敗はpassword画面を出さず再試行可能な障害画面に分類する", async () => {
+  const { api, app, element } = createHarness({
+    fetch: async () => Response.json({ code: "ACCESS_IDENTITY_UNAVAILABLE", message: "認証サービスを利用できません。" }, { status: 503 })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  await element("logout-button").listeners.get("click")();
+
+  assert.match(app.innerHTML, /ログアウトを完了できませんでした/);
+  assert.match(app.innerHTML, /id="retry-button"/);
+  assert.doesNotMatch(app.innerHTML, /login-form|メールアドレスとパスワード/);
+});
+
 test("ログアウト処理中状態を表示し完了後に解除する", async () => {
   const logoutPending = deferred();
-  const { api, element } = createHarness({
+  const { api, app, element } = createHarness({
     fetch: async () => {
       await logoutPending.promise;
       return Response.json({ status: "ok" });
@@ -765,6 +1109,8 @@ test("ログアウト処理中状態を表示し完了後に解除する", async
   assert.equal(button.disabled, true);
   assert.equal(button.textContent, "ログアウト中");
   assert.equal(button["aria-busy"], "true");
+  assert.equal(api.getCurrentSession(), null);
+  assert.match(app.innerHTML, /class="login-screen"/);
   logoutPending.resolve();
   await logoutRequest;
   assert.equal(button.disabled, false);
@@ -1127,6 +1473,385 @@ test("一覧更新失敗では表示済み一覧・選択・入力内容を保�
   assert.equal(form.elements.slug.value, "draft-slug");
 });
 
+test("legacy session modeの非JSON 401はAccess再認証へ正規化しない", async () => {
+  const { api } = createHarness({
+    fetch: async () => new Response("expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+
+  await assert.rejects(
+    api.requestJson("/api/session", {}, false),
+    (error) => error.code === "INVALID_RESPONSE" && error.status === 401
+  );
+});
+
+test("Access modeのAJAX非JSON 401は再認証導線へ正規化する", async () => {
+  let requestedWith = "";
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      requestedWith = options.headers?.["X-Requested-With"] || "";
+      return new Response("access expired", {
+        status: 401,
+        headers: { "content-type": "text/html; charset=utf-8" }
+      });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(requestedWith, "XMLHttpRequest");
+  assert.match(harness.app.innerHTML, /再認証が必要です|ログインし直す/);
+  assert.doesNotMatch(harness.app.innerHTML, /login-form|Access workspace/);
+});
+
+test("Access modeのJSON 401 codeなしも旧シェルを残さず再認証へ進める", async () => {
+  const harness = createHarness({
+    fetch: async () => Response.json({ message: "unauthorized" }, { status: 401 })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(harness.app.innerHTML, /Access workspace|login-form/);
+});
+
+test("Access終端401は認証世代を更新して兄弟タブへ一度だけ通知する", async () => {
+  const versionKey = "meccha-manual-authentication-version";
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async () => new Response("access expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.storage.set(versionKey, "before-access-expiry");
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.notEqual(harness.storage.get(versionKey), "before-access-expiry");
+  assert.equal(harness.broadcastMessages.length, 1);
+  assert.equal(harness.broadcastMessages[0].message.type, "authentication-changed");
+  assert.equal(harness.broadcastMessages[0].message.reason, "reauthentication-required");
+  assert.equal(harness.broadcastMessages[0].message.version, harness.storage.get(versionKey));
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+});
+
+test("Access終端401の兄弟タブ再取得は同じ認証世代を再通知しない", async () => {
+  const versionKey = "meccha-manual-authentication-version";
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async () => new Response("access expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.storage.set(versionKey, "sibling-expired");
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  harness.emitBroadcast({
+    type: "authentication-changed",
+    version: "sibling-expired",
+    reason: "reauthentication-required"
+  });
+  await waitForCondition(() => /再認証が必要です/.test(harness.app.innerHTML), "兄弟タブの再認証画面へ遷移する");
+
+  assert.equal(harness.broadcastMessages.length, 0);
+  assert.equal(harness.storage.get(versionKey), "sibling-expired");
+});
+
+test("Access終端通知後の兄弟タブ遅着成功は保護shellを復活させない", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const delayedMembers = deferred();
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => path.includes("/members")
+      ? delayedMembers.promise
+      : Response.json({ user: { id: "user-1" }, workspaces: [] })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: workspaceId, name: "機密ワークスペース", slug: "secret", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.storage.set("meccha-manual-authentication-version", "sibling-expired");
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const membersRequest = harness.api.loadWorkspaceMembers(workspaceId);
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loading", "メンバー取得が開始されませんでした");
+
+  harness.emitBroadcast({
+    type: "authentication-changed",
+    version: "sibling-expired",
+    reason: "reauthentication-required"
+  });
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  delayedMembers.resolve(Response.json({
+    workspaceId,
+    currentUserRole: "owner",
+    members: [{ userId: "user-1", displayName: "機密メンバー", role: "owner", status: "active", joinedAt: "2026-09-10T00:00:00Z" }]
+  }));
+  await membersRequest;
+
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(harness.app.innerHTML, /機密メンバー|機密ワークスペース|secret/);
+});
+
+test("localStorage失敗時も元のAccess401を維持し現在タブを再認証へ送る", async () => {
+  const harness = createHarness({
+    enableBroadcast: true,
+    localStorageSetThrows: true,
+    fetch: async () => new Response("access expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  assert.equal(harness.broadcastMessages.length, 1);
+  assert.equal(harness.broadcastMessages[0].message.reason, "reauthentication-required");
+});
+
+test("versionなしのAccess logout通知後は通常通知と遅着sessionで保護shellを復活させず、新version loginは受け入れる", async () => {
+  const calls = [];
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      calls.push(path);
+      return Response.json({ user: { id: "new-user", email: "new@example.invalid" }, workspaces: [] });
+    }
+  });
+  const session = {
+    user: { id: "old-user", email: "old@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  harness.emitBroadcast({ type: "authentication-changed", reason: "reauthentication-required" });
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  harness.emitBroadcast({ type: "authentication-changed" });
+  assert.equal(calls.length, 0);
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(harness.app.innerHTML, /機密ワークスペース|secret/);
+
+  harness.storage.set("meccha-manual-authentication-version", "new-login");
+  harness.emitBroadcast({ type: "authentication-changed", version: "new-login" });
+  await waitForCondition(() => calls.length === 1, "新version loginのsession再取得が開始されませんでした");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(harness.app.innerHTML, /new@example\.invalid/);
+});
+
+test("versionless Access terminal notification blocks a stale versioned ordinary notification", async () => {
+  const calls = [];
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      calls.push(path);
+      return Response.json({ user: { id: "old-user", email: "old@example.invalid" }, workspaces: [] });
+    }
+  });
+  harness.storage.set("meccha-manual-authentication-version", "old-version");
+  const session = { user: { id: "old-user", email: "old@example.invalid" }, workspaces: [] };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  harness.emitBroadcast({ type: "authentication-changed", reason: "reauthentication-required" });
+  harness.emitBroadcast({ type: "authentication-changed", version: "old-version" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(calls.length, 0);
+  assert.match(harness.app.innerHTML, /access-reauthentication/);
+});
+
+test("versionless Access terminal notification remains protective when storage is unavailable", async () => {
+  const calls = [];
+  const harness = createHarness({
+    enableBroadcast: true,
+    localStorageSetThrows: true,
+    fetch: async (path) => {
+      calls.push(path);
+      return Response.json({ user: { id: "old-user", email: "old@example.invalid" }, workspaces: [] });
+    }
+  });
+  const session = { user: { id: "old-user", email: "old@example.invalid" }, workspaces: [] };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  harness.emitBroadcast({ type: "authentication-changed", reason: "reauthentication-required" });
+  harness.emitBroadcast({ type: "authentication-changed", version: "old-version" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(calls.length, 0);
+  assert.match(harness.app.innerHTML, /access-reauthentication/);
+});
+
+test("古い認証versionの通知は新しいlogin状態を壊さない", () => {
+  const calls = [];
+  const harness = createHarness({
+    enableBroadcast: true,
+    fetch: async (path) => {
+      calls.push(path);
+      return Response.json({ user: { id: "new-user" }, workspaces: [] });
+    }
+  });
+  harness.storage.set("meccha-manual-authentication-version", "new-login");
+  const session = { user: { id: "new-user", email: "new@example.invalid" }, workspaces: [] };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  harness.emitBroadcast({ type: "authentication-changed", version: "old-logout" });
+
+  assert.equal(calls.length, 0);
+  assert.match(harness.app.innerHTML, /new@example\.invalid/);
+});
+
+test("Access JWT終端401の一覧更新では旧シェルを破棄し、遅着応答も復元しない", async () => {
+  for (const terminalCode of ["ACCESS_JWT_REQUIRED", "ACCESS_JWT_INVALID"]) {
+    const workspaceId = "11111111-1111-4111-8111-111111111111";
+    const delayedMembers = deferred();
+    const harness = createHarness({
+      fetch: async (path) => {
+        if (path.includes("/members")) return delayedMembers.promise;
+        if (path === "/api/session") {
+          return Response.json({ code: terminalCode, message: "認証情報を確認できませんでした。" }, { status: 401 });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      }
+    });
+    const session = {
+      user: { id: "user-1", email: "user@example.invalid" },
+      workspaces: [{ id: workspaceId, name: "機密ワークスペース", slug: "secret", status: "active" }],
+      manuals: { status: "migration" },
+      members: { status: "migration" }
+    };
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    const membersRequest = harness.api.loadWorkspaceMembers(workspaceId);
+    await waitForCondition(
+      () => harness.api.getWorkspaceMembersState()?.status === "loading",
+      `${terminalCode}:メンバー取得が開始されませんでした`
+    );
+
+    await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+    assert.equal(harness.api.getCurrentSession(), null, terminalCode);
+    assert.match(harness.app.innerHTML, /再認証が必要です/, terminalCode);
+    assert.match(harness.app.innerHTML, /href="\/"[^>]*>ログインし直す/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /login-form|メールアドレスとパスワード/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /機密ワークスペース|secret/, terminalCode);
+
+    delayedMembers.resolve(Response.json({
+      workspaceId,
+      currentUserRole: "owner",
+      members: [{ userId: "user-1", displayName: "機密メンバー", role: "owner", status: "active", joinedAt: "2026-09-09T00:00:00Z" }]
+    }));
+    await membersRequest;
+    assert.match(harness.app.innerHTML, /再認証が必要です/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /機密メンバー|機密ワークスペース/, terminalCode);
+  }
+});
+
+test("Access認証の一時503では旧シェルと入力を保持し、再試行で一覧を更新できる", async () => {
+  let sessionCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/session") throw new Error(`unexpected fetch: ${path}`);
+      sessionCalls += 1;
+      if (sessionCalls === 1) {
+        return Response.json({ code: "ACCESS_IDENTITY_UNAVAILABLE", message: "認証サービスを利用できません。" }, { status: 503 });
+      }
+      return Response.json({
+        user: { id: "user-1", email: "user@example.invalid" },
+        workspaces: [{ id: "workspace-2", name: "更新後ワークスペース", slug: "updated", status: "active" }]
+      });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "表示中ワークスペース", slug: "current", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const form = harness.element("workspace-form");
+  form.elements.name = { value: "入力途中の名前" };
+  form.elements.slug = { value: "draft-slug" };
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.match(harness.app.innerHTML, /表示中ワークスペース|表示中の一覧は更新前/);
+  assert.equal(form.elements.name.value, "入力途中の名前");
+  assert.equal(form.elements.slug.value, "draft-slug");
+  assert.match(harness.app.innerHTML, /一覧を更新/);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+  assert.match(harness.app.innerHTML, /更新後ワークスペース/);
+});
+
+test("Access actor拒否403は再認証や一時保持へ混同せず旧シェルを破棄する", async () => {
+  const harness = createHarness({
+    fetch: async () => Response.json({ code: "ACCESS_ACTOR_FORBIDDEN", message: "この操作を行う権限がありません。" }, { status: 403 })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "停止済みワークスペース", slug: "disabled", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /ワークスペースを表示できません|もう一度読み込む/);
+  assert.doesNotMatch(harness.app.innerHTML, /停止済みワークスペース|disabled|class="login-screen"/);
+});
+
 test("共通一覧更新が403なら確認済み権限・メンバー・管理UIを破棄する", async () => {
   const workspaceId = "11111111-1111-4111-8111-111111111111";
   const owner = { userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "管理責任者", role: "owner", status: "active", joinedAt: "2026-08-10T00:00:00Z" };
@@ -1227,6 +1952,58 @@ test("workspace作成結果不明は再作成させず一覧確認を案内す�
   assert.match(app.innerHTML, /一覧で結果を確認してください/);
   await api.createWorkspace({ preventDefault() {}, currentTarget: form });
   assert.equal(postCalls, 1);
+});
+
+test("workspace作成のAccess主体拒否403は旧sessionと保護shellを破棄する", async () => {
+  let postCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/workspaces") throw new Error(`unexpected fetch: ${path}`);
+      postCalls += 1;
+      return Response.json({ code: "ACCESS_ACTOR_FORBIDDEN", message: "この操作を行う権限がありません。" }, { status: 403 });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const form = harness.element("workspace-form");
+  form.elements.name = { value: "営業部" };
+  form.elements.slug = { value: "sales-team" };
+
+  await harness.api.createWorkspace({ preventDefault() {}, currentTarget: form });
+
+  assert.equal(postCalls, 1);
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /ワークスペースを表示できません|管理者に確認/);
+  assert.doesNotMatch(harness.app.innerHTML, /機密ワークスペース|secret|workspace-form/);
+});
+
+test("workspace作成の通常business403はAccess主体失効と混同せず旧shellで再試行できる", async () => {
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/workspaces") throw new Error(`unexpected fetch: ${path}`);
+      return Response.json({ code: "ACCESS_FORBIDDEN", message: "この操作を行う権限がありません。" }, { status: 403 });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "営業部", slug: "sales", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const form = harness.element("workspace-form");
+  form.elements.name = { value: "新しい部門" };
+  form.elements.slug = { value: "new-team" };
+
+  await harness.api.createWorkspace({ preventDefault() {}, currentTarget: form });
+
+  assert.equal(harness.api.getCurrentSession()?.user?.id, "user-1");
+  assert.equal(harness.element("workspace-message").textContent, "この操作を行う権限がありません。");
+  assert.match(harness.app.innerHTML, /id="workspace-form"/);
+  assert.match(harness.app.innerHTML, /営業部/);
 });
 
 test("workspace作成中の再submitはRPCを重複送信しない", async () => {

@@ -7,6 +7,7 @@ export interface AccessBindings {
   ACCESS_ISSUER?: string;
   ACCESS_AUDIENCE?: string;
   ACCESS_JWKS_URL?: string;
+  ACCESS_HEALTH_SERVICE_TOKEN_NAMES?: string;
 }
 
 export interface AccessConfig {
@@ -56,6 +57,15 @@ export function inspectAccessConfig(env: AccessBindings): AccessConfigInspection
   const config = issuer && jwksUrl && hasAudience ? { issuer, audience, jwksUrl } : null;
 
   return { configured: config !== null, hasIssuer, hasAudience, hasJwksUrl, config };
+}
+
+export function inspectAccessHealthServiceTokenNames(env: AccessBindings): Set<string> {
+  return new Set(
+    String(env.ACCESS_HEALTH_SERVICE_TOKEN_NAMES ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
 }
 
 export interface SupabaseConfig {

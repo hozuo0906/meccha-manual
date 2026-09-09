@@ -8,6 +8,14 @@ import {
   verifySameOriginWrite,
   type ManualEnv
 } from "./manual-router.ts";
+import { AccessIdentityError, authenticateApplicationRequest } from "./access-identity.ts";
+import { inspectAccessConfig, type AccessBindings } from "./server-config.ts";
+import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
+import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
+import { D1WorkspaceRepository } from "./infra/d1/workspace-repository.ts";
+import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
+
+type CaptureEnv = ManualEnv & AccessBindings & { DB?: D1DatabaseLike };
 
 const CAPTURE_ROUTE = /^\/(?:api|v1)\/workspaces\/([^/]+)\/(capture-sessions|mobile-preview-sessions)(?:\/([^/]+)\/(live-url|commands))?$/;
 
@@ -24,7 +32,47 @@ async function assertCaptureEditor(request: Request, env: ManualEnv, workspaceId
   if (!canEdit) throw new ManualError(403, "CAPTURE_FORBIDDEN", "操作を記録する権限がありません。管理者に確認してください。");
 }
 
-export async function handleCaptureRoute(request: Request, env: ManualEnv): Promise<Response | null> {
+function accessModeEnabled(env: CaptureEnv): boolean {
+  const access = inspectAccessConfig(env);
+  return access.hasIssuer || access.hasAudience || access.hasJwksUrl;
+}
+
+async function assertAccessCaptureEditor(request: Request, env: CaptureEnv, workspaceId: string): Promise<void> {
+  let auth;
+  try {
+    const identityRepository = env.DB
+      ? new D1IdentityRepository(env.DB)
+      : {
+          async findByIssuerAndSubject() {
+            throw new D1RepositoryError("unavailable");
+          }
+        };
+    auth = await authenticateApplicationRequest(request, env, identityRepository);
+  } catch (error) {
+    if (error instanceof AccessIdentityError) {
+      throw new ManualError(error.status, error.code, error.message);
+    }
+    throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+  }
+  if (!env.DB) throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+  if (auth.kind !== "application_user") {
+    throw new ManualError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  try {
+    const role = await new D1WorkspaceRepository(env.DB).getMemberRole(auth.identity.applicationId, workspaceId);
+    if (!role || !["owner", "admin", "editor"].includes(role)) {
+      throw new ManualError(403, "CAPTURE_FORBIDDEN", "操作を記録する権限がありません。");
+    }
+  } catch (error) {
+    if (error instanceof ManualError) throw error;
+    if (error instanceof D1RepositoryError) {
+      throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+    }
+    throw new ManualError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
+  }
+}
+
+export async function handleCaptureRoute(request: Request, env: CaptureEnv): Promise<Response | null> {
   const url = new URL(request.url);
   const match = CAPTURE_ROUTE.exec(url.pathname);
   if (!match) return null;
@@ -35,7 +83,11 @@ export async function handleCaptureRoute(request: Request, env: ManualEnv): Prom
     const workspaceId = canonicalUuidSegment(match[1] ?? "");
     if (!workspaceId) throw new ManualError(404, "CAPTURE_NOT_FOUND", "指定された操作記録領域が見つかりません。");
     if (match[3] && !canonicalUuidSegment(match[3])) throw new ManualError(404, "CAPTURE_NOT_FOUND", "指定された操作記録が見つかりません。");
-    await assertCaptureEditor(request, env, workspaceId);
+    if (accessModeEnabled(env)) {
+      await assertAccessCaptureEditor(request, env, workspaceId);
+    } else {
+      await assertCaptureEditor(request, env, workspaceId);
+    }
 
     // OQ-006 / DEC-032: this branch intentionally has no Browser binding. A
     // future verified-egress implementation must replace this boundary only

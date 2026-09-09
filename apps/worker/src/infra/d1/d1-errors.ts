@@ -1,5 +1,6 @@
 export type D1RepositoryErrorCode =
   | "invalid_input"
+  | "actor_forbidden"
   | "forbidden"
   | "not_found"
   | "conflict"

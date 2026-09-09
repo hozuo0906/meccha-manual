@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -41,19 +40,27 @@ async function assertCriticalFailureContract(candidate) {
 }
 
 async function loadMutatedWorker(name, replacements) {
-  const directory = await mkdtemp(join(tmpdir(), `meccha-manual-${name}-`));
+  // Keep the fixture under the project so Node resolves the real jose dependency
+  // while the temporary module still gets an isolated source tree.
+  const directory = await mkdtemp(join(process.cwd(), `.worker-mutation-${name}-`));
   const indexPath = join(directory, "index.ts");
   const assetsPath = join(directory, "app-assets.ts");
   const serverConfigPath = join(directory, "server-config.ts");
+  const d1Directory = join(directory, "infra", "d1");
   let source = await readFile("apps/worker/src/index.ts", "utf8");
   for (const [before, after] of replacements) {
     assert.ok(source.includes(before), `mutation target not found: ${before}`);
     source = source.replace(before, after);
   }
+  await mkdir(d1Directory, { recursive: true });
   await Promise.all([
     writeFile(indexPath, source, "utf8"),
     writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),
-    writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8")
+    writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8"),
+    writeFile(join(directory, "access-identity.ts"), await readFile("apps/worker/src/access-identity.ts", "utf8"), "utf8"),
+    ...["d1-errors.ts", "d1-types.ts", "identity-repository.ts", "workspace-repository.ts"].map(async (file) =>
+      writeFile(join(d1Directory, file), await readFile(`apps/worker/src/infra/d1/${file}`, "utf8"), "utf8")
+    )
   ]);
   const module = await import(`${pathToFileURL(indexPath).href}?mutation=${Date.now()}-${name}`);
   return { worker: module.default, cleanup: () => rm(directory, { recursive: true, force: true }) };
