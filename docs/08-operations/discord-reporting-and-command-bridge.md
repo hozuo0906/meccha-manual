@@ -194,7 +194,7 @@ Workerに設定できる制限:
 - 共有リンク公開
 - 実ユーザーデータの閲覧
 - AI API有効化
-- PR merge
+- PR merge（Discordだけでは承認扱いにしない）
 
 GitHub PR、Cloudflare Access/D1/R2/Workers側の承認ゲートを正本にする。
 
@@ -207,7 +207,7 @@ DiscordのPR通知には、次のbuttonを付ける。
 - `マージ依頼`: `merge-requested` labelとPRコメントを残す。
 
 `マージ依頼` は実際のmerge実行ではない。
-実mergeはGitHub上で必須check、P0/P1、owner承認、危険操作有無を確認してから行う。
+実mergeはGitHub上で必須check、最新headへのCodex Review、P0/P1、未解決review thread、危険操作有無を確認してから行う。商用リリース前はAstra high親PMが対象SHAと品質ゲートを実証確認すれば、通常のmergeにユーザーの都度承認は要しない。商用リリース後はmergeごとにユーザーの事前承認を得る。初回商用公開、production反映、課金、secret変更、破壊的操作などの別承認境界は維持する。
 Discord buttonから直接mergeする方式は、監査、誤操作、権限漏れ、branch protection迂回のリスクがあるため、別ADRで安全条件が固まるまで採用しない。
 
 PR通知buttonは `scripts/discord-notify.mjs` で `DISCORD_NOTIFY_COMPONENTS=pr` を指定した場合だけ付与する。
