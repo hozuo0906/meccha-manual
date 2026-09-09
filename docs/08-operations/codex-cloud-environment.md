@@ -6,6 +6,8 @@ Status: Accepted
 
 PCの電源が切れていても、GitHub上の正本repoを使ってCodex Cloud、Codex web、GitHub Codespacesで作業できる状態にする。
 
+この利用手順は [ADR-0020 Codexクラウド作業環境](../03-architecture/adrs/ADR-0020-cloud-codex-working-environment.md) に従う。
+
 ## できること
 
 - Codex CloudまたはCodex webでGitHub repositoryを開き、クラウド側でtaskを実行する。
@@ -27,7 +29,24 @@ PCの電源が切れていても、GitHub上の正本repoを使ってCodex Cloud
 4. task本文には `docs/09-delivery/codex-cloud-task-template.md` を使う。
 5. branchは `feature/*`、`fix/*`、`review/*`、`chore/*`、`phase/*` を使う。
 6. mainへ直接pushしない。
-7. PR作成後は、GitHub Actions、サブエージェント品質loop、ユーザー承認を通す。
+7. PR作成後は、GitHub Actions、品質loop、Astra high親PMによる実SHA確認を通す。商用リリース前の通常のpush、PR作成・更新、mergeは、この確認と保護ブランチ・必須CI・review threadの条件を満たせばユーザーの都度承認を要しない。商用リリース後は操作ごとにユーザーの事前承認を得る。
+
+### task作成前の担当・モデル確認
+
+task本文へ担当や希望modelを記載するだけでは、実行設定の切替済みとは扱わない。作成前に選択し、作成後に実行設定を確認して記録する。
+
+| 項目 | 作成前の選択 | 作成後の確認 |
+| --- | --- | --- |
+| 親PM | 担当者: `<親PM>` / model: `gpt-6-astra` / reasoning: `high` | 実行設定のmodel／reasoning、確認日時（ISO 8601） |
+| 作業担当 | 担当者: `<担当>` / model: `gpt-5.6-luna` / reasoning: `high` | 実行設定のmodel／reasoning、確認日時（ISO 8601） |
+
+確認できない項目は「未確認」と記録し、プロンプトの記載だけで完了扱いにしない。
+
+### 商用リリース前後の開発操作承認
+
+- 商用リリースの実施時は、日時、リリース識別子、根拠をIssue #70へ記録して承認境界を切り替える。記録が不在または曖昧な場合は商用リリース状態を未確認とし、未リリースと決めつけた自動mergeを行わず、read-only確認と提案を先に行う。
+- 商用リリース後は外部反映ごとにユーザーの事前承認を得る。承認待ちでは可逆的な差分・テストによる具体案の準備は可とするが、外部反映前に対象SHA／差分を提示し、未push成果物だけを残して終了しない。承認待ちが必要なら明示する。終了前push必須の規則は、作業開始前に得た具体的な承認範囲がある場合に限り適用する。
+- 最初の商用公開、production反映、課金、機密情報保存、破壊的操作などの既存の別承認境界は変更しない。古い一般的な「owner承認待ち」だけを理由に、商用リリース前の通常のpush／PR／mergeを停止しない。
 
 ## GitHub Codespaces
 
