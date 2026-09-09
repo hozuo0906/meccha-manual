@@ -158,7 +158,7 @@ function renderReport(issues) {
     "- Discord由来Issueは、最初に `needs-triage` と `status/triage` を持つ。",
     "- 作業に入る前に `type/*` と `priority/P*` を確認する。",
     "- PR本文には対応Issueを `Closes #番号` で明記する。",
-    "- `approval-required` または `blocked-from-discord` があるIssueは、ユーザー承認なしに実装、merge、本番deployしない。"
+    "- `approval-required` または `blocked-from-discord` があるIssueは、Issueに記録された危険操作を必要な承認なしに開始しない。商用リリース前の通常の実装・PR・mergeは、Astra high親PMが対象SHA、依存順、必要な品質ゲートを確認した場合に限り、ユーザーの都度承認を要しない。商用リリース後の外部反映はユーザーの事前承認を要する。商用リリース状態がIssue #70で確認できない場合は未リリースと決めつけず、親PMがread-only確認と提案を先に行う。Discordボタンからの直接merge、初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作は別承認境界に従う。"
   );
 
   return `${lines.join("\n")}\n`;
