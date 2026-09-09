@@ -36,15 +36,39 @@ for (const token of ["issues:", "opened", "scripts/issue-event-triage.mjs", "iss
 }
 
 const codexWorkflow = await read(".github/workflows/codex-issue-implement.yml");
-for (const token of ["approved-for-codex", "CODEX_ACCESS_TOKEN", "npm install -g @openai/codex", "codex exec", "contents: write", "pull-requests: write"]) {
+for (const token of ["approved-for-codex", "CODEX_ACCESS_TOKEN", "npm install -g @openai/codex", "codex exec", "--model \"$CODEX_MODEL\"", "gpt-5.6-luna", "model_reasoning_effort=$CODEX_REASONING_EFFORT", "CODEX_REASONING_EFFORT=\"high\"", "CODEX_APPROVAL_POLICY=\"never\"", "Codex runtime configuration:", "contents: write", "pull-requests: write"]) {
   if (!codexWorkflow.includes(token)) errors.push(`Codex issue implement workflow must include ${token}`);
 }
+if (codexWorkflow.includes("gpt-5.6-terra")) errors.push("Codex issue implement workflow must not use gpt-5.6-terra.");
 
 const envDocs = await read("docs/08-operations/environment-variables.md");
 if (!envDocs.includes("CODEX_ACCESS_TOKEN")) errors.push("environment-variables.md must document CODEX_ACCESS_TOKEN.");
 
 const issueFlowDocs = await read("docs/08-operations/issue-to-pr-flow.md");
-if (!issueFlowDocs.includes("approved-for-codex")) errors.push("issue-to-pr-flow.md must mention approved-for-codex.");
+for (const token of ["approved-for-codex", "Astra high親PM", "商用リリース後はmergeごとにユーザーの事前承認", "Discordボタンから直接実行せず"]) {
+  if (!issueFlowDocs.includes(token)) errors.push(`issue-to-pr-flow.md must include ${token}.`);
+}
+
+const automationDocs = await read("docs/08-operations/issue-event-codex-automation.md");
+for (const token of ["--model gpt-5.6-luna", "--config model_reasoning_effort=high", "secret値やIssue本文・会話全文は証跡へ複製しない", "モデル設定の一致を確認できない実行は成功扱いにしない"]) {
+  if (!automationDocs.includes(token)) errors.push(`issue-event-codex-automation.md must include ${token}.`);
+}
+
+const intakeReport = await read("scripts/issue-intake-report.mjs");
+for (const token of ["Astra high親PM", "商用リリース後の外部反映はユーザーの事前承認", "商用リリース状態がIssue #70で確認できない場合", "親PMがread-only確認と提案を先に行う", "Discordボタンからの直接merge", "危険操作を必要な承認なしに開始しない"]) {
+  if (!intakeReport.includes(token)) errors.push(`Issue intake report must include ${token}.`);
+}
+if (intakeReport.includes("ユーザー承認なしに実装、merge、本番deployしない")) {
+  errors.push("Issue intake report must not use the superseded blanket approval wording.");
+}
+
+const workerSource = await read("apps/worker/src/index.ts");
+for (const token of ["Discordボタンから直接実行せず", "Astra high親PM", "商用リリース後はmergeごとにユーザーの事前承認", "別承認境界に従います"]) {
+  if (!workerSource.includes(token)) errors.push(`Worker merge guidance must include ${token}.`);
+}
+if (workerSource.includes("owner承認を確認してから行います") || workerSource.includes("レビュー、owner承認を確認してからmergeします")) {
+  errors.push("Worker merge guidance must not use the superseded blanket owner-approval wording.");
+}
 
 if (errors.length > 0) {
   console.error(errors.join("\n"));

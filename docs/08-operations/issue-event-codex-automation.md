@@ -13,26 +13,26 @@ Discordから作成されたIssueを15分ポーリングだけに頼らず、Git
 2. `.github/workflows/issue-event-triage.yml` が `issues.opened`、`issues.reopened`、`issues.edited` で起動する。
 3. `scripts/issue-event-triage.mjs` が初期ラベル、優先度、危険操作候補を判定する。
 4. 危険操作候補がなければ、IssueコメントとDiscord通知で受付結果を知らせる。
-5. ownerがIssueを確認し、実装してよいものだけ `approved-for-codex` を付ける。
+5. Issueを確認し、通常の実装を進めてよいものだけ `approved-for-codex` を付ける。危険操作の承認境界は別に満たす。
 6. `.github/workflows/codex-issue-implement.yml` が `issues.labeled` で起動する。
 7. `approved-for-codex` が付いたIssueだけ、`CODEX_ACCESS_TOKEN` を使って `codex exec` を実行する。
 8. 変更があれば `feature/issue-<number>-<slug>` branchへpushし、PRを作成する。
 9. Discordへ日本語で結果を通知する。
-10. ownerがPR、checks、レビュー結果を確認してmergeする。
+10. GitHub上でPR、checks、レビュー結果、危険操作の有無を確認してmergeする。商用リリース前はAstra high親PMが対象SHA・依存順・必要な品質ゲートを実証確認すれば通常のmergeにユーザーの都度承認を要しない。商用リリース後はmergeごとにユーザーの事前承認を得る。
 
 ## ラベル
 
 | ラベル | 意味 |
 |---|---|
 | `approved-for-codex` | Codex利用枠で自動実装してよい |
-| `approval-required` | 危険操作候補があり、owner承認なしに進めない |
+| `approval-required` | 危険操作候補があり、記録された承認境界を満たすまでその危険操作を開始しない |
 | `blocked-from-discord` | Discord指示だけでは実行禁止 |
 | `status/triage` | 受付、整理中 |
 | `status/in-progress` | Codexまたは人間が作業中 |
 | `status/review` | PRまたはレビュー待ち |
 | `status/blocked` | 承認、設定、外部条件待ち |
 
-`approval-required` または `blocked-from-discord` が残っているIssueは、`approved-for-codex` が付いても自動実装を停止する。
+`approval-required` または `blocked-from-discord` が残っているIssueは、`approved-for-codex` が付いても自動実装全体を停止する。これは危険操作の自動開始を防ぐ既存フィルタであり、通常操作への一律ユーザー承認を意味しない。通常作業の承認判断はDEC-067に従い、自動workflowの危険ラベル停止とは区別する。通常範囲と危険範囲が混在する場合は、親セッションで切り分けてから進める。Discordボタンからの直接merge、初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作は既存の別承認境界に従う。
 
 ## Secret
 
@@ -45,6 +45,9 @@ GitHub Actionsログ、Issueコメント、PR本文、Markdownへ値を書かな
 
 自動トリアージは通常のNode.jsスクリプトで行い、Codex利用枠を消費しない。
 Codex利用枠を消費するのは `approved-for-codex` ラベルが付いた後の `codex exec` 実行だけにする。
+GitHub Actionsの実行設定は `--model gpt-5.6-luna` と `--config model_reasoning_effort=high` を実引数で固定し、起動時にはCLI version、model、reasoning effort、sandbox、approval policyだけを証跡へ残す。secret値やIssue本文・会話全文は証跡へ複製しない。モデル設定の一致を確認できない実行は成功扱いにしない。
+
+商用リリース状態がIssue #70で確認できない場合は、未リリースと決めつけず、親PMがread-only確認と提案を先に行う。通常のmerge、初回商用公開、production反映などの判断根拠を、未確認の状態から補わない。
 
 Issue本文が曖昧、大きすぎる、危険操作を含む、または本番反映やDB migrationを要求する場合は、自動実装ではなく親セッションで整理する。
 

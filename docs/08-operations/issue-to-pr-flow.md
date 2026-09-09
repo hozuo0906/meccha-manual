@@ -74,4 +74,4 @@ Codex側の `Issue intake monitor` は15分ごとにIssueを確認する。常�
 - `issues.labeled` で `approved-for-codex` が付いた時だけ `.github/workflows/codex-issue-implement.yml` を起動する。
 - 自動実装は `CODEX_ACCESS_TOKEN` を使い、OpenAI API従量課金ではなくChatGPT/Codex側の利用枠で `codex exec` を動かす。
 - `approval-required` または `blocked-from-discord` が残るIssueは、自動実装を開始しない。
-- 自動実装はbranch作成、検査、PR作成まで。mergeはownerがGitHub上で行う。
+- 自動実装はbranch作成、検査、PR作成まで。mergeはDiscordボタンから直接実行せず、GitHub上の品質ゲートを確認して行う。商用リリース前はAstra high親PMが対象SHA・依存順・必要な品質ゲートを実証確認すれば通常のmergeにユーザーの都度承認を要しない。商用リリース後はmergeごとにユーザーの事前承認を得る。初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作などは別承認境界に従う。

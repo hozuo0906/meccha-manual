@@ -87,8 +87,24 @@ jobs:
           CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
           PROMPT_PATH: ${{ steps.prompt.outputs.prompt_path }}
         run: |
-          codex --version
-          codex exec --sandbox workspace-write --ask-for-approval never --model gpt-5.6-terra - < "$PROMPT_PATH" | tee "$RUNNER_TEMP/codex-final.md"
+          CODEX_MODEL="gpt-5.6-luna"
+          CODEX_REASONING_EFFORT="high"
+          CODEX_APPROVAL_POLICY="never"
+          CODEX_SANDBOX="workspace-write"
+          CODEX_VERSION="$(codex --version)"
+          if [ "$CODEX_MODEL" != "gpt-5.6-luna" ] || [ "$CODEX_REASONING_EFFORT" != "high" ]; then
+            echo "Codex runtime configuration does not match the required Luna/high settings." >&2
+            exit 1
+          fi
+          {
+            echo "Codex runtime configuration:"
+            echo "cli_version=$CODEX_VERSION"
+            echo "model=$CODEX_MODEL"
+            echo "reasoning_effort=$CODEX_REASONING_EFFORT"
+            echo "sandbox=$CODEX_SANDBOX"
+            echo "approval_policy=$CODEX_APPROVAL_POLICY"
+          } | tee "$RUNNER_TEMP/codex-runtime-config.txt"
+          codex exec --sandbox "$CODEX_SANDBOX" --config "approval_policy=$CODEX_APPROVAL_POLICY" --config "model_reasoning_effort=$CODEX_REASONING_EFFORT" --model "$CODEX_MODEL" - < "$PROMPT_PATH" | tee "$RUNNER_TEMP/codex-final.md"
 
       - name: Run repository checks
         if: ${{ steps.prompt.outputs.blocked != 'true' }}

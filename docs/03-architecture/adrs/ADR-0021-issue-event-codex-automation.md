@@ -15,8 +15,8 @@ Issue作成時の即時処理と、Codex自動実装を分離する。
 - トリアージは決定的なNode.jsスクリプトで行い、Codex利用枠を消費しない。
 - 自動実装は `approved-for-codex` ラベルが付いたIssueだけを対象にする。
 - 自動実装はOpenAI APIキーではなく `CODEX_ACCESS_TOKEN` を使い、ChatGPT/Codex側の利用枠を消費する。
-- `approval-required` または `blocked-from-discord` が残るIssueは、`approved-for-codex` が付いていても停止する。
-- 自動実装はbranchとPR作成までとし、mergeはownerが行う。
+- `approval-required` または `blocked-from-discord` が残るIssueは、`approved-for-codex` が付いていても自動実装全体を停止する。これは危険操作の自動開始を防ぐ既存フィルタであり、通常操作への一律ユーザー承認を意味しない。通常作業の承認判断はDEC-067に従い、自動workflowの危険ラベル停止とは区別する。通常範囲と危険範囲が混在する場合は、親セッションで切り分けてから進める。
+- 自動実装はbranchとPR作成までとし、mergeはDiscordボタンから直接実行せず、GitHub上の品質ゲート確認後に行う。商用リリース前はAstra high親PMが対象SHA・依存順・必要な品質ゲートを実証確認すれば通常のmergeにユーザーの都度承認を要せず、商用リリース後はmergeごとにユーザーの事前承認を得る（DEC-067）。初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作などの別承認境界は維持する。
 
 ## 理由
 

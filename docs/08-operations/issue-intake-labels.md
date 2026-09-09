@@ -27,7 +27,7 @@ Issue本文を毎回人間が読み続けるのではなく、labelで次の状�
 
 ## 危険操作ラベル
 
-- `approval-required`: ユーザー承認なしに進めない操作を含む。
+- `approval-required`: 危険操作候補があり、記録された承認境界を満たすまでその危険操作を開始しない。通常の実装・PR・mergeに一律のユーザー承認を要求するものではない。
 - `blocked-from-discord`: Discord指示だけでは実行禁止。
 
 対象例:
