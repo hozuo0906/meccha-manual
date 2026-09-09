@@ -46,4 +46,4 @@ Access modeでは移行前Supabase認証へfallbackせず、WorkerのAccess境�
 
 ### Access mode authorization ordering (2026-09-08)
 
-Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateより前にlegacy session、same-origin、workspace roleを確認する。認証・認可済みのowner/admin/editorだけが`503 BROWSER_EGRESS_NOT_VERIFIED`へ到達し、未認証やviewerは認証・認可エラーで終了する。
+Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateより前にAccess JWT、D1 identity、same-origin、workspace roleを確認する。Access/D1で認証・認可済みのowner/admin/editorだけが`503 BROWSER_EGRESS_NOT_VERIFIED`へ到達し、未認証やviewerは認証・認可エラーで終了する。legacy Supabase sessionへfallbackしない。

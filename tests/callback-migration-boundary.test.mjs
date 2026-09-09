@@ -218,10 +218,13 @@ test("phase2 Access migration preserves capture authorization before the Browser
       method: "POST",
       headers: { origin: "https://app.example" }
     }), {
-      ACCESS_AUDIENCE: "access-configured"
+      ACCESS_ISSUER: "https://access.example.invalid",
+      ACCESS_AUDIENCE: "access-configured",
+      ACCESS_JWKS_URL: "https://access.example.invalid/.well-known/jwks.json",
+      DB: { prepare() { throw new Error("D1 must not be reached before Access authentication"); } }
     }, { waitUntil() {} });
     assert.equal(response.status, 401);
-    assert.equal((await response.json()).code, "SESSION_REQUIRED");
+    assert.equal((await response.json()).code, "ACCESS_JWT_REQUIRED");
   }
 });
 
