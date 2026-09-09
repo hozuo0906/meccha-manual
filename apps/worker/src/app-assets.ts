@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-38062892ca591026";
+export const APP_ASSET_VERSION = "sha256-5dcd476dd0d17b90";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1042,6 +1042,7 @@ function resetManualUiState() {
 
 let pendingWorkspaceJoinCodeIssuance = null;
 let workspaceJoinCodeExpiryTimer = null;
+let terminalAuthenticationVersion = null;
 const currentWorkspaceStorageKey = "meccha-manual-current-workspace";
 const uncertainWorkspaceStorageKey = "meccha-manual-uncertain-workspace";
 const authenticationChannel = typeof BroadcastChannel === "function"
@@ -1109,8 +1110,16 @@ function clearUncertainWorkspaceCreation() {
   }
 }
 
-function announceAuthenticationChange() {
-  authenticationChannel?.postMessage({ type: "authentication-changed" });
+function announceAuthenticationChange(reason = "") {
+  if (!reason) terminalAuthenticationVersion = null;
+  const message = { type: "authentication-changed" };
+  try {
+    message.version = readAuthenticationVersion();
+  } catch {
+    // 認証世代を読めなくても、現在タブの状態破棄と兄弟タブ通知は続ける。
+  }
+  if (reason) message.reason = reason;
+  authenticationChannel?.postMessage(message);
 }
 
 function readAuthenticationVersion() {
@@ -1132,7 +1141,9 @@ function readAuthenticationVersion() {
 
 function advanceAuthenticationVersion() {
   try {
-    localStorage.setItem(authenticationVersionKey, crypto.randomUUID());
+    const version = crypto.randomUUID();
+    localStorage.setItem(authenticationVersionKey, version);
+    return version;
   } catch {
     throw new AppRequestError(
       "このブラウザでは安全にログイン状態を変更できません。最新版のChromeでお試しください。",
@@ -1142,12 +1153,26 @@ function advanceAuthenticationVersion() {
   }
 }
 
-function announceTerminalAuthenticationChange() {
+function announceTerminalAuthenticationChange(reason = "reauthentication-required") {
   try {
-    advanceAuthenticationVersion();
+    terminalAuthenticationVersion = advanceAuthenticationVersion();
+  } catch {
+    // 元の認証失敗を維持し、世代更新不能を別の例外として見せない。
+    terminalAuthenticationVersion = null;
   } finally {
-    announceAuthenticationChange();
+    announceAuthenticationChange(reason);
   }
+}
+
+function announceAccessReauthentication(expectedVersion = null) {
+  try {
+    const currentVersion = readAuthenticationVersion();
+    if (terminalAuthenticationVersion === currentVersion) return;
+    if (expectedVersion && currentVersion !== expectedVersion) return;
+  } catch {
+    // 認証世代を読めない場合も、元の401を再認証要求として扱う。
+  }
+  announceTerminalAuthenticationChange();
 }
 
 async function withAuthenticationLock(operation) {
@@ -1186,12 +1211,12 @@ function reconcileAuthenticationVersion(expectedVersion, options) {
   );
 }
 
-async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options) {
+async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options, requestAccessMode) {
   return withAuthenticationLock(async () => {
     expectedVersion = reconcileAuthenticationVersion(expectedVersion, options);
 
     try {
-      return await requestJsonOnce(path, options);
+      return await requestJsonOnce(path, options, requestAccessMode);
     } catch (error) {
       if (error.code !== "SESSION_REFRESH_REQUIRED") throw error;
     }
@@ -1200,20 +1225,23 @@ async function retryAfterRefreshWithAuthenticationLock(expectedVersion, path, op
     try {
       await requestJson("/api/auth/refresh", { method: "POST", body: "{}" }, false);
     } catch (error) {
-      if (isTerminalSessionError(error)) announceTerminalAuthenticationChange();
+      if (isTerminalSessionError(error)) {
+        if (isAccessReauthenticationError(error)) announceAccessReauthentication(expectedVersion);
+        else announceTerminalAuthenticationChange("");
+      }
       throw error;
     }
     reconcileAuthenticationVersion(expectedVersion, options);
-    return requestJsonOnce(path, options);
+    return requestJsonOnce(path, options, requestAccessMode);
   });
 }
 
-async function logoutWithAuthenticationLock(expectedVersion) {
+async function logoutWithAuthenticationLock(expectedVersion, requestAccessMode) {
   return withAuthenticationLock(async () => {
     if (readAuthenticationVersion() !== expectedVersion) return false;
     advanceAuthenticationVersion();
     try {
-      const logoutSent = await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false);
+      const logoutSent = await requestJson("/api/auth/logout", { method: "POST", body: "{}" }, false, requestAccessMode);
       announceAuthenticationChange();
       return logoutSent;
     } catch (error) {
@@ -1233,6 +1261,17 @@ function renderAuthenticationReload() {
 
 authenticationChannel?.addEventListener("message", (event) => {
   if (event.data?.type !== "authentication-changed") return;
+  const incomingVersion = typeof event.data.version === "string" ? event.data.version : null;
+  if (incomingVersion) {
+    try {
+      if (readAuthenticationVersion() !== incomingVersion) return;
+    } catch {
+      // 世代を比較できない場合は、通知された認証変更を安全側で処理する。
+    }
+  }
+  terminalAuthenticationVersion = event.data.reason === "reauthentication-required"
+    ? incomingVersion
+    : null;
   // 次のsessionを取得するまでは同一ユーザーの再ログインか判定できない。
   // 表示と進行中応答だけを無効化し、ユーザー固有の選択・結果不明ロックは
   // replaceCurrentSessionで主体変更を確認できた場合にだけ破棄する。
@@ -1242,6 +1281,11 @@ authenticationChannel?.addEventListener("message", (event) => {
   manualRequestSequence += 1;
   if (pendingWorkspaceMemberMutation) pendingWorkspaceMemberMutation.authReconciled = false;
   if (pendingWorkspaceJoinCodeIssuance) pendingWorkspaceJoinCodeIssuance.authReconciled = false;
+  if (event.data.reason === "reauthentication-required") {
+    replaceCurrentSession(null);
+    renderAccessReauthentication();
+    return;
+  }
   renderAuthenticationReload();
   loadSession({ focusId: "workspace-heading" });
 });
@@ -1376,8 +1420,7 @@ function clearBox(id) {
   box.className = box.className.includes("notice") ? "notice-box" : "error-box";
 }
 
-async function requestJsonOnce(path, options = {}) {
-  const requestAccessMode = isAccessModeSession();
+async function requestJsonOnce(path, options = {}, requestAccessMode = isAccessModeSession()) {
   let response;
   try {
     response = await fetch(path, {
@@ -1446,7 +1489,7 @@ async function requestJsonOnce(path, options = {}) {
   return payload;
 }
 
-async function requestJson(path, options = {}, allowSessionRefresh = true) {
+async function requestJson(path, options = {}, allowSessionRefresh = true, requestAccessMode = isAccessModeSession()) {
   let expectedVersion = null;
   let coordinationError = null;
   if (allowSessionRefresh) {
@@ -1458,11 +1501,18 @@ async function requestJson(path, options = {}, allowSessionRefresh = true) {
   }
 
   try {
-    return await requestJsonOnce(path, options);
+    return await requestJsonOnce(path, options, requestAccessMode);
   } catch (error) {
+    if (isAccessReauthenticationError(error)) {
+      if (requestAccessMode) announceAccessReauthentication(expectedVersion);
+      throw error;
+    }
     if (!allowSessionRefresh || error.code !== "SESSION_REFRESH_REQUIRED") throw error;
     if (coordinationError) throw coordinationError;
-    return retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options);
+    return retryAfterRefreshWithAuthenticationLock(expectedVersion, path, options, requestAccessMode).catch((error) => {
+      if (isAccessReauthenticationError(error) && requestAccessMode) announceAccessReauthentication(expectedVersion);
+      throw error;
+    });
   }
 }
 
@@ -1674,7 +1724,22 @@ function renderAccessReauthentication() {
   document.getElementById("screen-content")?.focus();
 }
 
-function renderLoadFailure(title, message) {
+function renderAccessLogoutComplete() {
+  app.innerHTML =
+    '<section id="screen-content" class="boot access-reauthentication" role="status" aria-live="polite" tabindex="-1">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<h1>ログアウトしました</h1>' +
+      '<p>もう一度利用するには、Cloudflare Accessで認証してください。</p>' +
+      '<a class="primary-button" href="/">ログインし直す</a>' +
+    '</section>';
+  document.getElementById("screen-content")?.focus();
+}
+
+function renderAccessLogoutFailure(message) {
+  renderLoadFailure("ログアウトを完了できませんでした", message, { requestAccessMode: true });
+}
+
+function renderLoadFailure(title, message, retryOptions = {}) {
   app.innerHTML =
     '<section id="screen-content" class="boot" role="alert" aria-live="assertive" tabindex="-1">' +
       '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
@@ -1687,7 +1752,7 @@ function renderLoadFailure(title, message) {
     retryButton.disabled = true;
     retryButton.textContent = "読み込み中";
     retryButton.setAttribute("aria-busy", "true");
-    await loadSession({ focusId: "workspace-heading" });
+    await loadSession({ ...retryOptions, focusId: "workspace-heading" });
   });
   retryButton.focus();
 }
@@ -3483,7 +3548,7 @@ async function loadSession(options = {}) {
   const requestSessionGeneration = sessionGeneration;
   const requestReloadSequence = ++sessionReloadSequence;
   try {
-    const session = await requestJson("/api/session");
+    const session = await requestJson("/api/session", {}, true, options.requestAccessMode ?? isAccessModeSession());
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
     if (currentSession?.user?.id !== session.user?.id) {
       replaceCurrentSession(session);
@@ -3753,6 +3818,7 @@ async function createWorkspace(event) {
 }
 
 async function logout() {
+  const requestAccessMode = isAccessModeSession();
   clearBox("shell-message");
   const button = document.getElementById("logout-button");
   button.disabled = true;
@@ -3760,11 +3826,12 @@ async function logout() {
   button.setAttribute("aria-busy", "true");
   ++sessionGeneration;
   replaceCurrentSession(null);
-  renderLogin();
+  if (requestAccessMode) renderAuthenticationReload();
+  else renderLogin();
   const logoutStateGeneration = sessionGeneration;
   try {
     const requestAuthenticationVersion = readAuthenticationVersion();
-    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion);
+    const logoutSent = await logoutWithAuthenticationLock(requestAuthenticationVersion, requestAccessMode);
     if (!logoutSent) {
       renderAuthenticationReload();
       await loadSession();
@@ -3775,9 +3842,21 @@ async function logout() {
       return;
     }
     if (logoutStateGeneration !== sessionGeneration) return;
-    renderLogin();
+    if (requestAccessMode) renderAccessLogoutComplete();
+    else renderLogin();
   } catch (error) {
     if (logoutStateGeneration !== sessionGeneration) return;
+    if (isAccessReauthenticationError(error)) {
+      renderAccessReauthentication();
+      return;
+    }
+    if (requestAccessMode) {
+      const message = error.code === "NETWORK_ERROR"
+        ? "サーバーに接続できず、ログアウトを完了できませんでした。通信環境を確認して、もう一度お試しください。"
+        : error.message || "サーバーの応答を確認できず、ログアウトを完了できませんでした。時間をおいて、もう一度お試しください。";
+      renderAccessLogoutFailure(message);
+      return;
+    }
     if (["AUTH_LOCK_UNAVAILABLE", "AUTH_COORDINATION_UNAVAILABLE"].includes(error.code)) {
       renderLogin(error.message);
       return;

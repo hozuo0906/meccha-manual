@@ -31,6 +31,12 @@ Cloudflare Accessのidentity-based application tokenとservice-token application
 - `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、`/health/config` 等の明示allowlistしたmachine専用routeだけに許可する。session/workspace/manual API、identity bootstrapを403にし、D1 application identity、workspace membership、roleへ写像しない。
 - machine専用routeは業務データを返さず、状態変更を行わず、許可routeを列挙してdefault denyにする。
 
+### ブラウザのAccess認証遷移
+
+- Access保護中のブラウザAPIが終端401（`ACCESS_JWT_REQUIRED`、`ACCESS_JWT_INVALID`、またはAccess応答を同じ401へ正規化したもの）を返した場合、ブラウザは共有認証versionを更新し、`authentication-changed` 通知を兄弟タブへ一度だけ送る。通知には終端Access失効を示すreasonを含める。
+- 通知を受けたタブは、通知versionと現在versionを比較できる場合は一致した通知だけを採用し、保護中のメモリUI、進行中要求の採用、遅着応答を無効化する。不一致の遅い通知は無視し、versionを比較できない場合は安全側で同じ破棄を行う。終端Access通知ではアプリ独自password formへ戻らずAccess再認証画面を表示する。version読取・保存に失敗しても元のAccess401と通知処理を別の失敗へ置き換えず、403権限拒否と503一時障害は終端認証失効へ混同しない。
+- logoutは`currentSession`を消去する前に、その要求の認証方式を確定して保持し、Access要求では終端401をAccess再認証、503・通信失敗・lock失敗・失効確認不明を再試行可能な状態として分類する。成功応答を受けるまでlogout完了とは表示せず、Access要求でpassword formを表示しない。
+
 ## External provider callback
 
 `POST /v1/webhooks/stripe` と `POST /v1/integrations/discord/interactions` は外部providerがAccess JWTを送れないため、hostname applicationより具体的なexact pathごとのself-hosted applicationへ分離し、path別Access Bypass（`Bypass / Include Everyone`）を設定する。hostname全体、共通prefix、wildcard pathへBypassを適用しない。Access Bypassは到達だけを許可し、認証・認可の代替にしない。
