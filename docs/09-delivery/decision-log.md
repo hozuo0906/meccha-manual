@@ -24,7 +24,7 @@ Status: Accepted
 | DEC-018 | 2026-08-02 | Discord通知は日本語とCodex所感を基本にする | ユーザーがDiscordだけで状況と次アクションを判断できるようにするため |
 | DEC-019 | 2026-08-02 | Discord Interactionは署名検証後にdeferred responseを先に返し、許可確認、重複確認、Issue作成、followup更新をbackgroundで処理する | Discordの3秒応答制限で「アプリケーションが応答しませんでした」になることを防ぐため |
 | DEC-020 | 2026-08-02 | Wrangler deployでDashboard runtime variablesを消さないため `keep_vars` と必須secret宣言を使う | GitHub merge後の自動deployでDiscord runtime設定が消えることを防ぐため |
-| DEC-021 | 2026-08-02 | Discord buttonから直接PR mergeは行わず、まずはPR閲覧、レビュー依頼、修正依頼、マージ依頼の記録までにする | GitHub checks、owner承認、監査ログ、branch protectionを正本にするため |
+| DEC-021 | 2026-08-02 | Discord buttonから直接PR mergeは行わず、まずはPR閲覧、レビュー依頼、修正依頼、マージ依頼の記録までにする。通常の実装・PR・mergeに一律のowner承認を求める一般承認部分だけはDEC-067で部分的にSupersededとし、商用リリース前は親セッションの実SHA・依存順・品質ゲート確認、商用リリース後は外部反映ごとのユーザー事前承認に従う | GitHub checks、監査ログ、branch protectionを正本にし、Discordボタンからの直接merge禁止と既存の別承認境界を維持するため。owner承認を含む旧条件は2026-08-02時点の記録として保持し、一般承認部分の更新日と根拠をDEC-067に記録する |
 | DEC-022 | 2026-08-02 | PRごとにサブエージェント品質loopを通す | 実装、UIUX、テスト、辛口レビュー、リファクタリングレビュー、ドキュメント記録の判断を分離するため |
 | DEC-023 | 2026-08-02 | R2 bucket作成前にbucket名、binding名、object key、公開禁止方針を固定する | 存在しないR2 bindingによるdeploy失敗とファイル公開事故を防ぐため |
 | DEC-024 | 2026-08-02 | Phase 1本番開発へ入る前に着手前ゲートとユーザー承認を必須にする | 認証、RLS、ワークスペース境界のP0リスクと無承認着手を防ぐため |
@@ -238,3 +238,6 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 開発中の検証済み変更を不要な都度確認で滞留させず、商用公開後の変更権限をユーザー承認へ戻し、公開・課金・機密情報・破壊的操作の安全境界を維持するため。
 - Boundary:
   - 本判断は開発操作の承認切替だけを対象とし、最初の商用公開、production反映、課金、機密情報保存、破壊的操作、既存の必須品質ゲート、branch protection、CI、review threadの扱いを変更しない。
+- Supersedes (partial):
+  - ADR-0016の2026-08-02時点の制約のうち、実装・mergeを親セッションの判断とユーザー承認に優先させる一般承認部分だけを更新する。本番deployに関する別承認境界は対象外とする。
+  - DEC-021の2026-08-02時点の記録のうち、owner承認を通常の実装・PR・mergeの一般要件とする部分だけを更新する。Discordボタンからの直接merge禁止、GitHub checks・監査ログ・branch protectionを正本とする境界、その他の別承認境界は失効させない。
