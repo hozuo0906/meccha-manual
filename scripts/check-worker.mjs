@@ -33,7 +33,11 @@ const requiredWorkerSnippets = [
   "DISCORD_ALLOWED_CHANNEL_IDS_REQUIRED",
   "status/triage",
   "priority/",
-  "blocked-from-discord"
+  "blocked-from-discord",
+  "Discordボタンから直接実行せず",
+  "Astra high親PM",
+  "商用リリース後はmergeごとにユーザーの事前承認",
+  "別承認境界に従います"
 ];
 
 const requiredAppSnippets = [

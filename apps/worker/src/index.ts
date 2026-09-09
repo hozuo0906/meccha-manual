@@ -1039,7 +1039,7 @@ function githubPrStatusText(pr: GitHubPullRequestResponse, status: GitHubCombine
     "",
     pr.merged
       ? "このPRはすでにmerge済みです。"
-      : "実mergeはGitHub上の必須check、レビュー、owner承認を確認してから行います。"
+      : "実mergeはDiscordボタンから直接実行せず、GitHub上の必須check、最新headへのCodex Review、P0/P1、未解決review thread、危険操作有無を確認してから行います。商用リリース前はAstra high親PMが対象SHA、依存順、必要な品質ゲートを実証確認すれば通常のmergeにユーザーの都度承認は要しません。商用リリース後はmergeごとにユーザーの事前承認を得ます。初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作などは別承認境界に従います。"
   ].filter(Boolean).join("\n");
 }
 
@@ -1098,7 +1098,7 @@ async function requestGitHubPrMerge(env: Env, interaction: DiscordInteraction, a
     "## Rules",
     "",
     "- このコメントはmerge依頼の記録であり、Discordボタンだけではmergeしません。",
-    "- GitHub上で必須check、conflict、draft、レビュー、owner承認を確認してからmergeします。"
+    "- Discordボタンだけではmergeしません。GitHub上で必須check、conflict、draft、最新headへのCodex Review、P0/P1、未解決review thread、危険操作有無を確認します。商用リリース前はAstra high親PMによる対象SHA、依存順、必要な品質ゲートの実証確認、商用リリース後はユーザーの事前承認が必要です。初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作は別承認境界に従います。"
   ].join("\n");
 
   await createGitHubPrComment(env, owner, repo, action.number, commentBody);
