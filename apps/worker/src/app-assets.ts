@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-8d3fc688c32d15f1";
+export const APP_ASSET_VERSION = "sha256-38062892ca591026";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -997,6 +997,11 @@ let manualRequestSequence = 0;
 let manualMutationInFlight = false;
 let manualReadingPreview = null;
 
+function isAccessModeSession(session = currentSession) {
+  // M3のAccess session marker。M4でsession契約を更新するときに再評価する。
+  return Boolean(session?.manuals?.status === "migration" || session?.members?.status === "migration");
+}
+
 function manualMigrationInProgress(session = currentSession) {
   return session?.manuals?.status === "migration";
 }
@@ -1372,12 +1377,14 @@ function clearBox(id) {
 }
 
 async function requestJsonOnce(path, options = {}) {
+  const requestAccessMode = isAccessModeSession();
   let response;
   try {
     response = await fetch(path, {
       ...options,
       headers: {
         "content-type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
         ...(options.headers || {})
       }
     });
@@ -1386,6 +1393,14 @@ async function requestJsonOnce(path, options = {}) {
       "サーバーに接続できませんでした。通信環境を確認して、もう一度お試しください。",
       0,
       "NETWORK_ERROR"
+    );
+  }
+
+  if (response.status === 401 && requestAccessMode) {
+    throw new AppRequestError(
+      "認証状態を確認できませんでした。ログインし直してください。",
+      401,
+      "ACCESS_JWT_INVALID"
     );
   }
 
@@ -1455,11 +1470,21 @@ const terminalSessionCodes = new Set([
   "SESSION_REQUIRED",
   "SESSION_INVALID",
   "SESSION_EXPIRED",
-  "SESSION_REFRESH_INVALID"
+  "SESSION_REFRESH_INVALID",
+  "ACCESS_JWT_REQUIRED",
+  "ACCESS_JWT_INVALID"
 ]);
 
 function isTerminalSessionError(error) {
   return error.status === 401 && terminalSessionCodes.has(error.code);
+}
+
+function isTerminalAccessAuthorizationError(error) {
+  return error.status === 403 && error.code === "ACCESS_ACTOR_FORBIDDEN";
+}
+
+function isAccessReauthenticationError(error) {
+  return error.status === 401 && ["ACCESS_JWT_REQUIRED", "ACCESS_JWT_INVALID"].includes(error.code);
 }
 
 function validateLoginForm(form) {
@@ -1636,6 +1661,17 @@ function renderLogin(message = "") {
   } else {
     document.getElementById("email").focus();
   }
+}
+
+function renderAccessReauthentication() {
+  app.innerHTML =
+    '<section id="screen-content" class="boot access-reauthentication" role="alert" aria-live="assertive" tabindex="-1">' +
+      '<div class="logo-mark" aria-hidden="true"><span>め</span></div>' +
+      '<h1>再認証が必要です</h1>' +
+      '<p>認証状態を確認できませんでした。ログインし直してから、もう一度お試しください。</p>' +
+      '<a class="primary-button" href="/">ログインし直す</a>' +
+    '</section>';
+  document.getElementById("screen-content")?.focus();
 }
 
 function renderLoadFailure(title, message) {
@@ -1885,7 +1921,16 @@ async function loadWorkspaceMembers(workspaceId, options = {}) {
     renderShell(currentSession, "", "notice", options.focusId || null);
   } catch (error) {
     if (requestGeneration !== sessionGeneration || requestSequence !== workspaceMemberRequestSequence) return;
+    if (isAccessReauthenticationError(error)) {
+      replaceCurrentSession(null);
+      renderAccessReauthentication();
+      return;
+    }
     if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       await loadSession();
       return;
     }
@@ -2129,6 +2174,10 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
       return;
     }
     if (isTerminalSessionError(error)) {
+      await loadSession();
+      return;
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       await loadSession();
       return;
     }
@@ -2716,7 +2765,7 @@ async function loadManuals(workspaceId, options = {}) {
       requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
       sequence !== manualRequestSequence
     ) return;
-    if (isTerminalSessionError(error)) return loadSession();
+    if (isTerminalSessionError(error) || isTerminalAccessAuthorizationError(error)) return loadSession();
     manualsState = { workspaceId, status: "error", items: [], message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manuals-message");
   }
@@ -2763,6 +2812,10 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
       return;
     }
     if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
     }
@@ -2896,6 +2949,10 @@ async function createManualFromUi(event) {
       setManualMutationBusyState(false);
       return loadSession();
     }
+    if (isTerminalAccessAuthorizationError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
     const resultUnknown = manualMutationUnknown(error);
     if (resultUnknown) {
       const warning = {
@@ -2997,6 +3054,10 @@ async function runDetailMutation(operation, successMessage, options = {}) {
       return;
     }
     if (isTerminalSessionError(error)) {
+      setManualMutationBusyState(false);
+      return loadSession();
+    }
+    if (isTerminalAccessAuthorizationError(error)) {
       setManualMutationBusyState(false);
       return loadSession();
     }
@@ -3475,6 +3536,11 @@ async function loadSession(options = {}) {
     if (options.preserveShell) document.getElementById("reload-button")?.focus();
   } catch (error) {
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (isTerminalAccessAuthorizationError(error)) {
+      replaceCurrentSession(null);
+      renderLoadFailure("ワークスペースを表示できません", "このアカウントでは利用できません。管理者に確認してください。");
+      return;
+    }
     if (options.preserveShell && currentSession && !isTerminalSessionError(error)) {
       const message = error.code === "WORKSPACES_LIMIT_EXCEEDED"
         ? "所属ワークスペースが多いため一覧を更新できませんでした。表示中の一覧は更新前です。管理者に整理を依頼してください。"
@@ -3502,6 +3568,11 @@ async function loadSession(options = {}) {
         form.elements.name.value = options.workspaceDraft.name;
         form.elements.slug.value = options.workspaceDraft.slug;
       }
+      return;
+    }
+    if (isAccessReauthenticationError(error)) {
+      replaceCurrentSession(null);
+      renderAccessReauthentication();
       return;
     }
     if (isTerminalSessionError(error)) {

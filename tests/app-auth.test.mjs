@@ -176,6 +176,8 @@ globalThis.__appAuthTest = {
   validateWorkspaceForm,
   updateWorkspaceFieldErrors,
   isTerminalSessionError,
+  isTerminalAccessAuthorizationError,
+  isAccessReauthenticationError,
   readAuthenticationVersion,
   loadSession,
   logout,
@@ -473,11 +475,21 @@ test("初回要求中に認証世代が変わった状態変更はrefreshも再�
   assert.deepEqual(calls, ["/api/workspaces"]);
 });
 
-test("既知のセッション401だけを再ログイン状態として扱う", () => {
+test("既知のセッションまたはAccess JWT 401だけを再ログイン状態として扱う", () => {
   const { api } = createHarness();
 
   assert.equal(api.isTerminalSessionError({ status: 401, code: "SESSION_EXPIRED" }), true);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "SESSION_INVALID" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 401, code: "ACCESS_JWT_REQUIRED" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 401, code: "ACCESS_JWT_INVALID" }), true);
+  assert.equal(api.isTerminalSessionError({ status: 403, code: "ACCESS_ACTOR_FORBIDDEN" }), false);
+  assert.equal(api.isTerminalSessionError({ status: 503, code: "ACCESS_IDENTITY_UNAVAILABLE" }), false);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 403, code: "ACCESS_ACTOR_FORBIDDEN" }), true);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 403, code: "WORKSPACES_ACCESS_DENIED" }), false);
+  assert.equal(api.isTerminalAccessAuthorizationError({ status: 503, code: "ACCESS_IDENTITY_UNAVAILABLE" }), false);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "ACCESS_JWT_REQUIRED" }), true);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "ACCESS_JWT_INVALID" }), true);
+  assert.equal(api.isAccessReauthenticationError({ status: 401, code: "SESSION_EXPIRED" }), false);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "INVALID_RESPONSE" }), false);
   assert.equal(api.isTerminalSessionError({ status: 401, code: "UNKNOWN_PROXY_ERROR" }), false);
   assert.equal(api.isTerminalSessionError({ status: 502, code: "SESSION_EXPIRED" }), false);
@@ -1126,6 +1138,167 @@ test("一覧更新失敗では表示済み一覧・選択・入力内容を保�
   assert.match(app.innerHTML, /表示中の一覧は更新前/);
   assert.equal(form.elements.name.value, "入力途中の名前");
   assert.equal(form.elements.slug.value, "draft-slug");
+});
+
+test("legacy session modeの非JSON 401はAccess再認証へ正規化しない", async () => {
+  const { api } = createHarness({
+    fetch: async () => new Response("expired", {
+      status: 401,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+
+  await assert.rejects(
+    api.requestJson("/api/session", {}, false),
+    (error) => error.code === "INVALID_RESPONSE" && error.status === 401
+  );
+});
+
+test("Access modeのAJAX非JSON 401は再認証導線へ正規化する", async () => {
+  let requestedWith = "";
+  const harness = createHarness({
+    fetch: async (path, options = {}) => {
+      requestedWith = options.headers?.["X-Requested-With"] || "";
+      return new Response("access expired", {
+        status: 401,
+        headers: { "content-type": "text/html; charset=utf-8" }
+      });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(requestedWith, "XMLHttpRequest");
+  assert.match(harness.app.innerHTML, /再認証が必要です|ログインし直す/);
+  assert.doesNotMatch(harness.app.innerHTML, /login-form|Access workspace/);
+});
+
+test("Access modeのJSON 401 codeなしも旧シェルを残さず再認証へ進める", async () => {
+  const harness = createHarness({
+    fetch: async () => Response.json({ message: "unauthorized" }, { status: 401 })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
+    manuals: { status: "migration" },
+    members: { status: "migration" }
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /再認証が必要です/);
+  assert.doesNotMatch(harness.app.innerHTML, /Access workspace|login-form/);
+});
+
+test("Access JWT終端401の一覧更新では旧シェルを破棄し、遅着応答も復元しない", async () => {
+  for (const terminalCode of ["ACCESS_JWT_REQUIRED", "ACCESS_JWT_INVALID"]) {
+    const workspaceId = "11111111-1111-4111-8111-111111111111";
+    const delayedMembers = deferred();
+    const harness = createHarness({
+      fetch: async (path) => {
+        if (path.includes("/members")) return delayedMembers.promise;
+        if (path === "/api/session") {
+          return Response.json({ code: terminalCode, message: "認証情報を確認できませんでした。" }, { status: 401 });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      }
+    });
+    const session = {
+      user: { id: "user-1", email: "user@example.invalid" },
+      workspaces: [{ id: workspaceId, name: "機密ワークスペース", slug: "secret", status: "active" }],
+      manuals: { status: "migration" },
+      members: { status: "migration" }
+    };
+    harness.api.replaceCurrentSession(session);
+    harness.api.renderShell(session);
+    const membersRequest = harness.api.loadWorkspaceMembers(workspaceId);
+    await waitForCondition(
+      () => harness.api.getWorkspaceMembersState()?.status === "loading",
+      `${terminalCode}:メンバー取得が開始されませんでした`
+    );
+
+    await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+    assert.equal(harness.api.getCurrentSession(), null, terminalCode);
+    assert.match(harness.app.innerHTML, /再認証が必要です/, terminalCode);
+    assert.match(harness.app.innerHTML, /href="\/"[^>]*>ログインし直す/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /login-form|メールアドレスとパスワード/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /機密ワークスペース|secret/, terminalCode);
+
+    delayedMembers.resolve(Response.json({
+      workspaceId,
+      currentUserRole: "owner",
+      members: [{ userId: "user-1", displayName: "機密メンバー", role: "owner", status: "active", joinedAt: "2026-09-09T00:00:00Z" }]
+    }));
+    await membersRequest;
+    assert.match(harness.app.innerHTML, /再認証が必要です/, terminalCode);
+    assert.doesNotMatch(harness.app.innerHTML, /機密メンバー|機密ワークスペース/, terminalCode);
+  }
+});
+
+test("Access認証の一時503では旧シェルと入力を保持し、再試行で一覧を更新できる", async () => {
+  let sessionCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/session") throw new Error(`unexpected fetch: ${path}`);
+      sessionCalls += 1;
+      if (sessionCalls === 1) {
+        return Response.json({ code: "ACCESS_IDENTITY_UNAVAILABLE", message: "認証サービスを利用できません。" }, { status: 503 });
+      }
+      return Response.json({
+        user: { id: "user-1", email: "user@example.invalid" },
+        workspaces: [{ id: "workspace-2", name: "更新後ワークスペース", slug: "updated", status: "active" }]
+      });
+    }
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "表示中ワークスペース", slug: "current", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  const form = harness.element("workspace-form");
+  form.elements.name = { value: "入力途中の名前" };
+  form.elements.slug = { value: "draft-slug" };
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.match(harness.app.innerHTML, /表示中ワークスペース|表示中の一覧は更新前/);
+  assert.equal(form.elements.name.value, "入力途中の名前");
+  assert.equal(form.elements.slug.value, "draft-slug");
+  assert.match(harness.app.innerHTML, /一覧を更新/);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+  assert.match(harness.app.innerHTML, /更新後ワークスペース/);
+});
+
+test("Access actor拒否403は再認証や一時保持へ混同せず旧シェルを破棄する", async () => {
+  const harness = createHarness({
+    fetch: async () => Response.json({ code: "ACCESS_ACTOR_FORBIDDEN", message: "この操作を行う権限がありません。" }, { status: 403 })
+  });
+  const session = {
+    user: { id: "user-1", email: "user@example.invalid" },
+    workspaces: [{ id: "workspace-1", name: "停止済みワークスペース", slug: "disabled", status: "active" }]
+  };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  await harness.api.reloadWorkspaces({ currentTarget: harness.element("reload-button") });
+
+  assert.equal(harness.api.getCurrentSession(), null);
+  assert.match(harness.app.innerHTML, /ワークスペースを表示できません|もう一度読み込む/);
+  assert.doesNotMatch(harness.app.innerHTML, /停止済みワークスペース|disabled|class="login-screen"/);
 });
 
 test("共通一覧更新が403なら確認済み権限・メンバー・管理UIを破棄する", async () => {
