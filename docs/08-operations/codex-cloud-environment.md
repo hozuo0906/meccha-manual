@@ -85,7 +85,7 @@ CodespacesやCodex Cloud task本文にsecret値を貼らない。
 npm run check
 ```
 
-Phase 1本番開発へ入る場合は、追加でユーザー承認を確認する。
+ADR-0019および `docs/09-delivery/phase1-entry-gate.md` の旧Phase 1 Supabase/RLS着手前ゲートは、ADR-0028でSupersededである。したがって、現行のCloudflare Access/D1移行では、旧ユーザー承認や `phase1-readiness:check` を着手条件にしない。旧checkは移行前legacy baselineの検証用途に限る。現行の品質ゲートはADR-0028、DEC-067、および親PMによる実SHA・依存順・必要な品質ゲート確認に従う。初回商用公開、production反映、課金、secret変更、機密情報保存、破壊的操作などの別承認境界は維持する。
 
 ```text
 npm run phase1-readiness:check
