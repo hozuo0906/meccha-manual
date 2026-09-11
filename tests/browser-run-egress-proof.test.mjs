@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   REQUIRED_EGRESS_CHANNELS,
   assertEvidenceProbe,
+  assertLiveWorkflowContext,
   buildSanitizedEvidenceArtifact,
   buildGuardedSessionBody,
   cleanupLiveSession,
@@ -16,6 +18,52 @@ import {
   unwrapCloudflareResult,
   validatedHttpsUrl
 } from "../scripts/browser-run-egress-proof.mjs";
+
+const VALID_LIVE_CONTEXT = Object.freeze({
+  eventName: "workflow_dispatch",
+  confirmation: "RUN_ISOLATED_STAGING_P0",
+  ref: "refs/heads/main",
+  commitSha: "a".repeat(40),
+  candidateSha: "a".repeat(40),
+  runAttempt: "1",
+  stagingReady: "v1"
+});
+
+test("live proof accepts only an immutable first-attempt main candidate", () => {
+  assert.doesNotThrow(() => assertLiveWorkflowContext(VALID_LIVE_CONTEXT));
+});
+
+test("live proof rejects an unready staging, branch, mismatched candidate, malformed SHA, or rerun", () => {
+  for (const override of [
+    { stagingReady: "" },
+    { stagingReady: "V1" },
+    { confirmation: "RUN_PRODUCTION" },
+    { eventName: "pull_request" },
+    { ref: "refs/heads/feature/untrusted" },
+    { candidateSha: "b".repeat(40) },
+    { candidateSha: "main" },
+    { commitSha: "A".repeat(40), candidateSha: "A".repeat(40) },
+    { runAttempt: "2" }
+  ]) {
+    assert.throws(
+      () => assertLiveWorkflowContext({ ...VALID_LIVE_CONTEXT, ...override }),
+      (error) => error.message === "Live proof workflow context is invalid."
+    );
+  }
+});
+
+test("every manual dispatch reaches credential-free preflight even when confirmation is invalid", async () => {
+  const workflow = await readFile(".github/workflows/browser-run-egress-proof.yml", "utf8");
+  const preflight = workflow.match(/  live-proof-preflight:\n([\s\S]*?)\n  live-proof:/u)?.[1] ?? "";
+  const liveProof = workflow.match(/  live-proof:\n([\s\S]*)/u)?.[1] ?? "";
+  assert.match(
+    preflight,
+    /^\s+if: github\.event_name == 'workflow_dispatch'$/mu
+  );
+  assert.doesNotMatch(preflight, /^\s+needs:/mu);
+  assert.doesNotMatch(preflight, /always\(\)/u);
+  assert.match(liveProof, /^\s+needs:\n\s+- contract\n\s+- live-proof-preflight$/mu);
+});
 
 test("guarded session uses one exact fixture hostname and disables recording", () => {
   assert.deepEqual(buildGuardedSessionBody("https://fixture.example.test/path"), {

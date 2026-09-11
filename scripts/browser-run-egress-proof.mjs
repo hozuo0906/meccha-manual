@@ -17,6 +17,36 @@ export const REQUIRED_EGRESS_CHANNELS = Object.freeze([
 
 const API_ORIGIN = "https://api.cloudflare.com";
 const LIVE_CONFIRMATION = "RUN_ISOLATED_STAGING_P0";
+const MAIN_REF = "refs/heads/main";
+
+export function assertLiveWorkflowContext(context) {
+  const commitSha = context?.commitSha;
+  const candidateSha = context?.candidateSha;
+  const valid =
+    context?.eventName === "workflow_dispatch" &&
+    context?.confirmation === LIVE_CONFIRMATION &&
+    context?.ref === MAIN_REF &&
+    typeof commitSha === "string" &&
+    /^[0-9a-f]{40}$/u.test(commitSha) &&
+    typeof candidateSha === "string" &&
+    /^[0-9a-f]{40}$/u.test(candidateSha) &&
+    commitSha === candidateSha &&
+    context?.runAttempt === "1" &&
+    context?.stagingReady === "v1";
+  if (!valid) throw new Error("Live proof workflow context is invalid.");
+}
+
+function assertLiveWorkflowEnvironment() {
+  assertLiveWorkflowContext({
+    eventName: process.env.GITHUB_EVENT_NAME,
+    confirmation: process.env.BROWSER_EGRESS_RUN_CONFIRMATION,
+    ref: process.env.GITHUB_REF,
+    commitSha: process.env.GITHUB_SHA,
+    candidateSha: process.env.BROWSER_EGRESS_CANDIDATE_SHA,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    stagingReady: process.env.MECCHA_MANUAL_BROWSER_EGRESS_STAGING_READY
+  });
+}
 
 export function validatedHttpsUrl(value, name) {
   let url;
@@ -287,9 +317,7 @@ export async function runPageProbeSafely(page, startUrl) {
 }
 
 async function runLiveProof() {
-  if (process.env.BROWSER_EGRESS_RUN_CONFIRMATION !== LIVE_CONFIRMATION) {
-    throw new Error(`Live proof requires BROWSER_EGRESS_RUN_CONFIRMATION=${LIVE_CONFIRMATION}.`);
-  }
+  assertLiveWorkflowEnvironment();
 
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
   const token = process.env.CLOUDFLARE_BROWSER_RUN_API_TOKEN ?? "";
@@ -359,7 +387,10 @@ async function runLiveProof() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.argv.includes("--run")) {
+  if (process.argv.includes("--preflight")) {
+    assertLiveWorkflowEnvironment();
+    console.log("Browser Run egress proof workflow preflight OK (staging was not requested). ");
+  } else if (process.argv.includes("--run")) {
     await runLiveProof();
   } else {
     const fixture = process.env.BROWSER_EGRESS_FIXTURE_ORIGIN || "https://fixture.invalid";
