@@ -2,9 +2,61 @@
 
 Status: Accepted
 
+## 品質ゲートの運用レベル
+
+品質要件そのものは弱めず、すべての変更で同じ重い検査を実行する運用だけを見直す。
+
+### Fast Gate
+
+日常の小変更・ローカル反復で最初に実行する。
+
+- typecheck / syntax。
+- 変更対象のunit test。
+- docs整合の最小check。
+- secret / encoding / diff check。
+- 変更対象に対応する軽量security contract。
+
+Fast Gateは開発速度のための入口であり、リリース合格を意味しない。
+
+### Core PR Gate
+
+MVPの主要導線、認証、manual、共有、capture境界へ影響するPRで必須とする。
+
+- Fast Gate一式。
+- 変更対象のAPI/DB negative test。
+- 認証・workspace境界。
+- manual作成/保存/再読込。
+- 主要E2E。
+- アクセシビリティ回帰。
+- 必要なmutation test。
+
+### Deep / Release Gate
+
+外部公開、staging統合実証、production候補、または高リスク機能を有効化する前に実行する。
+
+- Browser Run egress / SSRF全経路実証。
+- migration / restore。
+- 課金・Webhook・返金・reconciliation。
+- R2 lifecycle / capacity。
+- 障害注入。
+- 全体E2E。
+- release-specific smoke / rollback。
+
+Deferred機能のDeep testは、その機能が無効の間は毎PRの通常開発をブロックしない。ただしfeature flagやfail-closed契約により、未完成機能が有効化されないことはCore Gateで確認する。
+
+## Product Quality Gate
+
+技術的に正しいことだけでは商用MVP合格としない。初回商用公開前には次も確認する。
+
+- 実ユーザーまたは代表利用者が説明なしで `操作を記録 -> 下書き生成 -> 編集 -> 共有` を完遂できる。
+- TTFVを測定できる。
+- capture失敗理由と離脱箇所を計測できる。
+- 初期ICPが利用する代表サイト群でBrowser Runの実用可能性を確認している。
+- Deferred機能の未完成がActivation導線を塞いでいない。
+
 ## 品質ゲート
 
-P0/P1が残る状態では次Phaseへ進みません。
+P0/P1が残る状態では対象マイルストーンを次へ進めません。
 
 | 優先度 | 定義 | 判定 |
 |---|---|---|
@@ -39,6 +91,8 @@ P0/P1が残る状態では次Phaseへ進みません。
 - TeamからPersonalへの移行はOQ-027が決まるまで、active/grace/read_onlyのTeam契約があれば人数に関係なく課金前に拒否すること。
 - AI初期OFFで外部APIを呼ばない。
 
+上記のうち、現在無効でDeferredの機能に固有なDeep testは、その機能を有効化するPRまたはRelease Gateで必須化する。fail-closedや無効状態の保証は通常PRでも維持する。
+
 ## 課金テストデータ
 
 - test modeのPriceと短命Checkout Sessionだけを使い、liveの識別子やSecretをfixtureへ入れない。
@@ -54,11 +108,12 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 共有URL、Access/D1 tenant境界、削除、復旧のnegative testがない。
 - クラウドブラウザでCookieや入力値の保存範囲が不明。
 - DNS再解決だけでSSRF対策完了とし、actual peerの照合または検査済みIPへの接続拘束を確認していない。
-- Guide Me風機能が静的デモページでしか動かない。
-- スマホ表示確認がviewport変更だけ。
-- 分析値を原イベントから照合できない。
-- PDF/HTML/Markdownの日本語、マスキング、改ページを目視していない。
+- Guide Me風機能が静的デモページでしか動かない状態で、Guide Meを有効化・完成扱いにする。
+- スマホ表示確認がviewport変更だけの状態で、スマホ表示確認を有効化・完成扱いにする。
+- 分析値を原イベントから照合できない状態で、詳細分析を有効化・完成扱いにする。
+- PDF/HTML/Markdownを有効化するのに、日本語、マスキング、改ページを目視していない。
 - 課金完了リダイレクトだけでentitlementを付与している。
 - Linkのメールアドレスだけでユーザーやworkspaceを紐付けている。
 - 利用量計測の不整合時に自動で追加請求する。
 - flaky testを再実行して緑にしている。
+- 技術ゲートだけ成功し、Activation導線を実利用者が完遂できるか未確認のまま商用MVP完成とする。
