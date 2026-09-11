@@ -10,14 +10,15 @@ Status: Accepted
 
 商用MVPや新機能の優先順位を判断するときは、技術設計だけでなく次を先に確認します。
 
-1. [プロジェクト憲章](00-foundation/project-charter.md) — ICP、JTBD、Activation、Product KPI。
+1. [プロジェクト憲章](00-foundation/project-charter.md) — ICP、Job To Be Done、Activation、Product KPI。
 2. [スコープ](01-product/scope.md) — MVP / NEXT / Deferred。
 3. [機能要件](01-product/product-requirements.md) — FRごとのLaunch優先度。
 4. [UX原則](02-ux/experience-principles.md) — TTFV、段階的開示。
-5. [オンボーディング](02-ux/onboarding.md) — 初回価値到達の正本。
-6. [料金プランと利用上限](01-product/pricing-and-plans.md) — 課金Product Gateと技術契約。
-7. [Issue分解](09-delivery/issue-map.md) — ユーザー価値の縦切りと既存Epicの対応。
-8. [テスト戦略](07-quality/test-strategy.md) — Fast / Core / Deep Gate。
+5. [オンボーディング](02-ux/onboarding.md) — Chrome拡張導入から初回価値到達までの正本。
+6. [Chrome拡張 first ADR](03-architecture/adrs/ADR-0031-chrome-extension-first-capture.md) — 操作記録方式の正本。
+7. [料金プランと利用上限](01-product/pricing-and-plans.md) — 課金Product Gateと技術契約。
+8. [Issue分解](09-delivery/issue-map.md) — ユーザー価値の縦切りと既存Epicの対応。
+9. [テスト戦略](07-quality/test-strategy.md) — Fast / Core / Deep Gate。
 
 セキュリティ・プライバシー・認可・データ損失防止はMVP簡素化の対象外です。
 
@@ -36,7 +37,7 @@ Status: Accepted
 - `00-foundation`: プロジェクト憲章、用語、文書運用、コーディング規律
 - `01-product`: 機能要件、非機能要件、スコープ、ペルソナ、料金
 - `02-ux`: UIUX、オンボーディング、画面、文言、ブランド
-- `03-architecture`: システム構成、Browser Run、認証、手順書モデル、ADR
+- `03-architecture`: システム構成、Chrome拡張capture、将来Browser Run、認証、手順書モデル、ADR
 - `04-data`: ERD、D1テーブル・Worker認可境界、R2、データライフサイクル
 - `05-api`: API契約、イベント、Webhook
 - `06-security`: セキュリティ、プライバシー、脅威モデル
@@ -58,7 +59,7 @@ Status: Accepted
 ## 実装開始条件
 
 - 対象がMVP / NEXT / Deferredのどこに属するか明記されている。
-- MVP/NEXTの場合、改善するProduct KPIまたは解決するJTBDを説明できる。
+- MVP/NEXTの場合、改善するProduct KPIまたは解決するJob To Be Doneを説明できる。
 - 対象のFR/NFRが記載されている。
 - 関連テーブル/API/画面/テストの正本が必要な範囲で存在する。
 - P0/P1扱いの未決事項がない。
@@ -81,7 +82,7 @@ Status: Accepted
 - [Cloudflare移行ロードマップ](09-delivery/cloudflare-migration-roadmap.md)
 - 移行Epic: GitHub Issue #176
 
-Cloudflare移行は安全な技術基盤のために継続しますが、移行マイルストーン完了数だけをProduct進捗やPMFの根拠にはしません。
+Cloudflare移行は安全なサーバー基盤のために継続しますが、操作記録方式はADR-0031によりChrome拡張を第一方式とします。移行マイルストーン完了数だけをProduct進捗やPMFの根拠にはしません。
 
 ## 公開構成
 
