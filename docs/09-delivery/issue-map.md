@@ -16,21 +16,24 @@ Status: Accepted
 
 最初に次の1本を通す。
 
-`認証 -> 操作記録 -> 下書き生成 -> 編集 -> URL共有`
+`認証 -> Chrome拡張導入 -> 操作記録 -> 下書き生成 -> 編集 -> URL共有`
 
-この縦切りに直接必要なEPIC-02/03/04/05/06/08の一部を優先し、各EPICを丸ごと完成させてから次へ進む必要はない。
+この縦切りに直接必要なEPIC-02/03/05/06/08の一部とChrome拡張captureを優先し、各EPICを丸ごと完成させてから次へ進む必要はない。
 
-### P2 Browser Run Market Fit Gate
+### P2 Chrome Extension Capture Gate
 
-- Issue #86/#89等の安全実証を維持する。
-- それとは別に、初期ICPが実際に使う代表Webサービス群で操作記録の実用可能性を確認する。
-- bot対策、IP制限、社内DNS、端末認証等による失敗率を記録する。
-- 市場適合性が低い場合、capture方式を再評価する。
+- Manifest V3で実装する。
+- `activeTab` / `scripting` を中心に最小権限とする。
+- 利用者の明示操作で対象タブだけを記録する。
+- 入力値、Cookie、Authorizationを保存しない。
+- 初期ICPが利用する代表Webサービス群で記録精度を確認する。
+- 拡張導入開始から初回capture開始までの離脱を計測する。
 
 ### P3 Activation UX
 
 - `docs/02-ux/onboarding.md` を正本として初回導線を実装する。
 - 空の一覧、workspace選択、role設定を初回価値より先に置かない。
+- Chrome拡張未導入時は導入CTA、導入済みなら記録開始CTAを最優先にする。
 - 初回manual完成後に共有を促し、その後2本目作成・メンバー招待へ進める。
 
 ### P4 Monetization Validation
@@ -38,12 +41,14 @@ Status: Accepted
 - 課金はActivationと継続利用の実証後に有効化する。
 - 初期商品設計はFree -> Pro -> Teamを第一候補とする。
 - `single_export` は技術契約を保持するが商用MVPではDeferred。
+- 通常のChrome拡張capture時間をBrowser Run従量原価ベースの利用者向け課金軸にしない。
 - Stripeの安全契約は弱めず、課金有効化時にDeep Gateを通す。
 
 ### Deferred
 
 利用実績または顧客要求が出るまで、次をMVPブロッカーにしない。
 
+- Cloudflare Browser Runによるクラウド側操作記録。
 - Guide Me。
 - スマホ表示確認。
 - タグ、お気に入り、iframe。
@@ -129,119 +134,126 @@ Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で
 - GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Access application/audience/policyとstaging D1/R2/Worker bindingはIssue #176 M5のboundary gateで固定し、productionと共有しない。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
 - GitHub Issue #92: non-production branch build停止、`main`のversion upload-only、Access保護は完了し、Issueはcompleted close済みである。これらの保護を維持しつつ、Access/D1/R2移行後の実preview分離はIssue #176 M5の独立migration gateで検証する。これは#92由来のblanket main merge holdを復活させるものではない。
 
-## EPIC-04: Browser Run
+## EPIC-04: Chrome Extension Capture
 
-- Browser Run起動
-- Live View URL
-- Durable Object状態機械
-- 再接続
-- 終了処理
-- SSRF対策
+MVPの操作記録レーン。
 
-Product補足: 安全実証とは別に、初期ICPの代表サイト群で利用可否を検証する。安全でも市場で使えない場合はcapture方式を再評価する。
+- Manifest V3。
+- `activeTab` / `scripting` を中心とした最小権限。
+- 記録開始・停止UI。
+- content scriptによる対象タブの操作イベント収集。
+- screenshot取得と安全な送信。
+- 入力値、Cookie、Authorization非保存。
+- SPA / iframe / Shadow DOM / Canvas / Web Components互換性検証。
+- Chrome Web Storeまたは限定配布の導入フロー。
+- 実Chrome E2E。
+
+旧Browser Run関連Issue #86/#89等は削除せず、将来Browser Runを再導入する場合の安全証跡・履歴として保持する。MVPのChrome拡張captureをブロックしない。
 
 ## EPIC-05: 操作記録
 
-- 操作イベント収集
-- スクリーンショット
-- Storage
-- マスキング
-- 下書き生成
+- Chrome拡張からの操作イベント受信。
+- スクリーンショット。
+- Storage。
+- マスキング。
+- 下書き生成。
 
 ## EPIC-06: 手順書編集
 
 既存Postgres RPC/RLS実装はIssue #176 M4でD1 transaction/queryへ置換する移行前baselineとする。
 
-- 手順書一覧
-- エディタ
-- 手順並べ替え
-- 注釈
-- 版管理
-- 公開/復元
+- 手順書一覧。
+- エディタ。
+- 手順並べ替え。
+- 注釈。
+- 版管理。
+- 公開/復元。
 
 Product補足: MVPでは利用者にrevision内部構造を見せず、作成・編集・共有の完遂を優先する。
 
 ## EPIC-07: 検索と整理
 
-- フォルダー
-- タグ
-- 検索
-- お気に入り
-- アーカイブ
+- フォルダー。
+- タグ。
+- 検索。
+- お気に入り。
+- アーカイブ。
 
 Product優先度: アーカイブはMVP、フォルダー/検索はNEXT、タグ/お気に入りはDeferred。
 
 ## EPIC-08: 共有と出力
 
-- 共有リンク
-- 閲覧画面
-- 期限/パスコード
-- iframe埋め込みビュー
-- PDF/Markdown/HTML出力
+- 共有リンク。
+- 閲覧画面。
+- 期限/パスコード。
+- iframe埋め込みビュー。
+- PDF/Markdown/HTML出力。
 
 Product優先度: URL共有と失効はMVP。PDFはNEXT候補。iframe、Markdown、HTMLはDeferred。
 
 ## EPIC-09: 運用機能
 
-- コメント
-- 通知
-- メンバー管理
-- 監査ログ
+- コメント。
+- 通知。
+- メンバー管理。
+- 監査ログ。
 
 Product優先度: セキュリティ上必要な監査記録は維持する。一般利用者向けコメント/通知/高度な管理UIはDeferred。
 
 ## EPIC-10: 課金
 
-- 料金画面: 都度払い550円、パーソナル3,300円/月、チーム9,900円/月
-- Stripe Checkout SessionsとStripe Link
-- checkout intentと `client_reference_id`
-- Webhook署名検証、重複・遅延・順不同
-- 都度払いのmanual scope entitlementと30日再出力
-- パーソナル/チームのworkspace entitlement
-- 作成者席、viewer、Browser Run、R2、同時記録のusage counter
-- 80%警告、100%停止、自動従量課金なし
-- 未払い、解約、返金、chargeback
-- 請求・利用量画面
+- 現行価格契約: 都度払い550円、パーソナル3,300円/月、チーム9,900円/月。
+- Stripe Checkout SessionsとStripe Link。
+- checkout intentと `client_reference_id`。
+- Webhook署名検証、重複・遅延・順不同。
+- 都度払いのmanual scope entitlementと30日再出力。
+- パーソナル/チームのworkspace entitlement。
+- 作成者席、viewer、R2等のusage counter。
+- 80%警告、100%停止、自動従量課金なし。
+- 未払い、解約、返金、chargeback。
+- 請求・利用量画面。
 
-Product優先度: BILLING OFFのままActivationと継続利用を検証する。Free -> Pro -> Teamを第一候補とし、single_exportは商用MVPではDeferred。価格・上限の変更は既存ADR同期手順を維持する。
+Product優先度: BILLING OFFのままActivationと継続利用を検証する。Free -> Pro -> Teamを第一候補とし、single_exportは商用MVPではDeferred。通常のChrome拡張capture時間をBrowser Run従量原価ベースの課金軸にしない。
 
 ## EPIC-11: 分析
 
-- 閲覧数
-- 完了率
-- 離脱ステップ
-- チャネル
-- 集計検証
+- 閲覧数。
+- 完了率。
+- 離脱ステップ。
+- チャネル。
+- 集計検証。
 
 Product優先度: MVPではActivation、TTFV、Capture Completion、Share、Second Manual、D7 Creator Retentionの最小計測を先に行う。詳細閲覧分析はNEXT/Deferred。
 
 ## EPIC-12: セキュリティ/運用
 
-- 秘密管理
-- 削除/退会
-- バックアップ
-- リストア演習
-- Runbook
+- 秘密管理。
+- 削除/退会。
+- バックアップ。
+- リストア演習。
+- Runbook。
+- Chrome拡張権限・データ収集境界。
 
 セキュリティ/復旧要件はMVP簡素化の対象外。
 
 ## EPIC-13: リリース品質
 
-- E2E
-- Access JWT、Worker認可、workspace固定D1 query／制約negative・mutation test（旧RLSは移行baseline変更時だけ）
-- 負荷
-- 障害注入
-- 可観測性
-- ロールバック
+- E2E。
+- Access JWT、Worker認可、workspace固定D1 query／制約negative・mutation test（旧RLSは移行baseline変更時だけ）。
+- Chrome拡張の権限・対象タブ・入力値非保存negative test。
+- 負荷。
+- 障害注入。
+- 可観測性。
+- ロールバック。
 
 品質ゲートは `docs/07-quality/test-strategy.md` のFast/Core/Deep運用レベルに従い、無関係なDeep検査で日常のMVP開発を恒常的に塞がない。
 
 ## EPIC-14: AI拡張口
 
-- AI feature flag
-- AI利用OFF既定
-- 管理者ON/OFF
-- 利用ログ
-- コスト上限
+- AI feature flag。
+- AI利用OFF既定。
+- 管理者ON/OFF。
+- 利用ログ。
+- コスト上限。
 
 Product優先度: Deferred。収益・利用価値が確認されるまでコア導線の依存先にしない。
