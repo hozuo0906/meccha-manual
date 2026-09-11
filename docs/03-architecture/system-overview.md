@@ -6,41 +6,60 @@ Status: Accepted
 
 ```mermaid
 flowchart LR
-  U["利用者"] --> Z["Cloudflare Access\nメールOTP・招待制"]
+  U["利用者"] --> C["Chrome Extension\nManifest V3"]
+  C --> X["利用中のWebサイト\n現在タブ"]
+  C --> A["API Worker\n認証・認可・イベント受信"]
+  U --> Z["Cloudflare Access\nメールOTP"]
   Z --> P["Cloudflare Workers Static Assets\n日本語UI"]
-  P --> A["API Worker\n認証・認可・課金判定"]
-  A --> D["Capture Session Durable Object"]
-  D --> B["Cloudflare Browser Run\nPlaywright / CDP"]
-  U --> L["Live View\nクラウドブラウザ操作"]
-  L --> B
+  P --> A
   A --> Q["Cloudflare D1\nworkspace / manual / metadata"]
-  D --> Q
-  D --> R["Cloudflare R2\nprivate object storage"]
+  A --> R["Cloudflare R2\nprivate object storage"]
   T["Stripe Checkout / Link"] --> W["Webhook Worker"]
   W --> Q
+
+  BR["Cloudflare Browser Run\n将来オプション"] -.-> A
 ```
 
 ## 採用判断
 
-- 対象サイトをiframeへ直接埋め込まない。
-- Browser Run上で対象サイトをトップレベルページとして開く。
-- 初期の操作画面はCloudflare公式Live Viewを別ウィンドウで開く。
-- Durable Objectを1キャプチャセッションの状態管理者にする。
+- 操作記録の第一方式はChrome Extension Manifest V3とする。
+- 利用者が普段使っているChromeの現在タブで記録を行う。
+- MVPでは `activeTab` と `scripting` を中心とした最小権限設計を優先する。
+- 利用者の明示操作で記録を開始し、対象タブだけを記録対象にする。
+- 操作イベントと必要なスクリーンショットだけをAPI Workerへ送る。
 - Cloudflare D1を業務データとファイルメタデータの正本にする。
 - Cloudflare AccessのJWTをWorkerで検証し、D1のmembershipとroleを業務認可の正本にする。
+- ファイル本体はprivate R2に保存する。
 - Stripeの課金確定は署名検証済みWebhookを正本にする。
+- Cloudflare Browser RunはMVP必須依存から外し、将来の自動処理用途だけ再評価する。
+
+## Chrome拡張の責務
+
+- 記録開始・停止UI。
+- 現在タブでのクリック、入力完了、遷移等のイベント取得。
+- 手順生成に必要な対象名の抽出。
+- 必要なスクリーンショット取得。
+- password、カード番号、token、個人番号等の入力値をイベントへ含めない。
+- Cookie、Authorization、password manager由来情報を取得しない。
+- 記録終了時に一時状態を破棄する。
+
+拡張機能は業務認可の正本ではない。extension ID、ローカルstate、DOM上の値を信用せず、サーバー側でAccess主体とworkspace境界を再検証する。
 
 ## 信頼境界
 
-- ブラウザクライアントは信用しない。
+- Chrome拡張を含むブラウザクライアントは信用しない。
 - API Workerで業務認可を行う。
 - Accessの到達許可とアプリ内権限を分離し、Worker認可とworkspace固定D1 queryを二重の防衛線にする。
-- Storage objectはCloudflare R2のprivate bucketに保存する。業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定し、ブラウザへR2の短期署名read URLを配らない。失効後の新しいrequestは拒否し、保護応答を共有cacheへ流さない。
-- Live View URL、共有生トークン、secretはDBやログへ保存しない。
+- Storage objectはCloudflare R2のprivate bucketに保存する。業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyに限定する。
+- 入力値、Cookie、Authorization、共有生トークン、secretをDBやログへ保存しない。
+- 拡張が要求するChrome権限は最小化し、利用者が記録を開始していないタブを継続監視しない。
 
 ## 主要リスク
 
-- Browser Runが対象サイトからbotとして扱われる。
-- 社内ネットワーク、IP制限、端末認証、ハードウェアキーがあるサイトでは使えない可能性がある。
-- Live Viewとイベント記録/スクリーンショットの同期精度はP0検証が必要。
-- Cloudflare Browser Runの処理地域は日本固定を保証しない可能性がある。
+- Chrome Web Storeの審査・配布が必要になる。
+- Chrome以外のブラウザはMVPの正式サポート外となる。
+- 一部サイトのDOM構造、Shadow DOM、iframe、Canvas等では対象要素やスクリーンショットの取得方法を個別検証する必要がある。
+- SPAの画面遷移や複雑なWeb Componentsでイベント取りこぼしが起こり得る。
+- 拡張権限を広げすぎると、利用者への警告とプライバシーリスクが増える。
+
+Browser Runを将来再導入する場合は、既存のSSRF、egress、Live View、外部原価に関する安全契約を再度適用する。
