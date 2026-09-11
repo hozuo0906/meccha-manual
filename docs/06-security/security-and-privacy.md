@@ -8,12 +8,32 @@ Status: Accepted
 - 非公開手順書の閲覧。
 - 共有リンク失効後の閲覧。
 - パスワード、Cookie、Authorization、カード情報、個人番号の保存。
-- SSRF。
+- Chrome拡張が利用者の明示操作なしに記録を開始すること。
+- Chrome拡張が対象タブ以外を継続収集すること。
 - Worker認可、workspace固定D1 query、D1制約のいずれかの抜け。
 - 他人のStripe状態反映。
 - 保存済み手順の不可逆消失。
 
+## Chrome拡張
+
+操作記録の第一方式はChrome Extension Manifest V3とする。
+
+- `activeTab` / `scripting` を中心に最小権限で構成する。
+- 利用者の明示操作で記録を開始する。
+- 記録開始した対象タブだけを記録する。
+- 記録対象を別タブや別originへ自動拡大しない。
+- password、カード番号、token、個人番号等の入力値を保存しない。
+- Cookie、Authorization、password manager由来情報を取得・送信しない。
+- DOMから取得する文字列は手順生成に必要な対象名・ラベル等へ限定する。
+- screenshotの保存前にマスキング境界を適用する。
+- extension ID、content scriptからの申告、local stateだけを認証・workspace認可の根拠にしない。
+- API WorkerでAccess主体とworkspace境界を毎回再検証する。
+- 記録停止時にcontent scriptの記録状態を終了し、不要な一時データを破棄する。
+- Chrome権限を追加・拡大する変更はsecurity review対象とする。
+
 ## クラウドブラウザ
+
+Cloudflare Browser RunはMVP必須依存ではない。将来再導入する場合だけ本節を有効な実装ゲートとして適用する。
 
 - セッションごとにCookie、Storage、キャッシュを分離する。
 - セッション終了時に破棄する。
