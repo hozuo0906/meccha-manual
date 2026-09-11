@@ -12,24 +12,25 @@ Status: Accepted
 
 初回MVPで利用者が完遂すべき主要導線は次とする。
 
-`登録 -> 操作を記録 -> スクリーンショット付き下書きを生成 -> 編集 -> URLで共有`
+`登録 -> Chrome拡張を導入 -> 操作を記録 -> スクリーンショット付き下書きを生成 -> 編集 -> URLで共有`
 
 ### Launch必須
 
 - 認証。
 - 個人利用開始時の内部ワークスペース自動準備。
+- Chrome Extension Manifest V3による操作記録。
+- 利用者の明示操作で対象タブだけを記録する最小権限設計。
 - 手順書一覧。
 - 手順書作成、編集、アーカイブ。
 - 手順追加、並べ替え、削除。
-- Cloudflare Browser Runを利用した操作記録。ただしProduct Discovery Gateと安全実証を通過した対象に限る。
 - 操作イベントから下書き生成。
 - private R2へのスクリーンショット保存。
-- 入力値・秘密情報を保存しない境界。
+- 入力値・Cookie・Authorization・秘密情報を保存しない境界。
 - 必要なマスキング。
 - 明示的に有効化した手順書のURL共有。
 - 共有失効と権限境界。
 - Activation、TTFV、Share、Second Manualを測定する最小イベント。
-- P0/P1を防ぐための認可、tenant分離、SSRF対策、復旧手順。
+- P0/P1を防ぐための認可、tenant分離、拡張権限、データ送信、復旧手順。
 
 ## MVPでは利用者へ見せない内部概念
 
@@ -38,7 +39,6 @@ Status: Accepted
 - workspace ID。
 - owner/admin/editor/viewerというロール名称。
 - R2容量。
-- Browser Run秒数。
 - revision pointer。
 - entitlement内部状態。
 
@@ -59,6 +59,7 @@ MVPのActivationと継続利用が確認できた後に優先評価する。
 
 利用実績または明確な顧客要求が出るまで後回しにする。
 
+- Cloudflare Browser Runを使ったクラウド側操作記録。
 - 4ロールを前面に出した高度なメンバー管理。
 - タグ、お気に入り。
 - iframe埋め込み。
@@ -74,14 +75,21 @@ MVPのActivationと継続利用が確認できた後に優先評価する。
 
 Deferredは「不要」の意味ではなく、価値検証より先に詳細化しないという意味とする。
 
-## Browser Run Product Discovery Gate
+## Chrome拡張 Product Fit Gate
 
-操作記録の第一方式は現時点ではCloudflare Browser Run + Live Viewとする。ただし、技術的に安全に動くことと、狙う市場で十分使えることを別々に検証する。
+Chrome拡張が技術的に動くだけでなく、初期ICPの実務で使えることを検証する。
 
 - 初期ICPが利用する主要Webサービスを代表サンプルとして互換性検証する。
-- bot対策、IP制限、社内DNS、端末認証、ハードウェアキー等による失敗率を記録する。
-- コア対象での利用不能率が高い場合、Chrome拡張その他のcapture方式を再検討する。
-- `Chrome拡張を第一方式にしない` は永久固定ではなく、Product Discoveryの結果で見直せる前提とする。
+- SPA、iframe、Shadow DOM、Canvas、複雑なWeb Components等での記録精度を確認する。
+- 対象タブ以外を継続収集しないことを検証する。
+- `activeTab` / `scripting` を中心に、広範なhost permissionを常時要求しない設計を優先する。
+- Chrome Web Store配布または限定配布で、インストールから初回記録開始までの離脱率を計測する。
+
+## Browser Runの位置づけ
+
+Cloudflare Browser RunはMVPの必須依存にしない。
+
+将来、サーバー側自動スクリーンショット、定期的な鮮度確認、自動テストなど、利用者ブラウザを使わない処理に明確な価値がある場合だけ再評価する。再導入時は既存のSSRF、egress、Live View、外部原価の安全契約を再度適用する。
 
 ## 初回公開の判断
 
@@ -89,16 +97,14 @@ Deferredは「不要」の意味ではなく、価値検証より先に詳細化
 
 - 主要ICPが説明なしでActivationを完了できる。
 - TTFVを計測できる。
-- 少なくとも1つの実務上重要な対象サイト群でcaptureが再現可能に動く。
+- 少なくとも代表的な実務Webサービス群でChrome拡張によるcaptureが再現可能に動く。
 - セキュリティP0/P1が0件。
 - URL共有までの縦切りがE2Eで通る。
 - 未完成のDeferred機能がMVP導線を塞がない。
 
 ## 明示的非対象
 
-- bot保護回避。
-- 社内intranetへの万能アクセス保証。
+- Chrome以外の全ブラウザの同時対応。
 - ネイティブアプリ記録。
-- 実機Safari/Android OS完全再現。
 - 初期状態での外部AI API呼び出し。
 - Product KPI改善との関係が説明できない管理機能の先行実装。
