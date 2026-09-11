@@ -2,64 +2,82 @@
 
 Status: Accepted
 
-## Product Delivery Overlay
+## Product最優先
 
-既存EPIC番号とCloudflare移行マイルストーンは、移行履歴・安全境界として維持する。ただし、初回商用MVPの優先順位は技術レイヤーの完了数ではなく、利用者が完遂できる縦切りで判断する。
+既存EPIC番号とCloudflare移行マイルストーンは移行履歴・安全境界として維持する。ただし、現在のProduct最優先は次の縦切りである。
+
+`LP -> Chrome拡張導入 -> PC/スマホ/タブレット表示選択 -> guest操作記録 -> local draft編集 -> output gate -> signup -> Personal Workspace bootstrap -> guest claim -> 保存/共有/PDF output`
+
+Cloudflare移行の完了数、保守Issue数、CI数だけをProduct進捗としない。
 
 ### P0 Product Foundation
 
 - ICP / Job To Be Done / Activationを正本化する。
-- 個人利用開始時の内部workspaceを自動準備し、workspace作成・4ロール理解を初回必須にしない。
-- Activation、TTFV、Share、Second Manualを計測できるようにする。
+- アカウント作成前に1本目をlocal-onlyで作れるguest modeを正本化する。
+- output時だけsignupを要求する。
+- Product Event契約を `docs/05-api/product-events.md` に固定する。
+- Activation、TTFV、Capture Completion、Share、Second Manualを計測可能にする。
 
 ### P1 Core Value Slice
 
 最初に次の1本を通す。
 
-`認証 -> Chrome拡張導入 -> 操作記録 -> 下書き生成 -> 編集 -> URL共有`
+`guest -> Chrome拡張 -> 3表示モード -> local draft -> output時signup -> claim -> output完了`
 
-この縦切りに直接必要なEPIC-02/03/05/06/08の一部とChrome拡張captureを優先し、各EPICを丸ごと完成させてから次へ進む必要はない。
+この縦切りに直接必要な認証、extension、manual、storage、shareの一部を優先し、各EPICを丸ごと完成させてから次へ進む必要はない。
 
 ### P2 Chrome Extension Capture Gate
 
-- Manifest V3で実装する。
-- `activeTab` / `scripting` を中心に最小権限とする。
+- Manifest V3。
+- `activeTab` / `scripting`中心の最小権限。
+- `debugger`と常時`<all_urls>`をMVP必須にしない。
 - 利用者の明示操作で対象タブだけを記録する。
 - 入力値、Cookie、Authorizationを保存しない。
+- guest中のmanual/screenshotをD1/R2へ送らない。
+- PC / smartphone / tabletを記録できる。
+- smartphone / tabletでportrait / landscapeを選べる。
+- window調整後の実`innerWidth / innerHeight`を確認し、終了・取消・失敗時に元window状態へ戻す。
 - 初期ICPが利用する代表Webサービス群で記録精度を確認する。
-- 拡張導入開始から初回capture開始までの離脱を計測する。
 
-### P3 Activation UX
+### P3 Value-first Onboarding Gate
 
-- `docs/02-ux/onboarding.md` を正本として初回導線を実装する。
-- 空の一覧、workspace選択、role設定を初回価値より先に置かない。
-- Chrome拡張未導入時は導入CTA、導入済みなら記録開始CTAを最優先にする。
-- 初回manual完成後に共有を促し、その後2本目作成・メンバー招待へ進める。
+- `docs/02-ux/onboarding.md` を正本とする。
+- 最初にログインさせない。
+- guestがlocal draftを完成するまでworkspace、role、料金planを要求しない。
+- `保存 / 共有 / PDF出力` でoutput gateを開く。
+- self-service Access認証後にissuer+subjectを正本としてPersonal Workspaceをatomic・冪等にbootstrapする。
+- guest draftを二重生成なくclaimする。
+- signup後、押していたoutputへ自動復帰する。
+- signupキャンセル・通信断・claim結果不明でもlocal原本を失わない。
 
 ### P4 Monetization Validation
 
 - 課金はActivationと継続利用の実証後に有効化する。
-- 初期商品設計はFree -> Pro -> Teamを第一候補とする。
-- `single_export` は技術契約を保持するが商用MVPではDeferred。
-- 通常のChrome拡張capture時間をBrowser Run従量原価ベースの利用者向け課金軸にしない。
-- Stripeの安全契約は弱めず、課金有効化時にDeep Gateを通す。
+- Product構造はFree -> Pro -> Teamを第一候補とする。
+- Chrome拡張capture時間を利用者向け課金軸にしない。
+- `single_export` は現行Product RoadmapでDeferred。
+- 3,300円/月、9,900円/月は価格候補として再評価する。
+- Stripe技術安全契約は維持し、課金有効化時にDeep Gateを通す。
 
 ### Deferred
 
-利用実績または顧客要求が出るまで、次をMVPブロッカーにしない。
+利用実績または顧客要求が出るまで次をMVPブロッカーにしない。
 
-- Cloudflare Browser Runによるクラウド側操作記録。
+- Cloudflare Browser Run / Browser Session / Live Viewによる製品capture。
+- `debugger` / CDPを使う完全device emulation。
 - Guide Me。
-- スマホ表示確認。
 - タグ、お気に入り、iframe。
 - コメント、通知、詳細分析。
 - Markdown/HTMLを含む複数export形式の同時提供。
 - 高度なTeam管理UI。
+- 都度払い。
 - AI拡張。
 
-## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行
+## 技術依存レーン: EPIC-15 Cloudflare認証・DB統一移行
 
 親Issue: GitHub Issue #176
+
+EPIC-15は安全なAccess/D1基盤を完成させる技術依存レーンであり、Product最優先そのものではない。
 
 正本:
 
@@ -68,7 +86,7 @@ Status: Accepted
 - `docs/04-data/d1-and-storage.md`
 - `docs/05-api/cloudflare-access-d1-api.md`
 
-順序:
+既存順序:
 
 1. M0 正本移行
 2. M1 Access identity spike
@@ -79,9 +97,11 @@ Status: Accepted
 7. M6 Supabase退役
 8. M7 production準備
 
+Product側は、guest local作成にはEPIC-15完了を要求しない。認証後のbootstrap、claim、manual保存、shareに必要なM3/M4相当の安全境界だけを依存として明示する。
+
 外部provider callbackはM2のD1 coreから分離したC1マイルストーンで扱う。M2期間中は両exact POST pathを `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、path別Access Bypassを有効化しない。C1ではOQ-031のatomic receipt/work、lease fencing、sink idempotencyまたはsingle-writer、結果不明照合、recovery testを完了してから再開可否を判断する。
 
-EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。
+EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted close済み。Issue #176 M5の実immutable preview negative proof完了まではstaging合格、production資源作成・deploy、外部招待を禁止する既存境界を維持する。
 
 ## EPIC-00: 文書正本
 
@@ -95,165 +115,156 @@ EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baseli
 
 完了条件:
 
-- Phase 0の合格条件を満たす。
+- 対象scopeの正本間に矛盾がない。
 
 ## EPIC-01: 基盤
 
-- Cloudflare Pages/Workers構成
-- Codespaces
-- 環境変数台帳
-- feature flag台帳
-- CI/CD
+- Cloudflare Pages/Workers構成。
+- Codespaces。
+- 環境変数台帳。
+- feature flag台帳。
+- CI/CD。
+- Fast / Core / Deep品質レベルの実workflow分離。
 
 ## EPIC-02: 認証とワークスペース
 
-Phase 1旧実装親Issue: GitHub Issue #32
+既存Phase 1実装とIssue #176 M3をbaselineとして保持する。
 
-この節のSupabase/RLS経路はIssue #176 M3で置換する移行前baselineである。
+Product追加scope:
 
-Phase 1実装Issue:
+- output gateからのセルフサーブAccess認証。
+- unknownだが検証済みhuman actor専用bootstrap route。
+- issuer+subject正本。
+- identity/profile/Personal Workspace/active owner membershipのatomic provisioning。
+- email一致だけのidentity復活・移動禁止。
+- bootstrap idempotencyと結果不明照合。
 
-- GitHub Issue #33 / P1-01 認証状態: SCR-LOGIN、HttpOnly Cookie、ログイン、ログアウト、期限切れ、再ログイン、401と接続障害の分離。対象ACはAC-001、AC-003、AC-004、AC-005。
-- GitHub Issue #34 / P1-02 ワークスペース: SCR-WORKSPACE、一覧、選択、`create_workspace`、空/読込/作成/失敗状態。対象ACはAC-002、AC-006、AC-012。
-- GitHub Issue #35 / P1-03〜P1-04 メンバー照会・管理: SCR-MEMBERS、profiles、workspace_members、越境拒否、4ロール、last-owner保護。owner移管は専用フローの設計決定まで拒否する。対象ACはAC-007、AC-008、AC-009、AC-014。
-- GitHub Issue #38 / P1-05 RLS回帰: 暫定dev/stagingへのPhase 1 hardening適用、migration履歴同期、DBセッションでのworkspace/member越境拒否、匿名RPC拒否、識別子・作成監査項目の不変条件、last-owner保護まで実検証済み。移行前baselineとして保持し、新規Supabase test userは追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。実アカウントE2EはIssue #176 M3/M5のAccess/D1経路へ継承する。PR #175でAccess保護immutable preview用repo-side経路をmainへ取り込み済みで、`staging` EnvironmentのAccess secretsとAccess外部設定も完了した。
-
-リポジトリには移行前baselineとして、Supabase認証、ワークスペース一覧・作成、メンバー一覧、本人発行の短命参加コードによる追加、role変更・停止、Phase 1 migration、RLS negative testのハーネスがある。owner移管は専用フロー設計まで拒否する。外部stagingのmigration/RLS本体は検証済みだが、Issue #79の実アカウント `npm run test:rls` は専用RLSテストユーザー4項目とmain-only live runを完了していないため、過去経路の合格証跡にはしない。新規Supabase test userは追加せず、同じ越境拒否・last-owner・停止member要件をIssue #176 M3/M5のAccess/D1 negative testへ継承する。旧参加コード経路は移行まで平文をStorage、URL、ログへ保存しない。
+既存Team member / 4 role管理はNEXTとして安全契約を維持する。
 
 ## EPIC-03: アプリシェル
 
-Phase 1実装Issue:
-
-- GitHub Issue #36 / P1-06〜P1-09: 共通シェル、権限別UI、共通状態、日本語文言、アクセシビリティ。対象ACはAC-012、AC-013、AC-014。
-- GitHub Issue #37 / P1-10: Worker実行テスト、型検査、bundle dry-run、SCR-LOGINからSCR-WORKSPACE、SCR-MEMBERS、ログアウトまでの4ロールE2E。Phase 1 readiness workflowでChromiumを導入して実行し、異origin拒否とbody上限はproduction codeを壊す変異でも契約検査が失敗することを保証する。
-
-Issue #36ではリポジトリ内のUI実装と、重要要素を壊す変異で失敗するアクセシビリティ契約検査までを扱う。実ブラウザでの200%ズーム、フォーカス順、スクリーンリーダー相当の横断検証はIssue #37で行い、静的契約だけをE2E完了の根拠にしない。
-
-外部設定Issue:
-
-- GitHub Issue #39: repository visibilityはPhase 1 prelaunchでpublic維持と決定し、ADR-0027を正本とする。暫定Workerのstaging環境名、技術URL、billing OFF、staging Access application/audience/policyとstaging D1/R2/Worker bindingはIssue #176 M5のboundary gateで固定し、productionと共有しない。GitHub branch protection詳細、required checks、up-to-date、conversation resolution、bypass禁止、GitHub Environment required reviewers等の外部管理設定は実設定確認が残る。
-- GitHub Issue #92: non-production branch build停止、`main`のversion upload-only、Access保護は完了し、Issueはcompleted close済みである。これらの保護を維持しつつ、Access/D1/R2移行後の実preview分離はIssue #176 M5の独立migration gateで検証する。これは#92由来のblanket main merge holdを復活させるものではない。
+- 共通シェル、権限別UI、共通状態、日本語文言、アクセシビリティ。
+- guest初回では空の管理シェルを見せず、拡張導入・記録開始へ誘導する。
+- 認証後も初回workspace選択画面へ寄り道させない。
 
 ## EPIC-04: Chrome Extension Capture
 
 MVPの操作記録レーン。
 
 - Manifest V3。
-- `activeTab` / `scripting` を中心とした最小権限。
+- `activeTab` / `scripting`中心の最小権限。
+- guest local persistenceはIndexedDB等を利用する。
 - 記録開始・停止UI。
 - content scriptによる対象タブの操作イベント収集。
-- screenshot取得と安全な送信。
+- screenshot取得。
 - 入力値、Cookie、Authorization非保存。
+- PC / smartphone / tablet表示mode。
+- portrait / landscape。
+- responsive window制御と元bounds復元。
 - SPA / iframe / Shadow DOM / Canvas / Web Components互換性検証。
 - Chrome Web Storeまたは限定配布の導入フロー。
 - 実Chrome E2E。
 
-旧Browser Run関連Issue #86/#89等は削除せず、将来Browser Runを再導入する場合の安全証跡・履歴として保持する。MVPのChrome拡張captureをブロックしない。
+旧Browser Run関連Issue #86/#89等は削除せず、将来再導入時の安全証跡・履歴として保持するがMVPをブロックしない。
 
-## EPIC-05: 操作記録
+## EPIC-05: Guest Draft / Claim / 操作記録
 
-- Chrome拡張からの操作イベント受信。
-- スクリーンショット。
-- Storage。
-- マスキング。
-- 下書き生成。
+- guest local event正規化。
+- guest local screenshot。
+- local draft生成。
+- local editor persistence。
+- output gate。
+- claim intent。
+- 認証後R2 upload。
+- manual/asset finalize。
+- idempotent guest claim。
+- claim成功後のlocal cleanup。
+- save/share/export resume。
 
 ## EPIC-06: 手順書編集
 
 既存Postgres RPC/RLS実装はIssue #176 M4でD1 transaction/queryへ置換する移行前baselineとする。
 
-- 手順書一覧。
-- エディタ。
+- guest local editor。
+- 認証後manual一覧。
+- server editor。
 - 手順並べ替え。
-- 注釈。
+- 注釈／マスキング。
 - 版管理。
 - 公開/復元。
 
-Product補足: MVPでは利用者にrevision内部構造を見せず、作成・編集・共有の完遂を優先する。
+MVPではrevision内部構造を利用者へ見せず、作成・編集・保存・共有の完遂を優先する。
 
 ## EPIC-07: 検索と整理
 
-- フォルダー。
-- タグ。
-- 検索。
-- お気に入り。
-- アーカイブ。
-
-Product優先度: アーカイブはMVP、フォルダー/検索はNEXT、タグ/お気に入りはDeferred。
+- アーカイブ: MVP。
+- フォルダー/検索: NEXT。
+- タグ/お気に入り: Deferred。
 
 ## EPIC-08: 共有と出力
 
-- 共有リンク。
-- 閲覧画面。
-- 期限/パスコード。
-- iframe埋め込みビュー。
-- PDF/Markdown/HTML出力。
-
-Product優先度: URL共有と失効はMVP。PDFはNEXT候補。iframe、Markdown、HTMLはDeferred。
+- URL共有と失効: MVP。
+- 期限・パスコード・権限範囲: MVP安全条件。
+- PDF: output gate対象。正式なFree/Pro配分はNEXTで決定。
+- iframe、Markdown、HTML: Deferred。
 
 ## EPIC-09: 運用機能
 
-- コメント。
-- 通知。
-- メンバー管理。
-- 監査ログ。
-
-Product優先度: セキュリティ上必要な監査記録は維持する。一般利用者向けコメント/通知/高度な管理UIはDeferred。
+- セキュリティ上必要な監査記録は維持。
+- 一般利用者向けコメント/通知/高度な管理UIはDeferred。
+- Team member管理はNEXT。
 
 ## EPIC-10: 課金
 
-- 現行価格契約: 都度払い550円、パーソナル3,300円/月、チーム9,900円/月。
-- Stripe Checkout SessionsとStripe Link。
-- checkout intentと `client_reference_id`。
-- Webhook署名検証、重複・遅延・順不同。
-- 都度払いのmanual scope entitlementと30日再出力。
-- パーソナル/チームのworkspace entitlement。
-- 作成者席、viewer、R2等のusage counter。
-- 80%警告、100%停止、自動従量課金なし。
-- 未払い、解約、返金、chargeback。
-- 請求・利用量画面。
-
-Product優先度: BILLING OFFのままActivationと継続利用を検証する。Free -> Pro -> Teamを第一候補とし、single_exportは商用MVPではDeferred。通常のChrome拡張capture時間をBrowser Run従量原価ベースの課金軸にしない。
+- 現行Product構造: Free / Pro / Team。
+- capture時間課金なし。
+- Stripe Checkout Sessions / Link / webhook安全契約は維持。
+- 旧single_export 550円はDeferred。
+- 旧3,300円/月、9,900円/月は価格候補として再評価。
+- R2/API/export原価は内部計測。
+- 自動従量課金なし。
 
 ## EPIC-11: 分析
 
-- 閲覧数。
-- 完了率。
-- 離脱ステップ。
-- チャネル。
-- 集計検証。
+Product Event正本: `docs/05-api/product-events.md`。
 
-Product優先度: MVPではActivation、TTFV、Capture Completion、Share、Second Manual、D7 Creator Retentionの最小計測を先に行う。詳細閲覧分析はNEXT/Deferred。
+MVP:
+
+- onboarding_started。
+- extension install。
+- capture mode / start / fail / complete。
+- draft generated。
+- output gate。
+- signup。
+- guest claim。
+- first manual。
+- share。
+- second manual。
+
+詳細閲覧分析はNEXT/Deferred。
 
 ## EPIC-12: セキュリティ/運用
 
 - 秘密管理。
 - 削除/退会。
-- バックアップ。
-- リストア演習。
-- Runbook。
-- Chrome拡張権限・データ収集境界。
-
-セキュリティ/復旧要件はMVP簡素化の対象外。
+- バックアップ/リストア。
+- Chrome拡張permission境界。
+- guest local-only境界。
+- claim recovery。
+- share期限・パスコード・失効。
 
 ## EPIC-13: リリース品質
 
-- E2E。
-- Access JWT、Worker認可、workspace固定D1 query／制約negative・mutation test（旧RLSは移行baseline変更時だけ）。
-- Chrome拡張の権限・対象タブ・入力値非保存negative test。
-- 負荷。
-- 障害注入。
-- 可観測性。
-- ロールバック。
+- Chrome拡張実E2E。
+- PC / smartphone / tablet実E2E。
+- guest server-write 0 negative test。
+- signup/bootstrap/claim再送・結果不明。
+- Access JWT、Worker認可、workspace固定D1 query negative/mutation test。
+- R2、share、manual回帰。
+- Fast / Core / Deep運用レベル。
 
-品質ゲートは `docs/07-quality/test-strategy.md` のFast/Core/Deep運用レベルに従い、無関係なDeep検査で日常のMVP開発を恒常的に塞がない。
+Browser Run Deep Gateは再導入時だけ必須化する。
 
 ## EPIC-14: AI拡張口
-
-- AI feature flag。
-- AI利用OFF既定。
-- 管理者ON/OFF。
-- 利用ログ。
-- コスト上限。
 
 Product優先度: Deferred。収益・利用価値が確認されるまでコア導線の依存先にしない。
