@@ -8,7 +8,7 @@ Status: Accepted
 
 ### P0 Product Foundation
 
-- ICP / JTBD / Activationを正本化する。
+- ICP / Job To Be Done / Activationを正本化する。
 - 個人利用開始時の内部workspaceを自動準備し、workspace作成・4ロール理解を初回必須にしない。
 - Activation、TTFV、Share、Second Manualを計測できるようにする。
 
