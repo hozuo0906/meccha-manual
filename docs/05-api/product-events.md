@@ -6,31 +6,48 @@ Status: Accepted
 
 Activation、Time to First Value、Capture Completion、Share、Second Manual、D7 Creator Retentionを一貫した定義で測定する。
 
-本書をMVP Product Eventの名称、発行条件、payloadの正本とし、他文書は本書を参照する。
+本書をMVP Product Eventの名称、発行条件、payloadの唯一の正本とし、他文書は本書を参照する。
 
 ## 原則
 
 - Product Eventは監査ログ、課金event、業務データの正本にしない。
-- 入力値、Cookie、Authorization、スクリーンショット本文、DOM本文、対象ページの機密URL/queryをpayloadへ入れない。
+- 入力値、Cookie、Authorization、スクリーンショット本文、DOM本文、対象ページのURL/queryをpayloadへ入れない。
 - アカウント作成前のguest contentはanalyticsのためにクラウドへ送らない。
-- ゲスト中のProduct Eventは拡張内に一時保持できる。signup完了後にprivacy-safeなeventだけをまとめて送信してよい。
+- guest中のProduct Eventは拡張内に一時保持できる。signup完了後にprivacy-safeなeventだけをまとめて送信してよい。
 - signupせず離脱したguestについて、内容取得や匿名uploadを追加してまで正確なファネルを作らない。LP / Chrome Web Store等の集計値と分離して扱う。
-- eventは冪等なevent IDを持ち、再送で二重カウントしない。
+- eventは推測困難な `eventId` を持ち、再送で二重カウントしない。
 - timestampはclient発生時刻とserver受理時刻を区別する。
 
 ## 共通payload
 
-サーバーへ送るProduct Eventは原則次だけを許可する。
+サーバーへ送るProduct Eventは次のfieldだけをallowlistする。
 
-- `eventId`: clientで生成する推測困難なID。
-- `eventName`: 本書のallowlist値。
-- `occurredAt`: client側発生時刻。
-- `captureMode`: `pc | smartphone | tablet`。該当しないeventでは省略。
-- `orientation`: `portrait | landscape`。該当しないeventでは省略。
-- `manualId`: 認証後かつmanualが存在する場合だけ。guest local draft IDを送らない。
-- `workspaceId`: 認証後にserverが認可済みcontextから付与する。client申告を信用しない。
+- `eventId`: clientで生成する推測困難なID。必須。
+- `eventName`: 本書のallowlist値。必須。
+- `occurredAt`: client側発生時刻。必須。
+- `captureMode`: `pc | smartphone | tablet`。capture関連eventだけ省略可で付与する。
+- `orientation`: `portrait | landscape`。smartphone/tablet capture関連eventだけ省略可で付与する。
+- `errorCategory`: `capture_failed` だけで許可する固定enum。その他eventでは存在してはならない。
+- `manualId`: 認証後かつmanualが存在するeventだけ。guest local draft IDを送らない。
+- `workspaceId`: client request fieldとして受け付けず、認証後にserverが認可済みcontextから付与する。
 
-email、display name、URL、ページtitle、DOM text、target textをProduct Event payloadへ入れない。
+email、display name、URL、ページtitle、DOM text、target text、raw error message、stack traceをProduct Event payloadへ入れない。
+
+## `capture_failed.errorCategory`
+
+`capture_failed` では原因分析用に `errorCategory` を必須とし、次の値だけを許可する。
+
+- `permission_denied`: 必要なChrome権限または対象タブアクセスを得られなかった。
+- `restricted_page`: `chrome://`等、拡張が記録できないページだった。
+- `injection_failed`: content scriptの注入・初期化に失敗した。
+- `unsupported_page`: 対象DOM/iframe等の制約により安全に記録継続できなかった。
+- `screenshot_failed`: screenshot取得に失敗した。
+- `responsive_mode_failed`: smartphone/tablet viewport調整または復元に失敗した。
+- `local_storage_failed`: guest local persistenceに失敗した。
+- `connection_interrupted`: 拡張内部の必要なmessage channelが途中で切断した。
+- `unknown`: 上記へ安全に分類できない。raw error本文は送らない。
+
+client独自の文字列、HTTP error本文、URL、DOM情報をcategoryとして送らない。
 
 ## Event一覧
 
@@ -41,7 +58,7 @@ email、display name、URL、ページtitle、DOM text、target textをProduct E
 | `extension_installed` | アプリまたは拡張が導入済み状態を確認した |
 | `capture_mode_selected` | PC / smartphone / tabletの表示モードを選んだ |
 | `capture_started` | 対象タブで記録開始が成立した |
-| `capture_failed` | 記録開始または記録中に継続不能になった。機密を含まない固定error categoryだけを別fieldで許可してよい |
+| `capture_failed` | 記録開始または記録中に継続不能になった。`errorCategory`必須 |
 | `capture_completed` | 利用者が記録を終了し、保存可能なlocal captureが成立した |
 | `draft_generated` | guest local draftまたは認証済みdraftの生成が完了した |
 | `output_gate_opened` | guest利用者が保存・共有・PDF出力等の認証必須操作を選んだ |
@@ -76,6 +93,10 @@ LP訪問だけを分母にした指標は別途Acquisition Conversionとして�
 
 `capture_started` に対する `capture_completed` の割合。
 
+### Capture Failure Rate
+
+`capture_started` とcapture開始試行に対する `capture_failed` を `errorCategory` 別に集計する。raw error本文を分析基盤へ入れない。
+
 ### Share Rate
 
 `first_manual_completed` または対象manual完成に対する `share_enabled` の割合。
@@ -94,11 +115,16 @@ LP訪問だけを分母にした指標は別途Acquisition Conversionとして�
 - event順序だけで業務状態を変更しない。
 - server-sideのmanual/share/billing状態と矛盾するeventを業務正本にしない。
 - 認証後にguest期間eventをflushする場合、同じevent IDを維持して再送する。
+- `workspaceId` はserver側で付与し、client申告値を信用しない。
 
 ## テスト
 
 - allowlist外eventを拒否する。
+- allowlist外fieldを拒否する。
+- `capture_failed` で`errorCategory`欠落を拒否する。
+- `capture_failed` のenum外`errorCategory`を拒否する。
+- `capture_failed`以外に`errorCategory`があれば拒否する。
 - forbidden payload fieldを拒否する。
 - 同一event ID再送を二重集計しない。
 - guest local data本文がProduct Event APIへ送られない。
-- clientがworkspaceIdを差し替えてもserverは認証済みcontextから決定する。
+- clientがworkspaceIdを送っても信用せず、認証済みcontextからserverが決定する。
