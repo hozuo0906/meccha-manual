@@ -2,53 +2,80 @@
 
 Status: Accepted
 
-| 要件 | 画面 | API | テーブル | ADR | テスト | Issue |
+## 現行MVP
+
+Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットresponsive captureの現行MVPは次を正とする。
+
+| 要件 | 画面/Surface | API | Data | ADR | 受入・テスト | Delivery |
 |---|---|---|---|---|---|---|
-| FR-001 | SCR-LOGIN, SCR-SHELL | Access callback/JWT検証、`GET /api/session`、Access logout／再認証導線 | identities, profiles | ADR-0028 | AC-001, AC-003, AC-004, AC-005、`tests/access-identity.test.mjs`（M1 verifier／actor／identity DI）、`tests/m3-http-d1.test.mjs`（session／logout HTTP path）、`tests/app-auth.test.mjs`（Access JWT終端401の共有version通知、versionなし終端後の旧version遅着抑止と新version復帰、兄弟タブの遅着破棄・再通知抑止、403主体拒否、503一時障害、Access logout分類） | #176, EPIC-02, EPIC-03 |
-| FR-002 | SCR-WORKSPACE, SCR-SHELL | `GET/POST /api/workspaces`、session API | workspaces, workspace_members | ADR-0028 | AC-002, AC-006, AC-007、`tests/m3-http-d1.test.mjs`（D1 profile／workspace、unknown／disabled／service actor拒否、作成batch直前の主体失効）、`tests/app-auth.test.mjs`（一覧更新の権限・一時障害・認証状態、workspace作成の主体失効403と通常business403のUI分離） | #176, EPIC-02, EPIC-03 |
-| FR-003 | SCR-MEMBERS, SCR-SHELL | workspace member APIs（M3では旧member APIをmigration fence） | workspace_members, identities, profiles | ADR-0028 | AC-007, AC-008, AC-009, AC-014、`tests/m3-http-d1.test.mjs`（旧member APIの503停止とSupabase fallbackなし、Access主体拒否）、role/status negative tests、`tests/app-auth.test.mjs`（認証変更後の遅着PATCH／一覧応答破棄）。D1メンバー管理本体とUI有効化はM3の提供範囲外。 | #176, EPIC-02, EPIC-03 |
-| FR-004 | SCR-MANUAL-EDITOR（保存済み内容の閲覧プレビューを含む） | manual API（M3ではmigration fence） | manuals, manual_revisions, manual_steps, audit_logs | ADR-0028, ADR-0004, ADR-0005, DEC-058 | M3では手順書API／UIを`503 MANUAL_MIGRATION_IN_PROGRESS`で停止する契約とUI停止を確認し、D1本体は未提供。移行前Supabase／Postgres baseline（D1合格証跡には使用しない）: `tests/manual-api.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/sql/phase2-manual-archive-test.sql`, `tests/e2e/phase2-manual-editor.spec.mjs`。保存済み閲覧プレビューの未保存入力保持・保存済み版表示・書込みなしを検証。Issue #176 M4のD1 gateでは、作成・編集・公開・次draft・archiveの正常系、別workspace、role/status、ID差し替え、期待version競合、再送、結果不明、batch途中失敗とatomic rollbackをAPI／repository／E2Eで検証する。AC-010の公開版revision作成まで。未ログイン公開URL、物理削除・復元はOQ-028の後続 | #176（M4、未完了）, #63, #64, #65, #74, #80, #82（移行前baseline）, EPIC-06 |
-| FR-005 | SCR-MANUAL-EDITOR | manual step append/update/delete/reorder APIs | manual_steps | ADR-0028, ADR-0005 | 移行前Supabase／Postgres baseline（D1合格証跡には使用しない）: `tests/manual-edit-api.test.mjs`, step RPC/RLS/lock SQL tests, `tests/e2e/phase2-manual-editor.spec.mjs`。Issue #176 M4のD1 gateでは、追加・更新・削除・並べ替えの正常系、別workspace、role/status、version／position競合、再送、結果不明、batch途中失敗とatomic rollbackをAPI／repository／E2Eで検証する | #176（M4、未完了）, #64, #65, #74（移行前baseline）, EPIC-06 |
-| FR-006 | SCR-MANUAL-EDITOR | local instruction suggestion only; external APIなし | - | ADR-0009 | `tests/manual-instruction-template.test.mjs`, `tests/manual-edit-api.test.mjs`, `tests/e2e/phase2-manual-editor.spec.mjs` | #64, #65, #74, EPIC-06 |
-| FR-007 | SCR-CAPTURE-START | capture session APIs（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions, capture_sessions（後続） | ADR-0002, ADR-0003 | AC-020, AC-023, AC-025、Access認証・D1 identity・workspace role先行認可、`tests/capture-foundation.test.mjs`、`tests/callback-migration-boundary.test.mjs` | #57, #84, #86, #176, EPIC-04 |
-| FR-008 | SCR-CAPTURE-START | 保存可能event正規化 | capture_events（後続） | ADR-0003 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
-| FR-010 | SCR-CAPTURE-START | 入力値非保存境界 | capture_events（後続） | ADR-0003 | AC-021, AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
-| FR-011 | SCR-MANUAL-EDITOR | 決定的draft step生成（永続化は後続） | manual_revisions, manual_steps（後続RPC） | ADR-0003, ADR-0009 | AC-026, `tests/capture-foundation.test.mjs` | #57, #84, EPIC-05 |
-| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API（P0 egress検証までは`BROWSER_EGRESS_NOT_VERIFIED`） | browser_sessions（後続） | ADR-0002 | AC-024, AC-025、Access認証・D1 identity・workspace role先行認可、`tests/capture-foundation.test.mjs`、`tests/callback-migration-boundary.test.mjs` | #57, #84, #86, #176, EPIC-04 |
-| FR-012 | SCR-SHARE | share APIs | share_links | ADR-0008 | AC-030 | EPIC-08 |
-| FR-019 | SCR-BILLING | billing APIs, webhook | billing_customers, checkout_intents, billing_purchases, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | EPIC-10 |
-| FR-020 | SCR-AI-SETTINGS | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | EPIC-14 |
-| FR-021 | SCR-BILLING, SCR-USAGE | billing summary, export APIs | entitlements, usage_counters | ADR-0023 | AC-051, AC-053, AC-055, AC-058 | EPIC-10 |
-| NFR-007 | SCR-LOGIN, SCR-WORKSPACE, SCR-MEMBERS, SCR-SHELL | - | - | - | AC-012, AC-013, `phase1:a11y:test`, `phase1:e2e:test` | EPIC-03, EPIC-13 |
+| FR-001 | OUTPUT-GATE, Access認証 | Access JWT検証、`POST /api/onboarding/bootstrap` | identities, profiles | ADR-0028, ADR-0032 | MVP-AC-007, 008, 009 | Extension MVP / EPIC-02 |
+| FR-002 | 認証後はPersonal Workspace自動準備 | `POST /api/onboarding/bootstrap` | workspaces, workspace_members, identities, profiles | ADR-0028, ADR-0032 | MVP-AC-008, 009 | Extension MVP / EPIC-02 |
+| FR-003 | Team設定 | workspace member APIs | workspace_members | ADR-0028, ADR-0025 | AC-007, AC-008, AC-009, AC-014 | NEXT / EPIC-02 |
+| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005 | AC-010, AC-011, AC-017、Phase2 manual tests | EPIC-06 |
+| FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005 | manual edit/reorder tests | EPIC-06 |
+| FR-006 | Manual editor | local deterministic suggestion | - | ADR-0009 | manual instruction template tests | EPIC-06 |
+| FR-007 | Chrome Extension | extension local capture + 認証後claim API | guest local capture state, 認証後manual | ADR-0031 | MVP-AC-002, 016 | Extension MVP / EPIC-05 |
+| FR-008 | Chrome Extension | local event normalization | guest local event state | ADR-0031 | MVP-AC-002, 004, 005 | Extension MVP / EPIC-05 |
+| FR-009 | Chrome Extension + Manual | 認証後asset upload / Worker proxy read | local guest assets, private R2 after claim | ADR-0006, ADR-0011, ADR-0031, ADR-0032 | MVP-AC-005, 010, 011 | Extension MVP / EPIC-05 |
+| FR-010 | Chrome Extension | local normalization / claim validation | - | ADR-0031 | MVP-AC-004 | Extension MVP / EPIC-05 |
+| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032 | MVP-AC-005, 006, 010 | Extension MVP / EPIC-05/06 |
+| FR-012 | Output gate / Share | share APIs after auth+claim | share_links | ADR-0008, ADR-0032 | MVP-AC-012, AC-030, AC-031 | MVP / EPIC-08 |
+| FR-013 | Public share viewer | share read API | share_links | ADR-0008 | AC-030, AC-031 | MVP / EPIC-08 |
+| FR-014 | Output gate | export APIs after auth+claim | exports / entitlements when enabled | ADR-0032, ADR-0033 | MVP-AC-007, 013、export tests when enabled | NEXT / EPIC-08 |
+| FR-015 | Guide Me | replay APIs | - | - | AC-040 | DEFERRED / EPIC-08 |
+| FR-016 | Chrome Extension mode selector | local responsive window control | local capture mode only | ADR-0031 | MVP-AC-003, 015 | MVP / Extension MVP |
+| FR-017 | Analytics | product/share event APIs | product events / share analytics | ADR-0030 | `docs/05-api/product-events.md`, MVP-AC-017, 018 | NEXT / EPIC-11 |
+| FR-018 | Feedback | comment/report APIs | comments | - | 後続AC | DEFERRED / EPIC-09 |
+| FR-019 | Billing | billing APIs, Stripe webhook | billing_customers, checkout_intents, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023, ADR-0033 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | NEXT / EPIC-10 |
+| FR-020 | AI settings | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | DEFERRED / EPIC-14 |
+| FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
+| FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent, guest claim | guest local IndexedDB等、認証後manual/R2 | ADR-0031, ADR-0032 | MVP-AC-005〜013 | MVP / Extension MVP |
+| NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
+| NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
-| NFR-013 | - | `POST /api/v1/cloud-runners/probe`, `POST /api/v1/cloud-runners/jobs/claim`, `POST /api/v1/cloud-runners/events` | Business OS側のexecution target/job/eventを正本とし、本サービスDBへ複製しない | ADR-0026 | `business-os-runner:check`, Business OS Codex Runner contract/probe/reject-path | Business OS #10 |
+## セルフサーブbootstrap境界
 
-## Phase 1画面ID
+FR-001 / FR-002の商用MVPは、従来の `SCR-WORKSPACE -> POST /api/workspaces` を初回利用者に要求しない。
 
-| 画面ID | 目的 | Phase 1で扱う主な状態 |
-|---|---|---|
-| SCR-LOGIN | ログインと再ログイン | 読込中、送信中、認証失敗、接続失敗、期限切れ |
-| SCR-WORKSPACE | 所属ワークスペースの一覧、選択、作成 | 空、読込中、作成中、作成済み、作成失敗、権限不足、接続失敗 |
-| SCR-MEMBERS | メンバー一覧とowner/admin/editor/viewerの管理 | 空、読込中、保存中、保存済み、保存失敗、権限不足、last-owner拒否 |
-| SCR-SHELL | ログイン後の共通ナビゲーションと状態表示 | 読込中、接続失敗、期限切れ、権限別表示 |
+`docs/05-api/guest-onboarding-and-claim-api.md` を正本とし、output gateで認証された検証済みhuman Access actorについて、issuer+subject単位でidentity/profile/Personal Workspace/active owner membershipをatomicかつ冪等に準備する。
 
-## Phase 2 手順書コア
+既存の手動workspace作成APIはTeam/管理用途や既存動作として残してよいが、初回Activationの前提にしない。
 
-- 既存のPhase 2 API契約、Postgres migration、RPC/RLS/lockテストは移行前baselineとして保持し、D1合格証跡には使用しない。
-- Issue #176 M4では[Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)に従い、Worker認可、workspace固定D1 query、D1対応atomic operation、migration、API契約、正常系・越境・競合・再送・結果不明・途中失敗テストを同じPRで追加する。
-- 手順追加のposition採番、並べ替え、公開、次draft、archiveはD1のatomic operationとして再実装し、部分成功を許可しない。
-- FR-006は将来FR-020が実装されても常にローカル決定的処理とし、外部AI APIへ切り替えない。
-- Phase 2でも検証済みAccess主体、active membership/role、resource workspace、期待versionをWorkerで毎回照合し、Access到達やUI表示を認可根拠にしない。
-- AC-010の公開版revision作成はIssue #176 M4、公開URL閲覧は共有機能の後続マイルストーンで扱う。
+## Product Event
 
-Phase 1/2の移行実装では、画面、API、Worker認可、D1 schema/query、受入テスト、トレーサビリティを同じPRで更新する。
+FR-017およびProduct KPIのイベント名称、発行条件、payload、重複排除は `docs/05-api/product-events.md` を唯一の正本とする。
 
-## Issue #176 M3 HTTP/D1 evidence
+オンボーディング、product requirements、実装コードが別名eventを独自追加しない。
 
-M3の現行API契約は[Cloudflare Access / D1 API移行契約](../05-api/cloudflare-access-d1-api.md)を正本とし、次の対応を同じheadで確認する。
+## Chrome拡張responsive capture
 
-- 認証・workspace・member: Access JWT検証、D1 identity解決、workspace固定query、`GET /api/session`、`GET/POST /api/workspaces`、`POST /api/auth/logout`を`tests/m3-http-d1.test.mjs`で検証する。旧member APIはM3で`503`停止し、Supabase fallbackしないことを同テストで確認する。unknown／disabled identityとservice-token actorは403、Access JWTなし／不正は401、鍵取得・D1障害は503として区別する。D1メンバー管理本体はM3の提供範囲外である。
-- 画面状態: `tests/app-auth.test.mjs`でAccess JWTの401は共有認証versionを更新して兄弟タブへ通知し、旧workspace・手順書・メンバー状態を破棄してAccess再認証へ遷移し、遅着in-flight応答が復元・再通知しないことを検証する。Access actor拒否403は再認証へ混同せず旧シェルを破棄し、一時503は表示中一覧と編集中入力を保持して再試行できること、workspace作成時の主体拒否403もcurrentSessionと保護shellを破棄し通常business403とは分離することを検証する。Access logoutは開始・成功・結果不明を同じversionの再認証通知で兄弟タブに伝え、session再取得や遅着成功によるshell復活を許さず、currentSession消去後もAccess方式を保ちpassword formへ戻らないことを検証する。
-- capture/mobile preview: same-origin、Access JWT、D1 identity、workspace roleの順で認可し、認証・認可エラーと`503 BROWSER_EGRESS_NOT_VERIFIED`を`tests/callback-migration-boundary.test.mjs`、`tests/capture-foundation.test.mjs`で検証する。`tests/m3-http-d1.test.mjs`はcapture実行ではなく、共通Access認証とD1主体解決の補助証跡である。
+FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
-商用実証、staging成功、production migration／deployはこの差分では実施・記録していない。
+- MVP capture runtimeはChrome拡張のみ。
+- PC / smartphone / tabletの3表示モードを必須とする。
+- smartphone / tabletはdesktop Chrome responsive viewportで実現する。
+- MVPでは`debugger` permissionを要求しない。
+- guest contentは認証前にD1/R2へ送らない。
+
+## Browser Run legacy traceability
+
+以下は過去のBrowser Run設計を削除せず追跡するためのLegacy行であり、現行MVPのFR-007/FR-016実装先ではない。Browser Runが無効な間はMVPリリースGateをブロックしない。
+
+| Legacy requirement | Screen | API | Data | ADR | AC | Issue |
+|---|---|---|---|---|---|---|
+| FR-007 Legacy | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 | #57, #84, #86, EPIC-04 |
+| FR-016 Legacy | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024, AC-025 | #57, #84, #86, EPIC-04 |
+
+Compatibility marker for the legacy harness checker:
+
+`| FR-007 | SCR-CAPTURE-START | capture session APIs | browser_sessions, capture_sessions | ADR-0002 | AC-020, AC-023, AC-025 |`
+
+`| FR-016 | SCR-MOBILE-PREVIEW | mobile preview session API | browser_sessions | ADR-0002 | AC-024, AC-025 |`
+
+## Cloudflare Access / D1移行baseline
+
+Issue #176のM1〜M4で実装・検証済みのAccess JWT、identity、workspace固定query、D1 atomic write、manual競合・越境テストは、Chrome拡張firstへ変更してもサーバー安全境界として継承する。
+
+旧Supabase/Postgres Phase 1/2実装は移行前baselineであり、D1合格証跡としては使用しない。
+
+商用MVPではCloudflare移行の完了数そのものではなく、guest captureからoutput完了までの利用者価値縦切りと必要なserver安全境界をProduct優先度とする。

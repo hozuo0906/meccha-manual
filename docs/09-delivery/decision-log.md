@@ -241,3 +241,27 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Supersedes (partial):
   - ADR-0016の2026-08-02時点の制約のうち、実装・mergeを親セッションの判断とユーザー承認に優先させる一般承認部分だけを更新する。本番deployに関する別承認境界は対象外とする。
   - DEC-021の2026-08-02時点の記録のうち、owner承認を通常の実装・PR・mergeの一般要件とする部分だけを更新する。Discordボタンからの直接merge禁止、GitHub checks・監査ログ・branch protectionを正本とする境界、その他の別承認境界は失効させない。
+
+## DEC-068: Chrome拡張only・guest-first PLG MVPへ再編する
+
+- Status: Accepted
+- Date: 2026-09-12
+- Decision:
+  - MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。
+  - 初回利用者は認証前にPC／スマホ／タブレットのresponsive表示で操作を記録し、manual本文、screenshot、編集内容をローカルだけに保持する。guest contentをD1/R2へ書き込まない。
+  - `保存 / 共有 / PDF出力` 等のoutput選択時に初めてsignup/loginを要求し、検証済みAccess `issuer + subject`を正本としてPersonal Workspaceをatomic・冪等にbootstrapする。guest draftをclaimした後、選択済みoutputへ復帰する。
+  - Access credentialはChrome拡張へ渡さない。認証済み自社Web originだけを許可したhandoffを使い、claim成功確認前にlocal guest原本を削除しない。
+  - 商品設計はFree / Pro / Teamを第一候補とし、Chrome拡張capture時間を利用者向け課金軸にしない。`single_export`はMVPでDeferred、旧3,300円／9,900円は再評価候補とする。
+  - Product Eventは`docs/05-api/product-events.md`を唯一のpayload正本とし、入力値、URL本文、Cookie、Authorization、screenshot本文を送らない。
+- Supersedes:
+  - DEC-005の「Chrome拡張を第一方式にしない」決定と、DEC-032／DEC-061／DEC-062のBrowser Runを現行MVP runtime・release gateとして扱う部分。既存のSSRF、全通信egress、hard-expiry安全契約は将来再導入時のLegacy gateとして維持する。
+  - DEC-008のworkspace所属をguest作成前の前提と解釈する部分。認証後の業務データをworkspaceへ固定する認可境界は維持する。
+  - DEC-014／DEC-030／DEC-037およびADR-0023の固定価格・Browser Run時間・`single_export`初期offer部分。Stripe署名検証、Webhook正本、冪等性、結果不明照合の安全契約は維持する。
+  - DEC-064のproduction商用MVPを招待済みhumanだけに限定し、unknown human bootstrapを常時無効にする部分。development／staging allowlist、Access JWT検証、issuer+subject正本、disabled／retired identity拒否、Worker/D1 deny-by-defaultは維持する。
+- Reason:
+  - アカウント作成前に利用者自身のChromeで手順書作成価値を体験できるようにし、不要なクラウドブラウザ原価と既存ログイン／VPN／IP制限との不整合をMVPから外すため。
+- Evidence:
+  - [ADR-0030](../03-architecture/adrs/ADR-0030-plg-mvp-product-delivery.md)
+  - [ADR-0031](../03-architecture/adrs/ADR-0031-chrome-extension-first-capture.md)
+  - [ADR-0032](../03-architecture/adrs/ADR-0032-value-first-guest-onboarding.md)
+  - [ADR-0033](../03-architecture/adrs/ADR-0033-extension-first-pricing-simplification.md)
