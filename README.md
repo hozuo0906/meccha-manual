@@ -83,6 +83,16 @@ Product Eventの正本は [`docs/05-api/product-events.md`](docs/05-api/product-
 - [テスト戦略](docs/07-quality/test-strategy.md)
 - [Issue分解](docs/09-delivery/issue-map.md)
 
+## 実装バックログ
+
+- Issue #227: Chrome拡張only MVP全体
+- Issue #228: output時セルフサーブ登録 / guest claim
+- Issue #229: Product Event / KPI計測
+- Issue #230: Fast / Core / Deep CI実分離
+- Issue #231: 巨大Worker/UIファイル責務分割
+- Issue #232: 初心者向けEditor / Progressive Disclosure
+- Issue #233: Free / Pro / Team商品・価格確定
+
 ## 現在の状態
 
 Supabase Auth/Postgres/RLS前提のPhase 1/2実装は移行前baselineとして存在し、Issue #176でCloudflare Access/D1へ段階移行中です。
