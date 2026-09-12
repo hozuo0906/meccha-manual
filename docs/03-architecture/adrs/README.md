@@ -31,8 +31,8 @@ Status: Accepted
 | ADR-0025 | Accepted | 同意ベース参加コード。RPC/RLS実装はADR-0028でWorker/D1へ更新 |
 | ADR-0026 | Accepted | Business OS cloud runnerを既存Issue runnerと並設する |
 | ADR-0027 | Accepted | prelaunch境界。Supabase接続境界はADR-0028でAccess/D1/R2へ更新 |
-| ADR-0028 | Accepted | Cloudflare Access / Workers / D1へ認証・業務データを統一する |
+| ADR-0028 | Partially Superseded | Access/Workers/D1の安全境界は維持。production商用MVPの招待制限定とbootstrap常時無効部分はADR-0032でセルフサーブOTP + bootstrapへ更新 |
 | ADR-0030 | Accepted | PLG型MVP、価値検証優先、Progressive Disclosure、Product KPIをProduct Delivery正本にする |
 | ADR-0031 | Accepted | Chrome拡張だけをMVP capture方式にし、PC/スマホ/タブレットresponsive captureとguest local draftを提供する |
-| ADR-0032 | Accepted | アカウント登録をoutput境界へ遅延し、self-service bootstrapとguest draft claimを採用する |
+| ADR-0032 | Accepted | アカウント登録をoutput境界へ遅延し、production self-service OTP、Personal bootstrap、secure extension handoff、guest draft claimを採用する |
 | ADR-0033 | Accepted | Free/Pro/Teamへ商品設計を簡素化し、Browser Run時間を料金軸から外す |
