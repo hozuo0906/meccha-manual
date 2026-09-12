@@ -21,6 +21,7 @@
     "worker:runtime:test": "node --experimental-strip-types --test tests/worker-runtime.test.mjs",
     "worker:runtime:mutation:test": "node --experimental-strip-types --test tests/worker-runtime-mutation.test.mjs",
     "capture:test": "node --experimental-transform-types --test tests/capture-foundation.test.mjs",
+    "extension:test": "node --test tests/extension-mvp.test.mjs",
     "browser-run:egress:check": "node scripts/browser-run-egress-proof.mjs --check",
     "browser-run:egress:test": "node --test tests/browser-run-egress-proof.test.mjs",
     "browser-run:egress:run": "node scripts/browser-run-egress-proof.mjs --run",
