@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 
 const requiredDocs = {
   "README.md": [
-    "Cloudflare R2を第一候補",
-    "Stripe Checkout Sessions / Link / Webhook"
+    "認証後のファイル本体はprivate Cloudflare R2",
+    "`BILLING_FEATURE_ENABLED=false`"
   ],
   "docs/01-product/pricing-and-plans.md": [
     "550円 / 1マニュアル",
@@ -12,7 +12,7 @@ const requiredDocs = {
     "`single_export`",
     "`personal_monthly`",
     "`team_monthly`",
-    "Stripe Link",
+    "Stripe Checkout SessionsとLink",
     "購入日から30日間",
     "上限超過による自動課金は行わず"
   ],

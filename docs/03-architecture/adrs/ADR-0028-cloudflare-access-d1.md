@@ -4,31 +4,42 @@ Status: Accepted
 
 ## Context
 
-現行実装はSupabase Auth、Postgres、RLSを認証・業務データ・テナント分離の正本としている。一方、アプリ/API、preview保護、Browser Run、Durable Objects、R2はCloudflareを採用しており、環境分離、secret管理、障害切り分け、運用手順が複数control planeへ分散している。
+現行実装はSupabase Auth、Postgres、RLSを認証・業務データ・テナント分離の正本としていた。一方、アプリ/API、preview保護、R2等はCloudflareを採用しており、環境分離、secret管理、障害切り分け、運用手順が複数control planeへ分散していた。
 
-2026-08-30 JSTにownerは、認証と業務DBもCloudflare中心へ移行する方針を承認した。外部ユーザーとproduction実データはまだ存在せず、不可逆なデータ移行は未発生である。
+2026-08-30 JSTにownerは、認証と業務DBもCloudflare中心へ移行する方針を承認した。2026-09-12にADR-0032で商用MVPの価値体験後セルフサーブ登録を追加し、本ADRの招待制ログイン部分をproduction商用MVPについて更新した。
 
 ## Decision
 
 目標構成を次へ変更する。
 
 - 認証前段: Cloudflare Access self-hosted application
-- 初期ログイン方式: メールOTPによる招待制
+- development/stagingログイン: メールOTPを使い、明示Emails/Groups allowlistによる招待制を維持する
+- production商用MVPログイン: 一般利用者向けapplicationではOne-time PINによる有効メール利用者の本人確認到達を許可し、アプリ内業務認可はWorker/D1でdeny-by-defaultにする
 - application identity: Access application JWTの検証済みissuer、audience、subject
 - アプリ/API: Cloudflare Workers
 - 業務DB・ファイルメタデータ: Cloudflare D1
 - ファイル本体: private Cloudflare R2
 - 業務asset read: 毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxyのみ。ブラウザへR2の短期署名read URLを配らず、保護応答を共有cacheへ流さない。共有リンクは初期OFFを維持する。
-- 操作記録session: Durable Objects
+- MVP操作記録: ADR-0031に従うChrome Extension。旧Browser Run / Durable Object capture設計は現行MVP runtimeでは使わない
 - ワークスペース所属・owner/admin/editor/viewer: D1を正本とし、Workerで毎回認可する
+
+productionの一般利用者向けAccess policyは、Access到達を「有効メールを受信できるhuman actorの本人確認」までに限定する。Accessへ到達しただけではapplication identity、workspace、manual、share、billingへの権限を与えない。
+
+- 未登録だが検証済みの `access_user` は `POST /api/onboarding/bootstrap` だけを許可する。
+- bootstrap以外のsession/workspace/manual/share/billing等の業務APIはactive D1 identityと必要なmembershipがなければ403で拒否する。
+- bootstrapは検証済みissuer+subjectをidentity正本とし、email一致だけでidentityを移動・統合・復活させない。
+- disabled / retired identityはself-service bootstrapで自動復活させない。
+- production bootstrapへserver-side rate limit、監視、緊急停止を適用する。
+- guest manual本文やscreenshotをbootstrap requestへ含めず、未登録主体が匿名R2/D1 contentを量産できないようにする。
+- development/stagingとproductionでAccess application、policy、audienceを共有しない。
 
 Workerは `Cf-Access-Jwt-Assertion` の署名、issuer、audience、expiration、issued-at、token typeを検証し、not-beforeはclaimが存在する場合に検証する。未検証header、emailだけ、Access到達成功だけを業務認証として信用しない。Cloudflare Accessのidentity-based application tokenとservice-token application tokenはいずれも `type: "app"` になり得るため、検証後のactorを `access_user | service_token` として明示し、token typeだけで人間の業務主体を判定しない。正規のservice-token application tokenは `nbf` を持たない場合があるため、`nbf` の欠落だけでは拒否しない。
 
-M1では、設定済みのHTTPS issuer／JWKS URLだけを信頼し、`jku` などJWT内の鍵URLを参照しない。`RS256`、署名、issuer、audience、exp、iat、typeを必須として検証し、存在するnbfだけを検証する。検証後はactorを明示的なdiscriminated unionへ分類し、`access_user`のissuer+subjectだけをD1 identity repositoryへ渡す。`service_token`は厳密なshapeを満たすmachine actorとして明示allowlistのhealth routeだけで受理し、identity lookupは行わない。OQ-029はこの境界でAcceptedとし、bootstrap／relinkとemail由来のidentity作成は無効のままM2／M3へ送る。
+M1では、設定済みのHTTPS issuer／JWKS URLだけを信頼し、`jku` などJWT内の鍵URLを参照しない。`RS256`、署名、issuer、audience、exp、iat、typeを必須として検証し、存在するnbfだけを検証する。検証後はactorを明示的なdiscriminated unionへ分類し、`access_user`のissuer+subjectだけをD1 identity repositoryへ渡す。`service_token`は厳密なshapeを満たすmachine actorとして明示allowlistのhealth routeだけで受理し、identity lookupは行わない。M1時点ではbootstrap／relinkとemail由来identity作成を無効にしていたが、production商用MVPのhuman self-service bootstrapだけはADR-0032で明示的に置換する。email由来のidentity作成・relinkは禁止のまま維持する。
 
-Accessはアプリへの到達可否を制御し、D1はアプリ内の招待、profile、workspace membership、role、statusを管理する。Accessへログインできても、activeな招待またはworkspace membershipがなければ業務APIを拒否する。
+Accessはアプリへの到達可否を制御し、D1はアプリ内identity、profile、workspace membership、role、statusを管理する。Accessへログインできても、未登録humanはbootstrap以外の業務APIを拒否し、登録済みhumanもactiveなworkspace membershipがなければ対象workspaceの業務APIを拒否する。
 
-アプリ独自のpassword、password hash、refresh tokenをD1、KV、R2、Cookie、ログへ保存しない。ブラウザJavaScriptへAccess JWTを複製しない。
+アプリ独自のpassword、password hash、refresh tokenをD1、KV、R2、Cookie、ログへ保存しない。ブラウザJavaScriptまたはChrome拡張へAccess JWTを複製しない。
 
 ## External provider callback boundary
 
@@ -75,7 +86,7 @@ Postgres RLSの置換は、UI表示制御だけで完了扱いにしない。
 - mutationはrole、membership status、resource workspace、期待versionを同じWorker処理で再照合する。
 - 別workspace、不明resource、権限不足の応答から存在を推測できないようにする。
 - D1の制約、外部キー、unique index、version列をWorker認可と併用する。
-- 未招待、停止member、viewer mutation、owner喪失、ID差し替え、途中失敗、再送、競合をnegative testへ含める。
+- 未登録humanの非bootstrap API、停止member、viewer mutation、owner喪失、ID差し替え、途中失敗、再送、競合をnegative testへ含める。
 - `access_user` は `type: "app"`、trim後非空の `sub`、`common_name` 不在の3条件すべてを必須にする。空の `sub`、`common_name`、またはactor種別が曖昧なtokenをapplication userへ写像しない。D1 identityはtrim後のsubject非空制約と `UNIQUE(issuer, subject)` を持つ。
 - `service_token` は `type: "app"`、空文字の `sub`、trim後非空の `common_name` の3条件すべてを必須にし、明示allowlistしたmachine/health routeの到達確認だけに使用する。D1 identity、workspace membership、roleへ昇格させず、session/workspace/manual API、identity bootstrap、業務データread/mutationを403で拒否する。
 - M1ではnbfなしservice-token fixtureをmachine routeで受理し、同じtokenを人間向け業務APIでは403にする。空の `sub` だけ、`sub` 不在、`common_name` だけ、非空 `sub` と `common_name` 併存のfixtureは全routeで拒否するactor別testを固定する。
@@ -91,7 +102,7 @@ stagingとproductionで次を共有しない。
 - R2 bucket
 - GitHub Environment
 
-previewはstaging専用D1だけをbindingし、production D1をbindingしない。production D1作成、migration、deploy、外部ユーザー招待はそれぞれownerの明示承認を必要とする。
+previewはstaging専用D1だけをbindingし、production D1をbindingしない。production D1作成、migration、deploy、一般self-service Access policy有効化はそれぞれownerの明示承認を必要とする。
 
 ## Migration
 
@@ -129,17 +140,19 @@ previewはstaging専用D1だけをbindingし、production D1をbindingしない�
 
 ADR-0003のDurable Objectと永続DBを二重正本にしない原則、ADR-0011/0018のprivate R2・Worker経由配信・環境別binding、ADR-0012のDiscord署名検証とGitHub Issue変換境界、ADR-0024のブランド/アプリ分離、ADR-0025の本人同意・短命・単回参加コード、ADR-0027のproduction非変更と環境分離は維持する。ADR-0010で定めたHttpOnly、通常ブラウザwrite APIの同一origin、認証変更時の古い応答破棄、状態変更の自動再送禁止、結果不明時の再照合という安全原則も、新実装で維持する。
 
+ADR-0032は本ADRのうちproduction商用MVPについて「ログインを招待済み利用者だけに限定する部分」と「未知human identityのbootstrapを無効にする部分」をSupersededする。本ADRのAccess JWT検証、issuer+subject正本、service token分離、Worker/D1 deny-by-default、環境分離は維持する。
+
 ## Consequences
 
 - Postgres SQL、SECURITY DEFINER RPC、RLS policy、Supabase Auth API、PostgREST呼出しをD1/Worker契約へ移植する必要がある。
 - DB層RLSによる最終防衛線がなくなるため、Worker認可とquery ownershipのレビュー・negative testがP0 gateになる。
-- メールOTPの配信、Access user lifecycle、強制再認証、退会・停止、監査の運用を定義する必要がある。
+- productionではAccess本人確認到達が広くなるため、未知human actorのbootstrap-only制限、rate limit、D1 one-personal-workspace制約、監視をP0/P1級に確認する必要がある。
 - 既存Supabase実装とテストは移行完了まで履歴・回帰仕様として保持するが、staging合格証跡には使わない。
 - Issue #92のAccess保護とproduction自動promote停止は維持できるが、Supabase RLS live gateはD1境界証明へ置換する。
 
 ## Non-goals
 
-- このADRだけでproduction D1やAccess production applicationを作成しない。
-- production deploy、実データ移行、実ユーザー招待を行わない。
+- このADRだけでproduction D1やAccess production application/policyを変更しない。
+- production deploy、実データ移行、一般self-service policyの外部有効化を行わない。
 - 独自password認証を実装しない。
 - Access到達許可をworkspace role認可の代わりにしない。

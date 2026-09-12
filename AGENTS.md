@@ -26,7 +26,7 @@
 ## セッション引き継ぎ（恒久ルール）
 
 - 新しいセッションは、`docs/09-delivery/session-handoff.md` と GitHub Issue #70 `META: 開発現在地・セッション引き継ぎ` を確認してから作業する。
-- 過去チャットの全文や要約だけを正本にしない。コード、文書、Issue、Pull Request、commit、CI、review threadの実状態と照合する。
+- 過去チャットの全文や要約だけに依存せず、コード、文書、Issue、Pull Request、commit、CI、review threadの実状態と照合する。
 - 原則として1セッションで1マイルストーンだけを進める。日付で区切る場合も、未検証の変更を完成扱いにしない。
 - 実装前に、完了済み、未完了、対象Issue/branch/PR/head SHA、次の1マイルストーン、リスク、承認事項を整理する。
 - セッション終了・引き継ぎ前に、必要な成果物を秘密値除外でcommit・pushし、remote SHA一致を確認する。ローカルだけの差分・commit・stash・worktreeを成果物や再開の唯一の保存先にして終了しない。Pull Request更新、Issue #70更新、次の1マイルストーンの明記まで行う。
@@ -34,13 +34,20 @@
 
 ## プロダクト制約
 
-- `めっちゃマニュアル` は日本人オフィスワーカー専用の業務手順書作成サービス。
+- `めっちゃマニュアル` は日本人の業務担当者向けの業務手順書作成サービス。
 - UI、文言、エラー、ヘルプ、テンプレートは日本語を基本とする。
 - `ドキュメント` ではなく `手順書`、`キャプチャ` ではなく `操作を記録` を優先する。
-- Chrome拡張を第一方式にしない。Cloudflare Browser Run + Live Viewを核にする。
+- MVPの操作記録はChrome Extension Manifest V3だけを使う。Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。
+- Chrome拡張は `activeTab` / `scripting` 中心の最小権限とし、MVPで`debugger`や常時`<all_urls>`を必須にしない。
+- PC / スマホ / タブレットの3表示モードをMVP必須とする。スマホ/タブレットはdesktop Chromeのresponsive viewportで記録し、実機iOS/Android完全再現を主張しない。
+- アカウント作成前でもguestとして1本目をローカル作成・編集できる。guest manual本文・screenshotを認証前にD1/R2へ送らない。
+- `保存 / 共有 / PDF出力` 等のoutputを選んだ時点で初めてアカウント作成／ログインを要求する。認証後はPersonal Workspaceをatomic・冪等に自動準備し、guest draftをclaimして元操作へ復帰する。
+- email一致だけでidentityを移動・統合・復活させない。検証済みAccess `issuer + subject` をapplication identityの正本とする。
 - AI APIは初期OFF。初期実装で外部AI APIを呼ばない。
-- 共有リンクはデフォルトOFF。公開、削除、権限変更、機密情報保存は暗黙実行しない。
-- 個人利用ではなく、必ずワークスペース所属を前提にする。
+- 共有リンクはデフォルトOFFで、期限・パスコード・権限範囲・失効を必須安全境界として維持する。
+- 認証後の業務データは必ずワークスペースへ所属させる。guest local draftに偽workspaceを作らない。
+- Product Eventの名称・payloadは `docs/05-api/product-events.md` を正本とし、入力値、URL本文、Cookie、Authorization、screenshot本文をanalyticsへ送らない。
+- 現行料金設計はFree / Pro / Teamを第一候補とし、Chrome拡張capture時間を利用者向け課金軸にしない。`single_export`は現行MVPでDeferred。
 
 ## 進捗報告と実行管理（恒久ルール）
 
@@ -100,7 +107,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 ## Pull Request品質ゲート
 
 - 変更後に自分で差分を読み直し、正常系・異常系・再送・途中失敗・権限境界を確認する。
-- PRごとに `npm ci`、`npm run check`、必要な個別テスト、`git diff --check` を実行し、未実行テストと理由を隠さない。
+- Fast / Core / Deepの運用レベルは `docs/07-quality/test-strategy.md` を正とする。実際のnpm script/workflowが階層化されるまでは既存必須CIを迂回しない。
 - PRのマージ対象となる最新head commitに対してCodex Reviewを実行する。レビュー対象SHAとPR head SHAを照合する。
 - Codex Reviewは指摘工程であり、修正完了を意味しない。指摘後は妥当性確認、修正、テスト、最新SHAへの再レビューを繰り返す。
 - P0/P1が1件でも残るPR、未解決review threadが残るPR、必須CIが失敗・未実行のPRは完成扱いにしない。
@@ -119,12 +126,13 @@ P0/P1が残る状態では次Phaseへ進みません。
 - 外部SDK型をドメイン層へ漏らさない。
 - `domain` から Cloudflare、Supabase、Stripe をimportしない。
 - Stripeの課金確定は署名検証済みWebhookを正とする。
-- Browser Run処理は通常HTTP処理ではなく、ジョブ、期限、キャンセル、再試行、成果物、監査ログを持つ。
+- Browser Run処理は現行MVPへ追加しない。将来再導入する場合はADR-0031と既存egress/hard-expiry契約に従う。
+- Chrome拡張のUI、capture、local persistence、responsive window control、server handoffを責務別moduleへ分割し、巨大な単一ファイルへ集約しない。
 
 ## 文書運用
 
 - 文書は日本語、コード識別子は英語、日時はISO 8601で記載する。
-- 文書状態は `Proposed`、`Accepted`、`Superseded` を使う。
+- 文書状態は `Proposed`、`Accepted`、`Superseded`、必要な場合は `Partially Superseded` を使う。
 - 正本の優先順位は `ADR/decision-log -> 要件/データ/API -> UX -> Issue -> task reports`。
 - 正本間の矛盾を発見したら実装を止め、`open-questions.md` に登録する。
 
@@ -145,6 +153,7 @@ P0/P1が残る状態では次Phaseへ進みません。
 ## 本開発へ進むための進行原則
 
 - 進捗はPRやIssueの件数ではなく、利用者ができるようになった操作、または次の操作に必要な実装成果物と検証結果で示す。準備作業にも完了条件と次の機能実装を明記する。
+- Product最優先は `guest -> Chrome拡張 -> 3表示モード -> local draft -> output時signup -> claim -> output完了` の縦切りとする。Cloudflare移行マイルストーン完了数だけをProduct進捗にしない。
 - 変更はファイル数より意味の一貫性を優先して小さくまとめる。分割によって現行契約と実装が矛盾する場合は、必要な関連変更を同じPRへ含める。
 - この節だけを理由に追加文書、検査ツール、承認工程を新設せず、無関係なscannerの改良や全保守PRの整理を本開発・リリースの前提にしない。対象機能に必要な依存と安全条件は満たす。
 - 同じ原因の再指摘では原因と修正範囲を見直す。回数だけでPR再作成や成果物破棄を増やさない。個別IssueやPRで既に決まった凍結、回収base、再利用禁止は、この節では解除しない。

@@ -41,7 +41,7 @@ const required = new Map([
   ]],
   ["docs/01-product/non-functional-requirements.md", [
     "検証済みAccess主体", "workspace固定D1 query", "D1制約", "Access service token",
-    "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2、Browser Run"
+    "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2および将来Browser Run"
   ]],
   ["docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md", [
     "署名対象timestampを副作用なしで検証", "receiptと再実行可能なreconciliation work/outbox",
@@ -68,7 +68,7 @@ const required = new Map([
     "Migration compatibility floor", "code-only rollback", "forward-fix", "fail closed"
   ]],
   ["docs/03-architecture/adrs/README.md", [
-    "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
+    "ADR-0019 | Superseded", "ADR-0028でAccess/D1へ更新"
   ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
     "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない",
@@ -1190,7 +1190,7 @@ const m5CarrierEntries = [
   {
     name: "issue-map Issue 95 Superseded context",
     path: "docs/09-delivery/issue-map.md",
-    scope: "## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行",
+    scope: "## 技術依存レーン: EPIC-15 Cloudflare認証・DB統一移行",
     prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
     exact: true,
     terms: ["#95", "旧Supabase live gate", "Superseded"],
@@ -1348,7 +1348,7 @@ function issue182ScopedSection(path) {
     return row.split("|")[4] ?? "";
   }
   if (path === "docs/07-quality/test-strategy.md") {
-    return content.split(/\r?\n/).find((line) => line.startsWith("- Access callback境界。")) ?? "";
+    return content.split(/\r?\n/).find((line) => line.startsWith("Access callback境界。")) ?? "";
   }
   return "";
 }
