@@ -25,6 +25,19 @@ Chrome拡張は、利用者自身が開いているWebページ上で明示的�
 - 入力操作は「対象名」と「入力操作が行われた事実」を基本とし、入力内容そのものを手順データへ含めない。
 - 記録停止時はcontent script側の記録状態を終了し、不要な一時データを破棄する。
 
+## `externally_connectable` handoff
+
+output時の認証後、guest draftを自社Webアプリへ渡すため、Manifest V3の `externally_connectable` を使用する。
+
+- `externally_connectable.matches` は承認済みの自社app originだけを環境別に列挙する。
+- `<all_urls>`、任意domain、wildcard TLDを外部message許可に使わない。
+- Webページから拡張へ `chrome.runtime.sendMessage(extensionId, ...)` または `chrome.runtime.connect(extensionId)` で要求する。
+- 拡張は `runtime.onMessageExternal` / `runtime.onConnectExternal` で受け、`sender.url` のorigin、message type、schema、handoffId、expiryを検証する。
+- 拡張からWebページへcredentialを渡さない。Access JWT、Access cookie、OTPを拡張へ取り込まない。
+- guest payloadは認証済みWebページからのrequest/connectionへのresponseとしてだけ返す。拡張から任意Webページへ勝手にpushしない。
+- 大きなscreenshotはbounded chunkで渡し、単一巨大messageを前提にしない。
+- handoffの詳細はADR-0032と `docs/05-api/guest-onboarding-and-claim-api.md` を正とする。
+
 ## PC・スマホ・タブレット表示
 
 スマホ／タブレット向けサイトの手順書作成をMVP必須とする。ただし、Chrome拡張を実行する端末はデスクトップ版Chromeとする。
@@ -71,8 +84,9 @@ MVPでは次の表示モードを提供する。
 
 - 認証済みmanual、asset、shareは既存どおりWorker認可とworkspace固定D1 queryを通す。
 - extension ID、client側workspace ID、ローカルdraft IDだけを認証・認可根拠にしない。
-- ゲスト下書きclaimは、検証済み人間Access主体とatomicなPersonal Workspace provisioning後だけ実行する。
-- claim token / operation IDは推測困難・短命・単回利用とし、URLへスクリーンショットや本文を埋め込まない。
+- ゲスト下書きclaimは、検証済みhuman Access主体とatomicなPersonal Workspace provisioning後だけ実行する。
+- claim token / operation IDは推測困難・短命とし、URLへスクリーンショットや本文を埋め込まない。
+- business write APIは認証済みWeb app originからsame-originで呼び、extensionから直接呼ばない。
 
 ## 理由
 
@@ -108,6 +122,7 @@ Cloudflare Browser RunはMVPおよび現行Product Roadmapのcapture方式とし
 
 - Cloudflare Workers / D1 / R2を認証後のサーバー基盤として利用する方針。
 - tenant分離、private R2、入力値非保存、共有失効、production承認境界。
+- 通常Web write APIのsame-origin境界とAccess credential非露出。
 - Browser Runを将来再導入する場合のSSRF / egress fail-closed原則。
 
 ## MVP完了条件
@@ -116,6 +131,7 @@ Cloudflare Browser RunはMVPおよび現行Product Roadmapのcapture方式とし
 - アカウントなしで `記録開始 -> 複数操作 -> 記録停止 -> ローカル下書き生成 -> 編集` まで完了できる。
 - PC / スマホ / タブレットの3表示モードで記録でき、終了時に元のwindow状態へ復元できる。
 - `保存 / 共有 / PDF出力` を押した時だけ登録を要求し、認証後にゲスト下書きを失わず同じ操作へ復帰できる。
+- Access credentialを拡張へ渡さず、allowlist済み自社app originとのexternal messagingだけでhandoffできる。
 - 対象タブ以外を収集しない。
 - 入力値・Cookie・Authorizationを保存しないnegative testが通る。
 - 初期ICPが利用する代表Webサービスで実用可能性を確認する。
