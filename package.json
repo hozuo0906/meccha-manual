@@ -56,7 +56,7 @@
     "phase1-readiness:check": "node scripts/check-phase1-readiness.mjs",
     "codex-cloud:check": "node scripts/check-cloud-codex-environment.mjs",
     "environment-separation:check": "node scripts/check-environment-separation.mjs",
-    "cloudflare-source-of-truth:check": "node scripts/check-cloudflare-source-of-truth.mjs",
+    "cloudflare-source-of-truth:check": "node scripts/check-cloudflare-source-of-truth.mjs && node scripts/check-development-roadmap-policy.mjs",
     "pr-quality:check": "node scripts/check-pr-quality-gate.mjs --check",
     "secrets:test": "node --test tests/sensitive-values.test.mjs",
     "secrets:check": "node scripts/check-sensitive-values.mjs",
