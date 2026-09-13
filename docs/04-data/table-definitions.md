@@ -4,6 +4,8 @@ Status: Superseded
 
 Superseded by [D1データ・認可境界](d1-and-storage.md)。以下はSupabase/Postgres移行前baselineとして保持し、D1へ適用済みとは扱わない。
 
+現行D1の`workspaces.workspace_kind`（`standard | personal`）、personal creator一意制約、kind immutable境界は[D1 identity / workspace schema](d1-workspace-schema.md)を正本とする。以下の移行前`workspaces`定義や`created_by`からPersonal Workspaceを推測しない。
+
 ## 共通ルール
 
 - 主キーはUUID。

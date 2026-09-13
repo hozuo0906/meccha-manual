@@ -3,6 +3,8 @@ name: Capture Foundation
 on:
   pull_request:
     paths:
+      - "apps/extension/**"
+      - "tests/extension-mvp.test.mjs"
       - "apps/worker/src/capture-router.ts"
       - "apps/worker/src/domain/capture/draft-generator.ts"
       - "apps/worker/src/index-phase2.ts"
@@ -34,6 +36,8 @@ jobs:
       - run: npm ci
       - name: Test fail-closed capture and deterministic draft boundaries
         run: npm run capture:test
+      - name: Test Chrome Extension S1 core
+        run: npm run extension:test
       - name: Repository checks
         run: npm run check
       - name: Install Chromium

@@ -6,7 +6,7 @@ Status: Accepted
 
 役割:
 
-- Access: メールOTP・明示allowlistによる招待制の到達制御
+- Access: development／stagingはメールOTPとEmails／Groupsの明示allowlistによる招待制。production商用MVPの一般利用者向けapplicationだけはOne-time PINで本人確認までself-service
 - Workers: Access JWT検証、業務API認可、Webhook、共有閲覧、業務assetの毎回再検証付きWorker proxy配信（直接署名URLは発行しない）
 - D1: application identity、workspace membership/role、業務データ、ファイルメタデータ、監査ログの正本
 - Durable Objects: 操作記録セッション状態
@@ -14,6 +14,8 @@ Status: Accepted
 - R2: privateなスクリーンショット、手順書画像、出力ファイル、avatar
 
 Access到達を業務認可と同一視せず、Workerが検証済みaccess user、D1のactive membership/role、resource workspaceを毎回照合する。service tokenはmachine専用routeだけに許可し、D1 userへ写像しない。
+
+productionで未登録の検証済みhuman actorが到達できるbusiness APIは`POST /api/onboarding/bootstrap`だけとし、それ以外は403にする。bootstrapは検証済みissuer+subjectをidentity正本にし、emailだけでidentityをmerge／relocate／reviveせず、disabled／retired identityを自動復活させない。service tokenによるhuman bootstrapを拒否し、1 identityにつき初期Personal Workspaceを1件に制約する。server-side rate limit、monitoring、emergency stopをproduction有効化の条件とする。
 
 Stripe/Discord callbackはexact pathごとのpath別Access Bypassで到達だけを許可する。Bypassを認証・認可の代替にせず、Workerはexact method/body上限、raw body署名・署名対象timestampの副作用なし検証、有界parse/schema・allowlist検証の後、provider ID、payload digest、receiptと再実行可能なwork/outboxを単一のatomic operationで保存する。guard commit後だけ成功応答し、保存済みoutboxからQueue、外部API、業務D1、entitlementその他の副作用へ進める。receipt stateにより一時失敗を同じworkで再開し、結果不明は照合前に自動再送せず、completed再送は冪等successとする。既存Discord KV get→putはauthoritative guardにせず、OQ-031完了前はBypassを有効化しない。hostname全体やwildcard pathへBypassを適用せず、通常アプリAPIと`GET /health/config`はAccess保護を維持する。通常ブラウザwrite APIだけに同一Originを必須とし、callbackでは`Origin`を認証根拠にしない。
 
