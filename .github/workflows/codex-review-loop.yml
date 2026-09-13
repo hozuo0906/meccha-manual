@@ -1,0 +1,241 @@
+name: Codex Review Repair Loop
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-review-loop-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: >-
+      github.event.pull_request.state == 'open' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name &&
+      github.event.pull_request.head.repo.fork == false &&
+      (github.event.review.user.login == 'chatgpt-codex-connector' || github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    outputs:
+      run_repair: ${{ steps.inspect.outputs.run_repair }}
+      head_sha: ${{ steps.inspect.outputs.head_sha }}
+      head_ref: ${{ steps.inspect.outputs.head_ref }}
+      pr_number: ${{ steps.inspect.outputs.pr_number }}
+    steps:
+      - name: Checkout trusted default-branch controller
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Inspect trusted unresolved review threads
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_PROMPT_PATH: ${{ runner.temp }}/codex-review-repair.md
+          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-metadata.json
+        run: node scripts/codex-review-loop.mjs inspect
+
+      - name: Store bounded repair request
+        if: steps.inspect.outputs.run_repair == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-request-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/codex-review-repair.md
+            ${{ runner.temp }}/codex-review-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+
+  repair:
+    needs: inspect
+    if: needs.inspect.outputs.run_repair == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact reviewed head without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Restore trusted repair request
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-review-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/codex-review-request
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate automation contract
+        run: npm run issue-codex:check
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Run credential-isolated Codex repair
+        env:
+          CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+          REPAIR_PROMPT_PATH: ${{ runner.temp }}/codex-review-request/codex-review-repair.md
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          test -n "$CODEX_ACCESS_TOKEN"
+          codex exec --sandbox workspace-write --config approval_policy=never --config model_reasoning_effort=high --model gpt-5.6-luna - < "$REPAIR_PROMPT_PATH"
+
+      - name: Detect repair changes
+        run: |
+          if git diff HEAD --quiet; then
+            echo "Codex returned without a repair patch." >&2
+            exit 1
+          fi
+          git diff --name-only HEAD > "$RUNNER_TEMP/codex-review-changed-paths.txt"
+
+      - name: Run targeted checks
+        run: |
+          if grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+            npm run extension:test
+          fi
+          if grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+            npm run test:d1-workspace
+            npm run test:d1-binding
+          fi
+          if grep -Eq 'access-identity|auth' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+            npm run test:access-identity
+            npm run app:auth:test
+          fi
+
+      - name: Run repository checks
+        run: |
+          git diff --check HEAD
+          npm run check
+
+      - name: Export tested patch
+        run: |
+          git diff --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
+          test -s "$RUNNER_TEMP/codex-review-repair.patch"
+          test "$(wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
+          cp "$RUNNER_TEMP/codex-review-request/codex-review-metadata.json" "$RUNNER_TEMP/codex-review-metadata.json"
+
+      - name: Store tested patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-tested-patch-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/codex-review-repair.patch
+            ${{ runner.temp }}/codex-review-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [inspect, repair]
+    if: needs.repair.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout exact reviewed head without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout trusted default-branch controller
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: trusted-controller
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Preserve trusted controller outside workspace
+        run: |
+          cp trusted-controller/scripts/codex-review-loop.mjs "$RUNNER_TEMP/codex-review-loop.mjs"
+          rm -rf trusted-controller
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore tested patch
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-review-tested-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/codex-review-tested-patch
+
+      - name: Verify exact remote head before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+        run: node "$RUNNER_TEMP/codex-review-loop.mjs" verify-head
+
+      - name: Apply tested patch without executing it
+        env:
+          PATCH_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-repair.patch
+        run: |
+          test -s "$PATCH_PATH"
+          test "$(wc -c < "$PATCH_PATH")" -le 10485760
+          git apply --check --binary "$PATCH_PATH"
+          git apply --binary "$PATCH_PATH"
+          git diff --check HEAD
+
+      - name: Commit tested repair
+        id: commit
+        env:
+          PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -c core.hooksPath=/dev/null add -A
+          git -c core.hooksPath=/dev/null commit -m "fix: address Codex review findings for PR #${PR_NUMBER}"
+          echo "new_head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Fast-forward existing PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ needs.inspect.outputs.head_ref }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git -c core.hooksPath=/dev/null \
+            -c remote.origin.url="https://github.com/${EXPECTED_REPOSITORY}.git" \
+            -c credential.helper='!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' \
+            push origin "HEAD:refs/heads/${HEAD_REF}"
+
+      - name: Resolve repaired threads and request exact-head review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
+          NEW_HEAD_SHA: ${{ steps.commit.outputs.new_head_sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+        run: node "$RUNNER_TEMP/codex-review-loop.mjs" complete

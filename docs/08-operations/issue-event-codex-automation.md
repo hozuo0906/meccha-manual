@@ -84,3 +84,15 @@ npm run check
 実装させたい場合だけ、ownerが `approved-for-codex` ラベルを付ける。
 
 `CODEX_ACCESS_TOKEN` が未登録の場合、自動実装workflowはIssueへ理由をコメントして失敗する。
+
+## Codex Review修正loop
+
+`.github/workflows/codex-review-loop.yml` は、同一repository・base `main`・許可development branchのopen PRに対して、`chatgpt-codex-connector` または `chatgpt-codex-connector[bot]` が最新headへreviewをsubmitした場合だけ起動する。GraphQL `reviewThreads` から未解決かつtop-level comment authorが同botであるP0／P1／P2だけを抽出し、人間コメントやProduct議論をrepair promptへ入れない。
+
+処理identityはPR番号、review ID、reviewed head SHAから作るmachine-readable commentとPR単位のconcurrencyで重複を防ぐ。1 PR head lineageの自動repairは最大3 roundとし、上限後はDraft／openのまま親PM確認を要求する。trusted findingが0件ならCodex、commit、push、PR変更を一切行わない。
+
+Codex stepは`persist-credentials: false`のexact-head checkoutを使い、`GH_TOKEN`／`GITHUB_TOKEN`を空にしてworkspace-writeだけを許可し、GitHub write credentialを渡さない。GitHub tokenを使うGraphQL取得、head再照合、fast-forward push、thread返信／resolveはCodex後のtrusted runner stepへ分離する。Codexが変更できるworkspace上のcontrollerをtoken付きstepで再利用せず、開始時にrunner tempへ保存したcontrollerを使う。push直前にremote PR headが入力SHAと一致しなければfail closedとし、force pushやmain直接pushを行わない。
+
+変更後はtargeted test、`git diff --check`、`npm run check`を通過した場合だけ1 repair commitを同じPR branchへfast-forward pushする。push後、修正対象threadへcommit SHAを返信してresolveし、exact new SHAを含む `@codex review` commentを投稿する。`github-actions[bot]` commentがCodex GitHub Appを実際に起動するかは外部integration境界であり、初回実runで確認する。無視された場合はmachine-readable re-review-required commentを残して停止し、Latest Review Gateを緩和したりreview証跡を捏造したりしない。
+
+本loopはdeploy、external configuration、migration適用、billing、secret変更、Chrome Web Store公開、branch protection変更、mergeを実行しない。通常のLatest Review GateとPR checklistが引き続きReady／mergeを制御する。
