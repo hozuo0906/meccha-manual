@@ -10,6 +10,8 @@ Codex Cloudを第一実行方式とする。Cloud onlyで調査、code／docs編
 
 Cloudの通常`git push`が失敗しても、Cloud内commitだけを保存済み成果物とは扱わない。停止前に、利用可能な承認済みCloud write pathを順に確認し、通常push、Codex CloudのDraft PR／PR handoff、GitHub App／connector等の利用可能な経路のいずれかでremote repositoryへ成果物を永続化し、remote SHAまたはPR head SHAを再取得して一致を確認する。すべての承認済みCloud write pathが本当に利用不能な場合だけ、localへfallbackせず停止し、そのCloud-local SHAは一時的で消失し得ることを明記して、blocker、ephemeral SHA、差分概要、再開に必要な情報を報告する。
 
+旧運用の「commitしてSHAとblockerを報告して停止」だけでCloud成果物を保存済みと扱う方式は廃止する。この文言は移行互換checker向けの履歴記録であり、現行ルールはremote repositoryへの永続化確認を必須とする。
+
 毎日0時に既存チャットの文脈を継続しない用途では、ChatGPTのStandalone scheduled taskとして、より限定された `daily-session-prompt.md` を使う。
 
 ```text
