@@ -4,15 +4,6 @@ function normalize(value) {
   return value.replace(/\r\n/g, "\n");
 }
 
-function selectBetween(content, startMarker, endMarker) {
-  const start = content.indexOf(startMarker);
-  if (start < 0) return "";
-  const bodyStart = start + startMarker.length;
-  const end = endMarker ? content.indexOf(endMarker, bodyStart) : content.length;
-  if (end < 0 || end < bodyStart) return "";
-  return content.slice(bodyStart, end);
-}
-
 function openingFence(line) {
   const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
   if (!match) return null;
@@ -92,10 +83,6 @@ function selectMarkdownSection(content, heading) {
     if (headingText === null) continue;
 
     if (startLine < 0) {
-      // A heading that opens a multiline HTML comment is not a safe policy
-      // section boundary: subsequent hidden bullets would otherwise be parsed
-      // after resetting state. Require the target heading to leave comment
-      // state closed before accepting it.
       if (headingText === target && !state.inComment) startLine = index + 1;
       continue;
     }
@@ -118,6 +105,62 @@ function activeTopLevelBullets(section) {
   return bullets;
 }
 
+function activeFencedBlocks(content) {
+  const blocks = [];
+  const state = { inComment: false };
+  let fence = null;
+  let lines = [];
+
+  for (const rawLine of content.split("\n")) {
+    if (fence) {
+      if (closesFence(rawLine, fence)) {
+        blocks.push(lines.join("\n"));
+        fence = null;
+        lines = [];
+      } else {
+        lines.push(rawLine);
+      }
+      continue;
+    }
+
+    const cleaned = stripHtmlComments(rawLine, state);
+    if (state.inComment && cleaned.length === 0) continue;
+    const opened = openingFence(cleaned);
+    if (opened) {
+      fence = opened;
+      lines = [];
+    }
+  }
+
+  return blocks;
+}
+
+function selectTemplateFixedRules(template) {
+  const candidates = activeFencedBlocks(template).filter((block) => {
+    const lines = block.split("\n");
+    return (
+      lines.some((line) => line.trimEnd() === "Repository: hozuo0906/meccha-manual") &&
+      lines.some((line) => line.trimEnd() === "固定ルール:") &&
+      lines.some((line) => line.trimEnd() === "実行:")
+    );
+  });
+  if (candidates.length !== 1) return "";
+
+  const lines = candidates[0].split("\n");
+  const start = lines.findIndex((line) => line.trimEnd() === "固定ルール:");
+  const end = lines.findIndex((line, index) => index > start && line.trimEnd() === "実行:");
+  if (start < 0 || end < 0) return "";
+  if (lines.slice(start + 1, end).some((line) => line.trimEnd() === "固定ルール:")) return "";
+  return lines.slice(start + 1, end).join("\n");
+}
+
+function promptTopLevelBullets(block) {
+  return block
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim());
+}
+
 const approvalBullet =
   "このscheduled task自体はread-onlyであり書込みを行わない。別の通常開発sessionでは、商用リリース前にAstra parent PMがsource-of-truth、実SHA、依存順、tests、CI、Codex Review、未解決threadを確認できれば、ユーザーへの都度確認なしでbranch作成、編集、test、commit、push、PR作成／更新、review依頼／修正、checklist、Ready、mergeまで進めてよい。";
 const productionBullet =
@@ -135,11 +178,13 @@ const protectedProductionTerms = [
   "不可逆な外部操作"
 ];
 
-const templateExactPolicies = [
-  "Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.",
-  "production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。",
-  "MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。"
-];
+const templateCloudPolicy =
+  "Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.";
+const templateProductionPolicy =
+  "production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。";
+const templateCapturePolicy =
+  "MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。";
+const templateProtectedTerms = ["production反映", "DB migration", "課金変更", "AI API有効化", "共有リンク公開"];
 
 const templateGroupedPolicies = [
   [
@@ -183,10 +228,11 @@ function validateDaily(daily) {
 
 function validateTemplate(template) {
   const errors = [];
-  const rules = selectBetween(template, "固定ルール:\n", "\n実行:\n");
-  if (!rules) return ["codex-cloud-task-template fixed-rules block was not found"];
-  const bullets = activeTopLevelBullets(rules);
-  for (const policy of templateExactPolicies) {
+  const rules = selectTemplateFixedRules(template);
+  if (!rules) return ["codex-cloud-task-template operative prompt fixed-rules block was not found uniquely"];
+  const bullets = promptTopLevelBullets(rules);
+
+  for (const policy of [templateCloudPolicy, templateProductionPolicy, templateCapturePolicy]) {
     if (!bullets.includes(policy)) errors.push(`codex-cloud-task-template active policy bullet missing: ${policy}`);
   }
   for (const fragments of templateGroupedPolicies) {
@@ -194,6 +240,16 @@ function validateTemplate(template) {
       errors.push(`codex-cloud-task-template grouped policy missing from one active bullet: ${fragments.join(" | ")}`);
     }
   }
+  for (const bullet of bullets) {
+    if (bullet === templateProductionPolicy) continue;
+    const conflictingTerms = templateProtectedTerms.filter((term) => bullet.includes(term));
+    if (conflictingTerms.length) {
+      errors.push(
+        `codex-cloud-task-template has conflicting protected-operation bullet (${conflictingTerms.join(", ")}): ${bullet}`
+      );
+    }
+  }
+
   return errors;
 }
 
@@ -201,9 +257,13 @@ function validatePolicies({ daily, template }) {
   return [...validateDaily(daily), ...validateTemplate(template)];
 }
 
+function goodTemplatePromptBlock() {
+  return `Repository: hozuo0906/meccha-manual\nBranch: feature/x\n固定ルール:\n- ${templateCloudPolicy}\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- ${templateProductionPolicy}\n- ${templateCapturePolicy}\n\n実行:\n- npm ci`;
+}
+
 function runFixtures() {
   const goodDaily = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n## Historical\n- history\n`;
-  const goodTemplate = `固定ルール:\n- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。\n- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。\n\n実行:\n`;
+  const goodTemplate = `# x\n\`\`\`text\n${goodTemplatePromptBlock()}\n\`\`\`\n`;
 
   if (validateDaily(goodDaily).length !== 0) throw new Error("daily policy positive fixture failed");
   if (validateTemplate(goodTemplate).length !== 0) throw new Error("template policy positive fixture failed");
@@ -256,7 +316,20 @@ function runFixtures() {
     throw new Error("daily policy negative fixture selected an operative heading from fenced code");
   }
 
-  const templateExampleOnly = `固定ルール:\n- current policy intentionally missing\n\n実行:\n- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。\n- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。\n`;
+  const templateCommentFake = `# x\n<!--\n\`\`\`text\n${goodTemplatePromptBlock()}\n\`\`\`\n-->\n\`\`\`text\nRepository: hozuo0906/meccha-manual\n固定ルール:\n- current policy intentionally missing\n実行:\n- npm ci\n\`\`\`\n`;
+  if (validateTemplate(templateCommentFake).length === 0) {
+    throw new Error("template policy negative fixture selected a prompt block hidden in an HTML comment");
+  }
+
+  const templateContradiction = `# x\n\`\`\`text\n${goodTemplatePromptBlock().replace(
+    `- ${templateProductionPolicy}`,
+    `- ${templateProductionPolicy}\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしで行ってよい。`
+  )}\n\`\`\`\n`;
+  if (validateTemplate(templateContradiction).length === 0) {
+    throw new Error("template policy negative fixture accepted a contradictory protected-operation bullet");
+  }
+
+  const templateExampleOnly = `# x\n\`\`\`text\nRepository: hozuo0906/meccha-manual\n固定ルール:\n- current policy intentionally missing\n実行:\n${goodTemplatePromptBlock()}\n\`\`\`\n`;
   if (validateTemplate(templateExampleOnly).length === 0) {
     throw new Error("template policy negative fixture passed from a later example block");
   }
