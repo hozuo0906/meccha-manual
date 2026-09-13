@@ -43,7 +43,7 @@ AGENTS.mdの「進捗報告と実行管理（恒久ルール）」と、docs/09-
 Issue #70の記載をそのまま信用せず、AGENTS.mdの正本優先順位とGitHubの実状態・証跡を照合してください。
 同じhead branchを異なるbaseへ向けたPull Request、重複Pull Request、古いSHAのCIやレビュー、依存順の矛盾があれば明示してください。
 
-確認後、次の形式で日本語の開始レポートを作成してください。
+確認後、次の形式で日本語の開始レポートを作成してください。商用リリース前の通常開発では、この開始レポートに対するユーザーの都度確認を実装開始条件にしないでください。
 
 - 確認日時（Asia/Tokyo）
 - 現在のPhase
@@ -80,7 +80,8 @@ commit、push、merge、deploy、DB migration適用、課金変更、AI API有�
 
 - この文書の編集だけでは登録済みタスクのプロンプトは更新されない。保存済み設定への反映と初回実行の確認を別々に行い、未反映・未確認の場合は明記する。
 - 自動実行は、独立したrunで現在地を復元するところまでに留める。タスクの新規作成や自己増殖は行わない。
-- 実装開始はユーザーが開始レポートを確認してから指示する。
+- このscheduled task自体はread-onlyであり書込みを行わない。別の通常開発sessionでは、商用リリース前にAstra parent PMがsource-of-truth、実SHA、依存順、tests、CI、Codex Review、未解決threadを確認できれば、ユーザーへの都度確認なしでbranch作成、編集、test、commit、push、PR作成／更新、review依頼／修正、checklist、Ready、mergeまで進めてよい。
+- production deploy、production Access policy変更、production D1 migration、production R2変更、Stripe live、Billing有効化、secret／credential変更、Chrome Web Store一般公開、最初の商用公開、不可逆な外部操作は従来どおり別承認とする。
 - 前日のセッションは、終了前にIssue #70と対象Pull Requestを更新する。
 - GitHubへpushされていないローカル変更は引き継げないため、必要な作業は安全なbranchへ残す。
 - 対象IssueやPull Requestが変わっても、固定プロンプトを毎日書き換えず、Issue #70を更新することで追従させる。

@@ -6,6 +6,12 @@ Status: Accepted
 
 Codex Cloud、Codex web、GitHub Codespacesで作業を始める時は、このテンプレートをtask本文に貼る。
 
+Codex Cloudを第一実行方式とする。Cloud onlyで調査、code／docs編集、test、git、commit、GitHub操作、CI確認を完結し、ローカル環境へhandoffしない。GitHub repositoryを唯一のコード正本とする。
+
+Cloudの通常`git push`が失敗しても、Cloud内commitだけを保存済み成果物とは扱わない。停止前に、利用可能な承認済みCloud write pathを順に確認し、通常push、Codex CloudのDraft PR／PR handoff、GitHub App／connector等の利用可能な経路のいずれかでremote repositoryへ成果物を永続化し、remote SHAまたはPR head SHAを再取得して一致を確認する。すべての承認済みCloud write pathが本当に利用不能な場合だけ、localへfallbackせず停止し、そのCloud-local SHAは一時的で消失し得ることを明記して、blocker、ephemeral SHA、差分概要、再開に必要な情報を報告する。
+
+旧運用の「commitしてSHAとblockerを報告して停止」だけでCloud成果物を保存済みと扱う方式は廃止する。この文言は移行互換checker向けの履歴記録であり、現行ルールはremote repositoryへの永続化確認を必須とする。
+
 毎日0時に既存チャットの文脈を継続しない用途では、ChatGPTのStandalone scheduled taskとして、より限定された `daily-session-prompt.md` を使う。
 
 ```text
@@ -36,13 +42,17 @@ Pull Request: #<番号または未作成>
 - task作成前にmodel／reasoningを選択し、作成後に実行設定を確認する。確認できない場合は未確認として報告する。
 
 固定ルール:
+- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.
+- Cloud-local SHAは永続化済み成果物ではない。停止前に通常push、platform Draft PR／PR handoff、GitHub App／connector等の承認済みCloud write pathを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず、ephemeral SHA、blocker、差分概要、再開条件を報告して停止する。
 - 過去チャットの要約だけを正本にしない。
 - 原則として1セッションで1マイルストーンだけを進める。
 - mainへ直接pushしない。
 - secret、共有トークン、個人情報、実ユーザー操作内容をdocs、ログ、PRへ入れない。
 - production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。
 - 商用リリース前は、Astra highの親PMが変更の正当性、依存順、必要な品質ゲートを実SHAで確認すれば、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。承認待ちでは可逆的な差分・テストによる具体案の準備は可とするが、外部反映前に対象SHA／差分を提示し、未push成果物だけを残して終了しない。承認待ちが必要なら明示する。商用リリースの日時・識別子・根拠はIssue #70へ記録し、状態が不在または曖昧な場合は自動mergeしない。
-- Chrome拡張を第一方式にしない。
+- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。
+- PC／スマホ／タブレットはdesktop Chromeのresponsive viewportで記録し、iOS／Android実機の完全再現を主張しない。
+- guest manual本文、screenshot、編集内容を認証前にD1／R2へ送らない。
 - AI APIは初期OFF。
 - UI、文言、docsは日本語専用。
 
@@ -74,4 +84,4 @@ Pull Request: #<番号または未作成>
 
 PCの電源が切れていても作業させたい場合は、ローカルCodex DesktopではなくCodex Cloud、Codex web、またはGitHub Codespaces側でtaskを開始する。
 
-ローカルにだけある未push変更はクラウド側の次セッションから確認できない。引き継ぐ必要がある変更は、安全なbranchへcommit・pushしてから終了する。
+ローカルにだけある未push変更はクラウド側の次セッションから確認できない。引き継ぐ必要がある変更は、安全なbranchへcommit・pushしてremote SHAを確認してから終了する。Cloudで通常pushできない場合も、利用可能なplatform PR handoffやGitHub App／connectorを確認し、remote repositoryへ永続化できないまま「保存済み」と報告しない。
