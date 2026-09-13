@@ -78,6 +78,10 @@ Status: Accepted
 | API | 正本contract |
 |---|---|
 | `GET /health/config` | Cloudflare Access / D1 API移行契約。`service_token` actorだけを許可し、Access JWTなし・不正・`access_user` actorを拒否する。業務データやsecret値を返さない |
+| `POST /api/onboarding/bootstrap` | [Guest onboarding / claim API](guest-onboarding-and-claim-api.md)。検証済みhuman actorだけがPersonal Workspaceを冪等に準備する |
+| `POST /api/onboarding/claim-intents` | [Guest onboarding / claim API](guest-onboarding-and-claim-api.md)。bootstrap済みactor／Personal Workspaceへ短命intentを固定する |
+| `PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}` | [Guest onboarding / claim API](guest-onboarding-and-claim-api.md)。same-origin authenticated binary PUTでbounded screenshotをstagingする |
+| `POST /api/onboarding/claims/{claimIntentId}` | [Guest onboarding / claim API](guest-onboarding-and-claim-api.md)。staged asset manifestを再検証してguest draftを冪等にclaimする |
 | `POST /v1/manuals/{id}/exports` | 課金API contract |
 | `POST /v1/workspaces/{workspaceId}/capture-sessions` | Browser Run egress contract |
 | `POST /v1/workspaces/{workspaceId}/capture-sessions/{id}/live-url` | Browser Run egress contract |

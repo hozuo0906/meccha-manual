@@ -1,25 +1,46 @@
 # イベントとWebhook
 
-Status: Proposed
+Status: Accepted
 
-## 内部イベント
+## MVP Product Event
+
+Activation、TTFV、Capture Completion、Share、Second Manual、D7 Creator Retentionに使用するProduct Eventは [`product-events.md`](product-events.md) を唯一の正本とする。
+
+Chrome拡張guest期間のmanual本文、screenshot、入力値、URL本文をanalytics目的でserverへ送らない。guest期間のprivacy-safe eventはローカル保持し、signup後に同じevent IDでflushしてよい。
+
+## 業務・監査イベント
+
+Product Eventとは別に、認証後の業務状態・監査・通知で使う内部イベントを扱う。
 
 | イベント | 発行者 | 用途 |
 |---|---|---|
 | `manual.created` | API Worker | 監査、通知 |
 | `manual.published` | API Worker | 共有、分析リセット |
-| `capture.started` | Durable Object | 監査、利用量 |
-| `capture.event_recorded` | Durable Object | 下書き生成 |
-| `capture.completed` | Durable Object | 下書き生成、通知 |
 | `share_link.created` | API Worker | 監査 |
 | `share_link.revoked` | API Worker | キャッシュ無効化 |
-| `manual.view_started` | Share Worker | 分析 |
-| `manual.view_completed` | Share Worker | 分析 |
+| `manual.view_started` | Share Worker | 閲覧分析 |
+| `manual.view_completed` | Share Worker | 閲覧分析 |
 | `billing.checkout_intent_created` | API Worker | 購入意図の監査、有効期限管理 |
-| `billing.purchase_confirmed` | Webhook Worker | 都度払いのmanual entitlement付与 |
-| `billing.subscription_reconciled` | Webhook Worker | パーソナル/チームのworkspace entitlement反映 |
-| `billing.entitlement_changed` | Billing service | プラン・購入権反映 |
+| `billing.purchase_confirmed` | Webhook Worker | 対応offerのentitlement付与 |
+| `billing.subscription_reconciled` | Webhook Worker | Pro/Team相当subscriptionのworkspace entitlement反映 |
+| `billing.entitlement_changed` | Billing service | plan・購入権反映 |
 | `billing.usage_limit_reached` | Usage service | 自動課金せず新規利用停止と通知 |
+
+## Chrome拡張capture
+
+MVPのcapture eventはChrome拡張ローカルで正規化し、guest中はserver内部イベントとして発行しない。
+
+認証後のguest claim完了時にmanual／assetの業務状態が作成される。Product KPI用の`capture_started`等は `product-events.md` に従い、業務イベントと混同しない。
+
+## Browser Run legacy event
+
+過去のBrowser Run設計では次の内部eventを想定していた。
+
+- `capture.started`
+- `capture.event_recorded`
+- `capture.completed`
+
+Browser Runが製品runtimeで無効な間、これらは現行MVPの必須eventではない。Browser Run再導入時は別ADRとともに復帰可否を決める。
 
 ## Stripe webhook
 
@@ -32,27 +53,26 @@ M2ではStripe callback本体を有効化せず、exact POSTは `503 CALLBACK_MI
 - 課金確定はWebhookのみ。画面リダイレクトは補助表示。
 - 署名検証前に状態変更やpayload永続化を行わない。
 - eventはpayment/subscription/customer単位のreconciliationへ渡し、到着順だけでentitlementを上書きしない。
-- `BILLING_FEATURE_ENABLED=false` の間は新しい課金導線とCheckout Session作成を無効にする。署名済みWebhookの受信、既存課金objectの永続化・reconciliation・返金/解約反映はflagに関係なく継続する。
+- `BILLING_FEATURE_ENABLED=false` の間は新しい課金導線とCheckout Session作成を無効にする。既存課金objectの安全なreconciliation等は既存契約を維持する。
 
-## 都度払いの照合
+## Deferred single_export契約
 
-- checkout intentと1対1のStripe Checkout Session IDを照合し、Sessionが失効前にcompleteとなり支払い済みであることを確認する。Webhook処理時の現在時刻ではなく、署名済みcompleted eventとStripe Sessionから保存した `stripe_completed_at` をintentの `expires_at` と比較する。
-- Stripe上のPriceを `single_export` の環境別Price IDと照合する。
-- checkout intentに保存したworkspaceとmanualを使用し、Webhook payloadのメールアドレスから対象を決めない。
-- 支払い成功後、対象manualへ30日間のexport entitlementを一度だけ付与する。
-- 同じevent、PaymentIntent、checkout intentの再送で有効期限を不正に延長しない。
-- Session完了とintent消費を同一の再実行可能なtransactionで確定する。未知、期限後まで未完了、別Session、すでに別支払いへ消費済みのintentに対する支払いは権利なしで放置せず、重複付与を止めたうえで自動返金queueと運用アラートへ送る。期限内完了後の遅延・再送は返金せず冪等に正規処理する。
-- 全額返金またはchargeback確認後はentitlementを `refunded` にするが、manualやR2 objectを自動削除しない。
+`single_export` はADR-0033により現行MVPではDeferredだが、過去契約の安全条件は履歴として保持する。
+
+- checkout intentと1対1のCheckout Sessionを照合する。
+- Stripe上のPriceを環境別Price IDと照合する。
+- emailから対象workspace/manualを決めない。
+- 同じevent、PaymentIntent、checkout intentの再送で権利を二重付与しない。
+- 旧契約では購入日から30日間の再出力を想定していた。
+- 返金またはchargebackでmanual/R2 objectを自動削除しない。
 
 ## サブスクリプションの照合
 
-- Price IDを `personal_monthly` または `team_monthly` へサーバー側で写像する。
+- Price IDを有効なsubscription offerへserver側で写像する。
 - subscription/customerが同じworkspaceのbilling customerへ紐付くことを確認する。
-- 解約予約中は支払済み期間終了まで `active` を維持する。
-- 未払いは即時削除へ進めず `grace` とし、猶予条件はOQ-016に従う。
-- 契約期間終了はentitlementを `expired` へ遷移させる。未契約作成枠は有料entitlement不在から導出し、`free` 状態を保存しない。
-- 同一workspaceのsubscription offer間で未期限切れintentとactive/grace/read_only契約を排他にし、Webhook時にも再検査する。reconciliation対象と同じ `stripe_subscription_id` は競合から除外し、別subscriptionと競合した決済へentitlementを付与しない。
-- DBへ照合できない、期限切れSession、または競合契約に対応するsubscriptionは、冪等なcancelとinvoice状態別処理を完了するまでreconciliationを継続する。`draft`は削除、`open`はvoid、`paid`は実PaymentIntent/Chargeだけをrefundし、返金だけでsubscriptionを残さない。
+- 解約予約中は支払済み期間終了までactiveを維持する。
+- 未払いは即時削除へ進めずgrace等の安全状態を利用する。
+- 競合契約、結果不明、返金、cancelを冪等にreconcileする。
 
 ## Stripe Link
 

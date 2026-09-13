@@ -51,6 +51,10 @@ interface WorkspaceRow {
   created_at: string;
 }
 
+interface PersonalWorkspaceRow extends WorkspaceRow {
+  workspace_kind: "personal";
+}
+
 interface ProfileRow {
   application_id: string;
   display_name: string;
@@ -252,8 +256,8 @@ export class D1WorkspaceRepository {
       const results = await this.db.batch([
         this.db
           .prepare(
-            `INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at)
-             SELECT ?1, ?2, ?3, 'active', i.application_id, ?4, ?4
+            `INSERT INTO workspaces(id, name, slug, status, workspace_kind, created_by, created_at, updated_at)
+             SELECT ?1, ?2, ?3, 'active', 'standard', i.application_id, ?4, ?4
                FROM identities AS i
               WHERE i.application_id = ?5 AND i.status = 'active'`
           )
@@ -290,6 +294,78 @@ export class D1WorkspaceRepository {
     } catch (error) {
       throw ensureRepositoryError(error);
     }
+  }
+
+  async getOrCreatePersonalWorkspace(actorId: string, operationId: string, now: string): Promise<WorkspaceSummary> {
+    nowOrThrow(now);
+    if (typeof operationId !== "string" || operationId.length < 1 || operationId.length > 128) {
+      throw new D1RepositoryError("invalid_input");
+    }
+    const existing = await this.findPersonalWorkspace(actorId);
+    if (existing) return this.requireActivePersonalWorkspace(existing);
+
+    const id = randomId();
+    const slug = `personal-${id}`;
+    try {
+      const results = await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO workspaces(id, name, slug, status, workspace_kind, created_by, created_at, updated_at)
+             SELECT ?1, 'Personal Workspace', ?2, 'active', 'personal', i.application_id, ?3, ?3
+               FROM identities AS i
+              WHERE i.application_id = ?4 AND i.status = 'active'`
+          )
+          .bind(id, slug, now, actorId),
+        this.db
+          .prepare(
+            `INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at)
+             SELECT ?1, w.created_by, 'owner', 'active', ?2, ?2
+               FROM workspaces AS w
+               JOIN identities AS i ON i.application_id = w.created_by
+              WHERE w.id = ?1 AND w.created_by = ?3 AND w.workspace_kind = 'personal'
+                AND w.status = 'active' AND i.status = 'active'`
+          )
+          .bind(id, now, actorId),
+        this.db
+          .prepare(
+            `INSERT INTO audit_logs(id, actor_application_id, workspace_id, action, metadata_json, created_at)
+             SELECT ?1, ?2, ?3, 'workspace.created', ?4, ?5
+              WHERE EXISTS (
+                SELECT 1 FROM workspaces AS w
+                JOIN workspace_members AS m ON m.workspace_id = w.id
+                 WHERE w.id = ?3 AND w.workspace_kind = 'personal'
+                   AND m.application_id = ?2 AND m.role = 'owner' AND m.status = 'active'
+              )`
+          )
+          .bind(randomId(), actorId, id, AUDIT_METADATA, now)
+      ]);
+      if (runCount(results[0]) !== 1) throw new D1RepositoryError("actor_forbidden");
+      if (runCount(results[1]) !== 1 || runCount(results[2]) !== 1) throw new D1RepositoryError("forbidden");
+      return { id, name: "Personal Workspace", slug, status: "active", createdAt: now };
+    } catch (error) {
+      const converged = await this.findPersonalWorkspace(actorId);
+      if (converged) return this.requireActivePersonalWorkspace(converged);
+      throw ensureRepositoryError(error);
+    }
+  }
+
+  private async findPersonalWorkspace(actorId: string): Promise<PersonalWorkspaceRow | null> {
+    return this.db
+      .prepare(
+        `SELECT w.id, w.name, w.slug, w.status, w.workspace_kind, w.created_at
+           FROM workspaces AS w
+           JOIN identities AS i ON i.application_id = w.created_by
+          WHERE w.created_by = ?1 AND w.workspace_kind = 'personal'
+            AND i.status = 'active'
+          LIMIT 1`
+      )
+      .bind(actorId)
+      .first<PersonalWorkspaceRow>();
+  }
+
+  private requireActivePersonalWorkspace(row: PersonalWorkspaceRow): WorkspaceSummary {
+    if (row.status !== "active") throw new D1RepositoryError("personal_workspace_unavailable");
+    return { id: row.id, name: row.name, slug: row.slug, status: row.status, createdAt: row.created_at };
   }
 
   async issueJoinCode(actorId: string, now: string): Promise<JoinCodeResult> {

@@ -37,11 +37,12 @@ const required = new Map([
   ]],
   ["docs/01-product/product-requirements.md", [
     "Cloudflare AccessのメールOTP", "Access JWTの署名・issuer・audience・期限をWorkerが検証",
-    "Worker認可とworkspace固定D1 query", "アプリ独自passwordは保存しない"
+    "Worker認可とworkspace固定D1 query", "アプリ独自passwordは保存しない",
+    "| FR-014 | MVP | PDF出力ができる |", "| FR-023 | NEXT | Markdown／HTML出力ができる |"
   ]],
   ["docs/01-product/non-functional-requirements.md", [
     "検証済みAccess主体", "workspace固定D1 query", "D1制約", "Access service token",
-    "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2、Browser Run"
+    "D1／R2はWorker bindingからのみ操作", "Cloudflare Access、D1、R2および将来Browser Run"
   ]],
   ["docs/03-architecture/adrs/ADR-0007-stripe-webhook-source-of-truth.md", [
     "署名対象timestampを副作用なしで検証", "receiptと再実行可能なreconciliation work/outbox",
@@ -56,6 +57,12 @@ const required = new Map([
     "署名対象timestampを副作用なしで検証", "receiptと再実行可能なreconciliation work/outbox",
     "received/processing/retryable/reconcile_required/completed/dead_letter", "同じID・異なるdigestは拒否"
   ]],
+  ["docs/03-architecture/adrs/ADR-0002-system-browser-first.md", [
+    "Status: Superseded", "Superseded by: ADR-0031"
+  ]],
+  ["docs/03-architecture/adrs/ADR-0023-pricing-and-stripe-link.md", [
+    "Status: Partially Superseded", "現行Product価格の正本", "## Supersededされた部分", "Browser Run利用時間", "旧固定価格", "`single_export`", "## 維持する部分", "Webhook署名検証", "idempotency／結果不明時のreconciliation", "`BILLING_FEATURE_ENABLED=false`", "## 旧料金決定時の文脈", "以下の料金・offer記述は履歴"
+  ]],
   ["docs/03-architecture/adrs/ADR-0028-cloudflare-access-d1.md", [
     "access_user | service_token", "空の `sub`", "`common_name`",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token fixture",
@@ -68,7 +75,7 @@ const required = new Map([
     "Migration compatibility floor", "code-only rollback", "forward-fix", "fail closed"
   ]],
   ["docs/03-architecture/adrs/README.md", [
-    "ADR-0019 | Superseded", "ADR-0028でD1へ更新", "ADR-0028でAccess/D1へ更新"
+    "ADR-0019 | Superseded", "ADR-0028でAccess/D1へ更新"
   ]],
   ["docs/03-architecture/auth-and-tenancy.md", [
     "Cloudflare Access", "access_user | service_token", "workspace固定D1 query", "Access到達やUI表示を認可根拠にしない",
@@ -77,7 +84,8 @@ const required = new Map([
     "received/processing/retryable/reconcile_required/completed/dead_letter", "通常ブラウザwrite APIだけに同一Origin"
   ]],
   ["docs/03-architecture/integrations.md", [
-    "Access: メールOTP", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
+    "Access: development／stagingはメールOTP", "production商用MVPの一般利用者向けapplicationだけはOne-time PIN", "D1: application identity", "Legacy Supabase", "新規project、user、secret",
+    "`POST /api/onboarding/bootstrap`だけ", "service tokenによるhuman bootstrapを拒否", "server-side rate limit、monitoring、emergency stop",
     "canonical live gateのpre-M5実行", "ownerが実行自体を明示承認した場合に限り", "既存staging/test data作成、remote write、live workflowを許可する",
     "Stripe/Discord callback", "receiptと再実行可能なwork/outbox", "結果不明は照合前に自動再送せず",
     "既存Discord KV get→putはauthoritative guardにせず", "callbackでは`Origin`を認証根拠にしない"
@@ -87,6 +95,9 @@ const required = new Map([
     "Provider callback replay境界", "単一のatomic guard operation", "再実行に必要な最小workまたはdurable outbox参照",
     "lease付き`processing`", "`reconcile_required`", "`dead_letter`", "受理済みworkを黙って失わない", "OQ-031", "lease_generation", "compatibility floor", "forward-fix", "code-only rollback",
     "stable idempotency/correlation key", "outboxのatomic保存時に確定", "sink側で重複を拒否", "single-writer境界", "未知結果のまま同じeffectを再送せず", "CAS成功後停止・lease takeover・旧worker復帰", "sink callが最大1系統"
+  ]],
+  ["docs/04-data/d1-workspace-schema.md", [
+    "`workspace_kind`は`standard | personal`", "既存rowは安全側の`standard`へbackfill", "`PERSONAL_WORKSPACE_UNAVAILABLE`", "`getOrCreatePersonalWorkspace`", "migrations/0002_d1_personal_workspace.sql"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
     "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
@@ -106,7 +117,8 @@ const required = new Map([
     "`GET /health/config`", "`service_token` actorだけを許可", "Access JWTなし・不正・`access_user` actorを拒否",
     "path別Access Bypassは到達経路に限る", "receiptと再実行可能なwork/outboxを単一のatomic operation",
     "guard commit成功後だけproviderへ成功応答", "received", "reconcile_required", "dead_letter",
-    "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract"
+    "課金API contract", "Business OS cloud runner契約", "Discord Interaction contract",
+    "`POST /api/onboarding/bootstrap`", "`POST /api/onboarding/claim-intents`", "`PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}`", "`POST /api/onboarding/claims/{claimIntentId}`", "guest-onboarding-and-claim-api.md"
   ]],
   ["docs/07-quality/acceptance-catalog.md", [
     "workspace固定D1 query/constraint", "Access session/JWT", "D1 atomic operation/batch",
@@ -135,7 +147,8 @@ const required = new Map([
     "path別Access Bypass application", "hostname全体、共通prefix、wildcard pathへBypassを適用しない",
     "receiptと再実行可能なwork/outbox", "結果不明は照合前に自動再送せず",
     "通常のブラウザwrite APIはアプリ自身のOriginだけ", "`Origin`の有無や値を認証根拠にせず",
-    "通常アプリAPIはAccess user用application", "`GET /health/config`はservice-token用Access application/policy"
+    "通常アプリAPIはAccess user用application", "`GET /health/config`はservice-token用Access application/policy",
+    "One-time PINによる本人確認までself-service", "`POST /api/onboarding/bootstrap`以外のbusiness APIを403"
   ]],
   ["docs/08-operations/environment-variables.md", [
     "Issue #176 M5 staging immutable-preview検証用Access service token ID",
@@ -174,6 +187,7 @@ const required = new Map([
   ]],
   ["docs/08-operations/environments-and-delivery.md", [
     "Phase 1 RLS immutable preview", "現行Accepted transitional gate", "owner承認済みの既存staging/test契約",
+    "Emails／Groupsの明示allowlistによる招待制", "One-time PINで本人確認までself-service", "`POST /api/onboarding/bootstrap`以外のbusiness APIを403",
     "M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で", "旧workflow削除", "runbookのStatus: Superseded化", "canonical/renamed旧workflow再追加拒否", "M6へ持ち越さない",
     "Issue #215の文書・checker整合PRへlive RLS証跡を追加しない", "ownerが実行自体を明示承認したpre-M5 canonical live runに限り", "既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する"
   ]],
@@ -185,24 +199,61 @@ const required = new Map([
     "DEC-064 Safetyの5操作", "直接依存test同一scope"
   ]],
   ["docs/09-delivery/session-handoff.md", [
-    "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約"
+    "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約",
+    "## Product pivot／PR #240 review引き継ぎ", "guest -> Chrome Extension MV3", "Browser Run／Browser Session／Live ViewはLegacy／Historical", "PR #240", "d9aa67b5fb2e994259608d831a02e8144c96d3f8", "PR #234 `Chrome Extension MVP implementation`"
+  ]],
+  ["docs/09-delivery/codex-cloud-task-template.md", [
+    "MVPの操作記録はChrome Extension Manifest V3だけ", "Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない",
+    "desktop Chromeのresponsive viewport", "guest manual本文、screenshot、編集内容を認証前にD1／R2へ送らない"
+  ]],
+  ["docs/01-product/requirements-traceability.md", [
+    "| FR-014 | Output gate / PDF | PDF export API after auth+claim |", "MVP-AC-007, 013, 019", "MVP / EPIC-08",
+    "| FR-023 | Markdown / HTML export |", "NEXT / EPIC-08"
+  ]],
+  ["docs/07-quality/mvp-product-acceptance.md", [
+    "| MVP-AC-019 |", "PDF出力を自動再開して完了", "signupをキャンセルした場合はlocal draftを保持", "claim成功確認前はlocal原本を削除しない",
+    "original window id／bounds／stateを永続sessionへ保存", "target tab close・service worker suspension後も元bounds／stateへ戻る"
+  ]],
+  ["docs/03-architecture/adrs/ADR-0031-chrome-extension-first-capture.md", [
+    "Chrome window `id`、`left`、`top`、`width`、`height`、`state`", "`normal`へtransition", "target tab close時", "service workerのsuspension後"
+  ]],
+  ["docs/05-api/guest-onboarding-and-claim-api.md", [
+    "\"createdIdentity\": true", "server-sideのatomic bootstrap結果", "`signup_completed`はbootstrap処理がidentityを新規作成したときだけserverがexactly-onceで記録",
+    "固定namespace、event type、actor identity、bootstrap operationIdから決定的なeventId", "claimIntentId + operationId + asset slot", "再upload前にD1のclaim/asset記録", "R2 putとD1 transactionをatomicとはみなさない",
+    "`PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}`", "`assetCount <= 100`", "1 assetあたり10 MiB以下", "claim合計100 MiB以下", "1 asset = 1 bounded PUT", "同じactor + workspace + claimIntentId + operationId + assetSlot + digestのretry", "mismatchは409", "claim requestでは画像byteを再送せず"
+  ]],
+  ["docs/05-api/product-events.md", [
+    "`signup_started` | output gateから新規アカウント作成を明示的に開始", "`signup_completed` | server-sideのatomic bootstrapでapplication identityが新規作成された場合だけ", "returning user login", "client申告で判定せず",
+    "分母は新規アカウント作成導線", "分子は対応するserver-sideのidentity新規作成", "### Server-generated event envelope",
+    "client-generated `eventId`や`occurredAt`を要求・受理しない", "server-side authoritative timestamp", "同じbusiness operationのretryでは同一ID",
+    "認証へ到達しprivacy-safeなlocal eventをflushしたcreator cohort", "未認証の全guestを観測できるとはみなさない", "Primary TTFVは `capture_started` から `draft_generated`", "Time to First Saved Manual", "分母: `output_gate_opened` に到達したguest cohort", "returning userや既存の認証済みcreatorを含めない"
   ]],
   ["docs/09-delivery/decision-log.md", [
     "旧Web Lock", "認証世代が変わった後の古い応答を破棄", "Access cookie／refresh tokenをアプリから操作しない",
     "path別Access Bypass", "通常アプリAPIと`GET /health/config`はAccess保護を維持",
     "receiptと再実行可能なwork/outbox", "received/processing/retryable/reconcile_required/completed/dead_letter",
-    "結果不明は照合前に自動再送せず", "OQ-031をC1で解決"
+    "結果不明は照合前に自動再送せず", "OQ-031をC1で解決",
+    "DEC-068", "Chrome Extension Manifest V3だけ", "guest contentをD1/R2へ書き込まない",
+    "Free / Pro / Team", "DEC-005の「Chrome拡張を第一方式にしない」決定", "DEC-069", "`assetCount <= 100`", "claim合計100 MiB以下"
   ]],
   ["docs/09-delivery/open-questions.md", [
     "OQ-031", "独立callbackマイルストーンC1", "receiptと再実行可能なwork/outbox",
     "received/processing/retryable/reconcile_required/completed/dead_letter",
-    "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない"
+    "既存Discord KV get→putだけでは合格にせず", "path別Access Bypassを有効化しない",
+    "ADR-0030で解決済み", "ADR-0033で旧固定価格をSuperseded",
+    "Live Viewは現行MVP対象外", "production商用MVPのself-service bootstrapだけを有効化"
+  ]],
+  ["migrations/0002_d1_personal_workspace.sql", [
+    "workspace_kind TEXT NOT NULL DEFAULT 'standard'", "workspaces_personal_creator_unique", "WHERE workspace_kind = 'personal'", "workspace_kind_immutable"
   ]]
 ]);
 
 const forbidden = new Map([
+  ["docs/03-architecture/adrs/ADR-0002-system-browser-first.md", ["Status: Superseded by ADR-0031"]],
+  ["docs/03-architecture/adrs/ADR-0023-pricing-and-stripe-link.md", ["Status: Accepted"]],
+  ["docs/09-delivery/codex-cloud-task-template.md", ["Chrome拡張を第一方式にしない"]],
   ["docs/08-operations/phase1-rls-live-gate.md", []],
-  ["docs/08-operations/environments-and-delivery.md", ["Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可", "着地後にSupersededとしてM6で退役し、再追加をCIで拒否する", "着地した後、M6で退役する"]],
+  ["docs/08-operations/environments-and-delivery.md", ["メールOTPは招待制 |", "Legacy immutable preview gate", "既存RLS workflowはSupersededとして削除済み", "旧Supabase workflowは削除済み", "実行不可", "着地後にSupersededとしてM6で退役し、再追加をCIで拒否する", "着地した後、M6で退役する"]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", ["live workflowをM6で退役", "#95と旧Supabase gateのclose／supersede判断を行う"]],
   ["AGENTS.md", ["DB変更はmigration、テーブル定義、ERD/RLS方針", "テスト担当: 自動テスト、RLS negative test"]],
   [".github/pull_request_template.md", ["DB変更がある場合、テーブル定義、RLS方針、RLSテスト"]],
@@ -229,7 +280,7 @@ const forbidden = new Map([
     "Supabase Authを使います", "API WorkerはSupabase JWT", "RLS: 最終防衛線",
     "空の `sub` または `common_name` を持つmachine actor"
   ]],
-  ["docs/03-architecture/integrations.md", ["Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
+  ["docs/03-architecture/integrations.md", ["Access: メールOTP・明示allowlistによる招待制の到達制御", "Postgres: 業務データ、ファイルメタデータ、監査ログの正本", "RLS: workspace単位", "SupabaseにはR2 object key"]],
   ["docs/04-data/storage-object-contract.md", ["## Postgresメタデータ", "認可時はPostgres正本", "WorkerはSupabase session"]],
   ["docs/05-api/api-contracts.md", ["# API契約\n\nStatus: Superseded", "新規予約に成功", "単独のreplay guard正本にせず、予約後"]],
   [".github/workflows/phase1-readiness-gate.yml", ["Phase 1着手前ゲートは通っています", "本番開発へ進めます"]],
@@ -1190,7 +1241,7 @@ const m5CarrierEntries = [
   {
     name: "issue-map Issue 95 Superseded context",
     path: "docs/09-delivery/issue-map.md",
-    scope: "## 現在の最優先: EPIC-15 Cloudflare認証・DB統一移行",
+    scope: "## 技術依存レーン: EPIC-15 Cloudflare認証・DB統一移行",
     prefix: "EPIC-02、EPIC-03、EPIC-06のSupabase Auth/Postgres/RLS実装は移行前baselineとして保持するが、新規機能の土台やstaging合格証跡として拡張しない。Issue #92はcompleted closeされ、blanket main merge holdは解除済みである。#95の旧Supabase live gateはSupersededとし、新規Supabase資格情報は追加せず、live runはIssue #215の文書・checker整合PRとは別にownerが実行自体を明示承認した場合だけ許可する。Issue #176 M5の実immutable preview negative proofが完了するまではstaging合格、production資源作成・deploy、外部招待を禁止する。",
     exact: true,
     terms: ["#95", "旧Supabase live gate", "Superseded"],
@@ -1348,7 +1399,7 @@ function issue182ScopedSection(path) {
     return row.split("|")[4] ?? "";
   }
   if (path === "docs/07-quality/test-strategy.md") {
-    return content.split(/\r?\n/).find((line) => line.startsWith("- Access callback境界。")) ?? "";
+    return content.split(/\r?\n/).find((line) => line.startsWith("Access callback境界。")) ?? "";
   }
   return "";
 }
