@@ -92,7 +92,11 @@ function selectMarkdownSection(content, heading) {
     if (headingText === null) continue;
 
     if (startLine < 0) {
-      if (headingText === target) startLine = index + 1;
+      // A heading that opens a multiline HTML comment is not a safe policy
+      // section boundary: subsequent hidden bullets would otherwise be parsed
+      // after resetting state. Require the target heading to leave comment
+      // state closed before accepting it.
+      if (headingText === target && !state.inComment) startLine = index + 1;
       continue;
     }
 
@@ -230,6 +234,11 @@ function runFixtures() {
   const dailyUnterminatedComment = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- disabled policy\n- ${productionBullet}\n`;
   if (validateDaily(dailyUnterminatedComment).length === 0) {
     throw new Error("daily policy negative fixture accepted an unterminated-comment policy");
+  }
+
+  const dailyCommentOpeningHeading = `# x\n## 運用上の補足 <!--\n- ${approvalBullet}\n- ${productionBullet}\n-->\n`;
+  if (validateDaily(dailyCommentOpeningHeading).length === 0) {
+    throw new Error("daily policy negative fixture accepted bullets hidden by a comment opened on the target heading");
   }
 
   const dailyFencedPolicy = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`text\n- ${productionBullet}\n\`\`\`\n- ${reversedBullet}\n`;
