@@ -5,6 +5,7 @@ export type D1RepositoryErrorCode =
   | "not_found"
   | "conflict"
   | "limit_exceeded"
+  | "personal_workspace_unavailable"
   | "unavailable";
 
 export class D1RepositoryError extends Error {

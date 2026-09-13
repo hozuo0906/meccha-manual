@@ -6,7 +6,10 @@ import { D1RepositoryError } from "../apps/worker/src/infra/d1/d1-errors.ts";
 import { D1IdentityRepository } from "../apps/worker/src/infra/d1/identity-repository.ts";
 import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-repository.ts";
 
-const migrationPath = new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url);
+const migrationPaths = [
+  new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+];
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
 const TEST_TIMEOUT_MS = 45_000;
@@ -42,7 +45,7 @@ test("Miniflare D1 binding applies migration and exercises the real workspace re
     disposeTimer.unref?.();
 
     const db = await miniflare.getD1Database("DB");
-    await applyMigration(db, await readFile(migrationPath, "utf8"));
+    for (const migrationPath of migrationPaths) await applyMigration(db, await readFile(migrationPath, "utf8"));
     await assertMigrationAndSeed(db);
 
     const identities = new D1IdentityRepository(db);

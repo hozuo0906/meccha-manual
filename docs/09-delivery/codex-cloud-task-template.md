@@ -42,7 +42,9 @@ Pull Request: #<番号または未作成>
 - secret、共有トークン、個人情報、実ユーザー操作内容をdocs、ログ、PRへ入れない。
 - production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。
 - 商用リリース前は、Astra highの親PMが変更の正当性、依存順、必要な品質ゲートを実SHAで確認すれば、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。承認待ちでは可逆的な差分・テストによる具体案の準備は可とするが、外部反映前に対象SHA／差分を提示し、未push成果物だけを残して終了しない。承認待ちが必要なら明示する。商用リリースの日時・識別子・根拠はIssue #70へ記録し、状態が不在または曖昧な場合は自動mergeしない。
-- Chrome拡張を第一方式にしない。
+- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。
+- PC／スマホ／タブレットはdesktop Chromeのresponsive viewportで記録し、iOS／Android実機の完全再現を主張しない。
+- guest manual本文、screenshot、編集内容を認証前にD1／R2へ送らない。
 - AI APIは初期OFF。
 - UI、文言、docsは日本語専用。
 

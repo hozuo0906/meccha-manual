@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-repository.ts";
 
-const migration = await readFile(new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url), "utf8");
+const baseMigration = await readFile(new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url), "utf8");
+const personalMigration = await readFile(new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url), "utf8");
+const migration = `${baseMigration}\n${personalMigration}`;
 const repositorySource = await readFile(new URL("../apps/worker/src/infra/d1/workspace-repository.ts", import.meta.url), "utf8");
 const now = "2026-09-05T00:00:00.000Z";
 
@@ -33,6 +35,8 @@ const schemaContracts = [
   ["last owner trigger", "workspace_member_owner_loss_update"],
   ["identity last owner trigger", "identity_disable_last_owner"],
   ["workspace identity immutable", "workspace_identity_immutable"],
+  ["personal workspace creator unique", "workspaces_personal_creator_unique"],
+  ["workspace kind immutable", "workspace_kind_immutable"],
   ["member identity immutable", "workspace_member_identity_immutable"],
   ["append-only audit", "audit_logs_append_only_delete"]
 ];
@@ -49,7 +53,8 @@ const methodContracts = [
   ["getProfile", "listMembers", [["p.application_id = ?1", "i.status = 'active'"]]],
   ["listMembers", "getMemberRole", [["actor_member.application_id = ?1", "actor_member.workspace_id = ?2", "actor_member.status = 'active'", "actor_member.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "target.status = 'active'", "LIMIT ?3"]]],
   ["getMemberRole", "createWorkspace", [["actor_member.application_id = ?1", "actor_member.workspace_id = ?2", "actor_identity.status = 'active'", "actor_member.status = 'active'", "actor_member.role IN ('owner', 'admin', 'editor', 'viewer')", "w.status = 'active'", "LIMIT 1"]]],
-  ["createWorkspace", "issueJoinCode", [["i.application_id = ?5 AND i.status = 'active'"], ["w.id = ?1", "w.created_by = ?3", "w.status = 'active'"], ["workspace_id = ?3", "role = 'owner'"]]],
+  ["createWorkspace", "getOrCreatePersonalWorkspace", [["i.application_id = ?5 AND i.status = 'active'"], ["w.id = ?1", "w.created_by = ?3", "w.status = 'active'"], ["workspace_id = ?3", "role = 'owner'"]]],
+  ["getOrCreatePersonalWorkspace", "issueJoinCode", [["workspace_kind, created_by"], ["w.workspace_kind = 'personal'", "w.created_by = ?3", "w.status = 'active'"], ["w.workspace_kind = 'personal'", "m.application_id = ?2"], ["w.created_by = ?1", "w.workspace_kind = 'personal'", "i.status = 'active'"]]],
   ["issueJoinCode", "consumeJoinCode", [["application_id = ?1 AND status = 'active'"], ["i.application_id = ?5 AND i.status = 'active'"], ["issuer_application_id = ?2 AND digest = ?5"]]],
   ["consumeJoinCode", "updateMember", [["c.digest = ?3", "admin_member.workspace_id = ?5"], ["w.status = 'active'", "c.consumption_nonce = ?6"], ["workspace_id = ?3", "c.consumption_nonce = ?7"]]],
   ["updateMember", null, [["target.workspace_id = ?4 AND target.application_id = ?5", "target_identity.status = 'active'", "actor_member.workspace_id = ?4", "actor_member.application_id = ?6", "actor_member.role IN ('owner', 'admin')", "w.status = 'active'"], ["changes() = 1"], ["target.workspace_id = ?1", "target_identity.status = 'active'", "actor_member.workspace_id = ?1", "actor_member.application_id = ?3", "actor_member.role IN ('owner', 'admin')", "w.status = 'active'"]]]
