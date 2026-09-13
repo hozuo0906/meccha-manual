@@ -23,18 +23,71 @@ function selectMarkdownSection(content, heading) {
   return content.slice(bodyStart, end);
 }
 
-function activeBullets(section) {
-  const withoutComments = section.replace(/<!--[\s\S]*?-->/g, "");
-  return withoutComments
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim());
+function activeTopLevelBullets(section) {
+  const bullets = [];
+  let inComment = false;
+  let fenceMarker = null;
+
+  for (const rawLine of section.split("\n")) {
+    if (fenceMarker) {
+      const trimmed = rawLine.trimStart();
+      if (trimmed.startsWith(fenceMarker)) fenceMarker = null;
+      continue;
+    }
+
+    let cleaned = "";
+    let cursor = 0;
+    while (cursor < rawLine.length) {
+      if (inComment) {
+        const close = rawLine.indexOf("-->", cursor);
+        if (close < 0) {
+          cursor = rawLine.length;
+          break;
+        }
+        inComment = false;
+        cursor = close + 3;
+        continue;
+      }
+
+      const open = rawLine.indexOf("<!--", cursor);
+      if (open < 0) {
+        cleaned += rawLine.slice(cursor);
+        break;
+      }
+      cleaned += rawLine.slice(cursor, open);
+      inComment = true;
+      cursor = open + 4;
+    }
+
+    const trimmed = cleaned.trimStart();
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      fenceMarker = trimmed.slice(0, 3);
+      continue;
+    }
+
+    // Policy rules are intentionally top-level bullets. Indented/nested bullets are
+    // excluded so examples and code blocks cannot satisfy the operative contract.
+    if (cleaned.startsWith("- ")) bullets.push(cleaned.slice(2).trim());
+  }
+
+  return bullets;
 }
 
-const dailyPolicies = [
-  "このscheduled task自体はread-onlyであり書込みを行わない。別の通常開発sessionでは、商用リリース前にAstra parent PMがsource-of-truth、実SHA、依存順、tests、CI、Codex Review、未解決threadを確認できれば、ユーザーへの都度確認なしでbranch作成、編集、test、commit、push、PR作成／更新、review依頼／修正、checklist、Ready、mergeまで進めてよい。",
-  "production deploy、production Access policy変更、production D1 migration、production R2変更、Stripe live、Billing有効化、secret／credential変更、Chrome Web Store一般公開、最初の商用公開、不可逆な外部操作は従来どおり別承認とする。"
+const approvalBullet =
+  "このscheduled task自体はread-onlyであり書込みを行わない。別の通常開発sessionでは、商用リリース前にAstra parent PMがsource-of-truth、実SHA、依存順、tests、CI、Codex Review、未解決threadを確認できれば、ユーザーへの都度確認なしでbranch作成、編集、test、commit、push、PR作成／更新、review依頼／修正、checklist、Ready、mergeまで進めてよい。";
+const productionBullet =
+  "production deploy、production Access policy変更、production D1 migration、production R2変更、Stripe live、Billing有効化、secret／credential変更、Chrome Web Store一般公開、最初の商用公開、不可逆な外部操作は従来どおり別承認とする。";
+const protectedProductionTerms = [
+  "production deploy",
+  "production Access policy変更",
+  "production D1 migration",
+  "production R2変更",
+  "Stripe live",
+  "Billing有効化",
+  "secret／credential変更",
+  "Chrome Web Store一般公開",
+  "最初の商用公開",
+  "不可逆な外部操作"
 ];
 
 const templateExactPolicies = [
@@ -61,10 +114,25 @@ function validateDaily(daily) {
   const errors = [];
   const operative = selectMarkdownSection(daily, "## 運用上の補足");
   if (!operative) return ["daily-session-prompt operative section was not found"];
-  const bullets = activeBullets(operative);
-  for (const policy of dailyPolicies) {
-    if (!bullets.includes(policy)) errors.push(`daily-session-prompt active policy bullet missing: ${policy}`);
+  const bullets = activeTopLevelBullets(operative);
+
+  if (!bullets.includes(approvalBullet)) {
+    errors.push(`daily-session-prompt active policy bullet missing: ${approvalBullet}`);
   }
+  if (!bullets.includes(productionBullet)) {
+    errors.push(`daily-session-prompt active policy bullet missing: ${productionBullet}`);
+  }
+
+  for (const bullet of bullets) {
+    if (bullet === productionBullet) continue;
+    const conflictingTerms = protectedProductionTerms.filter((term) => bullet.includes(term));
+    if (conflictingTerms.length) {
+      errors.push(
+        `daily-session-prompt has conflicting active production-policy bullet (${conflictingTerms.join(", ")}): ${bullet}`
+      );
+    }
+  }
+
   return errors;
 }
 
@@ -72,7 +140,7 @@ function validateTemplate(template) {
   const errors = [];
   const rules = selectBetween(template, "固定ルール:\n", "\n実行:\n");
   if (!rules) return ["codex-cloud-task-template fixed-rules block was not found"];
-  const bullets = activeBullets(rules);
+  const bullets = activeTopLevelBullets(rules);
   for (const policy of templateExactPolicies) {
     if (!bullets.includes(policy)) errors.push(`codex-cloud-task-template active policy bullet missing: ${policy}`);
   }
@@ -89,8 +157,6 @@ function validatePolicies({ daily, template }) {
 }
 
 function runFixtures() {
-  const approvalBullet = "このscheduled task自体はread-onlyであり書込みを行わない。別の通常開発sessionでは、商用リリース前にAstra parent PMがsource-of-truth、実SHA、依存順、tests、CI、Codex Review、未解決threadを確認できれば、ユーザーへの都度確認なしでbranch作成、編集、test、commit、push、PR作成／更新、review依頼／修正、checklist、Ready、mergeまで進めてよい。";
-  const productionBullet = "production deploy、production Access policy変更、production D1 migration、production R2変更、Stripe live、Billing有効化、secret／credential変更、Chrome Web Store一般公開、最初の商用公開、不可逆な外部操作は従来どおり別承認とする。";
   const goodDaily = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n## Historical\n- history\n`;
   const goodTemplate = `固定ルール:\n- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。\n- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。\n\n実行:\n`;
 
@@ -102,14 +168,31 @@ function runFixtures() {
     throw new Error("daily policy negative fixture passed from a later historical section");
   }
 
-  const dailyReversedApproval = `# x\n## 運用上の補足\n- ${approvalBullet}\n- production deployと不可逆な外部操作は従来どおり別承認とする。production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。\n`;
+  const reversedBullet =
+    "production deployと不可逆な外部操作は従来どおり別承認とする。production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。";
+  const dailyReversedApproval = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedBullet}\n`;
   if (validateDaily(dailyReversedApproval).length === 0) {
     throw new Error("daily policy negative fixture accepted a reversed production approval boundary");
   }
 
-  const dailyCommentOnly = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- - ${productionBullet} -->\n- production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。\n`;
+  const dailyContradiction = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n- ${reversedBullet}\n`;
+  if (validateDaily(dailyContradiction).length === 0) {
+    throw new Error("daily policy negative fixture accepted contradictory production bullets");
+  }
+
+  const dailyCommentOnly = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- - ${productionBullet} -->\n- ${reversedBullet}\n`;
   if (validateDaily(dailyCommentOnly).length === 0) {
     throw new Error("daily policy negative fixture accepted a commented-out approval boundary");
+  }
+
+  const dailyUnterminatedComment = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- disabled policy\n- ${productionBullet}\n`;
+  if (validateDaily(dailyUnterminatedComment).length === 0) {
+    throw new Error("daily policy negative fixture accepted an unterminated-comment policy");
+  }
+
+  const dailyFencedPolicy = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`text\n- ${productionBullet}\n\`\`\`\n- ${reversedBullet}\n`;
+  if (validateDaily(dailyFencedPolicy).length === 0) {
+    throw new Error("daily policy negative fixture accepted a fenced-code approval boundary");
   }
 
   const templateExampleOnly = `固定ルール:\n- current policy intentionally missing\n\n実行:\n- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。\n- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。\n`;
