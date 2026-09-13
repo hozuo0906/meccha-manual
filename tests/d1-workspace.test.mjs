@@ -6,7 +6,10 @@ import { D1IdentityRepository } from "../apps/worker/src/infra/d1/identity-repos
 import { D1RepositoryError } from "../apps/worker/src/infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-repository.ts";
 
-const migrationPath = new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url);
+const migrationPaths = [
+  new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+];
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
 
@@ -69,7 +72,7 @@ let workspaces;
 
 beforeEach(async () => {
   database = new DatabaseSync(":memory:");
-  database.exec(await readFile(migrationPath, "utf8"));
+  for (const migrationPath of migrationPaths) database.exec(await readFile(migrationPath, "utf8"));
   d1 = new LocalD1(database);
   identities = new D1IdentityRepository(d1);
   workspaces = new D1WorkspaceRepository(d1);
@@ -131,6 +134,54 @@ test("create workspace normalizes input and atomically creates owner/audit", asy
   assert.equal((database.prepare("SELECT count(*) AS count FROM audit_logs WHERE action = 'workspace.created'").get()).count, 1);
   await assert.rejects(() => workspaces.createWorkspace("alice", { name: "x", slug: "alpha" }, NOW), (error) => error.code === "conflict");
   assert.deepEqual(await workspaces.listWorkspaces("disabled"), []);
+});
+
+test("personal workspace bootstrap converges across concurrent operations and never reuses standard workspace", async () => {
+  const standard = await createOwnedWorkspace("alice", "standard-workspace");
+  const outcomes = await Promise.all([
+    workspaces.getOrCreatePersonalWorkspace("alice", "operation-a", NOW),
+    workspaces.getOrCreatePersonalWorkspace("alice", "operation-b", NOW)
+  ]);
+  assert.equal(outcomes[0].id, outcomes[1].id);
+  assert.notEqual(outcomes[0].id, standard.id);
+  assert.equal(database.prepare("SELECT count(*) AS count FROM workspaces WHERE created_by = 'alice' AND workspace_kind = 'personal'").get().count, 1);
+  assert.equal(database.prepare("SELECT workspace_kind FROM workspaces WHERE id = ?").get(standard.id).workspace_kind, "standard");
+  assert.equal(database.prepare("SELECT workspace_kind FROM workspaces WHERE id = ?").get(outcomes[0].id).workspace_kind, "personal");
+  assert.throws(() => database.prepare("UPDATE workspaces SET workspace_kind = 'personal' WHERE id = ?").run(standard.id));
+});
+
+test("personal workspace bootstrap reuses active row and fails closed for suspended or deleted row", async () => {
+  const personal = await workspaces.getOrCreatePersonalWorkspace("alice", "operation-a", NOW);
+  assert.equal((await workspaces.getOrCreatePersonalWorkspace("alice", "operation-b", LATER)).id, personal.id);
+  for (const status of ["suspended", "deleted"]) {
+    database.prepare("UPDATE workspaces SET status = ? WHERE id = ?").run(status, personal.id);
+    await assert.rejects(
+      () => workspaces.getOrCreatePersonalWorkspace("alice", `operation-${status}`, LATER),
+      (error) => error.code === "personal_workspace_unavailable"
+    );
+    assert.equal(database.prepare("SELECT count(*) AS count FROM workspaces WHERE created_by = 'alice' AND workspace_kind = 'personal'").get().count, 1);
+  }
+});
+
+test("disabled identity cannot reuse or create a personal workspace", async () => {
+  await assert.rejects(
+    () => workspaces.getOrCreatePersonalWorkspace("disabled", "operation-disabled", NOW),
+    (error) => error.code === "actor_forbidden"
+  );
+  assert.equal(database.prepare("SELECT count(*) AS count FROM workspaces WHERE created_by = 'disabled' AND workspace_kind = 'personal'").get().count, 0);
+});
+
+test("personal workspace migration backfills existing rows as standard without inference", async () => {
+  const legacy = new DatabaseSync(":memory:");
+  try {
+    legacy.exec(await readFile(migrationPaths[0], "utf8"));
+    legacy.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('legacy', 'issuer', 'legacy', 'active', ?, ?)").run(NOW, NOW);
+    legacy.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at) VALUES ('legacy-workspace', 'Legacy', 'legacy', 'active', 'legacy', ?, ?)").run(NOW, NOW);
+    legacy.exec(await readFile(migrationPaths[1], "utf8"));
+    assert.equal(legacy.prepare("SELECT workspace_kind FROM workspaces WHERE id = 'legacy-workspace'").get().workspace_kind, "standard");
+  } finally {
+    legacy.close();
+  }
 });
 
 test("workspace name and slug bounds are checked in repository and migration", async () => {

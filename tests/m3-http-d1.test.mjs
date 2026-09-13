@@ -6,7 +6,10 @@ import { afterEach, beforeEach, test } from "node:test";
 import { exportJWK, SignJWT } from "jose";
 import worker from "../apps/worker/src/index.ts";
 
-const migrationPath = new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url);
+const migrationPaths = [
+  new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+];
 const issuer = "https://team.example.invalid";
 const audience = "meccha-manual-staging";
 const jwksUrl = "https://team.example.invalid/.well-known/jwks.json";
@@ -55,7 +58,7 @@ let env;
 
 beforeEach(async () => {
   database = new DatabaseSync(":memory:");
-  database.exec(await readFile(migrationPath, "utf8"));
+  for (const migrationPath of migrationPaths) database.exec(await readFile(migrationPath, "utf8"));
   database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run("app-user-1", issuer, "subject-1", now, now);
   database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run("app-user-1", "テスト利用者", "ja-JP", "Asia/Tokyo", now, now);
   env = {

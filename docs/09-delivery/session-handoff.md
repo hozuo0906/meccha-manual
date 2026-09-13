@@ -327,3 +327,14 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 2026-09-05のCloudflareブラウザ確認では対象プロジェクト用D1は未作成、staging用R2 4 bucketは存在し全て空だった。capture-assets bucketのpublic access無効を確認した。他bucketのprivate設定・binding分離はまだ個別検証していない。
 - M2の実staging D1 binding、dynamic negative、backup/export/restore、production分離証跡は未実施。M3 HTTP接続と、これらのM2実staging証跡が残っている。
 - 次の1マイルストーン（本節を最新の引き継ぎ正本とする）: M2実staging binding／migration・backup/restore証跡を別途完了判定し、その後M3 HTTP/UI接続へ進む。callbackのC1復帰条件は緩和しない。
+
+## Product pivot／PR #240 review引き継ぎ（2026-09-13）
+
+この節を現行Product開発の最新引き継ぎとする。上記M2／M3、invite-only production Access、Browser Run中心の「次のマイルストーン」は履歴であり、現行MVPの優先順位には使用しない。
+
+- Product flow: `guest -> Chrome Extension MV3 -> PC／smartphone／tablet responsive capture -> local draft -> output gate -> signup/login -> self-service bootstrap -> Personal Workspace -> guest claim -> save/share/PDF`。
+- Browser Run／Browser Session／Live ViewはLegacy／Historicalであり、現行MVP runtimeへfallbackしない。
+- production商用MVPの一般利用者はOne-time PINでself-service本人確認まで到達可能とする。ただしAccess到達はbusiness authorizationではなく、unknown human actorはbootstrap以外のbusiness APIを403にする。
+- Review lineage: sourceはPR #240、review対象HEADは`d9aa67b5fb2e994259608d831a02e8144c96d3f8`。本作業は同HEADへの最新Reviewで指摘されたPersonal Workspace識別、authenticated staged asset upload、Accepted API index、このsession handoffのP1／P2解消である。
+- Review対応状況: Personal Workspace D1 discriminator／uniquenessはmigration・repository・local testへ反映済み、authenticated staged asset uploadはAccepted contract化済み、onboarding APIはAccepted indexへ登録済み。残作業はPRの最新HEADに対するreview／CI／merge確認である。
+- 次の1マイルストーン: Product source-of-truth PRをmergeした後、PR #234 `Chrome Extension MVP implementation`を新mainへ追従させ、Product／security contractとの差分レビューを行う。PR #240とProduct正本のmerge前にPR #234を変更しない。
