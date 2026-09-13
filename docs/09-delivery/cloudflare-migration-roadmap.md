@@ -6,6 +6,8 @@ Status: Accepted
 
 Issue #176とADR-0028に基づき、Supabase Auth/Postgres/RLS前提の実装をCloudflare Access/Workers/D1へ段階移行する。各マイルストーンは独立PRとし、前段のP0/P1、CI、review threadが解消するまで次へ進まない。
 
+このroadmapはProduct delivery scheduleそのものではない。Product優先順位は `issue-map.md` のS0〜S6／Product Core Value Sliceを正とし、このCloudflare migration laneは各Product sliceに必要なbackend依存を供給する。
+
 ## 現在地
 
 - Cloudflare Workers、preview Access保護、R2方針、Browser Run fail-closed基盤は継続利用する。
@@ -103,7 +105,8 @@ C1有効化前にはM2の503・副作用0証跡に加え、元のcallback回復�
 成果:
 
 - Accessログイン/再認証/ログアウトUX
-- 招待制Access policyを明示Emails/Groups allowlistで固定し、メールOTP login methodだけをallow条件にしない
+- development／staging Access policyは明示Emails／Groups allowlistで固定し、メールOTP login methodだけをallow条件にしない
+- production商用MVPの一般利用者向けAccess applicationはM7と現行Product auth契約に従い、One-time PINによるself-service本人確認を許可する。development／stagingのinvite-only境界をproduction一般利用者へ適用しない
 - session、workspace、member API/UIのD1化
 - 複数タブ、古い応答、結果不明、途中失敗の回帰
 - Phase 1のactive request pathからSupabase Auth、refresh token、PostgREST/RPC依存を削除
@@ -180,10 +183,13 @@ C1有効化前にはM2の503・副作用0証跡に加え、元のcallback回復�
 別承認でのみ実施する。
 
 - production Access application
+- 一般利用者はOne-time PINでself-service本人確認へ到達できる。ただしAccess到達はbusiness authorizationを意味せず、unknown verified human actorは `POST /api/onboarding/bootstrap` 以外のbusiness APIを403とする
+- human identityの正本はverified issuer + subjectとし、service tokenによるhuman bootstrap、email-only merge／relocate／reviveを禁止する
+- bootstrapは1 identity = 1 Personal Workspace、server-side rate limit、monitoring、emergency stopを満たす
 - production D1
 - production R2 bindings
 - GitHub Environment required reviewers
 - backup/restore、監視、rollback
-- 最初の外部ユーザー招待
+- 最初の外部一般ユーザー受入（invite-onlyではなくself-service本人確認）
 
-production資源作成、migration、deploy、外部招待は同一承認へまとめず、それぞれ対象と証跡を確認する。
+production資源作成、migration、deploy、外部一般ユーザー受入は同一承認へまとめず、それぞれ対象と証跡を確認する。

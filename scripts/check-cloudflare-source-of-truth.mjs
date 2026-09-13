@@ -192,6 +192,7 @@ const required = new Map([
     "Issue #215の文書・checker整合PRへlive RLS証跡を追加しない", "ownerが実行自体を明示承認したpre-M5 canonical live runに限り", "既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する"
   ]],
   ["docs/09-delivery/cloudflare-migration-roadmap.md", [
+    "このroadmapはProduct delivery scheduleそのものではない", "development／staging Access policyは明示Emails／Groups allowlist", "production商用MVPの一般利用者向けAccess application", "One-time PINによるself-service本人確認", "Access到達はbusiness authorizationを意味せず", "unknown verified human actor", "server-side rate limit、monitoring、emergency stop",
     "503 MANUAL_MIGRATION_IN_PROGRESS", "M3状態をstaging合格または内部alpha合格として扱わない",
     "現行AcceptedのSupabase RLS live gate workflow", "OQ-031を解決", "receiptと再実行可能なwork/outbox",
     "processing lease期限", "結果不明", "既存Discord KV get→putを単独のreplay guard正本にしない", "CAS成功後停止→lease takeover→旧worker復帰", "stable idempotency/correlation key", "sink call最大1系統",
@@ -199,12 +200,20 @@ const required = new Map([
     "DEC-064 Safetyの5操作", "直接依存test同一scope"
   ]],
   ["docs/09-delivery/session-handoff.md", [
+    "## Product / Development current state (2026-09-13)", "PR #242はmerge済み", "5697d1969bdbac629084671fe708181c55dd514f", "次の1マイルストーンは、PR #234", "末尾のPR #240 review節はHistorical",
     "現行live RLS gate workflow", "Issue #176 M5 replacement gate", "新規test user、資格情報、環境は追加せず", "owner承認済み既存staging/test契約",
     "## Product pivot／PR #240 review引き継ぎ", "guest -> Chrome Extension MV3", "Browser Run／Browser Session／Live ViewはLegacy／Historical", "PR #240", "d9aa67b5fb2e994259608d831a02e8144c96d3f8", "PR #234 `Chrome Extension MVP implementation`"
   ]],
   ["docs/09-delivery/codex-cloud-task-template.md", [
+    "Codex Cloudを第一実行方式", "ローカル環境へhandoffしない", "GitHub repositoryを唯一のコード正本", "commitしてSHAとblockerを報告して停止",
     "MVPの操作記録はChrome Extension Manifest V3だけ", "Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない",
     "desktop Chromeのresponsive viewport", "guest manual本文、screenshot、編集内容を認証前にD1／R2へ送らない"
+  ]],
+  ["docs/09-delivery/daily-session-prompt.md", [
+    "scheduled task自体はread-only", "ユーザーへの都度確認なしでbranch作成", "production Access policy変更", "最初の商用公開"
+  ]],
+  ["docs/09-delivery/issue-map.md", [
+    "### 現在の実行順（S0〜S6）", "PR #242をmainへmerge", "S1 Chrome Extension Core", "PR #234を新mainへ追従", "platform migration lane", "Product実行順を上書きしない"
   ]],
   ["docs/01-product/requirements-traceability.md", [
     "| FR-014 | Output gate / PDF | PDF export API after auth+claim |", "MVP-AC-007, 013, 019", "MVP / EPIC-08",

@@ -164,6 +164,27 @@ Status: Accepted
 - 最初の商用公開そのもの、production反映、課金、機密情報保存、破壊的操作などの既存の別承認境界は、この開発操作承認によって拡張しない。
 - 古い一般的な「owner承認待ち」だけを理由に、商用リリース前の通常のpush、Pull Request作成・更新、mergeを停止しない。商用リリース前はAstra high親PMの実SHA確認と品質ゲートを適用し、商用リリース後は操作ごとにユーザーの事前承認を得る。
 
+## Product / Development current state (2026-09-13)
+
+この節を現行Product開発の最新引き継ぎとする。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。
+
+- PR #242はmerge済み。確認済みmainは `5697d1969bdbac629084671fe708181c55dd514f`。
+- MVP capture runtimeはChrome Extension Manifest V3だけとし、Cloudflare Browser Run／Browser Session／Live ViewはLegacy／Historicalで、fallbackしない。
+- backendはCloudflare Access／Workers／D1／private R2を正本とする。Supabase Auth／Postgres／RLSはmigration baseline／historical implementationであり、新規Product機能の土台として拡張しない。
+- development／staging Accessは明示Emails／Groups allowlistを維持する。production商用MVPの一般利用者はOne-time PINでself-service本人確認へ到達できるが、Access到達はbusiness authorizationを意味しない。
+- Personal WorkspaceのD1 discriminator／一意制約、guest onboarding、authenticated staged asset upload、idempotent claim、KPI observability correctionの契約はPR #242でmainへ統合済み。
+
+次の1マイルストーンは、PR #234 `fix(extension): persist capture session across Manifest V3 service worker suspension` をこのmainへ追従し、Product／security contractとの差分を閉じることである。最低限、次を確認する。
+
+- original Chrome window boundsとstateのsession persistence、maximized／fullscreenからnormalへの遷移、completion／cancel／failure／target tab close時の復元
+- MV3 service worker suspension後のcapture継続
+- guest editorのstep削除／並べ替え／screenshot確認／masking
+- sensitive DOM／input情報の最小化
+- secure extension → authenticated web app handoffとoutput gate integration boundary
+- PDF MVPへの依存
+
+secure handoff／bootstrap／claim等がPR #234のreview可能なscopeを超える場合は、Issue #228等の後続S2 sliceへ明確に分け、PR #234をMVP全体完成と報告しない。
+
 ## PR #78 実行引き継ぎ（2026-08-17）
 
 この節は、PR #78 `feature/phase2-manual-editor-ui` をowner承認後にmergeできる品質へ仕上げた実行の固定証跡である。最終head SHA、最終CI、最終Codex Review、未解決thread数は、この文書を含むcommit自身では確定できないため、PR #78とIssue #70のライブ状態を確認する。

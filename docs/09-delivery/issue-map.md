@@ -10,6 +10,18 @@ Status: Accepted
 
 Cloudflare移行の完了数、保守Issue数、CI数だけをProduct進捗としない。
 
+### 現在の実行順（S0〜S6）
+
+1. **S0 Product source-of-truth pivot（完了）**: PR #242をmainへmergeし、Chrome Extension only／guest-firstの正本を確定した。
+2. **S1 Chrome Extension Core**: PR #234を新mainへ追従し、MV3 session persistence、PC／smartphone／tablet responsive表示、window bounds／state復元、privacy-safeな操作記録、guest local draft／editorを完成させる。
+3. **S2 Value-first onboarding runtime**: output gate、secure handoff、self-service bootstrap、Personal Workspace、authenticated staged asset upload、idempotent guest claimを実装する。
+4. **S3 First output completion**: save、URL share、PDFを、signup後のoriginal action自動再開まで通す。
+5. **S4 Product Core quality**: representative-site Chrome E2E、3表示モードE2E、claim retry／result-unknown、share／PDF回帰、beginner-friendly editorを検証する。
+6. **S5 internal alpha／staging integration**: Cloudflare Access／Workers／D1／private R2を結合し、M5相当のstaging-only binding proofを得る。
+7. **S6 monetization validation**: Free／Pro／Teamを検証する。Product gateを満たすまでBillingはOFFのままとする。
+
+Cloudflare M0〜M7はbackend統一の**platform migration lane**であり、このProduct実行順を上書きしない。各Product sliceに必要なAccess／Workers／D1／R2依存だけを供給する。
+
 ### P0 Product Foundation
 
 - ICP / Job To Be Done / Activationを正本化する。
