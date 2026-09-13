@@ -6,6 +6,8 @@ Status: Accepted
 
 Codex Cloud、Codex web、GitHub Codespacesで作業を始める時は、このテンプレートをtask本文に貼る。
 
+Codex Cloudを第一実行方式とする。Cloud onlyで調査、code／docs編集、test、git、commit、GitHub操作、CI確認を完結し、ローカル環境へhandoffしない。GitHub repositoryを唯一のコード正本とし、Cloudに利用可能なwrite pathが本当にない場合は、成果物をcommitしてSHAとblockerを報告して停止する。Cloud write不可を理由にlocalへ続行することを標準fallbackにしない。
+
 毎日0時に既存チャットの文脈を継続しない用途では、ChatGPTのStandalone scheduled taskとして、より限定された `daily-session-prompt.md` を使う。
 
 ```text
@@ -36,6 +38,7 @@ Pull Request: #<番号または未作成>
 - task作成前にmodel／reasoningを選択し、作成後に実行設定を確認する。確認できない場合は未確認として報告する。
 
 固定ルール:
+- Cloud only。ローカルへhandoffせず、GitHub repositoryをsource of truthとしてcode edit／test／git／commit／GitHub／CIをCloud内で行う。Cloudにwrite pathが本当にない場合はcommit SHAとblockerを報告して停止する。
 - 過去チャットの要約だけを正本にしない。
 - 原則として1セッションで1マイルストーンだけを進める。
 - mainへ直接pushしない。
