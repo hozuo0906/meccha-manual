@@ -6,7 +6,9 @@ Status: Accepted
 
 Codex Cloud、Codex web、GitHub Codespacesで作業を始める時は、このテンプレートをtask本文に貼る。
 
-Codex Cloudを第一実行方式とする。Cloud onlyで調査、code／docs編集、test、git、commit、GitHub操作、CI確認を完結し、ローカル環境へhandoffしない。GitHub repositoryを唯一のコード正本とし、Cloudに利用可能なwrite pathが本当にない場合は、成果物をcommitしてSHAとblockerを報告して停止する。Cloud write不可を理由にlocalへ続行することを標準fallbackにしない。
+Codex Cloudを第一実行方式とする。Cloud onlyで調査、code／docs編集、test、git、commit、GitHub操作、CI確認を完結し、ローカル環境へhandoffしない。GitHub repositoryを唯一のコード正本とする。
+
+Cloudの通常`git push`が失敗しても、Cloud内commitだけを保存済み成果物とは扱わない。停止前に、利用可能な承認済みCloud write pathを順に確認し、通常push、Codex CloudのDraft PR／PR handoff、GitHub App／connector等の利用可能な経路のいずれかでremote repositoryへ成果物を永続化し、remote SHAまたはPR head SHAを再取得して一致を確認する。すべての承認済みCloud write pathが本当に利用不能な場合だけ、localへfallbackせず停止し、そのCloud-local SHAは一時的で消失し得ることを明記して、blocker、ephemeral SHA、差分概要、再開に必要な情報を報告する。
 
 毎日0時に既存チャットの文脈を継続しない用途では、ChatGPTのStandalone scheduled taskとして、より限定された `daily-session-prompt.md` を使う。
 
@@ -38,7 +40,8 @@ Pull Request: #<番号または未作成>
 - task作成前にmodel／reasoningを選択し、作成後に実行設定を確認する。確認できない場合は未確認として報告する。
 
 固定ルール:
-- Cloud only。ローカルへhandoffせず、GitHub repositoryをsource of truthとしてcode edit／test／git／commit／GitHub／CIをCloud内で行う。Cloudにwrite pathが本当にない場合はcommit SHAとblockerを報告して停止する。
+- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.
+- Cloud-local SHAは永続化済み成果物ではない。停止前に通常push、platform Draft PR／PR handoff、GitHub App／connector等の承認済みCloud write pathを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず、ephemeral SHA、blocker、差分概要、再開条件を報告して停止する。
 - 過去チャットの要約だけを正本にしない。
 - 原則として1セッションで1マイルストーンだけを進める。
 - mainへ直接pushしない。
@@ -79,4 +82,4 @@ Pull Request: #<番号または未作成>
 
 PCの電源が切れていても作業させたい場合は、ローカルCodex DesktopではなくCodex Cloud、Codex web、またはGitHub Codespaces側でtaskを開始する。
 
-ローカルにだけある未push変更はクラウド側の次セッションから確認できない。引き継ぐ必要がある変更は、安全なbranchへcommit・pushしてから終了する。
+ローカルにだけある未push変更はクラウド側の次セッションから確認できない。引き継ぐ必要がある変更は、安全なbranchへcommit・pushしてremote SHAを確認してから終了する。Cloudで通常pushできない場合も、利用可能なplatform PR handoffやGitHub App／connectorを確認し、remote repositoryへ永続化できないまま「保存済み」と報告しない。
