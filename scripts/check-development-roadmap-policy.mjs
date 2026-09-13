@@ -13,61 +13,102 @@ function selectBetween(content, startMarker, endMarker) {
   return content.slice(bodyStart, end);
 }
 
+function openingFence(line) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+  const run = match[1];
+  const rest = match[2];
+  if (run[0] === "`" && rest.includes("`")) return null;
+  return { char: run[0], length: run.length };
+}
+
+function closesFence(line, fence) {
+  const match = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+  if (!match) return false;
+  const run = match[1];
+  return run[0] === fence.char && run.length >= fence.length;
+}
+
+function stripHtmlComments(line, state) {
+  let cleaned = "";
+  let cursor = 0;
+
+  while (cursor < line.length) {
+    if (state.inComment) {
+      const close = line.indexOf("-->", cursor);
+      if (close < 0) return cleaned;
+      state.inComment = false;
+      cursor = close + 3;
+      continue;
+    }
+
+    const open = line.indexOf("<!--", cursor);
+    if (open < 0) {
+      cleaned += line.slice(cursor);
+      break;
+    }
+
+    cleaned += line.slice(cursor, open);
+    state.inComment = true;
+    cursor = open + 4;
+  }
+
+  return cleaned;
+}
+
+function activeMarkdownLine(rawLine, state) {
+  if (state.fence) {
+    if (closesFence(rawLine, state.fence)) state.fence = null;
+    return "";
+  }
+
+  const cleaned = stripHtmlComments(rawLine, state);
+  if (state.inComment && cleaned.length === 0) return "";
+
+  const fence = openingFence(cleaned);
+  if (fence) {
+    state.fence = fence;
+    return "";
+  }
+
+  return cleaned;
+}
+
+function h2Text(line) {
+  const match = line.match(/^ {0,3}##(?!#)[ \t]+(.+?)[ \t]*$/);
+  if (!match) return null;
+  return match[1].replace(/[ \t]+#+[ \t]*$/, "").trim();
+}
+
 function selectMarkdownSection(content, heading) {
-  const marker = `${heading}\n`;
-  const start = content.indexOf(marker);
-  if (start < 0) return "";
-  const bodyStart = start + marker.length;
-  const nextHeading = content.indexOf("\n## ", bodyStart);
-  const end = nextHeading >= 0 ? nextHeading : content.length;
-  return content.slice(bodyStart, end);
+  const lines = content.split("\n");
+  const state = { inComment: false, fence: null };
+  const target = heading.replace(/^##[ \t]+/, "").trim();
+  let startLine = -1;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const active = activeMarkdownLine(lines[index], state);
+    const headingText = h2Text(active);
+    if (headingText === null) continue;
+
+    if (startLine < 0) {
+      if (headingText === target) startLine = index + 1;
+      continue;
+    }
+
+    return lines.slice(startLine, index).join("\n");
+  }
+
+  return startLine >= 0 ? lines.slice(startLine).join("\n") : "";
 }
 
 function activeTopLevelBullets(section) {
   const bullets = [];
-  let inComment = false;
-  let fenceMarker = null;
+  const state = { inComment: false, fence: null };
 
   for (const rawLine of section.split("\n")) {
-    if (fenceMarker) {
-      const trimmed = rawLine.trimStart();
-      if (trimmed.startsWith(fenceMarker)) fenceMarker = null;
-      continue;
-    }
-
-    let cleaned = "";
-    let cursor = 0;
-    while (cursor < rawLine.length) {
-      if (inComment) {
-        const close = rawLine.indexOf("-->", cursor);
-        if (close < 0) {
-          cursor = rawLine.length;
-          break;
-        }
-        inComment = false;
-        cursor = close + 3;
-        continue;
-      }
-
-      const open = rawLine.indexOf("<!--", cursor);
-      if (open < 0) {
-        cleaned += rawLine.slice(cursor);
-        break;
-      }
-      cleaned += rawLine.slice(cursor, open);
-      inComment = true;
-      cursor = open + 4;
-    }
-
-    const trimmed = cleaned.trimStart();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      fenceMarker = trimmed.slice(0, 3);
-      continue;
-    }
-
-    // Policy rules are intentionally top-level bullets. Indented/nested bullets are
-    // excluded so examples and code blocks cannot satisfy the operative contract.
-    if (cleaned.startsWith("- ")) bullets.push(cleaned.slice(2).trim());
+    const active = activeMarkdownLine(rawLine, state);
+    if (active.startsWith("- ")) bullets.push(active.slice(2).trim());
   }
 
   return bullets;
@@ -163,13 +204,14 @@ function runFixtures() {
   if (validateDaily(goodDaily).length !== 0) throw new Error("daily policy positive fixture failed");
   if (validateTemplate(goodTemplate).length !== 0) throw new Error("template policy positive fixture failed");
 
+  const reversedBullet =
+    "production deployと不可逆な外部操作は従来どおり別承認とする。production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。";
+
   const dailyHistoricalOnly = `# x\n## 運用上の補足\n- current policy intentionally missing\n## Historical\n- ${approvalBullet}\n- ${productionBullet}\n`;
   if (validateDaily(dailyHistoricalOnly).length === 0) {
     throw new Error("daily policy negative fixture passed from a later historical section");
   }
 
-  const reversedBullet =
-    "production deployと不可逆な外部操作は従来どおり別承認とする。production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。";
   const dailyReversedApproval = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedBullet}\n`;
   if (validateDaily(dailyReversedApproval).length === 0) {
     throw new Error("daily policy negative fixture accepted a reversed production approval boundary");
@@ -193,6 +235,16 @@ function runFixtures() {
   const dailyFencedPolicy = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`text\n- ${productionBullet}\n\`\`\`\n- ${reversedBullet}\n`;
   if (validateDaily(dailyFencedPolicy).length === 0) {
     throw new Error("daily policy negative fixture accepted a fenced-code approval boundary");
+  }
+
+  const dailyLongFence = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`\`text\n\`\`\`\n- ${productionBullet}\n\`\`\`\`\n- ${reversedBullet}\n`;
+  if (validateDaily(dailyLongFence).length === 0) {
+    throw new Error("daily policy negative fixture closed a long fence with a shorter delimiter");
+  }
+
+  const dailyFencedFakeHeading = `# x\n\`\`\`text\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n\`\`\`\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedBullet}\n`;
+  if (validateDaily(dailyFencedFakeHeading).length === 0) {
+    throw new Error("daily policy negative fixture selected an operative heading from fenced code");
   }
 
   const templateExampleOnly = `固定ルール:\n- current policy intentionally missing\n\n実行:\n- Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。\n- MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。\n`;
