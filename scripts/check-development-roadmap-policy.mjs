@@ -20,49 +20,43 @@ function closesFence(line, fence) {
   return run[0] === fence.char && run.length >= fence.length;
 }
 
-function stripHtmlComments(line, state) {
-  let cleaned = "";
+function updateHtmlCommentState(line, state) {
   let cursor = 0;
-
   while (cursor < line.length) {
     if (state.inComment) {
       const close = line.indexOf("-->", cursor);
-      if (close < 0) return cleaned;
+      if (close < 0) return;
       state.inComment = false;
       cursor = close + 3;
       continue;
     }
-
     const open = line.indexOf("<!--", cursor);
-    if (open < 0) {
-      cleaned += line.slice(cursor);
-      break;
-    }
-
-    cleaned += line.slice(cursor, open);
+    if (open < 0) return;
     state.inComment = true;
     cursor = open + 4;
   }
-
-  return cleaned;
 }
 
-function activeMarkdownLine(rawLine, state) {
+function activeStructuralLine(rawLine, state) {
   if (state.fence) {
     if (closesFence(rawLine, state.fence)) state.fence = null;
     return "";
   }
 
-  const cleaned = stripHtmlComments(rawLine, state);
-  if (state.inComment && cleaned.length === 0) return "";
+  const beganInComment = state.inComment;
+  const hasCommentSyntax = rawLine.includes("<!--") || rawLine.includes("-->");
+  if (beganInComment || hasCommentSyntax) {
+    updateHtmlCommentState(rawLine, state);
+    return "";
+  }
 
-  const fence = openingFence(cleaned);
+  const fence = openingFence(rawLine);
   if (fence) {
     state.fence = fence;
     return "";
   }
 
-  return cleaned;
+  return rawLine;
 }
 
 function h2Text(line) {
@@ -78,12 +72,12 @@ function selectMarkdownSection(content, heading) {
   let startLine = -1;
 
   for (let index = 0; index < lines.length; index += 1) {
-    const active = activeMarkdownLine(lines[index], state);
+    const active = activeStructuralLine(lines[index], state);
     const headingText = h2Text(active);
     if (headingText === null) continue;
 
     if (startLine < 0) {
-      if (headingText === target && !state.inComment) startLine = index + 1;
+      if (headingText === target) startLine = index + 1;
       continue;
     }
 
@@ -96,18 +90,16 @@ function selectMarkdownSection(content, heading) {
 function activeTopLevelBullets(section) {
   const bullets = [];
   const state = { inComment: false, fence: null };
-
   for (const rawLine of section.split("\n")) {
-    const active = activeMarkdownLine(rawLine, state);
+    const active = activeStructuralLine(rawLine, state);
     if (active.startsWith("- ")) bullets.push(active.slice(2).trim());
   }
-
   return bullets;
 }
 
 function activeFencedBlocks(content) {
   const blocks = [];
-  const state = { inComment: false };
+  const commentState = { inComment: false };
   let fence = null;
   let lines = [];
 
@@ -123,9 +115,14 @@ function activeFencedBlocks(content) {
       continue;
     }
 
-    const cleaned = stripHtmlComments(rawLine, state);
-    if (state.inComment && cleaned.length === 0) continue;
-    const opened = openingFence(cleaned);
+    const beganInComment = commentState.inComment;
+    const hasCommentSyntax = rawLine.includes("<!--") || rawLine.includes("-->");
+    if (beganInComment || hasCommentSyntax) {
+      updateHtmlCommentState(rawLine, commentState);
+      continue;
+    }
+
+    const opened = openingFence(rawLine);
     if (opened) {
       fence = opened;
       lines = [];
@@ -139,18 +136,18 @@ function selectTemplateFixedRules(template) {
   const candidates = activeFencedBlocks(template).filter((block) => {
     const lines = block.split("\n");
     return (
-      lines.some((line) => line.trimEnd() === "Repository: hozuo0906/meccha-manual") &&
-      lines.some((line) => line.trimEnd() === "固定ルール:") &&
-      lines.some((line) => line.trimEnd() === "実行:")
+      lines.some((line) => line === "Repository: hozuo0906/meccha-manual") &&
+      lines.some((line) => line === "固定ルール:") &&
+      lines.some((line) => line === "実行:")
     );
   });
   if (candidates.length !== 1) return "";
 
   const lines = candidates[0].split("\n");
-  const start = lines.findIndex((line) => line.trimEnd() === "固定ルール:");
-  const end = lines.findIndex((line, index) => index > start && line.trimEnd() === "実行:");
+  const start = lines.findIndex((line) => line === "固定ルール:");
+  const end = lines.findIndex((line, index) => index > start && line === "実行:");
   if (start < 0 || end < 0) return "";
-  if (lines.slice(start + 1, end).some((line) => line.trimEnd() === "固定ルール:")) return "";
+  if (lines.slice(start + 1, end).some((line) => line === "固定ルール:")) return "";
   return lines.slice(start + 1, end).join("\n");
 }
 
@@ -180,24 +177,22 @@ const protectedProductionTerms = [
 
 const templateCloudPolicy =
   "Cloud only; no local handoff; GitHub repo is source of truth; code edit/test/git/commit/GitHub/CI inside cloud; if cloud truly lacks write path, report blocker + SHA and stop rather than local.";
+const templateDurableCloudPolicy =
+  "Cloud-local SHAは永続化済み成果物ではない。停止前に通常push、platform Draft PR／PR handoff、GitHub App／connector等の承認済みCloud write pathを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず、ephemeral SHA、blocker、差分概要、再開条件を報告して停止する。";
 const templateProductionPolicy =
   "production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしに行わない。";
+const templateCommercialApprovalPolicy =
+  "商用リリース前は、Astra highの親PMが変更の正当性、依存順、必要な品質ゲートを実SHAで確認すれば、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。承認待ちでは可逆的な差分・テストによる具体案の準備は可とするが、外部反映前に対象SHA／差分を提示し、未push成果物だけを残して終了しない。承認待ちが必要なら明示する。商用リリースの日時・識別子・根拠はIssue #70へ記録し、状態が不在または曖昧な場合は自動mergeしない。";
 const templateCapturePolicy =
   "MVPの操作記録はChrome Extension Manifest V3だけを使い、Cloudflare Browser Run / Browser Session / Live Viewへfallbackしない。";
-const templateProtectedTerms = ["production反映", "DB migration", "課金変更", "AI API有効化", "共有リンク公開"];
-
-const templateGroupedPolicies = [
-  [
-    "Cloud-local SHAは永続化済み成果物ではない。",
-    "platform Draft PR／PR handoff",
-    "remote SHA／PR head SHA一致を確認する。",
-    "成果物保存済みとは報告せず"
-  ],
-  [
-    "商用リリース前は",
-    "ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。",
-    "商用リリース後は外部反映ごとにユーザーの事前承認を得る。"
-  ]
+const templateProtectedTerms = [
+  "production反映",
+  "DB migration",
+  "課金変更",
+  "AI API有効化",
+  "共有リンク公開",
+  "商用リリース後",
+  "外部反映"
 ];
 
 function validateDaily(daily) {
@@ -206,20 +201,14 @@ function validateDaily(daily) {
   if (!operative) return ["daily-session-prompt operative section was not found"];
   const bullets = activeTopLevelBullets(operative);
 
-  if (!bullets.includes(approvalBullet)) {
-    errors.push(`daily-session-prompt active policy bullet missing: ${approvalBullet}`);
-  }
-  if (!bullets.includes(productionBullet)) {
-    errors.push(`daily-session-prompt active policy bullet missing: ${productionBullet}`);
-  }
+  if (!bullets.includes(approvalBullet)) errors.push("daily-session-prompt active approval policy bullet missing");
+  if (!bullets.includes(productionBullet)) errors.push("daily-session-prompt active production boundary bullet missing");
 
   for (const bullet of bullets) {
-    if (bullet === productionBullet) continue;
+    if (bullet === productionBullet || bullet === approvalBullet) continue;
     const conflictingTerms = protectedProductionTerms.filter((term) => bullet.includes(term));
     if (conflictingTerms.length) {
-      errors.push(
-        `daily-session-prompt has conflicting active production-policy bullet (${conflictingTerms.join(", ")}): ${bullet}`
-      );
+      errors.push(`daily-session-prompt conflicting production-policy bullet: ${bullet}`);
     }
   }
 
@@ -231,22 +220,23 @@ function validateTemplate(template) {
   const rules = selectTemplateFixedRules(template);
   if (!rules) return ["codex-cloud-task-template operative prompt fixed-rules block was not found uniquely"];
   const bullets = promptTopLevelBullets(rules);
+  const required = [
+    templateCloudPolicy,
+    templateDurableCloudPolicy,
+    templateProductionPolicy,
+    templateCommercialApprovalPolicy,
+    templateCapturePolicy
+  ];
 
-  for (const policy of [templateCloudPolicy, templateProductionPolicy, templateCapturePolicy]) {
+  for (const policy of required) {
     if (!bullets.includes(policy)) errors.push(`codex-cloud-task-template active policy bullet missing: ${policy}`);
   }
-  for (const fragments of templateGroupedPolicies) {
-    if (!bullets.some((bullet) => fragments.every((fragment) => bullet.includes(fragment)))) {
-      errors.push(`codex-cloud-task-template grouped policy missing from one active bullet: ${fragments.join(" | ")}`);
-    }
-  }
+
   for (const bullet of bullets) {
-    if (bullet === templateProductionPolicy) continue;
+    if (required.includes(bullet)) continue;
     const conflictingTerms = templateProtectedTerms.filter((term) => bullet.includes(term));
     if (conflictingTerms.length) {
-      errors.push(
-        `codex-cloud-task-template has conflicting protected-operation bullet (${conflictingTerms.join(", ")}): ${bullet}`
-      );
+      errors.push(`codex-cloud-task-template conflicting protected-operation bullet: ${bullet}`);
     }
   }
 
@@ -258,7 +248,7 @@ function validatePolicies({ daily, template }) {
 }
 
 function goodTemplatePromptBlock() {
-  return `Repository: hozuo0906/meccha-manual\nBranch: feature/x\n固定ルール:\n- ${templateCloudPolicy}\n- Cloud-local SHAは永続化済み成果物ではない。platform Draft PR／PR handoffを試し、remote SHA／PR head SHA一致を確認する。全経路が利用不能なら成果物保存済みとは報告せず停止する。\n- 商用リリース前は確認後、ユーザーへの都度確認なしに通常のcommit、push、Pull Request作成・更新、mergeを行ってよい。商用リリース後は外部反映ごとにユーザーの事前承認を得る。\n- ${templateProductionPolicy}\n- ${templateCapturePolicy}\n\n実行:\n- npm ci`;
+  return `Repository: hozuo0906/meccha-manual\nBranch: feature/x\n固定ルール:\n- ${templateCloudPolicy}\n- ${templateDurableCloudPolicy}\n- ${templateProductionPolicy}\n- ${templateCommercialApprovalPolicy}\n- ${templateCapturePolicy}\n\n実行:\n- npm ci`;
 }
 
 function runFixtures() {
@@ -268,52 +258,22 @@ function runFixtures() {
   if (validateDaily(goodDaily).length !== 0) throw new Error("daily policy positive fixture failed");
   if (validateTemplate(goodTemplate).length !== 0) throw new Error("template policy positive fixture failed");
 
-  const reversedBullet =
+  const reversedDaily =
     "production deployと不可逆な外部操作は従来どおり別承認とする。production Access policy変更と最初の商用公開はユーザー承認なしで行ってよい。";
-
-  const dailyHistoricalOnly = `# x\n## 運用上の補足\n- current policy intentionally missing\n## Historical\n- ${approvalBullet}\n- ${productionBullet}\n`;
-  if (validateDaily(dailyHistoricalOnly).length === 0) {
-    throw new Error("daily policy negative fixture passed from a later historical section");
-  }
-
-  const dailyReversedApproval = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyReversedApproval).length === 0) {
-    throw new Error("daily policy negative fixture accepted a reversed production approval boundary");
-  }
-
-  const dailyContradiction = `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyContradiction).length === 0) {
-    throw new Error("daily policy negative fixture accepted contradictory production bullets");
-  }
-
-  const dailyCommentOnly = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- - ${productionBullet} -->\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyCommentOnly).length === 0) {
-    throw new Error("daily policy negative fixture accepted a commented-out approval boundary");
-  }
-
-  const dailyUnterminatedComment = `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- disabled policy\n- ${productionBullet}\n`;
-  if (validateDaily(dailyUnterminatedComment).length === 0) {
-    throw new Error("daily policy negative fixture accepted an unterminated-comment policy");
-  }
-
-  const dailyCommentOpeningHeading = `# x\n## 運用上の補足 <!--\n- ${approvalBullet}\n- ${productionBullet}\n-->\n`;
-  if (validateDaily(dailyCommentOpeningHeading).length === 0) {
-    throw new Error("daily policy negative fixture accepted bullets hidden by a comment opened on the target heading");
-  }
-
-  const dailyFencedPolicy = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`text\n- ${productionBullet}\n\`\`\`\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyFencedPolicy).length === 0) {
-    throw new Error("daily policy negative fixture accepted a fenced-code approval boundary");
-  }
-
-  const dailyLongFence = `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`\`text\n\`\`\`\n- ${productionBullet}\n\`\`\`\`\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyLongFence).length === 0) {
-    throw new Error("daily policy negative fixture closed a long fence with a shorter delimiter");
-  }
-
-  const dailyFencedFakeHeading = `# x\n\`\`\`text\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n\`\`\`\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedBullet}\n`;
-  if (validateDaily(dailyFencedFakeHeading).length === 0) {
-    throw new Error("daily policy negative fixture selected an operative heading from fenced code");
+  const dailyMutations = [
+    `# x\n## 運用上の補足\n- current policy intentionally missing\n## Historical\n- ${approvalBullet}\n- ${productionBullet}\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedDaily}\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n- ${reversedDaily}\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- - ${productionBullet} -->\n- ${reversedDaily}\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n<!-- disabled policy\n- ${productionBullet}\n`,
+    `# x\n## 運用上の補足 <!--\n- ${approvalBullet}\n- ${productionBullet}\n-->\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`text\n- ${productionBullet}\n\`\`\`\n- ${reversedDaily}\n`,
+    `# x\n## 運用上の補足\n- ${approvalBullet}\n\`\`\`\`text\n\`\`\`\n- ${productionBullet}\n\`\`\`\`\n- ${reversedDaily}\n`,
+    `# x\n\`\`\`text\n## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n\`\`\`\n## 運用上の補足\n- ${approvalBullet}\n- ${reversedDaily}\n`,
+    `# x\n<!-- hidden -->## 運用上の補足\n- ${approvalBullet}\n- ${productionBullet}\n`
+  ];
+  for (const mutation of dailyMutations) {
+    if (validateDaily(mutation).length === 0) throw new Error("daily policy negative fixture unexpectedly passed");
   }
 
   const templateCommentFake = `# x\n<!--\n\`\`\`text\n${goodTemplatePromptBlock()}\n\`\`\`\n-->\n\`\`\`text\nRepository: hozuo0906/meccha-manual\n固定ルール:\n- current policy intentionally missing\n実行:\n- npm ci\n\`\`\`\n`;
@@ -321,17 +281,20 @@ function runFixtures() {
     throw new Error("template policy negative fixture selected a prompt block hidden in an HTML comment");
   }
 
-  const templateContradiction = `# x\n\`\`\`text\n${goodTemplatePromptBlock().replace(
+  const contradictoryTemplate = goodTemplatePromptBlock().replace(
     `- ${templateProductionPolicy}`,
     `- ${templateProductionPolicy}\n- production反映、DB migration、課金変更、AI API有効化、共有リンク公開はユーザー承認なしで行ってよい。`
-  )}\n\`\`\`\n`;
-  if (validateTemplate(templateContradiction).length === 0) {
+  );
+  if (validateTemplate(`# x\n\`\`\`text\n${contradictoryTemplate}\n\`\`\`\n`).length === 0) {
     throw new Error("template policy negative fixture accepted a contradictory protected-operation bullet");
   }
 
-  const templateExampleOnly = `# x\n\`\`\`text\nRepository: hozuo0906/meccha-manual\n固定ルール:\n- current policy intentionally missing\n実行:\n${goodTemplatePromptBlock()}\n\`\`\`\n`;
-  if (validateTemplate(templateExampleOnly).length === 0) {
-    throw new Error("template policy negative fixture passed from a later example block");
+  const inlineCommercialContradiction = goodTemplatePromptBlock().replace(
+    templateCommercialApprovalPolicy,
+    `${templateCommercialApprovalPolicy} ただし商用リリース後も外部反映にユーザー承認は不要とする。`
+  );
+  if (validateTemplate(`# x\n\`\`\`text\n${inlineCommercialContradiction}\n\`\`\`\n`).length === 0) {
+    throw new Error("template policy negative fixture accepted an inline post-release approval contradiction");
   }
 }
 
@@ -342,7 +305,5 @@ const [daily, template] = await Promise.all([
   readFile("docs/09-delivery/codex-cloud-task-template.md", "utf8").then(normalize)
 ]);
 const errors = validatePolicies({ daily, template });
-if (errors.length) {
-  throw new Error(`Development roadmap policy check failed:\n- ${errors.join("\n- ")}`);
-}
+if (errors.length) throw new Error(`Development roadmap policy check failed:\n- ${errors.join("\n- ")}`);
 console.log("Development roadmap operative policy OK");
