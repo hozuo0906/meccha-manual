@@ -1,14 +1,31 @@
 # ADR-0023: 都度払い・パーソナル・チーム課金とStripe Linkを採用する
 
-Status: Accepted
+Status: Partially Superseded
 
-## 文脈
+現行Product価格の正本は `ADR-0033-extension-first-pricing-simplification.md` と `docs/01-product/pricing-and-plans.md` である。本ADRの旧offer、価格、利用上限を現行仕様として使用しない。
 
-利用頻度が低い個人には月額契約だけでは導入障壁が高く、継続利用者と複数人チームには都度払いだけでは管理が煩雑になる。一方、原価は画像保存よりCloudflare Browser Runの実行時間、同時セッション、サポート工数の影響が大きい。
+## Supersededされた部分
 
-そのため、単発購入と2段階のサブスクリプションを用意し、Browser Run、R2保存容量、席数、同時実行数をentitlementで制御する。
+- Browser Run利用時間を利用者向け料金軸にする考え。
+- 550円、月額3,300円、月額9,900円という旧固定価格。
+- `single_export`を現行MVP商品として扱う部分。
+- Chrome Extension first以前のcapture原価と料金の前提。
 
-## 決定
+## 維持する部分
+
+- Stripe Checkout／Link／Webhookの技術安全契約。
+- Webhook署名検証。
+- entitlementをclient申告で確定しない境界。
+- idempotency／結果不明時のreconciliation。
+- `BILLING_FEATURE_ENABLED=false`を維持する初期OFF契約。
+
+## 旧料金決定時の文脈
+
+旧決定時は、利用頻度が低い個人には月額契約だけでは導入障壁が高く、継続利用者と複数人チームには都度払いだけでは管理が煩雑になると評価していた。また、原価は画像保存よりCloudflare Browser Runの実行時間、同時セッション、サポート工数の影響が大きいと想定していた。このProduct前提はADR-0033により失効している。
+
+その旧前提から、単発購入と2段階のサブスクリプションを用意し、Browser Run、R2保存容量、席数、同時実行数をentitlementで制御することを決定していた。以下の料金・offer記述は履歴であり、現行実装入力ではない。
+
+## 旧決定（料金・offer部分はADR-0033によりSuperseded）
 
 | offer code | ユーザー向け名称 | 税込価格 | 主な利用権 |
 |---|---|---:|---|
@@ -54,7 +71,7 @@ Status: Accepted
 - subscription用intentの作成時とWebhook reconciliation時の両方で、同じworkspaceのactive/grace/read_only subscriptionと、別subscription offerの未期限切れintentがないことを検査する。Webhookではreconciliation対象と同じ `stripe_subscription_id` を競合集合から除外し、別subscriptionだけを競合とする。競合時はentitlementを付与せず、後述の孤立subscription停止処理へ送る。
 - DBへ照合可能なsubscriptionを保存できない、または期限切れ・別Session・競合契約で拒否したsubscription modeの決済は、初回請求の返金だけで終えない。Stripe subscriptionを冪等にcancelし、invoiceは状態別に処理する。`draft`は削除、`open`はvoid、`paid`は実際のPaymentIntent/Chargeをrefund queueへ一度だけ登録し、`void`/`uncollectible`は支払済みでないことを確認して終了する。cancelとinvoice処理がすべて確認できるまで運用アラートとreconciliationを継続し、権利なしの継続請求を残さない。
 
-## 環境変数
+## 旧料金offer用の環境変数（現行新規実装では使用しない）
 
 - `STRIPE_PRICE_SINGLE_EXPORT`
 - `STRIPE_PRICE_PERSONAL_MONTHLY`

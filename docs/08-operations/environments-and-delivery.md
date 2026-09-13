@@ -20,7 +20,7 @@ Cloudflare Git連携のnon-production branch buildは無効化している。pro
 | GitHub Actions | `.github/workflows/deploy-staging.yml` | `.github/workflows/deploy-production.yml` | 現段階は静的checkだけ。deploy stepの追加・有効化は別PRとユーザー承認が必要 |
 | Phase 1 RLS immutable preview | 現行Accepted transitional gate | 使用しない | owner承認済みの既存staging/test契約をcanonical workflowから実行する。Issue #176 M5 replacement gateと対応docsがmainへ着地する同一commit/rollback unit内で旧workflow削除・runbookのStatus: Superseded化・canonical/renamed旧workflow再追加拒否を完了する。M6へ持ち越さない |
 | Cloudflare Worker environment | `meccha-manual-staging` / Wrangler `staging` | `meccha-manual-prod` / Wrangler `production` | Worker名、vars、Secrets、binding、routeを環境別にする |
-| Cloudflare Access application | staging専用self-hosted app / audience | production専用self-hosted app / audience | policy、audience、session、監査を共有しない。メールOTPは招待制 |
+| Cloudflare Access application | staging専用self-hosted app / audience。Emails／Groupsの明示allowlistによる招待制 | production専用self-hosted app / audience。商用MVPの一般利用者向けapplicationはOne-time PINで本人確認までself-service | policy、audience、session、監査を共有しない。Access到達を業務認可とせず、unknown humanは`POST /api/onboarding/bootstrap`以外のbusiness APIを403にする |
 | Cloudflare D1 | staging専用database | production専用database | database ID、binding、migration履歴、backupを共有しない |
 | Legacy Supabase | 移行前baseline。新規project/user/secretは追加しない。ただし、ownerが実行自体を明示承認したpre-M5 canonical live runに限り、既存staging/test環境内でcanonical gateに必要なtest data作成・remote writeと、値非表示の結果をworkflow summary/Issue #79へ記録することを許可する。 | 作成しない | Issue #176 M6でruntime依存と不要資格情報を退役する |
 | R2 capture / `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` | `meccha-manual-capture-assets-prod` | private bucket。作成前はbindingを有効化しない |

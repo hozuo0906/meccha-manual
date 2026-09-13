@@ -45,7 +45,7 @@ Cloudflare Custom Domainは対象hostnameのDNSと証明書を自動作成する
 - LPからアプリへは通常のtop-level GET遷移だけとし、LPからアプリAPIを呼ばない。アプリAPIのCORS許可を`www`へ広げない。
 - 通常のブラウザwrite APIはアプリ自身のOriginだけを受け付ける。Stripe/Discordの2 exact callback pathはserver-to-server例外であり、`Origin`の有無や値を認証根拠にせずprovider署名を正とする。
 - M2ではStripe/Discordの2 exact callback pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRESS` とし、path別Access BypassはOFFを維持する。callback本体の有効化はC1の全recovery試験と別リリース判断後に行う。
-- production Access applicationはアプリ本体URL、audience、policy、sessionを専用化し、メールOTPの明示Emails/Groups allowlistを検証する。preview wildcard policyをproductionへ流用しない。
+- production Access applicationはアプリ本体URL、audience、policy、sessionを専用化する。商用MVPの一般利用者向けapplicationではOne-time PINによる本人確認までself-serviceで到達可能にし、development／stagingのEmails／Groups allowlistやpreview wildcard policyを流用しない。Access到達後もunknown humanは`POST /api/onboarding/bootstrap`以外のbusiness APIを403にする。
 - 旧`workers.dev` URLは移行期間だけ認証allowlistへ残し、本番callbackの検証後に削除する。
 
 ## 環境変数方針
