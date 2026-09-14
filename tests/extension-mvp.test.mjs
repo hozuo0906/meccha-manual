@@ -4,7 +4,7 @@ import test from "node:test";
 import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
 import { isSensitiveInput, normalizeCaptureEvent, safeTargetLabel } from "../apps/extension/capture/privacy.js";
 import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
-import { addMask, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
+import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
 import { VIEWPORTS, targetOuterBounds } from "../apps/extension/responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../apps/extension/responsive/window-lifecycle.js";
 
@@ -119,20 +119,31 @@ test("screenshot masking covers ordinary controls, shadow roots, top layer and i
   assert.match(source, /host\.localName\.includes\("-"\)/);
 });
 
-test("draft model edits, deletes, reorders and manages normalized masks", () => {
+test("draft model can add, edit, delete, reorder steps and manage normalized masks", () => {
   const draft = { steps: [{ id: "a", order: 1, instruction: "A" }, { id: "b", order: 2, instruction: "B" }], screenshots: [{ id: "s", masks: [] }] };
+  const added = addStep(draft);
+  assert.equal(added.instruction, "新しい手順");
+  assert.equal(draft.steps.length, 3);
   updateStepInstruction(draft, "a", "新しい説明");
-  moveStep(draft, "b", "up");
-  assert.deepEqual(draft.steps.map(({ id, order }) => ({ id, order })), [{ id: "b", order: 1 }, { id: "a", order: 2 }]);
+  moveStep(draft, added.id, "up");
+  assert.equal(draft.steps[1].id, added.id);
   addMask(draft, "s", { x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
   assert.equal(draft.screenshots[0].masks.length, 1);
   removeMask(draft, "s", draft.screenshots[0].masks[0].id);
   assert.equal(draft.screenshots[0].masks.length, 0);
   deleteStep(draft, "b");
-  assert.deepEqual(draft.steps.map((step) => step.instruction), ["新しい説明"]);
+  assert.equal(draft.steps.some((step) => step.id === "b"), false);
 });
 
-test("recorder emits one committed edit, keeps unacked pagehide input, and records SPA navigation", async () => {
+test("editor exposes a locally persisted add-step control", async () => {
+  const editor = await readFile(new URL("../apps/extension/editor/editor.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
+  assert.match(editor, /addStep\(draft\)/);
+  assert.match(editor, /await persist\("手順を追加して、この端末に保存しました。"\)/);
+  assert.match(html, /id="addStep"/);
+});
+
+test("recorder commits edits on completion, tracks container scroll, drains pending operations, and records SPA navigation", async () => {
   const source = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
   for (const event of ["click", "input", "change", "scroll", "pagehide", "popstate", "hashchange"]) assert.equal(source.includes(`removeEventListener("${event}"`), true);
   assert.doesNotMatch(source, /setTimeout\(flushInput/);
@@ -141,13 +152,18 @@ test("recorder emits one committed edit, keeps unacked pagehide input, and recor
   assert.match(source, /if \(accepted && pendingInput\?\.eventId === pending\.eventId\) pendingInput = undefined/);
   assert.match(source, /const commitInput =/);
   assert.match(source, /if \(pendingInput\?\.target === event\.target\) void flushInput\(\)/);
-  assert.match(source, /const flushBeforeNavigation = \(\) => \{ void flushInput\(\); \}/);
+  assert.match(source, /event\.target instanceof Element \? event\.target : document/);
+  assert.match(source, /target\.scrollLeft/);
+  assert.match(source, /target\.scrollTop/);
+  assert.match(source, /pendingScroll/);
+  assert.match(source, /flushScroll/);
+  assert.match(source, /if \(pendingScroll\) pendingEvents\.push/);
+  assert.match(source, /const flushBeforeNavigation = \(\) => \{ void flushInput\(\); void flushScroll\(\); \}/);
   assert.match(source, /history\.pushState = wrappedPushState/);
   assert.match(source, /history\.replaceState = wrappedReplaceState/);
   assert.match(source, /recordSameDocumentNavigation/);
-  assert.match(source, /return pendingEvent/);
+  assert.match(source, /return pendingEvents/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
-  assert.match(source, /clearTimeout\(scrollTimer\)/);
   assert.doesNotMatch(source, /element\.textContent/);
   assert.doesNotMatch(source, /value:/);
 });
@@ -173,6 +189,7 @@ test("service worker recovers stranded starting sessions and injects recorder in
   assert.match(source, /target: \{ tabId, allFrames: true \}/);
   assert.match(source, /async function injectRecorder/);
   assert.match(source, /await injectRecorder\(tabId\)/);
+  assert.match(source, /flatMap\(\(\{ result \}\) => Array\.isArray\(result\)/);
   assert.match(source, /const pendingEvents = await stopRecorder\(session\.tabId\)/);
   assert.match(source, /session = await appendCaptureEvents\(session, pendingEvents\)/);
 });
