@@ -93,37 +93,65 @@ test("workflow isolates GitHub credentials from Codex and never pushes before te
   assert.match(codexStep, /GITHUB_TOKEN: ""/);
   assert.match(codexStep, /unset GH_TOKEN GITHUB_TOKEN/);
   assert.ok(workflow.indexOf("Run repository checks") < workflow.indexOf("Fast-forward existing PR branch"));
-  assert.match(workflow, /git diff --cached --check HEAD[\s\S]*npm run check/);
+  assert.match(workflow, /git diff --cached --check HEAD/);
   assert.match(workflow, /push origin/);
   assert.doesNotMatch(workflow, /push[^\n]*--force|push[^\n]*-f\b/);
 });
 
-test("secret-bearing repair runner executes no PR-controlled setup before Codex and testing happens on a fresh job", async () => {
+test("secret-bearing repair runner executes no PR-controlled setup before Codex", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
   const repairJob = workflow.slice(workflow.indexOf("  repair:"), workflow.indexOf("  test_repair:"));
   const beforeCodex = repairJob.slice(0, repairJob.indexOf("Run credential-isolated Codex repair"));
   assert.doesNotMatch(beforeCodex, /npm ci/);
-  assert.doesNotMatch(beforeCodex, /npm run issue-codex:check/);
+  assert.doesNotMatch(beforeCodex, /issue-codex:check/);
   assert.ok(beforeCodex.indexOf("Install Codex CLI before PR checkout") < beforeCodex.indexOf("Checkout exact reviewed head without credentials"));
-  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
-  assert.match(testJob, /Install dependencies after secret-bearing job has ended[\s\S]*npm ci/);
-  assert.match(testJob, /Validate automation contract on fresh runner[\s\S]*npm run issue-codex:check/);
-  assert.match(testJob, /npm run check/);
 });
 
-test("fresh runner revalidates the immutable candidate after every PR-controlled command", async () => {
+test("dependency installation disables lifecycle scripts before any untrusted execution", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  const install = testJob.slice(testJob.indexOf("Install dependencies after secret-bearing job has ended"), testJob.indexOf("Validate automation contract on fresh runner"));
+  assert.match(install, /ci --ignore-scripts --no-audit --no-fund/);
+  assert.match(install, /validate_candidate/);
+  assert.match(install, /find "\$GITHUB_WORKSPACE" -xdev -perm \/022/);
+});
+
+test("PR-controlled checks run only as an unprivileged user with a pre-pinned read-only toolchain", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  const pin = testJob.slice(testJob.indexOf("Pin trusted toolchain and create unprivileged test user"), testJob.indexOf("Install dependencies after secret-bearing job has ended"));
+  assert.match(pin, /TRUSTED_NODE="\$\(command -v node\)"/);
+  assert.match(pin, /TRUSTED_NPM="\$\(command -v npm\)"/);
+  assert.match(pin, /chmod -R go-w "\$TRUSTED_NODE_ROOT"/);
+  assert.match(pin, /useradd -m -s \/bin\/bash codex-test/);
+  const afterInstall = testJob.slice(testJob.indexOf("Validate automation contract on fresh runner"));
+  assert.doesNotMatch(afterInstall, /find "\$RUNNER_TOOL_CACHE\/node"/);
+  for (const name of ["Validate automation contract on fresh runner", "Run targeted checks", "Run repository checks"]) {
+    const start = testJob.indexOf(`- name: ${name}`);
+    const next = testJob.indexOf("\n      - name:", start + 1);
+    const step = testJob.slice(start, next === -1 ? undefined : next);
+    assert.match(step, /sudo -u codex-test \/usr\/bin\/env -i/);
+    assert.match(step, /npm_config_userconfig=\/dev\/null/);
+    assert.match(step, /pkill -KILL -u codex-test/);
+    assert.match(step, /BASH_ENV: ""/);
+    assert.match(step, /ENV: ""/);
+  }
+});
+
+test("fresh runner revalidates exact candidate identity after every sandboxed command", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
   const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
   assert.match(workflow, /candidate_tree:.*steps\.candidate\.outputs\.candidate_tree/);
   assert.match(testJob, /candidate_paths_sha256/);
-  for (const command of ["npm ci", "npm run issue-codex:check", "npm run extension:test", "npm run test:d1-workspace", "npm run test:d1-binding", "npm run test:access-identity", "npm run app:auth:test", "npm run check"]) {
-    const following = testJob.slice(testJob.indexOf(command) + command.length);
-    assert.match(following, /^\s*validate_candidate/m, `${command} must be followed immediately by candidate validation`);
-  }
   assert.match(testJob, /\/usr\/bin\/git rev-parse HEAD/);
   assert.match(testJob, /\/usr\/bin\/git write-tree/);
   assert.match(testJob, /\/usr\/bin\/git diff --quiet/);
   assert.match(testJob, /--name-only -z HEAD/);
+  for (const command of ["issue-codex:check", "extension:test", "test:d1-workspace", "test:d1-binding", "test:access-identity", "app:auth:test", "run check"]) {
+    const index = testJob.indexOf(command);
+    assert.notEqual(index, -1, `${command} must remain represented in the test job`);
+    assert.match(testJob.slice(index + command.length), /^\s*validate_candidate/m);
+  }
 });
 
 test("publication metadata bypasses the untrusted test artifact and is revalidated by the publisher", async () => {
@@ -169,22 +197,6 @@ test("targeted test selection is derived from the validated staged diff, not mut
   assert.match(targeted, /validate_candidate[\s\S]*changed_paths="\$\(\/usr\/bin\/git diff --cached --name-only HEAD\)"/);
   assert.match(targeted, /\/usr\/bin\/printf[\s\S]*\/usr\/bin\/grep/);
   assert.doesNotMatch(targeted, /codex-review-changed-paths\.txt/);
-});
-
-test("every shell step after untrusted npm execution neutralizes cross-step shell injection", async () => {
-  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
-  for (const name of ["Validate automation contract on fresh runner", "Run targeted checks", "Run repository checks", "Export tested patch"]) {
-    const start = testJob.indexOf(`- name: ${name}`);
-    assert.notEqual(start, -1, `${name} must exist`);
-    const next = testJob.indexOf("\n      - name:", start + 1);
-    const step = testJob.slice(start, next === -1 ? undefined : next);
-    assert.match(step, /BASH_ENV: ""/);
-    assert.match(step, /ENV: ""/);
-    assert.match(step, /RUNNER_TOOL_CACHE\/node/);
-    assert.match(step, /export PATH="\$TRUSTED_NODE_BIN:\/usr\/bin:\/bin"/);
-    assert.match(step, /unset BASH_ENV ENV/);
-  }
 });
 
 test("publisher stages the downloaded patch and binds it to the exact tested tree before commit", async () => {
