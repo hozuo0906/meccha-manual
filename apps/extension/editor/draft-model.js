@@ -4,6 +4,17 @@ function touch(draft) {
   return draft;
 }
 
+export function addStep(draft, instruction = "新しい手順") {
+  const step = {
+    id: crypto.randomUUID(),
+    order: draft.steps.length + 1,
+    instruction: String(instruction).slice(0, 500)
+  };
+  draft.steps.push(step);
+  touch(draft);
+  return step;
+}
+
 export function updateStepInstruction(draft, stepId, instruction) {
   const step = draft.steps.find((candidate) => candidate.id === stepId);
   if (step) step.instruction = String(instruction).slice(0, 500);
