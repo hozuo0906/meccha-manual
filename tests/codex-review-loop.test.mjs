@@ -162,3 +162,39 @@ test("workflow fails closed if Codex moves HEAD before exporting a candidate pat
   assert.match(detect, /refusing to export a partial or mismatched repair patch/);
   assert.ok(detect.indexOf("git rev-parse HEAD") < detect.indexOf("git add -A"));
 });
+
+test("targeted test selection is derived from the validated staged diff, not mutable runner-temp state", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const targeted = workflow.slice(workflow.indexOf("- name: Run targeted checks"), workflow.indexOf("- name: Run repository checks"));
+  assert.match(targeted, /validate_candidate[\s\S]*changed_paths="\$\(\/usr\/bin\/git diff --cached --name-only HEAD\)"/);
+  assert.match(targeted, /\/usr\/bin\/printf[\s\S]*\/usr\/bin\/grep/);
+  assert.doesNotMatch(targeted, /codex-review-changed-paths\.txt/);
+});
+
+test("every shell step after untrusted npm execution neutralizes cross-step shell injection", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  for (const name of ["Validate automation contract on fresh runner", "Run targeted checks", "Run repository checks", "Export tested patch"]) {
+    const start = testJob.indexOf(`- name: ${name}`);
+    assert.notEqual(start, -1, `${name} must exist`);
+    const next = testJob.indexOf("\n      - name:", start + 1);
+    const step = testJob.slice(start, next === -1 ? undefined : next);
+    assert.match(step, /BASH_ENV: ""/);
+    assert.match(step, /ENV: ""/);
+    assert.match(step, /RUNNER_TOOL_CACHE\/node/);
+    assert.match(step, /export PATH="\$TRUSTED_NODE_BIN:\/usr\/bin:\/bin"/);
+    assert.match(step, /unset BASH_ENV ENV/);
+  }
+});
+
+test("publisher stages the downloaded patch and binds it to the exact tested tree before commit", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const applyStep = workflow.slice(workflow.indexOf("- name: Apply tested patch without executing it"), workflow.indexOf("- name: Commit tested repair"));
+  assert.match(applyStep, /TESTED_TREE:/);
+  assert.match(applyStep, /git -c core\.hooksPath=\/dev\/null add -A/);
+  assert.match(applyStep, /applied_tree="\$\(git write-tree\)"/);
+  assert.match(applyStep, /test "\$applied_tree" = "\$TESTED_TREE"/);
+  const commitStep = workflow.slice(workflow.indexOf("- name: Commit tested repair"), workflow.indexOf("- name: Fast-forward existing PR branch"));
+  assert.match(commitStep, /test "\$\(git write-tree\)" = "\$TESTED_TREE"/);
+  assert.doesNotMatch(commitStep, /git -c core\.hooksPath=\/dev\/null add -A/);
+});
