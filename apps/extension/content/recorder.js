@@ -1,6 +1,10 @@
 (() => {
   if (globalThis.__mecchaManualRecorder) return;
 
+  const recorderId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  let eventSequence = 0;
+  const nextEventId = () => `${recorderId}:${++eventSequence}`;
+
   const describe = (element) => {
     if (!(element instanceof Element)) return {};
     const id = element.id;
@@ -18,43 +22,39 @@
     };
   };
   const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...extra });
-  const send = (kind, target, extra = {}) => chrome.runtime.sendMessage({ type: "capture:event", event: captureEvent(kind, target, extra) });
+  const sendEvent = (event) => chrome.runtime.sendMessage({ type: "capture:event", event })
+    .then((response) => Boolean(response?.ok && response?.value?.accepted !== false), () => false);
+  const send = (kind, target, extra = {}) => sendEvent(captureEvent(kind, target, { eventId: nextEventId(), ...extra }));
 
-  let pendingInputTarget;
-  let lastCommittedInputTarget;
-  let inputTimer;
-  const takePendingInput = () => {
-    clearTimeout(inputTimer);
-    inputTimer = undefined;
-    if (!pendingInputTarget) return undefined;
-    const target = pendingInputTarget;
-    pendingInputTarget = undefined;
-    lastCommittedInputTarget = target;
-    return captureEvent("input", target);
-  };
+  let pendingInput;
+  let inputFlush = Promise.resolve(true);
   const flushInput = () => {
-    const event = takePendingInput();
-    if (event) chrome.runtime.sendMessage({ type: "capture:event", event });
+    if (!pendingInput) return inputFlush;
+    const pending = pendingInput;
+    const event = captureEvent("input", pending.target, { eventId: pending.eventId });
+    const transmit = async () => {
+      const accepted = await sendEvent(event);
+      if (accepted && pendingInput?.eventId === pending.eventId) pendingInput = undefined;
+      return accepted;
+    };
+    inputFlush = inputFlush.then(transmit, transmit);
+    return inputFlush;
   };
   const queueInput = (event) => {
-    if (pendingInputTarget && pendingInputTarget !== event.target) flushInput();
-    pendingInputTarget = event.target;
-    lastCommittedInputTarget = undefined;
-    clearTimeout(inputTimer);
-    inputTimer = setTimeout(flushInput, 450);
+    if (pendingInput && pendingInput.target !== event.target) void flushInput();
+    if (!pendingInput || pendingInput.target !== event.target) pendingInput = { target: event.target, eventId: nextEventId() };
   };
   const commitInput = (event) => {
-    if (pendingInputTarget && pendingInputTarget !== event.target) flushInput();
-    if (!pendingInputTarget && lastCommittedInputTarget === event.target) return;
-    pendingInputTarget = event.target;
-    flushInput();
+    if (pendingInput?.target === event.target) void flushInput();
   };
   const click = (event) => {
-    flushInput();
     const target = event.target instanceof Element
       ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=menuitem]") || event.target
       : event.target;
-    send("click", target);
+    void flushInput().then((accepted) => {
+      if (accepted || !pendingInput) return send("click", target);
+      return false;
+    });
   };
 
   let lastY = scrollY;
@@ -63,26 +63,57 @@
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
       const nextY = scrollY;
-      if (Math.abs(nextY - lastY) >= 80) send("scroll", document.documentElement, { direction: nextY < lastY ? "up" : "down" });
+      if (Math.abs(nextY - lastY) >= 80) void send("scroll", document.documentElement, { direction: nextY < lastY ? "up" : "down" });
       lastY = nextY;
     }, 250);
   };
-  const flushBeforeNavigation = () => flushInput();
+
+  const recordSameDocumentNavigation = () => {
+    void flushInput().then((accepted) => {
+      if (accepted || !pendingInput) return send("navigation", document.documentElement);
+      return false;
+    });
+  };
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  const wrappedPushState = function (...args) {
+    const result = originalPushState.apply(this, args);
+    recordSameDocumentNavigation();
+    return result;
+  };
+  const wrappedReplaceState = function (...args) {
+    const result = originalReplaceState.apply(this, args);
+    recordSameDocumentNavigation();
+    return result;
+  };
+  history.pushState = wrappedPushState;
+  history.replaceState = wrappedReplaceState;
+
+  const flushBeforeNavigation = () => { void flushInput(); };
+  const historyNavigation = () => recordSameDocumentNavigation();
 
   addEventListener("click", click, true);
   addEventListener("input", queueInput, true);
   addEventListener("change", commitInput, true);
   addEventListener("scroll", scroll, true);
   addEventListener("pagehide", flushBeforeNavigation, true);
+  addEventListener("popstate", historyNavigation, true);
+  addEventListener("hashchange", historyNavigation, true);
 
   globalThis.__mecchaManualRecorder = () => {
-    const pendingEvent = takePendingInput();
+    const pendingEvent = pendingInput
+      ? captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId })
+      : undefined;
+    pendingInput = undefined;
     removeEventListener("click", click, true);
     removeEventListener("input", queueInput, true);
     removeEventListener("change", commitInput, true);
     removeEventListener("scroll", scroll, true);
     removeEventListener("pagehide", flushBeforeNavigation, true);
-    clearTimeout(inputTimer);
+    removeEventListener("popstate", historyNavigation, true);
+    removeEventListener("hashchange", historyNavigation, true);
+    if (history.pushState === wrappedPushState) history.pushState = originalPushState;
+    if (history.replaceState === wrappedReplaceState) history.replaceState = originalReplaceState;
     clearTimeout(scrollTimer);
     delete globalThis.__mecchaManualRecorder;
     return pendingEvent;
