@@ -3,6 +3,7 @@ import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks } 
 import { VIEWPORTS } from "../responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../responsive/window-lifecycle.js";
 import { draftStore } from "../storage/draft-store.js";
+import { mergeCaptureEvents } from "./event-merge.js";
 import { recoverWindowSession } from "./session-recovery.js";
 
 const SESSION_KEY = "activeCaptureSession";
@@ -41,19 +42,6 @@ async function stopRecorder(tabId) {
 
 function alreadyHasEvent(session, event) {
   return Boolean(event?.eventId && session.events.some((existing) => existing.eventId === event.eventId));
-}
-
-function mergeCaptureEvents(session, events) {
-  const nextEvents = [...session.events];
-  const eventIds = new Set(nextEvents.map((event) => event.eventId).filter(Boolean));
-  for (const event of events || []) {
-    if (!event) continue;
-    const normalized = normalizeCaptureEvent(event);
-    if (normalized.eventId && eventIds.has(normalized.eventId)) continue;
-    nextEvents.push(normalized);
-    if (normalized.eventId) eventIds.add(normalized.eventId);
-  }
-  return nextEvents.length === session.events.length ? session : { ...session, events: nextEvents };
 }
 
 async function appendCaptureEvent(session, event) {
