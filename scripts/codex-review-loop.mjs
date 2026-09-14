@@ -6,14 +6,15 @@ export const MAX_REPAIR_ROUNDS = 3;
 export const MAX_FINDINGS = 20;
 export const MAX_FINDING_CHARS = 4_000;
 export const MAX_PROMPT_CHARS = 24_000;
+export const TRUSTED_MARKER_AUTHOR = "github-actions[bot]";
 
 export function severityOf(body) {
   const match = String(body).match(/(?:^|\n|\s|\[|\()P([012])(?:\b|\]|\))/i);
   return match ? `P${match[1]}` : null;
 }
 
-export function markerFor({ prNumber, reviewId, headSha }) {
-  return `<!-- codex-review-loop:pr=${prNumber}:review=${reviewId}:sha=${headSha} -->`;
+export function markerFor({ prNumber, reviewId, headSha, state = "processing" }) {
+  return `<!-- codex-review-loop:${state}:pr=${prNumber}:review=${reviewId}:sha=${headSha} -->`;
 }
 
 export function evaluateReviewContext({ event, markers = [], threads = [] }) {
@@ -28,8 +29,11 @@ export function evaluateReviewContext({ event, markers = [], threads = [] }) {
   if (review.commit_id !== pr.head?.sha) return { run: false, reason: "reviewed_sha_mismatch" };
 
   const marker = markerFor({ prNumber: pr.number, reviewId: review.id, headSha: pr.head.sha });
-  if (markers.includes(marker)) return { run: false, reason: "duplicate_review", marker };
-  if (markers.length >= MAX_REPAIR_ROUNDS) return { run: false, reason: "round_limit", marker };
+  const completedMarker = markerFor({ prNumber: pr.number, reviewId: review.id, headSha: pr.head.sha, state: "completed" });
+  if (markers.includes(completedMarker)) return { run: false, reason: "duplicate_review", marker };
+  const rounds = markers.filter((candidate) => candidate.includes(":processing:")).length;
+  const isResume = markers.includes(marker);
+  if (!isResume && rounds >= MAX_REPAIR_ROUNDS) return { run: false, reason: "round_limit", marker };
 
   const findings = threads
     .filter((thread) => !thread.isResolved)
@@ -47,7 +51,7 @@ export function evaluateReviewContext({ event, markers = [], threads = [] }) {
     .slice(0, MAX_FINDINGS);
 
   if (findings.length === 0) return { run: false, reason: "clean_review", marker };
-  return { run: true, reason: "trusted_findings", marker, round: markers.length + 1, findings };
+  return { run: true, reason: "trusted_findings", marker, round: isResume ? Math.max(rounds, 1) : rounds + 1, isResume, findings };
 }
 
 export function buildRepairPrompt({ repository, prNumber, headSha, changedPaths, findings }) {
@@ -73,6 +77,21 @@ export function shouldRunTargetedTests(paths) {
 
 export function remoteHeadMatches(expected, actual) {
   return /^[0-9a-f]{40}$/.test(expected) && expected === actual;
+}
+
+export function publicationState({ reviewedSha, currentSha, currentParentSha, testedTree, currentTree }) {
+  if (![reviewedSha, currentSha, testedTree].every((value) => /^[0-9a-f]{40}$/.test(value))) throw new Error("Invalid publication identity");
+  if (currentSha === reviewedSha) return "unpublished";
+  if (currentParentSha === reviewedSha && currentTree === testedTree) return "published";
+  throw new Error(`STALE_HEAD: expected ${reviewedSha} or its tested direct child, found ${currentSha}`);
+}
+
+export function trustedMarkers(comments, prNumber) {
+  const pattern = new RegExp(`<!-- codex-review-loop:(?:processing|completed):pr=${prNumber}:review=\\d+:sha=[0-9a-f]{40} -->`);
+  return comments
+    .filter(({ user }) => user?.login === TRUSTED_MARKER_AUTHOR)
+    .map(({ body }) => String(body).match(pattern)?.[0])
+    .filter(Boolean);
 }
 
 export function safePushArguments(headRef) {
@@ -123,8 +142,9 @@ async function inspect() {
   const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, "utf8"));
   const { repository } = event;
   const pr = event.pull_request;
+  const review = event.review;
   const comments = await issueComments(repository.full_name, pr.number, token);
-  const markers = comments.map(({ body }) => String(body).match(/<!-- codex-review-loop:pr=\d+:review=\d+:sha=[0-9a-f]{40} -->/)?.[0]).filter(Boolean);
+  const markers = trustedMarkers(comments, pr.number);
   const data = await graphql(token, `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved path line originalLine comments(first:1){nodes{databaseId body author{login} path line originalLine}}}} files(first:100){pageInfo{hasNextPage} nodes{path}}}}}`, { owner: repository.owner.login, name: repository.name, number: pr.number });
   const pullRequest = data.repository.pullRequest;
   if (pullRequest.reviewThreads.pageInfo.hasNextPage || pullRequest.files.pageInfo.hasNextPage) throw new Error("PR review scope exceeded bounded pagination");
@@ -139,17 +159,26 @@ async function inspect() {
     return;
   }
   if (!decision.run) return;
-  await githubRequest(`/repos/${repository.full_name}/issues/${pr.number}/comments`, { token, method: "POST", body: { body: `${decision.marker}\nStarting automatic Codex review repair round ${decision.round}/${MAX_REPAIR_ROUNDS} for exact head \`${pr.head.sha}\`.` } });
+  if (!decision.isResume) {
+    await githubRequest(`/repos/${repository.full_name}/issues/${pr.number}/comments`, { token, method: "POST", body: { body: `${decision.marker}\nStarting automatic Codex review repair round ${decision.round}/${MAX_REPAIR_ROUNDS} for exact head \`${pr.head.sha}\`.` } });
+  }
   const prompt = buildRepairPrompt({ repository: repository.full_name, prNumber: pr.number, headSha: pr.head.sha, changedPaths: pullRequest.files.nodes.map(({ path }) => path), findings: decision.findings });
   await writeFile(process.env.REPAIR_PROMPT_PATH, prompt, { mode: 0o600 });
-  await writeFile(process.env.REPAIR_METADATA_PATH, JSON.stringify({ repository: repository.full_name, prNumber: pr.number, headSha: pr.head.sha, headRef: pr.head.ref, findings: decision.findings }), { mode: 0o600 });
+  await writeFile(process.env.REPAIR_METADATA_PATH, JSON.stringify({ repository: repository.full_name, prNumber: pr.number, reviewId: review.id, headSha: pr.head.sha, headRef: pr.head.ref, findings: decision.findings }), { mode: 0o600 });
 }
 
 async function verifyHead() {
   const metadata = JSON.parse(await readFile(process.env.REPAIR_METADATA_PATH, "utf8"));
   assertExpectedTarget(metadata);
-  const pr = await githubRequest(`/repos/${metadata.repository}/pulls/${metadata.prNumber}`, { token: process.env.GH_TOKEN });
-  if (!remoteHeadMatches(metadata.headSha, pr.head.sha)) throw new Error(`STALE_HEAD: expected ${metadata.headSha}, found ${pr.head.sha}`);
+  const token = process.env.GH_TOKEN;
+  const pr = await githubRequest(`/repos/${metadata.repository}/pulls/${metadata.prNumber}`, { token });
+  let state = "unpublished";
+  if (!remoteHeadMatches(metadata.headSha, pr.head.sha)) {
+    const commit = await githubRequest(`/repos/${metadata.repository}/git/commits/${pr.head.sha}`, { token });
+    state = publicationState({ reviewedSha: metadata.headSha, currentSha: pr.head.sha, currentParentSha: commit.parents?.[0]?.sha, testedTree: metadata.testedTree, currentTree: commit.tree?.sha });
+  }
+  await output("publication_state", state);
+  await output("new_head_sha", pr.head.sha);
 }
 
 async function complete() {
@@ -159,16 +188,29 @@ async function complete() {
   const newSha = process.env.NEW_HEAD_SHA;
   if (!/^[0-9a-f]{40}$/.test(newSha)) throw new Error("Invalid published head SHA");
   const [owner, name] = metadata.repository.split("/");
-  const current = await graphql(token, `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved comments(first:1){nodes{databaseId author{login}}}}}}}}`, { owner, name, number: metadata.prNumber });
+  const current = await graphql(token, `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved comments(first:100){pageInfo{hasNextPage} nodes{databaseId body author{login}}}}}}}}`, { owner, name, number: metadata.prNumber });
   const pullRequest = current.repository.pullRequest;
   if (pullRequest.headRefOid !== newSha || pullRequest.reviewThreads.pageInfo.hasNextPage) throw new Error("Published head or review-thread scope mismatch");
-  const trustedThreads = new Map(pullRequest.reviewThreads.nodes.filter((thread) => !thread.isResolved && TRUSTED_REVIEWERS.has(thread.comments.nodes[0]?.author?.login)).map((thread) => [thread.id, thread.comments.nodes[0]?.databaseId]));
+  if (pullRequest.reviewThreads.nodes.some((thread) => thread.comments.pageInfo.hasNextPage)) throw new Error("Review-thread comments exceeded bounded pagination");
+  const trustedThreads = new Map(pullRequest.reviewThreads.nodes.filter((thread) => TRUSTED_REVIEWERS.has(thread.comments.nodes[0]?.author?.login)).map((thread) => [thread.id, thread]));
+  const comments = await issueComments(metadata.repository, metadata.prNumber, token);
   for (const finding of metadata.findings) {
-    if (!trustedThreads.has(finding.threadId) || trustedThreads.get(finding.threadId) !== finding.commentId) throw new Error("Trusted review thread changed before completion");
-    if (finding.commentId) await githubRequest(`/repos/${metadata.repository}/pulls/${metadata.prNumber}/comments/${finding.commentId}/replies`, { token, method: "POST", body: { body: `Fixed and regression-tested in ${newSha}.` } });
-    await graphql(token, `mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}`, { id: finding.threadId });
+    const thread = trustedThreads.get(finding.threadId);
+    if (!thread || thread.comments.nodes[0]?.databaseId !== finding.commentId) throw new Error("Trusted review thread changed before completion");
+    const replyMarker = `<!-- codex-review-loop:reply:thread=${finding.threadId}:sha=${newSha} -->`;
+    if (finding.commentId && !thread.comments.nodes.some(({ body, author }) => author?.login === TRUSTED_MARKER_AUTHOR && String(body).includes(replyMarker))) {
+      await githubRequest(`/repos/${metadata.repository}/pulls/${metadata.prNumber}/comments/${finding.commentId}/replies`, { token, method: "POST", body: { body: `${replyMarker}\nFixed and regression-tested in ${newSha}.` } });
+    }
+    if (!thread.isResolved) await graphql(token, `mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}`, { id: finding.threadId });
   }
-  await githubRequest(`/repos/${metadata.repository}/issues/${metadata.prNumber}/comments`, { token, method: "POST", body: { body: `<!-- codex-review-loop:rereview-sha=${newSha} -->\n@codex review ${newSha}\n\nExact-head re-review requested after the tested fast-forward repair. If the Codex integration ignores comments authored by github-actions[bot], this marker records that manual/API-native re-review remains required; Latest Review Gate is not bypassed.` } });
+  const completedMarker = markerFor({ prNumber: metadata.prNumber, reviewId: metadata.reviewId, headSha: metadata.headSha, state: "completed" });
+  if (!comments.some(({ body, user }) => user?.login === TRUSTED_MARKER_AUTHOR && String(body).includes(completedMarker))) {
+    await githubRequest(`/repos/${metadata.repository}/issues/${metadata.prNumber}/comments`, { token, method: "POST", body: { body: `${completedMarker}\nCompleted automatic repair publication at exact head \`${newSha}\`.` } });
+  }
+  const rereviewMarker = `<!-- codex-review-loop:rereview-sha=${newSha} -->`;
+  if (!comments.some(({ body, user }) => user?.login === TRUSTED_MARKER_AUTHOR && String(body).includes(rereviewMarker))) {
+    await githubRequest(`/repos/${metadata.repository}/issues/${metadata.prNumber}/comments`, { token, method: "POST", body: { body: `${rereviewMarker}\n@codex review ${newSha}\n\nExact-head re-review requested after the tested fast-forward repair. If the Codex integration ignores comments authored by github-actions[bot], this marker records that manual/API-native re-review remains required; Latest Review Gate is not bypassed.` } });
+  }
 }
 
 const command = process.argv[2];

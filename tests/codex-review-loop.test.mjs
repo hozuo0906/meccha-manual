@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildRepairPrompt, evaluateReviewContext, markerFor, MAX_REPAIR_ROUNDS, remoteHeadMatches, safePushArguments, shouldRunTargetedTests } from "../scripts/codex-review-loop.mjs";
+import {
+  buildRepairPrompt,
+  evaluateReviewContext,
+  markerFor,
+  MAX_REPAIR_ROUNDS,
+  publicationState,
+  remoteHeadMatches,
+  safePushArguments,
+  shouldRunTargetedTests,
+  trustedMarkers
+} from "../scripts/codex-review-loop.mjs";
 
 const SHA = "a".repeat(40);
 function event(overrides = {}) {
@@ -21,12 +31,21 @@ test("clean Codex review is a no-op", () => assert.equal(evaluateReviewContext({
 test("non-Codex reviewer is a no-op", () => assert.equal(evaluateReviewContext({ event: event({ review: { user: { login: "human" } } }), threads: [thread()] }).reason, "untrusted_reviewer"));
 test("fork PR is a no-op", () => assert.equal(evaluateReviewContext({ event: event({ pull_request: { head: { repo: { full_name: "fork/r", fork: true } } } }), threads: [thread()] }).reason, "fork_or_cross_repo"));
 test("non-main base is a no-op", () => assert.equal(evaluateReviewContext({ event: event({ pull_request: { base: { ref: "release" } } }), threads: [thread()] }).reason, "base_not_main"));
-test("duplicate review and head marker is a no-op", () => {
+test("processing marker resumes the same review instead of suppressing it", () => {
   const marker = markerFor({ prNumber: 7, reviewId: 42, headSha: SHA });
+  const decision = evaluateReviewContext({ event: event(), markers: [marker], threads: [thread()] });
+  assert.equal(decision.run, true);
+  assert.equal(decision.isResume, true);
+});
+test("completed review marker is a duplicate no-op", () => {
+  const marker = markerFor({ prNumber: 7, reviewId: 42, headSha: SHA, state: "completed" });
   assert.equal(evaluateReviewContext({ event: event(), markers: [marker], threads: [thread()] }).reason, "duplicate_review");
 });
 test("stale remote head fails exact comparison", () => assert.equal(remoteHeadMatches(SHA, "b".repeat(40)), false));
-test("maximum repair rounds stop another Codex run", () => assert.equal(evaluateReviewContext({ event: event(), markers: Array(MAX_REPAIR_ROUNDS).fill("processed"), threads: [thread()] }).reason, "round_limit"));
+test("maximum completed repair rounds stop a new Codex run", () => {
+  const markers = Array.from({ length: MAX_REPAIR_ROUNDS }, (_, i) => markerFor({ prNumber: 7, reviewId: 100 + i, headSha: String(i + 1).repeat(40).slice(0, 40) }));
+  assert.equal(evaluateReviewContext({ event: event(), markers, threads: [thread()] }).reason, "round_limit");
+});
 test("P2 trusted thread is included", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ severity: "P2" })] }).findings[0].severity, "P2"));
 test("resolved thread is excluded", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ resolved: true })] }).reason, "clean_review"));
 test("arbitrary user review comment is excluded from prompt input", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ author: "attacker" })] }).reason, "clean_review"));
@@ -42,6 +61,23 @@ test("trusted publication uses same branch fast-forward syntax and rejects main"
   assert.deepEqual(safePushArguments("codex/fix"), ["push", "origin", "HEAD:refs/heads/codex/fix"]);
   assert.throws(() => safePushArguments("main"), /Unsafe push branch/);
 });
+test("only trusted current-PR repair markers influence review state", () => {
+  const good = markerFor({ prNumber: 7, reviewId: 42, headSha: SHA });
+  const other = markerFor({ prNumber: 8, reviewId: 42, headSha: SHA });
+  const comments = [
+    { user: { login: "github-actions[bot]" }, body: good },
+    { user: { login: "attacker" }, body: good },
+    { user: { login: "github-actions[bot]" }, body: other }
+  ];
+  assert.deepEqual(trustedMarkers(comments, 7), [good]);
+});
+test("post-push retry accepts only the tested direct-child tree", () => {
+  const child = "b".repeat(40);
+  const tree = "c".repeat(40);
+  assert.equal(publicationState({ reviewedSha: SHA, currentSha: child, currentParentSha: SHA, testedTree: tree, currentTree: tree }), "published");
+  assert.throws(() => publicationState({ reviewedSha: SHA, currentSha: child, currentParentSha: SHA, testedTree: tree, currentTree: "d".repeat(40) }), /STALE_HEAD/);
+  assert.throws(() => publicationState({ reviewedSha: SHA, currentSha: child, currentParentSha: "e".repeat(40), testedTree: tree, currentTree: tree }), /STALE_HEAD/);
+});
 
 test("workflow isolates GitHub credentials from Codex and never pushes before tests", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
@@ -50,7 +86,17 @@ test("workflow isolates GitHub credentials from Codex and never pushes before te
   assert.match(codexStep, /GITHUB_TOKEN: ""/);
   assert.match(codexStep, /persist-credentials: false|unset GH_TOKEN GITHUB_TOKEN/);
   assert.ok(workflow.indexOf("Run repository checks") < workflow.indexOf("Fast-forward existing PR branch"));
-  assert.match(workflow, /git diff --check[\s\S]*npm run check/);
-  assert.match(workflow, /git push origin|push origin/);
+  assert.match(workflow, /git diff --cached --check HEAD[\s\S]*npm run check/);
+  assert.match(workflow, /push origin/);
   assert.doesNotMatch(workflow, /push[^\n]*--force|push[^\n]*-f\b/);
+});
+
+test("workflow stages new files into the tested patch and uses a CI-triggering isolated publisher token", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  assert.match(workflow, /git add -A[\s\S]*git diff --cached --name-only/);
+  assert.match(workflow, /git diff --cached --binary --full-index HEAD/);
+  assert.match(workflow, /git write-tree/);
+  assert.match(workflow, /CODEX_REVIEW_PUBLISH_TOKEN/);
+  const publisher = workflow.slice(workflow.indexOf("Fast-forward existing PR branch"), workflow.indexOf("Select published head"));
+  assert.doesNotMatch(publisher, /github\.token/);
 });

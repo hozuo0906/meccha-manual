@@ -109,11 +109,12 @@ jobs:
 
       - name: Detect repair changes
         run: |
-          if git diff HEAD --quiet; then
+          git add -A
+          if git diff --cached HEAD --quiet; then
             echo "Codex returned without a repair patch." >&2
             exit 1
           fi
-          git diff --name-only HEAD > "$RUNNER_TEMP/codex-review-changed-paths.txt"
+          git diff --cached --name-only HEAD > "$RUNNER_TEMP/codex-review-changed-paths.txt"
 
       - name: Run targeted checks
         run: |
@@ -131,15 +132,19 @@ jobs:
 
       - name: Run repository checks
         run: |
-          git diff --check HEAD
+          git diff --cached --check HEAD
           npm run check
 
       - name: Export tested patch
         run: |
-          git diff --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
+          git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
           test -s "$RUNNER_TEMP/codex-review-repair.patch"
           test "$(wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
-          cp "$RUNNER_TEMP/codex-review-request/codex-review-metadata.json" "$RUNNER_TEMP/codex-review-metadata.json"
+          tested_tree="$(git write-tree)"
+          node -e 'const fs=require("fs");const [source,target,tree]=process.argv.slice(1);const value=JSON.parse(fs.readFileSync(source));value.testedTree=tree;fs.writeFileSync(target,JSON.stringify(value))' \
+            "$RUNNER_TEMP/codex-review-request/codex-review-metadata.json" \
+            "$RUNNER_TEMP/codex-review-metadata.json" \
+            "$tested_tree"
 
       - name: Store tested patch
         uses: actions/upload-artifact@v4
@@ -191,6 +196,7 @@ jobs:
           path: ${{ runner.temp }}/codex-review-tested-patch
 
       - name: Verify exact remote head before publication
+        id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
@@ -199,6 +205,7 @@ jobs:
         run: node "$RUNNER_TEMP/codex-review-loop.mjs" verify-head
 
       - name: Apply tested patch without executing it
+        if: steps.verify.outputs.publication_state == 'unpublished'
         env:
           PATCH_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-repair.patch
         run: |
@@ -209,6 +216,7 @@ jobs:
           git diff --check HEAD
 
       - name: Commit tested repair
+        if: steps.verify.outputs.publication_state == 'unpublished'
         id: commit
         env:
           PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
@@ -220,22 +228,37 @@ jobs:
           echo "new_head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Fast-forward existing PR branch
+        if: steps.verify.outputs.publication_state == 'unpublished'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CODEX_REVIEW_PUBLISH_TOKEN }}
           HEAD_REF: ${{ needs.inspect.outputs.head_ref }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
         run: |
+          test -n "$GH_TOKEN"
           git config --local --unset-all http.https://github.com/.extraheader || true
           git -c core.hooksPath=/dev/null \
             -c remote.origin.url="https://github.com/${EXPECTED_REPOSITORY}.git" \
             -c credential.helper='!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' \
             push origin "HEAD:refs/heads/${HEAD_REF}"
 
+      - name: Select published head
+        id: published
+        env:
+          PUBLICATION_STATE: ${{ steps.verify.outputs.publication_state }}
+          EXISTING_SHA: ${{ steps.verify.outputs.new_head_sha }}
+          COMMITTED_SHA: ${{ steps.commit.outputs.new_head_sha }}
+        run: |
+          if [ "$PUBLICATION_STATE" = "published" ]; then
+            echo "new_head_sha=$EXISTING_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_head_sha=$COMMITTED_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Resolve repaired threads and request exact-head review
         env:
           GH_TOKEN: ${{ github.token }}
           REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
-          NEW_HEAD_SHA: ${{ steps.commit.outputs.new_head_sha }}
+          NEW_HEAD_SHA: ${{ steps.published.outputs.new_head_sha }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
           EXPECTED_PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
         run: node "$RUNNER_TEMP/codex-review-loop.mjs" complete
