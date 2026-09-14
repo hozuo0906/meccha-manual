@@ -404,6 +404,7 @@ jobs:
           test "$(wc -c < "$PATCH_PATH")" -le 10485760
           git apply --check --binary "$PATCH_PATH"
           git apply --binary "$PATCH_PATH"
+          git diff --check HEAD
           git -c core.hooksPath=/dev/null add -A
           git diff --cached --check HEAD
           applied_tree="$(git write-tree)"
