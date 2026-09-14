@@ -14,7 +14,7 @@ export async function captureWithMaskBoundary({ applyMasks, capture, removeMasks
 
 export function installSensitiveMasks() {
   if (globalThis.__mecchaManualScreenshotMasks) return { applied: true, count: globalThis.__mecchaManualScreenshotMasks.length };
-  const overlays = [];
+  const masks = [];
   try {
     const selector = [
       "input",
@@ -29,19 +29,6 @@ export function installSensitiveMasks() {
     ].join(",");
     const roots = [document];
     const elements = [];
-    const findTopLayerAncestor = (start) => {
-      let node = start;
-      while (node) {
-        if (node instanceof Element && node.matches?.("dialog[open],[popover]:popover-open")) return node;
-        if (node.parentElement) {
-          node = node.parentElement;
-          continue;
-        }
-        const root = node.getRootNode?.();
-        node = root?.host instanceof Element ? root.host : null;
-      }
-      return null;
-    };
     for (let index = 0; index < roots.length; index += 1) {
       const root = roots[index];
       elements.push(...root.querySelectorAll(selector));
@@ -53,35 +40,30 @@ export function installSensitiveMasks() {
     for (const element of new Set(elements)) {
       const rect = element.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) continue;
-      const style = getComputedStyle(element);
-      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
-      const overlay = document.createElement("div");
-      overlay.dataset.mecchaManualMask = "true";
-      Object.assign(overlay.style, {
-        position: "fixed",
-        zIndex: "2147483647",
-        background: "#111827",
-        pointerEvents: "none",
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`
-      });
-      const topLayerAncestor = findTopLayerAncestor(element);
-      (topLayerAncestor || document.documentElement).append(overlay);
-      overlays.push(overlay);
+      const computed = getComputedStyle(element);
+      if (computed.visibility === "hidden" || computed.display === "none" || Number(computed.opacity) === 0) continue;
+      const previousVisibility = element.style.getPropertyValue("visibility");
+      const previousPriority = element.style.getPropertyPriority("visibility");
+      element.style.setProperty("visibility", "hidden", "important");
+      masks.push({ element, previousVisibility, previousPriority });
     }
-    globalThis.__mecchaManualScreenshotMasks = overlays;
-    return { applied: true, count: overlays.length };
+    globalThis.__mecchaManualScreenshotMasks = masks;
+    return { applied: true, count: masks.length };
   } catch {
-    for (const overlay of overlays) overlay.remove();
+    for (const mask of masks) {
+      if (mask.previousVisibility) mask.element.style.setProperty("visibility", mask.previousVisibility, mask.previousPriority);
+      else mask.element.style.removeProperty("visibility");
+    }
     delete globalThis.__mecchaManualScreenshotMasks;
     return { applied: false };
   }
 }
 
 export function removeSensitiveMasks() {
-  for (const overlay of globalThis.__mecchaManualScreenshotMasks || []) overlay.remove();
+  for (const mask of globalThis.__mecchaManualScreenshotMasks || []) {
+    if (mask.previousVisibility) mask.element.style.setProperty("visibility", mask.previousVisibility, mask.previousPriority);
+    else mask.element.style.removeProperty("visibility");
+  }
   delete globalThis.__mecchaManualScreenshotMasks;
   return true;
 }
