@@ -49,6 +49,15 @@ jobs:
           REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-metadata.json
         run: node scripts/codex-review-loop.mjs inspect
 
+      - name: Capture trusted PR changed-file scope
+        if: steps.inspect.outputs.run_repair == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.inspect.outputs.pr_number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '[.[].filename]' > "$RUNNER_TEMP/codex-review-scope.json"
+          node -e 'const fs=require("fs");const paths=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(!Array.isArray(paths)||paths.length>100||paths.some((path)=>typeof path!=="string"||!path)){throw new Error("Invalid trusted PR path scope")}' "$RUNNER_TEMP/codex-review-scope.json"
+
       - name: Store bounded repair request
         if: steps.inspect.outputs.run_repair == 'true'
         uses: actions/upload-artifact@v4
@@ -57,6 +66,7 @@ jobs:
           path: |
             ${{ runner.temp }}/codex-review-repair.md
             ${{ runner.temp }}/codex-review-metadata.json
+            ${{ runner.temp }}/codex-review-scope.json
           if-no-files-found: error
           retention-days: 1
 
@@ -68,6 +78,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI before PR checkout
+        run: npm install -g @openai/codex
+
       - name: Checkout exact reviewed head without credentials
         uses: actions/checkout@v4
         with:
@@ -75,25 +92,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Restore trusted repair request
         uses: actions/download-artifact@v4
         with:
           name: codex-review-request-${{ github.run_id }}
           path: ${{ runner.temp }}/codex-review-request
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Validate automation contract
-        run: npm run issue-codex:check
-
-      - name: Install Codex CLI
-        run: npm install -g @openai/codex
 
       - name: Run credential-isolated Codex repair
         env:
@@ -107,9 +110,10 @@ jobs:
           test -n "$CODEX_ACCESS_TOKEN"
           codex exec --sandbox workspace-write --config approval_policy=never --config model_reasoning_effort=high --model gpt-5.6-luna - < "$REPAIR_PROMPT_PATH"
 
-      - name: Detect repair changes
+      - name: Detect and authorize repair changes
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          REPAIR_SCOPE_PATH: ${{ runner.temp }}/codex-review-request/codex-review-scope.json
         run: |
           test "$(git rev-parse HEAD)" = "$REVIEWED_SHA" || {
             echo "Codex moved HEAD away from the exact reviewed SHA; refusing to export a partial or mismatched repair patch." >&2
@@ -120,7 +124,78 @@ jobs:
             echo "Codex returned without a repair patch." >&2
             exit 1
           fi
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { execFileSync } from "node:child_process";
+
+          const trustedScope = new Set(JSON.parse(readFileSync(process.env.REPAIR_SCOPE_PATH, "utf8")));
+          const changedPaths = execFileSync("git", ["diff", "--cached", "--name-only", "-z", "HEAD"], { encoding: "utf8" }).split("\0").filter(Boolean);
+          const originalTreePaths = new Set(execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", "HEAD"], { encoding: "utf8" }).split("\0").filter(Boolean));
+          const unauthorized = changedPaths.filter((path) => !trustedScope.has(path) && !(path.startsWith("tests/") && !originalTreePaths.has(path)));
+          if (unauthorized.length) {
+            console.error(`Repair changed paths outside the trusted PR scope: ${unauthorized.join(", ")}`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Export bounded candidate patch without executing PR code
+        run: |
+          git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-candidate.patch"
+          test -s "$RUNNER_TEMP/codex-review-candidate.patch"
+          test "$(wc -c < "$RUNNER_TEMP/codex-review-candidate.patch")" -le 10485760
+
+      - name: Store candidate patch for fresh-runner testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-candidate-patch-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/codex-review-candidate.patch
+            ${{ runner.temp }}/codex-review-request/codex-review-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+
+  test_repair:
+    needs: [inspect, repair]
+    if: needs.repair.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact reviewed head without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore candidate patch
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-review-candidate-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/codex-review-candidate-patch
+
+      - name: Apply candidate patch on fresh runner
+        env:
+          PATCH_PATH: ${{ runner.temp }}/codex-review-candidate-patch/codex-review-candidate.patch
+        run: |
+          test -s "$PATCH_PATH"
+          test "$(wc -c < "$PATCH_PATH")" -le 10485760
+          git apply --check --binary "$PATCH_PATH"
+          git apply --binary "$PATCH_PATH"
+          git add -A
           git diff --cached --name-only HEAD > "$RUNNER_TEMP/codex-review-changed-paths.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies after secret-bearing job has ended
+        run: npm ci
+
+      - name: Validate automation contract on fresh runner
+        run: npm run issue-codex:check
 
       - name: Run targeted checks
         run: |
@@ -140,6 +215,7 @@ jobs:
         run: |
           git diff --cached --check HEAD
           npm run check
+          git diff --quiet
 
       - name: Export tested patch
         run: |
@@ -148,7 +224,7 @@ jobs:
           test "$(wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
           tested_tree="$(git write-tree)"
           node -e 'const fs=require("fs");const [source,target,tree]=process.argv.slice(1);const value=JSON.parse(fs.readFileSync(source));value.testedTree=tree;fs.writeFileSync(target,JSON.stringify(value))' \
-            "$RUNNER_TEMP/codex-review-request/codex-review-metadata.json" \
+            "$RUNNER_TEMP/codex-review-candidate-patch/codex-review-metadata.json" \
             "$RUNNER_TEMP/codex-review-metadata.json" \
             "$tested_tree"
 
@@ -163,8 +239,8 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [inspect, repair]
-    if: needs.repair.result == 'success'
+    needs: [inspect, test_repair]
+    if: needs.test_repair.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
