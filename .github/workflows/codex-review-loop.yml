@@ -198,48 +198,79 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Pin trusted toolchain and create unprivileged test user
+        id: sandbox
+        env:
+          BASH_ENV: ""
+          ENV: ""
+        run: |
+          unset BASH_ENV ENV
+          TRUSTED_NODE="$(command -v node)"
+          TRUSTED_NPM="$(command -v npm)"
+          test -x "$TRUSTED_NODE"
+          test -x "$TRUSTED_NPM"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          TRUSTED_NODE_ROOT="${TRUSTED_NODE_BIN%/bin}"
+          /usr/bin/sudo /usr/bin/chmod -R go-w "$TRUSTED_NODE_ROOT"
+          if ! /usr/bin/id -u codex-test >/dev/null 2>&1; then
+            /usr/bin/sudo /usr/sbin/useradd -m -s /bin/bash codex-test
+          fi
+          echo "node_bin_dir=$TRUSTED_NODE_BIN" >> "$GITHUB_OUTPUT"
+          echo "npm_path=$TRUSTED_NPM" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies after secret-bearing job has ended
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
+          TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
           BASH_ENV: ""
           ENV: ""
         run: |
-          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
-          test -n "$TRUSTED_NODE"
-          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           unset BASH_ENV ENV
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
-          npm ci
+          "$TRUSTED_NPM" ci --ignore-scripts --no-audit --no-fund
           validate_candidate
+          /usr/bin/sudo /usr/bin/find "$GITHUB_WORKSPACE" -xdev -perm /022 -exec /usr/bin/chmod go-w {} +
 
       - name: Validate automation contract on fresh runner
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
+          TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
           BASH_ENV: ""
           ENV: ""
         run: |
-          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
-          test -n "$TRUSTED_NODE"
-          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           unset BASH_ENV ENV
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
-          npm run issue-codex:check
+          run_untrusted() {
+            local sandbox_home status
+            sandbox_home="$(/usr/bin/mktemp -d)"
+            /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
+            set +e
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            status=$?
+            set -e
+            /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
+            /usr/bin/sudo /usr/bin/rm -rf "$sandbox_home"
+            return "$status"
+          }
+          run_untrusted "$TRUSTED_NPM" run issue-codex:check
           validate_candidate
 
       - name: Run targeted checks
@@ -247,36 +278,47 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
+          TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
           BASH_ENV: ""
           ENV: ""
         run: |
-          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
-          test -n "$TRUSTED_NODE"
-          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           unset BASH_ENV ENV
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
+          run_untrusted() {
+            local sandbox_home status
+            sandbox_home="$(/usr/bin/mktemp -d)"
+            /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
+            set +e
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            status=$?
+            set -e
+            /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
+            /usr/bin/sudo /usr/bin/rm -rf "$sandbox_home"
+            return "$status"
+          }
           validate_candidate
           changed_paths="$(/usr/bin/git diff --cached --name-only HEAD)"
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$'; then
-            npm run extension:test
+            run_untrusted "$TRUSTED_NPM" run extension:test
             validate_candidate
           fi
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-'; then
-            npm run test:d1-workspace
+            run_untrusted "$TRUSTED_NPM" run test:d1-workspace
             validate_candidate
-            npm run test:d1-binding
+            run_untrusted "$TRUSTED_NPM" run test:d1-binding
             validate_candidate
           fi
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq 'access-identity|auth'; then
-            npm run test:access-identity
+            run_untrusted "$TRUSTED_NPM" run test:access-identity
             validate_candidate
-            npm run app:auth:test
+            run_untrusted "$TRUSTED_NPM" run app:auth:test
             validate_candidate
           fi
 
@@ -285,22 +327,33 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
+          TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
           BASH_ENV: ""
           ENV: ""
         run: |
-          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
-          test -n "$TRUSTED_NODE"
-          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           unset BASH_ENV ENV
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
+          run_untrusted() {
+            local sandbox_home status
+            sandbox_home="$(/usr/bin/mktemp -d)"
+            /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
+            set +e
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            status=$?
+            set -e
+            /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
+            /usr/bin/sudo /usr/bin/rm -rf "$sandbox_home"
+            return "$status"
+          }
           /usr/bin/git diff --cached --check HEAD
-          npm run check
+          run_untrusted "$TRUSTED_NPM" run check
           validate_candidate
 
       - name: Export tested patch
@@ -309,14 +362,12 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           BASH_ENV: ""
           ENV: ""
         run: |
-          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
-          test -n "$TRUSTED_NODE"
-          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           unset BASH_ENV ENV
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
           test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
           /usr/bin/git diff --quiet
