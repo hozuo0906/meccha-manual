@@ -28,21 +28,58 @@ async function measureViewport(tabId) {
   return result;
 }
 
+async function injectRecorder(tabId) {
+  return chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content/recorder.js"] });
+}
+
 async function stopRecorder(tabId) {
-  const result = await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.__mecchaManualRecorder?.() }).catch(() => undefined);
-  return result?.[0]?.result;
+  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__mecchaManualRecorder?.() }).catch(() => []);
+  return results.map(({ result }) => result).filter(Boolean);
+}
+
+function alreadyHasEvent(session, event) {
+  return Boolean(event?.eventId && session.events.some((existing) => existing.eventId === event.eventId));
 }
 
 async function appendCaptureEvent(session, event) {
   if (!event) return session;
-  const next = { ...session, events: [...session.events, normalizeCaptureEvent(event)] };
+  const normalized = normalizeCaptureEvent(event);
+  if (alreadyHasEvent(session, normalized)) return session;
+  const next = { ...session, events: [...session.events, normalized] };
   await setSession(next);
+  return next;
+}
+
+async function appendCaptureEvents(session, events) {
+  let next = session;
+  for (const event of events || []) next = await appendCaptureEvent(next, event);
   return next;
 }
 
 async function attemptRestore(session) {
   const result = await recoverWindowSession(session, { persist: setSession, restore: (original) => restoreOriginalWindow(original, chrome.windows) });
   return result.restored;
+}
+
+async function windowStillExists(windowId) {
+  try {
+    await chrome.windows.get(windowId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function recoverInterruptedStartingSession() {
+  const session = await getSession();
+  if (session?.phase !== "starting") return;
+  await stopRecorder(session.tabId);
+  if (!(await windowStillExists(session.windowId))) {
+    await setSession(null);
+    return;
+  }
+  const restored = await attemptRestore(session);
+  if (restored) await setSession(null);
 }
 
 async function startCapture(tabId, mode) {
@@ -65,7 +102,7 @@ async function startCapture(tabId, mode) {
   await setSession(session);
   try {
     if (mode !== "pc") await applyResponsiveViewport({ windowId: tab.windowId, tabId, viewport, windowsApi: chrome.windows, measure: measureViewport });
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content/recorder.js"] });
+    await injectRecorder(tabId);
     await setSession({ ...session, phase: "recording" });
     return { sessionId: session.id, modeLabel: viewport.label };
   } catch {
@@ -108,8 +145,8 @@ async function finishCapture() {
   let draftId;
   try {
     await prepareRetryViewport(session);
-    const pendingEvent = await stopRecorder(session.tabId);
-    session = await appendCaptureEvent(session, pendingEvent);
+    const pendingEvents = await stopRecorder(session.tabId);
+    session = await appendCaptureEvents(session, pendingEvents);
     const dataUrl = await takeMaskedScreenshot(session);
     const screenshot = { id: crypto.randomUUID(), dataUrl, masks: [] };
     const lastIndex = session.events.length - 1;
@@ -172,7 +209,7 @@ async function resumeCapture(tabId) {
   if (!session || session.phase !== "reinjection_failed") throw new Error("再開できる記録がありません");
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content/recorder.js"] });
+    await injectRecorder(tabId);
     await setSession({ ...session, phase: "recording", reinjectionFailed: false, failureCategory: undefined });
     return { resumed: true };
   } catch {
@@ -194,6 +231,8 @@ async function captureStatus() {
   };
 }
 
+serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const fromExtensionPage = !sender.tab;
@@ -207,8 +246,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return serializeSessionOperation(async () => {
         const session = await getSession();
         if (session?.phase !== "recording" || sender.tab?.id !== session.tabId) return { accepted: false };
-        const next = { ...session, events: [...session.events, normalizeCaptureEvent(message.event)] };
-        await setSession(next);
+        await appendCaptureEvent(session, message.event);
         return { accepted: true };
       });
     }
@@ -222,10 +260,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
-    const withNavigation = { ...session, events: [...session.events, normalizeCaptureEvent({ kind: "navigation", at: Date.now() })] };
-    await setSession(withNavigation);
+    const withNavigation = await appendCaptureEvent(session, { kind: "navigation", at: Date.now() });
     try {
-      await chrome.scripting.executeScript({ target: { tabId }, files: ["content/recorder.js"] });
+      await injectRecorder(tabId);
     } catch {
       await setSession({
         ...withNavigation,
