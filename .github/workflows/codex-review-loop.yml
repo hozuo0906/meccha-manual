@@ -192,7 +192,6 @@ jobs:
           git apply --check --binary "$PATCH_PATH"
           git apply --binary "$PATCH_PATH"
           git add -A
-          git diff --cached --name-only HEAD > "$RUNNER_TEMP/codex-review-changed-paths.txt"
 
       - uses: actions/setup-node@v4
         with:
@@ -204,7 +203,14 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          BASH_ENV: ""
+          ENV: ""
         run: |
+          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
+          test -n "$TRUSTED_NODE"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
+          unset BASH_ENV ENV
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
@@ -219,7 +225,14 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          BASH_ENV: ""
+          ENV: ""
         run: |
+          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
+          test -n "$TRUSTED_NODE"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
+          unset BASH_ENV ENV
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
@@ -234,24 +247,33 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          BASH_ENV: ""
+          ENV: ""
         run: |
+          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
+          test -n "$TRUSTED_NODE"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
+          unset BASH_ENV ENV
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
-          if grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+          validate_candidate
+          changed_paths="$(/usr/bin/git diff --cached --name-only HEAD)"
+          if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$'; then
             npm run extension:test
             validate_candidate
           fi
-          if grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+          if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-'; then
             npm run test:d1-workspace
             validate_candidate
             npm run test:d1-binding
             validate_candidate
           fi
-          if grep -Eq 'access-identity|auth' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
+          if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq 'access-identity|auth'; then
             npm run test:access-identity
             validate_candidate
             npm run app:auth:test
@@ -263,14 +285,21 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          BASH_ENV: ""
+          ENV: ""
         run: |
+          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
+          test -n "$TRUSTED_NODE"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
+          unset BASH_ENV ENV
           validate_candidate() {
             test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
             test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
-          git diff --cached --check HEAD
+          /usr/bin/git diff --cached --check HEAD
           npm run check
           validate_candidate
 
@@ -282,15 +311,19 @@ jobs:
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
           BASH_ENV: ""
           ENV: ""
-          PATH: /usr/bin:/bin
         run: |
+          TRUSTED_NODE="$(/usr/bin/find "$RUNNER_TOOL_CACHE/node" -type f -path '*/x64/bin/node' -perm -111 -print | /usr/bin/sort -V | /usr/bin/tail -n1)"
+          test -n "$TRUSTED_NODE"
+          TRUSTED_NODE_BIN="${TRUSTED_NODE%/node}"
+          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
+          unset BASH_ENV ENV
           test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
           test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
           /usr/bin/git diff --quiet
           test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           /usr/bin/git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
           test -s "$RUNNER_TEMP/codex-review-repair.patch"
-          test "$(wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
+          test "$(/usr/bin/wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
           tested_tree="$(/usr/bin/git write-tree)"
           test "$tested_tree" = "$CANDIDATE_TREE"
           echo "tested_tree=$tested_tree" >> "$GITHUB_OUTPUT"
@@ -365,22 +398,33 @@ jobs:
         if: steps.verify.outputs.publication_state == 'unpublished'
         env:
           PATCH_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-repair.patch
+          TESTED_TREE: ${{ needs.test_repair.outputs.tested_tree }}
         run: |
           test -s "$PATCH_PATH"
           test "$(wc -c < "$PATCH_PATH")" -le 10485760
           git apply --check --binary "$PATCH_PATH"
           git apply --binary "$PATCH_PATH"
-          git diff --check HEAD
+          git -c core.hooksPath=/dev/null add -A
+          git diff --cached --check HEAD
+          applied_tree="$(git write-tree)"
+          test "$applied_tree" = "$TESTED_TREE" || {
+            echo "Restored patch tree does not match the exact tested tree; refusing publication." >&2
+            exit 1
+          }
 
       - name: Commit tested repair
         if: steps.verify.outputs.publication_state == 'unpublished'
         id: commit
         env:
           PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+          TESTED_TREE: ${{ needs.test_repair.outputs.tested_tree }}
         run: |
+          test "$(git write-tree)" = "$TESTED_TREE" || {
+            echo "Staged publication tree changed after tested-patch verification." >&2
+            exit 1
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -c core.hooksPath=/dev/null add -A
           git -c core.hooksPath=/dev/null commit -m "fix: address Codex review findings for PR #${PR_NUMBER}"
           echo "new_head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
