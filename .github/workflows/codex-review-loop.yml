@@ -218,13 +218,33 @@ jobs:
           echo "node_bin_dir=$TRUSTED_NODE_BIN" >> "$GITHUB_OUTPUT"
           echo "npm_path=$TRUSTED_NPM" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies after secret-bearing job has ended
+      - name: Prepare writable isolated candidate copy
+        id: testcopy
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          test "$(git write-tree)" = "$CANDIDATE_TREE"
+          git diff --quiet
+          test "$(git diff --cached --name-only -z HEAD | sha256sum | cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          TEST_WORKSPACE="$RUNNER_TEMP/codex-test-workspace"
+          /usr/bin/rm -rf "$TEST_WORKSPACE"
+          /usr/bin/mkdir -p "$TEST_WORKSPACE"
+          git checkout-index --all --force --prefix="${TEST_WORKSPACE}/"
+          /usr/bin/cp -a .git "$TEST_WORKSPACE/.git"
+          /usr/bin/sudo /usr/bin/chown -R codex-test:codex-test "$TEST_WORKSPACE"
+          echo "workspace=$TEST_WORKSPACE" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies inside isolated candidate copy
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
           TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
+          TEST_WORKSPACE: ${{ steps.testcopy.outputs.workspace }}
           BASH_ENV: ""
           ENV: ""
         run: |
@@ -236,17 +256,21 @@ jobs:
             /usr/bin/git diff --quiet
             test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
           }
-          "$TRUSTED_NPM" ci --ignore-scripts --no-audit --no-fund
+          sandbox_home="$(/usr/bin/mktemp -d)"
+          /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
+          /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR="$sandbox_home" CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null npm_config_script_shell=/bin/bash "$TRUSTED_NPM" --prefix "$TEST_WORKSPACE" --script-shell=/bin/bash ci --no-audit --no-fund
+          /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
+          /usr/bin/sudo /usr/bin/rm -rf "$sandbox_home"
           validate_candidate
-          /usr/bin/sudo /usr/bin/find "$GITHUB_WORKSPACE" -xdev -perm /022 -exec /usr/bin/chmod go-w {} +
 
-      - name: Validate automation contract on fresh runner
+      - name: Validate automation contract on isolated copy
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
           TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
+          TEST_WORKSPACE: ${{ steps.testcopy.outputs.workspace }}
           BASH_ENV: ""
           ENV: ""
         run: |
@@ -263,23 +287,24 @@ jobs:
             sandbox_home="$(/usr/bin/mktemp -d)"
             /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
             set +e
-            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR="$sandbox_home" CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null npm_config_script_shell=/bin/bash "$TRUSTED_NPM" --prefix "$TEST_WORKSPACE" --script-shell=/bin/bash "$@"
             status=$?
             set -e
             /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
             /usr/bin/sudo /usr/bin/rm -rf "$sandbox_home"
             return "$status"
           }
-          run_untrusted "$TRUSTED_NPM" run issue-codex:check
+          run_untrusted run issue-codex:check
           validate_candidate
 
-      - name: Run targeted checks
+      - name: Run targeted checks on isolated copy
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
           TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
+          TEST_WORKSPACE: ${{ steps.testcopy.outputs.workspace }}
           BASH_ENV: ""
           ENV: ""
         run: |
@@ -296,7 +321,7 @@ jobs:
             sandbox_home="$(/usr/bin/mktemp -d)"
             /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
             set +e
-            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR="$sandbox_home" CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null npm_config_script_shell=/bin/bash "$TRUSTED_NPM" --prefix "$TEST_WORKSPACE" --script-shell=/bin/bash "$@"
             status=$?
             set -e
             /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
@@ -306,29 +331,30 @@ jobs:
           validate_candidate
           changed_paths="$(/usr/bin/git diff --cached --name-only HEAD)"
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$'; then
-            run_untrusted "$TRUSTED_NPM" run extension:test
+            run_untrusted run extension:test
             validate_candidate
           fi
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-'; then
-            run_untrusted "$TRUSTED_NPM" run test:d1-workspace
+            run_untrusted run test:d1-workspace
             validate_candidate
-            run_untrusted "$TRUSTED_NPM" run test:d1-binding
+            run_untrusted run test:d1-binding
             validate_candidate
           fi
           if /usr/bin/printf '%s\n' "$changed_paths" | /usr/bin/grep -Eq 'access-identity|auth'; then
-            run_untrusted "$TRUSTED_NPM" run test:access-identity
+            run_untrusted run test:access-identity
             validate_candidate
-            run_untrusted "$TRUSTED_NPM" run app:auth:test
+            run_untrusted run app:auth:test
             validate_candidate
           fi
 
-      - name: Run repository checks
+      - name: Run repository checks on isolated copy
         env:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
           TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           TRUSTED_NPM: ${{ steps.sandbox.outputs.npm_path }}
+          TEST_WORKSPACE: ${{ steps.testcopy.outputs.workspace }}
           BASH_ENV: ""
           ENV: ""
         run: |
@@ -345,7 +371,7 @@ jobs:
             sandbox_home="$(/usr/bin/mktemp -d)"
             /usr/bin/sudo /usr/bin/chown codex-test:codex-test "$sandbox_home"
             set +e
-            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR=/tmp CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null "$@"
+            /usr/bin/sudo -u codex-test /usr/bin/env -i HOME="$sandbox_home" TMPDIR="$sandbox_home" CI=true PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin" npm_config_userconfig=/dev/null npm_config_script_shell=/bin/bash "$TRUSTED_NPM" --prefix "$TEST_WORKSPACE" --script-shell=/bin/bash "$@"
             status=$?
             set -e
             /usr/bin/sudo /usr/bin/pkill -KILL -u codex-test >/dev/null 2>&1 || true
@@ -353,7 +379,7 @@ jobs:
             return "$status"
           }
           /usr/bin/git diff --cached --check HEAD
-          run_untrusted "$TRUSTED_NPM" run check
+          run_untrusted run check
           validate_candidate
 
       - name: Export tested patch
@@ -362,12 +388,10 @@ jobs:
           REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
           CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
           CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
-          TRUSTED_NODE_BIN: ${{ steps.sandbox.outputs.node_bin_dir }}
           BASH_ENV: ""
           ENV: ""
         run: |
           unset BASH_ENV ENV
-          export PATH="$TRUSTED_NODE_BIN:/usr/bin:/bin"
           test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
           test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
           /usr/bin/git diff --quiet
