@@ -34,7 +34,7 @@ async function injectRecorder(tabId) {
 
 async function stopRecorder(tabId) {
   const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__mecchaManualRecorder?.() }).catch(() => []);
-  return results.map(({ result }) => result).filter(Boolean);
+  return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
 }
 
 function alreadyHasEvent(session, event) {
