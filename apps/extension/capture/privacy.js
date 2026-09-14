@@ -10,15 +10,34 @@ export function isSensitiveInput(input) {
   return type === "password" || SENSITIVE_AUTOCOMPLETE.test(String(input?.autocomplete ?? "")) || SENSITIVE_NAME.test(metadata) || SECRET_LIKE_LABEL.test(metadata);
 }
 
-export function safeLabel(input) {
+function inputSemanticLabel(input) {
+  const tagName = String(input?.tagName ?? "").toLowerCase();
+  const role = String(input?.role ?? "").toLowerCase();
+  const type = String(input?.type ?? "").toLowerCase();
   if (isSensitiveInput(input)) return "保護された入力欄";
-  const candidate = [input?.ariaLabel, input?.associatedLabel, input?.placeholder, input?.name]
-    .find((value) => typeof value === "string" && value.trim());
-  return candidate ? candidate.trim().replace(/\s+/g, " ").slice(0, 80) : "入力欄";
+  if (tagName === "select" || role === "combobox") return "選択欄";
+  if (tagName === "input" && ["button", "submit", "reset", "image"].includes(type)) return "ボタン";
+  if (tagName === "input" && ["checkbox", "radio"].includes(type)) return "選択欄";
+  if (tagName === "input" && type === "file") return "ファイル選択";
+  return "入力欄";
+}
+
+function isValueBearingTarget(target) {
+  const tagName = String(target?.tagName ?? "").toLowerCase();
+  const role = String(target?.role ?? "").toLowerCase();
+  const type = String(target?.type ?? "").toLowerCase();
+  if (tagName === "textarea" || tagName === "select") return true;
+  if (["textbox", "combobox", "spinbutton"].includes(role)) return true;
+  return tagName === "input" && !["button", "submit", "reset", "image", "checkbox", "radio", "file", "hidden"].includes(type);
+}
+
+export function safeLabel(input) {
+  return inputSemanticLabel(input);
 }
 
 export function safeTargetLabel(target) {
   if (isSensitiveInput(target)) return "保護された入力欄";
+  if (isValueBearingTarget(target)) return inputSemanticLabel(target);
   const candidate = [target?.ariaLabel, target?.associatedLabel, target?.placeholder]
     .find((value) => typeof value === "string" && value.trim());
   if (candidate) return candidate.trim().replace(/\s+/g, " ").slice(0, 80);
