@@ -50,6 +50,7 @@ test("P2 trusted thread is included", () => assert.equal(evaluateReviewContext({
 test("resolved thread is excluded", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ resolved: true })] }).reason, "clean_review"));
 test("arbitrary user review comment is excluded from prompt input", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ author: "attacker" })] }).reason, "clean_review"));
 test("reviewed SHA mismatch prevents repair", () => assert.equal(evaluateReviewContext({ event: event({ review: { commit_id: "b".repeat(40) } }), threads: [thread()] }).reason, "reviewed_sha_mismatch"));
+
 test("repair prompt is bounded and contains only supplied trusted findings", () => {
   const prompt = buildRepairPrompt({ repository: "o/r", prNumber: 7, headSha: SHA, changedPaths: ["src/a.js"], findings: [{ severity: "P1", path: "src/a.js", line: 4, body: "trusted finding" }] });
   assert.match(prompt, /trusted finding/);
@@ -92,7 +93,7 @@ test("workflow isolates GitHub credentials from Codex and never pushes before te
   assert.match(codexStep, /GH_TOKEN: ""/);
   assert.match(codexStep, /GITHUB_TOKEN: ""/);
   assert.match(codexStep, /unset GH_TOKEN GITHUB_TOKEN/);
-  assert.ok(workflow.indexOf("Run repository checks") < workflow.indexOf("Fast-forward existing PR branch"));
+  assert.ok(workflow.indexOf("Run repository checks on isolated copy") < workflow.indexOf("Fast-forward existing PR branch"));
   assert.match(workflow, /git diff --cached --check HEAD/);
   assert.match(workflow, /push origin/);
   assert.doesNotMatch(workflow, /push[^\n]*--force|push[^\n]*-f\b/);
@@ -107,38 +108,47 @@ test("secret-bearing repair runner executes no PR-controlled setup before Codex"
   assert.ok(beforeCodex.indexOf("Install Codex CLI before PR checkout") < beforeCodex.indexOf("Checkout exact reviewed head without credentials"));
 });
 
-test("dependency installation disables lifecycle scripts before any untrusted execution", async () => {
+test("fresh test job pins a non-writable toolchain and builds a writable isolated candidate copy", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
   const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
-  const install = testJob.slice(testJob.indexOf("Install dependencies after secret-bearing job has ended"), testJob.indexOf("Validate automation contract on fresh runner"));
-  assert.match(install, /ci --ignore-scripts --no-audit --no-fund/);
-  assert.match(install, /validate_candidate/);
-  assert.match(install, /find "\$GITHUB_WORKSPACE" -xdev -perm \/022/);
+  assert.match(testJob, /TRUSTED_NODE="\$\(command -v node\)"/);
+  assert.match(testJob, /TRUSTED_NPM="\$\(command -v npm\)"/);
+  assert.match(testJob, /chmod -R go-w "\$TRUSTED_NODE_ROOT"/);
+  assert.match(testJob, /useradd -m -s \/bin\/bash codex-test/);
+  assert.match(testJob, /Prepare writable isolated candidate copy/);
+  assert.match(testJob, /git checkout-index --all --force --prefix="\$\{TEST_WORKSPACE\}\/"/);
+  assert.match(testJob, /cp -a \.git "\$TEST_WORKSPACE\/\.git"/);
+  assert.match(testJob, /chown -R codex-test:codex-test "\$TEST_WORKSPACE"/);
+  assert.doesNotMatch(testJob.slice(testJob.indexOf("Prepare writable isolated candidate copy")), /find "\$RUNNER_TOOL_CACHE\/node"/);
 });
 
-test("PR-controlled checks run only as an unprivileged user with a pre-pinned read-only toolchain", async () => {
+test("npm execution ignores user config and pins the script shell against project .npmrc overrides", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
   const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
-  const pin = testJob.slice(testJob.indexOf("Pin trusted toolchain and create unprivileged test user"), testJob.indexOf("Install dependencies after secret-bearing job has ended"));
-  assert.match(pin, /TRUSTED_NODE="\$\(command -v node\)"/);
-  assert.match(pin, /TRUSTED_NPM="\$\(command -v npm\)"/);
-  assert.match(pin, /chmod -R go-w "\$TRUSTED_NODE_ROOT"/);
-  assert.match(pin, /useradd -m -s \/bin\/bash codex-test/);
-  const afterInstall = testJob.slice(testJob.indexOf("Validate automation contract on fresh runner"));
-  assert.doesNotMatch(afterInstall, /find "\$RUNNER_TOOL_CACHE\/node"/);
-  for (const name of ["Validate automation contract on fresh runner", "Run targeted checks", "Run repository checks"]) {
+  assert.match(testJob, /npm_config_userconfig=\/dev\/null/);
+  assert.match(testJob, /npm_config_script_shell=\/bin\/bash/);
+  assert.match(testJob, /--script-shell=\/bin\/bash/);
+  assert.match(testJob, /--prefix "\$TEST_WORKSPACE"/);
+});
+
+test("PR-controlled checks execute only in the isolated copy as an unprivileged user", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  for (const name of ["Validate automation contract on isolated copy", "Run targeted checks on isolated copy", "Run repository checks on isolated copy"]) {
     const start = testJob.indexOf(`- name: ${name}`);
+    assert.notEqual(start, -1, `${name} must exist`);
     const next = testJob.indexOf("\n      - name:", start + 1);
     const step = testJob.slice(start, next === -1 ? undefined : next);
     assert.match(step, /sudo -u codex-test \/usr\/bin\/env -i/);
-    assert.match(step, /npm_config_userconfig=\/dev\/null/);
+    assert.match(step, /--prefix "\$TEST_WORKSPACE"/);
+    assert.match(step, /--script-shell=\/bin\/bash/);
     assert.match(step, /pkill -KILL -u codex-test/);
     assert.match(step, /BASH_ENV: ""/);
     assert.match(step, /ENV: ""/);
   }
 });
 
-test("fresh runner revalidates exact candidate identity after every sandboxed command", async () => {
+test("original candidate identity is revalidated after every sandboxed command", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
   const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
   assert.match(workflow, /candidate_tree:.*steps\.candidate\.outputs\.candidate_tree/);
@@ -193,7 +203,7 @@ test("workflow fails closed if Codex moves HEAD before exporting a candidate pat
 
 test("targeted test selection is derived from the validated staged diff, not mutable runner-temp state", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const targeted = workflow.slice(workflow.indexOf("- name: Run targeted checks"), workflow.indexOf("- name: Run repository checks"));
+  const targeted = workflow.slice(workflow.indexOf("- name: Run targeted checks on isolated copy"), workflow.indexOf("- name: Run repository checks on isolated copy"));
   assert.match(targeted, /validate_candidate[\s\S]*changed_paths="\$\(\/usr\/bin\/git diff --cached --name-only HEAD\)"/);
   assert.match(targeted, /\/usr\/bin\/printf[\s\S]*\/usr\/bin\/grep/);
   assert.doesNotMatch(targeted, /codex-review-changed-paths\.txt/);
