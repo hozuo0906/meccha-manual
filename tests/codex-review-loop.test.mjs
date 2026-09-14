@@ -100,3 +100,12 @@ test("workflow stages new files into the tested patch and uses a CI-triggering i
   const publisher = workflow.slice(workflow.indexOf("Fast-forward existing PR branch"), workflow.indexOf("Select published head"));
   assert.doesNotMatch(publisher, /github\.token/);
 });
+
+test("workflow fails closed if Codex moves HEAD before exporting the tested patch", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const detect = workflow.slice(workflow.indexOf("Detect repair changes"), workflow.indexOf("Run targeted checks"));
+  assert.match(detect, /REVIEWED_SHA: \$\{\{ needs\.inspect\.outputs\.head_sha \}\}/);
+  assert.match(detect, /test "\$\(git rev-parse HEAD\)" = "\$REVIEWED_SHA"/);
+  assert.match(detect, /refusing to export a partial or mismatched repair patch/);
+  assert.ok(detect.indexOf("git rev-parse HEAD") < detect.indexOf("git add -A"));
+});
