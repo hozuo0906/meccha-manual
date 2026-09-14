@@ -48,7 +48,7 @@ for (const token of [
   "pull_request_review:", "types: [submitted]", "chatgpt-codex-connector", "chatgpt-codex-connector[bot]",
   "head.repo.full_name == github.event.pull_request.base.repo.full_name", "head.repo.fork == false", "base.ref == 'main'",
   "codex-review-loop-${{ github.event.pull_request.number }}", "cancel-in-progress: false", "persist-credentials: false",
-  "GH_TOKEN: \"\"", "GITHUB_TOKEN: \"\"", "npm run check", "git diff --check", "verify-head",
+  "GH_TOKEN: \"\"", "GITHUB_TOKEN: \"\"", "run_untrusted \"$TRUSTED_NPM\" run check", "git diff --check", "verify-head",
   "push origin", "HEAD:refs/heads/${HEAD_REF}", "MAX_REPAIR_ROUNDS", "@codex review"
 ]) {
   if (!reviewLoopWorkflow.includes(token) && !((token === "MAX_REPAIR_ROUNDS" || token === "@codex review") && (await read("scripts/codex-review-loop.mjs")).includes(token))) {
