@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>手順書を編集</title><link rel="stylesheet" href="editor.css"></head>
+<body><main>
+  <header><div><span>編集中</span><h1><label class="sr-only" for="title">手順書のタイトル</label><input id="title"></h1><label class="sr-only" for="description">手順書の説明</label><textarea id="description" placeholder="この手順書の説明"></textarea></div><button id="save">保存して続ける</button></header>
+  <p class="local-note">この下書きはこのブラウザ・端末だけに保存されます。拡張機能やブラウザデータを削除すると復元できない場合があります。</p>
+  <div class="layout"><nav aria-label="手順一覧"><h2>手順</h2><ol id="steps"></ol></nav><section><h2>現在の手順内容</h2><div id="detail"></div></section></div>
+  <p id="status" role="status" aria-live="polite"></p>
+</main><script type="module" src="editor.js"></script></body></html>
