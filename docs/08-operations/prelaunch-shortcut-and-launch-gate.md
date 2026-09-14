@@ -15,6 +15,20 @@ Status: Accepted
 
 mainへの直接push、PR自動merge、DB migration自動適用、production資源作成、課金ON、AI API ON、共有リンク公開は許可しない。Cloudflare画面上の `production` という表示はGit連携上のラベルであり、本番公開準備完了の証拠にしない。
 
+## Release-mode review policy
+
+pre-commercial開発では、レビューを完全無欠にすること自体を目的化せず、安全にユーザー価値をmainへ届けることを優先する。
+
+- **P0** はrelease blockerとし、merge前に必ず解消する。
+- **P1** はrelease blockerとし、merge前に必ず解消する。
+- **P2** は原則としてrelease blockerにしない。対応状況を記録し、必要に応じてfollow-up Issueへ移管してmain統合を継続できる。
+- ただしP2でも、security/privacy境界、データ破損・データ損失、重大なユーザー影響、不可逆操作、production/external operationの安全性に直結する場合はrelease blockerとして扱う。
+- severity表記だけでリスクを過小評価しない。実質的にP0/P1相当のリスクをP2 deferとして隠してはならない。
+- merge時は未解決review threadを0件にする。deferするfindingはfollow-up Issueへの参照と判断理由をthreadへ残してresolveする。
+- required CIと`PR Latest Review Gate`はgreenを必須とし、release速度を理由にgateを緩和・skipしない。
+- Codex Reviewはmerge対象のexact head SHAに対して完了しており、reviewed SHAとmerge target SHAが一致していることを必須とする。
+- production deploy、production Access/D1/R2変更、Stripe live/Billing有効化、secret変更、Chrome Web Store一般公開など、別承認が必要なexternal operationはこのrelease-modeでは自動承認しない。
+
 ## 強制終了条件
 
 次のいずれかが発生する前に暫定運用を終了する。
