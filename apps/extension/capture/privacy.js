@@ -31,6 +31,10 @@ function isValueBearingTarget(target) {
   return tagName === "input" && !["button", "submit", "reset", "image", "checkbox", "radio", "file", "hidden"].includes(type);
 }
 
+function eventIdentity(event) {
+  return typeof event?.eventId === "string" && event.eventId.length <= 160 ? { eventId: event.eventId } : {};
+}
+
 export function safeLabel(input) {
   return inputSemanticLabel(input);
 }
@@ -47,15 +51,16 @@ export function safeTargetLabel(target) {
 
 export function normalizeCaptureEvent(event) {
   const at = Number.isFinite(event.at) ? event.at : Date.now();
+  const identity = eventIdentity(event);
   if (event.kind === "input") {
-    return { kind: "input", at, label: safeLabel(event.target) };
+    return { kind: "input", at, label: safeLabel(event.target), ...identity };
   }
   if (event.kind === "click") {
-    return { kind: "click", at, label: safeTargetLabel(event.target) };
+    return { kind: "click", at, label: safeTargetLabel(event.target), ...identity };
   }
   if (event.kind === "scroll") {
-    return { kind: "scroll", at, direction: event.direction === "up" ? "up" : "down" };
+    return { kind: "scroll", at, direction: event.direction === "up" ? "up" : "down", ...identity };
   }
-  if (event.kind === "navigation") return { kind: "navigation", at };
+  if (event.kind === "navigation") return { kind: "navigation", at, ...identity };
   throw new TypeError("未対応の操作です");
 }
