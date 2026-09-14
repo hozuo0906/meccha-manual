@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "めっちゃマニュアル",
+  "version": "0.1.0",
+  "description": "いま開いているタブの操作を記録し、手順書をローカルで作成します。",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "windows"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "操作を記録"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  }
+}
