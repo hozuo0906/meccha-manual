@@ -29,6 +29,19 @@ export function installSensitiveMasks() {
     ].join(",");
     const roots = [document];
     const elements = [];
+    const findTopLayerAncestor = (start) => {
+      let node = start;
+      while (node) {
+        if (node instanceof Element && node.matches?.("dialog[open],[popover]:popover-open")) return node;
+        if (node.parentElement) {
+          node = node.parentElement;
+          continue;
+        }
+        const root = node.getRootNode?.();
+        node = root?.host instanceof Element ? root.host : null;
+      }
+      return null;
+    };
     for (let index = 0; index < roots.length; index += 1) {
       const root = roots[index];
       elements.push(...root.querySelectorAll(selector));
@@ -54,7 +67,7 @@ export function installSensitiveMasks() {
         width: `${rect.width}px`,
         height: `${rect.height}px`
       });
-      const topLayerAncestor = element.closest?.("dialog[open],[popover]:popover-open");
+      const topLayerAncestor = findTopLayerAncestor(element);
       (topLayerAncestor || document.documentElement).append(overlay);
       overlays.push(overlay);
     }
