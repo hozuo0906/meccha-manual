@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
+import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js";
+import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
 import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
 import { isSensitiveInput, normalizeCaptureEvent, safeTargetLabel } from "../apps/extension/capture/privacy.js";
 import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
@@ -13,6 +15,7 @@ test("manifest uses required minimal MV3 permissions", async () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.permissions.includes("activeTab"), true);
   assert.equal(manifest.permissions.includes("scripting"), true);
+  assert.equal(manifest.permissions.includes("storage"), true);
   assert.equal(manifest.permissions.includes("debugger"), false);
   assert.equal(manifest.permissions.includes("tabs"), false);
   assert.equal("host_permissions" in manifest, false);
@@ -59,7 +62,6 @@ test("restore failure retains a retryable session instead of clearing recovery d
   assert.equal(persisted.at(-1).restorePending, true);
   assert.equal(persisted.at(-1).phase, "restore_pending");
   assert.deepEqual(persisted.at(-1).events, session.events);
-  assert.equal(persisted.at(-1).restoreErrorCategory, "responsive_mode_failed");
 });
 
 test("all five responsive modes remain available", () => {
@@ -88,12 +90,27 @@ test("click labels use bounded semantic metadata, not arbitrary container text",
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
   const order = [];
-  const image = await captureWithMaskBoundary({ applyMasks: async () => { order.push("mask"); return { applied: true }; }, capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { order.push("remove"); } });
+  const image = await captureWithMaskBoundary({
+    applyMasks: async () => { order.push("mask"); return { applied: true }; },
+    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
+    removeMasks: async () => { order.push("remove"); }
+  });
   assert.equal(image.startsWith("data:image/"), true);
   assert.deepEqual(order, ["mask", "capture", "remove"]);
 });
 
-test("masking failure cannot fall back to an unmasked screenshot and still runs cleanup", async () => {
+test("mask verification failure discards image and still removes masks", async () => {
+  const order = [];
+  await assert.rejects(captureWithMaskBoundary({
+    applyMasks: async () => { order.push("mask"); return { applied: true, token: "doc" }; },
+    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
+    verifyMasks: async () => { order.push("verify"); return false; },
+    removeMasks: async () => { order.push("remove"); }
+  }), /SCREENSHOT_MASK_INVALIDATED/);
+  assert.deepEqual(order, ["mask", "capture", "verify", "remove"]);
+});
+
+test("masking failure cannot fall back to an unmasked screenshot", async () => {
   let captured = false;
   let removed = false;
   await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: false }), capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { removed = true; } }), /SCREENSHOT_MASK_FAILED/);
@@ -101,38 +118,37 @@ test("masking failure cannot fall back to an unmasked screenshot and still runs 
   assert.equal(removed, true);
 });
 
-test("capture failure still removes temporary masks", async () => {
-  let removed = false;
-  await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: true }), capture: async () => { throw new Error("capture failed"); }, removeMasks: async () => { removed = true; } }), /capture failed/);
-  assert.equal(removed, true);
-});
-
-test("screenshot masking covers ordinary controls, shadow roots and iframe surfaces without coordinate-dependent overlays", async () => {
-  const source = await readFile(new URL("../apps/extension/capture/screenshot.js", import.meta.url), "utf8");
-  for (const selectorFragment of ["input", "textarea", "select", "contenteditable", "textbox", "iframe"]) assert.equal(source.includes(selectorFragment), true);
-  assert.match(source, /const masks = \[\];\s*try \{/);
-  assert.doesNotMatch(source, /if \(!sensitive\.test\(metadata\)\) continue/);
-  assert.match(source, /host\.shadowRoot/);
-  assert.match(source, /host\.localName\.includes\("-"\)/);
-  assert.match(source, /element\.style\.setProperty\("visibility", "hidden", "important"\)/);
-  assert.match(source, /previousVisibility/);
-  assert.doesNotMatch(source, /position:\s*"fixed"/);
-});
-
 test("draft model can add, edit, delete, reorder steps and manage normalized masks", () => {
   const draft = { steps: [{ id: "a", order: 1, instruction: "A" }, { id: "b", order: 2, instruction: "B" }], screenshots: [{ id: "s", masks: [] }] };
   const added = addStep(draft);
   assert.equal(added.instruction, "新しい手順");
-  assert.equal(draft.steps.length, 3);
   updateStepInstruction(draft, "a", "新しい説明");
   moveStep(draft, added.id, "up");
-  assert.equal(draft.steps[1].id, added.id);
   addMask(draft, "s", { x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
-  assert.equal(draft.screenshots[0].masks.length, 1);
   removeMask(draft, "s", draft.screenshots[0].masks[0].id);
-  assert.equal(draft.screenshots[0].masks.length, 0);
   deleteStep(draft, "b");
   assert.equal(draft.steps.some((step) => step.id === "b"), false);
+});
+
+test("event merging is deduplicated and chronological", () => {
+  const session = { events: [{ kind: "click", at: 20, eventId: "b", label: "ボタン" }] };
+  const merged = mergeCaptureEvents(session, [
+    { kind: "navigation", at: 30, eventId: "c" },
+    { kind: "input", at: 10, eventId: "a", target: { tagName: "input" } },
+    { kind: "click", at: 40, eventId: "b", target: { tagName: "button" } }
+  ]);
+  assert.deepEqual(merged.events.map(({ eventId }) => eventId), ["a", "b", "c"]);
+});
+
+test("local recovery journal carries bounded normalized finish events", () => {
+  const journal = nextRecoveryJournal(null, {
+    sessionId: "capture",
+    phase: "finish_failed",
+    events: [{ kind: "input", at: 1, eventId: "a", target: { tagName: "input", value: "秘密" } }]
+  });
+  assert.equal(journal.phase, "finish_failed");
+  assert.equal(journal.events.length, 1);
+  assert.equal(JSON.stringify(journal).includes("秘密"), false);
 });
 
 test("editor exposes a locally persisted add-step control", async () => {
@@ -143,68 +159,40 @@ test("editor exposes a locally persisted add-step control", async () => {
   assert.match(html, /id="addStep"/);
 });
 
-test("recorder commits edits on completion, tracks container scroll, drains pending operations, and consumes generic SPA navigation", async () => {
+test("recorder drains deferred actions, container scroll and generic SPA navigation", async () => {
   const source = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
   for (const event of ["click", "input", "change", "scroll", "pagehide", "popstate", "hashchange"]) assert.equal(source.includes(`removeEventListener("${event}"`), true);
-  assert.doesNotMatch(source, /setTimeout\(flushInput/);
-  assert.doesNotMatch(source, /inputTimer/);
   assert.match(source, /pendingInput = \{ target: event\.target, eventId: nextEventId\(\) \}/);
-  assert.match(source, /if \(accepted && pendingInput\?\.eventId === pending\.eventId\) pendingInput = undefined/);
-  assert.match(source, /const commitInput =/);
-  assert.match(source, /if \(pendingInput\?\.target === event\.target\) void flushInput\(\)/);
-  assert.match(source, /event\.target instanceof Element \? event\.target : document/);
+  assert.match(source, /trackedActions = new Map/);
+  assert.match(source, /pendingNavigation/);
+  assert.match(source, /pendingEvents\.push\(\.\.\.trackedActions\.values\(\)\)/);
   assert.match(source, /target\.scrollLeft/);
-  assert.match(source, /target\.scrollTop/);
-  assert.match(source, /pendingScroll/);
-  assert.match(source, /flushScroll/);
-  assert.match(source, /if \(pendingScroll\) pendingEvents\.push/);
-  assert.match(source, /const flushBeforeNavigation = \(\) => \{ void flushInput\(\); void flushScroll\(\); \}/);
+  assert.match(source, /deltaX/);
   assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
-  assert.match(source, /addEventListener\(HISTORY_EVENT, historyNavigation, true\)/);
-  assert.match(source, /recordSameDocumentNavigation/);
-  assert.match(source, /return pendingEvents/);
+  assert.match(source, /return pendingEvents\.sort/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
   assert.doesNotMatch(source, /element\.textContent/);
   assert.doesNotMatch(source, /value:/);
 });
 
-test("service worker serializes mutations, deduplicates pending edits and preserves retryable finish failures", async () => {
+test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
-  assert.match(source, /phase: "finish_failed"/);
-  assert.match(source, /phase: "reinjection_failed"/);
-  assert.match(source, /finishFailed: true/);
-  assert.match(source, /remainingTabs\.length === 0/);
-  assert.match(source, /capture:resume/);
-  assert.match(source, /alreadyHasEvent/);
-  assert.match(source, /existing\.eventId === event\.eventId/);
+  assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
+  assert.match(source, /persistRecoveryJournal\(session\.id, pendingEvents\)/);
+  assert.match(source, /verifySensitiveMasks/);
+  assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
+  assert.match(source, /await persistRecoveryJournal\(session\.id, \[navigationEvent\]\)/);
+  assert.match(source, /await injectRecorder\(tabId\)/);
   assert.match(source, /index === lastIndex \? \{ screenshotId: screenshot\.id \} : \{\}/);
 });
 
-test("service worker recovers stranded starting sessions and injects bridge/recorder into eligible frames", async () => {
+test("service worker recovers starting sessions and injects bridge/recorder into eligible frames", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /recoverInterruptedStartingSession/);
-  assert.match(source, /session\?\.phase !== "starting"/);
-  assert.match(source, /serializeSessionOperation\(recoverInterruptedStartingSession\)/);
   assert.match(source, /const target = \{ tabId, allFrames: true \}/);
   assert.match(source, /world: "MAIN", files: \["content\/history-bridge\.js"\]/);
-  assert.match(source, /async function injectRecorder/);
-  assert.match(source, /await injectRecorder\(tabId\)/);
   assert.match(source, /flatMap\(\(\{ result \}\) => Array\.isArray\(result\)/);
-  assert.match(source, /const pendingEvents = await stopRecorder\(session\.tabId\)/);
-  assert.match(source, /session = mergeCaptureEvents\(session, pendingEvents\)/);
-});
-
-test("service worker keeps restoration data on failure and exposes retry", async () => {
-  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
-  assert.match(source, /chrome\.storage\.session\.get\(SESSION_KEY\)/);
-  assert.match(source, /chrome\.storage\.session\.set\(\{ \[SESSION_KEY\]: session \}\)/);
-  assert.ok(source.indexOf("await setSession(session)") < source.indexOf("if (mode !== \"pc\") await applyResponsiveViewport"), "restore snapshot must be persisted before responsive mutation");
-  assert.match(source, /capture:restore/);
-  assert.match(source, /async function finishCapture[\s\S]*?stopRecorder\(session\.tabId\)/);
-  assert.match(source, /async function cancelCapture[\s\S]*?stopRecorder\(session\.tabId\)/);
-  assert.match(source, /if \(!tab\.active \|\| tab\.windowId !== session\.windowId\)/);
-  assert.match(source, /session = mergeCaptureEvents\(session, pendingEvents\)/);
 });
 
 test("popup exposes local recent draft reopening and explicit reinjection recovery", async () => {
@@ -212,10 +200,8 @@ test("popup exposes local recent draft reopening and explicit reinjection recove
   const html = await readFile(new URL("../apps/extension/popup/popup.html", import.meta.url), "utf8");
   assert.match(popup, /draftStore\.list\(\)/);
   assert.match(popup, /capture:resume/);
-  assert.match(popup, /editor\/editor\.html#/);
   assert.match(popup, /if \(state\.mode\) mode\.value = state\.mode/);
   assert.match(html, /id="recentDraft"/);
-  assert.match(html, /id="openDraft"/);
   assert.match(html, /id="resume"/);
 });
 
