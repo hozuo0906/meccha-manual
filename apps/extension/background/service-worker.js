@@ -29,7 +29,9 @@ async function measureViewport(tabId) {
 }
 
 async function injectRecorder(tabId) {
-  return chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content/recorder.js"] });
+  const target = { tabId, allFrames: true };
+  await chrome.scripting.executeScript({ target, world: "MAIN", files: ["content/history-bridge.js"] });
+  return chrome.scripting.executeScript({ target, files: ["content/recorder.js"] });
 }
 
 async function stopRecorder(tabId) {
@@ -41,18 +43,25 @@ function alreadyHasEvent(session, event) {
   return Boolean(event?.eventId && session.events.some((existing) => existing.eventId === event.eventId));
 }
 
+function mergeCaptureEvents(session, events) {
+  const nextEvents = [...session.events];
+  const eventIds = new Set(nextEvents.map((event) => event.eventId).filter(Boolean));
+  for (const event of events || []) {
+    if (!event) continue;
+    const normalized = normalizeCaptureEvent(event);
+    if (normalized.eventId && eventIds.has(normalized.eventId)) continue;
+    nextEvents.push(normalized);
+    if (normalized.eventId) eventIds.add(normalized.eventId);
+  }
+  return nextEvents.length === session.events.length ? session : { ...session, events: nextEvents };
+}
+
 async function appendCaptureEvent(session, event) {
   if (!event) return session;
   const normalized = normalizeCaptureEvent(event);
   if (alreadyHasEvent(session, normalized)) return session;
   const next = { ...session, events: [...session.events, normalized] };
   await setSession(next);
-  return next;
-}
-
-async function appendCaptureEvents(session, events) {
-  let next = session;
-  for (const event of events || []) next = await appendCaptureEvent(next, event);
   return next;
 }
 
@@ -146,7 +155,8 @@ async function finishCapture() {
   try {
     await prepareRetryViewport(session);
     const pendingEvents = await stopRecorder(session.tabId);
-    session = await appendCaptureEvents(session, pendingEvents);
+    session = mergeCaptureEvents(session, pendingEvents);
+    await setSession(session);
     const dataUrl = await takeMaskedScreenshot(session);
     const screenshot = { id: crypto.randomUUID(), dataUrl, masks: [] };
     const lastIndex = session.events.length - 1;
@@ -169,7 +179,8 @@ async function finishCapture() {
     await draftStore.put(draft);
     draftId = draft.id;
   } catch {
-    await stopRecorder(session.tabId);
+    const pendingEvents = await stopRecorder(session.tabId);
+    session = mergeCaptureEvents(session, pendingEvents);
     const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const restored = await attemptRestore(retrySession);
     await setSession({ ...retrySession, restorePending: !restored });
