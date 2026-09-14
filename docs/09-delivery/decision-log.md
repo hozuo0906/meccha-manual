@@ -278,3 +278,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - JSON／base64や未上限streamによるメモリ・容量濫用を避け、通常の手順書screenshotをMVPで運べる保守的な上限を明示するため。
 - Boundary:
   - pre-auth guest upload、extensionからの直接API/R2 upload、server-side multipart/chunk uploadは許可しない。実需要が上限を超えた場合だけ別設計で再評価する。
+
+## DEC-070: Codex Review後の同一PR修正loopをGitHub Actionsへ限定する
+
+- Status: Accepted
+- Date: 2026-09-13
+- Decision:
+  - exact PR headへのCodex connector reviewを契機に、trusted unresolved P0／P1／P2だけをbounded promptへ入れ、同一PR branchを最大3 roundまで自動修正する。
+  - Codex processへGitHub write credentialを渡さない。trusted runnerがtests、remote exact-head再照合、fast-forward push、thread返信／resolve、exact-head再Review要求を担当する。
+  - clean review、duplicate review、fork／別repository、non-main base、許可外branch、stale headはno-opまたはfail closedとし、force push、main直接push、gate迂回を行わない。
+- Reason:
+  - Review返却後の人手による再開待ちを減らしつつ、任意コメントのprompt injection、credential漏洩、外部更新との競合、無限repair、review gateの形骸化を防ぐため。
+- Boundary:
+  - `github-actions[bot]` の `@codex review` commentがCodex integrationを起動するかは初回実runで確認する。起動しない場合は再Review要求を記録して停止し、review証跡を自動生成しない。本loopはmerge、deploy、migration適用、外部設定、billing、secret、Chrome Web Store公開を行わない。

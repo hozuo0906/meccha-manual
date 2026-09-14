@@ -3,8 +3,11 @@ import { readFile } from "node:fs/promises";
 const requiredFiles = [
   ".github/workflows/issue-event-triage.yml",
   ".github/workflows/codex-issue-implement.yml",
+  ".github/workflows/codex-review-loop.yml",
   "scripts/issue-event-triage.mjs",
   "scripts/build-codex-issue-prompt.mjs",
+  "scripts/codex-review-loop.mjs",
+  "tests/codex-review-loop.test.mjs",
   "docs/08-operations/issue-event-codex-automation.md",
   "docs/03-architecture/adrs/ADR-0021-issue-event-codex-automation.md"
 ];
@@ -39,6 +42,21 @@ const codexWorkflow = await read(".github/workflows/codex-issue-implement.yml");
 for (const token of ["approved-for-codex", "CODEX_ACCESS_TOKEN", "npm install -g @openai/codex", "codex exec", "--model \"$CODEX_MODEL\"", "gpt-5.6-luna", "model_reasoning_effort=$CODEX_REASONING_EFFORT", "CODEX_REASONING_EFFORT=\"high\"", "CODEX_APPROVAL_POLICY=\"never\"", "Codex runtime configuration:", "contents: write", "pull-requests: write"]) {
   if (!codexWorkflow.includes(token)) errors.push(`Codex issue implement workflow must include ${token}`);
 }
+
+const reviewLoopWorkflow = await read(".github/workflows/codex-review-loop.yml");
+for (const token of [
+  "pull_request_review:", "types: [submitted]", "chatgpt-codex-connector", "chatgpt-codex-connector[bot]",
+  "head.repo.full_name == github.event.pull_request.base.repo.full_name", "head.repo.fork == false", "base.ref == 'main'",
+  "codex-review-loop-${{ github.event.pull_request.number }}", "cancel-in-progress: false", "persist-credentials: false",
+  "GH_TOKEN: \"\"", "GITHUB_TOKEN: \"\"", "npm run check", "git diff --check", "verify-head",
+  "push origin", "HEAD:refs/heads/${HEAD_REF}", "MAX_REPAIR_ROUNDS", "@codex review"
+]) {
+  if (!reviewLoopWorkflow.includes(token) && !((token === "MAX_REPAIR_ROUNDS" || token === "@codex review") && (await read("scripts/codex-review-loop.mjs")).includes(token))) {
+    errors.push(`Codex review loop must include ${token}`);
+  }
+}
+if (/git\s+push[^\n]*(?:--force|\s-f(?:\s|$))/m.test(reviewLoopWorkflow)) errors.push("Codex review loop must not force-push.");
+if (/push[^\n]*refs\/heads\/main/m.test(reviewLoopWorkflow)) errors.push("Codex review loop must not push directly to main.");
 if (codexWorkflow.includes("gpt-5.6-terra")) errors.push("Codex issue implement workflow must not use gpt-5.6-terra.");
 if (/^concurrency:\s*$/m.test(codexWorkflow)) {
   errors.push("Codex issue implement workflow must not define root-level concurrency.");
@@ -81,7 +99,7 @@ for (const token of ["approved-for-codex", "Astra high親PM", "商用リリー�
 }
 
 const automationDocs = await read("docs/08-operations/issue-event-codex-automation.md");
-for (const token of ["--model gpt-5.6-luna", "--config model_reasoning_effort=high", "secret値やIssue本文・会話全文は証跡へ複製しない", "モデル設定の一致を確認できない実行は成功扱いにしない"]) {
+for (const token of ["--model gpt-5.6-luna", "--config model_reasoning_effort=high", "secret値やIssue本文・会話全文は証跡へ複製しない", "モデル設定の一致を確認できない実行は成功扱いにしない", "## Codex Review修正loop", "最大3 round", "GitHub write credential", "Latest Review Gateを緩和したりreview証跡を捏造したりしない"]) {
   if (!automationDocs.includes(token)) errors.push(`issue-event-codex-automation.md must include ${token}.`);
 }
 

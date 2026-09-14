@@ -64,6 +64,8 @@ Codex側の `Issue intake monitor` は15分ごとにIssueを確認する。常�
 
 このworkflowは、必要なタイミングでGitHub側にも証跡を残したいときに使う。
 
+Codex connectorが最新PR headへP0／P1／P2を返した場合は、`codex-review-loop.yml` がtrusted unresolved threadだけを対象に同じPR branchで最大3 roundの修正を試行する。CodexへGitHub write credentialを渡さず、test成功とremote exact-head再照合後だけtrusted runnerがfast-forward pushする。clean reviewではno-opとし、Latest Review Gate、review thread、branch protection、merge条件は迂回しない。
+
 ## Issueイベント駆動の自動実装
 
 15分ごとのIssue確認は保険として使い、通常はGitHub Issueイベントで即時に処理する。
