@@ -47,30 +47,61 @@
   const commitInput = (event) => {
     if (pendingInput?.target === event.target) void flushInput();
   };
+
+  const scrollPositions = new WeakMap();
+  scrollPositions.set(document, { x: scrollX, y: scrollY });
+  let pendingScroll;
+  let scrollTimer;
+  let scrollFlush = Promise.resolve(true);
+  const scrollTarget = (event) => event.target instanceof Element ? event.target : document;
+  const scrollPosition = (target) => target === document
+    ? { x: scrollX, y: scrollY }
+    : { x: target.scrollLeft, y: target.scrollTop };
+  const flushScroll = () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = undefined;
+    if (!pendingScroll) return scrollFlush;
+    const pending = pendingScroll;
+    const event = captureEvent("scroll", document.documentElement, { eventId: pending.eventId, direction: pending.direction });
+    const transmit = async () => {
+      const accepted = await sendEvent(event);
+      if (accepted && pendingScroll?.eventId === pending.eventId) {
+        scrollPositions.set(pending.target, pending.position);
+        pendingScroll = undefined;
+      }
+      return accepted;
+    };
+    scrollFlush = scrollFlush.then(transmit, transmit);
+    return scrollFlush;
+  };
+  const scroll = (event) => {
+    const target = scrollTarget(event);
+    const position = scrollPosition(target);
+    const baseline = pendingScroll?.target === target
+      ? pendingScroll.baseline
+      : scrollPositions.get(target) || { x: 0, y: 0 };
+    const deltaY = position.y - baseline.y;
+    if (Math.abs(deltaY) < 80) return;
+    const eventId = pendingScroll?.target === target ? pendingScroll.eventId : nextEventId();
+    pendingScroll = { target, position, baseline, direction: deltaY < 0 ? "up" : "down", eventId };
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => { void flushScroll(); }, 250);
+  };
+
+  const flushBeforeAction = () => Promise.all([flushInput(), flushScroll()]);
   const click = (event) => {
     const target = event.target instanceof Element
       ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=menuitem]") || event.target
       : event.target;
-    void flushInput().then((accepted) => {
-      if (accepted || !pendingInput) return send("click", target);
+    void flushBeforeAction().then((accepted) => {
+      if (accepted.every(Boolean) || (!pendingInput && !pendingScroll)) return send("click", target);
       return false;
     });
   };
 
-  let lastY = scrollY;
-  let scrollTimer;
-  const scroll = () => {
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-      const nextY = scrollY;
-      if (Math.abs(nextY - lastY) >= 80) void send("scroll", document.documentElement, { direction: nextY < lastY ? "up" : "down" });
-      lastY = nextY;
-    }, 250);
-  };
-
   const recordSameDocumentNavigation = () => {
-    void flushInput().then((accepted) => {
-      if (accepted || !pendingInput) return send("navigation", document.documentElement);
+    void flushBeforeAction().then((accepted) => {
+      if (accepted.every(Boolean) || (!pendingInput && !pendingScroll)) return send("navigation", document.documentElement);
       return false;
     });
   };
@@ -89,7 +120,7 @@
   history.pushState = wrappedPushState;
   history.replaceState = wrappedReplaceState;
 
-  const flushBeforeNavigation = () => { void flushInput(); };
+  const flushBeforeNavigation = () => { void flushInput(); void flushScroll(); };
   const historyNavigation = () => recordSameDocumentNavigation();
 
   addEventListener("click", click, true);
@@ -101,10 +132,11 @@
   addEventListener("hashchange", historyNavigation, true);
 
   globalThis.__mecchaManualRecorder = () => {
-    const pendingEvent = pendingInput
-      ? captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId })
-      : undefined;
+    const pendingEvents = [];
+    if (pendingInput) pendingEvents.push(captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId }));
+    if (pendingScroll) pendingEvents.push(captureEvent("scroll", document.documentElement, { eventId: pendingScroll.eventId, direction: pendingScroll.direction }));
     pendingInput = undefined;
+    pendingScroll = undefined;
     removeEventListener("click", click, true);
     removeEventListener("input", queueInput, true);
     removeEventListener("change", commitInput, true);
@@ -116,6 +148,6 @@
     if (history.replaceState === wrappedReplaceState) history.replaceState = originalReplaceState;
     clearTimeout(scrollTimer);
     delete globalThis.__mecchaManualRecorder;
-    return pendingEvent;
+    return pendingEvents;
   };
 })();
