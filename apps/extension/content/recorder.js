@@ -1,6 +1,7 @@
 (() => {
   if (globalThis.__mecchaManualRecorder) return;
 
+  const HISTORY_EVENT = "meccha-manual:history-navigation";
   const recorderId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   let eventSequence = 0;
   const nextEventId = () => `${recorderId}:${++eventSequence}`;
@@ -105,20 +106,6 @@
       return false;
     });
   };
-  const originalPushState = history.pushState;
-  const originalReplaceState = history.replaceState;
-  const wrappedPushState = function (...args) {
-    const result = originalPushState.apply(this, args);
-    recordSameDocumentNavigation();
-    return result;
-  };
-  const wrappedReplaceState = function (...args) {
-    const result = originalReplaceState.apply(this, args);
-    recordSameDocumentNavigation();
-    return result;
-  };
-  history.pushState = wrappedPushState;
-  history.replaceState = wrappedReplaceState;
 
   const flushBeforeNavigation = () => { void flushInput(); void flushScroll(); };
   const historyNavigation = () => recordSameDocumentNavigation();
@@ -130,6 +117,7 @@
   addEventListener("pagehide", flushBeforeNavigation, true);
   addEventListener("popstate", historyNavigation, true);
   addEventListener("hashchange", historyNavigation, true);
+  addEventListener(HISTORY_EVENT, historyNavigation, true);
 
   globalThis.__mecchaManualRecorder = () => {
     const pendingEvents = [];
@@ -144,8 +132,7 @@
     removeEventListener("pagehide", flushBeforeNavigation, true);
     removeEventListener("popstate", historyNavigation, true);
     removeEventListener("hashchange", historyNavigation, true);
-    if (history.pushState === wrappedPushState) history.pushState = originalPushState;
-    if (history.replaceState === wrappedReplaceState) history.replaceState = originalReplaceState;
+    removeEventListener(HISTORY_EVENT, historyNavigation, true);
     clearTimeout(scrollTimer);
     delete globalThis.__mecchaManualRecorder;
     return pendingEvents;
