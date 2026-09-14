@@ -3,7 +3,7 @@ export async function captureWithMaskBoundary({ applyMasks, capture, verifyMasks
   try {
     maskingAttempted = true;
     const result = await applyMasks();
-    if (!result?.applied || !result?.token) throw new Error("SCREENSHOT_MASK_FAILED");
+    if (!result?.applied || (verifyMasks && !result?.token)) throw new Error("SCREENSHOT_MASK_FAILED");
     const image = await capture();
     if (typeof image !== "string" || !image.startsWith("data:image/")) throw new Error("SCREENSHOT_CAPTURE_FAILED");
     if (verifyMasks && !(await verifyMasks(result.token))) throw new Error("SCREENSHOT_MASK_INVALIDATED");
@@ -33,6 +33,14 @@ export function installSensitiveMasks() {
       "iframe"
     ].join(",");
     const masked = new WeakSet();
+    const observedRoots = new WeakSet();
+
+    const restoreMask = (mask) => {
+      for (const item of mask.previous) {
+        if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
+        else mask.element.style.removeProperty(item.property);
+      }
+    };
 
     const maskElement = (element) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
@@ -41,23 +49,28 @@ export function installSensitiveMasks() {
       const computed = getComputedStyle(element);
       if (computed.visibility === "hidden" || computed.display === "none" || Number(computed.opacity) === 0) return;
 
-      const previous = ["visibility", "transition", "animation"].map((property) => ({
-        property,
-        value: element.style.getPropertyValue(property),
-        priority: element.style.getPropertyPriority(property)
-      }));
+      const previousVisibility = element.style.getPropertyValue("visibility");
+      const previousPriority = element.style.getPropertyPriority("visibility");
+      const previousTransition = element.style.getPropertyValue("transition");
+      const previousTransitionPriority = element.style.getPropertyPriority("transition");
+      const previousAnimation = element.style.getPropertyValue("animation");
+      const previousAnimationPriority = element.style.getPropertyPriority("animation");
+      const previous = [
+        { property: "visibility", value: previousVisibility, priority: previousPriority },
+        { property: "transition", value: previousTransition, priority: previousTransitionPriority },
+        { property: "animation", value: previousAnimation, priority: previousAnimationPriority }
+      ];
+
       element.style.setProperty("transition", "none", "important");
       element.style.setProperty("animation", "none", "important");
       element.style.setProperty("visibility", "hidden", "important");
+      const mask = { element, previous };
       if (getComputedStyle(element).visibility !== "hidden") {
-        for (const item of previous) {
-          if (item.value) element.style.setProperty(item.property, item.value, item.priority);
-          else element.style.removeProperty(item.property);
-        }
+        restoreMask(mask);
         throw new Error("SCREENSHOT_MASK_NOT_EFFECTIVE");
       }
       masked.add(element);
-      masks.push({ element, previous });
+      masks.push(mask);
     };
 
     const scanRoot = (root) => {
@@ -67,7 +80,7 @@ export function installSensitiveMasks() {
         if (host.shadowRoot) scanRoot(host.shadowRoot);
         else if (host.localName?.includes("-") && !host.matches?.(selector)) maskElement(host);
       }
-      if (typeof MutationObserver === "function") {
+      if (typeof MutationObserver === "function" && !observedRoots.has(root)) {
         const observer = new MutationObserver((records) => {
           for (const record of records) {
             for (const node of record.addedNodes || []) {
@@ -78,6 +91,7 @@ export function installSensitiveMasks() {
           }
         });
         observer.observe(root, { childList: true, subtree: true });
+        observedRoots.add(root);
         observers.push(observer);
       }
     };
@@ -87,12 +101,7 @@ export function installSensitiveMasks() {
     return { applied: true, count: masks.length, token };
   } catch {
     for (const observer of observers) observer.disconnect();
-    for (const mask of masks) {
-      for (const item of mask.previous) {
-        if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
-        else mask.element.style.removeProperty(item.property);
-      }
-    }
+    for (const mask of masks) restoreMask(mask);
     delete globalThis.__mecchaManualScreenshotMasks;
     return { applied: false };
   }
