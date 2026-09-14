@@ -29,6 +29,7 @@ jobs:
       head_sha: ${{ steps.inspect.outputs.head_sha }}
       head_ref: ${{ steps.inspect.outputs.head_ref }}
       pr_number: ${{ steps.inspect.outputs.pr_number }}
+      review_id: ${{ steps.inspect.outputs.review_id }}
     steps:
       - name: Checkout trusted default-branch controller
         uses: actions/checkout@v4
@@ -77,6 +78,9 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+    outputs:
+      candidate_tree: ${{ steps.candidate.outputs.candidate_tree }}
+      candidate_paths_sha256: ${{ steps.candidate.outputs.candidate_paths_sha256 }}
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -139,18 +143,20 @@ jobs:
           NODE
 
       - name: Export bounded candidate patch without executing PR code
+        id: candidate
         run: |
           git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-candidate.patch"
           test -s "$RUNNER_TEMP/codex-review-candidate.patch"
           test "$(wc -c < "$RUNNER_TEMP/codex-review-candidate.patch")" -le 10485760
+          git diff --cached --name-only -z HEAD > "$RUNNER_TEMP/codex-review-candidate-paths"
+          echo "candidate_tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
+          echo "candidate_paths_sha256=$(sha256sum "$RUNNER_TEMP/codex-review-candidate-paths" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Store candidate patch for fresh-runner testing
         uses: actions/upload-artifact@v4
         with:
           name: codex-review-candidate-patch-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/codex-review-candidate.patch
-            ${{ runner.temp }}/codex-review-request/codex-review-metadata.json
+          path: ${{ runner.temp }}/codex-review-candidate.patch
           if-no-files-found: error
           retention-days: 1
 
@@ -161,6 +167,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      tested_tree: ${{ steps.tested.outputs.tested_tree }}
     steps:
       - name: Checkout exact reviewed head without credentials
         uses: actions/checkout@v4
@@ -192,49 +200,106 @@ jobs:
           cache: npm
 
       - name: Install dependencies after secret-bearing job has ended
-        run: npm ci
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+        run: |
+          validate_candidate() {
+            test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
+            test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
+            /usr/bin/git diff --quiet
+            test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          }
+          npm ci
+          validate_candidate
 
       - name: Validate automation contract on fresh runner
-        run: npm run issue-codex:check
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+        run: |
+          validate_candidate() {
+            test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
+            test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
+            /usr/bin/git diff --quiet
+            test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          }
+          npm run issue-codex:check
+          validate_candidate
 
       - name: Run targeted checks
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
         run: |
+          validate_candidate() {
+            test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
+            test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
+            /usr/bin/git diff --quiet
+            test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          }
           if grep -Eq '^apps/extension/|^tests/extension-mvp\.test\.mjs$' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
             npm run extension:test
+            validate_candidate
           fi
           if grep -Eq '^(apps/worker/src/infra/d1/|migrations/)|d1-' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
             npm run test:d1-workspace
+            validate_candidate
             npm run test:d1-binding
+            validate_candidate
           fi
           if grep -Eq 'access-identity|auth' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
             npm run test:access-identity
+            validate_candidate
             npm run app:auth:test
+            validate_candidate
           fi
 
       - name: Run repository checks
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
         run: |
+          validate_candidate() {
+            test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
+            test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
+            /usr/bin/git diff --quiet
+            test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          }
           git diff --cached --check HEAD
           npm run check
-          git diff --quiet
+          validate_candidate
 
       - name: Export tested patch
+        id: tested
+        env:
+          REVIEWED_SHA: ${{ needs.inspect.outputs.head_sha }}
+          CANDIDATE_TREE: ${{ needs.repair.outputs.candidate_tree }}
+          CANDIDATE_PATHS_SHA256: ${{ needs.repair.outputs.candidate_paths_sha256 }}
+          BASH_ENV: ""
+          ENV: ""
+          PATH: /usr/bin:/bin
         run: |
-          git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
+          test "$(/usr/bin/git rev-parse HEAD)" = "$REVIEWED_SHA"
+          test "$(/usr/bin/git write-tree)" = "$CANDIDATE_TREE"
+          /usr/bin/git diff --quiet
+          test "$(/usr/bin/git diff --cached --name-only -z HEAD | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)" = "$CANDIDATE_PATHS_SHA256"
+          /usr/bin/git diff --cached --binary --full-index HEAD > "$RUNNER_TEMP/codex-review-repair.patch"
           test -s "$RUNNER_TEMP/codex-review-repair.patch"
           test "$(wc -c < "$RUNNER_TEMP/codex-review-repair.patch")" -le 10485760
-          tested_tree="$(git write-tree)"
-          node -e 'const fs=require("fs");const [source,target,tree]=process.argv.slice(1);const value=JSON.parse(fs.readFileSync(source));value.testedTree=tree;fs.writeFileSync(target,JSON.stringify(value))' \
-            "$RUNNER_TEMP/codex-review-candidate-patch/codex-review-metadata.json" \
-            "$RUNNER_TEMP/codex-review-metadata.json" \
-            "$tested_tree"
+          tested_tree="$(/usr/bin/git write-tree)"
+          test "$tested_tree" = "$CANDIDATE_TREE"
+          echo "tested_tree=$tested_tree" >> "$GITHUB_OUTPUT"
 
       - name: Store tested patch
         uses: actions/upload-artifact@v4
         with:
           name: codex-review-tested-patch-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/codex-review-repair.patch
-            ${{ runner.temp }}/codex-review-metadata.json
+          path: ${{ runner.temp }}/codex-review-repair.patch
           if-no-files-found: error
           retention-days: 1
 
@@ -277,13 +342,23 @@ jobs:
           name: codex-review-tested-patch-${{ github.run_id }}
           path: ${{ runner.temp }}/codex-review-tested-patch
 
+      - name: Restore trusted publication metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-review-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/codex-review-request
+
       - name: Verify exact remote head before publication
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
-          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
+          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-request/codex-review-metadata.json
           EXPECTED_REPOSITORY: ${{ github.repository }}
           EXPECTED_PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
+          EXPECTED_HEAD_REF: ${{ needs.inspect.outputs.head_ref }}
+          EXPECTED_REVIEW_ID: ${{ needs.inspect.outputs.review_id }}
+          TESTED_TREE: ${{ needs.test_repair.outputs.tested_tree }}
         run: node "$RUNNER_TEMP/codex-review-loop.mjs" verify-head
 
       - name: Apply tested patch without executing it
@@ -339,8 +414,11 @@ jobs:
       - name: Resolve repaired threads and request exact-head review
         env:
           GH_TOKEN: ${{ github.token }}
-          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-tested-patch/codex-review-metadata.json
+          REPAIR_METADATA_PATH: ${{ runner.temp }}/codex-review-request/codex-review-metadata.json
           NEW_HEAD_SHA: ${{ steps.published.outputs.new_head_sha }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
           EXPECTED_PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
+          EXPECTED_HEAD_REF: ${{ needs.inspect.outputs.head_ref }}
+          EXPECTED_REVIEW_ID: ${{ needs.inspect.outputs.review_id }}
         run: node "$RUNNER_TEMP/codex-review-loop.mjs" complete
