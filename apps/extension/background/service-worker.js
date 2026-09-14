@@ -1,12 +1,14 @@
 import { normalizeCaptureEvent } from "../capture/privacy.js";
-import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks } from "../capture/screenshot.js";
+import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../capture/screenshot.js";
 import { VIEWPORTS } from "../responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../responsive/window-lifecycle.js";
 import { draftStore } from "../storage/draft-store.js";
 import { mergeCaptureEvents } from "./event-merge.js";
+import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
 
 const SESSION_KEY = "activeCaptureSession";
+const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
 
 function serializeSessionOperation(task) {
@@ -15,8 +17,29 @@ function serializeSessionOperation(task) {
   return run;
 }
 
+async function readRecoveryJournal() {
+  return (await chrome.storage.local.get(RECOVERY_KEY))[RECOVERY_KEY] ?? null;
+}
+
+async function persistRecoveryJournal(sessionId, events = [], phase) {
+  const current = await readRecoveryJournal();
+  const next = nextRecoveryJournal(current, { sessionId, events, phase });
+  await chrome.storage.local.set({ [RECOVERY_KEY]: next });
+  return next;
+}
+
+async function clearRecoveryJournal(sessionId) {
+  const current = await readRecoveryJournal();
+  if (!current || !sessionId || current.sessionId === sessionId) await chrome.storage.local.remove(RECOVERY_KEY);
+}
+
 async function getSession() {
-  return (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  const session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  if (!session) return null;
+  const recovery = await readRecoveryJournal();
+  if (recovery?.sessionId !== session.id) return session;
+  const merged = mergeCaptureEvents(session, recovery.events || []);
+  return recovery.phase ? { ...merged, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || merged.finishFailed } : merged;
 }
 
 async function setSession(session) {
@@ -40,22 +63,32 @@ async function stopRecorder(tabId) {
   return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
 }
 
-function alreadyHasEvent(session, event) {
-  return Boolean(event?.eventId && session.events.some((existing) => existing.eventId === event.eventId));
-}
-
 async function appendCaptureEvent(session, event) {
   if (!event) return session;
-  const normalized = normalizeCaptureEvent(event);
-  if (alreadyHasEvent(session, normalized)) return session;
-  const next = { ...session, events: [...session.events, normalized] };
-  await setSession(next);
+  const next = mergeCaptureEvents(session, [event]);
+  if (next === session) return session;
+  try {
+    await setSession(next);
+  } catch (error) {
+    await persistRecoveryJournal(session.id, [normalizeCaptureEvent(event)]);
+    throw error;
+  }
   return next;
 }
 
 async function attemptRestore(session) {
-  const result = await recoverWindowSession(session, { persist: setSession, restore: (original) => restoreOriginalWindow(original, chrome.windows) });
-  return result.restored;
+  if (session?.mode === "pc") return true;
+  try {
+    const result = await recoverWindowSession(session, { persist: setSession, restore: (original) => restoreOriginalWindow(original, chrome.windows) });
+    return result.restored;
+  } catch {
+    try {
+      await restoreOriginalWindow(session.originalWindow, chrome.windows);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 async function windowStillExists(windowId) {
@@ -73,10 +106,14 @@ async function recoverInterruptedStartingSession() {
   await stopRecorder(session.tabId);
   if (!(await windowStillExists(session.windowId))) {
     await setSession(null);
+    await clearRecoveryJournal(session.id);
     return;
   }
   const restored = await attemptRestore(session);
-  if (restored) await setSession(null);
+  if (restored) {
+    await setSession(null);
+    await clearRecoveryJournal(session.id);
+  }
 }
 
 async function startCapture(tabId, mode) {
@@ -96,6 +133,7 @@ async function startCapture(tabId, mode) {
     events: [],
     startedAt: Date.now()
   };
+  await clearRecoveryJournal();
   await setSession(session);
   try {
     if (mode !== "pc") await applyResponsiveViewport({ windowId: tab.windowId, tabId, viewport, windowsApi: chrome.windows, measure: measureViewport });
@@ -118,12 +156,20 @@ async function takeMaskedScreenshot(session) {
       if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
       return chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 });
     },
+    verifyMasks: async (token) => Boolean((await chrome.scripting.executeScript({
+      target: { tabId: session.tabId },
+      func: verifySensitiveMasks,
+      args: [token]
+    }))[0]?.result),
     removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks }).catch(() => undefined); }
   });
 }
 
 function instructionFor(event) {
-  if (event.kind === "scroll") return `画面を${event.direction === "up" ? "上" : "下"}へスクロールする`;
+  if (event.kind === "scroll") {
+    const label = { up: "上", down: "下", left: "左", right: "右" }[event.direction] || "指定方向";
+    return `画面を${label}へスクロールする`;
+  }
   if (event.kind === "navigation") return "次のページへ移動する";
   if (event.kind === "input") return `${event.label}に入力する`;
   return `${event.label}を操作する`;
@@ -143,6 +189,7 @@ async function finishCapture() {
   try {
     await prepareRetryViewport(session);
     const pendingEvents = await stopRecorder(session.tabId);
+    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents);
     session = mergeCaptureEvents(session, pendingEvents);
     await setSession(session);
     const dataUrl = await takeMaskedScreenshot(session);
@@ -168,16 +215,23 @@ async function finishCapture() {
     draftId = draft.id;
   } catch {
     const pendingEvents = await stopRecorder(session.tabId);
+    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents, "finish_failed");
+    else await persistRecoveryJournal(session.id, [], "finish_failed");
     session = mergeCaptureEvents(session, pendingEvents);
     const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const restored = await attemptRestore(retrySession);
-    await setSession({ ...retrySession, restorePending: !restored });
+    try {
+      await setSession({ ...retrySession, restorePending: !restored });
+    } catch {
+      // The bounded local recovery journal remains the durable source of the drained events and retry phase.
+    }
     throw new Error(restored
       ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
       : "記録内容はこの端末に保持しています。画面サイズを元に戻せませんでした。先に復元してから、もう一度お試しください。");
   }
   const restored = await attemptRestore(session);
   if (restored) await setSession(null);
+  await clearRecoveryJournal(session.id);
   return { draftId, restorePending: !restored };
 }
 
@@ -187,7 +241,10 @@ async function cancelCapture() {
   await stopRecorder(session.tabId);
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   const restored = await attemptRestore(cancelSession);
-  if (restored) await setSession(null);
+  if (restored) {
+    await setSession(null);
+    await clearRecoveryJournal(session.id);
+  }
   return { cancelled: true, restorePending: !restored };
 }
 
@@ -198,7 +255,10 @@ async function retryRestore() {
   const restored = await attemptRestore(session);
   if (restored) {
     if (retainAfterRestore) await setSession({ ...session, phase: "finish_failed", restorePending: false });
-    else await setSession(null);
+    else {
+      await setSession(null);
+      await clearRecoveryJournal(session.id);
+    }
   }
   return { restored };
 }
@@ -259,16 +319,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
-    const withNavigation = await appendCaptureEvent(session, { kind: "navigation", at: Date.now() });
+    const navigationEvent = { kind: "navigation", at: Date.now(), eventId: `navigation:${crypto.randomUUID()}` };
+    const withNavigation = mergeCaptureEvents(session, [navigationEvent]);
+    try {
+      await setSession(withNavigation);
+    } catch {
+      await persistRecoveryJournal(session.id, [navigationEvent]);
+    }
     try {
       await injectRecorder(tabId);
     } catch {
-      await setSession({
+      const failedSession = {
         ...withNavigation,
         phase: "reinjection_failed",
         reinjectionFailed: true,
         failureCategory: "recorder_reinjection_failed"
-      });
+      };
+      try {
+        await setSession(failedSession);
+      } catch {
+        await persistRecoveryJournal(session.id, [], "reinjection_failed");
+      }
     }
   }).catch(() => undefined);
 });
@@ -287,9 +358,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
     if (!windowExists) {
       await setSession(null);
+      await clearRecoveryJournal(session.id);
       return;
     }
     const restored = await attemptRestore(session);
-    if (restored) await setSession(null);
+    if (restored) {
+      await setSession(null);
+      await clearRecoveryJournal(session.id);
+    }
   }).catch(() => undefined);
 });
