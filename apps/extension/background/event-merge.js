@@ -10,5 +10,7 @@ export function mergeCaptureEvents(session, events) {
     nextEvents.push(normalized);
     if (normalized.eventId) eventIds.add(normalized.eventId);
   }
-  return nextEvents.length === session.events.length ? session : { ...session, events: nextEvents };
+  if (nextEvents.length === session.events.length) return session;
+  nextEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
+  return { ...session, events: nextEvents };
 }
