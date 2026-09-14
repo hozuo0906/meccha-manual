@@ -1,4 +1,4 @@
-import { addMask, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
+import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
 import { draftStore } from "../storage/draft-store.js";
 
 const id = location.hash.slice(1);
@@ -10,6 +10,7 @@ const description = document.querySelector("#description");
 const steps = document.querySelector("#steps");
 const detail = document.querySelector("#detail");
 const status = document.querySelector("#status");
+const addStepButton = document.querySelector("#addStep");
 let selectedStepId = draft.steps[0]?.id;
 
 title.value = draft.title;
@@ -97,7 +98,7 @@ function render() {
     item.append(select);
     steps.append(item);
   }
-  if (!current) { detail.textContent = "記録された手順はありません。"; return; }
+  if (!current) { detail.textContent = "記録された手順はありません。手順を追加して編集できます。"; return; }
   const label = document.createElement("label");
   label.textContent = "手順の説明";
   const instruction = document.createElement("textarea");
@@ -122,6 +123,12 @@ function renderListOnly() {
   draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction}`; });
 }
 
+addStepButton.addEventListener("click", async () => {
+  const step = addStep(draft);
+  selectedStepId = step.id;
+  await persist("手順を追加して、この端末に保存しました。");
+  render();
+});
 for (const field of [title, description]) field.addEventListener("input", () => persist());
 document.querySelector("#save").addEventListener("click", () => { status.textContent = "保存・共有・PDF出力のログイン連携は次の段階で実装します。下書きはこの端末に残っており、外部へ送信されていません。"; });
 render();
