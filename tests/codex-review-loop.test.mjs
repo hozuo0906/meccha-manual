@@ -81,29 +81,49 @@ test("post-push retry accepts only the tested direct-child tree", () => {
 
 test("workflow isolates GitHub credentials from Codex and never pushes before tests", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const codexStep = workflow.slice(workflow.indexOf("Run credential-isolated Codex repair"), workflow.indexOf("Detect repair changes"));
+  const codexStep = workflow.slice(workflow.indexOf("Run credential-isolated Codex repair"), workflow.indexOf("Detect and authorize repair changes"));
   assert.match(codexStep, /GH_TOKEN: ""/);
   assert.match(codexStep, /GITHUB_TOKEN: ""/);
-  assert.match(codexStep, /persist-credentials: false|unset GH_TOKEN GITHUB_TOKEN/);
+  assert.match(codexStep, /unset GH_TOKEN GITHUB_TOKEN/);
   assert.ok(workflow.indexOf("Run repository checks") < workflow.indexOf("Fast-forward existing PR branch"));
   assert.match(workflow, /git diff --cached --check HEAD[\s\S]*npm run check/);
   assert.match(workflow, /push origin/);
   assert.doesNotMatch(workflow, /push[^\n]*--force|push[^\n]*-f\b/);
 });
 
-test("workflow stages new files into the tested patch and uses a CI-triggering isolated publisher token", async () => {
+test("secret-bearing repair runner executes no PR-controlled setup before Codex and testing happens on a fresh job", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  assert.match(workflow, /git add -A[\s\S]*git diff --cached --name-only/);
+  const repairJob = workflow.slice(workflow.indexOf("  repair:"), workflow.indexOf("  test_repair:"));
+  const beforeCodex = repairJob.slice(0, repairJob.indexOf("Run credential-isolated Codex repair"));
+  assert.doesNotMatch(beforeCodex, /npm ci/);
+  assert.doesNotMatch(beforeCodex, /npm run issue-codex:check/);
+  assert.ok(beforeCodex.indexOf("Install Codex CLI before PR checkout") < beforeCodex.indexOf("Checkout exact reviewed head without credentials"));
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  assert.match(testJob, /Install dependencies after secret-bearing job has ended[\s\S]*npm ci/);
+  assert.match(testJob, /Validate automation contract on fresh runner[\s\S]*npm run issue-codex:check/);
+  assert.match(testJob, /npm run check/);
+});
+
+test("workflow stages new files into the candidate patch and enforces trusted repair scope", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  assert.match(workflow, /Capture trusted PR changed-file scope/);
+  assert.match(workflow, /codex-review-scope\.json/);
+  const detect = workflow.slice(workflow.indexOf("Detect and authorize repair changes"), workflow.indexOf("Export bounded candidate patch"));
+  assert.match(detect, /git add -A/);
+  assert.match(detect, /git diff[\s\S]*--cached[\s\S]*--name-only[\s\S]*-z/);
+  assert.match(detect, /trustedScope\.has\(path\)/);
+  assert.match(detect, /path\.startsWith\("tests\/"\)/);
+  assert.match(detect, /!originalTreePaths\.has\(path\)/);
+  assert.match(detect, /Repair changed paths outside the trusted PR scope/);
   assert.match(workflow, /git diff --cached --binary --full-index HEAD/);
-  assert.match(workflow, /git write-tree/);
   assert.match(workflow, /CODEX_REVIEW_PUBLISH_TOKEN/);
   const publisher = workflow.slice(workflow.indexOf("Fast-forward existing PR branch"), workflow.indexOf("Select published head"));
   assert.doesNotMatch(publisher, /github\.token/);
 });
 
-test("workflow fails closed if Codex moves HEAD before exporting the tested patch", async () => {
+test("workflow fails closed if Codex moves HEAD before exporting a candidate patch", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const detect = workflow.slice(workflow.indexOf("Detect repair changes"), workflow.indexOf("Run targeted checks"));
+  const detect = workflow.slice(workflow.indexOf("Detect and authorize repair changes"), workflow.indexOf("Export bounded candidate patch"));
   assert.match(detect, /REVIEWED_SHA: \$\{\{ needs\.inspect\.outputs\.head_sha \}\}/);
   assert.match(detect, /test "\$\(git rev-parse HEAD\)" = "\$REVIEWED_SHA"/);
   assert.match(detect, /refusing to export a partial or mismatched repair patch/);
