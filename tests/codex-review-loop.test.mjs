@@ -56,6 +56,13 @@ test("repair prompt is bounded and contains only supplied trusted findings", () 
   assert.doesNotMatch(prompt, /arbitrary user discussion/);
   assert.ok(prompt.length < 24_000);
 });
+test("secret-bearing repair prompt permits edits but forbids all PR-controlled execution", () => {
+  const prompt = buildRepairPrompt({ repository: "o/r", prNumber: 7, headSha: SHA, changedPaths: ["src/a.js"], findings: [{ severity: "P1", body: "fix it" }] });
+  for (const prohibited of ["dependency lifecycle hooks", "package-manager commands", "tests", "checks", "Git hooks", "executable supplied by the checkout"]) assert.match(prompt, new RegExp(prohibited));
+  assert.match(prompt, /inspect and edit candidate files only/);
+  assert.match(prompt, /Do not install dependencies or run targeted tests or repository checks/);
+  assert.doesNotMatch(prompt, /Run required targeted tests and repository checks/);
+});
 test("targeted test selection recognizes extension and D1/auth paths", () => assert.deepEqual(shouldRunTargetedTests(["apps/extension/a.js", "apps/worker/src/infra/d1/a.ts", "apps/worker/src/access-identity.ts"]), { extension: true, d1: true, auth: true }));
 test("trusted publication uses same branch fast-forward syntax and rejects main", () => {
   assert.deepEqual(safePushArguments("codex/fix"), ["push", "origin", "HEAD:refs/heads/codex/fix"]);
@@ -102,6 +109,32 @@ test("secret-bearing repair runner executes no PR-controlled setup before Codex 
   assert.match(testJob, /Install dependencies after secret-bearing job has ended[\s\S]*npm ci/);
   assert.match(testJob, /Validate automation contract on fresh runner[\s\S]*npm run issue-codex:check/);
   assert.match(testJob, /npm run check/);
+});
+
+test("fresh runner revalidates the immutable candidate after every PR-controlled command", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  assert.match(workflow, /candidate_tree:.*steps\.candidate\.outputs\.candidate_tree/);
+  assert.match(testJob, /candidate_paths_sha256/);
+  for (const command of ["npm ci", "npm run issue-codex:check", "npm run extension:test", "npm run test:d1-workspace", "npm run test:d1-binding", "npm run test:access-identity", "npm run app:auth:test", "npm run check"]) {
+    const following = testJob.slice(testJob.indexOf(command) + command.length);
+    assert.match(following, /^\s*validate_candidate/m, `${command} must be followed immediately by candidate validation`);
+  }
+  assert.match(testJob, /\/usr\/bin\/git rev-parse HEAD/);
+  assert.match(testJob, /\/usr\/bin\/git write-tree/);
+  assert.match(testJob, /\/usr\/bin\/git diff --quiet/);
+  assert.match(testJob, /--name-only -z HEAD/);
+});
+
+test("publication metadata bypasses the untrusted test artifact and is revalidated by the publisher", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const candidateArtifact = workflow.slice(workflow.indexOf("Store candidate patch for fresh-runner testing"), workflow.indexOf("  test_repair:"));
+  const testedArtifact = workflow.slice(workflow.indexOf("Store tested patch"), workflow.indexOf("  publish:"));
+  const publisher = workflow.slice(workflow.indexOf("  publish:"));
+  assert.doesNotMatch(candidateArtifact, /codex-review-metadata\.json/);
+  assert.doesNotMatch(testedArtifact, /codex-review-metadata\.json/);
+  assert.match(publisher, /Restore trusted publication metadata[\s\S]*codex-review-request-/);
+  for (const identity of ["EXPECTED_REPOSITORY", "EXPECTED_PR_NUMBER", "EXPECTED_HEAD_SHA", "EXPECTED_HEAD_REF", "EXPECTED_REVIEW_ID", "TESTED_TREE"]) assert.match(publisher, new RegExp(identity));
 });
 
 test("workflow stages new files into the candidate patch and enforces trusted repair scope", async () => {
