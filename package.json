@@ -50,7 +50,7 @@
     "issue-labels:check": "node scripts/sync-issue-labels.mjs --check",
     "issue-labels:dry-run": "node scripts/sync-issue-labels.mjs --dry-run",
     "issue-intake:check": "node scripts/issue-intake-report.mjs --check",
-    "issue-codex:check": "node scripts/check-issue-codex-automation.mjs",
+    "issue-codex:check": "node scripts/check-issue-codex-automation.mjs && node --test tests/codex-review-loop.test.mjs",
     "quality-loop:check": "node scripts/check-quality-loop.mjs",
     "r2-storage:check": "node scripts/check-r2-storage-policy.mjs",
     "test:r2-storage": "node scripts/test-r2-storage-stub.mjs",
