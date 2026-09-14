@@ -43,7 +43,8 @@
   const queueInput = (event) => {
     if (pendingInput && pendingInput.target !== event.target) void flushInput();
     if (!pendingInput || pendingInput.target !== event.target) {
-      pendingInput = { target: event.target, eventId: nextEventId(), at: Date.now() };
+      pendingInput = { target: event.target, eventId: nextEventId() };
+      pendingInput.at = Date.now();
     } else {
       pendingInput.at = Date.now();
     }
@@ -133,25 +134,20 @@
   };
   const recordSameDocumentNavigation = () => {
     void flushBeforeAction();
-    if (!pendingNavigation) {
-      pendingNavigation = captureEvent("navigation", document.documentElement, { eventId: nextEventId() });
-    }
+    if (!pendingNavigation) pendingNavigation = captureEvent("navigation", document.documentElement, { eventId: nextEventId() });
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(flushNavigation, 40);
   };
 
-  const flushBeforeNavigation = () => {
-    void flushInput();
-    void flushScroll();
-    flushNavigation();
-  };
+  const flushBeforeNavigation = () => { void flushInput(); void flushScroll(); };
+  const pagehide = () => { flushBeforeNavigation(); flushNavigation(); };
   const historyNavigation = () => recordSameDocumentNavigation();
 
   addEventListener("click", click, true);
   addEventListener("input", queueInput, true);
   addEventListener("change", commitInput, true);
   addEventListener("scroll", scroll, true);
-  addEventListener("pagehide", flushBeforeNavigation, true);
+  addEventListener("pagehide", pagehide, true);
   addEventListener("popstate", historyNavigation, true);
   addEventListener("hashchange", historyNavigation, true);
   addEventListener(HISTORY_EVENT, historyNavigation, true);
@@ -174,6 +170,8 @@
       if (event.eventId) seen.add(event.eventId);
       uniqueEvents.push(event);
     }
+    pendingEvents.length = 0;
+    pendingEvents.push(...uniqueEvents);
 
     pendingInput = undefined;
     pendingScroll = undefined;
@@ -183,13 +181,13 @@
     removeEventListener("input", queueInput, true);
     removeEventListener("change", commitInput, true);
     removeEventListener("scroll", scroll, true);
-    removeEventListener("pagehide", flushBeforeNavigation, true);
+    removeEventListener("pagehide", pagehide, true);
     removeEventListener("popstate", historyNavigation, true);
     removeEventListener("hashchange", historyNavigation, true);
     removeEventListener(HISTORY_EVENT, historyNavigation, true);
     clearTimeout(scrollTimer);
     clearTimeout(navigationTimer);
     delete globalThis.__mecchaManualRecorder;
-    return uniqueEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
+    return pendingEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
   };
 })();
