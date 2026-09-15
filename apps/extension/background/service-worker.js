@@ -269,10 +269,15 @@ async function resumeCapture(tabId) {
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
   try {
     await injectRecorder(tabId);
-    await setSession({ ...session, phase: "recording", reinjectionFailed: false, failureCategory: undefined });
+    const resumedSession = { ...session, phase: "recording", reinjectionFailed: false, failureCategory: undefined };
+    await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
+    await setSession(resumedSession);
+    await clearRecoveryJournal(session.id).catch(() => undefined);
     return { resumed: true };
   } catch {
-    await setSession({ ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" });
+    const failedSession = { ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
+    await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").catch(() => undefined);
+    await setSession(failedSession).catch(() => undefined);
     throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
   }
 }
