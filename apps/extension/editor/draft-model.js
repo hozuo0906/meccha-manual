@@ -4,11 +4,18 @@ function touch(draft) {
   return draft;
 }
 
+function firstUnassignedScreenshotId(draft) {
+  const assigned = new Set(draft.steps.map((step) => step.screenshotId).filter(Boolean));
+  return (draft.screenshots || []).find((screenshot) => !assigned.has(screenshot.id))?.id;
+}
+
 export function addStep(draft, instruction = "新しい手順") {
+  const screenshotId = firstUnassignedScreenshotId(draft);
   const step = {
     id: crypto.randomUUID(),
     order: draft.steps.length + 1,
-    instruction: String(instruction).slice(0, 500)
+    instruction: String(instruction).slice(0, 500),
+    ...(screenshotId ? { screenshotId } : {})
   };
   draft.steps.push(step);
   touch(draft);
