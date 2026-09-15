@@ -10,6 +10,7 @@ import {
   removeSensitiveMasks,
   verifySensitiveMasks
 } from "../apps/extension/capture/screenshot.js";
+import { addMask, addStep } from "../apps/extension/editor/draft-model.js";
 
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {
   const source = await readFile(new URL("../apps/extension/content/history-bridge.js", import.meta.url), "utf8");
@@ -94,6 +95,35 @@ test("finish journals drained events before session persistence and can retry af
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
   assert.match(source, /recovery\?\.sessionId !== session\.id/);
   assert.match(source, /phase: "finish_failed"/);
+});
+
+test("successful recorder resume reconciles the durable recovery phase before reporting success", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function resumeCapture(tabId)");
+  const end = source.indexOf("async function captureStatus()", start);
+  const body = source.slice(start, end);
+  const journalRecording = body.indexOf('await persistRecoveryJournal(session.id, resumedSession.events || [], "recording")');
+  const persistSession = body.indexOf("await setSession(resumedSession)");
+  const clearJournal = body.indexOf("await clearRecoveryJournal(session.id).catch(() => undefined)");
+  const success = body.indexOf("return { resumed: true }");
+  assert.ok(start >= 0 && journalRecording > 0 && persistSession > journalRecording && clearJournal > persistSession && success > clearJournal);
+  assert.match(body, /persistRecoveryJournal\(session\.id, failedSession\.events \|\| \[\], "reinjection_failed"\)/);
+  assert.match(body, /setSession\(failedSession\)\.catch/);
+});
+
+test("zero-event capture screenshot is claimed by the first added step and remains maskable", () => {
+  const draft = {
+    id: "draft-empty",
+    title: "新しい手順書",
+    description: "",
+    steps: [],
+    screenshots: [{ id: "shot-1", dataUrl: "data:image/jpeg;base64,AA", masks: [] }]
+  };
+  const step = addStep(draft, "最初の手順");
+  assert.equal(step.screenshotId, "shot-1");
+  assert.equal(draft.steps[0].screenshotId, "shot-1");
+  addMask(draft, step.screenshotId, { x: 0.1, y: 0.1, width: 0.2, height: 0.2 });
+  assert.equal(draft.screenshots[0].masks.length, 1);
 });
 
 test("navigation reinjection proceeds even when navigation event persistence fails", async () => {
