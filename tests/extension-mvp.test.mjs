@@ -1,0 +1,219 @@
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import test from "node:test";
+import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js";
+import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
+import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
+import { isSensitiveInput, normalizeCaptureEvent, safeTargetLabel } from "../apps/extension/capture/privacy.js";
+import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
+import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
+import { VIEWPORTS, targetOuterBounds } from "../apps/extension/responsive/viewports.js";
+import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../apps/extension/responsive/window-lifecycle.js";
+
+test("manifest uses required minimal MV3 permissions", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../apps/extension/manifest.json", import.meta.url), "utf8"));
+  assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.permissions.includes("activeTab"), true);
+  assert.equal(manifest.permissions.includes("scripting"), true);
+  assert.equal(manifest.permissions.includes("storage"), true);
+  assert.equal(manifest.permissions.includes("debugger"), false);
+  assert.equal(manifest.permissions.includes("tabs"), false);
+  assert.equal("host_permissions" in manifest, false);
+});
+
+test("original state and bounds form a serializable suspension-safe snapshot", () => {
+  assert.deepEqual(originalWindowSnapshot({ id: 9, left: 1, top: 2, width: 1200, height: 800, state: "maximized", ignored: true }), { id: 9, left: 1, top: 2, width: 1200, height: 800, state: "maximized" });
+});
+
+test("responsive lifecycle normalizes before bounds and verifies corrected inner viewport", async () => {
+  const calls = [];
+  let state = "maximized";
+  let bounds = { width: 1200, height: 800 };
+  const windowsApi = {
+    get: async () => ({ id: 9, state, ...bounds }),
+    update: async (_id, update) => { calls.push(update); if (update.state) state = update.state; bounds = { ...bounds, ...update }; }
+  };
+  const measurements = [{ innerWidth: 1180, innerHeight: 720 }, { innerWidth: 380, innerHeight: 834 }, { innerWidth: 390, innerHeight: 844 }];
+  const result = await applyResponsiveViewport({ windowId: 9, tabId: 3, viewport: VIEWPORTS.smartphonePortrait, windowsApi, measure: async () => measurements.shift() });
+  assert.deepEqual(calls[0], { state: "normal" });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(result, { actual: { innerWidth: 390, innerHeight: 844 }, attempts: 2 });
+});
+
+test("responsive correction is bounded and fails closed when clamped", async () => {
+  let updates = 0;
+  const windowsApi = { get: async () => ({ id: 1, state: "normal", width: 500, height: 500 }), update: async () => { updates += 1; } };
+  await assert.rejects(applyResponsiveViewport({ windowId: 1, tabId: 1, viewport: VIEWPORTS.tabletPortrait, windowsApi, measure: async () => ({ innerWidth: 400, innerHeight: 400 }) }), /RESPONSIVE_VIEWPORT_UNAVAILABLE/);
+  assert.equal(updates, 3);
+});
+
+test("restore returns to normal, restores bounds, then restores non-normal state", async () => {
+  const calls = [];
+  const windowsApi = { get: async () => ({ state: "fullscreen" }), update: async (_id, value) => { calls.push(value); } };
+  await restoreOriginalWindow({ id: 1, left: 2, top: 3, width: 1000, height: 700, state: "maximized" }, windowsApi);
+  assert.deepEqual(calls, [{ state: "normal" }, { left: 2, top: 3, width: 1000, height: 700 }, { state: "maximized" }]);
+});
+
+test("restore failure retains a retryable session instead of clearing recovery data", async () => {
+  const persisted = [];
+  const session = { id: "capture", originalWindow: { id: 1, state: "normal" }, events: [{ kind: "click" }] };
+  const result = await recoverWindowSession(session, { persist: async (value) => persisted.push(value), restore: async () => { throw new Error("window unavailable"); } });
+  assert.deepEqual(result, { restored: false });
+  assert.equal(persisted.at(-1).restorePending, true);
+  assert.equal(persisted.at(-1).phase, "restore_pending");
+  assert.deepEqual(persisted.at(-1).events, session.events);
+});
+
+test("all five responsive modes remain available", () => {
+  assert.deepEqual(Object.keys(VIEWPORTS), ["pc", "smartphonePortrait", "smartphoneLandscape", "tabletPortrait", "tabletLandscape"]);
+  assert.deepEqual(targetOuterBounds(VIEWPORTS.smartphonePortrait, { innerWidth: 1000, innerHeight: 700 }, { width: 1016, height: 788 }), { width: 406, height: 932 });
+});
+
+test("input values and dynamic input metadata never enter normalized events", () => {
+  const event = normalizeCaptureEvent({ kind: "input", at: 1, eventId: "frame:1", target: { tagName: "input", ariaLabel: "秘密の値", associatedLabel: "秘密の値", placeholder: "秘密の値", value: "秘密の値" } });
+  assert.deepEqual(event, { kind: "input", at: 1, label: "入力欄", eventId: "frame:1" });
+  assert.equal(JSON.stringify(event).includes("秘密の値"), false);
+});
+
+test("associated labels participate in sensitive classification", () => {
+  for (const target of [{ type: "password" }, { autocomplete: "cc-number" }, { name: "access_token" }, { associatedLabel: "個人番号" }, { associatedLabel: "カード CVC" }, { ariaLabel: "eyJabcdefghijk.payload.signature" }, { associatedLabel: "4111 1111 1111 1111" }]) {
+    assert.equal(isSensitiveInput(target), true);
+    assert.equal(normalizeCaptureEvent({ kind: "input", at: 1, target }).label, "保護された入力欄");
+  }
+});
+
+test("click labels use bounded semantic metadata, not arbitrary container text", () => {
+  assert.equal(safeTargetLabel({ tagName: "button", textContent: "秘密を含むページ本文" }), "ボタン");
+  assert.equal(safeTargetLabel({ ariaLabel: "実行".repeat(100) }).length, 80);
+  assert.equal(safeTargetLabel({ tagName: "input", type: "text", ariaLabel: "利用者が入力した値" }), "入力欄");
+});
+
+test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
+  const order = [];
+  const image = await captureWithMaskBoundary({
+    applyMasks: async () => { order.push("mask"); return { applied: true }; },
+    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
+    removeMasks: async () => { order.push("remove"); }
+  });
+  assert.equal(image.startsWith("data:image/"), true);
+  assert.deepEqual(order, ["mask", "capture", "remove"]);
+});
+
+test("mask verification failure discards image and still removes masks", async () => {
+  const order = [];
+  await assert.rejects(captureWithMaskBoundary({
+    applyMasks: async () => { order.push("mask"); return { applied: true, token: "doc" }; },
+    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
+    verifyMasks: async () => { order.push("verify"); return false; },
+    removeMasks: async () => { order.push("remove"); }
+  }), /SCREENSHOT_MASK_INVALIDATED/);
+  assert.deepEqual(order, ["mask", "capture", "verify", "remove"]);
+});
+
+test("masking failure cannot fall back to an unmasked screenshot", async () => {
+  let captured = false;
+  let removed = false;
+  await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: false }), capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { removed = true; } }), /SCREENSHOT_MASK_FAILED/);
+  assert.equal(captured, false);
+  assert.equal(removed, true);
+});
+
+test("draft model can add, edit, delete, reorder steps and manage normalized masks", () => {
+  const draft = { steps: [{ id: "a", order: 1, instruction: "A" }, { id: "b", order: 2, instruction: "B" }], screenshots: [{ id: "s", masks: [] }] };
+  const added = addStep(draft);
+  assert.equal(added.instruction, "新しい手順");
+  updateStepInstruction(draft, "a", "新しい説明");
+  moveStep(draft, added.id, "up");
+  addMask(draft, "s", { x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+  removeMask(draft, "s", draft.screenshots[0].masks[0].id);
+  deleteStep(draft, "b");
+  assert.equal(draft.steps.some((step) => step.id === "b"), false);
+});
+
+test("event merging is deduplicated and chronological", () => {
+  const session = { events: [{ kind: "click", at: 20, eventId: "b", label: "ボタン" }] };
+  const merged = mergeCaptureEvents(session, [
+    { kind: "navigation", at: 30, eventId: "c" },
+    { kind: "input", at: 10, eventId: "a", target: { tagName: "input" } },
+    { kind: "click", at: 40, eventId: "b", target: { tagName: "button" } }
+  ]);
+  assert.deepEqual(merged.events.map(({ eventId }) => eventId), ["a", "b", "c"]);
+});
+
+test("local recovery journal carries bounded normalized finish events", () => {
+  const journal = nextRecoveryJournal(null, {
+    sessionId: "capture",
+    phase: "finish_failed",
+    events: [{ kind: "input", at: 1, eventId: "a", target: { tagName: "input", value: "秘密" } }]
+  });
+  assert.equal(journal.phase, "finish_failed");
+  assert.equal(journal.events.length, 1);
+  assert.equal(JSON.stringify(journal).includes("秘密"), false);
+});
+
+test("editor exposes a locally persisted add-step control", async () => {
+  const editor = await readFile(new URL("../apps/extension/editor/editor.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
+  assert.match(editor, /addStep\(draft\)/);
+  assert.match(editor, /await persist\("手順を追加して、この端末に保存しました。"\)/);
+  assert.match(html, /id="addStep"/);
+});
+
+test("recorder drains deferred actions, container scroll and generic SPA navigation", async () => {
+  const source = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
+  for (const event of ["click", "input", "change", "scroll", "pagehide", "popstate", "hashchange"]) assert.equal(source.includes(`removeEventListener("${event}"`), true);
+  assert.match(source, /pendingInput = \{ target: event\.target, eventId: nextEventId\(\) \}/);
+  assert.match(source, /trackedActions = new Map/);
+  assert.match(source, /pendingNavigation/);
+  assert.match(source, /pendingEvents\.push\(\.\.\.trackedActions\.values\(\)\)/);
+  assert.match(source, /target\.scrollLeft/);
+  assert.match(source, /deltaX/);
+  assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
+  assert.match(source, /return pendingEvents\.sort/);
+  assert.match(source, /\.closest\("button,a,input,select,textarea/);
+  assert.doesNotMatch(source, /element\.textContent/);
+  assert.doesNotMatch(source, /value:/);
+});
+
+test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /serializeSessionOperation/);
+  assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
+  assert.match(source, /persistRecoveryJournal\(session\.id, pendingEvents\)/);
+  assert.match(source, /verifySensitiveMasks/);
+  assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
+  assert.match(source, /await persistRecoveryJournal\(session\.id, \[navigationEvent\]\)/);
+  assert.match(source, /await injectRecorder\(tabId\)/);
+  assert.match(source, /index === lastIndex \? \{ screenshotId: screenshot\.id \} : \{\}/);
+});
+
+test("service worker recovers starting sessions and injects bridge/recorder into eligible frames", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /recoverInterruptedStartingSession/);
+  assert.match(source, /const target = \{ tabId, allFrames: true \}/);
+  assert.match(source, /world: "MAIN", files: \["content\/history-bridge\.js"\]/);
+  assert.match(source, /flatMap\(\(\{ result \}\) => Array\.isArray\(result\)/);
+});
+
+test("popup exposes local recent draft reopening and explicit reinjection recovery", async () => {
+  const popup = await readFile(new URL("../apps/extension/popup/popup.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../apps/extension/popup/popup.html", import.meta.url), "utf8");
+  assert.match(popup, /draftStore\.list\(\)/);
+  assert.match(popup, /capture:resume/);
+  assert.match(popup, /if \(state\.mode\) mode\.value = state\.mode/);
+  assert.match(html, /id="recentDraft"/);
+  assert.match(html, /id="resume"/);
+});
+
+test("S1 extension has no application network-write primitive", async () => {
+  const root = new URL("../apps/extension/", import.meta.url);
+  async function files(url) {
+    const entries = await readdir(url, { withFileTypes: true });
+    return (await Promise.all(entries.map((entry) => entry.isDirectory() ? files(new URL(`${entry.name}/`, url)) : [new URL(entry.name, url)]))).flat();
+  }
+  for (const file of await files(root)) {
+    if (!/\.(?:js|html)$/.test(file.pathname)) continue;
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|WebSocket\s*\(/, file.pathname);
+  }
+});
