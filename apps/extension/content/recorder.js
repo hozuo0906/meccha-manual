@@ -50,6 +50,8 @@
     } else {
       pendingInput.at = Date.now();
     }
+    // Start persistence while the document is alive, not for the first time at pagehide.
+    checkpoint(pendingInput, captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId, at: pendingInput.at }));
   };
   const commitInput = (event) => {
     if (pendingInput?.target === event.target) void flushInput();
@@ -99,11 +101,21 @@
     const direction = horizontal ? (deltaX < 0 ? "left" : "right") : (deltaY < 0 ? "up" : "down");
     const eventId = pendingScroll?.target === target ? pendingScroll.eventId : nextEventId();
     pendingScroll = { target, position, baseline, direction, eventId, at: Date.now() };
+    checkpoint(pendingScroll, captureEvent("scroll", document.documentElement, { eventId, at: pendingScroll.at, direction }));
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => { void flushScroll(); }, 250);
   };
 
   const trackedActions = new Map();
+  const checkpoint = (pending, event) => {
+    trackedActions.set(event.eventId, event);
+    void sendEvent(event).then((accepted) => {
+      if (accepted) {
+        pending.acknowledged = true;
+        trackedActions.delete(event.eventId);
+      }
+    });
+  };
   const trackAndSend = (kind, target, extra = {}) => {
     const event = captureEvent(kind, target, { eventId: nextEventId(), ...extra });
     trackedActions.set(event.eventId, event);
@@ -144,6 +156,15 @@
 
   const flushBeforeNavigation = () => { void flushInput(); void flushScroll(); };
   const pagehide = () => { flushBeforeNavigation(); flushNavigation(); };
+  const beforeunload = (event) => {
+    if ((pendingInput && !pendingInput.acknowledged) || (pendingScroll && !pendingScroll.acknowledged)
+      || trackedActions.size || pendingNavigation) {
+      flushBeforeNavigation();
+      flushNavigation();
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  };
   const historyNavigation = () => recordSameDocumentNavigation();
 
   addEventListener("click", click, true);
@@ -151,6 +172,7 @@
   addEventListener("change", commitInput, true);
   addEventListener("scroll", scroll, true);
   addEventListener("pagehide", pagehide, true);
+  addEventListener("beforeunload", beforeunload, true);
   addEventListener("popstate", historyNavigation, true);
   addEventListener("hashchange", historyNavigation, true);
   addEventListener(HISTORY_EVENT, historyNavigation, true);
@@ -185,6 +207,7 @@
     removeEventListener("change", commitInput, true);
     removeEventListener("scroll", scroll, true);
     removeEventListener("pagehide", pagehide, true);
+    removeEventListener("beforeunload", beforeunload, true);
     removeEventListener("popstate", historyNavigation, true);
     removeEventListener("hashchange", historyNavigation, true);
     removeEventListener(HISTORY_EVENT, historyNavigation, true);

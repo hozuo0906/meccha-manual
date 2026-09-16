@@ -29,6 +29,7 @@ export function installSensitiveMasks() {
   try {
     const selector = [
       "input",
+      "canvas",
       "textarea",
       "select",
       "[contenteditable]:not([contenteditable=\"false\"])",
@@ -41,12 +42,12 @@ export function installSensitiveMasks() {
     const masked = new WeakSet();
     const observedRoots = new WeakSet();
 
-    const maskElement = (element) => {
+    const maskElement = (element, opaqueSubtree = false) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
       const rect = element.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      if (!opaqueSubtree && (rect.width <= 0 || rect.height <= 0)) return;
       const computed = getComputedStyle(element);
-      if (computed.display === "none" || Number(computed.opacity) === 0) return;
+      if (computed.display === "none" || (!opaqueSubtree && Number(computed.opacity) === 0)) return;
 
       const previousVisibility = element.style.getPropertyValue("visibility");
       const previousPriority = element.style.getPropertyPriority("visibility");
@@ -55,6 +56,7 @@ export function installSensitiveMasks() {
       const previousAnimation = element.style.getPropertyValue("animation");
       const previousAnimationPriority = element.style.getPropertyPriority("animation");
       const previous = [
+        { property: "display", value: element.style.getPropertyValue("display"), priority: element.style.getPropertyPriority("display") },
         { property: "opacity", value: element.style.getPropertyValue("opacity"), priority: element.style.getPropertyPriority("opacity") },
         { property: "visibility", value: previousVisibility, priority: previousPriority },
         { property: "transition", value: previousTransition, priority: previousTransitionPriority },
@@ -66,8 +68,11 @@ export function installSensitiveMasks() {
       // opacity composites the entire subtree, including inaccessible closed shadow roots.
       element.style.setProperty("opacity", "0", "important");
       element.style.setProperty("visibility", "hidden", "important");
+      // Top-layer descendants escape opacity, but not display:none on a
+      // shadow-including ancestor (CSS Positioned Layout 4, Top Layer Styling).
+      if (opaqueSubtree) element.style.setProperty("display", "none", "important");
       const mask = { element, previous };
-      if (Number(getComputedStyle(element).opacity) !== 0) {
+      if (opaqueSubtree ? getComputedStyle(element).display !== "none" : Number(getComputedStyle(element).opacity) !== 0) {
         restoreMask(mask);
         throw new Error("SCREENSHOT_MASK_NOT_EFFECTIVE");
       }
@@ -77,17 +82,18 @@ export function installSensitiveMasks() {
 
     const scanRoot = (root) => {
       if (!root?.querySelectorAll) return;
-      for (const element of root.querySelectorAll(selector)) maskElement(element);
+      for (const element of root.querySelectorAll(selector)) maskElement(element, Boolean(element.localName?.includes("-") && !element.shadowRoot));
       for (const host of root.querySelectorAll("*")) {
         if (host.shadowRoot) scanRoot(host.shadowRoot);
-        else if (host.localName?.includes("-") && !host.matches?.(selector)) maskElement(host);
+        else if (host.localName?.includes("-")) maskElement(host, true);
       }
       if (typeof MutationObserver === "function" && !observedRoots.has(root)) {
         const observer = new MutationObserver((records) => {
           for (const record of records) {
             for (const node of record.addedNodes || []) {
               if (!(node instanceof Element)) continue;
-              if (node.matches?.(selector)) maskElement(node);
+              if (node.localName?.includes("-") && !node.shadowRoot) maskElement(node, true);
+              else if (node.matches?.(selector)) maskElement(node);
               scanRoot(node);
             }
           }
@@ -115,6 +121,7 @@ export function verifySensitiveMasks(expectedToken) {
   try {
     const selector = [
       "input",
+      "canvas",
       "textarea",
       "select",
       "[contenteditable]:not([contenteditable=\"false\"])",
@@ -131,7 +138,10 @@ export function verifySensitiveMasks(expectedToken) {
       elements.push(...root.querySelectorAll(selector));
       for (const host of root.querySelectorAll("*")) {
         if (host.shadowRoot) roots.push(host.shadowRoot);
-        else if (host.localName?.includes("-") && !host.matches?.(selector)) elements.push(host);
+        else if (host.localName?.includes("-")) {
+          if (getComputedStyle(host).display !== "none") return false;
+          elements.push(host);
+        }
       }
     }
     for (const element of new Set(elements)) {
