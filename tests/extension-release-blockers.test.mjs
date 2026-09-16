@@ -159,6 +159,8 @@ test("screenshot privacy disables transitions, verifies document identity, and r
   const originalDocument = globalThis.document;
   const originalGetComputedStyle = globalThis.getComputedStyle;
   const originalMasks = globalThis.__mecchaManualScreenshotMasks;
+  const originalChrome = globalThis.chrome;
+  const originalHTMLElement = globalThis.HTMLElement;
 
   class FakeStyle {
     constructor() {
@@ -182,6 +184,8 @@ test("screenshot privacy disables transitions, verifies document identity, and r
   const root = { querySelectorAll(selector) { return selector === "*" ? [element] : []; } };
 
   try {
+    globalThis.HTMLElement = Object;
+    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => ({ mode: "closed" }) } };
     globalThis.document = root;
     globalThis.getComputedStyle = (target) => ({
       visibility: target.style.getPropertyValue("visibility") || "visible",
@@ -210,6 +214,8 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     assert.equal(style.getPropertyValue("opacity"), "");
     assert.equal(style.getPropertyValue("display"), "");
   } finally {
+    if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;
+    if (originalHTMLElement === undefined) delete globalThis.HTMLElement; else globalThis.HTMLElement = originalHTMLElement;
     if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
     if (originalGetComputedStyle === undefined) delete globalThis.getComputedStyle; else globalThis.getComputedStyle = originalGetComputedStyle;
     if (originalMasks === undefined) delete globalThis.__mecchaManualScreenshotMasks; else globalThis.__mecchaManualScreenshotMasks = originalMasks;
@@ -225,4 +231,8 @@ test("captured image is discarded when mask identity is invalidated by document 
     removeMasks: async () => { removed = true; }
   }), /SCREENSHOT_MASK_INVALIDATED/);
   assert.equal(removed, true);
+});
+
+test("missing privileged shadow inspection fails closed before screenshot capture", () => {
+  assert.deepEqual(installSensitiveMasks(), { applied: false });
 });
