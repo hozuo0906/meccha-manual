@@ -4,6 +4,14 @@ Status: Accepted
 
 ## 目的
 
+### 2026-09-17 release作業の追加確認
+
+- PR #245: 横方向scrollの保持、開始失敗直後の復旧UI、navigation時の二重保存失敗でもrecorder再注入、残存starting状態の復元を修正。拡張機能のローカル回帰テスト49件成功。最新SHAのCI/review/mergeはGitHubで再照合する。
+- 二重保存障害時の再注入失敗表示は同一service worker生存中の補助状態でも保持する。保存領域の障害とworker強制終了が重なる場合の永続復旧は保証しない。
+- PR #250はS2 bootstrapのみの積み上げPR。`601df7a`でoperation IDのASCII文字種・長さ・NUL拒否をDB制約へ追加し、直接DB書込みを含むHTTP/D1テスト30件成功。handoff/upload/claimと実環境検証は未完了。
+- 読み取り専用Cloudflare監査run `35117878090`は失敗。CI用認証ではD1取得は認証無効、R2取得は権限不足、取得ページ内のAccess applicationは0件。専用staging Workerは未作成。既存Workerへ代替deployしない。
+- 作業対象は専用開発checkout・対象GitHub repository・関連検証環境に限定する。業務フォルダ、通常の業務ブラウザ、実業務情報は検証に使わず、外部へ送信しない。
+
 長期開発を特定のChatGPT/Codex会話へ依存させず、新しいセッションがGitHub上の正本と実状態・証跡を照合して安全に作業を再開できるようにする。
 
 会話履歴は補助情報として扱い、正本の優先順位は `AGENTS.md` に従う。コード、migration、設定、commit、CI、review threadは、正本どおりに実装・検証されているかを確認するための実状態・証跡として扱う。
@@ -166,7 +174,20 @@ Status: Accepted
 
 ## Product / Development current state (2026-09-13)
 
-この節を現行Product開発の最新引き継ぎとする。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。
+### 最新差分（2026-09-16）
+
+追記（2026-09-17）: 追加reviewの終了時journal失敗・window close競合・closed-shadow top-layer・canvas秘匿へ対応。入力／scrollはpagehide前からcheckpoint送信し、未ACKで離脱する際はbeforeunload警告を要求する。ブラウザ強制終了や警告を無視した離脱の永続化まで保証するものではない。拡張テスト43件と、実Chromeのclosed-shadow modal／canvasマスク・復元テスト1件が成功。S2 bootstrapは専用branch `codex/s2-onboarding-bootstrap` の `2a19ffb` へ保全し、HTTP／D1回帰29件成功（まだmain未統合・staging未適用）。
+
+最新のowner指示はChrome Extension／guest-first方針でPR #245のS1統合からS2保存・ログイン連携へ進めること。旧PR #223はmainへmerge済みであり、旧M4を先行させない。
+
+- PR #245の基準head `a9eccc88661bb171590708f3a733b4c65228f4bf` に対するreview 5205315585の3件を修正。入力欄切替とscroll container切替の未ACKイベントをfinishまで保持し、closed shadow hostのマスクをsubtree全体に効くopacityへ変更した。
+- 追加した実recorderのVM回帰テストを含め `npm run extension:test` は38件成功。docs、brand、Worker静的検査、Worker型検査も成功。Windowsの既存 `spawnSync wrangler.cmd EINVAL` によりローカル `npm run check` はbundle段階で停止しており、全体成功とは扱わない。
+- この記録を含む最新SHAのCI、review、unresolved thread、merge状態はPR #245で確認する。S2、staging deploy、公開URL smokeはまだ完了していない。
+- 次はS1のexact-head品質ゲートを満たして統合し、Issue #228のsecure handoff／bootstrap／claimを実装する。S1を保存・共有・PDFまで完成したMVPとは扱わない。
+
+### 2026-09-13のpivot基準（Historical）
+
+以下はpivot時点の記録である。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。
 
 - PR #242はmerge済み。確認済みmainは `5697d1969bdbac629084671fe708181c55dd514f`。
 - MVP capture runtimeはChrome Extension Manifest V3だけとし、Cloudflare Browser Run／Browser Session／Live ViewはLegacy／Historicalで、fallbackしない。
