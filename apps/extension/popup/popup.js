@@ -64,6 +64,12 @@ start.addEventListener("click", async () => {
     await send({ type: "capture:start", tabId: tab.id, mode: mode.value });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
+    const current = await send({ type: "capture:status" }).catch(() => ({}));
+    renderCaptureState(current);
+    if (current.restorePending) {
+      status.textContent = `${status.textContent} (${error.message})`;
+      return;
+    }
     status.textContent = `記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。 (${error.message})`;
   }
 });

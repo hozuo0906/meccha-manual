@@ -59,7 +59,7 @@ export function normalizeCaptureEvent(event) {
     return { kind: "click", at, label: safeTargetLabel(event.target), ...identity };
   }
   if (event.kind === "scroll") {
-    return { kind: "scroll", at, direction: event.direction === "up" ? "up" : "down", ...identity };
+    return { kind: "scroll", at, direction: ["up", "down", "left", "right"].includes(event.direction) ? event.direction : "down", ...identity };
   }
   if (event.kind === "navigation") return { kind: "navigation", at, ...identity };
   throw new TypeError("未対応の操作です");

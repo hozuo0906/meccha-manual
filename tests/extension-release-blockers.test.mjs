@@ -12,6 +12,50 @@ import {
 } from "../apps/extension/capture/screenshot.js";
 import { addMask, addStep } from "../apps/extension/editor/draft-model.js";
 
+test("event merge preserves all four scroll directions", () => {
+  const directions = ["up", "down", "left", "right"];
+  const merged = mergeCaptureEvents({ id: "capture", events: [] }, directions.map((direction, at) => ({
+    kind: "scroll", direction, at, eventId: `scroll:${at}`
+  })));
+  assert.deepEqual(merged.events.map(({ direction }) => direction), directions);
+});
+
+test("start failure immediately exposes retained window recovery controls", async () => {
+  const source = (await readFile(new URL("../apps/extension/popup/popup.js", import.meta.url), "utf8"))
+    .replace(/^import .*;\r?\n/m, "");
+  const elements = new Map();
+  const messages = [];
+  let failed = false;
+  const document = {
+    querySelector(id) {
+      if (!elements.has(id)) elements.set(id, {
+        hidden: false, disabled: false, value: "current", textContent: "", listeners: {},
+        addEventListener(type, handler) { this.listeners[type] = handler; },
+        replaceChildren() {}, append() {}
+      });
+      return elements.get(id);
+    }
+  };
+  vm.runInNewContext(source, {
+    document, draftStore: { list: async () => [] },
+    chrome: {
+      tabs: { query: async () => [{ id: 1 }] },
+      runtime: { sendMessage: async (message) => {
+        messages.push(message.type);
+        if (message.type === "capture:start") { failed = true; return { ok: false, error: "resize failed" }; }
+        return { ok: true, value: failed ? { phase: "restore_pending", restorePending: true } : {} };
+      } }
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await elements.get("#start").listeners.click();
+  assert.deepEqual(messages.slice(-2), ["capture:start", "capture:status"]);
+  assert.equal(elements.get("#restore").hidden, false);
+  assert.equal(elements.get("#start").hidden, true);
+  assert.equal(elements.get("#mode").disabled, true);
+  assert.match(elements.get("#status").textContent, /resize failed/);
+});
+
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {
   const source = await readFile(new URL("../apps/extension/content/history-bridge.js", import.meta.url), "utf8");
   const calls = [];
