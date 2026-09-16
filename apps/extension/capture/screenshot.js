@@ -27,6 +27,8 @@ export function installSensitiveMasks() {
     }
   };
   try {
+    if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
+    const shadowRootOf = (host) => host instanceof HTMLElement ? chrome.dom.openOrClosedShadowRoot(host) : host.shadowRoot;
     const selector = [
       "input",
       "canvas",
@@ -82,17 +84,18 @@ export function installSensitiveMasks() {
 
     const scanRoot = (root) => {
       if (!root?.querySelectorAll) return;
-      for (const element of root.querySelectorAll(selector)) maskElement(element, Boolean(element.localName?.includes("-") && !element.shadowRoot));
+      for (const element of root.querySelectorAll(selector)) maskElement(element, Boolean(shadowRootOf(element) && !element.shadowRoot));
       for (const host of root.querySelectorAll("*")) {
-        if (host.shadowRoot) scanRoot(host.shadowRoot);
-        else if (host.localName?.includes("-")) maskElement(host, true);
+        const shadow = shadowRootOf(host);
+        if (shadow && !host.shadowRoot) maskElement(host, true);
+        else if (shadow) scanRoot(shadow);
       }
       if (typeof MutationObserver === "function" && !observedRoots.has(root)) {
         const observer = new MutationObserver((records) => {
           for (const record of records) {
             for (const node of record.addedNodes || []) {
               if (!(node instanceof Element)) continue;
-              if (node.localName?.includes("-") && !node.shadowRoot) maskElement(node, true);
+              if (shadowRootOf(node) && !node.shadowRoot) maskElement(node, true);
               else if (node.matches?.(selector)) maskElement(node);
               scanRoot(node);
             }
@@ -119,6 +122,8 @@ export function verifySensitiveMasks(expectedToken) {
   const state = globalThis.__mecchaManualScreenshotMasks;
   if (!state?.token || state.token !== expectedToken) return false;
   try {
+    if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") return false;
+    const shadowRootOf = (host) => host instanceof HTMLElement ? chrome.dom.openOrClosedShadowRoot(host) : host.shadowRoot;
     const selector = [
       "input",
       "canvas",
@@ -137,11 +142,11 @@ export function verifySensitiveMasks(expectedToken) {
       const root = roots[index];
       elements.push(...root.querySelectorAll(selector));
       for (const host of root.querySelectorAll("*")) {
-        if (host.shadowRoot) roots.push(host.shadowRoot);
-        else if (host.localName?.includes("-")) {
+        const shadow = shadowRootOf(host);
+        if (shadow && !host.shadowRoot) {
           if (getComputedStyle(host).display !== "none") return false;
           elements.push(host);
-        }
+        } else if (shadow) roots.push(shadow);
       }
     }
     for (const element of new Set(elements)) {
