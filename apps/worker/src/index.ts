@@ -364,7 +364,12 @@ async function bootstrapOnboarding(request: Request, env: Env): Promise<Response
   if (!allowed) return jsonResponse({ code: "ONBOARDING_RATE_LIMITED", message: "しばらく待ってから再試行してください。" }, { status: 429, headers: { "retry-after": "60" } });
   try {
     return jsonResponse(await new D1OnboardingRepository(env.DB).bootstrap(actor, body.operationId));
-  } catch (error) { throw d1ErrorResponse(error, "profile"); }
+  } catch (error) {
+    if (error instanceof D1RepositoryError && error.code === "personal_workspace_unavailable") {
+      throw new AppError(403, "PERSONAL_WORKSPACE_UNAVAILABLE", "保存先が利用停止中です。下書きを保持して管理者へお問い合わせください。");
+    }
+    throw d1ErrorResponse(error, "profile");
+  }
 }
 
 async function getD1Session(request: Request, env: Env): Promise<Response> {

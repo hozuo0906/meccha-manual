@@ -34,7 +34,7 @@
     "test:cloudflare-access": "node --test tests/cloudflare-access-fetch.test.mjs",
     "test:access-identity": "node --experimental-strip-types --test tests/access-identity.test.mjs",
     "test:d1-workspace": "node --experimental-strip-types --test tests/d1-workspace.test.mjs",
-    "test:m3-http-d1": "node --experimental-strip-types --test tests/m3-http-d1.test.mjs",
+    "test:m3-http-d1": "node --experimental-strip-types --test tests/m3-http-d1.test.mjs tests/onboarding-bootstrap.test.mjs",
     "test:d1-binding": "node --experimental-strip-types --test tests/d1-binding.test.mjs",
     "d1:workspace:boundary:check": "node --experimental-strip-types scripts/check-d1-workspace-boundary.mjs",
     "test:callback-migration-boundary": "node --experimental-transform-types --test tests/callback-migration-boundary.test.mjs",
