@@ -173,20 +173,20 @@ test("screenshot privacy disables transitions, verifies document identity, and r
 
   const style = new FakeStyle();
   const element = {
-    localName: "input",
+    localName: "private-input",
     style,
     shadowRoot: null,
-    matches: () => true,
+    matches: () => false,
     getBoundingClientRect: () => ({ left: 1, top: 1, width: 180, height: 32 })
   };
-  const root = { querySelectorAll(selector) { return selector === "*" ? [] : [element]; } };
+  const root = { querySelectorAll(selector) { return selector === "*" ? [element] : []; } };
 
   try {
     globalThis.document = root;
     globalThis.getComputedStyle = (target) => ({
       visibility: target.style.getPropertyValue("visibility") || "visible",
       display: "block",
-      opacity: "1"
+      opacity: target.style.getPropertyValue("opacity") || "1"
     });
     delete globalThis.__mecchaManualScreenshotMasks;
     const result = installSensitiveMasks();
@@ -195,12 +195,19 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     assert.equal(style.getPropertyValue("transition"), "none");
     assert.equal(style.getPropertyValue("animation"), "none");
     assert.equal(style.getPropertyValue("visibility"), "hidden");
+    assert.equal(style.getPropertyValue("opacity"), "0");
     assert.equal(verifySensitiveMasks(result.token), true);
+    // A hidden closed-shadow host may contain an explicitly visible child.
+    // Removing subtree opacity must fail verification even while the host stays hidden.
+    style.setProperty("opacity", "1");
+    assert.equal(verifySensitiveMasks(result.token), false);
+    style.setProperty("opacity", "0");
     assert.equal(verifySensitiveMasks("wrong-token"), false);
     removeSensitiveMasks();
     assert.equal(style.getPropertyValue("visibility"), "visible");
     assert.equal(style.getPropertyValue("transition"), "visibility 2s");
     assert.equal(style.getPropertyValue("animation"), "pulse 1s");
+    assert.equal(style.getPropertyValue("opacity"), "");
   } finally {
     if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
     if (originalGetComputedStyle === undefined) delete globalThis.getComputedStyle; else globalThis.getComputedStyle = originalGetComputedStyle;

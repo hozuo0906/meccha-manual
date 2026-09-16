@@ -20,6 +20,12 @@ export function installSensitiveMasks() {
   const masks = [];
   const observers = [];
   const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const restoreMask = (mask) => {
+    for (const item of mask.previous) {
+      if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
+      else mask.element.style.removeProperty(item.property);
+    }
+  };
   try {
     const selector = [
       "input",
@@ -35,19 +41,12 @@ export function installSensitiveMasks() {
     const masked = new WeakSet();
     const observedRoots = new WeakSet();
 
-    const restoreMask = (mask) => {
-      for (const item of mask.previous) {
-        if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
-        else mask.element.style.removeProperty(item.property);
-      }
-    };
-
     const maskElement = (element) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
       const rect = element.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const computed = getComputedStyle(element);
-      if (computed.visibility === "hidden" || computed.display === "none" || Number(computed.opacity) === 0) return;
+      if (computed.display === "none" || Number(computed.opacity) === 0) return;
 
       const previousVisibility = element.style.getPropertyValue("visibility");
       const previousPriority = element.style.getPropertyPriority("visibility");
@@ -56,6 +55,7 @@ export function installSensitiveMasks() {
       const previousAnimation = element.style.getPropertyValue("animation");
       const previousAnimationPriority = element.style.getPropertyPriority("animation");
       const previous = [
+        { property: "opacity", value: element.style.getPropertyValue("opacity"), priority: element.style.getPropertyPriority("opacity") },
         { property: "visibility", value: previousVisibility, priority: previousPriority },
         { property: "transition", value: previousTransition, priority: previousTransitionPriority },
         { property: "animation", value: previousAnimation, priority: previousAnimationPriority }
@@ -63,9 +63,11 @@ export function installSensitiveMasks() {
 
       element.style.setProperty("transition", "none", "important");
       element.style.setProperty("animation", "none", "important");
+      // opacity composites the entire subtree, including inaccessible closed shadow roots.
+      element.style.setProperty("opacity", "0", "important");
       element.style.setProperty("visibility", "hidden", "important");
       const mask = { element, previous };
-      if (getComputedStyle(element).visibility !== "hidden") {
+      if (Number(getComputedStyle(element).opacity) !== 0) {
         restoreMask(mask);
         throw new Error("SCREENSHOT_MASK_NOT_EFFECTIVE");
       }
@@ -137,7 +139,7 @@ export function verifySensitiveMasks(expectedToken) {
       if (rect.width <= 0 || rect.height <= 0) continue;
       const computed = getComputedStyle(element);
       if (computed.display === "none" || Number(computed.opacity) === 0) continue;
-      if (computed.visibility !== "hidden") return false;
+      return false;
     }
     return true;
   } catch {

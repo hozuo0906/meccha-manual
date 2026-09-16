@@ -164,9 +164,18 @@ Status: Accepted
 - 最初の商用公開そのもの、production反映、課金、機密情報保存、破壊的操作などの既存の別承認境界は、この開発操作承認によって拡張しない。
 - 古い一般的な「owner承認待ち」だけを理由に、商用リリース前の通常のpush、Pull Request作成・更新、mergeを停止しない。商用リリース前はAstra high親PMの実SHA確認と品質ゲートを適用し、商用リリース後は操作ごとにユーザーの事前承認を得る。
 
-## Product / Development current state (2026-09-13)
+## Product / Development current state (2026-09-16)
 
-この節を現行Product開発の最新引き継ぎとする。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。
+最新のowner指示はChrome Extension／guest-first方針でPR #245のS1統合からS2保存・ログイン連携へ進めること。旧PR #223はmainへmerge済みであり、旧M4を先行させない。
+
+- PR #245の基準head `a9eccc88661bb171590708f3a733b4c65228f4bf` に対するreview 5205315585の3件を修正。入力欄切替とscroll container切替の未ACKイベントをfinishまで保持し、closed shadow hostのマスクをsubtree全体に効くopacityへ変更した。
+- 追加した実recorderのVM回帰テストを含め `npm run extension:test` は38件成功。docs、brand、Worker静的検査、Worker型検査も成功。Windowsの既存 `spawnSync wrangler.cmd EINVAL` によりローカル `npm run check` はbundle段階で停止しており、全体成功とは扱わない。
+- この記録を含む最新SHAのCI、review、unresolved thread、merge状態はPR #245で確認する。S2、staging deploy、公開URL smokeはまだ完了していない。
+- 次はS1のexact-head品質ゲートを満たして統合し、Issue #228のsecure handoff／bootstrap／claimを実装する。S1を保存・共有・PDFまで完成したMVPとは扱わない。
+
+### 2026-09-13のpivot基準（Historical）
+
+以下はpivot時点の記録である。後続の個別PR節および末尾のPR #240 review節もHistoricalであり、現在地や次マイルストーンの正本として使用しない。
 
 - PR #242はmerge済み。確認済みmainは `5697d1969bdbac629084671fe708181c55dd514f`。
 - MVP capture runtimeはChrome Extension Manifest V3だけとし、Cloudflare Browser Run／Browser Session／Live ViewはLegacy／Historicalで、fallbackしない。

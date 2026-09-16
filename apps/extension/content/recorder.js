@@ -32,9 +32,11 @@
     if (!pendingInput) return inputFlush;
     const pending = pendingInput;
     const event = captureEvent("input", pending.target, { eventId: pending.eventId, at: pending.at });
+    pendingInput = undefined;
+    trackedActions.set(event.eventId, event);
     const transmit = async () => {
       const accepted = await sendEvent(event);
-      if (accepted && pendingInput?.eventId === pending.eventId) pendingInput = undefined;
+      if (accepted) trackedActions.delete(event.eventId);
       return accepted;
     };
     inputFlush = inputFlush.then(transmit, transmit);
@@ -72,12 +74,12 @@
       at: pending.at,
       direction: pending.direction
     });
+    pendingScroll = undefined;
+    scrollPositions.set(pending.target, pending.position);
+    trackedActions.set(event.eventId, event);
     const transmit = async () => {
       const accepted = await sendEvent(event);
-      if (accepted && pendingScroll?.eventId === pending.eventId) {
-        scrollPositions.set(pending.target, pending.position);
-        pendingScroll = undefined;
-      }
+      if (accepted) trackedActions.delete(event.eventId);
       return accepted;
     };
     scrollFlush = scrollFlush.then(transmit, transmit);
@@ -85,6 +87,7 @@
   };
   const scroll = (event) => {
     const target = scrollTarget(event);
+    if (pendingScroll && pendingScroll.target !== target) void flushScroll();
     const position = scrollPosition(target);
     const baseline = pendingScroll?.target === target
       ? pendingScroll.baseline
