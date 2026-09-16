@@ -10,6 +10,7 @@ import { recoverWindowSession } from "./session-recovery.js";
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
+let reinjectionFailureSessionId = null;
 
 function serializeSessionOperation(task) {
   const run = sessionOperation.then(task, task);
@@ -34,12 +35,13 @@ async function clearRecoveryJournal(sessionId) {
 }
 
 async function getSession() {
-  const session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  let session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
   if (!session) return null;
+  if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
   const recovery = await readRecoveryJournal();
   if (recovery?.sessionId !== session.id) return session;
   const merged = mergeCaptureEvents(session, recovery.events || []);
-  return recovery.phase ? { ...merged, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || merged.finishFailed } : merged;
+  return recovery.phase && session.id !== reinjectionFailureSessionId ? { ...merged, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || merged.finishFailed } : merged;
 }
 
 async function setSession(session) {
@@ -246,7 +248,7 @@ async function cancelCapture() {
 
 async function retryRestore() {
   const session = await getSession();
-  if (!session?.restorePending) return { restored: true };
+  if (!session?.restorePending && session?.phase !== "starting") return { restored: true };
   const retainAfterRestore = Boolean(session.finishFailed);
   const restored = await attemptRestore(session);
   if (restored) {
@@ -269,6 +271,7 @@ async function resumeCapture(tabId) {
     await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
     await setSession(resumedSession);
     await clearRecoveryJournal(session.id).catch(() => undefined);
+    reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
     const failedSession = { ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
@@ -285,7 +288,7 @@ async function captureStatus() {
     recording: session?.phase === "recording",
     phase: session?.phase ?? null,
     mode: session?.mode,
-    restorePending: Boolean(session?.restorePending),
+    restorePending: Boolean(session?.restorePending || session?.phase === "starting"),
     finishFailed: Boolean(session?.finishFailed),
     reinjectionFailed: Boolean(session?.reinjectionFailed)
   };
@@ -325,11 +328,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     try {
       await setSession(withNavigation);
     } catch {
-      await persistRecoveryJournal(session.id, [navigationEvent]);
+      await persistRecoveryJournal(session.id, [navigationEvent]).catch(() => undefined);
     }
     try {
       await injectRecorder(tabId);
     } catch {
+      reinjectionFailureSessionId = session.id;
       const failedSession = {
         ...withNavigation,
         phase: "reinjection_failed",
@@ -339,7 +343,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       try {
         await setSession(failedSession);
       } catch {
-        await persistRecoveryJournal(session.id, [], "reinjection_failed");
+        await persistRecoveryJournal(session.id, [], "reinjection_failed").catch(() => undefined);
       }
     }
   }).catch(() => undefined);

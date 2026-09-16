@@ -4,6 +4,14 @@ Status: Accepted
 
 ## 目的
 
+### 2026-09-17 release作業の追加確認
+
+- PR #245: 横方向scrollの保持、開始失敗直後の復旧UI、navigation時の二重保存失敗でもrecorder再注入、残存starting状態の復元を修正。拡張機能のローカル回帰テスト49件成功。最新SHAのCI/review/mergeはGitHubで再照合する。
+- 二重保存障害時の再注入失敗表示は同一service worker生存中の補助状態でも保持する。保存領域の障害とworker強制終了が重なる場合の永続復旧は保証しない。
+- PR #250はS2 bootstrapのみの積み上げPR。`601df7a`でoperation IDのASCII文字種・長さ・NUL拒否をDB制約へ追加し、直接DB書込みを含むHTTP/D1テスト30件成功。handoff/upload/claimと実環境検証は未完了。
+- 読み取り専用Cloudflare監査run `35117878090`は失敗。CI用認証ではD1取得は認証無効、R2取得は権限不足、取得ページ内のAccess applicationは0件。専用staging Workerは未作成。既存Workerへ代替deployしない。
+- 作業対象は専用開発checkout・対象GitHub repository・関連検証環境に限定する。業務フォルダ、通常の業務ブラウザ、実業務情報は検証に使わず、外部へ送信しない。
+
 長期開発を特定のChatGPT/Codex会話へ依存させず、新しいセッションがGitHub上の正本と実状態・証跡を照合して安全に作業を再開できるようにする。
 
 会話履歴は補助情報として扱い、正本の優先順位は `AGENTS.md` に従う。コード、migration、設定、commit、CI、review threadは、正本どおりに実装・検証されているかを確認するための実状態・証跡として扱う。
