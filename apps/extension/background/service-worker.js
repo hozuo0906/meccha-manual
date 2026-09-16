@@ -189,8 +189,8 @@ async function finishCapture() {
   try {
     await prepareRetryViewport(session);
     const pendingEvents = await stopRecorder(session.tabId);
-    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents);
     session = mergeCaptureEvents(session, pendingEvents);
+    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents).catch(() => undefined);
     await setSession(session);
     const dataUrl = await takeMaskedScreenshot(session);
     const screenshot = { id: crypto.randomUUID(), dataUrl, masks: [] };
@@ -215,16 +215,12 @@ async function finishCapture() {
     draftId = draft.id;
   } catch {
     const pendingEvents = await stopRecorder(session.tabId);
-    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents, "finish_failed");
-    else await persistRecoveryJournal(session.id, [], "finish_failed");
     session = mergeCaptureEvents(session, pendingEvents);
     const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
+    const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
-    try {
-      await setSession({ ...retrySession, restorePending: !restored });
-    } catch {
-      // The bounded local recovery journal remains the durable source of the drained events and retry phase.
-    }
+    const sessionSaved = await setSession({ ...retrySession, restorePending: !restored }).then(() => true, () => false);
+    if (!journalSaved && !sessionSaved) throw new Error("端末の保存領域へ記録を保存できませんでした。記録の復旧を保証できません。対象タブを閉じずに空き容量を確認してください。");
     throw new Error(restored
       ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
       : "記録内容はこの端末に保持しています。画面サイズを元に戻せませんでした。先に復元してから、もう一度お試しください。");
@@ -349,10 +345,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }).catch(() => undefined);
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;
+    if (removeInfo?.isWindowClosing) {
+      await setSession(null);
+      await clearRecoveryJournal(session.id);
+      return;
+    }
     let windowExists = true;
     try {
       await chrome.windows.get(session.windowId);

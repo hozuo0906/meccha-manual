@@ -85,13 +85,13 @@ test("bounded recovery journal survives duplicate drained events and keeps retry
   assert.equal(bounded[0].eventId, "n:20");
 });
 
-test("finish journals drained events before session persistence and can retry after session quota failure", async () => {
+test("finish retains drained events before either persistence attempt", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   const finishStart = source.indexOf("async function finishCapture()");
   const journal = source.indexOf("await persistRecoveryJournal(session.id, pendingEvents)", finishStart);
   const merge = source.indexOf("session = mergeCaptureEvents(session, pendingEvents);", finishStart);
   const persist = source.indexOf("await setSession(session);", merge);
-  assert.ok(finishStart >= 0 && journal > finishStart && merge > journal && persist > merge);
+  assert.ok(finishStart >= 0 && merge > finishStart && journal > merge && persist > journal);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
   assert.match(source, /recovery\?\.sessionId !== session\.id/);
   assert.match(source, /phase: "finish_failed"/);
@@ -185,7 +185,7 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     globalThis.document = root;
     globalThis.getComputedStyle = (target) => ({
       visibility: target.style.getPropertyValue("visibility") || "visible",
-      display: "block",
+      display: target.style.getPropertyValue("display") || "block",
       opacity: target.style.getPropertyValue("opacity") || "1"
     });
     delete globalThis.__mecchaManualScreenshotMasks;
@@ -197,17 +197,18 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     assert.equal(style.getPropertyValue("visibility"), "hidden");
     assert.equal(style.getPropertyValue("opacity"), "0");
     assert.equal(verifySensitiveMasks(result.token), true);
-    // A hidden closed-shadow host may contain an explicitly visible child.
-    // Removing subtree opacity must fail verification even while the host stays hidden.
-    style.setProperty("opacity", "1");
+    assert.equal(style.getPropertyValue("display"), "none");
+    // Opacity alone cannot suppress a closed-shadow top-layer descendant.
+    style.setProperty("display", "block");
     assert.equal(verifySensitiveMasks(result.token), false);
-    style.setProperty("opacity", "0");
+    style.setProperty("display", "none");
     assert.equal(verifySensitiveMasks("wrong-token"), false);
     removeSensitiveMasks();
     assert.equal(style.getPropertyValue("visibility"), "visible");
     assert.equal(style.getPropertyValue("transition"), "visibility 2s");
     assert.equal(style.getPropertyValue("animation"), "pulse 1s");
     assert.equal(style.getPropertyValue("opacity"), "");
+    assert.equal(style.getPropertyValue("display"), "");
   } finally {
     if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
     if (originalGetComputedStyle === undefined) delete globalThis.getComputedStyle; else globalThis.getComputedStyle = originalGetComputedStyle;

@@ -168,6 +168,8 @@ Status: Accepted
 
 ### 最新差分（2026-09-16）
 
+追記（2026-09-17）: 追加reviewの終了時journal失敗・window close競合・closed-shadow top-layer・canvas秘匿へ対応。入力／scrollはpagehide前からcheckpoint送信し、未ACKで離脱する際はbeforeunload警告を要求する。ブラウザ強制終了や警告を無視した離脱の永続化まで保証するものではない。拡張テスト43件と、実Chromeのclosed-shadow modal／canvasマスク・復元テスト1件が成功。S2 bootstrapは専用branch `codex/s2-onboarding-bootstrap` の `2a19ffb` へ保全し、HTTP／D1回帰29件成功（まだmain未統合・staging未適用）。
+
 最新のowner指示はChrome Extension／guest-first方針でPR #245のS1統合からS2保存・ログイン連携へ進めること。旧PR #223はmainへmerge済みであり、旧M4を先行させない。
 
 - PR #245の基準head `a9eccc88661bb171590708f3a733b4c65228f4bf` に対するreview 5205315585の3件を修正。入力欄切替とscroll container切替の未ACKイベントをfinishまで保持し、closed shadow hostのマスクをsubtree全体に効くopacityへ変更した。
