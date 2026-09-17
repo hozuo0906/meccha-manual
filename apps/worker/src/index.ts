@@ -2,6 +2,7 @@ import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
 import { AccessIdentityError, authenticateApplicationRequest, requireHumanActor, verifyAccessJwt, type ApplicationIdentityRepository } from "./access-identity.ts";
 import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
+import { D1OnboardingRepository } from "./infra/d1/onboarding-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
@@ -9,6 +10,7 @@ import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupab
 
 interface Env extends SupabaseBindings, AccessBindings {
   DB?: D1DatabaseLike;
+  ONBOARDING_RATE_LIMITER?: RateLimit;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
@@ -337,6 +339,37 @@ function apiProfile(profile: ProfileRecord | null): unknown {
     locale: profile.locale,
     timezone: profile.timezone
   };
+}
+
+async function bootstrapOnboarding(request: Request, env: Env): Promise<Response> {
+  let actor;
+  try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
+  catch (error) { throw mapAccessIdentityError(error); }
+  const body = await readJsonBody<{ operationId?: unknown }>(request);
+  if (Object.keys(body).some((key) => key !== "operationId") || typeof body.operationId !== "string"
+    || !/^[A-Za-z0-9_-]{16,128}$/.test(body.operationId)) {
+    throw new AppError(400, "ONBOARDING_INPUT_INVALID", "再試行情報を確認できませんでした。");
+  }
+  if (!env.DB || !env.ONBOARDING_RATE_LIMITER) {
+    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存の準備を利用できません。下書きを保持したまま、時間をおいて再試行してください。");
+  }
+  let allowed: boolean;
+  try {
+    const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([actor.issuer, actor.subject])));
+    const key = Array.from(new Uint8Array(keyBytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    allowed = (await env.ONBOARDING_RATE_LIMITER.limit({ key })).success;
+  } catch {
+    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存の準備を利用できません。時間をおいて再試行してください。");
+  }
+  if (!allowed) return jsonResponse({ code: "ONBOARDING_RATE_LIMITED", message: "しばらく待ってから再試行してください。" }, { status: 429, headers: { "retry-after": "60" } });
+  try {
+    return jsonResponse(await new D1OnboardingRepository(env.DB).bootstrap(actor, body.operationId));
+  } catch (error) {
+    if (error instanceof D1RepositoryError && error.code === "personal_workspace_unavailable") {
+      throw new AppError(403, "PERSONAL_WORKSPACE_UNAVAILABLE", "保存先が利用停止中です。下書きを保持して管理者へお問い合わせください。");
+    }
+    throw d1ErrorResponse(error, "profile");
+  }
 }
 
 async function getD1Session(request: Request, env: Env): Promise<Response> {
@@ -2159,6 +2192,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
 
   verifySameOriginWrite(request);
 
+  if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
   if (request.method === "GET" && url.pathname === "/assets/app.css") {
     return assetResponse(APP_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
