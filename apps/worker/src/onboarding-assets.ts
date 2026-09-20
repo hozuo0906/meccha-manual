@@ -6,15 +6,49 @@ export const ONBOARDING_JS = `(() => {
   const button = document.querySelector("#bootstrap");
   const operationKey = "meccha-manual:onboarding-operation";
   const configured = root?.dataset.bootstrapEnabled === "true";
-  const fragmentHandoff = new URLSearchParams(location.hash.slice(1)).get("handoff");
+  const fragmentParams = new URLSearchParams(location.hash.slice(1));
+  const fragmentValues = fragmentParams.getAll("handoff");
+  const hasFragment = location.hash.length > 0;
+  const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   const HANDOFF_TTL_MS = 15 * 60 * 1000;
-  function isFresh(value) { const createdAt = Date.parse(value?.createdAt || ""); return Number.isFinite(createdAt) && Date.now() - createdAt >= 0 && Date.now() - createdAt <= HANDOFF_TTL_MS; }
-  function getHandoff() { if (validHandoff(fragmentHandoff)) return fragmentHandoff; try { const saved = JSON.parse(sessionStorage.getItem(operationKey) || "null"); return validHandoff(saved?.handoffId) && isFresh(saved) ? saved.handoffId : null; } catch { return null; } }
-  function operationId() { const handoff = getHandoff(); if (!handoff) return null; try { const saved = JSON.parse(sessionStorage.getItem(operationKey) || "null"); if (saved?.handoffId === handoff && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId) && isFresh(saved)) return saved.operationId; const value = { handoffId: handoff, operationId: randomId(), createdAt: new Date().toISOString() }; sessionStorage.setItem(operationKey, JSON.stringify(value)); return value.operationId; } catch { return null; } }
+  function isFresh(value, now = Date.now()) { const createdAt = Date.parse(value?.createdAt || ""); return Number.isFinite(createdAt) && now - createdAt >= 0 && now - createdAt <= HANDOFF_TTL_MS; }
+  function readSaved() { try { return JSON.parse(sessionStorage.getItem(operationKey) || "null"); } catch { return null; } }
+  let capturedContext;
+  let capturedContextInitialized = false;
+  function initializeCapturedContext() {
+    if (capturedContextInitialized) return capturedContext;
+    capturedContextInitialized = true;
+    if (!hasFragment || !validHandoff(fragmentHandoff)) return null;
+    const saved = readSaved();
+    if (saved?.handoffId === fragmentHandoff) {
+      if (isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId)) capturedContext = saved;
+      return capturedContext;
+    }
+    try {
+      const now = Date.now();
+      capturedContext = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString() };
+      sessionStorage.setItem(operationKey, JSON.stringify(capturedContext));
+    } catch { capturedContext = null; }
+    return capturedContext;
+  }
+  function getHandoff() {
+    if (hasFragment) return validHandoff(fragmentHandoff) && operationId() ? fragmentHandoff : null;
+    const saved = readSaved();
+    return validHandoff(saved?.handoffId) && isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId) ? saved.handoffId : null;
+  }
+  function operationId() {
+    if (hasFragment) {
+      const context = initializeCapturedContext();
+      return context && isFresh(context) ? context.operationId : null;
+    }
+    const saved = readSaved();
+    return validHandoff(saved?.handoffId) && isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId) ? saved.operationId : null;
+  }
+  if (configured && hasFragment && validHandoff(fragmentHandoff)) initializeCapturedContext();
   function setButton(label, disabled = false) { button.textContent = label; button.disabled = disabled; }
   async function bootstrap() {
     const id = operationId();

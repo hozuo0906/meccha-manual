@@ -15,3 +15,9 @@ Workerの`index.ts`へ`GET /onboarding/continue`、外部CSS/JS asset、bootstra
 検証は`npm run test:onboarding-ui`で行い、拡張機能の取消・保存失敗・未準備表示、Webの503後同一operationId再試行、再読込後のTTL失効、Worker route/assetsのCSP・binding判定を含む。
 
 この文書の対象はB登録UIスライスまでとし、C以降の機能・運用・本番反映は対象外とする。
+## Handoff期限と不正fragment
+
+- `handoff` fragmentが明示されている場合は、空値、形式不正、重複を保存済みmetadataへフォールバックせず拒否する。
+- 有効fragmentの訪問時にoperationの期限起点を固定し、初回クリックまでの待機も15分TTLに含める。
+- 同じhandoffの有効な保存済みmetadataを再訪しても、保存済みの期限起点を維持してTTLを延長しない。
+- 期限切れ後はbootstrap requestとoperationIdの再発行を0回にし、期限内のreload／応答消失だけ同じoperationIdで再試行する。

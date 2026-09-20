@@ -308,3 +308,8 @@ Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoff
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
 正式originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
+### B handoff fragment と operation の期限境界
+
+Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し、256bit相当の形式に一致する場合だけ、そのページ訪問時刻を `operationId` のmetadata `createdAt` として固定する。同じhandoffの有効な保存済みmetadataを再訪・再読込で見つけた場合は、既存の `createdAt` を維持してTTLを延長しない。空、形式不正、重複のfragmentは、同一タブの新しいhandoffとして扱わず、既存の `sessionStorage` 値へフォールバックせずに副作用0で拒否する。
+
+同じhandoffに紐づく保存済みoperationが期限切れになった場合、再送、再読込、同じfragmentでの再訪のいずれでも新しいoperationIdを発行しない。期限内の応答消失だけが同じoperationIdを再利用できる。別の有効handoffを新たに受け取った訪問は、そのhandoffに限って新しいoperationを開始できる。
