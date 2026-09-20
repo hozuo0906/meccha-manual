@@ -42,6 +42,7 @@ function renderScreenshot(step) {
   const image = document.createElement("img");
   image.src = screenshot.dataUrl;
   image.alt = "記録した画面";
+  image.draggable = false;
   preview.append(image);
   for (const mask of screenshot.masks || []) {
     const overlay = document.createElement("span");
@@ -68,6 +69,7 @@ function renderScreenshot(step) {
     await persist("マスクを追加して、この端末に保存しました。");
     render();
   });
+  preview.addEventListener("pointercancel", () => { start = undefined; });
 
   const list = document.createElement("ul");
   list.className = "mask-list";
