@@ -98,3 +98,53 @@ test("editor creates, reloads, and deletes a mask through a real Chrome mouse ge
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
+
+test("output gate cancel preserves edits, save failure blocks handoff, and pending config stays local", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.chrome = { storage: { local: { set: async () => undefined } } };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "output-gate-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#output-gate-fixture`);
+    await page.locator("#title").fill("取消後も残るタイトル");
+    await page.locator("#save").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#cancelOutput").click();
+    assert.equal(await page.locator("#title").inputValue(), "取消後も残るタイトル");
+    await page.reload();
+    assert.equal(await page.locator("#title").inputValue(), "取消後も残るタイトル");
+
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      draftStore.put = async () => { throw new Error("storage unavailable"); };
+    });
+    await page.locator("#save").click();
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false);
+    assert.match(await page.locator("#status").textContent(), /保存できませんでした/);
+
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      draftStore.put = async () => undefined;
+    });
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    assert.match(await page.locator("#gateStatus").textContent(), /準備中/);
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});

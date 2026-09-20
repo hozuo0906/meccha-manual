@@ -83,3 +83,7 @@ Issue #176のM1〜M4で実装・検証済みのAccess JWT、identity、workspace
 旧Supabase/Postgres Phase 1/2実装は移行前baselineであり、D1合格証跡としては使用しない。
 
 商用MVPではCloudflare移行の完了数そのものではなく、guest captureからoutput完了までの利用者価値縦切りと必要なserver安全境界をProduct優先度とする。
+
+## B登録UIスライスの状態
+
+FR-001、FR-002、FR-022のB範囲（output gate、handoff metadata、同一operationIdのbootstrap retry、local原本保持）は実装対象とする。Access環境未準備の限定版では、Web画面を安全な準備中表示で停止し、実環境の認証・bootstrap成功を検証済みとは扱わない。guest本文のclaim、asset transfer、完了通知、元outputの再開はC以降の未完了範囲である。

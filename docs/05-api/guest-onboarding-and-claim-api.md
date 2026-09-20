@@ -296,3 +296,11 @@ bootstrap + claim成功後にWebアプリ側で同じactionを再開する。認
 - completed claimへの別operation/fingerprintを409で拒否する。
 - claim失敗時にclient local原本が消えない。
 - claim後にsave/share/exportの元操作へ復帰できる。
+
+## B登録UIのclient実装境界
+
+Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoffId>`へ遷移する画面と、認証済みWebアプリからのbootstrap呼び出しまでを対象とする。拡張機能はhandoff metadata（draft ID、選択済みaction、有効期限）をlocal領域へ保持し、本文・画像・credentialを送信しない。
+
+Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
+
+正式originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
