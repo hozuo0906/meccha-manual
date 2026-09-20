@@ -39,6 +39,13 @@ BEGIN
   SELECT RAISE(ABORT, 'bootstrap operation identity is immutable');
 END;
 
+CREATE TRIGGER onboarding_bootstrap_created_at_immutable
+BEFORE UPDATE OF created_at ON onboarding_bootstrap_operations
+WHEN NEW.created_at <> OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'bootstrap operation timestamp is immutable');
+END;
+
 CREATE TRIGGER onboarding_signup_event_consistency_insert
 BEFORE INSERT ON onboarding_signup_events
 WHEN NOT EXISTS (
@@ -63,4 +70,50 @@ WHEN NOT EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'signup event requires created identity operation');
+END;
+
+CREATE TRIGGER onboarding_signup_event_envelope_insert
+BEFORE INSERT ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+    AND NEW.event_id = 'meccha-manual:onboarding:v1:signup_completed:'
+      || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id
+    AND NEW.occurred_at = o.created_at
+)
+AND EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event envelope does not match operation');
+END;
+
+CREATE TRIGGER onboarding_signup_event_envelope_update
+BEFORE UPDATE OF event_id, application_id, operation_id, workspace_id, occurred_at ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+    AND NEW.event_id = 'meccha-manual:onboarding:v1:signup_completed:'
+      || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id
+    AND NEW.occurred_at = o.created_at
+)
+AND EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event envelope does not match operation');
 END;

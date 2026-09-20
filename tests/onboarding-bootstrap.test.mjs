@@ -84,7 +84,7 @@ test("first authenticated bootstrap provisions the complete atomic result; repla
   for (const table of ["identities", "profiles", "workspaces", "workspace_members", "audit_logs", "onboarding_signup_events"]) assert.equal(count(table), 1, table);
   assert.equal(count("onboarding_bootstrap_operations"), 2);
   const event = database.prepare("SELECT * FROM onboarding_signup_events").get();
-  assert.match(event.event_id, /^[a-f0-9]{64}$/);
+  assert.equal(event.event_id, `meccha-manual:onboarding:v1:signup_completed:${event.application_id.length}:${event.application_id}:${operation}`);
   assert.equal(event.operation_id, operation);
 });
 
@@ -125,6 +125,43 @@ test("direct storage rejects signup events without a created identity operation 
   assert.throws(
     () => database.prepare("UPDATE onboarding_bootstrap_operations SET workspace_id=? WHERE operation_id=?").run("other-workspace", operation),
     /bootstrap operation identity is immutable/
+  );
+});
+
+test("direct storage rejects forged event envelopes and operation timestamp mutation", async () => {
+  await repository.bootstrap(actor, operation);
+  const event = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get(operation);
+  await repository.bootstrap({ ...actor, subject: "other-human" }, "bootstrap-other-0001");
+  const otherEvent = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get("bootstrap-other-0001");
+  const insert = database.prepare("INSERT INTO onboarding_signup_events VALUES (?, 'signup_completed', ?, ?, ?, ?)");
+  assert.throws(
+    () => insert.run(`meccha-manual:onboarding:v1:signup_completed:7:forged:${operation}`, event.application_id, operation, event.workspace_id, event.occurred_at),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => insert.run(`${event.event_id}:forged`, event.application_id, operation, event.workspace_id, event.occurred_at),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => insert.run(event.event_id, event.application_id, operation, event.workspace_id, "2026-01-01T00:00:00.000Z"),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_signup_events SET event_id=? WHERE event_id=?").run(`${event.event_id}:forged`, event.event_id),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_signup_events SET occurred_at=? WHERE event_id=?").run("2026-01-01T00:00:00.000Z", event.event_id),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_signup_events SET application_id=?, operation_id=?, workspace_id=? WHERE event_id=?")
+      .run(otherEvent.application_id, otherEvent.operation_id, otherEvent.workspace_id, event.event_id),
+    /signup event envelope does not match operation/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_bootstrap_operations SET created_at=? WHERE operation_id=?").run("2026-01-01T00:00:00.000Z", operation),
+    /bootstrap operation timestamp is immutable/
   );
 });
 
