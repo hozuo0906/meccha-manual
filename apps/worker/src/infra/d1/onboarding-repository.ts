@@ -53,14 +53,15 @@ export class D1OnboardingRepository {
           SELECT ?3, w.created_by, w.id, NULL, 'workspace.created', '{}', ?4 FROM workspaces w
           WHERE w.id = ?5 AND w.id = (${authorized})`, `bootstrap-${workspaceId}`, now, workspaceId),
         bind(`INSERT INTO onboarding_bootstrap_operations(application_id, operation_id, workspace_id, created_identity, created_at)
-          VALUES ((${identity}), ?3, (${authorized}), CASE WHEN (${identity}) = ?4 THEN 1 ELSE 0 END, ?5)
-          ON CONFLICT(application_id, operation_id) DO NOTHING`, operationId, identityId, now),
+          SELECT (${identity}), ?3, (${authorized}), CASE WHEN (${identity}) = ?4 THEN 1 ELSE 0 END, ?5
+          WHERE NOT EXISTS (SELECT 1 FROM onboarding_bootstrap_operations
+            WHERE application_id = (${identity}) AND operation_id = ?3)`, operationId, identityId, now),
         bind(`INSERT INTO onboarding_signup_events(event_id, event_name, application_id, operation_id, workspace_id, occurred_at)
           SELECT 'meccha-manual:onboarding:v1:signup_completed:' || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id,
             'signup_completed', o.application_id, o.operation_id, o.workspace_id, o.created_at
           FROM onboarding_bootstrap_operations o WHERE o.application_id = (${identity})
             AND o.operation_id = ?3 AND o.created_identity = 1
-          ON CONFLICT(application_id) DO NOTHING`, operationId)
+            AND NOT EXISTS (SELECT 1 FROM onboarding_signup_events e WHERE e.application_id = o.application_id)`, operationId)
       ]);
       if (result.some((item) => !item.success)) throw new D1RepositoryError("unavailable");
       const saved = await bind(`SELECT o.workspace_id, o.created_identity FROM onboarding_bootstrap_operations o
