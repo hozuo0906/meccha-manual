@@ -122,6 +122,8 @@ S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・
 
 `signup_completed`はbootstrap処理がidentityを新規作成したときだけserverがexactly-onceで記録する。responseを受けたclientからは発行せず、bootstrap再送やresponse lossで二重記録しない。serverは固定namespace、event type、actor identity、bootstrap operationIdから決定的なeventIdを生成し、identity作成を確定したserver-side timestampをoccurredAtとする。同じoperationのretryでは同じeventIdを使う。D1のoperation結果とsignup eventはappend-onlyで、挿入置換、別identity・workspace・operationへの関連先変更、削除を許可しない。冪等retryは既存rowを挿入しない形で同じ結果を返す。
 
+`createdIdentity=true` の operation は、同じ application identity の `identities.created_at` と operation の authoritative `created_at` が一致し、identity作成を示すoperationがidentityごとに一意である場合だけ保存する。既存 identity の login／bootstrap retry は `false` のままで、異なる時刻を直接指定した偽 signup は D1 trigger で拒否する。既存identityの作成時刻にoperation時刻を合わせた直接挿入を、この単純なDB境界だけで過去の正規作成と区別することはできないため、DB writer自体を信頼境界の外へ公開しない。
+
 ## 2. Guest draft claim intent
 
 ### `POST /api/onboarding/claim-intents`

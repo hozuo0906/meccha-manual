@@ -12,6 +12,22 @@ CREATE TABLE onboarding_bootstrap_operations (
   PRIMARY KEY (application_id, operation_id)
 );
 
+CREATE UNIQUE INDEX onboarding_bootstrap_first_operation_unique
+  ON onboarding_bootstrap_operations(application_id)
+  WHERE created_identity = 1;
+
+CREATE TRIGGER onboarding_bootstrap_created_identity_authoritative_insert
+BEFORE INSERT ON onboarding_bootstrap_operations
+WHEN NEW.created_identity = 1
+  AND NOT EXISTS (
+    SELECT 1 FROM identities i
+    WHERE i.application_id = NEW.application_id
+      AND NEW.created_at = i.created_at
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'created identity operation requires authoritative identity timestamp');
+END;
+
 CREATE TABLE onboarding_signup_events (
   event_id TEXT PRIMARY KEY NOT NULL,
   event_name TEXT NOT NULL CHECK (event_name = 'signup_completed'),

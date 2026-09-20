@@ -128,6 +128,10 @@ test("direct storage rejects operation rows outside the actor's active personal 
       /bootstrap operation requires active personal owner workspace/
     );
   }
+  assert.throws(
+    () => insert.run(saved.application_id, "created-identity-standard", "standard-a", 1, saved.created_at),
+    /bootstrap operation requires active personal owner workspace/
+  );
 });
 
 test("direct storage rejects signup events without a created identity operation on insert and update", async () => {
@@ -167,6 +171,26 @@ test("direct storage rejects signup events without a created identity operation 
   assert.throws(
     () => database.prepare("UPDATE onboarding_bootstrap_operations SET operation_id=? WHERE operation_id=?").run("other-operation-id", operation),
     /bootstrap operation identity is immutable/
+  );
+});
+
+test("created identity operation requires the authoritative identity timestamp and is unique per identity", async () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  database.prepare("INSERT INTO identities VALUES (?, ?, ?, 'active', ?, ?)")
+    .run("identity-old", issuer, "old-human", createdAt, createdAt);
+  database.prepare("INSERT INTO workspaces VALUES (?, ?, ?, 'active', ?, ?, ?, ?)")
+    .run("personal-old", "Personal Old", "personal-old", "identity-old", createdAt, createdAt, "personal");
+  database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'owner', 'active', ?, ?)")
+    .run("personal-old", "identity-old", createdAt, createdAt);
+  const insert = database.prepare("INSERT INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)");
+  assert.throws(
+    () => insert.run("identity-old", "bootstrap-forged-old", "personal-old", 1, "2026-01-02T00:00:00.000Z"),
+    /created identity operation requires authoritative identity timestamp/
+  );
+  insert.run("identity-old", "bootstrap-first-old", "personal-old", 1, createdAt);
+  assert.throws(
+    () => insert.run("identity-old", "bootstrap-second-old", "personal-old", 1, createdAt),
+    /UNIQUE constraint failed/
   );
 });
 
