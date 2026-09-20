@@ -64,6 +64,9 @@ jobs:
       - name: Test Phase 1 browser flows
         run: npm run phase1:e2e:test
 
+      - name: Test onboarding UI browser flow
+        run: npm run test:onboarding-ui:browser
+
       - name: Validate Worker runtime syntax
         run: |
           node --experimental-strip-types --check apps/worker/src/index.ts

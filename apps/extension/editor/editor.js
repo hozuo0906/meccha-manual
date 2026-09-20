@@ -1,4 +1,6 @@
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
+import { buildContinueUrl, createHandoffMetadata, pruneExpiredHandoffs, saveHandoffMetadata } from "./handoff.js";
+import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
 const id = location.hash.slice(1);
@@ -11,6 +13,10 @@ const steps = document.querySelector("#steps");
 const detail = document.querySelector("#detail");
 const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
+const outputGate = document.querySelector("#outputGate");
+const startRegistration = document.querySelector("#startRegistration");
+const gateStatus = document.querySelector("#gateStatus");
+const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
 let selectedStepId = draft.steps[0]?.id;
 
 title.value = draft.title;
@@ -23,8 +29,10 @@ async function persist(message = "この端末に保存しました。") {
   try {
     await draftStore.put(draft);
     status.textContent = message;
+    return true;
   } catch {
     status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
+    return false;
   }
 }
 
@@ -132,5 +140,41 @@ addStepButton.addEventListener("click", async () => {
   render();
 });
 for (const field of [title, description]) field.addEventListener("input", () => persist());
-document.querySelector("#save").addEventListener("click", () => { status.textContent = "保存・共有・PDF出力のログイン連携は次の段階で実装します。下書きはこの端末に残っており、外部へ送信されていません。"; });
+function updateRegistrationAvailability() {
+  const origin = getOnboardingOrigin();
+  startRegistration.disabled = !origin;
+  if (!origin) gateStatus.textContent = pendingRegistrationMessage;
+  return origin;
+}
+
+document.querySelector("#save").addEventListener("click", async () => {
+  if (!await persist("この端末に保存しました。登録画面へ進むか、編集に戻れます。")) {
+    gateStatus.textContent = "保存に失敗したため、登録画面へ進めません。編集内容を確認して再試行してください。";
+    return;
+  }
+  gateStatus.textContent = "";
+  if (typeof outputGate.showModal === "function") outputGate.showModal();
+  else outputGate.hidden = false;
+  updateRegistrationAvailability();
+});
+startRegistration.addEventListener("click", async () => {
+  const origin = updateRegistrationAvailability();
+  if (!origin) return;
+  startRegistration.disabled = true;
+  gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
+  try {
+    await pruneExpiredHandoffs();
+    const metadata = createHandoffMetadata(draft.id, "save");
+    await saveHandoffMetadata(metadata);
+    await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId) });
+    gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
+    outputGate.close();
+  } catch (error) {
+    gateStatus.textContent = error?.message === "HANDOFF_STORAGE_UNAVAILABLE"
+      ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
+      : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
+  } finally {
+    if (getOnboardingOrigin()) startRegistration.disabled = false;
+  }
+});
 render();

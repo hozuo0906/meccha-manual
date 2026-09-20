@@ -87,3 +87,17 @@ Issue #176のM1〜M4で実装・検証済みのAccess JWT、identity、workspace
 旧Supabase/Postgres Phase 1/2実装は移行前baselineであり、D1合格証跡としては使用しない。
 
 商用MVPではCloudflare移行の完了数そのものではなく、guest captureからoutput完了までの利用者価値縦切りと必要なserver安全境界をProduct優先度とする。
+
+## B登録UIスライスの状態
+
+FR-001、FR-002、FR-022のB範囲（output gate、handoff metadata、同一operationIdのbootstrap retry、local原本保持）は実装対象とする。Access環境未準備の限定版では、Web画面を安全な準備中表示で停止し、実環境の認証・bootstrap成功を検証済みとは扱わない。guest本文のclaim、asset transfer、完了通知、元outputの再開はC以降の未完了範囲である。
+### B handoff期限の受入境界
+
+FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複fragmentの保存値フォールバック拒否、handoff訪問時刻を起点とする15分TTL、期限切れ後の追加request・operationId再発行0回を、`tests/onboarding-ui-browser.test.mjs` の実ブラウザ回帰テストで検証する。期限内の503後reloadは同一operationIdを再利用する既存テストを維持する。
+### B handoff history retention
+
+同一タブのhandoff履歴、期限切れtombstone、active pointer、旧単一record移行、保存失敗時の副作用0を `tests/onboarding-ui-browser.test.mjs` の実Chrome回帰で検証する。履歴はsessionStorage存続中だけを保証し、容量上限で既存entryを削除してoperationを再発行しない。
+
+### B期限切れ観測時の保存境界
+
+実ブラウザ回帰では、fragment付きページとfragmentなし再読込の両方で、TTL経過後のクリックをAPIへ送信せず、対象entryを`expired` tombstoneとして保存すること、時計を戻した同一ページ・再読込・同じhandoff再訪でも操作を再開しないことを確認する。`sessionStorage`の保存に失敗した場合は当該ページをfail closedにし、既存履歴を置換せず、永続化成功を主張しない。

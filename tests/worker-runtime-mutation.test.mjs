@@ -56,6 +56,7 @@ async function loadMutatedWorker(name, replacements) {
   await Promise.all([
     writeFile(indexPath, source, "utf8"),
     writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),
+    writeFile(join(directory, "onboarding-assets.ts"), await readFile("apps/worker/src/onboarding-assets.ts", "utf8"), "utf8"),
     writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8"),
     writeFile(join(directory, "access-identity.ts"), await readFile("apps/worker/src/access-identity.ts", "utf8"), "utf8"),
     ...["d1-errors.ts", "d1-types.ts", "identity-repository.ts", "workspace-repository.ts", "onboarding-repository.ts"].map(async (file) =>

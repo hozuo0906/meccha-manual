@@ -209,6 +209,16 @@ Activationは次を満たした時点とする。
 
 4ロール、席数、監査UIを初回体験の中心に置かない。
 
+## B登録UIスライス（実装範囲）
+
+output gateは、編集内容を明示的に確認してから登録画面へ進む。取消時は編集中の値と拡張機能のlocal原本を保持する。
+
+登録画面へ進む場合、拡張機能は本文・画像・認証情報を送らず、256bit相当のhandoff識別子とlocal draftの参照情報だけを拡張機能のlocal領域へ保持する。handoff識別子は許可済み正式originのURL fragmentにだけ置く。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して登録をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。正式originまたはAccess環境が未準備の限定配布版では登録操作を無効化し、日本語の準備中表示に留める。
+
+認証後のWeb画面は同一originの`POST /api/onboarding/bootstrap`へ`operationId`だけを送る。成功表示は保存先の準備完了に限り、手順書が保存・claim・共有されたとは表示しない。401、403、429、503、応答消失ではlocal原本を保持し、metadataがTTL内である限り同じ`operationId`で再試行できる。TTL経過後は再試行せず、拡張機能で新しいhandoffを発行する。
+
+このスライスではguest本文のclaim、画像upload、元のsave/share/PDFの再開、Webから拡張機能への完了通知を実装完了と扱わない。これらはC以降の受入条件である。
+
 ## セキュリティ境界
 
 オンボーディング簡素化を理由に次を弱めない。

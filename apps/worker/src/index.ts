@@ -6,6 +6,7 @@ import { D1OnboardingRepository } from "./infra/d1/onboarding-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
+import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings {
@@ -2247,6 +2248,17 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   verifySameOriginWrite(request);
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
+  if (request.method === "GET" && url.pathname === "/onboarding/continue") {
+    const bootstrapEnabled = url.origin === "https://meccha-manual.meccha-iiyatsu.com"
+      && inspectAccessConfig(env).configured && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
+    return htmlResponse(renderOnboardingContinuePage({ bootstrapEnabled }));
+  }
+  if (request.method === "GET" && url.pathname === "/assets/onboarding.css") {
+    return assetResponse(ONBOARDING_CSS, "text/css; charset=utf-8", false);
+  }
+  if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
+    return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
+  }
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
   if (request.method === "GET" && url.pathname === "/assets/app.css") {
     return assetResponse(APP_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
