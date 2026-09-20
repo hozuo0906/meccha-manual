@@ -62,10 +62,14 @@ function count(table) { return database.prepare(`SELECT count(*) AS n FROM ${tab
 async function request(body = { operationId: operation }, claims = {}, headers = {}) {
   const token = await new SignJWT({ type: "app", sub: actor.subject, ...claims }).setProtectedHeader({ alg: "RS256", kid: "bootstrap" })
     .setIssuer(issuer).setAudience("bootstrap-tests").setIssuedAt().setExpirationTime("5m").sign(privateKey);
-  return new Request("https://app.example.invalid/api/onboarding/bootstrap", {
-    method: "POST", headers: { origin: "https://app.example.invalid", "content-type": "application/json", "Cf-Access-Jwt-Assertion": token, ...headers },
+  const requestHeaders = new Headers({ origin: "https://app.example.invalid", "content-type": "application/json", "cf-connecting-ip": "198.51.100.10", "Cf-Access-Jwt-Assertion": token });
+  for (const [name, value] of Object.entries(headers)) requestHeaders.set(name, value);
+  const input = new Request("https://app.example.invalid/api/onboarding/bootstrap", {
+    method: "POST", headers: requestHeaders,
     body: JSON.stringify(body)
   });
+  Object.defineProperty(input, "cf", { value: { colo: "NRT", asn: 64500 }, configurable: true });
+  return input;
 }
 
 test("first authenticated bootstrap provisions the complete atomic result; replay preserves createdIdentity", async () => {
@@ -96,6 +100,32 @@ test("direct storage rejects malformed operation IDs even outside the repository
     insert.run(saved.application_id, valid, saved.workspace_id, 0, saved.created_at);
   }
   assert.equal(count("onboarding_bootstrap_operations"), 4);
+});
+
+test("direct storage rejects signup events without a created identity operation on insert and update", async () => {
+  await repository.bootstrap(actor, operation);
+  const saved = database.prepare("SELECT * FROM onboarding_bootstrap_operations WHERE operation_id=?").get(operation);
+  const zeroOperation = "bootstrap-zero-identity";
+  database.prepare("INSERT INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)")
+    .run(saved.application_id, zeroOperation, saved.workspace_id, 0, saved.created_at);
+  const eventInsert = database.prepare("INSERT INTO onboarding_signup_events VALUES (?, 'signup_completed', ?, ?, ?, ?)");
+  assert.throws(
+    () => eventInsert.run("event-zero-identity", saved.application_id, zeroOperation, saved.workspace_id, saved.created_at),
+    /signup event requires created identity operation/
+  );
+  const event = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get(operation);
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_signup_events SET operation_id=? WHERE event_id=?").run(zeroOperation, event.event_id),
+    /signup event requires created identity operation/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_bootstrap_operations SET created_identity=0 WHERE operation_id=?").run(operation),
+    /bootstrap created identity is immutable/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_bootstrap_operations SET workspace_id=? WHERE operation_id=?").run("other-workspace", operation),
+    /bootstrap operation identity is immutable/
+  );
 });
 
 test("parallel distinct operations converge to one workspace and one signup event", async () => {
@@ -166,11 +196,51 @@ test("service actors, cross-origin requests and guest payload fail without write
 });
 
 test("rate limit denial and unavailable bindings fail closed without provisioning", async () => {
-  env.ONBOARDING_RATE_LIMITER.limit = async () => ({ success: false });
+  const keys = [];
+  env.ONBOARDING_RATE_LIMITER.limit = async ({ key }) => { keys.push(key); return { success: false }; };
   const limited = await worker.fetch(await request(), env, {});
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("retry-after"), "60");
+  assert.equal(keys.length, 1);
+  assert.match(keys[0], /^actor:[a-f0-9]{64}$/);
+  assert.doesNotMatch(keys[0], /198\.51\.100\.10/);
+  const missingSignal = await request();
+  missingSignal.headers.delete("cf-connecting-ip");
+  assert.equal((await worker.fetch(missingSignal, env, {})).status, 503);
+  const workerSubrequest = await request(undefined, {}, { "CF-Worker": "app.example.invalid" });
+  assert.equal((await worker.fetch(workerSubrequest, env, {})).status, 503);
   delete env.ONBOARDING_RATE_LIMITER;
   assert.equal((await worker.fetch(await request(), env, {})).status, 503);
   assert.equal(count("identities"), 0);
+});
+
+test("bootstrap applies independent actor and connection rate limits", async () => {
+  const keys = [];
+  env.ONBOARDING_RATE_LIMITER.limit = async ({ key }) => { keys.push(key); return { success: true }; };
+  assert.equal((await worker.fetch(await request(), env, {})).status, 200);
+  assert.equal(keys.length, 2);
+  assert.match(keys[0], /^actor:[a-f0-9]{64}$/);
+  assert.match(keys[1], /^connection:[a-f0-9]{64}$/);
+  assert.notEqual(keys[0], keys[1]);
+});
+
+test("connection signal requires Cloudflare provenance and canonicalizes IPv6", async () => {
+  const keys = [];
+  env.ONBOARDING_RATE_LIMITER.limit = async ({ key }) => { keys.push(key); return { success: true }; };
+  const full = await request({ operationId: "bootstrap-ipv6-full" }, {}, { "CF-Connecting-IP": "2001:0DB8:0:0:0:0:0:1" });
+  assert.ok(full.cf);
+  assert.equal(full.headers.get("CF-Connecting-IP"), "2001:0DB8:0:0:0:0:0:1");
+  assert.equal(full.headers.has("CF-Worker"), false);
+  const fullResponse = await worker.fetch(full, env, {});
+  assert.equal(fullResponse.status, 200, await fullResponse.text());
+  const compressed = await request({ operationId: "bootstrap-ipv6-compressed" }, {}, { "CF-Connecting-IP": "2001:db8::1" });
+  assert.equal((await worker.fetch(compressed, env, {})).status, 200);
+  assert.equal(keys[1], keys[3]);
+  for (const value of [":::1", ":1::"]) {
+    const invalid = await request({ operationId: `bootstrap-invalid-${value.replace(/[^A-Za-z0-9]/g, "")}` }, {}, { "CF-Connecting-IP": value });
+    assert.equal((await worker.fetch(invalid, env, {})).status, 503);
+  }
+  const noProvenance = await request({ operationId: "bootstrap-no-cf-provenance" });
+  Object.defineProperty(noProvenance, "cf", { value: undefined });
+  assert.equal((await worker.fetch(noProvenance, env, {})).status, 503);
 });

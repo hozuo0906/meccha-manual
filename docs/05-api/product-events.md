@@ -40,6 +40,8 @@ email、display name、URL、ページtitle、DOM text、target text、raw error
 
 `signup_completed`はapplication identityを新規作成したatomic bootstrap operationだけが生成できる。clientから同名eventを直接自己申告できず、returning login、既存identityへのbootstrap再送、claim再試行では生成しない。event記録の一意制約または同等のidempotent writeで、response lossやretryによる二重eventを防ぐ。server-generated envelopeにも本書のprivacy allowlistを適用する。
 
+D1の`onboarding_signup_events`は、`created_identity = 1`の同一bootstrap operationに紐づくapplication／workspaceだけをtriggerで受け付ける。直接insertや既存eventの関連先updateでこの条件を迂回できない。
+
 ## `capture_failed.errorCategory`
 
 `capture_failed` では原因分析用に `errorCategory` を必須とし、次の値だけを許可する。
