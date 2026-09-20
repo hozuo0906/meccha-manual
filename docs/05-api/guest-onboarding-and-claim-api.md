@@ -85,6 +85,8 @@ extensionはsender origin、handoffId、完了対象local draftを再検証し�
 
 ユーザー名、workspace名、roleをclientから必須入力させない。Personal Workspaceの内部名／slugはserverで決定し、初回UXへ露出しなくてよい。
 
+S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・`-`に限定し、他fieldを拒否する。`DB`と`ONBOARDING_RATE_LIMITER` bindingが不足すると503で書込み前に停止する。rate limitはCloudflareの`request.cf` provenanceがあり、Worker subrequestを示す`CF-Worker`が無い受信requestだけを対象に、検証済みissuer+subjectとCloudflare edgeが付与する単一の`CF-Connecting-IP`（Pseudo IPv4で保存された場合は`CF-Connecting-IPv6`）を正規化してそれぞれ別namespaceのSHA-256 keyへ変換し、双方へ適用する。接続元signalの欠落・不正、またはlimiterの不明な結果は503で書込み前に停止し、拒否時は429と`Retry-After: 60`を返す。raw IPと識別子はログへ保存しない。binding設定とstagingへのmigration適用は別のdeploy手順であり、API実装だけで有効化済みとは扱わない。
+
 ### atomic operation
 
 次を単一のD1 atomic operation/batchとして扱う。
@@ -118,7 +120,9 @@ extensionはsender origin、handoffId、完了対象local draftを再検証し�
 
 `createdIdentity`はserver-sideのatomic bootstrap結果から決定し、そのbootstrap operationがapplication identityを新規作成した場合だけ`true`とする。同じoperationの冪等再送では元の結果を返し、別operationによる既存identityのlogin、既存Personal Workspace取得、claimだけの再試行では`false`とする。client申告で上書きできない。既存利用者の場合も同じshapeを返す。
 
-`signup_completed`はbootstrap処理がidentityを新規作成したときだけserverがexactly-onceで記録する。responseを受けたclientからは発行せず、bootstrap再送やresponse lossで二重記録しない。serverは固定namespace、event type、actor identity、bootstrap operationIdから決定的なeventIdを生成し、identity作成を確定したserver-side timestampをoccurredAtとする。同じoperationのretryでは同じeventIdを使う。
+`signup_completed`はbootstrap処理がidentityを新規作成したときだけserverがexactly-onceで記録する。responseを受けたclientからは発行せず、bootstrap再送やresponse lossで二重記録しない。serverは固定namespace、event type、actor identity、bootstrap operationIdから決定的なeventIdを生成し、identity作成を確定したserver-side timestampをoccurredAtとする。同じoperationのretryでは同じeventIdを使う。D1のoperation結果とsignup eventはappend-onlyで、挿入置換、別identity・workspace・operationへの関連先変更、削除を許可しない。冪等retryは既存rowを挿入しない形で同じ結果を返す。
+
+`createdIdentity=true` の operation は、同じ application identity の `identities.created_at` と operation の authoritative `created_at` が一致し、identity作成を示すoperationがidentityごとに一意である場合だけ保存する。既存 identity の login／bootstrap retry は `false` のままで、異なる時刻を直接指定した偽 signup は D1 trigger で拒否する。既存identityの作成時刻にoperation時刻を合わせた直接挿入を、この単純なDB境界だけで過去の正規作成と区別することはできないため、DB writer自体を信頼境界の外へ公開しない。
 
 ## 2. Guest draft claim intent
 

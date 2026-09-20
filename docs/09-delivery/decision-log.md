@@ -4,6 +4,7 @@ Status: Accepted
 
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
+| DEC-074 | 2026-09-20 | bootstrapの`created_identity=1`はidentity作成時刻と一致するoperationに限定し、identityごとに一意化 | `onboarding_bootstrap_operations`のD1 trigger／partial unique indexで、直接挿入・偽signup・並行再送の境界を検査する。既存identityの作成時刻を知るDB writerによる歴史的挿入までをこの境界だけで証明しない。 |
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |
 | DEC-003 | 2026-07-31 | Supabaseを使う（DEC-064でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |
@@ -304,3 +305,28 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 表示由来の個人情報をlocal draftへ持ち込まず、storageの一時障害でnavigationを失わず、未知scroll baselineを0と仮定した誤記録を避けるため。
 - Boundary:
   - 入力値、秘密値、URL、ページ文字列はfallbackへ含めない。fallbackは現在の1セッション内に保持し、成功保存または終了で破棄する。本変更でイベント件数上限は新設せず、外部APIと追加依存は導入しない。worker終了後の完全durabilityは保証しない。
+
+## DEC-072: Bootstrap Product Event envelopeをD1のoperation結果から決定する
+
+- Status: Accepted
+- Date: 2026-09-20
+- Decision:
+  - `signup_completed`の`event_id`は固定namespace、event type、既存application identity IDの長さ、application identity ID、bootstrap `operation_id`をlength-delimitedに連結した値とする。application identityはTEXTとして既存境界を維持し、operation IDのASCII allowlistと長さ区切りで連結の曖昧性を防ぐ。
+  - `occurred_at`はbootstrap operationの`created_at`と同じserver-side authoritative timestampとし、D1 triggerでinsert/update時に一致を検証する。operationの`created_at`は後から変更できない。
+- Reason:
+  - event IDをactorの外部識別子やclient入力から生成せず、D1に確定保存したapplication identityとoperation結果から再送時も同じ値にする。DB trigger自身がenvelopeを再計算できるため、直接D1書込みでも別ID・別timestampを保存できない。
+- Boundary:
+  - 対象はS2 onboarding bootstrapの`onboarding_signup_events`だけであり、client-generated Product Eventの契約は変更しない。D1 migrationの追加・編集だけではremote環境への適用済みを意味しない。
+
+## DEC-073: Bootstrap operationとsignup eventのtenant／append-only境界をD1で固定する
+
+- Status: Accepted
+- Date: 2026-09-20
+- Decision:
+  - `onboarding_bootstrap_operations`への保存は、application identityがworkspaceの`created_by`であり、workspaceがactiveなPersonal Workspaceで、同じidentityのactive owner membershipが存在する場合だけ許可する。独立したforeign keyだけではcross-tenant、standard workspace、owner不一致を防げないため、D1 triggerで拒否する。
+  - operation結果と`onboarding_signup_events`はappend-onlyとし、削除を拒否する。signup eventのapplication／operation／workspaceは確定後に別bootstrap operationへ移動できない。
+  - SQLiteの`INSERT OR REPLACE`がDELETE triggerの設定差で既存rowを置換できないよう、既存operation／event keyへのBEFORE INSERTを拒否する。Workerの同一operation再送は`WHERE NOT EXISTS`で挿入文を空振りさせ、既存結果を照合して返す。
+- Reason:
+  - bootstrapの確定結果を別tenantのworkspaceへ直接挿入・移動・削除して再送判定を変えられないようにし、`createdIdentity`とserver-generated eventのexactly-once結果を保持する。
+- Boundary:
+  - 対象はS2 onboarding bootstrapの2 tableとそれらが参照する既存identity／workspace／membershipの整合性だけである。既存のworkspace identity、workspace kind、owner保護triggerを再定義しない。remote D1へのmigration適用やproduction変更は含まない。

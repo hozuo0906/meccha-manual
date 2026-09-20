@@ -42,6 +42,10 @@ FR-001 / FR-002の商用MVPは、従来の `SCR-WORKSPACE -> POST /api/workspace
 
 既存の手動workspace作成APIはTeam/管理用途や既存動作として残してよいが、初回Activationの前提にしない。
 
+FR-001 / FR-002 の atomic bootstrap の保存境界は、D1 migration `0003_d1_onboarding_bootstrap.sql` の `onboarding_bootstrap_operations`（application identity、operation、Personal Workspace、`created_identity`、identity作成時刻との一致、identity作成を示すoperationの一意性）と、`onboarding_signup_events`（server生成 `signup_completed`）で固定する。正常な初回作成、同一operation再送、異なるoperationの並行再送、失敗時rollbackは `tests/onboarding-bootstrap.test.mjs` と `tests/d1-binding.test.mjs` で検証する。
+
+FR-017 は同じoperationの結果からserverが生成する `onboarding_signup_events` を対象とし、event ID・operation ID・workspace・authoritative timestampの一致、created identity以外からの直接挿入、envelope改変・削除を同migrationのD1 triggerと `tests/onboarding-bootstrap.test.mjs` で検証する。product eventの命名・payload正本は `docs/05-api/product-events.md` に従う。
+
 ## Product Event
 
 FR-017およびProduct KPIのイベント名称、発行条件、payload、重複排除は `docs/05-api/product-events.md` を唯一の正本とする。

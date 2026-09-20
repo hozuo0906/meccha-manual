@@ -36,9 +36,11 @@ email、display name、URL、ページtitle、DOM text、target text、raw error
 
 ### Server-generated event envelope
 
-`signup_completed`等をserverが業務operationから発行する場合、client-generated `eventId`や`occurredAt`を要求・受理しない。serverは`eventType + actorIdentity + operationId`をserver固定namespaceへ入力した決定的な方法で`eventId`を生成し、同じbusiness operationのretryでは同一IDにする。`occurredAt`はidentity作成を確定したserver-side authoritative timestampとする。
+`signup_completed`等をserverが業務operationから発行する場合、client-generated `eventId`や`occurredAt`を要求・受理しない。serverはevent typeを含む固定namespaceと既存のapplication identity ID、operation IDをlength-delimitedに連結した決定的な方法で`eventId`を生成し、同じbusiness operationのretryでは同一IDにする。`signup_completed`の形式は`meccha-manual:onboarding:v1:signup_completed:<application_id_length>:<application_id>:<operation_id>`とし、`operationId`のASCII allowlistと区切り文字によって連結の曖昧性を防ぐ。`occurredAt`はidentity作成を確定したserver-side authoritative timestampとする。
 
 `signup_completed`はapplication identityを新規作成したatomic bootstrap operationだけが生成できる。clientから同名eventを直接自己申告できず、returning login、既存identityへのbootstrap再送、claim再試行では生成しない。event記録の一意制約または同等のidempotent writeで、response lossやretryによる二重eventを防ぐ。server-generated envelopeにも本書のprivacy allowlistを適用する。
+
+D1の`onboarding_signup_events`は、operation identityがそのapplication identityのactive Personal Workspaceとactive owner membershipに一致し、`created_identity = 1`の同一bootstrap operationに紐づく場合だけ保存する。`event_id`と`occurred_at`がそのoperationから決まる値と一致する場合だけ保存し、eventの関連先変更、挿入置換、削除を拒否する。operationの`created_at`と結果行もimmutable／append-onlyとし、同じoperationの冪等再送は既存rowを挿入しないクエリで扱い、直接insertや既存eventのenvelope updateでこの条件を迂回できない。
 
 ## `capture_failed.errorCategory`
 

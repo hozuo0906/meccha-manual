@@ -2,7 +2,13 @@
 
 Status: Accepted
 
+## S2 bootstrap追加schema
+
+`migrations/0003_d1_onboarding_bootstrap.sql`はactor+operation単位の確定結果を`onboarding_bootstrap_operations`へ保持し、operationのapplication identityがそのworkspaceの`created_by`であるactiveなPersonal Workspaceとactive owner membershipに一致する場合だけ保存する。`created_identity`と`created_at`を再送時も変更せず、operation結果はappend-onlyで挿入置換と削除を拒否する。`operation_id`はTEXT型を強制し、16〜128文字のASCII英数字・`_`・`-`だけを保存する。`onboarding_signup_events`はapplication identityごとに一意で、identity新規作成時だけ同じD1 batch内で記録する。D1 triggerはsignup eventのapplication／operation／workspaceが`created_identity = 1`の同一bootstrap結果に一致し、`event_id`が固定namespace・event type・application ID長・application ID・operation IDのlength-delimited値、`occurred_at`がoperationの`created_at`と一致する場合だけinsert/updateを許可する。eventのapplication／operation／workspaceは確定後変更できず、event自体もappend-onlyで挿入置換と削除を拒否する。operationのapplication／operation／workspace／`created_identity`／`created_at`確定後変更も拒否する。本文・画像・email・Access credentialはこれらのtableへ保存しない。identity、profile、personal workspace、owner、作成audit、operation結果、signup eventは1 batchで確定する。既存disabled identity、停止・削除済みpersonal workspace、既存の非owner／非active membershipを復活させない。migration追加はremote適用の証跡ではない。
+
 このM2のmigrationはCloudflare D1の内部alpha用であり、productionや実データへ適用しない。Workerの認証済みapplication identityとworkspace所属をD1で再照合するための最小schemaである。既存のSupabase schema・migration・RLSは移行前baselineとして保持する。
+
+`created_identity = 1` のoperationは、identityの `created_at` と同じauthoritative `created_at` に限り、partial unique indexでidentityごとのidentity作成operationを一意にする。異なる時刻、active Personal Workspaceでないworkspace、identityと一致しないowner membershipからの直接insertはD1 triggerで拒否する。既存identityの作成時刻を知るDB writerによる歴史的な直接insertまでをこの境界だけで識別するものではなく、productionのDB writer権限は信頼境界の外へ公開しない。検査は `tests/onboarding-bootstrap.test.mjs` と `tests/onboarding-bootstrap-mutation.test.mjs` が担う。
 
 ## Tables
 
