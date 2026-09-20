@@ -74,7 +74,7 @@ async function main() {
     }
   }
 
-  gitBuffer("add", "--refresh", "--", ...migrationPaths);
+  gitBuffer("add", "--renormalize", "--", ...migrationPaths);
   for (const plan of plans) {
     const index = gitBuffer("cat-file", "blob", `:${plan.migrationPath}`);
     if (!index.equals(plan.index)) {

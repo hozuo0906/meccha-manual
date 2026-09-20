@@ -37,7 +37,7 @@ remote D1 migrationは次の順番を守る。
 node scripts/normalize-d1-migrations.mjs
 ```
 
-この手順は対象migrationのdirty状態を最初に確認し、現行のLF-normalizedな`HEAD`およびindex blobとworking treeの意味が一致することを全件確認した後、Git blob由来のLF bytesを書き戻す。HEADまたはindexにCRLF・別内容がある場合は書き換えず停止する。書き戻し後は対象3本を個別にindexのstat refreshし、index blobが変わらずGit statusがcleanであることを確認する。完了メッセージとCRLF検査を確認してからremote migrationを実行する。
+この手順は対象migrationのdirty状態を最初に確認し、現行のLF-normalizedな`HEAD`およびindex blobとworking treeの意味が一致することを全件確認した後、Git blob由来のLF bytesを書き戻す。HEADまたはindexにCRLF・別内容がある場合は書き換えず停止する。書き戻し後は対象3本を個別に`git add --renormalize -- <3 paths>`へ渡して属性変更後のindex状態を更新し、index blobが変わらずGit statusがcleanであることを確認する。事前に内容を固定比較し、通常のstage対象は3本に限定する。完了メッセージとCRLF検査を確認してからremote migrationを実行する。
 
 ## owner pilot gate
 
