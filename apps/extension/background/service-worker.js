@@ -12,6 +12,10 @@ const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 
+function clearReinjectionFailureMarker(sessionId) {
+  if (sessionId && sessionId === reinjectionFailureSessionId) reinjectionFailureSessionId = null;
+}
+
 function serializeSessionOperation(task) {
   const run = sessionOperation.then(task, task);
   sessionOperation = run.catch(() => undefined);
@@ -26,6 +30,7 @@ async function persistRecoveryJournal(sessionId, events = [], phase) {
   const current = await readRecoveryJournal();
   const next = nextRecoveryJournal(current, { sessionId, events, phase });
   await chrome.storage.local.set({ [RECOVERY_KEY]: next });
+  if (phase && phase !== "reinjection_failed") clearReinjectionFailureMarker(sessionId);
   return next;
 }
 
@@ -45,8 +50,13 @@ async function getSession() {
 }
 
 async function setSession(session) {
-  if (session) await chrome.storage.session.set({ [SESSION_KEY]: session });
-  else await chrome.storage.session.remove(SESSION_KEY);
+  if (session) {
+    await chrome.storage.session.set({ [SESSION_KEY]: session });
+    if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
+  } else {
+    await chrome.storage.session.remove(SESSION_KEY);
+    clearReinjectionFailureMarker(reinjectionFailureSessionId);
+  }
 }
 
 async function measureViewport(tabId) {

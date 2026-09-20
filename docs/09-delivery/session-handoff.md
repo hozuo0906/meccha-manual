@@ -181,7 +181,8 @@ Status: Accepted
 最新のowner指示はChrome Extension／guest-first方針でPR #245のS1統合からS2保存・ログイン連携へ進めること。旧PR #223はmainへmerge済みであり、旧M4を先行させない。
 
 - PR #245の基準head `a9eccc88661bb171590708f3a733b4c65228f4bf` に対するreview 5205315585の3件を修正。入力欄切替とscroll container切替の未ACKイベントをfinishまで保持し、closed shadow hostのマスクをsubtree全体に効くopacityへ変更した。
-- 追加した実recorderのVM回帰テストを含め `npm run extension:test` は38件成功。docs、brand、Worker静的検査、Worker型検査も成功。Windowsの既存 `spawnSync wrangler.cmd EINVAL` によりローカル `npm run check` はbundle段階で停止しており、全体成功とは扱わない。
+- 追加review 4028320592の指摘に対し、navigation時の再注入失敗markerを保存領域の失敗時にも同一service worker内のfallbackとして保持し、finish_failedなど後続phaseの永続化に成功した時点で解除する回帰修正を行う。再注入失敗後の終了失敗からsmartphone/tablet再試行までのservice worker VM回帰を追加した。
+- 追加したservice workerのVM回帰テストを含め `npm run extension:test` は52件成功。今回の `npm run check` は `docs:check` 成功後、既存のbrand `_headers` cache rule不足で停止したため、brand以降は未実施で全体成功とは扱わない。
 - この記録を含む最新SHAのCI、review、unresolved thread、merge状態はPR #245で確認する。S2、staging deploy、公開URL smokeはまだ完了していない。
 - 次はS1のexact-head品質ゲートを満たして統合し、Issue #228のsecure handoff／bootstrap／claimを実装する。S1を保存・共有・PDFまで完成したMVPとは扱わない。
 

@@ -55,6 +55,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - MVP capture runtimeはChrome拡張のみ。
 - PC / smartphone / tabletの3表示モードを必須とする。
 - smartphone / tabletはdesktop Chrome responsive viewportで実現する。
+- 終了失敗後の再試行では永続化された`finish_failed` phaseを正として、選択済みのsmartphone / tablet responsive viewportを再適用してscreenshotを生成する。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
 

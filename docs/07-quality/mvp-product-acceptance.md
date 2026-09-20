@@ -12,7 +12,7 @@ Chrome拡張オンリー、PC/スマホ/タブレット表示、guest-first onbo
 |---|---|---|---|
 | MVP-AC-001 | Chrome拡張未導入のguest | LPから最初のmanual作成を開始する | アカウント登録を先に要求せず、Chrome拡張導入へ進める |
 | MVP-AC-002 | 拡張導入済みguest | PC表示で記録を開始する | 利用者の明示操作により現在タブだけが記録対象となり、別タブを勝手に収集しない |
-| MVP-AC-003 | 拡張導入済みguest | smartphoneまたはtablet表示を選ぶ | original window id／bounds／stateを永続sessionへ保存し、normalへtransition後responsive viewportへ調整する。portrait/landscapeで記録でき、終了・取消・失敗・target tab close・service worker suspension後も元bounds／stateへ戻る |
+| MVP-AC-003 | 拡張導入済みguest | smartphoneまたはtablet表示を選ぶ | original window id／bounds／stateを永続sessionへ保存し、normalへtransition後responsive viewportへ調整する。portrait/landscapeで記録でき、終了・取消・失敗・target tab close・service worker suspension後も元bounds／stateへ戻る。終了失敗後の再試行でも選択したresponsive viewportでscreenshotを生成する |
 | MVP-AC-004 | guest記録中 | password、カード、token、個人番号、Cookie、Authorization等を扱う | 入力値・秘密値はguest local data、Product Event、D1、R2、ログへ保存されない |
 | MVP-AC-005 | guest | 記録を終了する | ローカルだけで編集可能なmanual draftが生成され、D1/R2 writeは0回のまま |
 | MVP-AC-006 | guest local draftがある | タイトル・説明・step・並べ替え・マスキングを編集する | アカウント作成なしで編集内容をローカル保持できる |
