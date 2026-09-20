@@ -5,6 +5,7 @@ export const ONBOARDING_JS = `(() => {
   const status = document.querySelector("#status");
   const button = document.querySelector("#bootstrap");
   const operationKey = "meccha-manual:onboarding-operation";
+  const STORAGE_VERSION = 2;
   const configured = root?.dataset.bootstrapEnabled === "true";
   const fragmentParams = new URLSearchParams(location.hash.slice(1));
   const fragmentValues = fragmentParams.getAll("handoff");
@@ -16,7 +17,40 @@ export const ONBOARDING_JS = `(() => {
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   const HANDOFF_TTL_MS = 15 * 60 * 1000;
   function isFresh(value, now = Date.now()) { const createdAt = Date.parse(value?.createdAt || ""); return Number.isFinite(createdAt) && now - createdAt >= 0 && now - createdAt <= HANDOFF_TTL_MS; }
-  function readSaved() { try { return JSON.parse(sessionStorage.getItem(operationKey) || "null"); } catch { return null; } }
+  function validOperationId(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
+  function validCreatedAt(value) { return Number.isFinite(Date.parse(value || "")); }
+  function isLegacyRecord(value) { return value && typeof value === "object" && !Array.isArray(value) && value.version === undefined && validHandoff(value.handoffId) && validOperationId(value.operationId) && validCreatedAt(value.createdAt); }
+  function metadataFor(state) { return state.entries.find((entry) => entry.handoffId === state.activeHandoffId) || null; }
+  function readSaved(now = Date.now()) {
+    let raw;
+    try { raw = sessionStorage.getItem(operationKey); } catch { return { ok: false, state: null, needsWrite: false }; }
+    if (raw === null) return { ok: true, state: null, needsWrite: false };
+    let value;
+    try { value = JSON.parse(raw); } catch { return { ok: false, state: null, needsWrite: false }; }
+    if (isLegacyRecord(value)) {
+      const expired = !isFresh(value, now);
+      const state = { version: STORAGE_VERSION, activeHandoffId: expired ? null : value.handoffId, entries: [{ handoffId: value.handoffId, operationId: value.operationId, createdAt: value.createdAt, state: expired ? "expired" : "active" }] };
+      return { ok: true, state, needsWrite: true };
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value) || value.version !== STORAGE_VERSION || !Array.isArray(value.entries) || value.entries.length === 0 || !(value.activeHandoffId === null || validHandoff(value.activeHandoffId))) return { ok: false, state: null, needsWrite: false };
+    const handoffs = new Set();
+    const operations = new Set();
+    for (const entry of value.entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry) || !validHandoff(entry.handoffId) || !validOperationId(entry.operationId) || !validCreatedAt(entry.createdAt) || (entry.state !== "active" && entry.state !== "expired") || handoffs.has(entry.handoffId) || operations.has(entry.operationId)) return { ok: false, state: null, needsWrite: false };
+      handoffs.add(entry.handoffId);
+      operations.add(entry.operationId);
+    }
+    if (value.activeHandoffId === null && value.entries.some((entry) => entry.state === "active")) return { ok: false, state: null, needsWrite: false };
+    const state = { version: STORAGE_VERSION, activeHandoffId: value.activeHandoffId, entries: value.entries.map((entry) => ({ ...entry })) };
+    const mirror = metadataFor(state);
+    if (value.activeHandoffId !== null && !mirror) return { ok: false, state: null, needsWrite: false };
+    let needsWrite = false;
+    for (const entry of state.entries) {
+      if (entry.state === "active" && !isFresh(entry, now)) { entry.state = "expired"; needsWrite = true; }
+    }
+    return { ok: true, state, needsWrite };
+  }
+  function persistState(state) { try { sessionStorage.setItem(operationKey, JSON.stringify(state)); return true; } catch { return false; } }
   let capturedContext;
   let capturedContextInitialized = false;
   function initializeCapturedContext() {
@@ -24,29 +58,68 @@ export const ONBOARDING_JS = `(() => {
     capturedContextInitialized = true;
     if (!hasFragment || !validHandoff(fragmentHandoff)) return null;
     const saved = readSaved();
-    if (saved?.handoffId === fragmentHandoff) {
-      if (isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId)) capturedContext = saved;
+    if (!saved.ok) return null;
+    let state = saved.state;
+    if (saved.needsWrite && (!state || !persistState(state))) return null;
+    if (!state) {
+      try {
+        const now = Date.now();
+        const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active" };
+        state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
+        if (!persistState(state)) return null;
+        capturedContext = entry;
+      } catch { capturedContext = null; }
+      return capturedContext;
+    }
+    const existing = state.entries.find((entry) => entry.handoffId === fragmentHandoff);
+    if (existing) {
+      if (existing.state !== "active" || !isFresh(existing)) {
+        if (state.activeHandoffId !== fragmentHandoff) {
+          state.activeHandoffId = fragmentHandoff;
+          if (!persistState(state)) return null;
+        }
+        return null;
+      }
+      if (state.activeHandoffId !== fragmentHandoff) {
+        state.activeHandoffId = fragmentHandoff;
+        if (!persistState(state)) return null;
+      }
+      capturedContext = existing;
       return capturedContext;
     }
     try {
       const now = Date.now();
-      capturedContext = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString() };
-      sessionStorage.setItem(operationKey, JSON.stringify(capturedContext));
+      const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active" };
+      state.entries.push(entry);
+      state.activeHandoffId = fragmentHandoff;
+      if (!persistState(state)) return null;
+      capturedContext = entry;
     } catch { capturedContext = null; }
+    return capturedContext;
+  }
+  function initializeActiveContext() {
+    if (capturedContextInitialized) return capturedContext;
+    capturedContextInitialized = true;
+    const saved = readSaved();
+    if (!saved.ok || !saved.state) return null;
+    if (saved.needsWrite && !persistState(saved.state)) return null;
+    const active = metadataFor(saved.state);
+    if (!active || active.state !== "active" || !isFresh(active)) return null;
+    capturedContext = active;
     return capturedContext;
   }
   function getHandoff() {
     if (hasFragment) return validHandoff(fragmentHandoff) && operationId() ? fragmentHandoff : null;
-    const saved = readSaved();
-    return validHandoff(saved?.handoffId) && isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId) ? saved.handoffId : null;
+    const active = initializeActiveContext();
+    return active && isFresh(active) ? active.handoffId : null;
   }
   function operationId() {
     if (hasFragment) {
       const context = initializeCapturedContext();
       return context && isFresh(context) ? context.operationId : null;
     }
-    const saved = readSaved();
-    return validHandoff(saved?.handoffId) && isFresh(saved) && /^[A-Za-z0-9_-]{43}$/.test(saved.operationId) ? saved.operationId : null;
+    const active = initializeActiveContext();
+    return active && isFresh(active) ? active.operationId : null;
   }
   if (configured && hasFragment && validHandoff(fragmentHandoff)) initializeCapturedContext();
   function setButton(label, disabled = false) { button.textContent = label; button.disabled = disabled; }

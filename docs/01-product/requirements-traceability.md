@@ -94,3 +94,6 @@ FR-001、FR-002、FR-022のB範囲（output gate、handoff metadata、同一oper
 ### B handoff期限の受入境界
 
 FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複fragmentの保存値フォールバック拒否、handoff訪問時刻を起点とする15分TTL、期限切れ後の追加request・operationId再発行0回を、`tests/onboarding-ui-browser.test.mjs` の実ブラウザ回帰テストで検証する。期限内の503後reloadは同一operationIdを再利用する既存テストを維持する。
+### B handoff history retention
+
+同一タブのhandoff履歴、期限切れtombstone、active pointer、旧単一record移行、保存失敗時の副作用0を `tests/onboarding-ui-browser.test.mjs` の実Chrome回帰で検証する。履歴はsessionStorage存続中だけを保証し、容量上限で既存entryを削除してoperationを再発行しない。

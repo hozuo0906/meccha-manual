@@ -20,4 +20,6 @@ Workerの`index.ts`へ`GET /onboarding/continue`、外部CSS/JS asset、bootstra
 - `handoff` fragmentが明示されている場合は、空値、形式不正、重複を保存済みmetadataへフォールバックせず拒否する。
 - 有効fragmentの訪問時にoperationの期限起点を固定し、初回クリックまでの待機も15分TTLに含める。
 - 同じhandoffの有効な保存済みmetadataを再訪しても、保存済みの期限起点を維持してTTLを延長しない。
+- 同一タブではhandoffごとのoperation履歴と期限切れtombstoneを保持し、A→B→AでもAのoperationを再発行しない。fragmentなし再読込はactive pointerだけを参照する。
+- 旧単一recordの検証済み移行を除き、parse・重複・保存失敗や履歴容量超過は新しいoperationを作らず副作用0で停止する。履歴保証の境界は同一タブのsessionStorage存続中とする。
 - 期限切れ後はbootstrap requestとoperationIdの再発行を0回にし、期限内のreload／応答消失だけ同じoperationIdで再試行する。
