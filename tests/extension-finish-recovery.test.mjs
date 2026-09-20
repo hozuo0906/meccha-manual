@@ -45,6 +45,7 @@ async function harness({ screenshotFails = false, localFails = true, sessionFail
   vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.status = captureStatus; globalThis.restore = retryRestore; globalThis.settle = () => sessionOperation;", context);
   await context.settle();
   return { finish: () => context.finish(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
+    journal: () => journal,
     injections, status: () => context.status(), restore: () => context.restore(),
     setScreenshotFails: (value) => { screenshotFailure = value; }, setStorageFails: (sessionValue, localValue) => {
       sessionStorageFailure = sessionValue;
@@ -86,6 +87,7 @@ test("recovered journal retains navigation fallback when session storage is stil
   capture.setStorageFails(true, false);
   const response = await capture.event({ kind: "click", at: 3, eventId: "click:1", target: { tagName: "button", ariaLabel: "保存" } });
   assert.equal(response.ok, false);
+  assert.equal(capture.journal().events.filter((event) => event.kind === "navigation").length, 1);
   capture.setStorageFails(false, false);
   await capture.finish();
   assert.equal(capture.draft().steps.filter((step) => step.kind === "navigation").length, 1);
