@@ -31,37 +31,13 @@ remote D1 migrationは次の順番を守る。
 
 ### Windows checkoutの既存migrationをLFへ正規化する手順
 
-`.gitattributes`の追加後も、既存のWindows checkoutにあるcleanなSQLは自動で書き換わらないことがある。未commitのSQLを失わないため、次のPowerShell手順をそのまま実行する。対象migrationに差分がある場合は何も書き換えず停止し、利用者が既存差分を別途保全またはcommitしてから再実行する。差分の内容をIssue、PR、ログへ記録しない。
+`.gitattributes`の追加後も、既存のWindows checkoutにあるcleanなSQLは自動で書き換わらないことがある。未commitのSQLを失わないため、リポジトリrootで次のNode手順を実行する。対象migrationに差分がある場合は何も書き換えず停止し、利用者が既存差分を別途保全またはcommitしてから再実行する。差分の内容をIssue、PR、ログへ記録しない。
 
 ```powershell
-$repo = (Get-Location).Path
-$paths = @(
-  "migrations/0001_d1_identity_workspace.sql",
-  "migrations/0002_d1_personal_workspace.sql",
-  "migrations/0003_d1_onboarding_bootstrap.sql"
-)
-$dirty = @(git status --porcelain=v1 -- $paths)
-if ($dirty.Count -gt 0) {
-  Write-Error "migration files have uncommitted changes; preserve or commit them privately, then stop"
-  exit 2
-}
-
-foreach ($path in $paths) {
-  $expected = (git rev-parse ("HEAD:" + $path)).Trim()
-  if ($LASTEXITCODE -ne 0) { throw "missing Git blob: $path" }
-  git -c core.autocrlf=false checkout-index --force -- $path
-  if ($LASTEXITCODE -ne 0) { throw "LF checkout failed: $path" }
-  $actual = (git hash-object --no-filters -- $path).Trim()
-  if ($actual -ne $expected) { throw "working tree differs from Git blob: $path" }
-  if ([IO.File]::ReadAllBytes((Join-Path $repo $path)) -contains [byte]13) {
-    throw "CRLF remains in migration: $path"
-  }
-}
-git diff --exit-code -- migrations
-if ($LASTEXITCODE -ne 0) { throw "migration diff remains after normalization" }
+node scripts/normalize-d1-migrations.mjs
 ```
 
-差分がある場合は、利用者が既存SQLを確認・commitまたは別途保全してから再実行する。`checkout-index --force`はcleanな対象だけに使い、未commit SQLへ自動適用しない。全対象でGit blob SHAと実ファイルSHAが一致し、CRLFがないことを確認してからremote migrationを実行する。
+この手順は対象migrationのdirty状態を最初に確認し、cleanな場合だけ`HEAD`のGit blobとworking treeをLFへ正規化して意味が一致することを全件確認した後、Git blob由来のLF bytesを書き戻す。歴史的にCRLFでcommitされたblobにも対応し、途中の不一致では書き換えない。完了メッセージとCRLF検査を確認してからremote migrationを実行する。
 
 ## owner pilot gate
 
