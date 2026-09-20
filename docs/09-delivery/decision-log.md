@@ -316,3 +316,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - event IDをactorの外部識別子やclient入力から生成せず、D1に確定保存したapplication identityとoperation結果から再送時も同じ値にする。DB trigger自身がenvelopeを再計算できるため、直接D1書込みでも別ID・別timestampを保存できない。
 - Boundary:
   - 対象はS2 onboarding bootstrapの`onboarding_signup_events`だけであり、client-generated Product Eventの契約は変更しない。D1 migrationの追加・編集だけではremote環境への適用済みを意味しない。
+
+## DEC-073: Bootstrap operationとsignup eventのtenant／append-only境界をD1で固定する
+
+- Status: Accepted
+- Date: 2026-09-20
+- Decision:
+  - `onboarding_bootstrap_operations`への保存は、application identityがworkspaceの`created_by`であり、workspaceがactiveなPersonal Workspaceで、同じidentityのactive owner membershipが存在する場合だけ許可する。独立したforeign keyだけではcross-tenant、standard workspace、owner不一致を防げないため、D1 triggerで拒否する。
+  - operation結果と`onboarding_signup_events`はappend-onlyとし、削除を拒否する。signup eventのapplication／operation／workspaceは確定後に別bootstrap operationへ移動できない。
+  - SQLiteの`INSERT OR REPLACE`がDELETE triggerの設定差で既存rowを置換できないよう、既存operation／event keyへのBEFORE INSERTを拒否する。Workerの同一operation再送は`WHERE NOT EXISTS`で挿入文を空振りさせ、既存結果を照合して返す。
+- Reason:
+  - bootstrapの確定結果を別tenantのworkspaceへ直接挿入・移動・削除して再送判定を変えられないようにし、`createdIdentity`とserver-generated eventのexactly-once結果を保持する。
+- Boundary:
+  - 対象はS2 onboarding bootstrapの2 tableとそれらが参照する既存identity／workspace／membershipの整合性だけである。既存のworkspace identity、workspace kind、owner保護triggerを再定義しない。remote D1へのmigration適用やproduction変更は含まない。

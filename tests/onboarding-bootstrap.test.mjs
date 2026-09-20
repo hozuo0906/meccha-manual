@@ -102,21 +102,55 @@ test("direct storage rejects malformed operation IDs even outside the repository
   assert.equal(count("onboarding_bootstrap_operations"), 4);
 });
 
+test("direct storage rejects operation rows outside the actor's active personal owner workspace", async () => {
+  await repository.bootstrap(actor, operation);
+  const saved = database.prepare("SELECT * FROM onboarding_bootstrap_operations WHERE operation_id=?").get(operation);
+  const insertIdentity = database.prepare("INSERT INTO identities VALUES (?, ?, ?, 'active', ?, ?)");
+  const insertWorkspace = database.prepare("INSERT INTO workspaces VALUES (?, ?, ?, 'active', ?, ?, ?, ?)");
+  const insertMember = database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'owner', 'active', ?, ?)");
+  const now = "2026-01-01T00:00:00.000Z";
+  insertIdentity.run("identity-b", issuer, "other-human", now, now);
+  insertWorkspace.run("personal-b", "Personal B", "personal-b", "identity-b", now, now, "personal");
+  insertMember.run("personal-b", "identity-b", now, now);
+  insertWorkspace.run("standard-a", "Standard A", "standard-a", saved.application_id, now, now, "standard");
+  insertMember.run("standard-a", saved.application_id, now, now);
+  insertIdentity.run("identity-c", issuer, "third-human", now, now);
+  insertWorkspace.run("personal-c", "Personal C", "personal-c", "identity-c", now, now, "personal");
+  insertMember.run("personal-c", "identity-b", now, now);
+  const insert = database.prepare("INSERT INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)");
+  for (const [applicationId, operationId, workspaceId] of [
+    [saved.application_id, "cross-tenant-operation", "personal-b"],
+    [saved.application_id, "standard-workspace-op", "standard-a"],
+    ["identity-c", "owner-mismatch-op", "personal-c"]
+  ]) {
+    assert.throws(
+      () => insert.run(applicationId, operationId, workspaceId, 0, now),
+      /bootstrap operation requires active personal owner workspace/
+    );
+  }
+});
+
 test("direct storage rejects signup events without a created identity operation on insert and update", async () => {
   await repository.bootstrap(actor, operation);
   const saved = database.prepare("SELECT * FROM onboarding_bootstrap_operations WHERE operation_id=?").get(operation);
   const zeroOperation = "bootstrap-zero-identity";
+  database.prepare("INSERT INTO identities VALUES (?, ?, ?, 'active', ?, ?)")
+    .run("identity-zero", issuer, "zero-human", saved.created_at, saved.created_at);
+  database.prepare("INSERT INTO workspaces VALUES (?, ?, ?, 'active', ?, ?, ?, ?)")
+    .run("personal-zero", "Personal Zero", "personal-zero", "identity-zero", saved.created_at, saved.created_at, "personal");
+  database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'owner', 'active', ?, ?)")
+    .run("personal-zero", "identity-zero", saved.created_at, saved.created_at);
   database.prepare("INSERT INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)")
-    .run(saved.application_id, zeroOperation, saved.workspace_id, 0, saved.created_at);
+    .run("identity-zero", zeroOperation, "personal-zero", 0, saved.created_at);
   const eventInsert = database.prepare("INSERT INTO onboarding_signup_events VALUES (?, 'signup_completed', ?, ?, ?, ?)");
   assert.throws(
-    () => eventInsert.run("event-zero-identity", saved.application_id, zeroOperation, saved.workspace_id, saved.created_at),
+    () => eventInsert.run("event-zero-identity", "identity-zero", zeroOperation, "personal-zero", saved.created_at),
     /signup event requires created identity operation/
   );
   const event = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get(operation);
   assert.throws(
     () => database.prepare("UPDATE onboarding_signup_events SET operation_id=? WHERE event_id=?").run(zeroOperation, event.event_id),
-    /signup event requires created identity operation/
+    /signup event identity is immutable/
   );
   assert.throws(
     () => database.prepare("UPDATE onboarding_bootstrap_operations SET created_identity=0 WHERE operation_id=?").run(operation),
@@ -126,6 +160,14 @@ test("direct storage rejects signup events without a created identity operation 
     () => database.prepare("UPDATE onboarding_bootstrap_operations SET workspace_id=? WHERE operation_id=?").run("other-workspace", operation),
     /bootstrap operation identity is immutable/
   );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_bootstrap_operations SET application_id=? WHERE operation_id=?").run("other-application", operation),
+    /bootstrap operation identity is immutable/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_bootstrap_operations SET operation_id=? WHERE operation_id=?").run("other-operation-id", operation),
+    /bootstrap operation identity is immutable/
+  );
 });
 
 test("direct storage rejects forged event envelopes and operation timestamp mutation", async () => {
@@ -133,17 +175,26 @@ test("direct storage rejects forged event envelopes and operation timestamp muta
   const event = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get(operation);
   await repository.bootstrap({ ...actor, subject: "other-human" }, "bootstrap-other-0001");
   const otherEvent = database.prepare("SELECT * FROM onboarding_signup_events WHERE operation_id=?").get("bootstrap-other-0001");
+  database.prepare("INSERT INTO identities VALUES (?, ?, ?, 'active', ?, ?)")
+    .run("identity-envelope", issuer, "envelope-human", event.occurred_at, event.occurred_at);
+  database.prepare("INSERT INTO workspaces VALUES (?, ?, ?, 'active', ?, ?, ?, ?)")
+    .run("personal-envelope", "Personal Envelope", "personal-envelope", "identity-envelope", event.occurred_at, event.occurred_at, "personal");
+  database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'owner', 'active', ?, ?)")
+    .run("personal-envelope", "identity-envelope", event.occurred_at, event.occurred_at);
+  const envelopeOperation = "bootstrap-envelope";
+  database.prepare("INSERT INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)")
+    .run("identity-envelope", envelopeOperation, "personal-envelope", 1, event.occurred_at);
   const insert = database.prepare("INSERT INTO onboarding_signup_events VALUES (?, 'signup_completed', ?, ?, ?, ?)");
   assert.throws(
-    () => insert.run(`meccha-manual:onboarding:v1:signup_completed:7:forged:${operation}`, event.application_id, operation, event.workspace_id, event.occurred_at),
+    () => insert.run(`meccha-manual:onboarding:v1:signup_completed:7:forged:${envelopeOperation}`, "identity-envelope", envelopeOperation, "personal-envelope", event.occurred_at),
     /signup event envelope does not match operation/
   );
   assert.throws(
-    () => insert.run(`${event.event_id}:forged`, event.application_id, operation, event.workspace_id, event.occurred_at),
+    () => insert.run(`${event.event_id}:forged`, "identity-envelope", envelopeOperation, "personal-envelope", event.occurred_at),
     /signup event envelope does not match operation/
   );
   assert.throws(
-    () => insert.run(event.event_id, event.application_id, operation, event.workspace_id, "2026-01-01T00:00:00.000Z"),
+    () => insert.run(`meccha-manual:onboarding:v1:signup_completed:${"identity-envelope".length}:identity-envelope:${envelopeOperation}`, "identity-envelope", envelopeOperation, "personal-envelope", "2026-01-01T00:00:00.000Z"),
     /signup event envelope does not match operation/
   );
   assert.throws(
@@ -157,11 +208,35 @@ test("direct storage rejects forged event envelopes and operation timestamp muta
   assert.throws(
     () => database.prepare("UPDATE onboarding_signup_events SET application_id=?, operation_id=?, workspace_id=? WHERE event_id=?")
       .run(otherEvent.application_id, otherEvent.operation_id, otherEvent.workspace_id, event.event_id),
-    /signup event envelope does not match operation/
+    /signup event identity is immutable/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE onboarding_signup_events SET event_id=?, application_id=?, operation_id=?, workspace_id=?, occurred_at=? WHERE event_id=?")
+      .run(otherEvent.event_id, otherEvent.application_id, otherEvent.operation_id, otherEvent.workspace_id, otherEvent.occurred_at, event.event_id),
+    /signup event identity is immutable/
   );
   assert.throws(
     () => database.prepare("UPDATE onboarding_bootstrap_operations SET created_at=? WHERE operation_id=?").run("2026-01-01T00:00:00.000Z", operation),
     /bootstrap operation timestamp is immutable/
+  );
+  assert.throws(
+    () => database.prepare("DELETE FROM onboarding_signup_events WHERE event_id=?").run(event.event_id),
+    /signup event is append only/
+  );
+  assert.throws(
+    () => database.prepare("DELETE FROM onboarding_bootstrap_operations WHERE application_id=? AND operation_id=?")
+      .run(event.application_id, event.operation_id),
+    /bootstrap operation is append only/
+  );
+  assert.throws(
+    () => database.prepare("INSERT OR REPLACE INTO onboarding_bootstrap_operations VALUES (?, ?, ?, ?, ?)")
+      .run(event.application_id, event.operation_id, event.workspace_id, 0, event.occurred_at),
+    /bootstrap operation is append only/
+  );
+  assert.throws(
+    () => database.prepare("INSERT OR REPLACE INTO onboarding_signup_events VALUES (?, 'signup_completed', ?, ?, ?, ?)")
+      .run(event.event_id, event.application_id, event.operation_id, event.workspace_id, event.occurred_at),
+    /signup event is append only/
   );
 });
 
