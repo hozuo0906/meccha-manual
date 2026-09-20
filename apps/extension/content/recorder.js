@@ -59,6 +59,11 @@
 
   const scrollPositions = new WeakMap();
   scrollPositions.set(document, { x: scrollX, y: scrollY });
+  // Seed the current position. New elements are seeded on their first event, so
+  // an unknown baseline is never guessed as zero.
+  for (const element of document.querySelectorAll?.("*") || []) {
+    scrollPositions.set(element, { x: element.scrollLeft, y: element.scrollTop });
+  }
   let pendingScroll;
   let scrollTimer;
   let scrollFlush = Promise.resolve(true);
@@ -91,9 +96,14 @@
     const target = scrollTarget(event);
     if (pendingScroll && pendingScroll.target !== target) void flushScroll();
     const position = scrollPosition(target);
+    const knownPosition = scrollPositions.get(target);
+    if (!knownPosition && pendingScroll?.target !== target) {
+      scrollPositions.set(target, position);
+      return;
+    }
     const baseline = pendingScroll?.target === target
       ? pendingScroll.baseline
-      : scrollPositions.get(target) || { x: 0, y: 0 };
+      : knownPosition;
     const deltaX = position.x - baseline.x;
     const deltaY = position.y - baseline.y;
     if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 80) return;

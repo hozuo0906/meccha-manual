@@ -10,6 +10,21 @@ import { recoverWindowSession } from "./session-recovery.js";
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
+let reinjectionFailureSessionId = null;
+let navigationFallback = null;
+
+function clearNavigationFallback(sessionId) {
+  if (!sessionId || navigationFallback?.sessionId === sessionId) navigationFallback = null;
+}
+
+function navigationFallbackEvents(sessionId, event) {
+  const existing = navigationFallback?.sessionId === sessionId ? navigationFallback.events : [];
+  return mergeCaptureEvents({ events: existing }, [event]).events;
+}
+
+function clearReinjectionFailureMarker(sessionId) {
+  if (sessionId && sessionId === reinjectionFailureSessionId) reinjectionFailureSessionId = null;
+}
 
 function serializeSessionOperation(task) {
   const run = sessionOperation.then(task, task);
@@ -25,6 +40,7 @@ async function persistRecoveryJournal(sessionId, events = [], phase) {
   const current = await readRecoveryJournal();
   const next = nextRecoveryJournal(current, { sessionId, events, phase });
   await chrome.storage.local.set({ [RECOVERY_KEY]: next });
+  if (phase && phase !== "reinjection_failed") clearReinjectionFailureMarker(sessionId);
   return next;
 }
 
@@ -34,17 +50,32 @@ async function clearRecoveryJournal(sessionId) {
 }
 
 async function getSession() {
-  const session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
-  if (!session) return null;
+  let session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  if (!session) {
+    clearNavigationFallback();
+    return null;
+  }
+  if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
   const recovery = await readRecoveryJournal();
-  if (recovery?.sessionId !== session.id) return session;
-  const merged = mergeCaptureEvents(session, recovery.events || []);
-  return recovery.phase ? { ...merged, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || merged.finishFailed } : merged;
+  if (recovery?.sessionId === session.id) session = mergeCaptureEvents(session, recovery.events || []);
+  if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
+  else clearNavigationFallback();
+  if (recovery?.sessionId === session.id && recovery.phase && session.id !== reinjectionFailureSessionId) {
+    return { ...session, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || session.finishFailed };
+  }
+  return session;
 }
 
 async function setSession(session) {
-  if (session) await chrome.storage.session.set({ [SESSION_KEY]: session });
-  else await chrome.storage.session.remove(SESSION_KEY);
+  if (session) {
+    await chrome.storage.session.set({ [SESSION_KEY]: session });
+    clearNavigationFallback(session.id);
+    if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
+  } else {
+    await chrome.storage.session.remove(SESSION_KEY);
+    clearNavigationFallback();
+    clearReinjectionFailureMarker(reinjectionFailureSessionId);
+  }
 }
 
 async function measureViewport(tabId) {
@@ -70,7 +101,9 @@ async function appendCaptureEvent(session, event) {
   try {
     await setSession(next);
   } catch (error) {
-    await persistRecoveryJournal(session.id, [normalizeCaptureEvent(event)]);
+    const recoveryEvents = navigationFallbackEvents(session.id, normalizeCaptureEvent(event));
+    await persistRecoveryJournal(session.id, recoveryEvents);
+    clearNavigationFallback(session.id);
     throw error;
   }
   return next;
@@ -246,7 +279,7 @@ async function cancelCapture() {
 
 async function retryRestore() {
   const session = await getSession();
-  if (!session?.restorePending) return { restored: true };
+  if (!session?.restorePending && session?.phase !== "starting") return { restored: true };
   const retainAfterRestore = Boolean(session.finishFailed);
   const restored = await attemptRestore(session);
   if (restored) {
@@ -269,6 +302,7 @@ async function resumeCapture(tabId) {
     await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
     await setSession(resumedSession);
     await clearRecoveryJournal(session.id).catch(() => undefined);
+    reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
     const failedSession = { ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
@@ -285,7 +319,7 @@ async function captureStatus() {
     recording: session?.phase === "recording",
     phase: session?.phase ?? null,
     mode: session?.mode,
-    restorePending: Boolean(session?.restorePending),
+    restorePending: Boolean(session?.restorePending || session?.phase === "starting"),
     finishFailed: Boolean(session?.finishFailed),
     reinjectionFailed: Boolean(session?.reinjectionFailed)
   };
@@ -325,11 +359,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     try {
       await setSession(withNavigation);
     } catch {
-      await persistRecoveryJournal(session.id, [navigationEvent]);
+      const events = navigationFallbackEvents(session.id, navigationEvent);
+      try {
+        await persistRecoveryJournal(session.id, events);
+        clearNavigationFallback(session.id);
+      } catch {
+        navigationFallback = { sessionId: session.id, events };
+      }
     }
     try {
       await injectRecorder(tabId);
     } catch {
+      reinjectionFailureSessionId = session.id;
       const failedSession = {
         ...withNavigation,
         phase: "reinjection_failed",
@@ -339,7 +380,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       try {
         await setSession(failedSession);
       } catch {
-        await persistRecoveryJournal(session.id, [], "reinjection_failed");
+        await persistRecoveryJournal(session.id, [], "reinjection_failed").catch(() => undefined);
       }
     }
   }).catch(() => undefined);
@@ -350,6 +391,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;
     if (removeInfo?.isWindowClosing) {
+      clearNavigationFallback(session.id);
       await setSession(null);
       await clearRecoveryJournal(session.id);
       return;

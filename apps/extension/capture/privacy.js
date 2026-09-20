@@ -42,11 +42,14 @@ export function safeLabel(input) {
 export function safeTargetLabel(target) {
   if (isSensitiveInput(target)) return "保護された入力欄";
   if (isValueBearingTarget(target)) return inputSemanticLabel(target);
-  const candidate = [target?.ariaLabel, target?.associatedLabel, target?.placeholder]
-    .find((value) => typeof value === "string" && value.trim());
-  if (candidate) return candidate.trim().replace(/\s+/g, " ").slice(0, 80);
-  const semantic = String(target?.role || target?.tagName || target?.type || "操作対象").toLowerCase();
-  return ({ button: "ボタン", a: "リンク", select: "選択欄", textarea: "入力欄", input: "入力欄" })[semantic] || "操作対象";
+  const role = String(target?.role ?? "").toLowerCase();
+  const tagName = String(target?.tagName ?? "").toLowerCase();
+  const type = String(target?.type ?? "").toLowerCase();
+  if (role === "button" || tagName === "button" || ["button", "submit", "reset", "image"].includes(type)) return "ボタン";
+  if (role === "link" || tagName === "a") return "リンク";
+  if (role === "menuitem") return "メニュー";
+  if (tagName === "select" || role === "combobox") return "選択欄";
+  return "操作対象";
 }
 
 export function normalizeCaptureEvent(event) {

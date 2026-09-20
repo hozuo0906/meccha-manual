@@ -18,7 +18,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-008 | Chrome Extension | local event normalization | guest local event state | ADR-0031 | MVP-AC-002, 004, 005 | Extension MVP / EPIC-05 |
 | FR-009 | Chrome Extension + Manual | 認証後asset upload / Worker proxy read | local guest assets, private R2 after claim | ADR-0006, ADR-0011, ADR-0031, ADR-0032 | MVP-AC-005, 010, 011 | Extension MVP / EPIC-05 |
 | FR-010 | Chrome Extension | local normalization / claim validation | - | ADR-0031 | MVP-AC-004 | Extension MVP / EPIC-05 |
-| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032 | MVP-AC-005, 006, 010 | Extension MVP / EPIC-05/06 |
+| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs` | Extension MVP / EPIC-05/06 |
 | FR-012 | Output gate / Share | share APIs after auth+claim | share_links | ADR-0008, ADR-0032 | MVP-AC-012, AC-030, AC-031 | MVP / EPIC-08 |
 | FR-013 | Public share viewer | share read API | share_links | ADR-0008 | AC-030, AC-031 | MVP / EPIC-08 |
 | FR-014 | Output gate / PDF | PDF export API after auth+claim | exports / entitlements when enabled | ADR-0032, ADR-0033 | MVP-AC-007, 013, 019、PDF export tests | MVP / EPIC-08 |
@@ -55,8 +55,11 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - MVP capture runtimeはChrome拡張のみ。
 - PC / smartphone / tabletの3表示モードを必須とする。
 - smartphone / tabletはdesktop Chrome responsive viewportで実現する。
+- 終了失敗後の再試行では永続化された`finish_failed` phaseを正として、選択済みのsmartphone / tablet responsive viewportを再適用してscreenshotを生成する。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
+- clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
+- scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 
 ## Browser Run legacy traceability
 

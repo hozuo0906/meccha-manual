@@ -11,9 +11,13 @@ function recorder(sendMessage) {
     constructor() { this.tagName = "INPUT"; this.scrollTop = 0; this.scrollLeft = 0; }
     getAttribute() { return null; }
   }
+  const initialScrollContainer = new Element();
+  initialScrollContainer.scrollTop = 1000;
+  const secondScrollContainer = new Element();
+  secondScrollContainer.scrollTop = 500;
   const context = {
     Element, crypto, Date, Promise, Map, WeakMap, Set,
-    document: { documentElement: new Element(), querySelector: () => null },
+    document: { documentElement: new Element(), querySelector: () => null, querySelectorAll: () => [initialScrollContainer, secondScrollContainer] },
     chrome: { runtime: { sendMessage } },
     scrollX: 0, scrollY: 0,
     setTimeout: () => 1, clearTimeout() {},
@@ -21,7 +25,7 @@ function recorder(sendMessage) {
     removeEventListener: (type) => listeners.delete(type)
   };
   vm.runInNewContext(source, context);
-  return { input: () => new Element(), emit: (type, target) => listeners.get(type)({ target }), emitEvent: (type, event) => listeners.get(type)(event), stop: () => context.__mecchaManualRecorder() };
+  return { input: () => new Element(), existing: () => initialScrollContainer, existingAll: () => [initialScrollContainer, secondScrollContainer], emit: (type, target) => listeners.get(type)({ target }), emitEvent: (type, event) => listeners.get(type)(event), stop: () => context.__mecchaManualRecorder() };
 }
 
 for (const acknowledgement of ["delayed", "rejected"]) {
@@ -58,11 +62,10 @@ test("acknowledging an earlier edit does not clear a later edit of the same fiel
 
 test("switching scroll containers retains both operations before debounce or acknowledgement", () => {
   const capture = recorder(() => new Promise(() => {}));
-  const a = capture.input();
-  const b = capture.input();
-  a.scrollTop = 100;
+  const [a, b] = capture.existingAll();
+  a.scrollTop = 1100;
   capture.emit("scroll", a);
-  b.scrollTop = 120;
+  b.scrollTop = 600;
   capture.emit("scroll", b);
   const drained = capture.stop();
   assert.equal(drained.length, 2);
@@ -70,12 +73,36 @@ test("switching scroll containers retains both operations before debounce or ack
   assert.equal(new Set(drained.map((event) => event.eventId)).size, 2);
 });
 
+test("scroll direction uses the existing container offset instead of zero", () => {
+  const capture = recorder(() => new Promise(() => {}));
+  const target = capture.existing();
+  target.scrollTop = 900;
+  capture.emit("scroll", target);
+  assert.equal(capture.stop()[0].direction, "up");
+});
+
+test("dynamic scroll containers seed their first position before recording deltas", () => {
+  const capture = recorder(() => new Promise(() => {}));
+  const target = capture.input();
+  target.scrollTop = 1000;
+  capture.emit("scroll", target);
+  assert.equal(capture.stop().length, 0);
+
+  const resumed = recorder(() => new Promise(() => {}));
+  const resumedTarget = resumed.input();
+  resumedTarget.scrollTop = 1000;
+  resumed.emit("scroll", resumedTarget);
+  resumedTarget.scrollTop = 900;
+  resumed.emit("scroll", resumedTarget);
+  assert.equal(resumed.stop()[0].direction, "up");
+});
+
 test("input and scroll start durable delivery before pagehide; pending delivery requests an unload warning", async () => {
   const sent = [];
   const capture = recorder((message) => { sent.push(message); return new Promise(() => {}); });
-  const target = capture.input();
+  const target = capture.existing();
   capture.emit("input", target);
-  target.scrollTop = 120;
+  target.scrollTop = 1120;
   capture.emit("scroll", target);
   assert.deepEqual(sent.map((message) => message.event.kind), ["input", "scroll"]);
   let warned = false;

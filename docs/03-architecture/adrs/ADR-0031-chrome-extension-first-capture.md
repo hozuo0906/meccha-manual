@@ -25,6 +25,14 @@ Chrome拡張は、利用者自身が開いているWebページ上で明示的�
 - 入力操作は「対象名」と「入力操作が行われた事実」を基本とし、入力内容そのものを手順データへ含めない。
 - 記録停止時はcontent script側の記録状態を終了し、不要な一時データを破棄する。
 
+## 記録イベントの完全性と表示由来metadata
+
+click eventのlabelは`button`、`link`、`menuitem`、`select`等の固定semantic値だけを保存し、`aria-label`、関連label、placeholder、本文などページ由来の文字列を保存しない。入力欄は既存の機密判定を先に適用し、入力値と機密metadataをevent／下書きへ複製しない。
+
+navigationでsession storageとrecovery journalの両方が一時的に失敗した場合は、同じcapture session IDにだけ紐づく一時fallbackへ正規化済みnavigation eventを保持する。後続のstorage書込みまたはfinishでsessionへmergeし、event IDで重複排除してからfallbackを破棄する。service worker終了中のメモリ状態まで永続化する保証はなく、入力値・URL・ページ文字列はfallbackへ含めない。
+
+scrollは記録開始時点のdocumentと既存要素の現在位置をbaselineとしてseedする。開始後に追加された未知要素は最初のscrollで現在位置だけをseedし、そのイベントをstepへ出さず、次の位置差分から方向を記録する。未知baselineを0と推測しないため、動的要素の追加直後の一回目だけは記録対象外となる。
+
 ## `externally_connectable` handoff
 
 output時の認証後、guest draftを自社Webアプリへ渡すため、Manifest V3の `externally_connectable` を使用する。
