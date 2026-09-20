@@ -1,0 +1,2 @@
+# Cloudflare D1 remote migration parsing requires LF for trigger statements.
+migrations/*.sql text eol=lf

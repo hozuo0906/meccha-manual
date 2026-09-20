@@ -53,6 +53,19 @@ async function listFiles(dir) {
 const errors = [];
 const files = await listFiles(root);
 
+const d1MigrationFiles = [
+  "migrations/0001_d1_identity_workspace.sql",
+  "migrations/0002_d1_personal_workspace.sql",
+  "migrations/0003_d1_onboarding_bootstrap.sql"
+];
+
+for (const relativePath of d1MigrationFiles) {
+  const bytes = await readFile(path.join(root, relativePath));
+  if (bytes.includes(0x0d)) {
+    errors.push(`Cloudflare D1 migration must use LF line endings: ${relativePath}`);
+  }
+}
+
 for (const file of files) {
   const content = await readFile(file, "utf8");
   const relativePath = path.relative(root, file).replaceAll("\\", "/");
