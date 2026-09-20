@@ -7,9 +7,9 @@ import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
-import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, type AccessBindings, type SupabaseBindings } from "./server-config.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
 
-interface Env extends SupabaseBindings, AccessBindings {
+interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
   DB?: D1DatabaseLike;
   ONBOARDING_RATE_LIMITER?: RateLimit;
   DISCORD_INTERACTION_STORE?: KVNamespace;
@@ -343,6 +343,9 @@ function apiProfile(profile: ProfileRecord | null): unknown {
 }
 
 async function bootstrapOnboarding(request: Request, env: Env): Promise<Response> {
+  if (!isConfiguredOnboardingOrigin(new URL(request.url).origin, env)) {
+    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "登録画面の準備が完了していません。時間をおいて、もう一度お試しください。");
+  }
   let actor;
   try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
   catch (error) { throw mapAccessIdentityError(error); }
@@ -2249,7 +2252,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/onboarding/continue") {
-    const bootstrapEnabled = url.origin === "https://meccha-manual.meccha-iiyatsu.com"
+    const bootstrapEnabled = isConfiguredOnboardingOrigin(url.origin, env)
       && inspectAccessConfig(env).configured && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
     return htmlResponse(renderOnboardingContinuePage({ bootstrapEnabled }));
   }
