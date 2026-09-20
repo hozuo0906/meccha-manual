@@ -1,5 +1,5 @@
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
-import { buildContinueUrl, createHandoffMetadata, saveHandoffMetadata } from "./handoff.js";
+import { buildContinueUrl, createHandoffMetadata, pruneExpiredHandoffs, saveHandoffMetadata } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -152,13 +152,14 @@ startRegistration.addEventListener("click", async () => {
   startRegistration.disabled = true;
   gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
   try {
-    const metadata = createHandoffMetadata(draft.id, "save");
-    await saveHandoffMetadata(metadata);
     const origin = getOnboardingOrigin();
     if (!origin) {
       gateStatus.textContent = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
       return;
     }
+    await pruneExpiredHandoffs();
+    const metadata = createHandoffMetadata(draft.id, "save");
+    await saveHandoffMetadata(metadata);
     await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId) });
     gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
     outputGate.close();

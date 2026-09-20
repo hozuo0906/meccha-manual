@@ -1,5 +1,3 @@
-const ONBOARDING_ORIGIN = "https://meccha-manual.meccha-iiyatsu.com";
-
 export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-apple-system,sans-serif;color:#17202a;background:#f7f8fa}body{margin:0;min-height:100vh;display:grid;place-items:center}main{width:min(620px,calc(100% - 32px));padding:28px;background:#fff;border:1px solid #d0d5dd;border-radius:16px;box-shadow:0 16px 38px #1018281a}h1{margin:0 0 12px;font-size:1.65rem}p{line-height:1.7}.notice{padding:14px 16px;border-radius:10px;background:#fffaeb;border:1px solid #fedf89}.success{background:#ecfdf3;border-color:#abefc6}.error{background:#fef3f2;border-color:#fecdca}button{min-height:44px;padding:10px 18px;border:0;border-radius:8px;background:#175cd3;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px #1d4ed8}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}`;
 
 export const ONBOARDING_JS = `(() => {
@@ -7,7 +5,7 @@ export const ONBOARDING_JS = `(() => {
   const status = document.querySelector("#status");
   const button = document.querySelector("#bootstrap");
   const operationKey = "meccha-manual:onboarding-operation";
-  const configured = root?.dataset.bootstrapEnabled === "true" && location.origin === ${JSON.stringify(ONBOARDING_ORIGIN)};
+  const configured = root?.dataset.bootstrapEnabled === "true";
   const fragmentHandoff = new URLSearchParams(location.hash.slice(1)).get("handoff");
   history.replaceState(null, "", location.pathname + location.search);
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }

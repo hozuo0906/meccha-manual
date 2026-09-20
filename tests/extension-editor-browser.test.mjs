@@ -110,7 +110,8 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
     await page.addInitScript(() => {
-      globalThis.chrome = { storage: { local: { set: async () => undefined } } };
+      globalThis.__handoffStorageWrites = 0;
+      globalThis.chrome = { storage: { local: { set: async () => { globalThis.__handoffStorageWrites += 1; }, get: async () => ({}), remove: async () => undefined } } };
     });
     await page.goto(`${baseUrl}/seed.html`);
     await page.evaluate(async () => {
@@ -142,6 +143,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     await page.locator("#startRegistration").click();
     assert.match(await page.locator("#gateStatus").textContent(), /準備中/);
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+    assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 0, "pending CTA must not persist unused handoffs");
   } finally {
     await context?.close();
     server.closeAllConnections?.();

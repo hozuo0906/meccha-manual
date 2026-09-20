@@ -35,6 +35,15 @@ export async function saveHandoffMetadata(metadata, storage = globalThis.chrome?
   await storage.set({ [handoffStorageKey(metadata.handoffId)]: metadata });
 }
 
+export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?.local, now = Date.now()) {
+  if (!storage?.get || !storage?.remove) return;
+  const entries = await storage.get(null);
+  const expired = Object.entries(entries || {})
+    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && Date.parse(value?.expiresAt || "") <= now)
+    .map(([key]) => key);
+  if (expired.length > 0) await storage.remove(expired);
+}
+
 export function buildContinueUrl(origin, handoffId) {
   if (origin !== "https://meccha-manual.meccha-iiyatsu.com") throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
