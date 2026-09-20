@@ -224,6 +224,37 @@ test("bootstrap applies independent actor and connection rate limits", async () 
   assert.notEqual(keys[0], keys[1]);
 });
 
+test("connection rate limit rejects a second actor on the same trusted IP without provisioning", async () => {
+  const keys = [];
+  const connectionKeys = new Set();
+  env.ONBOARDING_RATE_LIMITER.limit = async ({ key }) => {
+    keys.push(key);
+    if (!key.startsWith("connection:")) return { success: true };
+    const first = !connectionKeys.has(key);
+    connectionKeys.add(key);
+    return { success: first };
+  };
+  const first = await worker.fetch(await request({ operationId: "bootstrap-connection-first" }), env, {});
+  assert.equal(first.status, 200, await first.text());
+  const second = await worker.fetch(
+    await request({ operationId: "bootstrap-connection-second" }, { sub: "new-human-2" }),
+    env,
+    {}
+  );
+  assert.equal(second.status, 429, await second.text());
+  assert.equal(keys.length, 4);
+  assert.match(keys[0], /^actor:[a-f0-9]{64}$/);
+  assert.match(keys[1], /^connection:[a-f0-9]{64}$/);
+  assert.match(keys[2], /^actor:[a-f0-9]{64}$/);
+  assert.match(keys[3], /^connection:[a-f0-9]{64}$/);
+  assert.notEqual(keys[0], keys[2]);
+  assert.equal(keys[1], keys[3]);
+  assert.equal(count("identities"), 1);
+  assert.equal(count("onboarding_bootstrap_operations"), 1);
+  assert.equal(count("onboarding_signup_events"), 1);
+  assert.equal(database.prepare("SELECT count(*) AS n FROM identities WHERE subject=?").get("new-human-2").n, 0);
+});
+
 test("connection signal requires Cloudflare provenance and canonicalizes IPv6", async () => {
   const keys = [];
   env.ONBOARDING_RATE_LIMITER.limit = async ({ key }) => { keys.push(key); return { success: true }; };
