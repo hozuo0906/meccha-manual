@@ -4,7 +4,7 @@ Status: Accepted
 
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
-| DEC-075 | 2026-09-20 | B登録UIのhandoff metadataは同一タブの`sessionStorage`にhandoffごとの履歴として保持し、`handoffId`ごとに一意な`operationId`を再利用する。metadataは作成から15分で`expired` tombstoneへ遷移し、期限切れの同じIDを再開・再送せず、拡張機能で新しいhandoffを発行してやり直す | A-B-Aのタブ内遷移で別handoffの操作を混同せず、期限切れ・結果不明の再送で新しいoperationを発行しない。本文・画像・下書きはsessionStorageへ移さず、正式origin／Accessが未準備の場合は登録操作を無効化して準備中を表示する。 |
+| DEC-075 | 2026-09-20 | B登録UIのhandoff metadataは同一タブの`sessionStorage`にhandoffごとの履歴として保持し、`handoffId`ごとに一意な`operationId`を再利用する。metadataは作成から15分で、期限切れtombstoneの保存に成功した場合に限り`expired`へ遷移し、期限切れの同じIDを再開・再送せず、拡張機能で新しいhandoffを発行してやり直す | A-B-Aのタブ内遷移で別handoffの操作を混同せず、期限切れ・結果不明の再送で新しいoperationを発行しない。本文・画像・下書きはsessionStorageへ移さず、正式origin／Accessが未準備の場合は登録操作を無効化して準備中を表示する。tombstoneの保存に失敗した現在ページはfail closedとし、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先を再検証する。 |
 | DEC-074 | 2026-09-20 | bootstrapの`created_identity=1`はidentity作成時刻と一致するoperationに限定し、identityごとに一意化 | `onboarding_bootstrap_operations`のD1 trigger／partial unique indexで、直接挿入・偽signup・並行再送の境界を検査する。既存identityの作成時刻を知るDB writerによる歴史的挿入までをこの境界だけで証明しない。 |
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |

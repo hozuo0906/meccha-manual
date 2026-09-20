@@ -12,6 +12,7 @@ export const ONBOARDING_JS = `(() => {
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
+  let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
@@ -53,6 +54,12 @@ export const ONBOARDING_JS = `(() => {
   function persistState(state) { try { sessionStorage.setItem(operationKey, JSON.stringify(state)); return true; } catch { return false; } }
   let capturedContext;
   let capturedContextInitialized = false;
+  function handleHashChange() {
+    hashNavigationPending = true;
+    button.disabled = true;
+    location.reload();
+  }
+  window.addEventListener("hashchange", handleHashChange);
   function initializeCapturedContext() {
     if (capturedContextInitialized) return capturedContext;
     capturedContextInitialized = true;
@@ -121,6 +128,7 @@ export const ONBOARDING_JS = `(() => {
     return true;
   }
   function currentOperation() {
+    if (hashNavigationPending || location.hash.length > 0) return null;
     const context = hasFragment ? initializeCapturedContext() : initializeActiveContext();
     if (!context || context.state !== "active") return null;
     if (!isFresh(context)) {

@@ -107,6 +107,66 @@ test("onboarding rejects malformed or empty fragments even when a fresh saved ha
   }
 });
 
+test("onboarding revalidates hash-only handoff navigation before bootstrap", { timeout: 20_000 }, async () => {
+  const calls = [];
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      calls.push(JSON.parse(body));
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ status: "ready" }));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoffA = "J".repeat(43);
+  const handoffB = "K".repeat(43);
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoffA}`);
+    const operationA = await page.evaluate(() => {
+      const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
+      return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).operationId;
+    });
+
+    await page.evaluate((handoff) => { setTimeout(() => { location.hash = `handoff=${handoff}`; }, 0); }, handoffB);
+    await page.waitForFunction((handoff) => {
+      const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
+      return location.hash === "" && value.activeHandoffId === handoff;
+    }, handoffB);
+    const stateB = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")));
+    const operationB = stateB.entries.find((entry) => entry.handoffId === stateB.activeHandoffId).operationId;
+    assert.equal(stateB.activeHandoffId, handoffB);
+    assert.equal(stateB.entries.length, 2);
+    assert.notEqual(operationB, operationA);
+
+    await page.locator("#bootstrap").click();
+    await page.waitForFunction(() => document.querySelector("#status")?.className.includes("success"));
+    assert.deepEqual(calls, [{ operationId: operationB }]);
+
+    const beforeInvalidHash = await page.evaluate(() => sessionStorage.getItem("meccha-manual:onboarding-operation"));
+    await page.evaluate(() => { setTimeout(() => { location.hash = "handoff=invalid"; }, 0); });
+    await page.waitForFunction(() => location.hash === "" && document.querySelector("#bootstrap")?.disabled === true);
+    assert.equal(calls.length, 1);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("meccha-manual:onboarding-operation")), beforeInvalidHash);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("onboarding does not mint or retry an expired operation after a failed request", { timeout: 20_000 }, async () => {
   const calls = [];
   const server = createServer(async (request, response) => {
