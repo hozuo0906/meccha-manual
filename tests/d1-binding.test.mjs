@@ -5,10 +5,12 @@ import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import { D1RepositoryError } from "../apps/worker/src/infra/d1/d1-errors.ts";
 import { D1IdentityRepository } from "../apps/worker/src/infra/d1/identity-repository.ts";
 import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-repository.ts";
+import { D1OnboardingRepository } from "../apps/worker/src/infra/d1/onboarding-repository.ts";
 
 const migrationPaths = [
   new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
-  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
+  new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url)
 ];
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
@@ -127,6 +129,17 @@ test("Miniflare D1 binding applies migration and exercises the real workspace re
       LATER
     );
     assert.equal(await count(db, "SELECT count(*) AS count FROM audit_logs WHERE action = 'member.updated' AND workspace_id = ?1", firstWorkspace.id), memberAuditCount);
+    const onboarding = new D1OnboardingRepository(db);
+    const actor = { kind: "access_user", issuer: "issuer-a", subject: "new-human" };
+    const bootstrap = await onboarding.bootstrap(actor, "binding-operation-0001");
+    assert.equal(bootstrap.createdIdentity, true);
+    assert.deepEqual(await onboarding.bootstrap(actor, "binding-operation-0001"), bootstrap);
+    const parallel = await Promise.all(["binding-operation-0002", "binding-operation-0003"].map((id) => onboarding.bootstrap(actor, id)));
+    assert.ok(parallel.every((result) => result.workspaceId === bootstrap.workspaceId && !result.createdIdentity));
+    assert.equal(await count(db, "SELECT count(*) AS count FROM onboarding_signup_events"), 1);
+    await db.exec("CREATE TRIGGER test_bootstrap_failure BEFORE INSERT ON onboarding_signup_events BEGIN SELECT RAISE(ABORT, 'injected bootstrap failure'); END;");
+    await assert.rejects(onboarding.bootstrap({ ...actor, subject: "rollback-human" }, "binding-operation-0004"));
+    assert.equal(await count(db, "SELECT count(*) AS count FROM identities WHERE subject='rollback-human'"), 0);
   } finally {
     if (disposeTimer) clearTimeout(disposeTimer);
     await dispose();

@@ -85,6 +85,8 @@ extensionはsender origin、handoffId、完了対象local draftを再検証し�
 
 ユーザー名、workspace名、roleをclientから必須入力させない。Personal Workspaceの内部名／slugはserverで決定し、初回UXへ露出しなくてよい。
 
+S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・`-`に限定し、他fieldを拒否する。`DB`と`ONBOARDING_RATE_LIMITER` bindingが不足すると503で書込み前に停止する。rate limit keyは検証済みissuer+subjectのSHA-256で、拒否時は429と`Retry-After: 60`を返す。binding設定とstagingへのmigration適用は別のdeploy手順であり、API実装だけで有効化済みとは扱わない。
+
 ### atomic operation
 
 次を単一のD1 atomic operation/batchとして扱う。
