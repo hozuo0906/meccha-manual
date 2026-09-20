@@ -91,6 +91,7 @@ test("direct storage rejects malformed operation IDs even outside the repository
   for (const invalid of ["a".repeat(15), "a".repeat(129), "a".repeat(16) + "é", "a".repeat(16) + "\n", "a".repeat(16) + "\0hidden", "a".repeat(16) + "/"]) {
     assert.throws(() => insert.run(saved.application_id, invalid, saved.workspace_id, 0, saved.created_at), /CHECK constraint failed/);
   }
+  assert.throws(() => insert.run(saved.application_id, Buffer.from("a".repeat(16)), saved.workspace_id, 0, saved.created_at), /CHECK constraint failed/);
   for (const valid of ["A_z-09".repeat(3), "a".repeat(16), "Z".repeat(128)]) {
     insert.run(saved.application_id, valid, saved.workspace_id, 0, saved.created_at);
   }
