@@ -29,6 +29,11 @@ function normalizeLf(bytes, source) {
   return Buffer.from(normalized);
 }
 
+function rejectBeforeWrite(message) {
+  console.error(message);
+  process.exitCode = 2;
+}
+
 async function main() {
   const dirty = gitText("status", "--porcelain=v1", "--", ...migrationPaths).trim();
   if (dirty) {
@@ -40,12 +45,24 @@ async function main() {
   const plans = [];
   for (const migrationPath of migrationPaths) {
     const blob = gitBuffer("cat-file", "blob", `HEAD:${migrationPath}`);
+    if (blob.includes(0x0d)) {
+      rejectBeforeWrite(`Git blob is not LF-normalized: ${migrationPath}`);
+      return;
+    }
     const worktreePath = path.join(root, migrationPath);
     const current = await readFile(worktreePath);
     const expected = normalizeLf(blob, `Git blob ${migrationPath}`);
     const actual = normalizeLf(current, migrationPath);
-    if (!actual.equals(expected)) throw new Error(`working tree content differs from Git blob: ${migrationPath}`);
-    plans.push({ migrationPath, worktreePath, expected });
+    if (!actual.equals(expected)) {
+      rejectBeforeWrite(`working tree content differs from Git blob: ${migrationPath}`);
+      return;
+    }
+    const index = gitBuffer("cat-file", "blob", `:${migrationPath}`);
+    if (index.includes(0x0d) || !index.equals(expected)) {
+      rejectBeforeWrite(`index blob is not the expected LF content: ${migrationPath}`);
+      return;
+    }
+    plans.push({ migrationPath, worktreePath, expected, index });
   }
 
   for (const plan of plans) await writeFile(plan.worktreePath, plan.expected);
@@ -56,6 +73,16 @@ async function main() {
       throw new Error(`LF normalization verification failed: ${plan.migrationPath}`);
     }
   }
+
+  gitBuffer("add", "--refresh", "--", ...migrationPaths);
+  for (const plan of plans) {
+    const index = gitBuffer("cat-file", "blob", `:${plan.migrationPath}`);
+    if (!index.equals(plan.index)) {
+      throw new Error(`index blob changed during normalization: ${plan.migrationPath}`);
+    }
+  }
+  const remainingStatus = gitText("status", "--porcelain=v1", "--", ...migrationPaths).trim();
+  if (remainingStatus) throw new Error("migration status remains dirty after LF normalization");
   console.log(`Normalized ${plans.length} D1 migrations to LF without semantic changes.`);
 }
 
