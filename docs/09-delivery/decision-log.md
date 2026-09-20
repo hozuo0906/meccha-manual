@@ -291,3 +291,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - Review返却後の人手による再開待ちを減らしつつ、任意コメントのprompt injection、credential漏洩、外部更新との競合、無限repair、review gateの形骸化を防ぐため。
 - Boundary:
   - `github-actions[bot]` の `@codex review` commentがCodex integrationを起動するかは初回実runで確認する。起動しない場合は再Review要求を記録して停止し、review証跡を自動生成しない。本loopはmerge、deploy、migration適用、外部設定、billing、secret、Chrome Web Store公開を行わない。
+
+## DEC-071: Chrome拡張captureの表示metadataと一時障害回復の契約を明確にする
+
+- Status: Accepted
+- Date: 2026-09-20
+- Decision:
+  - click eventのlabelは固定semantic値へ正規化し、ページ上の`aria-label`、関連label、placeholder、本文をlocal event／draftへ保存しない。
+  - navigationのsession storageとrecovery journalが同時に失敗した場合は、同一session IDに限定した一時fallbackへ保持し、後続storage操作またはfinishでevent IDの重複排除を行って一度だけmergeする。service worker終了をまたぐメモリ状態のdurabilityは保証しない。
+  - scrollは開始時の既存要素をseedし、動的に追加された未知要素は初回位置だけをseedして、その一回の方向イベントは生成しない。
+- Reason:
+  - 表示由来の個人情報をlocal draftへ持ち込まず、storageの一時障害でnavigationを失わず、未知scroll baselineを0と仮定した誤記録を避けるため。
+- Boundary:
+  - 入力値、秘密値、URL、ページ文字列はfallbackへ含めない。fallbackは現在の1セッション内に保持し、成功保存または終了で破棄する。本変更でイベント件数上限は新設せず、外部APIと追加依存は導入しない。worker終了後の完全durabilityは保証しない。

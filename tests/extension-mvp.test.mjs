@@ -82,10 +82,19 @@ test("associated labels participate in sensitive classification", () => {
   }
 });
 
-test("click labels use bounded semantic metadata, not arbitrary container text", () => {
+test("click labels use fixed semantic labels and never dynamic metadata", () => {
   assert.equal(safeTargetLabel({ tagName: "button", textContent: "秘密を含むページ本文" }), "ボタン");
-  assert.equal(safeTargetLabel({ ariaLabel: "実行".repeat(100) }).length, 80);
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 SECRET_VALUE" }), "保護された入力欄");
+  assert.equal(safeTargetLabel({ role: "link", ariaLabel: "顧客名 12345" }), "リンク");
+  assert.equal(safeTargetLabel({ role: "menuitem", associatedLabel: "利用者の入力" }), "メニュー");
+  assert.equal(safeTargetLabel({ ariaLabel: "任意の個人情報" }), "操作対象");
   assert.equal(safeTargetLabel({ tagName: "input", type: "text", ariaLabel: "利用者が入力した値" }), "入力欄");
+  const normalized = normalizeCaptureEvent({ kind: "click", at: 1, eventId: "click:1", target: {
+    tagName: "button", ariaLabel: "利用者の氏名", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
+  } });
+  assert.deepEqual(normalized, { kind: "click", at: 1, label: "ボタン", eventId: "click:1" });
+  assert.equal(JSON.stringify(normalized).includes("問い合わせ本文"), false);
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
@@ -182,7 +191,7 @@ test("service worker keeps durable recovery, verified masking and independent re
   assert.match(source, /persistRecoveryJournal\(session\.id, pendingEvents\)/);
   assert.match(source, /verifySensitiveMasks/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
-  assert.match(source, /await persistRecoveryJournal\(session\.id, \[navigationEvent\]\)/);
+  assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);
   assert.match(source, /index === lastIndex \? \{ screenshotId: screenshot\.id \} : \{\}/);
 });

@@ -21,6 +21,7 @@ async function harness({ screenshotFails = false, localFails = true, sessionFail
   let localStorageFailure = localFails;
   let onRemoved;
   let onUpdated;
+  let onMessage;
   const injections = [];
   const pending = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }];
   const context = {
@@ -36,7 +37,7 @@ async function harness({ screenshotFails = false, localFails = true, sessionFail
         local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { journal = null; } }
       },
       scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFails) throw new Error("injection denied"); return []; } const result = drained ? [] : pending; drained = true; return [{ result }]; } },
-      runtime: { onMessage: { addListener() {} } },
+      runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
       tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } } },
       windows: { get: async () => { throw new Error("must not query a closing window"); } }
     }
@@ -50,6 +51,7 @@ async function harness({ screenshotFails = false, localFails = true, sessionFail
       localStorageFailure = localValue;
     }, viewportApplied: () => viewportApplied,
     navigate: async () => { onUpdated(1, { status: "complete" }); await context.settle(); },
+    event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
     close: async () => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing: true }); await context.settle(); } };
 }
 
@@ -65,6 +67,28 @@ test("navigation reinjects the recorder even when both persistence writes fail",
   const capture = await harness({ sessionFails: true, localFails: true });
   await capture.navigate();
   assert.deepEqual(capture.injections, ["content/history-bridge.js", "content/recorder.js"]);
+});
+
+test("navigation fallback merges once after repeated storage failures and reaches the final draft", async () => {
+  const capture = await harness({ sessionFails: true, localFails: true });
+  await capture.navigate();
+  await capture.navigate();
+  capture.setStorageFails(false, false);
+  await capture.finish();
+  const navigationSteps = capture.draft().steps.filter((step) => step.kind === "navigation");
+  assert.equal(navigationSteps.length, 2);
+  assert.equal(new Set(navigationSteps.map((step) => step.eventId)).size, 2);
+});
+
+test("recovered journal retains navigation fallback when session storage is still unavailable", async () => {
+  const capture = await harness({ sessionFails: true, localFails: true });
+  await capture.navigate();
+  capture.setStorageFails(true, false);
+  const response = await capture.event({ kind: "click", at: 3, eventId: "click:1", target: { tagName: "button", ariaLabel: "保存" } });
+  assert.equal(response.ok, false);
+  capture.setStorageFails(false, false);
+  await capture.finish();
+  assert.equal(capture.draft().steps.filter((step) => step.kind === "navigation").length, 1);
 });
 
 test("failed reinjection remains visible when both persistence writes fail", async () => {

@@ -137,7 +137,7 @@ test("finish retains drained events before either persistence attempt", async ()
   const persist = source.indexOf("await setSession(session);", merge);
   assert.ok(finishStart >= 0 && merge > finishStart && journal > merge && persist > journal);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
-  assert.match(source, /recovery\?\.sessionId !== session\.id/);
+  assert.match(source, /navigationFallbackEvents\(session\.id, normalizeCaptureEvent\(event\)\)/);
   assert.match(source, /phase: "finish_failed"/);
 });
 
@@ -174,7 +174,7 @@ test("navigation reinjection proceeds even when navigation event persistence fai
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   const updatedStart = source.indexOf("chrome.tabs.onUpdated.addListener");
   const updated = source.slice(updatedStart, source.indexOf("chrome.tabs.onRemoved.addListener", updatedStart));
-  const persistenceCatch = updated.indexOf("await persistRecoveryJournal(session.id, [navigationEvent])");
+  const persistenceCatch = updated.indexOf("navigationFallback = { sessionId: session.id, events }");
   const injection = updated.indexOf("await injectRecorder(tabId)");
   assert.ok(persistenceCatch >= 0 && injection > persistenceCatch, "recorder reinjection must not depend on session persistence success");
   assert.match(updated, /failureCategory: "recorder_reinjection_failed"/);

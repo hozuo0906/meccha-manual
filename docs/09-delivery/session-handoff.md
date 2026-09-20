@@ -192,6 +192,12 @@ Status: Accepted
 - `tests/extension-editor-browser.test.mjs` を追加し、合成local draftをHTTP fixtureへ保存して、実ブラウザのmouse gestureによるマスク追加、IndexedDB再読込後の保持、削除後の再読込を確認する。`node --test tests/extension-editor-browser.test.mjs tests/extension-mvp.test.mjs` は23件成功した。これは旧来のextension test／mask testの証跡とは分けて扱う。
 - マスク操作の実装修正・ローカル回帰は完了。A全体は最新SHAのCI、Codex Review、merge確認待ち。このセッションではB以降未着手で、次の候補はB。PR #245の最新CI、review、unresolved thread、merge状態はIssue #70とPRのライブ状態を正本として確認する。この記録だけではそれらを完了扱いにしない。
 
+### 2026-09-20 A: capture metadata／記録完全性 review修正
+
+- PR #245の追加review 4056043437／4056043441／4056043444に対し、clickの表示由来metadataを固定semantic labelへ正規化し、storage二重障害時のnavigationを同一session ID限定のfallbackから後続session／draftへ重複なくmergeし、記録開始時に既存scroll要素の現在位置をseedする修正を追加した。
+- 動的に追加された未知scroll要素は初回位置を0と推測せずseedだけ行い、次の差分から方向を記録する。この制約とservice worker終了中の一時fallback非durabilityはADR-0031／DEC-071／requirements-traceabilityへ反映した。
+- `node --test tests/extension-mvp.test.mjs tests/extension-pending-events.test.mjs tests/extension-finish-recovery.test.mjs` は40件成功。全体の`npm ci`／`npm run check`／CI／Codex Review／push後SHA一致は親PMが最新headで確認する。
+
 ### 2026-09-13のpivot基準（Historical）
 
 以下はpivot時点の記録である。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。

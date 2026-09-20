@@ -11,6 +11,16 @@ const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
+let navigationFallback = null;
+
+function clearNavigationFallback(sessionId) {
+  if (!sessionId || navigationFallback?.sessionId === sessionId) navigationFallback = null;
+}
+
+function navigationFallbackEvents(sessionId, event) {
+  const existing = navigationFallback?.sessionId === sessionId ? navigationFallback.events : [];
+  return mergeCaptureEvents({ events: existing }, [event]).events;
+}
 
 function clearReinjectionFailureMarker(sessionId) {
   if (sessionId && sessionId === reinjectionFailureSessionId) reinjectionFailureSessionId = null;
@@ -41,20 +51,29 @@ async function clearRecoveryJournal(sessionId) {
 
 async function getSession() {
   let session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
-  if (!session) return null;
+  if (!session) {
+    clearNavigationFallback();
+    return null;
+  }
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
   const recovery = await readRecoveryJournal();
-  if (recovery?.sessionId !== session.id) return session;
-  const merged = mergeCaptureEvents(session, recovery.events || []);
-  return recovery.phase && session.id !== reinjectionFailureSessionId ? { ...merged, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || merged.finishFailed } : merged;
+  if (recovery?.sessionId === session.id) session = mergeCaptureEvents(session, recovery.events || []);
+  if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
+  else clearNavigationFallback();
+  if (recovery?.sessionId === session.id && recovery.phase && session.id !== reinjectionFailureSessionId) {
+    return { ...session, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || session.finishFailed };
+  }
+  return session;
 }
 
 async function setSession(session) {
   if (session) {
     await chrome.storage.session.set({ [SESSION_KEY]: session });
+    clearNavigationFallback(session.id);
     if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
   } else {
     await chrome.storage.session.remove(SESSION_KEY);
+    clearNavigationFallback();
     clearReinjectionFailureMarker(reinjectionFailureSessionId);
   }
 }
@@ -82,7 +101,9 @@ async function appendCaptureEvent(session, event) {
   try {
     await setSession(next);
   } catch (error) {
-    await persistRecoveryJournal(session.id, [normalizeCaptureEvent(event)]);
+    const recoveryEvents = navigationFallbackEvents(session.id, normalizeCaptureEvent(event));
+    await persistRecoveryJournal(session.id, recoveryEvents);
+    clearNavigationFallback(session.id);
     throw error;
   }
   return next;
@@ -338,7 +359,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     try {
       await setSession(withNavigation);
     } catch {
-      await persistRecoveryJournal(session.id, [navigationEvent]).catch(() => undefined);
+      const events = navigationFallbackEvents(session.id, navigationEvent);
+      try {
+        await persistRecoveryJournal(session.id, events);
+        clearNavigationFallback(session.id);
+      } catch {
+        navigationFallback = { sessionId: session.id, events };
+      }
     }
     try {
       await injectRecorder(tabId);
@@ -364,6 +391,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;
     if (removeInfo?.isWindowClosing) {
+      clearNavigationFallback(session.id);
       await setSession(null);
       await clearRecoveryJournal(session.id);
       return;
