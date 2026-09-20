@@ -4,6 +4,7 @@ Status: Accepted
 
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
+| DEC-074 | 2026-09-20 | bootstrapの`created_identity=1`はidentity作成時刻と一致するoperationに限定し、identityごとに一意化 | `onboarding_bootstrap_operations`のD1 trigger／partial unique indexで、直接挿入・偽signup・並行再送の境界を検査する。既存identityの作成時刻を知るDB writerによる歴史的挿入までをこの境界だけで証明しない。 |
 | DEC-001 | 2026-07-31 | リポジトリ名は `meccha-manual` | ユーザー指定 |
 | DEC-002 | 2026-07-31 | 対象は日本人オフィスワーカー | ユーザー指定 |
 | DEC-003 | 2026-07-31 | Supabaseを使う（DEC-064でSuperseded） | 当時のユーザー指定。移行前の判断記録として保持 |

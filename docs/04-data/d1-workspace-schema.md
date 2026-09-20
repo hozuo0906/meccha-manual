@@ -8,6 +8,8 @@ Status: Accepted
 
 このM2のmigrationはCloudflare D1の内部alpha用であり、productionや実データへ適用しない。Workerの認証済みapplication identityとworkspace所属をD1で再照合するための最小schemaである。既存のSupabase schema・migration・RLSは移行前baselineとして保持する。
 
+`created_identity = 1` のoperationは、identityの `created_at` と同じauthoritative `created_at` に限り、partial unique indexでidentityごとのidentity作成operationを一意にする。異なる時刻、active Personal Workspaceでないworkspace、identityと一致しないowner membershipからの直接insertはD1 triggerで拒否する。既存identityの作成時刻を知るDB writerによる歴史的な直接insertまでをこの境界だけで識別するものではなく、productionのDB writer権限は信頼境界の外へ公開しない。検査は `tests/onboarding-bootstrap.test.mjs` と `tests/onboarding-bootstrap-mutation.test.mjs` が担う。
+
 ## Tables
 
 ```mermaid
