@@ -16,6 +16,7 @@ const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
 const startRegistration = document.querySelector("#startRegistration");
 const gateStatus = document.querySelector("#gateStatus");
+const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
 let selectedStepId = draft.steps[0]?.id;
 
 title.value = draft.title;
@@ -139,6 +140,13 @@ addStepButton.addEventListener("click", async () => {
   render();
 });
 for (const field of [title, description]) field.addEventListener("input", () => persist());
+function updateRegistrationAvailability() {
+  const origin = getOnboardingOrigin();
+  startRegistration.disabled = !origin;
+  if (!origin) gateStatus.textContent = pendingRegistrationMessage;
+  return origin;
+}
+
 document.querySelector("#save").addEventListener("click", async () => {
   if (!await persist("この端末に保存しました。登録画面へ進むか、編集に戻れます。")) {
     gateStatus.textContent = "保存に失敗したため、登録画面へ進めません。編集内容を確認して再試行してください。";
@@ -147,16 +155,14 @@ document.querySelector("#save").addEventListener("click", async () => {
   gateStatus.textContent = "";
   if (typeof outputGate.showModal === "function") outputGate.showModal();
   else outputGate.hidden = false;
+  updateRegistrationAvailability();
 });
 startRegistration.addEventListener("click", async () => {
+  const origin = updateRegistrationAvailability();
+  if (!origin) return;
   startRegistration.disabled = true;
   gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
   try {
-    const origin = getOnboardingOrigin();
-    if (!origin) {
-      gateStatus.textContent = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
-      return;
-    }
     await pruneExpiredHandoffs();
     const metadata = createHandoffMetadata(draft.id, "save");
     await saveHandoffMetadata(metadata);
@@ -167,6 +173,8 @@ startRegistration.addEventListener("click", async () => {
     gateStatus.textContent = error?.message === "HANDOFF_STORAGE_UNAVAILABLE"
       ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
       : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
-  } finally { startRegistration.disabled = false; }
+  } finally {
+    if (getOnboardingOrigin()) startRegistration.disabled = false;
+  }
 });
 render();
