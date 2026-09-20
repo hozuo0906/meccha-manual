@@ -30,6 +30,8 @@ Chrome拡張オンリー、PC/スマホ/タブレット表示、guest-first onbo
 | MVP-AC-018 | output時signupを完了したcreator | 7日以内に2本目を作る | Second Manual Rateを一貫したProduct Event契約で集計できる |
 | MVP-AC-019 | guest local draftでPDF出力を選択済み | output gateからsignup／login、bootstrap、claimを完了する | 同じdraftのPDF出力を自動再開して完了する。signupをキャンセルした場合はlocal draftを保持してeditorへ戻り、claim成功確認前はlocal原本を削除しない |
 
+MVP-AC-006のマスク操作に関するブラウザ回帰は `tests/extension-editor-browser.test.mjs` で確認する。合成したlocal draftをHTTP fixtureへ投入し、実ブラウザのmouse gestureでマスクを追加し、再読込後の保持と削除後の再読込を確認する。CIではPlaywrightのChromiumを使用し、Windowsのローカル検証ではインストール済みChromeを使用する。
+
 ## Browser Run legacy ACの扱い
 
 既存 `AC-020`, `AC-022`, `AC-023`, `AC-024`, `AC-025` 等のBrowser Run / egress契約は削除しない。

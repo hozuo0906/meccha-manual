@@ -186,6 +186,12 @@ Status: Accepted
 - この記録を含む最新SHAのCI、review、unresolved thread、merge状態はPR #245で確認する。S2、staging deploy、公開URL smokeはまだ完了していない。
 - 次はS1のexact-head品質ゲートを満たして統合し、Issue #228のsecure handoff／bootstrap／claimを実装する。S1を保存・共有・PDFまで完成したMVPとは扱わない。
 
+### 2026-09-20 A: guest editor mask gesture
+
+- PR #245の先行修正 `73b3f0655e92a89b6ad0fac4e79ed472f160072d` をbaseに、`editor.js` で画像のネイティブドラッグを無効化し、`pointercancel` 時にドラッグ開始点を破棄した。統合用commitは `9870313`。
+- `tests/extension-editor-browser.test.mjs` を追加し、合成local draftをHTTP fixtureへ保存して、実ブラウザのmouse gestureによるマスク追加、IndexedDB再読込後の保持、削除後の再読込を確認する。`node --test tests/extension-editor-browser.test.mjs tests/extension-mvp.test.mjs` は23件成功した。これは旧来のextension test／mask testの証跡とは分けて扱う。
+- マスク操作の実装修正・ローカル回帰は完了。A全体は最新SHAのCI、Codex Review、merge確認待ち。このセッションではB以降未着手で、次の候補はB。PR #245の最新CI、review、unresolved thread、merge状態はIssue #70とPRのライブ状態を正本として確認する。この記録だけではそれらを完了扱いにしない。
+
 ### 2026-09-13のpivot基準（Historical）
 
 以下はpivot時点の記録である。後続の個別PR節および末尾のPR #240 review節はHistoricalであり、現在地や次マイルストーンの正本として使用しない。

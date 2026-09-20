@@ -21,3 +21,4 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: node --test tests/extension-mask-browser.test.mjs
+      - run: node --test tests/extension-editor-browser.test.mjs
