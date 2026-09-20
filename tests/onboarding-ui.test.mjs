@@ -81,7 +81,9 @@ test("runtime config requires an exact environment and onboarding origin pair", 
 
 test("dedicated onboarding Wrangler config separates staging and fail-closed production", async () => {
   const config = JSON.parse(await readFile(new URL("../wrangler.onboarding.jsonc", import.meta.url), "utf8"));
+  const runbook = await readFile(new URL("../docs/08-operations/onboarding-b-owner-pilot-runtime.md", import.meta.url), "utf8");
   assert.equal(config.main, "apps/worker/src/index.ts");
+  assert.equal(config.keep_vars, true);
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   assert.equal(config.env.staging.preview_urls, true);
@@ -98,6 +100,7 @@ test("dedicated onboarding Wrangler config separates staging and fail-closed pro
   assert.equal("r2_buckets" in config.env.production, false);
   assert.equal("ai" in config.env.staging, false);
   assert.equal("durable_objects" in config.env.production, false);
+  assert.doesNotMatch(runbook, /99b0c9b6-2bdf-4e65-9c43-3e336b6d3376|cloudflareaccess\.com|cdn-cgi\/access\/certs/u);
 });
 
 test("editor gate keeps save failure from opening registration", async () => {

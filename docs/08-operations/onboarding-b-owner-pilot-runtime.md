@@ -8,14 +8,14 @@ Status: Proposed
 
 | 環境 | Worker | `APP_ENV` | `APP_BASE_URL` | D1 |
 |---|---|---|---|---|
-| staging | `meccha-manual-staging` | `staging` | `https://meccha-manual-staging.meccha-iiyatsu.com` | `meccha-manual-d1-staging` / `99b0c9b6-2bdf-4e65-9c43-3e336b6d3376` |
+| staging | `meccha-manual-staging` | `staging` | `https://meccha-manual-staging.meccha-iiyatsu.com` | staging専用D1（IDはDashboardのみ） |
 | production | `meccha-manual-prod` | `production` | `https://meccha-manual.meccha-iiyatsu.com` | owner確定待ち（設定はplaceholderで停止） |
 
 `GET /onboarding/continue` の有効化は、Workerが信頼した `APP_ENV` と `APP_BASE_URL` の組み合わせが上表に完全一致し、request originも同じ文字列である場合だけとする。host反映、wildcard、client側のフラグだけでは有効化しない。productionのAccess audience、D1 ID、rate-limit namespaceが未確定の間は、production設定をdeployしない。
 
-Access issuerは `https://restless-queen-0273.cloudflareaccess.com`、JWKS URLは `https://restless-queen-0273.cloudflareaccess.com/cdn-cgi/access/certs` を確認済みの候補として扱う。staging／productionのapplication audience、application policy、登録済みhostは未確認であり、placeholderや推測値を設定へ入れない。audienceが揃わない場合は `ACCESS_AUDIENCE` を未設定のままにしてWorkerをfail closedにする。
+Access issuer／JWKS URLは確認済みのDashboard設定をWorker varsへ登録する。staging／productionのapplication audience、application policy、登録済みhostは未確認であり、実値や推測値をMarkdownへ記録しない。audienceが揃わない場合は `ACCESS_AUDIENCE` を未設定のままにしてWorkerをfail closedにする。
 
-専用設定は `workers_dev: false` を固定する。stagingだけ `preview_urls: true` を使って immutable candidate を検証できるが、candidate origin は allowlist外なので onboarding UI を有効化せず、Access deny-by-default と staging D1だけを前提にする。productionは `preview_urls: false` とし、正式originの設定・Access・D1が揃うまで到達経路を作らない。
+専用設定は `workers_dev: false` と `keep_vars: true` を固定する。Dashboardで管理するAccess runtime varsをdeployで消去しない。stagingだけ `preview_urls: true` を使って immutable candidate を検証できるが、candidate origin は allowlist外なので onboarding UI を有効化せず、Access deny-by-default と staging D1だけを前提にする。productionは `preview_urls: false` とし、正式originの設定・Access・D1が揃うまで到達経路を作らない。
 
 ## bindingとmigration stage gate
 
