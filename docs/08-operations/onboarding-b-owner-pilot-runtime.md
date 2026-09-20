@@ -29,6 +29,16 @@ remote D1 migrationは次の順番を守る。
 
 各migrationの適用結果、D1 workspace越境拒否、未認証／unknown actor拒否、同一operation再送、失敗時rollbackを staging の検証証跡として確認する。migrationファイルを追加しただけ、またはdry-runだけでは適用済みと扱わない。
 
+### Windows checkoutの既存migrationをLFへ正規化する手順
+
+`.gitattributes`の追加後も、既存のWindows checkoutにあるcleanなSQLは自動で書き換わらないことがある。未commitのSQLを失わないため、リポジトリrootで次のNode手順を実行する。対象migrationに差分がある場合は何も書き換えず停止し、利用者が既存差分を別途保全またはcommitしてから再実行する。差分の内容をIssue、PR、ログへ記録しない。
+
+```powershell
+node scripts/normalize-d1-migrations.mjs
+```
+
+この手順は対象migrationのdirty状態を最初に確認し、現行のLF-normalizedな`HEAD`およびindex blobとworking treeの意味が一致することを全件確認した後、Git blob由来のLF bytesを書き戻す。HEADまたはindexにCRLF・別内容がある場合は書き換えず停止する。書き戻し後は対象3本を個別に`git add --renormalize -- <3 paths>`へ渡して属性変更後のindex状態を更新し、index blobが変わらずGit statusがcleanであることを確認する。事前に内容を固定比較し、通常のstage対象は3本に限定する。完了メッセージとCRLF検査を確認してからremote migrationを実行する。
+
 ## owner pilot gate
 
 immutable candidate previewでは、preview originがallowlist外でありUI／bootstrap APIが無効になること、production D1へ到達しないことを否定検証する。staging正式hostでは、staging専用Access application・issuer・JWKS URL・audienceをownerが確認した後、合成handoffを手動生成して一度だけ正常系を確認する。現行の限定配布物はproduction origin固定かつ`pending`のため、staging hostへの拡張機能からの通し試験はこの手順の対象外とし、staging originを明示した配布設定の別承認後に行う。
