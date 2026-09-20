@@ -29,6 +29,40 @@ remote D1 migrationは次の順番を守る。
 
 各migrationの適用結果、D1 workspace越境拒否、未認証／unknown actor拒否、同一operation再送、失敗時rollbackを staging の検証証跡として確認する。migrationファイルを追加しただけ、またはdry-runだけでは適用済みと扱わない。
 
+### Windows checkoutの既存migrationをLFへ正規化する手順
+
+`.gitattributes`の追加後も、既存のWindows checkoutにあるcleanなSQLは自動で書き換わらないことがある。未commitのSQLを失わないため、次のPowerShell手順をそのまま実行する。対象migrationに差分がある場合は何も書き換えず停止し、利用者が既存差分を別途保全またはcommitしてから再実行する。差分の内容をIssue、PR、ログへ記録しない。
+
+```powershell
+$repo = (Get-Location).Path
+$paths = @(
+  "migrations/0001_d1_identity_workspace.sql",
+  "migrations/0002_d1_personal_workspace.sql",
+  "migrations/0003_d1_onboarding_bootstrap.sql"
+)
+$dirty = @(git status --porcelain=v1 -- $paths)
+if ($dirty.Count -gt 0) {
+  Write-Error "migration files have uncommitted changes; preserve or commit them privately, then stop"
+  exit 2
+}
+
+foreach ($path in $paths) {
+  $expected = (git rev-parse ("HEAD:" + $path)).Trim()
+  if ($LASTEXITCODE -ne 0) { throw "missing Git blob: $path" }
+  git -c core.autocrlf=false checkout-index --force -- $path
+  if ($LASTEXITCODE -ne 0) { throw "LF checkout failed: $path" }
+  $actual = (git hash-object --no-filters -- $path).Trim()
+  if ($actual -ne $expected) { throw "working tree differs from Git blob: $path" }
+  if ([IO.File]::ReadAllBytes((Join-Path $repo $path)) -contains [byte]13) {
+    throw "CRLF remains in migration: $path"
+  }
+}
+git diff --exit-code -- migrations
+if ($LASTEXITCODE -ne 0) { throw "migration diff remains after normalization" }
+```
+
+差分がある場合は、利用者が既存SQLを確認・commitまたは別途保全してから再実行する。`checkout-index --force`はcleanな対象だけに使い、未commit SQLへ自動適用しない。全対象でGit blob SHAと実ファイルSHAが一致し、CRLFがないことを確認してからremote migrationを実行する。
+
 ## owner pilot gate
 
 immutable candidate previewでは、preview originがallowlist外でありUI／bootstrap APIが無効になること、production D1へ到達しないことを否定検証する。staging正式hostでは、staging専用Access application・issuer・JWKS URL・audienceをownerが確認した後、合成handoffを手動生成して一度だけ正常系を確認する。現行の限定配布物はproduction origin固定かつ`pending`のため、staging hostへの拡張機能からの通し試験はこの手順の対象外とし、staging originを明示した配布設定の別承認後に行う。
