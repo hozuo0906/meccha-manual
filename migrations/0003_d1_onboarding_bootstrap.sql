@@ -22,3 +22,98 @@ CREATE TABLE onboarding_signup_events (
   FOREIGN KEY (application_id, operation_id)
     REFERENCES onboarding_bootstrap_operations(application_id, operation_id) ON DELETE RESTRICT
 );
+
+CREATE TRIGGER onboarding_bootstrap_created_identity_immutable
+BEFORE UPDATE OF created_identity ON onboarding_bootstrap_operations
+WHEN NEW.created_identity <> OLD.created_identity
+BEGIN
+  SELECT RAISE(ABORT, 'bootstrap created identity is immutable');
+END;
+
+CREATE TRIGGER onboarding_bootstrap_operation_identity_immutable
+BEFORE UPDATE OF application_id, operation_id, workspace_id ON onboarding_bootstrap_operations
+WHEN NEW.application_id <> OLD.application_id
+  OR NEW.operation_id <> OLD.operation_id
+  OR NEW.workspace_id <> OLD.workspace_id
+BEGIN
+  SELECT RAISE(ABORT, 'bootstrap operation identity is immutable');
+END;
+
+CREATE TRIGGER onboarding_bootstrap_created_at_immutable
+BEFORE UPDATE OF created_at ON onboarding_bootstrap_operations
+WHEN NEW.created_at <> OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'bootstrap operation timestamp is immutable');
+END;
+
+CREATE TRIGGER onboarding_signup_event_consistency_insert
+BEFORE INSERT ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event requires created identity operation');
+END;
+
+CREATE TRIGGER onboarding_signup_event_consistency_update
+BEFORE UPDATE OF application_id, operation_id, workspace_id ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event requires created identity operation');
+END;
+
+CREATE TRIGGER onboarding_signup_event_envelope_insert
+BEFORE INSERT ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+    AND NEW.event_id = 'meccha-manual:onboarding:v1:signup_completed:'
+      || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id
+    AND NEW.occurred_at = o.created_at
+)
+AND EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event envelope does not match operation');
+END;
+
+CREATE TRIGGER onboarding_signup_event_envelope_update
+BEFORE UPDATE OF event_id, application_id, operation_id, workspace_id, occurred_at ON onboarding_signup_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+    AND NEW.event_id = 'meccha-manual:onboarding:v1:signup_completed:'
+      || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id
+    AND NEW.occurred_at = o.created_at
+)
+AND EXISTS (
+  SELECT 1 FROM onboarding_bootstrap_operations o
+  WHERE o.application_id = NEW.application_id
+    AND o.operation_id = NEW.operation_id
+    AND o.workspace_id = NEW.workspace_id
+    AND o.created_identity = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'signup event envelope does not match operation');
+END;

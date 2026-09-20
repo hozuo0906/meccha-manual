@@ -21,8 +21,6 @@ export class D1OnboardingRepository {
     const identityId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
     const now = new Date().toISOString();
-    const eventInput = JSON.stringify(["meccha-manual:onboarding:v1", "signup_completed", actor.issuer, actor.subject, operationId]);
-    const eventId = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(eventInput))), (byte) => byte.toString(16).padStart(2, "0")).join("");
     const identity = "SELECT application_id FROM identities WHERE issuer = ?1 AND subject = ?2 AND status = 'active'";
     const personal = `SELECT w.id FROM workspaces w JOIN identities i ON i.application_id = w.created_by
       WHERE i.issuer = ?1 AND i.subject = ?2 AND i.status = 'active'
@@ -58,10 +56,11 @@ export class D1OnboardingRepository {
           VALUES ((${identity}), ?3, (${authorized}), CASE WHEN (${identity}) = ?4 THEN 1 ELSE 0 END, ?5)
           ON CONFLICT(application_id, operation_id) DO NOTHING`, operationId, identityId, now),
         bind(`INSERT INTO onboarding_signup_events(event_id, event_name, application_id, operation_id, workspace_id, occurred_at)
-          SELECT ?3, 'signup_completed', o.application_id, o.operation_id, o.workspace_id, o.created_at
+          SELECT 'meccha-manual:onboarding:v1:signup_completed:' || length(o.application_id) || ':' || o.application_id || ':' || o.operation_id,
+            'signup_completed', o.application_id, o.operation_id, o.workspace_id, o.created_at
           FROM onboarding_bootstrap_operations o WHERE o.application_id = (${identity})
-            AND o.operation_id = ?4 AND o.created_identity = 1
-          ON CONFLICT(application_id) DO NOTHING`, eventId, operationId)
+            AND o.operation_id = ?3 AND o.created_identity = 1
+          ON CONFLICT(application_id) DO NOTHING`, operationId)
       ]);
       if (result.some((item) => !item.success)) throw new D1RepositoryError("unavailable");
       const saved = await bind(`SELECT o.workspace_id, o.created_identity FROM onboarding_bootstrap_operations o

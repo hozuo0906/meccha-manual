@@ -304,3 +304,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 表示由来の個人情報をlocal draftへ持ち込まず、storageの一時障害でnavigationを失わず、未知scroll baselineを0と仮定した誤記録を避けるため。
 - Boundary:
   - 入力値、秘密値、URL、ページ文字列はfallbackへ含めない。fallbackは現在の1セッション内に保持し、成功保存または終了で破棄する。本変更でイベント件数上限は新設せず、外部APIと追加依存は導入しない。worker終了後の完全durabilityは保証しない。
+
+## DEC-072: Bootstrap Product Event envelopeをD1のoperation結果から決定する
+
+- Status: Accepted
+- Date: 2026-09-20
+- Decision:
+  - `signup_completed`の`event_id`は固定namespace、event type、既存application identity IDの長さ、application identity ID、bootstrap `operation_id`をlength-delimitedに連結した値とする。application identityはTEXTとして既存境界を維持し、operation IDのASCII allowlistと長さ区切りで連結の曖昧性を防ぐ。
+  - `occurred_at`はbootstrap operationの`created_at`と同じserver-side authoritative timestampとし、D1 triggerでinsert/update時に一致を検証する。operationの`created_at`は後から変更できない。
+- Reason:
+  - event IDをactorの外部識別子やclient入力から生成せず、D1に確定保存したapplication identityとoperation結果から再送時も同じ値にする。DB trigger自身がenvelopeを再計算できるため、直接D1書込みでも別ID・別timestampを保存できない。
+- Boundary:
+  - 対象はS2 onboarding bootstrapの`onboarding_signup_events`だけであり、client-generated Product Eventの契約は変更しない。D1 migrationの追加・編集だけではremote環境への適用済みを意味しない。

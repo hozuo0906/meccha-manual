@@ -354,15 +354,29 @@ async function bootstrapOnboarding(request: Request, env: Env): Promise<Response
   if (!env.DB || !env.ONBOARDING_RATE_LIMITER) {
     throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存の準備を利用できません。下書きを保持したまま、時間をおいて再試行してください。");
   }
-  let allowed: boolean;
+  const connectionSignal = cloudflareConnectionSignal(request);
+  if (!connectionSignal) {
+    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存の準備を利用できません。下書きを保持したまま、時間をおいて再試行してください。");
+  }
+  let actorAllowed: boolean;
+  let connectionAllowed: boolean;
   try {
-    const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([actor.issuer, actor.subject])));
-    const key = Array.from(new Uint8Array(keyBytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
-    allowed = (await env.ONBOARDING_RATE_LIMITER.limit({ key })).success;
+    const actorKey = await onboardingRateLimitKey("actor", JSON.stringify([actor.issuer, actor.subject]));
+    const connectionKey = await onboardingRateLimitKey("connection", connectionSignal);
+    const actorResult = await env.ONBOARDING_RATE_LIMITER.limit({ key: actorKey });
+    if (typeof actorResult.success !== "boolean") throw new Error("invalid actor rate-limit result");
+    actorAllowed = actorResult.success;
+    if (!actorAllowed) {
+      connectionAllowed = false;
+    } else {
+      const connectionResult = await env.ONBOARDING_RATE_LIMITER.limit({ key: connectionKey });
+      if (typeof connectionResult.success !== "boolean") throw new Error("invalid connection rate-limit result");
+      connectionAllowed = connectionResult.success;
+    }
   } catch {
     throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存の準備を利用できません。時間をおいて再試行してください。");
   }
-  if (!allowed) return jsonResponse({ code: "ONBOARDING_RATE_LIMITED", message: "しばらく待ってから再試行してください。" }, { status: 429, headers: { "retry-after": "60" } });
+  if (!actorAllowed || !connectionAllowed) return jsonResponse({ code: "ONBOARDING_RATE_LIMITED", message: "しばらく待ってから再試行してください。" }, { status: 429, headers: { "retry-after": "60" } });
   try {
     return jsonResponse(await new D1OnboardingRepository(env.DB).bootstrap(actor, body.operationId));
   } catch (error) {
@@ -371,6 +385,46 @@ async function bootstrapOnboarding(request: Request, env: Env): Promise<Response
     }
     throw d1ErrorResponse(error, "profile");
   }
+}
+
+function cloudflareConnectionSignal(request: Request): string | null {
+  const cloudflareRequest = request as Request & { cf?: unknown };
+  if (!cloudflareRequest.cf || request.headers.has("CF-Worker")) return null;
+  // Cloudflare documents CF-Connecting-IP as the client IP on edge-to-origin
+  // requests. Prefer the real IPv6 preserved by Cloudflare only when
+  // CF-Connecting-IP is a Pseudo IPv4 address. Never accept a forwarded list
+  // or preserve the raw value beyond this validation boundary; the
+  // rate-limit key is hashed below.
+  const ipv4OrIpv6 = request.headers.get("CF-Connecting-IP");
+  if (ipv4OrIpv6 === null) return null;
+  const ip = canonicalIpAddress(ipv4OrIpv6.trim());
+  if (!ip) return null;
+  const ipv6 = request.headers.get("CF-Connecting-IPv6");
+  if (ipv6 === null) return ip;
+  if (!isPseudoIpv4(ip)) return null;
+  return canonicalIpAddress(ipv6.trim());
+}
+
+function canonicalIpAddress(value: string): string | null {
+  if (value.length === 0 || value.length > 45 || /[\s,]/u.test(value)) return null;
+  const ipv4 = value.split(".");
+  if (ipv4.length === 4 && ipv4.every((part) => /^(?:0|[1-9][0-9]{0,2})$/u.test(part) && Number(part) <= 255)) return value;
+  try {
+    const hostname = new URL(`http://[${value}]/`).hostname;
+    return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1).toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPseudoIpv4(value: string): boolean {
+  const firstOctet = Number(value.split(".")[0]);
+  return Number.isInteger(firstOctet) && firstOctet >= 240 && firstOctet <= 255;
+}
+
+async function onboardingRateLimitKey(namespace: "actor" | "connection", value: string): Promise<string> {
+  const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`meccha-manual:onboarding:rate-limit:${namespace}:v1\0${value}`));
+  return `${namespace}:${Array.from(new Uint8Array(keyBytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 async function getD1Session(request: Request, env: Env): Promise<Response> {
