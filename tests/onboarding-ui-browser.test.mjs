@@ -138,15 +138,56 @@ test("onboarding does not mint or retry an expired operation after a failed requ
       let offset = 0;
       Date.now = () => realNow() + offset;
       globalThis.advanceOnboardingClock = (milliseconds) => { offset += milliseconds; };
+      globalThis.resetOnboardingClock = () => { offset = 0; };
     });
+    const noFragmentHandoff = "E".repeat(43);
+    await page.goto(`${baseUrl}/onboarding/continue?case=e#handoff=${noFragmentHandoff}`);
+    const noFragmentOperation = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries.find((entry) => entry.handoffId === "E".repeat(43)).operationId);
+    await page.goto(`${baseUrl}/onboarding/continue?without-fragment=1`);
+    await page.evaluate(() => globalThis.advanceOnboardingClock(16 * 60 * 1000));
+    await page.locator("#bootstrap").click();
+    await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === true);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); const entry = value.entries.find((entry) => entry.handoffId === "E".repeat(43)); return { operationId: entry.operationId, state: entry.state }; }), { operationId: noFragmentOperation, state: "expired" });
+    await page.evaluate(() => globalThis.advanceOnboardingClock(-16 * 60 * 1000));
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+    await page.reload();
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+    await page.goto(`${baseUrl}/onboarding/continue?case=e-revisit#handoff=${noFragmentHandoff}`);
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+
+    await page.evaluate(() => globalThis.resetOnboardingClock());
     const initialHandoff = "D".repeat(43);
-    await page.goto(`${baseUrl}/onboarding/continue#handoff=${initialHandoff}`);
+    await page.goto(`${baseUrl}/onboarding/continue?case=d#handoff=${initialHandoff}`);
     const initialOperation = await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).operationId; });
     await page.evaluate(() => globalThis.advanceOnboardingClock(16 * 60 * 1000));
     await page.locator("#bootstrap").click();
     await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === true);
     assert.equal(calls.length, 0);
-    assert.equal(await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).operationId; }), initialOperation);
+    assert.deepEqual(await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); const entry = value.entries.find((entry) => entry.handoffId === value.activeHandoffId); return { operationId: entry.operationId, state: entry.state }; }), { operationId: initialOperation, state: "expired" });
+    await page.evaluate(() => globalThis.advanceOnboardingClock(-16 * 60 * 1000));
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+    assert.equal(calls.length, 0);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries.find((entry) => entry.handoffId === "D".repeat(43)).state), "expired");
+    await page.reload();
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+    await page.goto(`${baseUrl}/onboarding/continue?case=d-revisit#handoff=${initialHandoff}`);
+    assert.equal(await page.locator("#bootstrap").isDisabled(), true);
+
+    await page.evaluate(() => globalThis.resetOnboardingClock());
+    const storageFailureHandoff = "F".repeat(43);
+    await page.goto(`${baseUrl}/onboarding/continue?case=f#handoff=${storageFailureHandoff}`);
+    await page.goto(`${baseUrl}/onboarding/continue?case=f-storage-failure`);
+    await page.evaluate(() => {
+      globalThis.originalOnboardingSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => { throw new Error("quota"); };
+      globalThis.advanceOnboardingClock(16 * 60 * 1000);
+    });
+    await page.locator("#bootstrap").click();
+    await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === true);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return { history: value.entries.map((entry) => [entry.handoffId, entry.state]), active: value.activeHandoffId }; }), { history: [["E".repeat(43), "expired"], ["D".repeat(43), "expired"], ["F".repeat(43), "active"]], active: storageFailureHandoff });
+    await page.evaluate(() => { Storage.prototype.setItem = globalThis.originalOnboardingSetItem; });
 
     await page.goto(`${baseUrl}/onboarding/continue?retry=1#handoff=${handoff}`);
     const firstOperation = await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).operationId; });

@@ -315,3 +315,7 @@ Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`�
 Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し、256bit相当の形式に一致する場合だけ、そのページ訪問時刻を `operationId` のmetadata `createdAt` として固定する。同じhandoffの有効な保存済みmetadataを再訪・再読込で見つけた場合は、既存の `createdAt` を維持してTTLを延長しない。空、形式不正、重複のfragmentは、同一タブの新しいhandoffとして扱わず、既存の `sessionStorage` 値へフォールバックせずに副作用0で拒否する。
 
 同じhandoffに紐づく保存済みoperationが期限切れになった場合、再送、再読込、同じfragmentでの再訪のいずれでも新しいoperationIdを発行しない。期限内の応答消失だけが同じoperationIdを再利用できる。別の有効handoffを新たに受け取った訪問は、そのhandoffに限って新しいoperationを開始できる。
+
+### B期限切れ観測時の保存境界
+
+クリック時に保存済みmetadataの期限切れを観測した場合も、fragmentの有無にかかわらず、検証済みの最新履歴から一致するhandoff／operationを再確認し、そのentryだけを`expired` tombstoneとして既存履歴と`activeHandoffId`を保持したまま保存する。保存に失敗した場合は当該ページの操作を停止し、保存成功を前提とした永続化済みとは扱わない。

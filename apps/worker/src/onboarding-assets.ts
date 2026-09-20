@@ -108,18 +108,34 @@ export const ONBOARDING_JS = `(() => {
     capturedContext = active;
     return capturedContext;
   }
+  function expireCapturedContext(context) {
+    context.state = "expired";
+    const saved = readSaved();
+    if (!saved.ok || !saved.state) return false;
+    const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId);
+    if (!matching) return false;
+    if (matching.state !== "expired" || saved.needsWrite) {
+      matching.state = "expired";
+      if (!persistState(saved.state)) return false;
+    }
+    return true;
+  }
+  function currentOperation() {
+    const context = hasFragment ? initializeCapturedContext() : initializeActiveContext();
+    if (!context || context.state !== "active") return null;
+    if (!isFresh(context)) {
+      expireCapturedContext(context);
+      return null;
+    }
+    return context;
+  }
   function getHandoff() {
-    if (hasFragment) return validHandoff(fragmentHandoff) && operationId() ? fragmentHandoff : null;
-    const active = initializeActiveContext();
-    return active && isFresh(active) ? active.handoffId : null;
+    if (hasFragment) return validHandoff(fragmentHandoff) && currentOperation() ? fragmentHandoff : null;
+    const active = currentOperation();
+    return active ? active.handoffId : null;
   }
   function operationId() {
-    if (hasFragment) {
-      const context = initializeCapturedContext();
-      return context && isFresh(context) ? context.operationId : null;
-    }
-    const active = initializeActiveContext();
-    return active && isFresh(active) ? active.operationId : null;
+    return currentOperation()?.operationId || null;
   }
   if (configured && hasFragment && validHandoff(fragmentHandoff)) initializeCapturedContext();
   function setButton(label, disabled = false) { button.textContent = label; button.disabled = disabled; }

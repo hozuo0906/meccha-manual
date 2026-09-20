@@ -97,3 +97,7 @@ FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複f
 ### B handoff history retention
 
 同一タブのhandoff履歴、期限切れtombstone、active pointer、旧単一record移行、保存失敗時の副作用0を `tests/onboarding-ui-browser.test.mjs` の実Chrome回帰で検証する。履歴はsessionStorage存続中だけを保証し、容量上限で既存entryを削除してoperationを再発行しない。
+
+### B期限切れ観測時の保存境界
+
+実ブラウザ回帰では、fragment付きページとfragmentなし再読込の両方で、TTL経過後のクリックをAPIへ送信せず、対象entryを`expired` tombstoneとして保存すること、時計を戻した同一ページ・再読込・同じhandoff再訪でも操作を再開しないことを確認する。`sessionStorage`の保存に失敗した場合は当該ページをfail closedにし、既存履歴を置換せず、永続化成功を主張しない。
