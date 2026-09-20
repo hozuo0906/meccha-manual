@@ -85,7 +85,7 @@ extensionはsender origin、handoffId、完了対象local draftを再検証し�
 
 ユーザー名、workspace名、roleをclientから必須入力させない。Personal Workspaceの内部名／slugはserverで決定し、初回UXへ露出しなくてよい。
 
-S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・`-`に限定し、他fieldを拒否する。`DB`と`ONBOARDING_RATE_LIMITER` bindingが不足すると503で書込み前に停止する。rate limitはCloudflareの`request.cf` provenanceがあり、Worker subrequestを示す`CF-Worker`が無い受信requestだけを対象に、検証済みissuer+subjectとCloudflare edgeが付与する単一の`CF-Connecting-IP`（Pseudo IPv4で保存された場合は`CF-Connecting-IPv6`）を正規化してそれぞれ別namespaceのSHA-256 keyへ変換し、双方へ適用する。接続元signalの欠落・不正、またはlimiterの不明な結果は503で書込み前に停止し、拒否時は429と`Retry-After: 60`を返す。raw IPと識別子はログへ保存しない。binding設定とstagingへのmigration適用は別のdeploy手順であり、API実装だけで有効化済みとは扱わない。
+S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・`-`に限定し、他fieldを拒否する。`DB`と`ONBOARDING_RATE_LIMITER` bindingが不足すると503で書込み前に停止する。owner pilotのCloudflare Rate Limiting bindingは10回／60秒とし、検証済みissuer+subjectとCloudflare edgeが付与する単一の`CF-Connecting-IP`（Pseudo IPv4で保存された場合は`CF-Connecting-IPv6`）を正規化して、それぞれ別keyへ適用する。接続元signalの欠落・不正、またはlimiterの不明な結果は503で書込み前に停止し、拒否時は429と`Retry-After: 60`を返す。raw IPと識別子はログへ保存しない。binding設定とstagingへのmigration適用は別のdeploy手順であり、API実装だけで有効化済みとは扱わない。production namespaceとD1 IDが未確定の間はplaceholderでfail closedにする。
 
 ### atomic operation
 

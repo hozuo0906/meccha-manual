@@ -51,6 +51,8 @@ beforeEach(async () => {
   };
   repository = new D1OnboardingRepository(db);
   env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
     ACCESS_ISSUER: issuer, ACCESS_AUDIENCE: "bootstrap-tests", ACCESS_JWKS_URL: `${issuer}/certs`, DB: db,
     ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }
   };
@@ -59,18 +61,28 @@ beforeEach(async () => {
 afterEach(() => { globalThis.fetch = originalFetch; database.close(); });
 
 function count(table) { return database.prepare(`SELECT count(*) AS n FROM ${table}`).get().n; }
-async function request(body = { operationId: operation }, claims = {}, headers = {}) {
+async function request(body = { operationId: operation }, claims = {}, headers = {}, baseUrl = "https://meccha-manual-staging.meccha-iiyatsu.com") {
   const token = await new SignJWT({ type: "app", sub: actor.subject, ...claims }).setProtectedHeader({ alg: "RS256", kid: "bootstrap" })
     .setIssuer(issuer).setAudience("bootstrap-tests").setIssuedAt().setExpirationTime("5m").sign(privateKey);
-  const requestHeaders = new Headers({ origin: "https://app.example.invalid", "content-type": "application/json", "cf-connecting-ip": "198.51.100.10", "Cf-Access-Jwt-Assertion": token });
+  const requestHeaders = new Headers({ origin: baseUrl, "content-type": "application/json", "cf-connecting-ip": "198.51.100.10", "Cf-Access-Jwt-Assertion": token });
   for (const [name, value] of Object.entries(headers)) requestHeaders.set(name, value);
-  const input = new Request("https://app.example.invalid/api/onboarding/bootstrap", {
+  const input = new Request(`${baseUrl}/api/onboarding/bootstrap`, {
     method: "POST", headers: requestHeaders,
     body: JSON.stringify(body)
   });
   Object.defineProperty(input, "cf", { value: { colo: "NRT", asn: 64500 }, configurable: true });
   return input;
 }
+
+test("bootstrap rejects a non-allowlisted origin or incomplete runtime config before D1", async () => {
+  const mismatched = await worker.fetch(await request({ operationId: "bootstrap-origin-mismatch" }, {}, {}, "https://meccha-manual.meccha-iiyatsu.com"), env, {});
+  assert.equal(mismatched.status, 503);
+  assert.equal((await mismatched.json()).code, "ONBOARDING_UNAVAILABLE");
+  const missingConfig = await worker.fetch(await request({ operationId: "bootstrap-config-missing" }), { ...env, APP_BASE_URL: undefined }, {});
+  assert.equal(missingConfig.status, 503);
+  assert.equal((await missingConfig.json()).code, "ONBOARDING_UNAVAILABLE");
+  assert.equal(count("identities"), 0);
+});
 
 test("first authenticated bootstrap provisions the complete atomic result; replay preserves createdIdentity", async () => {
   const response = await worker.fetch(await request(), env, {});

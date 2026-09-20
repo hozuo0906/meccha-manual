@@ -3,6 +3,81 @@ export interface SupabaseBindings {
   SUPABASE_ANON_KEY?: string;
 }
 
+export interface AppRuntimeBindings {
+  APP_ENV?: string;
+  APP_BASE_URL?: string;
+}
+
+export type AppEnvironment = "staging" | "production";
+
+export interface AppRuntimeConfig {
+  environment: AppEnvironment;
+  baseUrl: string;
+}
+
+export interface AppRuntimeConfigInspection {
+  configured: boolean;
+  hasEnvironment: boolean;
+  hasBaseUrl: boolean;
+  environment: AppEnvironment | null;
+  baseUrl: string | null;
+  config: AppRuntimeConfig | null;
+}
+
+export const ONBOARDING_ORIGINS: Readonly<Record<AppEnvironment, string>> = {
+  staging: "https://meccha-manual-staging.meccha-iiyatsu.com",
+  production: "https://meccha-manual.meccha-iiyatsu.com"
+};
+
+function exactHttpsOrigin(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.origin !== value ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function inspectAppRuntimeConfig(env: AppRuntimeBindings): AppRuntimeConfigInspection {
+  const rawEnvironment = String(env.APP_ENV ?? "").trim();
+  const rawBaseUrl = String(env.APP_BASE_URL ?? "").trim();
+  const hasEnvironment = rawEnvironment.length > 0;
+  const hasBaseUrl = rawBaseUrl.length > 0;
+  const environment = rawEnvironment === "staging" || rawEnvironment === "production"
+    ? rawEnvironment
+    : null;
+  const parsedBaseUrl = hasBaseUrl ? exactHttpsOrigin(rawBaseUrl) : null;
+  const baseUrl = environment && parsedBaseUrl === ONBOARDING_ORIGINS[environment]
+    ? parsedBaseUrl
+    : null;
+  const config: AppRuntimeConfig | null = environment && baseUrl ? { environment, baseUrl } : null;
+
+  return {
+    configured: config !== null,
+    hasEnvironment,
+    hasBaseUrl,
+    environment,
+    baseUrl,
+    config
+  };
+}
+
+export function isConfiguredOnboardingOrigin(origin: string, env: AppRuntimeBindings): boolean {
+  const config = inspectAppRuntimeConfig(env).config;
+  return config !== null && origin === config.baseUrl;
+}
+
 export interface AccessBindings {
   ACCESS_ISSUER?: string;
   ACCESS_AUDIENCE?: string;

@@ -1,0 +1,62 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-09-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "env": {
+    "staging": {
+      "name": "meccha-manual-staging",
+      "preview_urls": true,
+      "vars": {
+        "APP_ENV": "staging",
+        "APP_BASE_URL": "https://meccha-manual-staging.meccha-iiyatsu.com"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "meccha-manual-d1-staging",
+          "database_id": "99b0c9b6-2bdf-4e65-9c43-3e336b6d3376",
+          "migrations_dir": "./migrations"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "ONBOARDING_RATE_LIMITER",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        }
+      ]
+    },
+    "production": {
+      "name": "meccha-manual-prod",
+      "preview_urls": false,
+      "vars": {
+        "APP_ENV": "production",
+        "APP_BASE_URL": "https://meccha-manual.meccha-iiyatsu.com"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "__PENDING_PRODUCTION_D1_DATABASE_NAME__",
+          "database_id": "__PENDING_PRODUCTION_D1_DATABASE_ID__",
+          "migrations_dir": "./migrations"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "ONBOARDING_RATE_LIMITER",
+          "namespace_id": "__PENDING_PRODUCTION_RATE_LIMIT_NAMESPACE_ID__",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        }
+      ]
+    }
+  }
+}
