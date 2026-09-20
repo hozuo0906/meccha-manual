@@ -4,7 +4,7 @@ import test from "node:test";
 import { chromium } from "@playwright/test";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 
-test("onboarding browser retries the same operation after response loss and rejects expired reload metadata", { timeout: 20_000 }, async () => {
+test("onboarding browser retries the same operation after a 503 and rejects expired reload metadata", { timeout: 20_000 }, async () => {
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");

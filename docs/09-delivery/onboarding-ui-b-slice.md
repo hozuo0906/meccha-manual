@@ -10,4 +10,6 @@ Status: Accepted
 - `operationId`と`handoffId`はWebの`sessionStorage`へmetadataだけ保存し、手順書本文をURL、DOM、storage、API payloadへ複製しない。
 - Access環境と正式originの配布が未準備の限定版では、`apps/extension/onboarding-config.js`の`pending`設定によりCTAを無効化し、日本語で準備中と表示する。`ready`への変更は正式originとAccess環境を確認した配布物へ明示反映する。実環境での認証・bootstrap成功はこのスライスの検証結果に含めない。
 
-Workerの`index.ts`へのルート接続とbootstrap APIの実装は別担当の統合対象であり、この変更では触れない。統合時は`renderOnboardingContinuePage({ bootstrapEnabled })`を`GET /onboarding/continue`へ接続し、環境設定が確認できない場合は`false`を渡す。
+Workerの`index.ts`へ`GET /onboarding/continue`、外部CSS/JS asset、bootstrap有効状態のbinding判定を接続した。bootstrap API本体・D1 migrationは別担当のcommitを通常mergeして利用する。環境設定が確認できない場合は`bootstrapEnabled=false`で安全に停止する。
+
+検証は`npm run test:onboarding-ui`で行い、拡張機能の取消・保存失敗・未準備表示、Webの503後同一operationId再試行、再読込後のTTL失効、Worker route/assetsのCSP・binding判定を含む。
