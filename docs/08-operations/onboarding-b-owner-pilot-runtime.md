@@ -41,8 +41,16 @@ node scripts/normalize-d1-migrations.mjs
 
 ## owner pilot gate
 
-immutable candidate previewでは、preview originがallowlist外でありUI／bootstrap APIが無効になること、production D1へ到達しないことを否定検証する。staging正式hostでは、staging専用Access application・issuer・JWKS URL・audienceをownerが確認した後、合成handoffを手動生成して一度だけ正常系を確認する。現行の限定配布物はproduction origin固定かつ`pending`のため、staging hostへの拡張機能からの通し試験はこの手順の対象外とし、staging originを明示した配布設定の別承認後に行う。
+immutable candidate previewでは、preview originがallowlist外でありUI／bootstrap APIが無効になること、production D1へ到達しないことを否定検証する。staging正式hostでは、staging専用Access application・issuer・JWKS URL・audienceをownerが確認した後、合成handoffを手動生成して一度だけ正常系を確認する。owner限定staging配布版はstaging originを明示しているが、配布ZIPを実Chromeへ導入した通し確認は、コード回帰やWeb画面の個別境界確認とは別の証跡として記録する。
 
 staging正常系の確認項目は、Access JWTの検証、unknown humanのbootstrap以外403、bootstrapのPersonal Workspace準備、同一operation再送の冪等性、429／503時のlocal原本保持、formal production originへの到達不可である。結果に本文、画像、credential、raw IP、Access tokenを含めない。issuer、JWKS URL、audienceが未確定または環境間で不一致なら、合成handoffを使った場合でもbootstrapを実行せず停止する。
+
+## owner限定staging配布版の導入
+
+このbranchの拡張機能配布版は、manifest version `0.1.1`としてstaging B登録UIだけへ接続する。導入時は配布ZIPを展開し、Chromeの拡張機能管理画面でデベロッパーモードを有効にして「パッケージ化されていない拡張機能を読み込む」から展開フォルダを選ぶ。既存版を更新する場合は同じフォルダのファイルを更新してから拡張機能管理画面の再読み込みを行い、拡張機能のlocal storageと下書きを保持する。
+
+配布設定とunit／browser回帰ではstaging originへの接続を実装済みである。配布ZIPを実Chromeへ導入してstaging Accessからbootstrapまで通す確認は別の実行証跡であり、この文書だけでは実施済みと扱わない。production、preview、localhost、任意のuserinfo／port／path／query付きoriginへ接続する配布物は使用しない。
+
+このB配布版はPersonal Workspaceの準備までを対象とし、手順書本文・画像のクラウド保存、guest claim、asset転送、元の保存操作の再開は未実装である。認証取消、通信失敗、保存失敗では拡張機能のlocal原本を保持する。
 
 productionへ進む条件は、staging gateの記録、production専用Access application／audience、production D1、rate-limit namespace、migration適用計画、rollback条件を別々に確認し、ownerが明示承認することである。この文書はproduction資源の作成・migration・deployを承認しない。

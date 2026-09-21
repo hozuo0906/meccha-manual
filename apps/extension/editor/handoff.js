@@ -1,3 +1,5 @@
+import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
+
 const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
@@ -45,7 +47,7 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
 }
 
 export function buildContinueUrl(origin, handoffId) {
-  if (origin !== "https://meccha-manual.meccha-iiyatsu.com") throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
+  if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
   return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}`;
 }

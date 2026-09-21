@@ -8,11 +8,11 @@ Status: Accepted
 - output gateの取消、登録画面の未準備、401／403／429／503、応答消失では、編集内容とlocal原本を保持する。
 - Web画面はbootstrap成功をPersonal Workspace準備完了として表示する。手順書が保存された、claimされた、共有されたとは表示しない。
 - `operationId`と`handoffId`はWebの`sessionStorage`へmetadataだけ保存し、手順書本文をURL、DOM、storage、API payloadへ複製しない。
-- Access環境と正式originの配布が未準備の限定版では、`apps/extension/onboarding-config.js`の`pending`設定によりCTAを無効化し、日本語で準備中と表示する。`ready`への変更は正式originとAccess環境を確認した配布物へ明示反映する。実環境での認証・bootstrap成功はこのスライスの検証結果に含めない。
+- owner限定staging配布版では、`apps/extension/onboarding-config.js`の`ready`設定を明示したstaging originへ固定し、CTAからstaging B登録UIへ接続する。production、preview、localhost、userinfo、port、path、query付きoriginは`handoff.js`でも同じ固定値との完全一致を要求して拒否する。production originを含む未準備版は引き続き`pending`設定でCTAを無効化し、日本語で準備中と表示する。
 
-Workerの`index.ts`へ`GET /onboarding/continue`、外部CSS/JS asset、bootstrap有効状態のbinding判定を接続した。bootstrap API本体・D1 migrationを`codex/s2-onboarding-bootstrap`から通常mergeし、BのAPI/UI統合を完了した。環境設定が確認できない場合は`bootstrapEnabled=false`で安全に停止する。正式なAccess外部設定と実環境の認証・bootstrap成功は未設定・未検証であり、このスライスの完了条件に含めない。
+Workerの`index.ts`へ`GET /onboarding/continue`、外部CSS/JS asset、bootstrap有効状態のbinding判定を接続した。bootstrap API本体・D1 migrationを`codex/s2-onboarding-bootstrap`から通常mergeし、BのAPI/UI統合を完了した。環境設定が確認できない場合は`bootstrapEnabled=false`で安全に停止する。owner限定staging配布版の設定・unit／browser回帰は実装済みだが、配布ZIPを実Chromeへ導入してstagingへ接続する通し確認は別途の実行証跡として扱い、このスライスのコード検証だけで完了扱いにしない。
 
-owner pilot向けの専用runtime設定は`wrangler.onboarding.jsonc`に分離する。`apps/worker/src/index.ts`を入口とし、stagingは`meccha-manual-staging`／staging D1だけを使う。productionは専用Worker名と正式originを記載するが、D1 ID・Access audience・rate-limit namespaceが確定するまでplaceholderでfail closedにする。Web画面は`APP_ENV`と`APP_BASE_URL`の環境別完全一致、およびrequest originの完全一致時だけstaging／productionごとの許可originでbootstrap CTAを有効化する。既存の`wrangler.jsonc`（legacy Supabase／Discord経路）と拡張機能の`pending`設定は変更しない。migration適用、owner pilot、production反映の手順は[owner pilot runtime runbook](../08-operations/onboarding-b-owner-pilot-runtime.md)を正とする。
+owner pilot向けの専用runtime設定は`wrangler.onboarding.jsonc`に分離する。`apps/worker/src/index.ts`を入口とし、stagingは`meccha-manual-staging`／staging D1だけを使う。productionは専用Worker名と正式originを記載するが、D1 ID・Access audience・rate-limit namespaceが確定するまでplaceholderでfail closedにする。Web画面は`APP_ENV`と`APP_BASE_URL`の環境別完全一致、およびrequest originの完全一致時だけstaging／productionごとの許可originでbootstrap CTAを有効化する。既存の`wrangler.jsonc`（legacy Supabase／Discord経路）は変更しない。migration適用、owner pilot、配布版の導入、production反映の手順は[owner pilot runtime runbook](../08-operations/onboarding-b-owner-pilot-runtime.md)を正とする。
 
 検証は`npm run test:onboarding-ui`で行い、拡張機能の取消・保存失敗・未準備表示、Webの503後同一operationId再試行、再読込後のTTL失効、Worker route/assetsのCSP・binding判定を含む。
 
