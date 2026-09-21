@@ -1,11 +1,13 @@
-// 配布環境を有効化するときは、この明示的な設定をレビュー済みの配布物へ反映する。
-// Access未準備の限定版はpendingのままにし、登録originを生成しない。
+// このbranchの配布物は、owner限定staging pilotだけへ接続する。
+// production、preview、localhostなどのoriginは配布設定へ入れない。
+export const STAGING_ONBOARDING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
+
 export const ONBOARDING_CONFIG = Object.freeze({
-  status: "pending",
-  origin: null
+  status: "ready",
+  origin: STAGING_ONBOARDING_ORIGIN
 });
 
 export function getOnboardingOrigin(config = ONBOARDING_CONFIG) {
-  if (config?.status !== "ready" || config.origin !== "https://meccha-manual.meccha-iiyatsu.com") return null;
+  if (config?.status !== "ready" || config.origin !== STAGING_ONBOARDING_ORIGIN) return null;
   return config.origin;
 }

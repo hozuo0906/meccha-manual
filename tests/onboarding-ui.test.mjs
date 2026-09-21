@@ -7,21 +7,38 @@ import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../
 import worker from "../apps/worker/src/index.ts";
 import { inspectAppRuntimeConfig, isConfiguredOnboardingOrigin } from "../apps/worker/src/server-config.ts";
 
-test("handoff is 256-bit metadata and only the allowlisted origin can be used", () => {
+test("handoff is 256-bit metadata and only the staging origin can be used", () => {
   const id = createHandoffId(new Uint8Array(32));
   assert.match(id, /^[A-Za-z0-9_-]{43}$/);
   const metadata = createHandoffMetadata("draft-1", "save", Date.parse("2026-09-20T00:00:00Z"));
   assert.equal(metadata.draftId, "draft-1");
   assert.equal(metadata.outputAction, "save");
   assert.equal("title" in metadata, false);
-  assert.match(buildContinueUrl("https://meccha-manual.meccha-iiyatsu.com", metadata.handoffId), /#handoff=/);
-  assert.throws(() => buildContinueUrl("https://example.invalid", metadata.handoffId), /ORIGIN_NOT_ALLOWED/);
+  assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", metadata.handoffId), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=/);
+  for (const origin of [
+    "https://meccha-manual.meccha-iiyatsu.com",
+    "https://meccha-manual-staging.meccha-iiyatsu.com.evil.invalid",
+    "https://meccha-manual-staging.meccha-iiyatsu.com:443",
+    "https://user:pass@meccha-manual-staging.meccha-iiyatsu.com",
+    "http://localhost:8787",
+    "https://meccha-manual-staging.meccha-iiyatsu.com/path",
+    "https://meccha-manual-staging.meccha-iiyatsu.com?redirect=1"
+  ]) assert.throws(() => buildContinueUrl(origin, metadata.handoffId), /ORIGIN_NOT_ALLOWED/);
 });
 
-test("limited distribution keeps registration origin pending", () => {
-  assert.equal(getOnboardingOrigin(), null);
+test("staging distribution is ready and rejects every non-staging config", () => {
+  assert.equal(getOnboardingOrigin(), "https://meccha-manual-staging.meccha-iiyatsu.com");
+  assert.equal(getOnboardingOrigin({ status: "pending", origin: "https://meccha-manual-staging.meccha-iiyatsu.com" }), null);
   assert.equal(getOnboardingOrigin({ status: "ready", origin: "https://example.invalid" }), null);
-  assert.equal(getOnboardingOrigin({ status: "ready", origin: "https://meccha-manual.meccha-iiyatsu.com" }), "https://meccha-manual.meccha-iiyatsu.com");
+  for (const origin of [
+    "https://meccha-manual.meccha-iiyatsu.com",
+    "https://meccha-manual-staging.meccha-iiyatsu.com.evil.invalid",
+    "https://meccha-manual-staging.meccha-iiyatsu.com:443",
+    "https://user:pass@meccha-manual-staging.meccha-iiyatsu.com",
+    "http://localhost:8787",
+    "https://meccha-manual-staging.meccha-iiyatsu.com/path",
+    "https://meccha-manual-staging.meccha-iiyatsu.com?redirect=1"
+  ]) assert.equal(getOnboardingOrigin({ status: "ready", origin }), null);
 });
 
 test("expired handoff metadata is pruned without touching local draft content", async () => {

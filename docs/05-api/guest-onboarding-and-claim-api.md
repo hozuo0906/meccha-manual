@@ -22,7 +22,7 @@ output gateで拡張は次を行う。
 
 1. 256 bit相当の推測困難な `handoffId` を生成する。
 2. `handoffId`、local draft ID、選択済みoutput action、有効期限を拡張ローカルへ保存する。
-3. `https://<app-origin>/onboarding/continue#handoff=<handoffId>` を通常タブで開く。
+3. owner限定staging配布版では、`https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=<handoffId>` を通常タブで開く。配布版のconfigとhandoff判定はこのoriginとの完全一致だけを許可し、production・preview・localhost等は拒否する。
 
 `handoffId` はURL fragmentへ置き、HTTP request、Access log、server logへ送らない。manual本文、asset、output内容をURLへ入れない。
 
@@ -307,7 +307,7 @@ Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoff
 
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
-正式originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
+owner限定staging配布版はstaging B登録UIへ接続する。production originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
 ### B handoff fragment と operation の期限境界
 
 同一タブの `sessionStorage` は単一operationの上書き領域ではなく、`version`、`activeHandoffId`、handoffごとの不変な `operationId`／`createdAt`／状態を持つ履歴として保存する。期限切れを観測したentryは `expired` tombstoneとして残し、後続の別handoffを受理しても、同じhandoffのoperationを再発行しない。fragmentなしの再読込は `activeHandoffId` のentryだけを参照する。旧来の単一recordは検証可能な場合だけ履歴の1件へ移行し、JSON解析、重複、形式、保存のいずれかが不確かな場合は副作用0で拒否する。履歴を容量上限で削除して再発行可能にすることはしない。この保証は同一タブの `sessionStorage` が存続している範囲に限る。

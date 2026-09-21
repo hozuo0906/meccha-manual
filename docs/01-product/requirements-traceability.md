@@ -90,7 +90,7 @@ Issue #176のM1〜M4で実装・検証済みのAccess JWT、identity、workspace
 
 ## B登録UIスライスの状態
 
-FR-001、FR-002、FR-022のB範囲（output gate、handoff metadata、同一operationIdのbootstrap retry、local原本保持）は実装対象とする。Access環境未準備の限定版では、Web画面を安全な準備中表示で停止し、実環境の認証・bootstrap成功を検証済みとは扱わない。guest本文のclaim、asset transfer、完了通知、元outputの再開はC以降の未完了範囲である。
+FR-001、FR-002、FR-022のB範囲（output gate、handoff metadata、同一operationIdのbootstrap retry、local原本保持）は実装対象とする。owner限定staging配布版は明示したstaging originだけへ接続し、production・preview・localhost等のoriginは拒否する。配布設定・unit／browser回帰は実装済みとして追跡するが、実Chromeへ導入したstaging通し確認の成否は別の証跡で判定する。guest本文のclaim、asset transfer、完了通知、元outputの再開はC以降の未完了範囲である。
 
 owner pilotのruntime境界は、`wrangler.onboarding.jsonc`、`inspectAppRuntimeConfig`、`tests/onboarding-ui.test.mjs`で追跡する。`APP_ENV`と環境別完全一致originの欠落・不一致、staging originの許可、production placeholderのfail-closedを検証し、既存legacy Supabase runtimeをこのB証跡へ流用しない。
 ### B handoff期限の受入境界

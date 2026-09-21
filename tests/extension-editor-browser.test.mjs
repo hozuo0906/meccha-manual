@@ -105,7 +105,7 @@ test("editor creates, reloads, and deletes a mask through a real Chrome mouse ge
 });
 
 test("output gate cancel preserves edits, save failure blocks handoff, and pending config stays local", { timeout: 20_000 }, async () => {
-  const server = serveExtension();
+  const server = serveExtension({ onboardingConfig: 'export const STAGING_ONBOARDING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com"; export function getOnboardingOrigin() { return null; }' });
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -157,9 +157,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
 });
 
 test("ready config opens the registration tab once and keeps local edits", { timeout: 20_000 }, async () => {
-  const server = serveExtension({
-    onboardingConfig: 'export function getOnboardingOrigin() { return "https://meccha-manual.meccha-iiyatsu.com"; }'
-  });
+  const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -170,6 +168,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     const page = await context.newPage();
     await page.addInitScript(() => {
       globalThis.__tabsCreateCalls = 0;
+      globalThis.__createdTabUrl = null;
       globalThis.__handoffStorageWrites = 0;
       globalThis.chrome = {
         storage: { local: {
@@ -177,7 +176,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
           get: async () => ({}),
           remove: async () => undefined
         } },
-        tabs: { create: async () => { globalThis.__tabsCreateCalls += 1; } }
+        tabs: { create: async ({ url }) => { globalThis.__tabsCreateCalls += 1; globalThis.__createdTabUrl = url; } }
       };
     });
     await page.goto(`${baseUrl}/seed.html`);
@@ -192,6 +191,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => globalThis.__tabsCreateCalls === 1);
     assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 1);
+    assert.match(await page.evaluate(() => globalThis.__createdTabUrl), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}$/);
     assert.equal(await page.locator("#title").inputValue(), "編集を保持するタイトル");
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 1);
   } finally {
