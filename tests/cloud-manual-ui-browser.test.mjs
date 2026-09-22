@@ -77,6 +77,14 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByLabel("タイトル", { exact: true }).waitFor();
     await page.locator("img").waitFor();
     await page.waitForFunction(() => document.querySelector("img")?.naturalWidth > 0);
+    const titleField = page.getByLabel("タイトル", { exact: true });
+    assert.equal(await titleField.getAttribute("maxlength"), null);
+    assert.equal(await titleField.getAttribute("data-code-point-max"), "64");
+    await titleField.fill("😀".repeat(65));
+    await page.getByRole("button", { name: "変更を保存" }).click();
+    await page.getByText("タイトルは64文字以内で入力してください。").waitFor();
+    assert.equal(patches.length, 0);
+    assert.equal(await titleField.inputValue(), "😀".repeat(65));
     await page.getByLabel("タイトル", { exact: true }).fill("保存前タイトル");
     await page.getByLabel("手順 1のタイトル").fill("更新した手順");
     await page.getByRole("button", { name: "手順を追加" }).click();
@@ -107,8 +115,24 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     assert.equal(patches.length, 2);
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
     assert.equal(await page.getByRole("img", { name: "手順 1の操作を記録" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "保存中に変更したタイトル" }).count(), 1);
+    await page.evaluate(() => {
+      const add = document.querySelector("[data-step-add]");
+      for (let index = 0; index < 199; index += 1) add.click();
+    });
+    const addStep = page.locator("[data-step-add]");
+    assert.equal(await page.locator(".cloud-step").count(), 200);
+    assert.equal(await addStep.isDisabled(), true);
+    assert.equal(await addStep.textContent(), "手順は200件まで");
+    await page.locator(".cloud-step").nth(199).getByRole("button", { name: "この手順を削除" }).click();
+    assert.equal(await addStep.isDisabled(), false);
+    assert.equal(await addStep.textContent(), "手順を追加");
+    await addStep.click();
+    assert.equal(await addStep.isDisabled(), true);
+    assert.equal(await page.locator(".cloud-step").count(), 200);
 
     returnUnauthorized = true;
+    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "最新の内容を読み込む" }).click();
     await page.getByText("認証または権限を確認できません。画面を更新してください。").waitFor();
     assert.equal(await page.getByText("左の一覧から手順書を選んでください。").count(), 1);

@@ -34,16 +34,37 @@ export const CLOUD_MANUAL_JS = `(() => {
     }
   }
   function markChanged() { dirty = true; editVersion += 1; }
+  function codePointLength(value) { return Array.from(String(value || "")).length; }
+  function syncManualListTitle(manualId, title) {
+    const manual = manuals.find((item) => item.id === manualId);
+    if (!manual) return;
+    manual.title = title;
+    if (selected?.id === manualId) selected.title = title;
+    renderList();
+  }
+  function validateSnapshot(snapshot) {
+    const fields = [[String(snapshot.title || "").trim(), 64, "タイトル"], [snapshot.description, 10000, "説明"]];
+    for (const step of snapshot.steps) {
+      const stepTitle = String(step.title || "").trim();
+      if (codePointLength(stepTitle) < 1) return "手順の見出しは1〜128文字で入力してください。";
+      fields.push([stepTitle, 128, "手順の見出し"], [step.instruction, 4000, "手順文"]);
+    }
+    if (codePointLength(String(snapshot.title || "").trim()) < 1) return "タイトルは1〜64文字で入力してください。";
+    const invalid = fields.find(([value, max]) => codePointLength(value) > max);
+    if (invalid) return invalid[2] + "は" + invalid[1].toLocaleString("ja-JP") + "文字以内で入力してください。";
+    if (snapshot.steps.length > 200) return "手順は200件以内で入力してください。";
+    return "";
+  }
   function clearProtectedEditor() { manuals = []; selected = null; detailData = null; editorState = null; dirty = false; renderList(); renderDetail(null); }
   function renderDetail(data) {
     reloadButton = null;
     detail.replaceChildren(); if (!data || !editorState) { detail.append(make("p", "左の一覧から手順書を選んでください。", "cloud-note")); return; }
     const canEdit = data.permissions?.canEdit !== false;
     const heading = make("h2", editorState.title || "手順書"); detail.append(heading); const form = make("form"); form.noValidate = true;
-    const titleLabel = make("label", "タイトル"); const title = document.createElement("input"); title.maxLength = 64; title.value = editorState.title; title.disabled = !canEdit; title.setAttribute("aria-label", "タイトル"); titleLabel.append(title); const descriptionLabel = make("label", "説明"); const description = document.createElement("textarea"); description.maxLength = 10000; description.value = editorState.description; description.disabled = !canEdit; description.setAttribute("aria-label", "説明"); descriptionLabel.append(description); title.addEventListener("input", () => { editorState.title = title.value; heading.textContent = title.value || "手順書"; markChanged(); }); description.addEventListener("input", () => { editorState.description = description.value; markChanged(); }); const fields = make("div", "", "cloud-field"); fields.append(titleLabel); const descFields = make("div", "", "cloud-field"); descFields.append(descriptionLabel);
+    const titleLabel = make("label", "タイトル"); const title = document.createElement("input"); title.dataset.codePointMax = "64"; title.value = editorState.title; title.disabled = !canEdit; title.setAttribute("aria-label", "タイトル"); titleLabel.append(title); const descriptionLabel = make("label", "説明"); const description = document.createElement("textarea"); description.dataset.codePointMax = "10000"; description.value = editorState.description; description.disabled = !canEdit; description.setAttribute("aria-label", "説明"); descriptionLabel.append(description); title.addEventListener("input", () => { editorState.title = title.value; heading.textContent = title.value || "手順書"; markChanged(); }); description.addEventListener("input", () => { editorState.description = description.value; markChanged(); }); const fields = make("div", "", "cloud-field"); fields.append(titleLabel); const descFields = make("div", "", "cloud-field"); descFields.append(descriptionLabel);
     const steps = make("div");
-    function rerenderSteps() { steps.replaceChildren(); editorState.steps.forEach((step, index) => { const item = make("article", "", "cloud-step"); const label = make("label", "手順 " + (index + 1)); const stepTitle = document.createElement("input"); stepTitle.maxLength = 128; stepTitle.value = step.title || ""; stepTitle.disabled = !canEdit; stepTitle.setAttribute("aria-label", "手順 " + (index + 1) + "のタイトル"); label.append(stepTitle); const instruction = document.createElement("textarea"); instruction.maxLength = 4000; instruction.value = step.instruction || ""; instruction.disabled = !canEdit; instruction.setAttribute("aria-label", "手順 " + (index + 1) + "の説明"); stepTitle.addEventListener("input", () => { step.title = stepTitle.value; markChanged(); }); instruction.addEventListener("input", () => { step.instruction = instruction.value; markChanged(); }); const imageUrl = imageUrlFor(step, data); if (imageUrl) { const image = document.createElement("img"); image.className = "cloud-step-image"; image.src = imageUrl; image.alt = "手順 " + (index + 1) + "の操作を記録"; image.loading = "lazy"; item.append(image); } const actionBar = make("div", "", "cloud-step-actions"); const up = make("button", "上へ", "secondary"); up.type = "button"; up.disabled = !canEdit || index === 0; up.addEventListener("click", () => { [editorState.steps[index - 1], editorState.steps[index]] = [editorState.steps[index], editorState.steps[index - 1]]; markChanged(); rerenderSteps(); }); const down = make("button", "下へ", "secondary"); down.type = "button"; down.disabled = !canEdit || index === editorState.steps.length - 1; down.addEventListener("click", () => { [editorState.steps[index], editorState.steps[index + 1]] = [editorState.steps[index + 1], editorState.steps[index]]; markChanged(); rerenderSteps(); }); const remove = make("button", "この手順を削除", "secondary danger"); remove.type = "button"; remove.disabled = !canEdit; remove.addEventListener("click", () => { editorState.steps.splice(index, 1); markChanged(); rerenderSteps(); }); actionBar.append(up, down, remove); item.append(label, instruction, actionBar); steps.append(item); }); }
-    rerenderSteps(); const add = make("button", "手順を追加", "secondary"); add.type = "button"; add.disabled = !canEdit; add.addEventListener("click", () => { editorState.steps.push({ type: "action", title: "新しい手順", instruction: "", actionType: null, targetText: null, url: null, clientKey: "local-" + crypto.randomUUID() }); markChanged(); rerenderSteps(); }); const actions = make("div", "", "cloud-actions"); const save = make("button", "変更を保存", "primary"); save.type = "submit"; save.disabled = !canEdit || saveInFlight; const reload = make("button", "最新の内容を読み込む", "secondary"); reloadButton = reload; reload.type = "button"; reload.disabled = saveInFlight; reload.addEventListener("click", () => { if (!dirty || window.confirm("編集中の変更を破棄して最新の内容を読み込みますか？")) openManual(selected.id, { force: true }); }); actions.append(reload, save); form.append(fields, descFields, steps, add, actions); form.addEventListener("submit", (event) => { event.preventDefault(); saveManual(data.manual.id, save); }); detail.append(form);
+    function rerenderSteps() { steps.replaceChildren(); editorState.steps.forEach((step, index) => { const item = make("article", "", "cloud-step"); const label = make("label", "手順 " + (index + 1)); const stepTitle = document.createElement("input"); stepTitle.dataset.codePointMax = "128"; stepTitle.value = step.title || ""; stepTitle.disabled = !canEdit; stepTitle.setAttribute("aria-label", "手順 " + (index + 1) + "のタイトル"); label.append(stepTitle); const instruction = document.createElement("textarea"); instruction.dataset.codePointMax = "4000"; instruction.value = step.instruction || ""; instruction.disabled = !canEdit; instruction.setAttribute("aria-label", "手順 " + (index + 1) + "の説明"); stepTitle.addEventListener("input", () => { step.title = stepTitle.value; markChanged(); }); instruction.addEventListener("input", () => { step.instruction = instruction.value; markChanged(); }); const imageUrl = imageUrlFor(step, data); if (imageUrl) { const image = document.createElement("img"); image.className = "cloud-step-image"; image.src = imageUrl; image.alt = "手順 " + (index + 1) + "の操作を記録"; image.loading = "lazy"; item.append(image); } const actionBar = make("div", "", "cloud-step-actions"); const up = make("button", "上へ", "secondary"); up.type = "button"; up.disabled = !canEdit || index === 0; up.addEventListener("click", () => { [editorState.steps[index - 1], editorState.steps[index]] = [editorState.steps[index], editorState.steps[index - 1]]; markChanged(); rerenderSteps(); }); const down = make("button", "下へ", "secondary"); down.type = "button"; down.disabled = !canEdit || index === editorState.steps.length - 1; down.addEventListener("click", () => { [editorState.steps[index], editorState.steps[index + 1]] = [editorState.steps[index + 1], editorState.steps[index]]; markChanged(); rerenderSteps(); }); const remove = make("button", "この手順を削除", "secondary danger"); remove.type = "button"; remove.disabled = !canEdit; remove.addEventListener("click", () => { editorState.steps.splice(index, 1); markChanged(); rerenderSteps(); const addButton = form.querySelector("[data-step-add]"); if (addButton) { addButton.disabled = !canEdit || editorState.steps.length >= 200; addButton.textContent = editorState.steps.length >= 200 ? "手順は200件まで" : "手順を追加"; } }); actionBar.append(up, down, remove); item.append(label, instruction, actionBar); steps.append(item); }); }
+    rerenderSteps(); const add = make("button", "手順を追加", "secondary"); add.dataset.stepAdd = "true"; add.type = "button"; add.disabled = !canEdit || editorState.steps.length >= 200; add.addEventListener("click", () => { if (editorState.steps.length >= 200) return; editorState.steps.push({ type: "action", title: "新しい手順", instruction: "", actionType: null, targetText: null, url: null, clientKey: "local-" + crypto.randomUUID() }); markChanged(); rerenderSteps(); add.disabled = !canEdit || editorState.steps.length >= 200; add.textContent = editorState.steps.length >= 200 ? "手順は200件まで" : "手順を追加"; }); const actions = make("div", "", "cloud-actions"); const save = make("button", "変更を保存", "primary"); save.type = "submit"; save.disabled = !canEdit || saveInFlight; const reload = make("button", "最新の内容を読み込む", "secondary"); reloadButton = reload; reload.type = "button"; reload.disabled = saveInFlight; reload.addEventListener("click", () => { if (!dirty || window.confirm("編集中の変更を破棄して最新の内容を読み込みますか？")) openManual(selected.id, { force: true }); }); actions.append(reload, save); form.append(fields, descFields, steps, add, actions); form.addEventListener("submit", (event) => { event.preventDefault(); saveManual(data.manual.id, save); }); detail.append(form);
   }
   function stepForSave(step) { const output = { ...(step.id ? { id: step.id } : {}), type: step.type || "action", title: String(step.title || "").trim(), instruction: String(step.instruction || ""), actionType: step.actionType ?? null, targetText: step.targetText ?? null, url: step.url ?? null }; if (step.assetId) output.assetId = step.assetId; return output; }
   function mergeServerStepIds(snapshot, latest) {
@@ -68,6 +89,7 @@ export const CLOUD_MANUAL_JS = `(() => {
       if (latest?.draft?.updatedAt && savedSnapshotMatches(snapshot, latest)) {
         if (detailData?.manual?.id === manualId) detailData = latest;
         mergeServerStepIds(snapshot, latest);
+        syncManualListTitle(manualId, latest.draft.title);
         return true;
       }
     } catch (error) {
@@ -81,6 +103,8 @@ export const CLOUD_MANUAL_JS = `(() => {
   async function saveManual(manualId, saveButton) {
     if (!editorState || saveInFlight) return;
     const snapshot = clone(editorState);
+    const validationMessage = validateSnapshot(snapshot);
+    if (validationMessage) { setMessage(validationMessage, "error"); return; }
     const version = editVersion;
     saveInFlight = true;
     renderList();
@@ -106,6 +130,8 @@ export const CLOUD_MANUAL_JS = `(() => {
         if (refreshed === false) {
           dirty = true;
           setMessage("保存結果と最新内容を確認できませんでした。入力内容を保持しています。", "warning");
+        } else if (refreshed === true) {
+          syncManualListTitle(manualId, snapshot.title.trim());
         }
       } else {
         const reconciled = await reconcileSavedDraft(manualId, snapshot);
@@ -171,11 +197,17 @@ export const CLOUD_MANUAL_JS = `(() => {
       editVersion += 1;
       renderDetail(data);
       setMessage("手順書を表示しています。", "success");
+      return true;
     } catch (error) {
       if (serial !== requestSerial) return;
-      if (error.status === 401 || error.status === 403) clearProtectedEditor();
-      else if (!dirty) renderDetail(null);
-      setMessage(error.status === 401 || error.status === 403 ? "認証または権限を確認できません。画面を更新してください。" : error.message, "error");
+      if (error.status === 401 || error.status === 403) {
+        clearProtectedEditor();
+        setMessage("認証または権限を確認できません。画面を更新してください。", "error");
+        return "auth-lost";
+      }
+      if (!dirty) renderDetail(null);
+      setMessage(error.message, "error");
+      return false;
     }
   }
   if (!workspaceId) setMessage("ワークスペースを確認できません。", "error"); else loadManuals();
