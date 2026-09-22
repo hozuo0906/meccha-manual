@@ -207,6 +207,26 @@ export const ONBOARDING_JS = `(() => {
   }
   function extensionIdFor(context) { return context?.extensionId || null; }
   function markRecoveryProbe(context) { if (!context) return null; context.state = "recovery-probe"; capturedContext = context; return context; }
+  async function beginExtensionContext(context) {
+    if (!context || context.state !== "active") return context;
+    const extensionId = extensionIdFor(context);
+    if (!extensionId) return context;
+    if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    let reply;
+    try {
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: "save" });
+    } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
+    if (!reply?.ok || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
+    const saved = readSaved();
+    if (!saved.ok || !saved.state) throw new Error("CLOUD_STATE_UNAVAILABLE");
+    const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId);
+    if (!matching) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    matching.operationId = reply.operationId;
+    matching.recoveryExpiresAt = reply.expiresAt;
+    if (!persistState(saved.state)) throw new Error("CLOUD_STATE_UNAVAILABLE");
+    capturedContext = matching;
+    return matching;
+  }
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
@@ -432,7 +452,14 @@ export const ONBOARDING_JS = `(() => {
   }
   async function bootstrap() {
     let context = currentOperation();
-    context = await recoverExtensionContext(context);
+    try {
+      context = await recoverExtensionContext(context);
+      context = await beginExtensionContext(context);
+    } catch (error) {
+      message(error?.message || "保存準備を開始できませんでした。元の手順書は保持されています。", "error");
+      setButton("同じ操作で再試行");
+      return;
+    }
     const id = context?.state === "recovery-probe" ? null : context?.operationId || operationId();
     if (!id) {
       if (context?.state === "recovery-probe") { message("同じ保存操作の結果を確認できませんでした。元の手順書を保持したまま、もう一度確認してください。", "error"); setButton("結果をもう一度確認", false); return; }

@@ -26,6 +26,8 @@ Status: Proposed
 - handoffは`handoff`、extension ID、TTL、選択actionを持つmetadataだけをWebへ渡す。Webはfragmentを読み取り後に除去し、guest本文・焼込画像は認証後のclaim APIへ送り、Access credentialは拡張機能へ渡さない。
 - 外部messageは`meccha-manual/cloud-claim-v1` schemaの許可済みtypeだけを受け付け、sender origin、handoff、action、TTL、asset slot、chunk sequenceを再検証する。不正入力は副作用0で拒否する。
 - claim APIは同一operationで`POST /api/onboarding/claim-intents`、slotごとの`PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}`、`POST /api/onboarding/claims/{claimIntentId}`を実行する。retry identityは`claimIntentId + operationId + asset slot`で固定する。
+- 最初のbootstrap／claim-intent／asset PUTより前に、Webは外部message `handoff.begin`を拡張機能へ送り、`chrome.storage.local`でhandoffごとのoperation identityを排他的・耐久的に確定する。同じhandoffを複数タブで開始しても、全タブは返されたcanonical operationIdを使う。既存operationの再訪はread-onlyで元の`expiresAt`を返し、期限後にoperationを再発行しない。
+- 拡張機能のasset slot開始はslot単位で直列化し、並行した同一slotのマスク変換・digest完了が100MiB transfer会計へ二重計上されないようにする。異なるslotのparallel chunks契約は維持する。
 - マスク処理後の画像は`OffscreenCanvas`／`createImageBitmap`でPNGへcanonicalizeし、192KiB bounded chunkへ分割する。許可形式はPNG、JPEG、WebP、1asset 10MiB、claim合計100MiB、100assetを上限とする。raw data URLは送信しない。
 - draftはcanonical JSONからSHA-256 fingerprintを計算する。handoff時の`updatedAt`とfingerprintを保存し、送信直前に再計算して変更があれば停止する。成功確認前にlocal原本を削除しない。
 - `/manuals`はAccess user、active identity、active personal workspace、active owner membershipをすべて満たす場合だけ表示する。service token、disabled identity、suspended workspace、inactive membershipは403とする。
