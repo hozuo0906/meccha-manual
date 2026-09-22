@@ -9,9 +9,12 @@ export const CLOUD_CLAIM_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 export const CLOUD_CLAIM_MAX_ASSETS = 100;
 const HANDOFF_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const DRAFT_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+const OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 const transfers = new Map();
 const snapshots = new Map();
+const finalizeLocks = new Map();
 let transferBytesTotal = 0;
 let transferBytesReserved = 0;
 let snapshotBytesTotal = 0;
@@ -37,7 +40,9 @@ export function safeMessage(message, type) {
     "handoff.prepare": ["schema", "type", "handoffId", "action"],
     "handoff.asset.start": ["schema", "type", "handoffId", "action", "assetSlot"],
     "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "assetSlot", "sequence"],
-    "handoff.completed": ["schema", "type", "handoffId", "action", "manualId"]
+    "handoff.recovery": ["schema", "type", "handoffId", "action"],
+    "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint"],
+    "handoff.completed": ["schema", "type", "handoffId", "action", "manualId", "operationId", "claimIntentId", "draftFingerprint"]
   }[type];
   return Boolean(allowed && Object.keys(message || {}).every((key) => allowed.includes(key)));
 }
@@ -66,6 +71,10 @@ async function readHandoff(handoffId) {
   const metadata = result?.[key];
   if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !isFresh(metadata)) return null;
   return metadata;
+}
+
+function validRecoveryIdentity(message) {
+  return OPERATION_ID_PATTERN.test(message?.operationId || "") && CLAIM_INTENT_ID_PATTERN.test(message?.claimIntentId || "") && DRAFT_FINGERPRINT_PATTERN.test(message?.draftFingerprint || "");
 }
 
 function cleanStep(step) {
@@ -256,14 +265,79 @@ async function assetChunk(message, sender) {
   return result;
 }
 
+async function finalizePending(message, sender) {
+  if (!validRequest(message, sender, "handoff.finalize-pending") || !validRecoveryIdentity(message)) return reject("HANDOFF_REQUEST_REJECTED");
+  const handoffId = message.handoffId;
+  const previous = finalizeLocks.get(handoffId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  finalizeLocks.set(handoffId, queued);
+  await previous;
+  try {
+    const key = handoffStorageKey(handoffId);
+    const result = await chrome.storage.local.get(key);
+    const metadata = result?.[key];
+    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
+    if (metadata.status === "finalize-pending" || metadata.status === "completion-pending" || metadata.status === "completed") {
+      if (metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId) return reject("RECOVERY_MISMATCH");
+      return { ok: true, status: metadata.status };
+    }
+    if (!isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    await chrome.storage.local.set({
+      [key]: {
+        ...metadata,
+        status: "finalize-pending",
+        operationId: message.operationId,
+        claimIntentId: message.claimIntentId,
+        draftFingerprint: message.draftFingerprint,
+        finalizePendingAt: new Date().toISOString()
+      }
+    });
+    return { ok: true, status: "finalize-pending" };
+  } finally {
+    release();
+    if (finalizeLocks.get(handoffId) === queued) finalizeLocks.delete(handoffId);
+  }
+}
+
+async function recovery(message, sender) {
+  if (!validRequest(message, sender, "handoff.recovery")) return reject("HANDOFF_REQUEST_REJECTED");
+  const key = handoffStorageKey(message.handoffId);
+  const result = await chrome.storage.local.get(key);
+  const metadata = result?.[key];
+  if (!metadata || metadata.handoffId !== message.handoffId || metadata.outputAction !== "save" || !["finalize-pending", "completion-pending", "completed"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
+  return {
+    ok: true,
+    status: metadata.status,
+    operationId: metadata.operationId,
+    claimIntentId: metadata.claimIntentId,
+    draftFingerprint: metadata.draftFingerprint,
+    expiresAt: metadata.expiresAt,
+    ...(metadata.completedManualId ? { manualId: metadata.completedManualId } : {})
+  };
+}
+
 async function completed(message, sender) {
   if (!validRequest(message, sender, "handoff.completed") || typeof message.manualId !== "string" || message.manualId.length < 1 || message.manualId.length > 128) return reject("HANDOFF_REQUEST_REJECTED");
   const key = handoffStorageKey(message.handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!metadata || metadata.handoffId !== message.handoffId || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
-  if (metadata.status === "completed") return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
+  if (metadata.status === "completed") {
+    if (metadata.operationId || metadata.claimIntentId) {
+      if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+    }
+    return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
+  }
+  const recovery = metadata.status === "finalize-pending";
+  if (recovery) {
+    if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+  } else if (message.operationId || message.claimIntentId || message.draftFingerprint) {
+    if (!validRecoveryIdentity(message) || (metadata.operationId && metadata.operationId !== message.operationId) || (metadata.claimIntentId && metadata.claimIntentId !== message.claimIntentId) || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+  }
   if (metadata.status === "completion-pending") {
     if (metadata.completedManualId !== message.manualId) return reject("COMPLETION_MISMATCH");
     try {
@@ -274,7 +348,7 @@ async function completed(message, sender) {
     clearClaimRuntime(message.handoffId);
     return { ok: true, status: "completed" };
   }
-  if (!isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!recovery && !isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!metadata.draftUpdatedAt) return reject("DRAFT_CHANGED");
   const expected = await draftDeleteExpectation(metadata);
   await chrome.storage.local.set({ [key]: { ...metadata, status: "completion-pending", completedManualId: message.manualId, completedAt: new Date().toISOString() } });
@@ -324,6 +398,8 @@ export async function handleExternalCloudClaimMessage(message, sender) {
     if (message?.type === "handoff.prepare") return await prepare(message, sender);
     if (message?.type === "handoff.asset.start") return await startAsset(message, sender);
     if (message?.type === "handoff.asset.chunk") return await assetChunk(message, sender);
+    if (message?.type === "handoff.recovery") return await recovery(message, sender);
+    if (message?.type === "handoff.finalize-pending") return await finalizePending(message, sender);
     if (message?.type === "handoff.completed") return await completed(message, sender);
     return reject("UNKNOWN_MESSAGE");
   } catch (error) {

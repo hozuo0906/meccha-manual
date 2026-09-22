@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { cleanDraft, safeMessage } from "../apps/extension/background/cloud-claim.js";
-import { canonicalDraftJson, createHandoffMetadata, fingerprintDraft, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
 
 const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: "A".repeat(43), action: "save" };
 
@@ -11,6 +11,8 @@ test("external claim message schema rejects unknown fields and credential shaped
   assert.equal(safeMessage({ ...validMessage, extra: true }, "handoff.prepare"), false);
   assert.equal(safeMessage({ ...validMessage, accessToken: "secret" }, "handoff.prepare"), false);
   assert.equal(safeMessage({ ...validMessage, type: "handoff.unknown" }, "handoff.unknown"), false);
+  assert.equal(safeMessage({ schema: validMessage.schema, type: "handoff.finalize-pending", handoffId: validMessage.handoffId, action: "save", operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000", draftFingerprint: "a".repeat(64) }, "handoff.finalize-pending"), true);
+  assert.equal(safeMessage({ schema: validMessage.schema, type: "handoff.recovery", handoffId: validMessage.handoffId, action: "save" }, "handoff.recovery"), true);
 });
 
 test("draft validation fails closed instead of dropping invalid content", () => {
@@ -36,10 +38,24 @@ test("handoff metadata carries only a draft fingerprint for completion CAS", asy
 test("expired completion-pending handoff remains available for cleanup recovery", async () => {
   const removed = [];
   await pruneExpiredHandoffs({
-    async get() { return { "meccha-manual:handoff:pending": { status: "completion-pending", expiresAt: "2026-09-20T00:00:00.000Z" }, "meccha-manual:handoff:old": { status: "active", expiresAt: "2026-09-20T00:00:00.000Z" } }; },
+    async get() { return { "meccha-manual:handoff:pending": { status: "completion-pending", expiresAt: "2026-09-20T00:00:00.000Z" }, "meccha-manual:handoff:finalize": { status: "finalize-pending", expiresAt: "2026-09-20T00:00:00.000Z" }, "meccha-manual:handoff:old": { status: "active", expiresAt: "2026-09-20T00:00:00.000Z" } }; },
     async remove(keys) { removed.push(...keys); }
   }, Date.parse("2026-09-23T00:00:00.000Z"));
   assert.deepEqual(removed, ["meccha-manual:handoff:old"]);
+});
+
+test("pending handoff recovery is reused for the same draft even after a draft edit", async () => {
+  const storage = {
+    async get() { return {
+      "meccha-manual:handoff:pending": {
+        handoffId: "A".repeat(43), draftId: "draft-1", draftFingerprint: "b".repeat(64), outputAction: "save",
+        status: "finalize-pending", operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000"
+      }
+    }; }
+  };
+  const recovered = await findRecoverableHandoff("draft-1", "a".repeat(64), storage);
+  assert.equal(recovered.handoffId, "A".repeat(43));
+  assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", recovered.handoffId, "b".repeat(32), recovered), /operationId=O{43}&claimIntentId=00000000-0000-4000-8000-000000000000&draftFingerprint=b{64}$/);
 });
 
 test("extension distribution is pinned to staging and version 0.1.2", async () => {
