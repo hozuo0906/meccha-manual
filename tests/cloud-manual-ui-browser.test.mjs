@@ -15,6 +15,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
   let updatedAt = "v1";
   let delayPatch = false;
   let returnUnauthorized = false;
+  let detailFailure = false;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
@@ -44,6 +45,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
       return;
     }
     if (url.pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}` && request.method === "GET") {
+      if (detailFailure) { detailFailure = false; response.writeHead(503, { "content-type": "application/json; charset=utf-8" }).end(JSON.stringify({ code: "D1_UNAVAILABLE", message: "一時的に確認できません。" })); return; }
       if (returnUnauthorized) { response.writeHead(401).end(JSON.stringify({ message: "unauthorized" })); return; }
       response.setHeader("content-type", "application/json; charset=utf-8");
       response.end(JSON.stringify({ manual: { id: manualId, title: currentTitle }, draft: { title: currentTitle, description: currentDescription, updatedAt }, steps: currentSteps, permissions: { canEdit: true } }));
@@ -116,6 +118,12 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
     assert.equal(await page.getByRole("img", { name: "手順 1の操作を記録" }).count(), 1);
     assert.equal(await page.getByRole("button", { name: "保存中に変更したタイトル" }).count(), 1);
+    await page.getByLabel("タイトル", { exact: true }).fill("503でも保持");
+    detailFailure = true;
+    await page.getByRole("button", { name: "変更を保存" }).click();
+    await page.getByText("保存結果と最新内容を確認できませんでした。入力内容を保持しています。").waitFor();
+    assert.equal(await page.getByLabel("タイトル", { exact: true }).inputValue(), "503でも保持");
+
     await page.evaluate(() => {
       const add = document.querySelector("[data-step-add]");
       for (let index = 0; index < 199; index += 1) add.click();

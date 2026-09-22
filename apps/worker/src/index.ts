@@ -2247,6 +2247,13 @@ function accessLegacyRouteMigrationResponse(): Response {
   }, { status: 503 });
 }
 
+function cloudManualMigrationResponse(): Response {
+  return jsonResponse({
+    code: ACCESS_LEGACY_ROUTE_MIGRATION_CODE,
+    message: "手順書機能は移行中のため、現在利用できません。"
+  }, { status: 503 });
+}
+
 function isLegacySupabaseProtectedRoute(pathname: string): boolean {
   return (
     /^\/api\/auth\/(?:login|refresh)$/.test(pathname) ||
@@ -2270,12 +2277,12 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
-  verifySameOriginWrite(request);
-
   if (useAccessD1Routes(env)) {
     const cloudManualResponse = await handleCloudManualRoute(request, env);
     if (cloudManualResponse) return cloudManualResponse;
   }
+
+  verifySameOriginWrite(request);
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/onboarding/continue") {
@@ -2289,13 +2296,20 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
   }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
+    return cloudManualMigrationResponse();
+  }
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
     return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
+    return cloudManualMigrationResponse();
   }
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
     return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/manuals") {
+    if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return cloudManualPage(request, env);
   }
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);

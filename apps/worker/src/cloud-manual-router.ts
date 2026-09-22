@@ -42,6 +42,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const OPERATION_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/u;
+const URL_SERIALIZED_SAFE_ASCII = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/?#[]@!$&()*+,;=._~%-";
+const MAX_STEP_URL_LENGTH = 2048;
+const MANUAL_MIGRATION_CODE = "MANUAL_MIGRATION_IN_PROGRESS";
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   const merged = new Headers(JSON_HEADERS);
@@ -155,6 +158,49 @@ function sha(value: unknown): string {
   return value;
 }
 
+function serializedUrlBudgetLength(value: string): number {
+  const encoder = new TextEncoder();
+  let length = 0;
+  let component: "url" | "query" | "fragment" = "url";
+  for (const character of value) {
+    if (character === "#") component = "fragment";
+    else if (character === "?" && component === "url") component = "query";
+    const bytes = encoder.encode(character).byteLength;
+    const isSerializedAsOne = URL_SERIALIZED_SAFE_ASCII.includes(character)
+      || (character === "'" && component !== "query");
+    length += bytes === 1 && isSerializedAsOne ? 1 : bytes * 3;
+  }
+  return length;
+}
+
+function stepUrl(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") throw new CloudManualError(400, "STEP_URL_INVALID", "URLを確認してください。");
+  if (Array.from(value).length > MAX_STEP_URL_LENGTH || serializedUrlBudgetLength(value) > MAX_STEP_URL_LENGTH) {
+    throw new CloudManualError(400, "STEP_URL_INVALID", "URLは正規化後も2048文字以内で入力してください。");
+  }
+  if (/[\s\u0000-\u001f\u007f]/u.test(value) || value.includes("\\")) {
+    throw new CloudManualError(400, "STEP_URL_INVALID", "URLを確認してください。");
+  }
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new CloudManualError(400, "STEP_URL_INVALID", "URLを確認してください。"); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new CloudManualError(400, "STEP_URL_INVALID", "URLを確認してください。");
+  }
+  if (!parsed.hostname.startsWith("[") && parsed.hostname.toLowerCase().split(".").some((label) => label.startsWith("xn--"))) {
+    throw new CloudManualError(400, "STEP_URL_INVALID", "URLを確認してください。");
+  }
+  const canonical = parsed.toString();
+  if (Array.from(canonical).length > MAX_STEP_URL_LENGTH) {
+    throw new CloudManualError(400, "STEP_URL_INVALID", "URLは正規化後も2048文字以内で入力してください。");
+  }
+  return canonical;
+}
+
+function requireManualAssets(env: CloudManualEnv): asserts env is CloudManualEnv & { MANUAL_ASSETS: R2Bucket } {
+  if (!env.MANUAL_ASSETS) throw new CloudManualError(503, MANUAL_MIGRATION_CODE, "手順書機能は移行中のため、現在利用できません。");
+}
+
 async function digest(bytes: Uint8Array): Promise<string> {
   const value = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -214,7 +260,7 @@ async function claimIntentRoute(request: Request, env: CloudManualEnv): Promise<
 }
 
 async function stagedAssetRoute(request: Request, env: CloudManualEnv, claimIntentId: string, slot: number): Promise<Response> {
-  if (!env.MANUAL_ASSETS) throw new CloudManualError(503, "MANUAL_ASSETS_UNAVAILABLE", "画像保存先を利用できません。下書きは保持したまま、もう一度お試しください。");
+  requireManualAssets(env);
   const contentType = (request.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
   if (!IMAGE_TYPES.has(contentType)) throw new CloudManualError(415, "ASSET_CONTENT_TYPE_INVALID", "PNG、JPEG、WebP画像だけを指定できます。");
   const operationId = operationField(request.headers.get("x-claim-operation-id"));
@@ -299,7 +345,7 @@ function parseSteps(value: unknown): ClaimStepInput[] {
     if (row.actionType !== null && (typeof row.actionType !== "string" || !ACTION_TYPES.has(row.actionType))) throw new CloudManualError(400, "STEP_ACTION_TYPE_INVALID", "操作種別を確認してください。");
     const assetSlot = row.assetSlot === undefined ? null : row.assetSlot;
     if (assetSlot !== null && (!Number.isInteger(assetSlot) || Number(assetSlot) < 0 || Number(assetSlot) >= MAX_ASSETS)) throw new CloudManualError(400, "ASSET_SLOT_INVALID", "Asset slot is invalid.");
-    return { type: row.type as ClaimStepInput["type"], title: stringField(row.title, 128, "STEP_TITLE_INVALID"), instruction: textField(row.instruction, 4000, "STEP_INSTRUCTION_INVALID", false), actionType: row.actionType === undefined ? null : row.actionType as ClaimStepInput["actionType"], targetText: row.targetText === null || row.targetText === undefined ? null : stringField(row.targetText, 256, "STEP_TARGET_INVALID"), url: row.url === null || row.url === undefined ? null : stringField(row.url, 2048, "STEP_URL_INVALID"), assetSlot: assetSlot as number | null, assetId: null };
+    return { type: row.type as ClaimStepInput["type"], title: stringField(row.title, 128, "STEP_TITLE_INVALID"), instruction: textField(row.instruction, 4000, "STEP_INSTRUCTION_INVALID", false), actionType: row.actionType === undefined ? null : row.actionType as ClaimStepInput["actionType"], targetText: row.targetText === null || row.targetText === undefined ? null : stringField(row.targetText, 256, "STEP_TARGET_INVALID"), url: stepUrl(row.url), assetSlot: assetSlot as number | null, assetId: null };
   });
 }
 
@@ -312,7 +358,7 @@ function parseDraftSteps(value: unknown): Array<ManualStepMutationInput & { id: 
     if (typeof row.type !== "string" || !STEP_TYPES.has(row.type)) throw new CloudManualError(400, "STEP_TYPE_INVALID", "手順の種類を確認してください。");
     const actionType = row.actionType === null || row.actionType === undefined ? null : row.actionType;
     if (actionType !== null && (typeof actionType !== "string" || !ACTION_TYPES.has(actionType))) throw new CloudManualError(400, "STEP_ACTION_TYPE_INVALID", "操作種別を確認してください。");
-    return { id: row.id === null || row.id === undefined || row.id === "" ? null : uuid(String(row.id), "STEP_ID_INVALID"), type: row.type as ManualStepMutationInput["type"], title: stringField(row.title, 128, "STEP_TITLE_INVALID"), instruction: textField(row.instruction, 4000, "STEP_INSTRUCTION_INVALID", false), actionType: actionType as ManualStepMutationInput["actionType"], targetText: row.targetText === null || row.targetText === undefined ? null : stringField(row.targetText, 256, "STEP_TARGET_INVALID"), url: row.url === null || row.url === undefined ? null : stringField(row.url, 2048, "STEP_URL_INVALID"), assetId: row.assetId === null || row.assetId === undefined || row.assetId === "" ? null : uuid(String(row.assetId), "ASSET_ID_INVALID") };
+    return { id: row.id === null || row.id === undefined || row.id === "" ? null : uuid(String(row.id), "STEP_ID_INVALID"), type: row.type as ManualStepMutationInput["type"], title: stringField(row.title, 128, "STEP_TITLE_INVALID"), instruction: textField(row.instruction, 4000, "STEP_INSTRUCTION_INVALID", false), actionType: actionType as ManualStepMutationInput["actionType"], targetText: row.targetText === null || row.targetText === undefined ? null : stringField(row.targetText, 256, "STEP_TARGET_INVALID"), url: stepUrl(row.url), assetId: row.assetId === null || row.assetId === undefined || row.assetId === "" ? null : uuid(String(row.assetId), "ASSET_ID_INVALID") };
   });
 }
 
@@ -358,7 +404,7 @@ async function finalizeRoute(request: Request, env: CloudManualEnv, claimIntentI
   for (const asset of assets) {
     const row = stagedBySlot.get(asset.assetSlot);
     if (!row || row.sha256 !== asset.sha256 || row.status !== "staged") throw new CloudManualError(409, "ASSET_NOT_STAGED", "画像の保存が完了していません。");
-    if (!env.MANUAL_ASSETS) throw new CloudManualError(503, "MANUAL_ASSETS_UNAVAILABLE", "画像保存先を利用できません。");
+    requireManualAssets(env);
     const object = await env.MANUAL_ASSETS.head(row.objectKey);
     const metadata = object?.customMetadata ?? {};
     if (!object || object.size !== row.byteLength || metadata.workspace_id !== row.workspaceId || metadata.asset_id !== row.id || metadata.kind !== "manual_image" || metadata.content_type !== row.contentType || metadata.checksum_sha256 !== row.sha256) throw new CloudManualError(409, "ASSET_RECONCILIATION_REQUIRED", "画像保存状態を確認できません。");
@@ -426,7 +472,7 @@ async function draftRoute(request: Request, env: CloudManualEnv, workspaceId: st
 
 async function assetProxyRoute(request: Request, env: CloudManualEnv, workspaceId: string, assetId: string): Promise<Response> {
   if (request.method !== "GET") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。");
-  if (!env.MANUAL_ASSETS) throw new CloudManualError(503, "MANUAL_ASSETS_UNAVAILABLE", "画像保存先を利用できません。");
+  requireManualAssets(env);
   const { actorId, repository } = await auth(request, env);
   const asset = await repository.getAssetForRead(actorId, workspaceId, uuid(assetId, "ASSET_ID_INVALID"));
   if (!asset) throw new CloudManualError(404, "ASSET_NOT_FOUND", "画像が見つかりません。");
@@ -445,6 +491,7 @@ export async function handleCloudManualRoute(request: Request, env: CloudManualE
   const manualMatch = path.match(/^\/api\/workspaces\/([^/]+)\/manuals(?:\/([^/]+))?$/u);
   if (!intentMatch && !stagedMatch && !claimMatch && !assetMatch && !manualMatch && !draftMatch) return null;
   try {
+    requireManualAssets(env);
     assertSameOrigin(request, env);
     if (intentMatch) { if (request.method !== "POST") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。"); return await claimIntentRoute(request, env); }
     if (stagedMatch) { if (request.method !== "PUT") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。"); return await stagedAssetRoute(request, env, stagedMatch[1]!, Number(stagedMatch[2]!)); }

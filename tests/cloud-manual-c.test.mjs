@@ -5,6 +5,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, test } from "node:test";
 import { exportJWK, SignJWT } from "jose";
 import worker from "../apps/worker/src/index.ts";
+import { handleCloudManualRoute } from "../apps/worker/src/cloud-manual-router.ts";
 import { CloudManualRepository } from "../apps/worker/src/infra/d1/cloud-manual-repository.ts";
 
 const BASE_URL = "https://meccha-manual-staging.meccha-iiyatsu.com";
@@ -241,6 +242,104 @@ test("bootstrap→画像付きclaim→list/detail→asset proxyは保存内容�
   assert.equal(asset.response.status, 200);
   assert.equal(asset.response.headers.get("content-type"), "image/png");
   assert.deepEqual(new Uint8Array(await asset.response.arrayBuffer()), staged.bytes);
+});
+
+test("MANUAL_ASSETSなしではcloud manual API・画面・static assetをmigrationとして拒否し副作用を残さない", async () => {
+  const { workspaceId } = await bootstrap();
+  const staged = await stageClaim({ operationId: "binding-guard-operation-0001", assetCount: 0 });
+  const claimed = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: claimBody(staged, { title: "binding guard", description: "保存済み", steps: [] }) });
+  assert.equal(claimed.response.status, 200, JSON.stringify(claimed.payload));
+  const path = `/api/workspaces/${workspaceId}/manuals/${claimed.payload.manualId}`;
+  const before = (await jsonRequest(path)).payload;
+  const claimCount = count("claim_intents");
+  const manualCount = count("manuals");
+  const pending = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: "binding-guard-operation-0002", assetCount: 0 } });
+  assert.equal(pending.response.status, 201);
+  env.MANUAL_ASSETS = undefined;
+
+  const claim = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: "binding-guard-operation-0003", assetCount: 0 } });
+  assert.equal(claim.response.status, 503);
+  assert.equal(claim.payload.code, "MANUAL_MIGRATION_IN_PROGRESS");
+  assert.equal(count("claim_intents"), claimCount + 1);
+  const finalize = await jsonRequest(`/api/onboarding/claims/${pending.payload.claimIntentId}`, { method: "POST", body: claimBody(pending, { title: "保存されない", description: "bindingなし", steps: [] }) });
+  assert.equal(finalize.response.status, 503);
+  assert.equal(finalize.payload.code, "MANUAL_MIGRATION_IN_PROGRESS");
+  assert.equal(count("manuals"), manualCount);
+
+  const listed = await jsonRequest(`/api/workspaces/${workspaceId}/manuals`);
+  assert.equal(listed.response.status, 503);
+  assert.equal(listed.payload.code, "MANUAL_MIGRATION_IN_PROGRESS");
+  const patchResult = await jsonRequest(`${path}/draft`, {
+    method: "PATCH",
+    body: { title: "変更されない", description: "変更されない", expectedUpdatedAt: before.draft.updatedAt, steps: [] }
+  });
+  assert.equal(patchResult.response.status, 503);
+  assert.equal(patchResult.payload.code, "MANUAL_MIGRATION_IN_PROGRESS");
+  assert.equal(count("manuals"), manualCount);
+  assert.equal(one("SELECT title FROM manuals WHERE id = ?", claimed.payload.manualId).title, before.manual.title);
+
+  const direct = await handleCloudManualRoute(await request(`/api/workspaces/${workspaceId}/manuals`), env);
+  assert.equal(direct?.status, 503);
+  assert.equal((await direct.json()).code, "MANUAL_MIGRATION_IN_PROGRESS");
+  for (const assetPath of ["/assets/cloud-manual.css?v=20260923", "/assets/cloud-manual.js?v=20260923", "/manuals"]) {
+    const response = await jsonRequest(assetPath);
+    assert.equal(response.response.status, 503, assetPath);
+    assert.equal(response.payload.code, "MANUAL_MIGRATION_IN_PROGRESS", assetPath);
+  }
+  const session = await jsonRequest("/api/session");
+  assert.equal(session.response.status, 200);
+  assert.equal(session.payload.manuals.status, "migration");
+});
+
+test("cloud manualのstep URLは既存manual APIと同じHTTP/HTTPS正規化・拒否境界を使う", async () => {
+  const { workspaceId } = await bootstrap();
+  const staged = await stageClaim({ operationId: "step-url-contract-0001", assetCount: 0 });
+  const claimed = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, {
+    method: "POST",
+    body: claimBody(staged, { title: "URL契約", description: "正規化", steps: [{ type: "action", title: "移動", instruction: "開く", actionType: "navigate", targetText: null, url: "HTTPS://example.com:000443/?q=a", assetSlot: null }] })
+  });
+  assert.equal(claimed.response.status, 200, JSON.stringify(claimed.payload));
+  const path = `/api/workspaces/${workspaceId}/manuals/${claimed.payload.manualId}`;
+  const detail = await jsonRequest(path);
+  assert.equal(detail.payload.steps[0].url, "https://example.com/?q=a");
+  const invalidClaim = await stageClaim({ operationId: "step-url-contract-0002", assetCount: 0 });
+  const invalidClaimResult = await jsonRequest(`/api/onboarding/claims/${invalidClaim.claimIntentId}`, {
+    method: "POST",
+    body: claimBody(invalidClaim, { title: "拒否", description: "不正URL", steps: [{ type: "action", title: "移動", instruction: "開く", actionType: "navigate", targetText: null, url: "javascript:alert(1)", assetSlot: null }] })
+  });
+  assert.equal(invalidClaimResult.response.status, 400);
+  assert.equal(invalidClaimResult.payload.code, "STEP_URL_INVALID");
+  assert.equal(count("manuals"), 1);
+  const invalidUrls = [
+    "javascript:alert(1)",
+    "/relative/path",
+    "https://user:secret@example.com/",
+    "https://example.com\\path",
+    "https://example.com/path with space",
+    "https://example.com:99999/",
+    "https://xn--bcher-kva.example/",
+    "https://example.com/" + "あ".repeat(680)
+  ];
+  for (const [index, url] of invalidUrls.entries()) {
+    const before = (await jsonRequest(path)).payload;
+    const result = await jsonRequest(`${path}/draft`, {
+      method: "PATCH",
+      body: { title: before.manual.title, description: before.draft.description, expectedUpdatedAt: before.draft.updatedAt, steps: [{ id: before.steps[0].id, type: before.steps[0].type, title: before.steps[0].title, instruction: before.steps[0].instruction, actionType: before.steps[0].actionType, targetText: before.steps[0].targetText, url, assetId: null }] }
+    });
+    assert.equal(result.response.status, 400, `${index}:${url}`);
+    assert.equal(result.payload.code, "STEP_URL_INVALID", `${index}:${url}`);
+    const after = (await jsonRequest(path)).payload;
+    assert.equal(after.steps[0].url, before.steps[0].url, `${index}:${url}`);
+    assert.equal(after.manual.updatedAt, before.manual.updatedAt, `${index}:${url}`);
+  }
+  const before = (await jsonRequest(path)).payload;
+  const valid = await jsonRequest(`${path}/draft`, {
+    method: "PATCH",
+    body: { title: before.manual.title, description: before.draft.description, expectedUpdatedAt: before.draft.updatedAt, steps: [{ id: before.steps[0].id, type: before.steps[0].type, title: before.steps[0].title, instruction: before.steps[0].instruction, actionType: before.steps[0].actionType, targetText: before.steps[0].targetText, url: "https://example.com:000443/?q=a", assetId: null }] }
+  });
+  assert.equal(valid.response.status, 200, JSON.stringify(valid.payload));
+  const after = (await jsonRequest(path)).payload;
+  assert.equal(after.steps[0].url, "https://example.com/?q=a");
 });
 
 test("PATCHの一括snapshotでtitle/description/追加・削除・並べ替え・画像mappingを原子的に反映する", async () => {
