@@ -62,7 +62,7 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。
 
-Access modeのsession応答は `manuals.status: "migration"` を含む。M4完了まではUIの手順書入口を無効化し、移行中の状態を表示する。
+Access modeのsession応答は、`MANUAL_ASSETS` bindingが利用できる環境だけ `manuals.status: "ready"` とし、bindingがない環境では `manuals.status: "migration"` を返す。`migration` の環境では、claim（画像0件を含む）、manual list/detail、draft PATCH、`/manuals`、cloud manual static assetをすべて `503 MANUAL_MIGRATION_IN_PROGRESS` でfail closedにし、認証・D1/R2書込み・保存済み内容の返却を開始しない。bootstrapと既存の移行中エラー契約は維持する。
 
 - Access JWTなし・不正・期限切れ: 401
 - Access認証済みだが未招待または未登録: 403
@@ -107,6 +107,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 - next draft: 期待published IDから複製
 - archive: 期待manual versionを照合し、内容を保持して非破壊化
 - step mutation: draft lock、200件上限、position、URL、body上限を維持し、個別step操作ではなくdraft PATCHへ集約する。detail responseの各stepは、asset参照がある場合だけ認可済み同originの`assetUrl`（`/api/workspaces/{workspaceId}/assets/{assetId}`）を返す。
+- step URLは空値を`null`として扱い、HTTP/HTTPSだけを許可する。userinfo、空白・制御文字、backslash、壊れたauthority、範囲外port、`xn--` punycode hostnameを拒否する。Workerは入力を拒否する前にWHATWG `URL`で検証し、`toString()`のASCII正規形（空port・先行ゼロport・標準port、query/fragment encodingを含む）を保存する。入力と正規化後のURLはそれぞれ2048 code point以内、正規化後のserialized budgetも2048以内とし、WorkerとD1 direct RPCの境界を一致させる。
 
 結果不明時の自動再送禁止、古い応答破棄、同一origin、JSON body上限、response上限は維持する。
 

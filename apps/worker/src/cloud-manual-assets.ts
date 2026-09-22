@@ -153,6 +153,8 @@ export const CLOUD_MANUAL_JS = `(() => {
       saveInFlight = false;
       renderList();
       if (reloadButton) reloadButton.disabled = false;
+      const currentSaveButton = detail.querySelector("button[type=submit]");
+      if (currentSaveButton) currentSaveButton.disabled = false;
       if (saveButton) saveButton.disabled = false;
     }
   }
@@ -171,7 +173,6 @@ export const CLOUD_MANUAL_JS = `(() => {
       if (serial !== requestSerial) return;
       if (error.status === 401 || error.status === 403) clearProtectedEditor();
       renderList();
-      if (!dirty) renderDetail(null);
       setMessage(error.status === 401 || error.status === 403 ? "認証または権限を確認できません。画面を更新してください。" : error.message, "error");
     }
   }
@@ -205,7 +206,6 @@ export const CLOUD_MANUAL_JS = `(() => {
         setMessage("認証または権限を確認できません。画面を更新してください。", "error");
         return "auth-lost";
       }
-      if (!dirty) renderDetail(null);
       setMessage(error.message, "error");
       return false;
     }
