@@ -38,16 +38,19 @@ async function createStagingPage(context) {
 }
 
 async function sendExternal(page, extensionId, message) {
-  return page.evaluate(({ extensionId: id, message: payload }) => new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(id, payload, (response) => {
-        const runtimeError = chrome.runtime.lastError;
-        resolve(runtimeError ? { ok: false, error: "RUNTIME_ERROR", detail: runtimeError.message } : response);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  }), { extensionId, message });
+  return page.evaluate(({ extensionId: id, message: payload }) => {
+    if (typeof chrome?.runtime?.sendMessage !== "function") return { ok: false, error: "RUNTIME_ERROR", detail: "chrome.runtime.sendMessage unavailable" };
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(id, payload, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          resolve(runtimeError ? { ok: false, error: "RUNTIME_ERROR", detail: runtimeError.message } : response);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }, { extensionId, message });
 }
 
 async function openExtensionContext(userDataDir) {
@@ -155,13 +158,14 @@ async function createNoisePng(page) {
     canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
     const image = context.createImageData(width, height);
+    let state = 0x9e3779b9;
     for (let index = 0; index < image.data.length; index += 4) {
-      const pixel = index / 4;
-      const x = pixel % width;
-      const y = Math.floor(pixel / width);
-      image.data[index] = (x * 31 + y * 17 + 53) % 256;
-      image.data[index + 1] = (x * 13 + y * 47 + 71) % 256;
-      image.data[index + 2] = (x * 59 + y * 7 + 19) % 256;
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      image.data[index] = state & 0xff;
+      image.data[index + 1] = (state >>> 8) & 0xff;
+      image.data[index + 2] = (state >>> 16) & 0xff;
       image.data[index + 3] = 255;
     }
     // Values on both sides of the normalized mask are fixed for exact boundary assertions.
@@ -269,10 +273,13 @@ test("MV3 cloud claim survives worker restart, masks exact pixels, and enforces 
     const missingFingerprint = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.deepEqual(missingFingerprint, { ok: false, error: "DRAFT_FINGERPRINT_REQUIRED" });
     await setMetadata(worker, storageKey, metadata);
-    const wrongSender = await worker.evaluate(async ({ message }) => {
+    const extensionPage = await context.newPage();
+    await extensionPage.goto(`chrome-extension://${extensionId}/popup/popup.html`);
+    const wrongSender = await extensionPage.evaluate(async ({ message }) => {
       const module = await import(chrome.runtime.getURL("background/cloud-claim.js"));
       return module.handleExternalCloudClaimMessage(message, { url: "https://evil.example.test/onboarding/continue" });
     }, { message: { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" } });
+    await extensionPage.close();
     assert.deepEqual(wrongSender, { ok: false, error: "HANDOFF_REQUEST_REJECTED" });
     const wrongOriginPage = await createSyntheticPage(context, WRONG_ORIGIN_URL);
     const wrongOriginExternal = await sendExternal(wrongOriginPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
