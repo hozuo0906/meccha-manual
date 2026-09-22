@@ -4,25 +4,35 @@ Status: Proposed
 
 ## 範囲
 
-owner限定stagingで、拡張機能のlocal draftを認証済みWeb経由で同じworkspaceへ保存し、保存後に一覧・再表示・title／description編集を行う。共有、PDF、production反映は含めない。
+owner限定stagingで、拡張機能のlocal draftを認証済みWeb経由で同じPersonal Workspaceへ保存し、保存後に一覧・詳細表示とdraft編集を行う。共有、PDF、production反映、remote migration、deployは含めない。
 
 ## 固定契約
 
-- 拡張機能のmanifest versionは`0.1.2`。`externally_connectable.matches`は`https://meccha-manual-staging.meccha-iiyatsu.com/*`だけを許可する。
-- editor発行fragmentは`handoff`と32文字の`a-p` extension IDを持つ。Webは読み取り後にfragmentを消去し、extension IDを含むmetadataだけをsessionStorageへ保存する。extension IDなしの旧handoffはcloud saveへ進めず、拡張機能更新後の再操作を案内する。
-- Webの外部messageは`meccha-manual/cloud-claim-v1` schema、`handoff.prepare`、`handoff.asset.start`、`handoff.asset.chunk`、`handoff.completed`に限定する。sender URLのorigin、handoff、action、TTL、chunk sequenceを拡張側で再検証し、unknown schema／origin／message／期限切れ／不正sequenceは副作用0で拒否する。
-- claim APIは同一operationで`POST /api/onboarding/claim-intents`、slotごとの`PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}`、`POST /api/onboarding/claims/{claimIntentId}`を実行する。extension ID、handoff、Access credentialはAPIへ送らない。
-- 画像は`OffscreenCanvas`と`createImageBitmap`でマスクを焼き込み、JPEGへ再エンコードしてからbounded chunkへ分割する。1asset 10MiB、合計100MiB、100assetを上限とし、1chunkは192KiBとする。raw data URLは送信しない。
-- 同一operationの応答不明は同じintent／fingerprintで再試行し、別manualを作らない。claim成功確認前はlocal原本を削除しない。成功通知時もdraftの`updatedAt`がhandoff時点から変わっていれば削除を拒否する。
-- `/manuals`はserver-authenticated workspaceを必須とし、一覧・詳細の表示値は`textContent`で扱う。draft title／descriptionの保存は`expectedUpdatedAt`を使い、409時は編集中の値を保持して競合を表示する。
+- 配布manifestは`0.1.2`。`externally_connectable.matches`はstaging Web originだけを許可し、production・preview・localhostへ接続しない。
+- handoffは`handoff`、extension ID、TTL、選択actionを持つmetadataだけをWebへ渡す。Webはfragmentを読み取り後に除去し、guest本文・焼込画像は認証後のclaim APIへ送り、Access credentialは拡張機能へ渡さない。
+- 外部messageは`meccha-manual/cloud-claim-v1` schemaの許可済みtypeだけを受け付け、sender origin、handoff、action、TTL、asset slot、chunk sequenceを再検証する。不正入力は副作用0で拒否する。
+- claim APIは同一operationで`POST /api/onboarding/claim-intents`、slotごとの`PUT /api/onboarding/claim-intents/{claimIntentId}/assets/{assetSlot}`、`POST /api/onboarding/claims/{claimIntentId}`を実行する。retry identityは`claimIntentId + operationId + asset slot`で固定する。
+- マスク処理後の画像は`OffscreenCanvas`／`createImageBitmap`でPNGへcanonicalizeし、192KiB bounded chunkへ分割する。許可形式はPNG、JPEG、WebP、1asset 10MiB、claim合計100MiB、100assetを上限とする。raw data URLは送信しない。
+- draftはcanonical JSONからSHA-256 fingerprintを計算する。handoff時の`updatedAt`とfingerprintを保存し、送信直前に再計算して変更があれば停止する。成功確認前にlocal原本を削除しない。
+- `/manuals`はAccess user、active identity、active personal workspace、active owner membershipをすべて満たす場合だけ表示する。service token、disabled identity、suspended workspace、inactive membershipは403とする。
+- claim intent、asset取得・再送、reserve、staged遷移、finalize、status照会は、毎回active identity・workspace・owner membershipを再検証する。owner喪失後のupload、status、finalize再送はfail closedにする。
+- R2 put前にD1のclaim/asset記録を予約し、R2とD1を単一transactionとはみなさない。結果不明時は同じ固定key、digest、size、metadataでstatusを再照合し、mismatchは上書きせず409で停止する。
+- draft編集はtitle、description、全stepsを一括snapshotとして`expectedUpdatedAt`とCAS更新する。競合時は409を返し、編集中の入力値を失わせない。詳細stepの`assetUrl`はbackendの許可済みshapeに合わせる。
 
 ## 受入条件
 
 - staging以外のorigin、未知message、handoff不一致、期限切れ、chunk順序飛び、上限超過、credentialを含むmessageを拒否し、local draftに副作用がない。
-- mask焼き込み後のbytesにraw screenshotが現れず、WebのlocalStorage／sessionStorage／URL／ログにguest本文・画像・対象URLを保存しない。
-- local failure、cancel、response loss、retry、changed draftで原本を保持し、claim完成後だけ同じmanualIdの再送とcleanupを許可する。
-- Webで一覧→再表示→編集再保存ができ、version競合時にフォーム入力を失わない。
+- mask焼き込み後のPNG bytesにraw screenshotが残らず、guest本文・画像・対象URL・秘密値をWebの保存領域、URL、ログへ保存しない。拡張機能のlocal draft原本はclaim成功確認まで保持する。
+- response loss、cancel、retry、changed draftでは原本を保持し、同じoperation／fingerprintで結果を照合する。別manual、別asset、別object keyを作らない。
+- Webで一覧→詳細→編集再保存ができ、version競合時にフォーム入力を保持する。
+- owner membershipを無効化した後のclaim status、asset upload、finalize再送が拒否され、別workspaceのresource ID差し替えも拒否される。
 
-## 実装境界
+## 実装境界と検証
 
-frontend担当は`apps/extension`、`apps/worker/src/onboarding-assets.ts`、`apps/worker/src/cloud-manual-assets.ts`と本書・UX／traceabilityを更新する。Worker route／D1／R2／migration／wranglerはbackend担当が接続する。`index.ts`へのasset route exportとDEC-078の最終記録は親統合で行う。
+frontendは`apps/extension`、`apps/worker/src/cloud-manual-assets.ts`、cloud manual UIとbrowser workflowを担当する。Workerのroute、D1 repository、R2 staged asset境界、migration、wrangler staging bindingを同じC契約へ接続する。`/manuals`とstatic asset routeは`index.ts`から接続し、Access D1 mode以外では公開しない。
+
+対象検証はcloud manual C API、cloud manual UI browser、extension cloud claim unit/runtime、onboarding browser、worker runtime、runtime mutation、typecheck、encoding、diff checkとする。Windows固有のbrand checkerと`wrangler.cmd` EINVALはLinux CIで再確認し、未実行を成功扱いにしない。
+
+## 対象外
+
+共有リンク、PDF、production Access／D1／R2、Browser Run実接続、D／E／Fスライスは別作業単位とする。remote migration／deployはC全体の承認済み親実行範囲だが、この担当の作業対象外であり、親が実施する。

@@ -393,3 +393,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - Review lineage: sourceはPR #240、review対象HEADは`d9aa67b5fb2e994259608d831a02e8144c96d3f8`。本作業は同HEADへの最新Reviewで指摘されたPersonal Workspace識別、authenticated staged asset upload、Accepted API index、このsession handoffのP1／P2解消である。
 - Review対応状況: Personal Workspace D1 discriminator／uniquenessはmigration・repository・local testへ反映済み、authenticated staged asset uploadはAccepted contract化済み、onboarding APIはAccepted indexへ登録済み。残作業はPRの最新HEADに対するreview／CI／merge確認である。
 - 次の1マイルストーン: Product source-of-truth PRをmergeした後、PR #234 `Chrome Extension MVP implementation`を新mainへ追従させ、Product／security contractとの差分レビューを行う。PR #240とProduct正本のmerge前にPR #234を変更しない。
+
+## C cloud save 統合 checkpoint (2026-09-23T01:10:31+09:00)
+
+- 対象: Issue #255、PR #256、branch `codex/c-backend-completion`。owner限定stagingのC slice（guest claim、R2 staged asset、`/manuals` UI、draft編集）だけを扱う。D／E／F、production反映は対象外。remote migration／deployはC全体の承認済み親実行範囲だが、この担当では実施しない。
+- 実装: PR #256へfrontendとbackendを統合し、`/manuals`はAccess user・active identity・active personal workspace・active owner membershipを必須化した。claim intent、asset status、finalizeの取得・再送経路も同じactive owner境界を再検証する。
+- 契約同期: `docs/09-delivery/cloud-save-c-slice.md`、guest claim API、traceability、checkerを現行C契約へ同期する。PNG／JPEG／WebP、D1 claim/asset記録照合、`claimIntentId + operationId + asset slot`、CAS編集、結果不明時の照合を正本とする。旧B／M4の全面未実装記述はC範囲だけ失効させる。
+- 検証: cloud manual C API 19件、extension claim unit 5件、Chromium UI／runtime／onboarding browser、worker runtime 71件、runtime mutation 3件、typecheck、encoding、source-of-truth、D1 boundary、diff checkを実行済み。Windowsのbrand checkerと`wrangler.cmd` EINVALはLinux CIで再確認する。
+- 状態: staging実環境のmigration／deploy／最終SHA／完了判定は未確認。親によるwrangler dry-runはbinding反映なしで確認済み。最新の実状態はIssue #70とPR #256のlive stateを正本とし、C完了後にDへ進む。

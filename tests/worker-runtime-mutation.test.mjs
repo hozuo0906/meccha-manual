@@ -57,9 +57,11 @@ async function loadMutatedWorker(name, replacements) {
     writeFile(indexPath, source, "utf8"),
     writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),
     writeFile(join(directory, "onboarding-assets.ts"), await readFile("apps/worker/src/onboarding-assets.ts", "utf8"), "utf8"),
+    writeFile(join(directory, "cloud-manual-assets.ts"), await readFile("apps/worker/src/cloud-manual-assets.ts", "utf8"), "utf8"),
+    writeFile(join(directory, "cloud-manual-router.ts"), await readFile("apps/worker/src/cloud-manual-router.ts", "utf8"), "utf8"),
     writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8"),
     writeFile(join(directory, "access-identity.ts"), await readFile("apps/worker/src/access-identity.ts", "utf8"), "utf8"),
-    ...["d1-errors.ts", "d1-types.ts", "identity-repository.ts", "workspace-repository.ts", "onboarding-repository.ts"].map(async (file) =>
+    ...["d1-errors.ts", "d1-types.ts", "identity-repository.ts", "workspace-repository.ts", "onboarding-repository.ts", "cloud-manual-repository.ts"].map(async (file) =>
       writeFile(join(d1Directory, file), await readFile(`apps/worker/src/infra/d1/${file}`, "utf8"), "utf8")
     )
   ]);

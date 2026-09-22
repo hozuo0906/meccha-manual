@@ -119,8 +119,8 @@ test("dedicated onboarding Wrangler config separates staging and fail-closed pro
   assert.deepEqual(config.env.staging.ratelimits[0].simple, { limit: 10, period: 60 });
   assert.match(config.env.production.d1_databases[0].database_id, /^__PENDING_/);
   assert.match(config.env.production.ratelimits[0].namespace_id, /^__PENDING_/);
-  assert.equal("r2_buckets" in config.env.staging, false);
-  assert.equal("r2_buckets" in config.env.production, false);
+  assert.equal(config.env.staging.r2_buckets[0].bucket_name, "meccha-manual-manual-assets-staging");
+  assert.match(config.env.production.r2_buckets[0].bucket_name, /^__PENDING_/);
   assert.equal("ai" in config.env.staging, false);
   assert.equal("durable_objects" in config.env.production, false);
   assert.doesNotMatch(runbook, /99b0c9b6-2bdf-4e65-9c43-3e336b6d3376|cloudflareaccess\.com|cdn-cgi\/access\/certs/u);

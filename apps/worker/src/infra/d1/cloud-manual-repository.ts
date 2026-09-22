@@ -198,7 +198,8 @@ export class CloudManualRepository {
     try {
       const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id
         FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
-        WHERE c.id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' LIMIT 1`).bind(claimIntentId, actorId).first<ClaimIntentRow>();
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+        WHERE c.id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(claimIntentId, actorId).first<ClaimIntentRow>();
       return row ? mapClaimIntent(row) : null;
     } catch (error) {
       throw repositoryError(error);
@@ -209,7 +210,8 @@ export class CloudManualRepository {
     try {
       const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id
         FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
-        WHERE c.actor_application_id = ?1 AND c.operation_id = ?2 AND i.status = 'active' AND w.status = 'active' LIMIT 1`).bind(actorId, operationId).first<ClaimIntentRow>();
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+        WHERE c.actor_application_id = ?1 AND c.operation_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(actorId, operationId).first<ClaimIntentRow>();
       return row ? mapClaimIntent(row) : null;
     } catch (error) {
       throw repositoryError(error);
@@ -220,7 +222,8 @@ export class CloudManualRepository {
     try {
       const row = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
-       WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND c.actor_application_id = ?3 AND i.status = 'active' AND w.status = 'active' LIMIT 1`)
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+       WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND c.actor_application_id = ?3 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`)
         .bind(claimIntentId, assetSlot, actorId).first<StagedAssetRow>();
       return row ? { id: row.id, claimIntentId: row.claim_intent_id, assetSlot: row.asset_slot, workspaceId: row.workspace_id, operationId: row.operation_id, objectKey: row.object_key, contentType: row.content_type, byteLength: row.byte_length, sha256: row.sha256, status: row.status } : null;
     } catch (error) {
@@ -233,7 +236,8 @@ export class CloudManualRepository {
     try {
       const result = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
-       WHERE a.claim_intent_id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active'
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+       WHERE a.claim_intent_id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner'
          AND a.asset_slot IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))`)
         .bind(claimIntentId, actorId, JSON.stringify(assetSlots)).all<StagedAssetRow>();
       return result.results.map((row) => ({ id: row.id, claimIntentId: row.claim_intent_id, assetSlot: row.asset_slot, workspaceId: row.workspace_id, operationId: row.operation_id, objectKey: row.object_key, contentType: row.content_type, byteLength: row.byte_length, sha256: row.sha256, status: row.status }));
@@ -246,11 +250,15 @@ export class CloudManualRepository {
     try {
       const result = await this.db.prepare(`INSERT INTO claim_assets (id, claim_intent_id, asset_slot, workspace_id, operation_id, object_key, content_type, byte_length, sha256, status, created_at, updated_at)
         SELECT ?1, c.id, ?2, c.workspace_id, c.operation_id, ?3, ?4, ?5, ?6, 'reserved', ?7, ?7
-          FROM claim_intents c WHERE c.id = ?8 AND c.workspace_id = ?9 AND c.operation_id = ?10 AND c.status = 'pending'`)
+          FROM claim_intents c WHERE c.id = ?8 AND c.workspace_id = ?9 AND c.operation_id = ?10 AND c.status = 'pending'
+            AND EXISTS (SELECT 1 FROM identities i JOIN workspaces w ON w.id = c.workspace_id JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+              WHERE i.application_id = c.actor_application_id AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`)
         .bind(record.id, record.assetSlot, record.objectKey, record.contentType, record.byteLength, record.sha256, now, record.claimIntentId, record.workspaceId, record.operationId).run();
       if (changed(result) === 1) return { ...record, status: "reserved" };
-      const existing = await this.db.prepare(`SELECT id, claim_intent_id, asset_slot, workspace_id, operation_id, object_key, content_type, byte_length, sha256, status
-        FROM claim_assets WHERE claim_intent_id = ?1 AND asset_slot = ?2 LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
+      const existing = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
+        FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
       if (existing) return { id: existing.id, claimIntentId: existing.claim_intent_id, assetSlot: existing.asset_slot, workspaceId: existing.workspace_id, operationId: existing.operation_id, objectKey: existing.object_key, contentType: existing.content_type, byteLength: existing.byte_length, sha256: existing.sha256, status: existing.status };
       throw new D1RepositoryError("conflict");
     } catch (error) { throw repositoryError(error); }
@@ -259,11 +267,15 @@ export class CloudManualRepository {
   async recordStagedAsset(record: Omit<StagedAssetRecord, "status">, now: string): Promise<StagedAssetRecord> {
     try {
       const result = await this.db.prepare(`UPDATE claim_assets SET status = 'staged', updated_at = ?1
-        WHERE claim_intent_id = ?2 AND asset_slot = ?3 AND status = 'reserved' AND id = ?4 AND workspace_id = ?5 AND operation_id = ?6 AND object_key = ?7 AND content_type = ?8 AND byte_length = ?9 AND sha256 = ?10`)
+        WHERE claim_intent_id = ?2 AND asset_slot = ?3 AND status = 'reserved' AND id = ?4 AND workspace_id = ?5 AND operation_id = ?6 AND object_key = ?7 AND content_type = ?8 AND byte_length = ?9 AND sha256 = ?10
+          AND EXISTS (SELECT 1 FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+            WHERE c.id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`)
         .bind(now, record.claimIntentId, record.assetSlot, record.id, record.workspaceId, record.operationId, record.objectKey, record.contentType, record.byteLength, record.sha256).run();
       if (changed(result) === 1) return { ...record, status: "staged" };
-      const existing = await this.db.prepare(`SELECT id, claim_intent_id, asset_slot, workspace_id, operation_id, object_key, content_type, byte_length, sha256, status
-        FROM claim_assets WHERE claim_intent_id = ?1 AND asset_slot = ?2 LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
+      const existing = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
+        FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
+        JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
+        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
       if (existing) return { id: existing.id, claimIntentId: existing.claim_intent_id, assetSlot: existing.asset_slot, workspaceId: existing.workspace_id, operationId: existing.operation_id, objectKey: existing.object_key, contentType: existing.content_type, byteLength: existing.byte_length, sha256: existing.sha256, status: existing.status };
       throw new D1RepositoryError("conflict");
     } catch (error) {

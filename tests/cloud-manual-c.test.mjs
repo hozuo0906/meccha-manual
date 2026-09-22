@@ -630,3 +630,21 @@ test("/manuals requires an active identity, workspace, and owner membership", as
   database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
   assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
 });
+
+test("claim retries require an active owner membership", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  const staged = await stageClaim({ operationId: "owner-revoke-retry-0001" });
+  assert.equal(staged.staged.response.status, 200, JSON.stringify(staged.staged.payload));
+
+  const backupOwnerId = crypto.randomUUID();
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run(backupOwnerId, ISSUER, "backup-owner-retry", NOW, NOW);
+  database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES (?, ?, 'owner', 'active', ?, ?)").run(workspaceId, backupOwnerId, NOW, NOW);
+  database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
+
+  const status = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}?operationId=${staged.operationId}`);
+  assert.equal(status.response.status, 404);
+  const retryUpload = await uploadIntentAsset(staged, staged.operationId, 0, staged.bytes);
+  assert.equal(retryUpload.response.status, 404);
+  const retryFinalize = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: claimBody(staged) });
+  assert.equal(retryFinalize.response.status, 404);
+});
