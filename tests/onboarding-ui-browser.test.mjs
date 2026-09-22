@@ -413,6 +413,8 @@ test("onboarding migrates a valid legacy record and fails closed on uncertain st
 
 test("onboarding reconciles a completed finalize after the response is lost", { timeout: 20_000 }, async () => {
   let intentCalls = 0;
+  const bootstrapOperations = [];
+  const intentOperations = [];
   let finalizeCalls = 0;
   let statusCalls = 0;
   let completed = false;
@@ -422,8 +424,8 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
     if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
-    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "ready", workspaceId: "workspace-1" })); return; }
-    if (url.pathname === "/api/onboarding/claim-intents" && request.method === "POST") { intentCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ claimIntentId: "intent-1" })); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { let body = ""; for await (const chunk of request) body += chunk; bootstrapOperations.push(JSON.parse(body).operationId); response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "ready", workspaceId: "workspace-1" })); return; }
+    if (url.pathname === "/api/onboarding/claim-intents" && request.method === "POST") { let body = ""; for await (const chunk of request) body += chunk; intentOperations.push(JSON.parse(body).operationId); intentCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ claimIntentId: "intent-1" })); return; }
     if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "GET") { statusCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify(completed ? { status: "completed", manualId: "manual-1" } : { status: "pending" })); return; }
     if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "POST") { finalizeCalls += 1; completed = true; response.writeHead(200, { "content-type": "application/json; charset=utf-8" }); response.end(); return; }
     response.writeHead(404).end();
@@ -440,6 +442,7 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     await page.addInitScript((extensionId) => {
       let recovery;
       globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.begin") return { ok: true, status: "active", operationId: "B".repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() };
         if (message.type === "handoff.recovery") return recovery || { ok: false, error: "RECOVERY_NOT_FOUND" };
         if (message.type === "handoff.prepare") return { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "b".repeat(64) };
         if (message.type === "handoff.finalize-pending") { recovery = { ok: true, status: "finalize-pending", operationId: message.operationId, claimIntentId: message.claimIntentId, draftFingerprint: message.draftFingerprint, expiresAt: new Date(Date.now() + 60_000).toISOString() }; return recovery; }
@@ -454,6 +457,8 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     await page.locator("#bootstrap").click();
     await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1);
+    assert.deepEqual(bootstrapOperations, ["B".repeat(43)]);
+    assert.deepEqual(intentOperations, ["B".repeat(43)]);
     assert.equal(finalizeCalls, 1);
     assert.equal(statusCalls, 1);
   } finally {
@@ -492,6 +497,7 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     await page.addInitScript((extensionId) => {
       let recovery;
       globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.begin") return { ok: true, status: "active", operationId: "A".repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() };
         if (message.type === "handoff.recovery") return recovery || { ok: false, error: "RECOVERY_NOT_FOUND" };
         if (message.type === "handoff.prepare") return { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "a".repeat(64) };
         if (message.type === "handoff.finalize-pending") { recovery = { ok: true, status: "finalize-pending", operationId: message.operationId, claimIntentId: message.claimIntentId, draftFingerprint: message.draftFingerprint, expiresAt: new Date(Date.now() + 60_000).toISOString() }; return recovery; }

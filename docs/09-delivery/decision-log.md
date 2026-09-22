@@ -353,6 +353,18 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - 日付: 2026-09-23
 - claim assetはR2 PUT前にD1の`reserved`行をatomicに確保し、reserved/staged/completedを合計して100MiBを超えないようにする。PUT後は同じ固定asset ID、object key、digest、metadataを照合してstagedへ遷移する。結果不明時は予約を保持し、同じkeyの再送でreconcileする。遅延したPUTによる容量超過を避けるため、未確認の予約を自動削除しない。
 
+### DEC-078-E: same-handoff operation identity and asset slot accounting
+
+- Status: Accepted
+- Date: 2026-09-23
+- Decision:
+  - Webの最初のcloud writeより前に`handoff.begin`を送り、拡張機能の`chrome.storage.local`を正本としてhandoffごとのcanonical `operationId`を排他的に確定する。同じhandoffを複数タブで開始しても、全タブは同じoperationを採用し、既存identityの再訪・期限後はread-onlyで扱う。
+  - 拡張機能の`handoff.asset.start`は同一handoff・slotを直列化し、並行digest完了でtransferの100MiB会計を二重計上しない。slot間のparallel chunksは維持する。
+- Reason:
+  - `sessionStorage`はタブごとに分離され、finalize lockだけではbootstrap、claim intent、asset PUT後の最大100MiB orphanを防げない。slot単位の会計競合も、同一slotのparallel startで既存値を同時に見失う。
+- Boundary:
+  - operationのserver idempotency、claim API／D1／R2の認可契約、TTL後のGET-only回収、変更draftのCASは変更しない。外部messageは既存schemaの`handoff.begin`を追加し、既存のsender／handoff／action検証を適用する。
+
 ### DEC-078-D: finalize完了後のTTL回収identity
 
 - Status: Accepted

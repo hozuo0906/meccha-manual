@@ -8,6 +8,7 @@ const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.pr
 
 test("external claim message schema rejects unknown fields and credential shaped values", () => {
   assert.equal(safeMessage(validMessage, "handoff.prepare"), true);
+  assert.equal(safeMessage({ ...validMessage, type: "handoff.begin" }, "handoff.begin"), true);
   assert.equal(safeMessage({ ...validMessage, extra: true }, "handoff.prepare"), false);
   assert.equal(safeMessage({ ...validMessage, accessToken: "secret" }, "handoff.prepare"), false);
   assert.equal(safeMessage({ ...validMessage, type: "handoff.unknown" }, "handoff.unknown"), false);

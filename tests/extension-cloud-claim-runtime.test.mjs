@@ -240,6 +240,19 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     await putDraft(worker, draft);
     await setMetadata(worker, storageKey, metadata);
 
+    const secondTab = await createStagingPage(context);
+    const beginResults = await Promise.all([
+      sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId, action: "save" }),
+      sendExternal(secondTab, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId, action: "save" })
+    ]);
+    assert.equal(beginResults[0].ok, true);
+    assert.deepEqual(beginResults[1], beginResults[0], "same handoff tabs must receive one durable operation identity");
+    const begunMetadata = await readMetadata(worker, storageKey);
+    assert.equal(begunMetadata.operationId, beginResults[0].operationId);
+    assert.equal(begunMetadata.expiresAt, originalExpiresAt, "begin must preserve the original TTL");
+    await setMetadata(worker, storageKey, metadata);
+    await secondTab.close();
+
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(prepared.ok, true);
     assert.equal(prepared.status, "ready");
@@ -271,6 +284,23 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.deepEqual(pixels.pixels[1], [17, 24, 39, 255], "mask begins at floor(x * width), floor(y * height)");
     assert.deepEqual(pixels.pixels[2], [5, 6, 240, 255], "mask ends before ceil((x + width) * imageWidth)");
     assert.deepEqual(pixels.pixels[3], [7, 8, 240, 255], "mask end boundary is exclusive");
+
+    const parallelStarts = await Promise.all(Array.from({ length: 220 }, () => sendExternal(page, extensionId, {
+      schema: "meccha-manual/cloud-claim-v1",
+      type: "handoff.asset.start",
+      handoffId,
+      action: "save",
+      assetSlot: 0
+    })));
+    assert.equal(parallelStarts.every((result) => result.ok), true, "same-slot starts must replace one transfer instead of consuming 100MiB repeatedly");
+    assert.equal(new Set(parallelStarts.map((result) => result.byteLength)).size, 1);
+    const clearStart = parallelStarts[parallelStarts.length - 1];
+    for (let sequence = 0; sequence < clearStart.totalChunks; sequence += 1) {
+      const result = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence });
+      assert.equal(result.ok, true);
+    }
+    const afterClear = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+    assert.equal(afterClear.ok, true, "clearing a transfer must restore capacity for the next start");
 
     const finalizePendingResults = await Promise.all(identities.map(({ operationId, claimIntentId }) => sendExternal(page, extensionId, {
       schema: "meccha-manual/cloud-claim-v1",

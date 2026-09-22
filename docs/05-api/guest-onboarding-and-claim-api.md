@@ -219,6 +219,7 @@ claim requestでは画像byteを再送せず、staged reference manifestだけ�
 - finalize結果が不明な場合は、同じ認証主体が`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で`pending`、`expired`、`completed`（completed時は同じ`manualId`）を照会できる。queryは`operationId`だけを受け付け、他workspace／actor／operationはfail closedする。`completed`は元TTL経過後も保存済み結果だけを返し、新しいwriteを行わない。
 - finalize POSTの直前に、拡張機能は`handoff.finalize-pending` external messageで同じ`handoffId`に`operationId`、`claimIntentId`、draft fingerprintを保存する。これは既存finalizeの結果回収identityであり、期限後のprepare、asset upload、claim-intent作成、finalize再送を許可する権限ではない。拡張機能の保存状態が`finalize-pending`のhandoffだけが、期限後にGETで`completed`を照合し、同じ`manualId`の`handoff.completed`を送信できる。
 - `handoff.recovery`は副作用のない照会で、拡張機能は`status`、`operationId`、`claimIntentId`、`draftFingerprint`、元の`expiresAt`、完了済みの場合だけ`manualId`を返す。Webは再訪時刻でTTLを延長せず、返された元の`expiresAt`を期限判定の正本として扱う。通信失敗、不正な応答、未知statusは結果不明として停止し、明示的な`RECOVERY_NOT_FOUND`だけを元のoperationの通常flowへ戻る根拠とする。期限切れoperationのidentityは再発行しない。
+- 初回のbootstrap、claim intent作成、asset PUTより前に、Webは`handoff.begin` external messageを一度送信する。拡張機能はhandoffごとに`chrome.storage.local`のoperation identityを排他的に確定し、既存identityの再訪では同じ`operationId`と元の`expiresAt`をread-onlyで返す。同じhandoffを複数タブで開始した場合も、全てのcloud writeはこのcanonical operationIdを使い、期限後に新しいidentityを発行しない。
 - D1のcompleted claimは確定済みmanualIdと全asset slot／digest／object keyを対応づける。completed再送はその同じmanualIdとasset集合を返し、新しいmanual、assetまたはobject keyを作らない。
 - incomplete claimの予約・staged objectの自動cleanupはC sliceの対象外とする。R2 putまたはHEADの結果不明時は予約を保持し、遅延したputが容量制限を越えないようにする。
 

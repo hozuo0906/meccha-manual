@@ -15,6 +15,8 @@ const TRANSFER_TTL_MS = 10 * 60 * 1000;
 const transfers = new Map();
 const snapshots = new Map();
 const finalizeLocks = new Map();
+const beginLocks = new Map();
+const assetStartLocks = new Map();
 let transferBytesTotal = 0;
 let transferBytesReserved = 0;
 let snapshotBytesTotal = 0;
@@ -37,6 +39,7 @@ export function safeMessage(message, type) {
   try { size = new TextEncoder().encode(JSON.stringify(message)).byteLength; } catch { return false; }
   if (size > MAX_MESSAGE_BYTES || Object.keys(message || {}).some((key) => /authorization|cookie|password|token|credential/i.test(key))) return false;
   const allowed = {
+    "handoff.begin": ["schema", "type", "handoffId", "action"],
     "handoff.prepare": ["schema", "type", "handoffId", "action"],
     "handoff.asset.start": ["schema", "type", "handoffId", "action", "assetSlot"],
     "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "assetSlot", "sequence"],
@@ -75,6 +78,14 @@ async function readHandoff(handoffId) {
 
 function validRecoveryIdentity(message) {
   return OPERATION_ID_PATTERN.test(message?.operationId || "") && CLAIM_INTENT_ID_PATTERN.test(message?.claimIntentId || "") && DRAFT_FINGERPRINT_PATTERN.test(message?.draftFingerprint || "");
+}
+
+function createOperationId() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 function cleanStep(step) {
@@ -217,33 +228,72 @@ async function prepare(message, sender) {
   return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps }, assets, draftUpdatedAt: draft.updatedAt, draftFingerprint };
 }
 
-async function startAsset(message, sender) {
-  cleanupTransfers();
-  if (!validRequest(message, sender, "handoff.asset.start") || !Number.isInteger(message.assetSlot) || message.assetSlot < 0 || message.assetSlot >= CLOUD_CLAIM_MAX_ASSETS) return reject("HANDOFF_REQUEST_REJECTED");
-  const metadata = await readHandoff(message.handoffId);
-  if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-  if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
-  const snapshot = snapshots.get(message.handoffId);
-  if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || snapshot.draftUpdatedAt !== metadata.draftUpdatedAt || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
-  const screenshot = snapshot.screenshots?.[message.assetSlot];
-  if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
-  const bytes = await maskAndEncode(screenshot);
-  const totalBytes = bytes.byteLength;
-  if (totalBytes > CLOUD_CLAIM_MAX_ASSET_BYTES) return reject("ASSET_TOO_LARGE");
-  cleanupTransfers();
-  const transferKey = `${message.handoffId}:${message.assetSlot}`;
-  const existing = transfers.get(transferKey);
-  const existingBytes = existing?.bytes.byteLength || 0;
-  if (transferBytesTotal - existingBytes + transferBytesReserved + totalBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
-  transferBytesReserved += Math.max(0, totalBytes - existingBytes);
+async function begin(message, sender) {
+  if (!validRequest(message, sender, "handoff.begin")) return reject("HANDOFF_REQUEST_REJECTED");
+  const handoffId = message.handoffId;
+  const previous = beginLocks.get(handoffId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  beginLocks.set(handoffId, queued);
+  await previous;
   try {
+    const key = handoffStorageKey(handoffId);
+    const result = await chrome.storage.local.get(key);
+    const metadata = result?.[key];
+    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    const expiresAt = Date.parse(metadata.expiresAt || "");
+    if (!Number.isFinite(expiresAt)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (OPERATION_ID_PATTERN.test(metadata.operationId || "")) {
+      return { ok: true, status: expiresAt >= Date.now() ? "active" : "expired", operationId: metadata.operationId, expiresAt: metadata.expiresAt };
+    }
+    if (expiresAt < Date.now()) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    const operationId = createOperationId();
+    await chrome.storage.local.set({ [key]: { ...metadata, operationId } });
+    return { ok: true, status: "active", operationId, expiresAt: metadata.expiresAt };
+  } finally {
+    release();
+    if (beginLocks.get(handoffId) === queued) beginLocks.delete(handoffId);
+  }
+}
+
+async function startAsset(message, sender) {
+  if (!validRequest(message, sender, "handoff.asset.start") || !Number.isInteger(message.assetSlot) || message.assetSlot < 0 || message.assetSlot >= CLOUD_CLAIM_MAX_ASSETS) return reject("HANDOFF_REQUEST_REJECTED");
+  const transferKey = `${message.handoffId}:${message.assetSlot}`;
+  const previous = assetStartLocks.get(transferKey) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  assetStartLocks.set(transferKey, queued);
+  await previous;
+  let reservedBytes = 0;
+  try {
+    cleanupTransfers();
+    const metadata = await readHandoff(message.handoffId);
+    if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
+    const snapshot = snapshots.get(message.handoffId);
+    if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || snapshot.draftUpdatedAt !== metadata.draftUpdatedAt || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
+    const screenshot = snapshot.screenshots?.[message.assetSlot];
+    if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
+    const bytes = await maskAndEncode(screenshot);
+    const totalBytes = bytes.byteLength;
+    if (totalBytes > CLOUD_CLAIM_MAX_ASSET_BYTES) return reject("ASSET_TOO_LARGE");
     const digest = await sha256(bytes);
+    cleanupTransfers();
+    const existing = transfers.get(transferKey);
+    const existingBytes = existing?.bytes.byteLength || 0;
+    if (transferBytesTotal - existingBytes + transferBytesReserved + totalBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
+    reservedBytes = Math.max(0, totalBytes - existingBytes);
+    transferBytesReserved += reservedBytes;
     if (existing) transferBytesTotal = Math.max(0, transferBytesTotal - existingBytes);
     transfers.set(transferKey, { bytes, digest, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
     transferBytesTotal += totalBytes;
     return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType: "image/png", byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
   } finally {
-    transferBytesReserved = Math.max(0, transferBytesReserved - Math.max(0, totalBytes - existingBytes));
+    transferBytesReserved = Math.max(0, transferBytesReserved - reservedBytes);
+    release();
+    if (assetStartLocks.get(transferKey) === queued) assetStartLocks.delete(transferKey);
   }
 }
 
@@ -395,6 +445,7 @@ async function transactDraftDelete(id, expectedUpdatedAt, expectedCanonical) {
 
 export async function handleExternalCloudClaimMessage(message, sender) {
   try {
+    if (message?.type === "handoff.begin") return await begin(message, sender);
     if (message?.type === "handoff.prepare") return await prepare(message, sender);
     if (message?.type === "handoff.asset.start") return await startAsset(message, sender);
     if (message?.type === "handoff.asset.chunk") return await assetChunk(message, sender);
