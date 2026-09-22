@@ -116,6 +116,25 @@ interface StagedAssetRow {
   status: "reserved" | "staged" | "completed";
 }
 
+interface ManualDetailRow {
+  id: string;
+  workspace_id: string;
+  title: string;
+  status: ManualStatus;
+  current_draft_revision_id: string | null;
+  current_published_revision_id: string | null;
+  updated_at: string;
+  revision_id: string | null;
+  revision_no: number | null;
+  revision_title: string | null;
+  revision_description: string | null;
+  revision_updated_at: string | null;
+  revision_state: "draft" | "published" | null;
+  content_version: string | null;
+  workspace_role: CloudManualRole;
+  steps_json: string;
+}
+
 const ACTIVE_ROLES = "('owner','admin','editor','viewer')";
 
 function repositoryError(error: unknown): D1RepositoryError {
@@ -300,23 +319,81 @@ export class CloudManualRepository {
 
   async getManual(actorId: string, workspaceId: string, manualId: string): Promise<ManualDetailRecord | null> {
     try {
-      const manual = await this.db.prepare(`SELECT m.id, m.workspace_id, m.title, m.status, m.current_draft_revision_id, m.current_published_revision_id, m.updated_at
-        FROM manuals m JOIN workspace_members wm ON wm.workspace_id = m.workspace_id JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id
-       WHERE m.id = ?1 AND m.workspace_id = ?2 AND wm.application_id = ?3 AND wm.status = 'active' AND i.status = 'active' AND w.status = 'active' AND wm.role IN ${ACTIVE_ROLES} AND m.archived_at IS NULL LIMIT 1`).bind(manualId, workspaceId, actorId).first<{ id: string; workspace_id: string; title: string; status: ManualStatus; current_draft_revision_id: string | null; current_published_revision_id: string | null; updated_at: string }>();
-      if (!manual) return null;
-      const displayedRevision = manual.current_draft_revision_id ?? manual.current_published_revision_id;
-      let draft: ManualDetailRecord["draft"] = null;
-      let steps: ManualDetailRecord["steps"] = [];
-      if (displayedRevision) {
-        const revision = await this.db.prepare(`SELECT id, revision_no, title, description, updated_at, state, content_version FROM manual_revisions WHERE id = ?1 AND workspace_id = ?2 AND manual_id = ?3 AND state IN ('draft','published') LIMIT 1`).bind(displayedRevision, workspaceId, manualId).first<{ id: string; revision_no: number; title: string; description: string; updated_at: string; state: "draft" | "published"; content_version: string }>();
-        if (!revision) throw new D1RepositoryError("unavailable");
-        draft = { id: revision.id, revisionNo: revision.revision_no, title: revision.title, description: revision.description, updatedAt: revision.updated_at, state: revision.state, contentVersion: revision.content_version };
-        const rows = await this.db.prepare(`SELECT id, position, type, title, instruction, action_type, target_text, url, asset_id, updated_at FROM manual_steps WHERE workspace_id = ?1 AND revision_id = ?2 AND deleted_at IS NULL ORDER BY position ASC, id ASC LIMIT 201`).bind(workspaceId, displayedRevision).all<{ id: string; position: number; type: ManualDetailRecord["steps"][number]["type"]; title: string; instruction: string; action_type: ManualDetailRecord["steps"][number]["actionType"]; target_text: string | null; url: string | null; asset_id: string | null; updated_at: string }>();
-        if (rows.results.length > 200) throw new D1RepositoryError("limit_exceeded");
-        steps = rows.results.map((row) => ({ id: row.id, position: row.position, type: row.type, title: row.title, instruction: row.instruction, actionType: row.action_type, targetText: row.target_text, url: row.url, assetId: row.asset_id, updatedAt: row.updated_at }));
-      }
-      const role = await this.getWorkspaceRole(actorId, workspaceId);
-      return { id: manual.id, workspaceId: manual.workspace_id, title: manual.title, status: manual.status, currentDraftRevisionId: manual.current_draft_revision_id, currentPublishedRevisionId: manual.current_published_revision_id, updatedAt: manual.updated_at, draft, steps, canEdit: role === "owner" || role === "admin" || role === "editor" };
+      const row = await this.db.prepare(`
+        SELECT m.id, m.workspace_id, m.title, m.status,
+               m.current_draft_revision_id, m.current_published_revision_id, m.updated_at,
+               r.id AS revision_id, r.revision_no, r.title AS revision_title,
+               r.description AS revision_description, r.updated_at AS revision_updated_at,
+               r.state AS revision_state, r.content_version,
+               wm.role AS workspace_role,
+               COALESCE((
+                 SELECT json_group_array(json_object(
+                   'id', step.id,
+                   'position', step.position,
+                   'type', step.type,
+                   'title', step.title,
+                   'instruction', step.instruction,
+                   'actionType', step.action_type,
+                   'targetText', step.target_text,
+                   'url', step.url,
+                   'assetId', step.asset_id,
+                   'updatedAt', step.updated_at
+                 ))
+                   FROM (
+                     SELECT s.id, s.position, s.type, s.title, s.instruction,
+                            s.action_type, s.target_text, s.url, s.asset_id, s.updated_at
+                       FROM manual_steps s
+                      WHERE s.workspace_id = m.workspace_id
+                        AND s.revision_id = COALESCE(m.current_draft_revision_id, m.current_published_revision_id)
+                        AND s.deleted_at IS NULL
+                      ORDER BY s.position ASC, s.id ASC
+                      LIMIT 201
+                   ) step
+               ), '[]') AS steps_json
+          FROM manuals m
+          JOIN workspace_members wm ON wm.workspace_id = m.workspace_id
+          JOIN identities i ON i.application_id = wm.application_id
+          JOIN workspaces w ON w.id = wm.workspace_id
+          LEFT JOIN manual_revisions r
+            ON r.id = COALESCE(m.current_draft_revision_id, m.current_published_revision_id)
+           AND r.workspace_id = m.workspace_id
+           AND r.manual_id = m.id
+           AND r.state IN ('draft', 'published')
+         WHERE m.id = ?1
+           AND m.workspace_id = ?2
+           AND wm.application_id = ?3
+           AND wm.status = 'active'
+           AND i.status = 'active'
+           AND w.status = 'active'
+           AND wm.role IN ${ACTIVE_ROLES}
+           AND m.archived_at IS NULL
+         LIMIT 1`).bind(manualId, workspaceId, actorId).first<ManualDetailRow>();
+      if (!row) return null;
+      const displayedRevision = row.current_draft_revision_id ?? row.current_published_revision_id;
+      if (displayedRevision && !row.revision_id) throw new D1RepositoryError("unavailable");
+      const parsedSteps = JSON.parse(row.steps_json) as ManualDetailRecord["steps"];
+      if (parsedSteps.length > 200) throw new D1RepositoryError("limit_exceeded");
+      const draft = row.revision_id ? {
+        id: row.revision_id,
+        revisionNo: row.revision_no as number,
+        title: row.revision_title as string,
+        description: row.revision_description as string,
+        updatedAt: row.revision_updated_at as string,
+        state: row.revision_state as "draft" | "published",
+        contentVersion: row.content_version as string
+      } : null;
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        title: row.title,
+        status: row.status,
+        currentDraftRevisionId: row.current_draft_revision_id,
+        currentPublishedRevisionId: row.current_published_revision_id,
+        updatedAt: row.updated_at,
+        draft,
+        steps: parsedSteps,
+        canEdit: row.workspace_role === "owner" || row.workspace_role === "admin" || row.workspace_role === "editor"
+      };
     } catch (error) {
       throw repositoryError(error);
     }

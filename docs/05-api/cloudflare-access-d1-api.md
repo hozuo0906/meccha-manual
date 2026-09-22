@@ -99,6 +99,8 @@ WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないwork
 
 ## Manual API
 
+manual detailはmanual、表示対象revision、active steps、active identity/workspace/member roleを1つのD1 `SELECT`（JSON1 aggregationを含む）で取得し、同一snapshotの値だけをDTOへ組み立てる。別queryの結果を合成しない。
+
 manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能な限り維持する。Postgres SECURITY DEFINER RPCは、単一の条件付きSQL、`D1Database.batch()`、schema constraint/triggerを組み合わせたD1対応のatomic operationと用途別repository methodへ置換する。interactive transaction APIの存在を前提にしない。
 
 - C sliceのcreateはguest claim finalizeだけで、単独manual create／draft create endpointは公開しない。manual list/detailは認証済みworkspace所属へ限定する。

@@ -68,6 +68,31 @@ class LocalD1 {
   }
 }
 
+class DetailRaceD1 {
+  constructor(inner, applyCommit) { this.inner = inner; this.applyCommit = applyCommit; this.applied = false; }
+  prepare(sql) {
+    const statement = this.inner.prepare(sql);
+    return {
+      bind: (...values) => {
+        const bound = statement.bind(...values);
+        return {
+          first: async () => {
+            const result = await bound.first();
+            if (!this.applied && /manual_revisions/u.test(sql)) {
+              this.applied = true;
+              this.applyCommit();
+            }
+            return result;
+          },
+          all: (...args) => bound.all(...args),
+          run: (...args) => bound.run(...args)
+        };
+      }
+    };
+  }
+  batch(statements) { return this.inner.batch(statements); }
+}
+
 class MemoryR2 {
   constructor() { this.objects = new Map(); this.putCount = 0; this.failPut = false; this.failAfterPut = false; this.failHead = false; this.failGet = false; }
   async put(key, body, options = {}) {
@@ -242,6 +267,36 @@ test("bootstrap→画像付きclaim→list/detail→asset proxyは保存内容�
   assert.equal(asset.response.status, 200);
   assert.equal(asset.response.headers.get("content-type"), "image/png");
   assert.deepEqual(new Uint8Array(await asset.response.arrayBuffer()), staged.bytes);
+});
+
+test("manual detailはrevision読取後のcommitをstepへ混在させず同一snapshotを返す", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  const staged = await stageClaim({ operationId: "detail-snapshot-race-0001", assetCount: 0 });
+  const claimed = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, {
+    method: "POST",
+    body: claimBody(staged, {
+      title: "snapshot前",
+      description: "snapshot前",
+      steps: [{ type: "action", title: "step前", instruction: "確認", actionType: "click", targetText: null, url: null, assetSlot: null }]
+    })
+  });
+  assert.equal(claimed.response.status, 200, JSON.stringify(claimed.payload));
+  const path = `/api/workspaces/${workspaceId}/manuals/${claimed.payload.manualId}`;
+  const before = (await jsonRequest(path)).payload;
+  const revisionId = before.draft.id;
+  const stepId = before.steps[0].id;
+  const racedD1 = new DetailRaceD1(d1, () => {
+    database.prepare("UPDATE manual_revisions SET title = ?, description = ?, content_version = ?, updated_at = ? WHERE id = ?")
+      .run("snapshot後", "snapshot後", "f".repeat(32), "2026-09-23T00:00:00.002Z", revisionId);
+    database.prepare("UPDATE manual_steps SET title = ?, updated_at = ? WHERE id = ?")
+      .run("step後", "2026-09-23T00:00:00.002Z", stepId);
+  });
+  const detail = await new CloudManualRepository(racedD1).getManual(actorId, workspaceId, claimed.payload.manualId);
+  assert.equal(racedD1.applied, true);
+  assert.equal(detail?.draft?.contentVersion, before.draft.contentVersion);
+  assert.equal(detail?.steps[0]?.title, before.steps[0].title);
+  assert.equal(one("SELECT content_version FROM manual_revisions WHERE id = ?", revisionId).content_version, "f".repeat(32));
+  assert.equal(one("SELECT title FROM manual_steps WHERE id = ?", stepId).title, "step後");
 });
 
 test("MANUAL_ASSETSなしではcloud manual API・画面・static assetをmigrationとして拒否し副作用を残さない", async () => {
