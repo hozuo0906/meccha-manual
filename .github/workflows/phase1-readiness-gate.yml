@@ -67,6 +67,12 @@ jobs:
       - name: Test onboarding UI browser flow
         run: npm run test:onboarding-ui:browser
 
+      - name: Test cloud manual UI browser flow
+        run: npm run test:cloud-manual:ui:browser
+
+      - name: Test extension cloud claim runtime flow
+        run: npm run test:extension-cloud-claim:runtime
+
       - name: Validate Worker runtime syntax
         run: |
           node --experimental-strip-types --check apps/worker/src/index.ts

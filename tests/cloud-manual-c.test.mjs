@@ -615,6 +615,10 @@ test("/manuals requires an active identity, workspace, and owner membership", as
   const page = await worker.fetch(await request("/manuals"), env, {});
   assert.equal(page.status, 200);
 
+  const backupOwnerId = crypto.randomUUID();
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run(backupOwnerId, ISSUER, "backup-owner", NOW, NOW);
+  database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES (?, ?, 'owner', 'active', ?, ?)").run(workspaceId, backupOwnerId, NOW, NOW);
+
   database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = ?").run(actorId);
   assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
   database.prepare("UPDATE identities SET status = 'active' WHERE application_id = ?").run(actorId);
@@ -623,6 +627,6 @@ test("/manuals requires an active identity, workspace, and owner membership", as
   assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
   database.prepare("UPDATE workspaces SET status = 'active' WHERE id = ?").run(workspaceId);
 
-  database.prepare("UPDATE workspace_members SET status = 'removed' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
+  database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
   assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
 });
