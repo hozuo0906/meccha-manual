@@ -4,6 +4,7 @@ const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
 export function canonicalDraftJson(draft) {
   if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
@@ -77,16 +78,35 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (!storage?.get || !storage?.remove) return;
   const entries = await storage.get(null);
   const expired = Object.entries(entries || {})
-    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && value?.status !== "completion-pending" && Date.parse(value?.expiresAt || "") <= now)
+    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && value?.status !== "completion-pending" && value?.status !== "finalize-pending" && Date.parse(value?.expiresAt || "") <= now)
     .map(([key]) => key);
   if (expired.length > 0) await storage.remove(expired);
 }
 
-export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id) {
+export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local) {
+  if (typeof draftId !== "string" || !draftId || !/^[a-f0-9]{64}$/.test(draftFingerprint || "") || !storage?.get) return null;
+  const entries = await storage.get(null);
+  const recoverable = Object.values(entries || {}).filter((value) =>
+    value?.outputAction === "save" &&
+    value?.draftId === draftId &&
+    (value?.status === "finalize-pending" || value?.status === "completion-pending") &&
+    /^[A-Za-z0-9_-]{43}$/.test(value?.handoffId || "") &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(value?.operationId || "") &&
+    CLAIM_INTENT_ID_PATTERN.test(value?.claimIntentId || "")
+  );
+  return recoverable.find((value) => value.draftFingerprint === draftFingerprint) || recoverable[0] || null;
+}
+
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
   validateExtensionId(extensionId);
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}`;
+  const recoveryParams = recovery && /^[A-Za-z0-9_-]{16,128}$/.test(recovery.operationId || "") &&
+    CLAIM_INTENT_ID_PATTERN.test(recovery.claimIntentId || "") &&
+    /^[a-f0-9]{64}$/.test(recovery.draftFingerprint || "")
+    ? `&operationId=${encodeURIComponent(recovery.operationId)}&claimIntentId=${encodeURIComponent(recovery.claimIntentId)}&draftFingerprint=${encodeURIComponent(recovery.draftFingerprint)}`
+    : "";
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${recoveryParams}`;
 }
 
 export const HANDOFF_TTL_MINUTES = HANDOFF_TTL_MS / 60000;

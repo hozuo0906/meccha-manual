@@ -30,6 +30,8 @@ Status: Proposed
 - draftはcanonical JSONからSHA-256 fingerprintを計算する。handoff時の`updatedAt`とfingerprintを保存し、送信直前に再計算して変更があれば停止する。成功確認前にlocal原本を削除しない。
 - `/manuals`はAccess user、active identity、active personal workspace、active owner membershipをすべて満たす場合だけ表示する。service token、disabled identity、suspended workspace、inactive membershipは403とする。
 - claim intent、asset取得・再送、reserve、staged遷移、finalize、status照会は、毎回active identity・workspace・owner membershipを再検証する。owner喪失後のupload、status、finalize再送はfail closedにする。
+- finalize POSTの直前に拡張機能のlocal durable metadataへ`operationId`、`claimIntentId`、draft fingerprintを`finalize-pending`として保存する。TTL後の回収は同じidentityのGET `completed`照会と同じmanualIdの完了通知だけに限定し、期限後のprepare／asset upload／新規claim intent／通常finalizeを許可しない。編集画面は同じdraft fingerprintの未確定handoffを再利用し、結果不明のまま重複handoffを作らない。
+- `handoff.recovery`は`status`、同じ`operationId`／`claimIntentId`／draft fingerprint、元の`expiresAt`、completed時の`manualId`を返すread-only照会とする。Webは元の`expiresAt`を優先して期限を判定し、通信失敗・不正応答・未知statusでは新規bootstrapやclaim書込みへ進まず、`RECOVERY_NOT_FOUND`だけを元のoperationの通常flowへ戻る根拠にする。期限切れoperationのidentityは再発行しない。
 - R2 put前にD1のclaim/asset記録を予約し、R2とD1を単一transactionとはみなさない。結果不明時は同じ固定key、digest、size、metadataでstatusを再照合し、mismatchは上書きせず409で停止する。
 - draft編集はtitle、description、全stepsを一括snapshotとして`expectedUpdatedAt`とCAS更新する。競合時は409を返し、編集中の入力値を失わせない。詳細stepの`assetUrl`はbackendの許可済みshapeに合わせる。
 
@@ -38,6 +40,7 @@ Status: Proposed
 - staging以外のorigin、未知message、handoff不一致、期限切れ、chunk順序飛び、上限超過、credentialを含むmessageを拒否し、local draftに副作用がない。
 - mask焼き込み後のPNG bytesにraw screenshotが残らず、guest本文・画像・対象URL・秘密値をWebの保存領域、URL、ログへ保存しない。拡張機能のlocal draft原本はclaim成功確認まで保持する。
 - response loss、cancel、retry、changed draftでは原本を保持し、同じoperation／fingerprintで結果を照合する。別manual、別asset、別object keyを作らない。
+- finalize完了後の応答喪失では、Web reload・service worker restart・TTL経過後も`handoff/operation/claimIntent/fingerprint`の一致を確認して同じmanualIdを回収する。`pending`、`expired`、`completed`、結果不明を区別し、`expired`／未知結果を新規書込みの成功とは扱わない。
 - Webで一覧→詳細→編集再保存ができ、version競合時にフォーム入力を保持する。
 - owner membershipを無効化した後のclaim status、asset upload、finalize再送が拒否され、別workspaceのresource ID差し替えも拒否される。
 

@@ -1,5 +1,5 @@
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
-import { buildContinueUrl, createHandoffMetadata, fingerprintDraft, pruneExpiredHandoffs, saveHandoffMetadata } from "./handoff.js";
+import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, saveHandoffMetadata } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -166,6 +166,13 @@ startRegistration.addEventListener("click", async () => {
     await pruneExpiredHandoffs();
     const extensionId = chrome.runtime?.id;
     const draftFingerprint = await fingerprintDraft(draft);
+    const recovery = await findRecoverableHandoff(draft.id, draftFingerprint);
+    if (recovery) {
+      await chrome.tabs.create({ url: buildContinueUrl(origin, recovery.handoffId, extensionId, recovery) });
+      gateStatus.textContent = "未確定の保存操作を再開する登録画面を開きました。元の手順書はこの端末に残っています。";
+      outputGate.close();
+      return;
+    }
     const metadata = createHandoffMetadata(draft.id, "save", Date.now(), extensionId, draft.updatedAt, draftFingerprint);
     await saveHandoffMetadata(metadata);
     await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId) });

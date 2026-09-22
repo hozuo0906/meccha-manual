@@ -352,3 +352,17 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - 状態: Accepted
 - 日付: 2026-09-23
 - claim assetはR2 PUT前にD1の`reserved`行をatomicに確保し、reserved/staged/completedを合計して100MiBを超えないようにする。PUT後は同じ固定asset ID、object key、digest、metadataを照合してstagedへ遷移する。結果不明時は予約を保持し、同じkeyの再送でreconcileする。遅延したPUTによる容量超過を避けるため、未確認の予約を自動削除しない。
+
+### DEC-078-D: finalize完了後のTTL回収identity
+
+- Status: Accepted
+- Date: 2026-09-23
+- Decision:
+  - finalize POST直前に、拡張機能の`chrome.storage.local`へ同じhandoffの`operationId`、`claimIntentId`、draft fingerprintを`finalize-pending`として保存する。保存対象は結果回収identityだけで、期限後のprepare、asset upload、claim-intent作成、通常finalizeを許可しない。
+  - Web reload・service worker restart・handoff URL再訪では、同じidentityを復元してclaim statusをGETする。`completed`だけを同じmanualIdの完了通知へ進め、`pending`、`expired`、未知結果を新規operationの作成で解消しない。編集画面は同じdraft fingerprintの未確定handoffを再利用する。
+  - `handoff.recovery`は`status`、operation／intent／fingerprint、元の`expiresAt`、completed時のmanualIdを返すread-only照会とし、Webは元の期限を優先する。通信失敗・不正応答・未知statusは結果不明として同じ照会を再試行し、`RECOVERY_NOT_FOUND`でも期限切れoperationのidentityは再発行しない。
+  - draft fingerprintのCASと同一manualId通知の冪等性を維持し、別operation／intent／fingerprintはfail closedにする。local原本は同じmanualIdの完了確認まで削除しない。
+- Reason:
+  - finalize処理と応答通知が15分TTLをまたぐと、保存済みmanualがあるのに拡張側の最初の完了通知が期限拒否され、再試行で重複handoffを作る危険がある。結果回収identityを先に永続化し、既存completed結果だけを期限後に回収することで、書込み権限を広げずにこの不整合を閉じる。
+- Boundary:
+  - D1/R2の新しい書込み経路、TTL延長、production反映、共有・公開・削除は含めない。`expired`または結果不明を未確認のまま新規claimとして再開しない。

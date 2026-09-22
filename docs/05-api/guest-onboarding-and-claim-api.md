@@ -216,7 +216,9 @@ claim requestでは画像byteを再送せず、staged reference manifestだけ�
 - 各assetはclaim内で重複しないserver-authoritativeなasset slotとcontent digestを持つ。object keyは`{workspace_id}/manuals/{claim_intent_id}/{asset_id}.{ext}`とし、asset IDをclaim intentとslotから決定的に導出する。client指定keyやretryごとのrandom値を使わない。
 - 同じactor、workspace、claimIntentId、operationId、request fingerprint、asset slotのretryは同じobject keyを使う。別keyへ再uploadしてmanualやassetを二重生成しない。
 - R2 put前にD1が同じ固定identityの`reserved`行をatomicに確保し、100MiB上限を予約へ適用する。再upload前にD1のclaim/asset記録を照合する。R2 put成功後に`staged`へ遷移し、R2 putまたはHEADの結果が不明な場合は予約を保持して、同じkey／digest／固定metadataのretryでreconcileする。mismatchはfail closedにして上書きしない。
-- finalize結果が不明な場合は、同じ認証主体が`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で`pending`、`expired`、`completed`（completed時は同じ`manualId`）を照会できる。queryは`operationId`だけを受け付け、他workspace／actor／operationはfail closedする。
+- finalize結果が不明な場合は、同じ認証主体が`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で`pending`、`expired`、`completed`（completed時は同じ`manualId`）を照会できる。queryは`operationId`だけを受け付け、他workspace／actor／operationはfail closedする。`completed`は元TTL経過後も保存済み結果だけを返し、新しいwriteを行わない。
+- finalize POSTの直前に、拡張機能は`handoff.finalize-pending` external messageで同じ`handoffId`に`operationId`、`claimIntentId`、draft fingerprintを保存する。これは既存finalizeの結果回収identityであり、期限後のprepare、asset upload、claim-intent作成、finalize再送を許可する権限ではない。拡張機能の保存状態が`finalize-pending`のhandoffだけが、期限後にGETで`completed`を照合し、同じ`manualId`の`handoff.completed`を送信できる。
+- `handoff.recovery`は副作用のない照会で、拡張機能は`status`、`operationId`、`claimIntentId`、`draftFingerprint`、元の`expiresAt`、完了済みの場合だけ`manualId`を返す。Webは再訪時刻でTTLを延長せず、返された元の`expiresAt`を期限判定の正本として扱う。通信失敗、不正な応答、未知statusは結果不明として停止し、明示的な`RECOVERY_NOT_FOUND`だけを元のoperationの通常flowへ戻る根拠とする。期限切れoperationのidentityは再発行しない。
 - D1のcompleted claimは確定済みmanualIdと全asset slot／digest／object keyを対応づける。completed再送はその同じmanualIdとasset集合を返し、新しいmanual、assetまたはobject keyを作らない。
 - incomplete claimの予約・staged objectの自動cleanupはC sliceの対象外とする。R2 putまたはHEADの結果不明時は予約を保持し、遅延したputが容量制限を越えないようにする。
 
@@ -236,7 +238,7 @@ claim requestでは画像byteを再送せず、staged reference manifestだけ�
 
 - same actor + intent + operationId + fingerprintのcompleted再送は同じmanual結果を返す。
 - same intent + different operationIdまたはdifferent fingerprintは409。
-- 未完了かつ期限切れのintentは410。guest原本を保持したまま新intentを作成できる。
+- 未完了かつ期限切れのintentは410。guest原本を保持したまま新intentを作成できる。ただし結果不明の`finalize-pending`は、同じhandoff／operation／claim intent／fingerprintのGET照会を先に完了するまで新操作へ誘導しない。
 - 応答消失時に別manualを作らない。
 - claim成功が確認できるまでclientはguest local原本を削除しない。
 
@@ -317,11 +319,11 @@ owner限定staging配布版はstaging B登録UIへ接続する。production orig
 
 Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し、256bit相当の形式に一致する場合だけ、そのページ訪問時刻を `operationId` のmetadata `createdAt` として固定する。同じhandoffの有効な保存済みmetadataを再訪・再読込で見つけた場合は、既存の `createdAt` を維持してTTLを延長しない。空、形式不正、重複のfragmentは、同一タブの新しいhandoffとして扱わず、既存の `sessionStorage` 値へフォールバックせずに副作用0で拒否する。
 
-同じhandoffに紐づく保存済みoperationが期限切れになった場合、再送、再読込、同じfragmentでの再訪のいずれでも新しいoperationIdを発行しない。期限内の応答消失だけが同じoperationIdを再利用できる。別の有効handoffを新たに受け取った訪問は、そのhandoffに限って新しいoperationを開始できる。
+同じhandoffに紐づく保存済みoperationが期限切れになった場合、再送、再読込、同じfragmentでの再訪のいずれでも新しいoperationIdを発行しない。`finalize-pending`のhandoffは期限後も`recovery`としてoperationId、claimIntentId、draft fingerprintを保持し、GET照会と同じmanualIdの完了通知だけを許可する。編集画面が同じdraft fingerprintの未確定handoffを検出した場合は、そのhandoff URLを再利用する。結果不明のまま新handoff／新operationを作成しない。別のdraft fingerprintは元のlocal原本を保持したまま、既存回収を壊さない別操作として扱う。
 
 ### B期限切れ観測時の保存境界
 
 クリック時に保存済みmetadataの期限切れを観測した場合も、fragmentの有無にかかわらず、検証済みの最新履歴から一致するhandoff／operationを再確認し、そのentryだけを`expired` tombstoneとして既存履歴と`activeHandoffId`を保持したまま保存する。保存に失敗した場合は当該ページの操作を停止し、保存成功を前提とした永続化済みとは扱わない。
 ### `GET /api/onboarding/claims/{claimIntentId}?operationId={operationId}`
 
-finalize応答が失われた場合は、同じclaim intentの結果を照会する。request bodyは持たず、Access actor、workspace、claim intent、operationIdを照合する。`completed`なら同じ`manualId`を返し、未完了なら`pending`、期限切れなら`expired`を返す。別operationIdは409で拒否し、workspace・actorの境界はfail closedとする。
+finalize応答が失われた場合は、同じclaim intentの結果を照会する。request bodyは持たず、Access actor、workspace、claim intent、operationIdを照合する。`completed`なら同じ`manualId`を返し、未完了なら`pending`、期限切れなら`expired`を返す。別operationIdは409で拒否し、workspace・actorの境界はfail closedとする。期限後のWeb reload／service worker restartでも、拡張機能のdurable recovery identityと同一claim intent・operation・draft fingerprintを照合できる場合だけ回収する。
