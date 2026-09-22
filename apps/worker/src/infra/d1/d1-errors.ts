@@ -20,6 +20,7 @@ export class D1RepositoryError extends Error {
 
 export function mapD1Error(error: unknown): D1RepositoryError {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("claim asset total limit")) return new D1RepositoryError("limit_exceeded");
   if (message.includes("member limit")) return new D1RepositoryError("limit_exceeded");
   if (message.includes("owner") || message.includes("audit log")) {
     return new D1RepositoryError("forbidden");

@@ -7,6 +7,7 @@ import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
+import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
@@ -21,6 +22,7 @@ interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
   DISCORD_ALLOW_UNSCOPED_COMMANDS?: string;
   GITHUB_ISSUE_TOKEN?: string;
   GITHUB_ISSUE_REPOSITORY?: string;
+  MANUAL_ASSETS?: R2Bucket;
 }
 
 interface HealthResponse {
@@ -441,7 +443,7 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
       user: { id: actorId },
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
-      manuals: { status: "migration" },
+      manuals: { status: env.MANUAL_ASSETS ? "ready" : "migration" },
       members: { status: "migration" }
     });
   } catch (error) {
@@ -2249,6 +2251,11 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
   verifySameOriginWrite(request);
+
+  if (useAccessD1Routes(env)) {
+    const cloudManualResponse = await handleCloudManualRoute(request, env);
+    if (cloudManualResponse) return cloudManualResponse;
+  }
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/onboarding/continue") {

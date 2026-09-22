@@ -5,7 +5,8 @@ import path from "node:path";
 const migrationPaths = [
   "migrations/0001_d1_identity_workspace.sql",
   "migrations/0002_d1_personal_workspace.sql",
-  "migrations/0003_d1_onboarding_bootstrap.sql"
+  "migrations/0003_d1_onboarding_bootstrap.sql",
+  "migrations/0004_d1_cloud_manual_claim.sql"
 ];
 const root = process.cwd();
 

@@ -164,7 +164,7 @@ serverはclaim結果を、少なくともactor、workspace、claimIntentId、ope
 
 MVP safety limitは、`assetCount <= 100`、1 assetあたり10 MiB以下、claim合計100 MiB以下とする。許可Content-Typeは`image/png`、`image/jpeg`、`image/webp`だけとする。binary bodyを1 asset = 1 bounded PUTで送り、JSON／base64巨大payloadやserver-side multipart/chunk APIを前提にしない。上限超過はbody全体をauthoritative assetにせず413で拒否する。
 
-requestは`Content-Type`、byte length、lowercase hex SHA-256 digest、claim `operationId`を必須にする。Workerはstreamを上限内で読み、実byte lengthとSHA-256を再計算し、assetSlot、actor／workspace／intent binding、intent expiry、asset count、claim total sizeを検証する。object keyはclaimIntentId、operationId、assetSlotから決定的に導出する。
+requestは`Content-Type`、`X-Asset-Byte-Length`、lowercase hex SHA-256 digest、claim `operationId`を必須にする。Workerはstreamを上限内で読み、実byte lengthとSHA-256、PNG/JPEG/WebPのsignatureを再計算し、assetSlot、actor／workspace／intent binding、intent expiry、asset count、claim total sizeを検証する。object keyはclaimIntentIdとassetSlotから決定的なasset IDを導出して固定する。
 
 response:
 
@@ -209,13 +209,16 @@ R2 object keyはresponseへ含めずclient contractにしない。同じactor + 
 
 claim requestでは画像byteを再送せず、staged reference manifestだけを送る。serverは全slotのstaged存在、digest、size、actor／workspace bindingを再検証する。画像本体のupload方式はR2契約に従う。claim全体として、manualが確定したのにasset参照だけ消失する部分成功を許可しない。staged upload + finalizeを使い、finalize前のobjectはauthoritative manual assetとみなさない。R2とD1を単一transactionにできるとは扱わず、次のidempotencyとreconciliation契約で境界を閉じる。
 
+`manual.steps`は`type`、`title`、`instruction`、`actionType`、`targetText`、`url`、`assetSlot`を含むexpanded DTOへweb側で正規化し、captureにないURLや対象文字列は`null`にする。既存手順書の編集は別のdraft PATCHで全step配列をCAS更新する。
+
 ### Asset identityとR2/D1 reconciliation
 
-- 各assetはclaim内で重複しないserver-authoritativeなasset slotとcontent digestを持つ。object keyは`claimIntentId + operationId + asset slot`等の検証済み固定inputから決定的に導出し、client指定keyやretryごとのrandom値を使わない。
+- 各assetはclaim内で重複しないserver-authoritativeなasset slotとcontent digestを持つ。object keyは`{workspace_id}/manuals/{claim_intent_id}/{asset_id}.{ext}`とし、asset IDをclaim intentとslotから決定的に導出する。client指定keyやretryごとのrandom値を使わない。
 - 同じactor、workspace、claimIntentId、operationId、request fingerprint、asset slotのretryは同じobject keyを使う。別keyへ再uploadしてmanualやassetを二重生成しない。
-- R2 put成功後にD1 commitの結果が不明になった場合、再upload前にD1のclaim/asset記録と決定済みobject keyのR2 object metadataをreconcileする。既に同じdigestがupload済みなら再利用し、digest、sizeまたは固定metadataが一致しなければfail closedにして上書きしない。
+- R2 put前にD1が同じ固定identityの`reserved`行をatomicに確保し、100MiB上限を予約へ適用する。R2 put成功後に`staged`へ遷移し、R2 putまたはHEADの結果が不明な場合は予約を保持して、同じkey／digest／固定metadataのretryでreconcileする。mismatchはfail closedにして上書きしない。
+- finalize結果が不明な場合は、同じ認証主体が`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で`pending`、`expired`、`completed`（completed時は同じ`manualId`）を照会できる。queryは`operationId`だけを受け付け、他workspace／actor／operationはfail closedする。
 - D1のcompleted claimは確定済みmanualIdと全asset slot／digest／object keyを対応づける。completed再送はその同じmanualIdとasset集合を返し、新しいmanual、assetまたはobject keyを作らない。
-- incomplete claimのstaged objectはclaim状態と照合してcleanup対象にできる。cleanupはD1 completed参照を再確認してから実行し、completed claimが参照するassetを削除しない。
+- incomplete claimの予約・staged objectの自動cleanupはC sliceの対象外とする。R2 putまたはHEADの結果不明時は予約を保持し、遅延したputが容量制限を越えないようにする。
 
 ### validation order
 

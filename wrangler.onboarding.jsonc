@@ -22,6 +22,12 @@
           "migrations_dir": "./migrations"
         }
       ],
+      "r2_buckets": [
+        {
+          "binding": "MANUAL_ASSETS",
+          "bucket_name": "meccha-manual-manual-assets-staging"
+        }
+      ],
       "ratelimits": [
         {
           "name": "ONBOARDING_RATE_LIMITER",
@@ -46,6 +52,12 @@
           "database_name": "__PENDING_PRODUCTION_D1_DATABASE_NAME__",
           "database_id": "__PENDING_PRODUCTION_D1_DATABASE_ID__",
           "migrations_dir": "./migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MANUAL_ASSETS",
+          "bucket_name": "__PENDING_PRODUCTION_MANUAL_ASSETS_BUCKET__"
         }
       ],
       "ratelimits": [

@@ -333,3 +333,22 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - bootstrapの確定結果を別tenantのworkspaceへ直接挿入・移動・削除して再送判定を変えられないようにし、`createdIdentity`とserver-generated eventのexactly-once結果を保持する。
 - Boundary:
   - 対象はS2 onboarding bootstrapの2 tableとそれらが参照する既存identity／workspace／membershipの整合性だけである。既存のworkspace identity、workspace kind、owner保護triggerを再定義しない。remote D1へのmigration適用やproduction変更は含まない。
+
+## DEC-078: C sliceのcloud manual保存DTOとasset再送境界を固定する
+
+- Status: Accepted
+- Date: 2026-09-22
+- Decision:
+  - guest claimのfinalizeと既存手順書編集は、手順の種類・見出し・本文・操作種別・対象・URL・asset参照を含むserver-side expanded DTOへ正規化する。既存手順書の更新は`PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft`へ集約し、`expectedUpdatedAt`、全step配列、workspace／revision固定集合をD1 batchで照合して一度に保存する。409では入力中の値を破棄せず、GETで`contentVersion`を照合して再開する。
+  - staged imageは1件ごとのbounded PUTとし、`X-Asset-Byte-Length`、実bodyのSHA-256、PNG/JPEG/WebP signatureを検証する。R2 keyは`{workspace_id}/manuals/{claim_intent_id}/{asset_id}.{ext}`の4要素に固定し、asset IDはclaim intentとslotから決定的に導出する。同じslotの再送は固定ID・key・5項目metadata・size・digestが一致した場合だけ同じ結果を返し、R2 PUT結果不明はhead照合なしに成功扱いしない。
+  - C sliceのsessionはMANUAL_ASSETS bindingが存在する環境だけ`manuals.status: ready`とし、未設定環境は`migration`のままfail closedにする。`members.status: migration`、publish/archive/share/PDFの有効化は含めない。production D1/R2への適用や本番binding準備は含めない。
+- Reason:
+  - 個別step保存は途中成功後の再送で編集中の値を失うため、revision全体のCASへ集約する。R2とD1の不一致や並行PUTによるtenant越境・容量超過を固定metadata、D1制約、同一operation照合でfail closedにする。
+- Boundary:
+  - Claim用のassetSlotはfinalize中だけ許可し、D1保存後のAPI応答やR2 metadataへguest handoff ID、extension ID、URL本文、入力値、秘密値を含めない。共有、公開、削除、PDF、production操作は対象外とする。
+
+### DEC-078-C: claim asset reservation before R2 PUT
+
+- 状態: Accepted
+- 日付: 2026-09-23
+- claim assetはR2 PUT前にD1の`reserved`行をatomicに確保し、reserved/staged/completedを合計して100MiBを超えないようにする。PUT後は同じ固定asset ID、object key、digest、metadataを照合してstagedへ遷移する。結果不明時は予約を保持し、同じkeyの再送でreconcileする。遅延したPUTによる容量超過を避けるため、未確認の予約を自動削除しない。

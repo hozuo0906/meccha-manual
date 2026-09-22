@@ -32,6 +32,8 @@ workspace-id/exports/manual-id/export-id.pdf
 workspace-id/avatars/user-id/asset-id.webp
 ```
 
+C sliceのguest claim中はmanual IDがまだ確定していないため、staged objectだけresource IDにclaim intent IDを使う。finalize後も同じobjectをD1 `assets`へ採用し、`workspace_id/manuals/{claim_intent_id}/{asset_id}.{ext}`の4要素を維持する。asset IDはclaim intentとslotから決定的に導出し、再送で別IDを発行しない。
+
 ## D1 assetsメタデータ
 
 D1 assetsメタデータに保存するもの:
@@ -51,6 +53,8 @@ D1 assetsメタデータに保存するもの:
 - `deleted_at`
 - `status`
 - `masking_status`
+
+C sliceのD1実装は上記のうち`workspace_id`、`asset_id`、`bucket`、`object_key`、`kind`、`content_type`、`byte_length`、`checksum_sha256`を必須とし、削除・maskingの運用列は後続migrationで追加する。
 
 ## R2 object metadata
 
