@@ -349,6 +349,16 @@ export class D1WorkspaceRepository {
     }
   }
 
+  async getPersonalWorkspace(actorId: string): Promise<WorkspaceSummary> {
+    try {
+      const existing = await this.findPersonalWorkspace(actorId);
+      if (!existing) throw new D1RepositoryError("personal_workspace_unavailable");
+      return this.requireActivePersonalWorkspace(existing);
+    } catch (error) {
+      throw ensureRepositoryError(error);
+    }
+  }
+
   private async findPersonalWorkspace(actorId: string): Promise<PersonalWorkspaceRow | null> {
     return this.db
       .prepare(

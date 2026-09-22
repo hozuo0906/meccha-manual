@@ -206,6 +206,17 @@ function claimBody(staged, { title = "最初の手順", description = "画像を
 
 test("bootstrap→画像付きclaim→list/detail→asset proxyは保存内容とsha参照を再表示する", async () => {
   const { workspaceId } = await bootstrap();
+  const pageResponse = await worker.fetch(await request("/manuals"), env, {});
+  assert.equal(pageResponse.status, 200);
+  assert.match(pageResponse.headers.get("content-type") ?? "", /^text\/html/u);
+  const pageHtml = await pageResponse.text();
+  assert.match(pageHtml, new RegExp(`data-workspace-id="${workspaceId}"`));
+  const css = await jsonRequest(`/assets/cloud-manual.css?v=20260923`);
+  assert.equal(css.response.status, 200);
+  assert.match(css.response.headers.get("content-type") ?? "", /^text\/css/u);
+  const js = await jsonRequest(`/assets/cloud-manual.js?v=20260923`);
+  assert.equal(js.response.status, 200);
+  assert.match(js.response.headers.get("content-type") ?? "", /javascript/u);
   const staged = await stageClaim();
   assert.equal(staged.staged.response.status, 200, JSON.stringify(staged.staged.payload));
 

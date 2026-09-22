@@ -7,6 +7,7 @@ import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
+import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
 
@@ -457,6 +458,25 @@ async function listD1Workspaces(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ workspaces: (await repository.listWorkspaces(actorId)).map(apiWorkspaceSummary) });
   } catch (error) {
     throw d1ErrorResponse(error, "workspaces");
+  }
+}
+
+async function cloudManualPage(request: Request, env: Env): Promise<Response> {
+  let auth;
+  try {
+    auth = await authenticateD1User(request, env);
+  } catch (error) {
+    if (error instanceof D1RepositoryError) throw d1ErrorResponse(error, "profile");
+    throw error;
+  }
+  try {
+    const workspace = await auth.repository.getPersonalWorkspace(auth.actorId);
+    return htmlResponse(renderCloudManualsPage({ workspaceId: workspace.id, assetVersion: APP_ASSET_VERSION }));
+  } catch (error) {
+    if (error instanceof D1RepositoryError && error.code === "personal_workspace_unavailable") {
+      throw new AppError(403, "PERSONAL_WORKSPACE_UNAVAILABLE", "Personal Workspaceを利用できないため、手順書を表示できません。");
+    }
+    throw d1ErrorResponse(error, "profile");
   }
 }
 
@@ -2268,6 +2288,15 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
+    return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
+    return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/manuals") {
+    return cloudManualPage(request, env);
   }
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
   if (request.method === "GET" && url.pathname === "/assets/app.css") {
