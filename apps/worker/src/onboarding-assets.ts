@@ -232,8 +232,13 @@ export const ONBOARDING_JS = `(() => {
       if (!saved.ok || !saved.state) return context;
       const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId);
       if (!matching) return context;
-      Object.assign(matching, { operationId: randomId(), createdAt: new Date().toISOString(), state: "active" });
-      for (const key of ["claimStatus", "claimIntentId", "draftFingerprint", "recoveryExpiresAt", "manualId", "workspaceId"]) delete matching[key];
+      if (!operationFresh(matching)) {
+        matching.state = hasRecoveryIdentity(matching) ? "recovery" : "expired";
+        if (!persistState(saved.state)) return context;
+        capturedContext = matching;
+        return matching.state === "expired" ? null : matching;
+      }
+      matching.state = "active";
       if (!persistState(saved.state)) return context;
       capturedContext = matching;
       return matching;

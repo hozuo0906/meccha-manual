@@ -31,7 +31,7 @@ Status: Proposed
 - `/manuals`はAccess user、active identity、active personal workspace、active owner membershipをすべて満たす場合だけ表示する。service token、disabled identity、suspended workspace、inactive membershipは403とする。
 - claim intent、asset取得・再送、reserve、staged遷移、finalize、status照会は、毎回active identity・workspace・owner membershipを再検証する。owner喪失後のupload、status、finalize再送はfail closedにする。
 - finalize POSTの直前に拡張機能のlocal durable metadataへ`operationId`、`claimIntentId`、draft fingerprintを`finalize-pending`として保存する。TTL後の回収は同じidentityのGET `completed`照会と同じmanualIdの完了通知だけに限定し、期限後のprepare／asset upload／新規claim intent／通常finalizeを許可しない。編集画面は同じdraft fingerprintの未確定handoffを再利用し、結果不明のまま重複handoffを作らない。
-- `handoff.recovery`は`status`、同じ`operationId`／`claimIntentId`／draft fingerprint、元の`expiresAt`、completed時の`manualId`を返すread-only照会とする。Webは元の`expiresAt`を優先して期限を判定し、通信失敗・不正応答・未知statusでは新規bootstrapやclaim書込みへ進まず、`RECOVERY_NOT_FOUND`だけを新規flowの根拠にする。
+- `handoff.recovery`は`status`、同じ`operationId`／`claimIntentId`／draft fingerprint、元の`expiresAt`、completed時の`manualId`を返すread-only照会とする。Webは元の`expiresAt`を優先して期限を判定し、通信失敗・不正応答・未知statusでは新規bootstrapやclaim書込みへ進まず、`RECOVERY_NOT_FOUND`だけを元のoperationの通常flowへ戻る根拠にする。期限切れoperationのidentityは再発行しない。
 - R2 put前にD1のclaim/asset記録を予約し、R2とD1を単一transactionとはみなさない。結果不明時は同じ固定key、digest、size、metadataでstatusを再照合し、mismatchは上書きせず409で停止する。
 - draft編集はtitle、description、全stepsを一括snapshotとして`expectedUpdatedAt`とCAS更新する。競合時は409を返し、編集中の入力値を失わせない。詳細stepの`assetUrl`はbackendの許可済みshapeに合わせる。
 
