@@ -209,6 +209,10 @@ R2 object keyはresponseへ含めずclient contractにしない。同じactor + 
 
 claim requestでは画像byteを再送せず、staged reference manifestだけを送る。serverは全slotのstaged存在、digest、size、actor／workspace bindingを再検証する。画像本体のupload方式はR2契約に従う。claim全体として、manualが確定したのにasset参照だけ消失する部分成功を許可しない。staged upload + finalizeを使い、finalize前のobjectはauthoritative manual assetとみなさない。R2とD1を単一transactionにできるとは扱わず、次のidempotencyとreconciliation契約で境界を閉じる。
 
+### `GET /api/onboarding/claims/{claimIntentId}?operationId={operationId}`
+
+目的: finalize応答が失われたときに、同じ保存操作の結果を照会する。request bodyは持たず、本文・画像・credentialを保存・再送しない。serverはAccess actor、workspace、claim intent、operationIdを照合し、`claimed`なら同じ`manualId`を返す。未完了なら`pending`、期限切れなら`expired`を返し、別operationIdは409で拒否する。Web画面は`finalize-pending` metadataを検出した場合、この照会を先に実行してから拡張機能のlocal draft cleanupへ進む。
+
 ### Asset identityとR2/D1 reconciliation
 
 - 各assetはclaim内で重複しないserver-authoritativeなasset slotとcontent digestを持つ。object keyは`claimIntentId + operationId + asset slot`等の検証済み固定inputから決定的に導出し、client指定keyやretryごとのrandom値を使わない。

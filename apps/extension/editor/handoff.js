@@ -5,6 +5,32 @@ const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 
+export function canonicalDraftJson(draft) {
+  if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
+  return JSON.stringify({
+    id: draft.id ?? null,
+    title: draft.title ?? "",
+    description: draft.description ?? "",
+    updatedAt: draft.updatedAt ?? null,
+    steps: Array.isArray(draft.steps) ? draft.steps.map((step) => ({
+      id: step?.id ?? null,
+      order: step?.order ?? null,
+      instruction: step?.instruction ?? "",
+      screenshotId: step?.screenshotId ?? null
+    })) : [],
+    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map((screenshot) => ({
+      id: screenshot?.id ?? null,
+      dataUrl: screenshot?.dataUrl ?? "",
+      masks: Array.isArray(screenshot?.masks) ? screenshot.masks.map((mask) => ({ x: mask?.x ?? null, y: mask?.y ?? null, width: mask?.width ?? null, height: mask?.height ?? null })) : []
+    })) : []
+  });
+}
+
+export async function fingerprintDraft(draft) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftJson(draft)));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 function toBase64Url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -21,7 +47,7 @@ export function validateExtensionId(extensionId) {
   return extensionId;
 }
 
-export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined) {
+export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined, draftFingerprint = undefined) {
   if (typeof draftId !== "string" || !draftId) throw new TypeError("draft id is required");
   if (outputAction !== "save") throw new TypeError("unsupported output action");
   validateExtensionId(extensionId);
@@ -32,6 +58,7 @@ export function createHandoffMetadata(draftId, outputAction = "save", now = Date
     outputAction,
     extensionId,
     ...(typeof draftUpdatedAt === "string" ? { draftUpdatedAt } : {}),
+    ...(typeof draftFingerprint === "string" && /^[a-f0-9]{64}$/.test(draftFingerprint) ? { draftFingerprint } : {}),
     expiresAt: new Date(now + HANDOFF_TTL_MS).toISOString()
   };
 }
@@ -50,7 +77,7 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (!storage?.get || !storage?.remove) return;
   const entries = await storage.get(null);
   const expired = Object.entries(entries || {})
-    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && Date.parse(value?.expiresAt || "") <= now)
+    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && value?.status !== "completion-pending" && Date.parse(value?.expiresAt || "") <= now)
     .map(([key]) => key);
   if (expired.length > 0) await storage.remove(expired);
 }

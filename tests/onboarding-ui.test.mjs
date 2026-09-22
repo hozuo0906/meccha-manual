@@ -68,6 +68,9 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /HANDOFF_TTL_MS/);
   assert.match(ONBOARDING_JS, /handoff\.asset\.chunk/);
   assert.match(ONBOARDING_JS, /claim-intents/);
+  assert.match(ONBOARDING_JS, /claimStatus: "finalize-pending"/);
+  assert.match(ONBOARDING_JS, /method: "GET"/);
+  assert.match(ONBOARDING_JS, /X-Requested-With/);
   assert.match(ONBOARDING_JS, /手順書を保存/);
   assert.doesNotMatch(ONBOARDING_CSS, /unsafe-inline/);
 });
