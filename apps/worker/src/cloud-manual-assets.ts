@@ -71,7 +71,10 @@ export const CLOUD_MANUAL_JS = `(() => {
         return true;
       }
     } catch (error) {
-      if (error?.status === 401 || error?.status === 403) clearProtectedEditor();
+      if (error?.status === 401 || error?.status === 403) {
+        clearProtectedEditor();
+        return "auth-lost";
+      }
     }
     return false;
   }
@@ -105,12 +108,14 @@ export const CLOUD_MANUAL_JS = `(() => {
           setMessage("保存結果と最新内容を確認できませんでした。入力内容を保持しています。", "warning");
         }
       } else {
-        await reconcileSavedDraft(manualId, snapshot);
+        const reconciled = await reconcileSavedDraft(manualId, snapshot);
+        if (reconciled === "auth-lost") return;
         setMessage("保存中に入力が変更されました。変更は画面に保持されています。", "warning");
       }
     } catch (error) {
       if (!error.status) {
         const reconciled = await reconcileSavedDraft(manualId, snapshot);
+        if (reconciled === "auth-lost") return;
         setMessage(reconciled ? "保存結果を確認しました。入力内容を保持しています。" : "保存結果を確認できませんでした。入力内容を保持したまま、一覧で状態を確認してください。", "warning");
       } else if (error.status === 401 || error.status === 403) {
         clearProtectedEditor();
