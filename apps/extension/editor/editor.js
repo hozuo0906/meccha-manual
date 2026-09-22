@@ -164,9 +164,10 @@ startRegistration.addEventListener("click", async () => {
   gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
   try {
     await pruneExpiredHandoffs();
-    const metadata = createHandoffMetadata(draft.id, "save");
+    const extensionId = chrome.runtime?.id;
+    const metadata = createHandoffMetadata(draft.id, "save", Date.now(), extensionId, draft.updatedAt);
     await saveHandoffMetadata(metadata);
-    await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId) });
+    await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId) });
     gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
     outputGate.close();
   } catch (error) {

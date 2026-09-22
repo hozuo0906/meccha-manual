@@ -34,6 +34,12 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
+## Cクラウド保存の追跡
+
+FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/worker/src/onboarding-assets.ts`のsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。
+
+受入証跡は、external-origin／unknown schema／期限切れ／oversize／chunk order／credential拒否、mask焼き込み、local failure／cancel／retry／changed-draft cleanup、一覧→再表示→編集→version競合を対象とする。owner限定stagingの実Chrome通し確認とAPI route接続は、統合後の環境証跡として別に判定する。
+
 ## セルフサーブbootstrap境界
 
 FR-001 / FR-002の商用MVPは、従来の `SCR-WORKSPACE -> POST /api/workspaces` を初回利用者に要求しない。
