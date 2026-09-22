@@ -3,6 +3,7 @@ import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
+const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 
 function toBase64Url(bytes) {
   let binary = "";
@@ -15,14 +16,22 @@ export function createHandoffId(random = crypto.getRandomValues(new Uint8Array(H
   return toBase64Url(random);
 }
 
-export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now()) {
+export function validateExtensionId(extensionId) {
+  if (typeof extensionId !== "string" || !EXTENSION_ID_PATTERN.test(extensionId)) throw new TypeError("invalid extension id");
+  return extensionId;
+}
+
+export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined) {
   if (typeof draftId !== "string" || !draftId) throw new TypeError("draft id is required");
   if (outputAction !== "save") throw new TypeError("unsupported output action");
+  validateExtensionId(extensionId);
   const handoffId = createHandoffId();
   return {
     handoffId,
     draftId,
     outputAction,
+    extensionId,
+    ...(typeof draftUpdatedAt === "string" ? { draftUpdatedAt } : {}),
     expiresAt: new Date(now + HANDOFF_TTL_MS).toISOString()
   };
 }
@@ -46,10 +55,11 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (expired.length > 0) await storage.remove(expired);
 }
 
-export function buildContinueUrl(origin, handoffId) {
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}`;
+  validateExtensionId(extensionId);
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}`;
 }
 
 export const HANDOFF_TTL_MINUTES = HANDOFF_TTL_MS / 60000;

@@ -219,6 +219,14 @@ output gateは、編集内容を明示的に確認してから登録画面へ進
 
 このスライスではguest本文のclaim、画像upload、元のsave/share/PDFの再開、Webから拡張機能への完了通知を実装完了と扱わない。これらはC以降の受入条件である。
 
+## Cクラウド保存スライス
+
+0.1.2の拡張機能は、handoff fragmentに拡張機能IDを添えてstaging Webへ渡す。Webはfragmentを読み取った直後にURLから除去し、extension ID、handoff、operation、claim intent、workspace等のmetadataだけを同一タブのsessionStorageへ保持する。古いextension IDなしhandoffはbootstrapの成功を手順書保存と表示せず、0.1.2の拡張機能からやり直す案内を出す。
+
+認証済みWebは外部messageで拡張機能へ`handoff.prepare`を依頼し、手順書の許可されたtitle／description／stepだけを受け取る。画像は`handoff.asset.start`と順序付き`handoff.asset.chunk`で受け取り、拡張機能内でマスクを焼き込んだJPEGだけを同一originのclaim APIへ送る。raw screenshot、capture event、対象URL、credentialは外部message、DOM、URL、Web storage、ログへ複製しない。全asset uploadが成功した後にclaim finalizeを行い、同じoperationと内容fingerprintで再試行する。成功結果確認後、拡張機能は下書きを削除する。編集中に下書きが変わった場合は削除せず、保存内容を保持する。
+
+保存後は`/manuals`でworkspace所属の手順書一覧を表示し、選択した手順書を再表示する。編集はowner以上のserver認可を前提に、title／descriptionを表示中versionの`expectedUpdatedAt`で保存する。409の競合時はサーバーの値をフォームへ上書きせず、入力値を保持して再読込を案内する。表示値は`textContent`でDOMへ挿入する。
+
 ## セキュリティ境界
 
 オンボーディング簡素化を理由に次を弱めない。

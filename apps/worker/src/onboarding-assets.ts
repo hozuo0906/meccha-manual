@@ -9,13 +9,16 @@ export const ONBOARDING_JS = `(() => {
   const configured = root?.dataset.bootstrapEnabled === "true";
   const fragmentParams = new URLSearchParams(location.hash.slice(1));
   const fragmentValues = fragmentParams.getAll("handoff");
+  const extensionValues = fragmentParams.getAll("extensionId");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
+  const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
   let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
+  function validExtensionId(value) { return /^[a-p]{32}$/.test(value || ""); }
   const HANDOFF_TTL_MS = 15 * 60 * 1000;
   function isFresh(value, now = Date.now()) { const createdAt = Date.parse(value?.createdAt || ""); return Number.isFinite(createdAt) && now - createdAt >= 0 && now - createdAt <= HANDOFF_TTL_MS; }
   function validOperationId(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
@@ -38,6 +41,7 @@ export const ONBOARDING_JS = `(() => {
     const operations = new Set();
     for (const entry of value.entries) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry) || !validHandoff(entry.handoffId) || !validOperationId(entry.operationId) || !validCreatedAt(entry.createdAt) || (entry.state !== "active" && entry.state !== "expired") || handoffs.has(entry.handoffId) || operations.has(entry.operationId)) return { ok: false, state: null, needsWrite: false };
+      if (entry.extensionId !== undefined && !validExtensionId(entry.extensionId)) return { ok: false, state: null, needsWrite: false };
       handoffs.add(entry.handoffId);
       operations.add(entry.operationId);
     }
@@ -63,7 +67,7 @@ export const ONBOARDING_JS = `(() => {
   function initializeCapturedContext() {
     if (capturedContextInitialized) return capturedContext;
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff)) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -71,7 +75,7 @@ export const ONBOARDING_JS = `(() => {
     if (!state) {
       try {
         const now = Date.now();
-        const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active" };
+        const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -96,7 +100,7 @@ export const ONBOARDING_JS = `(() => {
     }
     try {
       const now = Date.now();
-      const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active" };
+      const entry = { handoffId: fragmentHandoff, operationId: randomId(), createdAt: new Date(now).toISOString(), state: "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -147,6 +151,68 @@ export const ONBOARDING_JS = `(() => {
   }
   if (configured && hasFragment && validHandoff(fragmentHandoff)) initializeCapturedContext();
   function setButton(label, disabled = false) { button.textContent = label; button.disabled = disabled; }
+  function saveCloudMetadata(values) {
+    try {
+      const saved = readSaved();
+      if (!saved.ok || !saved.state) return false;
+      const active = saved.state.entries.find((entry) => entry.handoffId === values.handoffId && entry.operationId === values.operationId);
+      if (!active) return false;
+      Object.assign(active, values);
+      return persistState(saved.state);
+    } catch { return false; }
+  }
+  function extensionIdFor(context) { return context?.extensionId || null; }
+  async function extensionMessage(extensionId, type, context, extra = {}) {
+    if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
+    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: "save", ...extra });
+    if (!reply?.ok) throw new Error(reply?.error || "HANDOFF_FAILED");
+    return reply;
+  }
+  function decodeChunk(value) {
+    const binary = atob(value || "");
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+  async function claimDraft(context, bootstrapPayload) {
+    const extensionId = extensionIdFor(context);
+    if (!extensionId) { message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.2へ更新して、編集画面からもう一度進んでください。", "error"); setButton("拡張機能からやり直す", true); return false; }
+    message("拡張機能から手順書を受け取り、保存の準備をしています。");
+    const prepared = await extensionMessage(extensionId, "handoff.prepare", context);
+    const operationId = context.operationId;
+    const intentResponse = await fetch("/api/onboarding/claim-intents", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId, assetCount: prepared.assets.length }) });
+    let intent = null; try { intent = await intentResponse.json(); } catch {}
+    if (!intentResponse.ok || typeof intent?.claimIntentId !== "string") throw new Error(intentResponse.status === 410 ? "保存準備の期限が切れました。拡張機能からもう一度進めてください。" : "保存準備に失敗しました。元の下書きは拡張機能に残っています。");
+    saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: bootstrapPayload.workspaceId || "" });
+    const staged = [];
+    for (const asset of prepared.assets) {
+      message("画像を安全に加工しています（" + (asset.assetSlot + 1) + "/" + prepared.assets.length + ")。");
+      const start = await extensionMessage(extensionId, "handoff.asset.start", context, { assetSlot: asset.assetSlot });
+      const chunks = [];
+      for (let sequence = 0; sequence < start.totalChunks; sequence += 1) {
+        const chunk = await extensionMessage(extensionId, "handoff.asset.chunk", context, { assetSlot: asset.assetSlot, sequence });
+        if (chunk.sequence !== sequence || typeof chunk.chunk !== "string") throw new Error("CHUNK_SEQUENCE_INVALID");
+        chunks.push(decodeChunk(chunk.chunk));
+      }
+      const body = new Blob(chunks, { type: start.contentType });
+      const upload = await fetch("/api/onboarding/claim-intents/" + encodeURIComponent(intent.claimIntentId) + "/assets/" + encodeURIComponent(String(asset.assetSlot)), { method: "PUT", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": start.contentType, "X-Claim-Operation-Id": operationId, "X-Asset-SHA256": start.sha256, "X-Asset-Byte-Length": String(start.byteLength) }, body });
+      let uploadResult = null; try { uploadResult = await upload.json(); } catch {}
+      if (!upload.ok || uploadResult?.status !== "staged") throw new Error(upload.status === 409 ? "同じ保存操作に異なる画像が指定されました。下書きを保持したまま停止しました。" : "画像の保存に失敗しました。下書きは拡張機能に残っています。");
+      staged.push({ assetSlot: asset.assetSlot, sha256: start.sha256 });
+    }
+    message("手順書を保存しています。");
+    const claimResponse = await fetch("/api/onboarding/claims/" + encodeURIComponent(intent.claimIntentId), { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId, manual: prepared.draft, assets: staged }) });
+    let claim = null; try { claim = await claimResponse.json(); } catch {}
+    if (!claimResponse.ok || claim?.status !== "claimed" || typeof claim.manualId !== "string") throw new Error(claimResponse.status === 409 ? "同じ保存操作の内容が変わったため保存を止めました。元の下書きは拡張機能に残っています。" : "手順書の保存結果を確認できませんでした。同じ操作で再試行してください。");
+    const completed = await extensionMessage(extensionId, "handoff.completed", context, { manualId: claim.manualId });
+    if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
+    saveCloudMetadata({ handoffId: context.handoffId, operationId, claimStatus: "completed", manualId: claim.manualId });
+    message("手順書を保存しました。保存した手順書を開きます。", "success");
+    setButton("保存した手順書を開く");
+    button.onclick = () => { location.href = "/manuals"; };
+    return true;
+  }
   async function bootstrap() {
     const id = operationId();
     if (!id) { message("登録を続けるための識別情報が確認できません。拡張機能の編集画面からもう一度進んでください。", "error"); setButton("登録を続ける", true); return; }
@@ -154,7 +220,13 @@ export const ONBOARDING_JS = `(() => {
     try {
       const response = await fetch("/api/onboarding/bootstrap", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId: id }) });
       let payload = null; try { payload = await response.json(); } catch {}
-      if (response.ok && payload?.status === "ready") { message("保存先の準備が完了しました。手順書本文はまだ保存されていません。元の下書きは拡張機能に残っています。", "success"); setButton("同じ操作を確認する"); return; }
+      if (response.ok && payload?.status === "ready") {
+        message("保存先を準備しました。手順書を安全に保存しています。");
+        const context = currentOperation();
+        if (!extensionIdFor(context)) { message("保存先の準備が完了しました。手順書本文はまだ保存されていません。元の下書きは拡張機能に残っています。", "success"); setButton("同じ操作を確認する"); return; }
+        try { await claimDraft(context, payload); } catch (error) { message(error?.message || "手順書の保存に失敗しました。元の下書きは拡張機能に残っています。", "error"); setButton("同じ操作で再試行"); }
+        return;
+      }
       if (response.status === 401) message("認証が確認できません。メールで認証してから、もう一度お試しください。", "error");
       else if (response.status === 403) message("このアカウントでは保存先を準備できません。", "error");
       else if (response.status === 429) message("試行回数の上限に達しました。少し時間をおいて、同じ操作でお試しください。", "error");

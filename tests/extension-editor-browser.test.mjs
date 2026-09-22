@@ -116,7 +116,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     const page = await context.newPage();
     await page.addInitScript(() => {
       globalThis.__handoffStorageWrites = 0;
-      globalThis.chrome = { storage: { local: { set: async () => { globalThis.__handoffStorageWrites += 1; }, get: async () => ({}), remove: async () => undefined } } };
+      globalThis.chrome = { runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, storage: { local: { set: async () => { globalThis.__handoffStorageWrites += 1; }, get: async () => ({}), remove: async () => undefined } } };
     });
     await page.goto(`${baseUrl}/seed.html`);
     await page.evaluate(async () => {
@@ -171,6 +171,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
       globalThis.__createdTabUrl = null;
       globalThis.__handoffStorageWrites = 0;
       globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         storage: { local: {
           set: async () => { globalThis.__handoffStorageWrites += 1; },
           get: async () => ({}),
@@ -191,7 +192,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => globalThis.__tabsCreateCalls === 1);
     assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 1);
-    assert.match(await page.evaluate(() => globalThis.__createdTabUrl), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}$/);
+    assert.match(await page.evaluate(() => globalThis.__createdTabUrl), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}&extensionId=a{32}$/);
     assert.equal(await page.locator("#title").inputValue(), "編集を保持するタイトル");
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 1);
   } finally {
