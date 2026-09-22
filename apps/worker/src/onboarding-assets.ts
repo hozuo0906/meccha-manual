@@ -175,16 +175,94 @@ export const ONBOARDING_JS = `(() => {
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;
   }
+  function metadataForContext(context) {
+    const saved = readSaved();
+    if (!saved.ok || !saved.state) return null;
+    return saved.state.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId) || null;
+  }
+  function claimManualForWeb(prepared) {
+    if (!prepared?.draft || !Array.isArray(prepared.draft.steps) || !Array.isArray(prepared.assets)) throw new Error("DRAFT_INVALID");
+    const slots = new Map(prepared.assets.map((asset) => [asset.screenshotId, asset.assetSlot]));
+    const steps = prepared.draft.steps.map((step, index) => {
+      const assetSlot = step.screenshotId === undefined ? null : slots.get(step.screenshotId);
+      if (step.screenshotId !== undefined && !Number.isInteger(assetSlot)) throw new Error("DRAFT_INVALID");
+      return {
+        type: typeof step.type === "string" ? step.type : "action",
+        title: typeof step.title === "string" ? step.title : "手順 " + (index + 1),
+        instruction: String(step.instruction || ""),
+        actionType: step.actionType ?? null,
+        targetText: step.targetText ?? null,
+        url: step.url ?? null,
+        assetSlot
+      };
+    });
+    return { title: String(prepared.draft.title || ""), description: String(prepared.draft.description || ""), steps };
+  }
+  function showClaimSuccess(manualId) {
+    message("手順書を保存しました。保存した手順書を開きます。", "success");
+    button.removeEventListener("click", bootstrap);
+    setButton("保存した手順書を開く");
+    button.onclick = () => { location.href = "/manuals"; };
+    return Boolean(manualId);
+  }
+  async function completePending(context, extensionId, manualId) {
+    if (typeof manualId !== "string" || !manualId) throw new Error("CLAIM_RESULT_INVALID");
+    const pendingSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completion-pending", manualId });
+    if (!pendingSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
+    const completed = await extensionMessage(extensionId, "handoff.completed", context, { manualId });
+    if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
+    const completedSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completed", manualId });
+    if (!completedSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
+    return showClaimSuccess(manualId);
+  }
+  async function reconcileFinalize(context, extensionId, metadata) {
+    if (metadata?.claimStatus !== "finalize-pending" || typeof metadata.claimIntentId !== "string") return false;
+    const statusUrl = "/api/onboarding/claims/" + encodeURIComponent(metadata.claimIntentId) + "?operationId=" + encodeURIComponent(context.operationId);
+    const response = await fetch(statusUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }
+    });
+    let result = null;
+    try { result = await response.json(); } catch {}
+    if (response.ok && (result?.status === "claimed" || result?.status === "completed") && typeof result.manualId === "string") {
+      await completePending(context, extensionId, result.manualId);
+      return true;
+    }
+    if (response.ok && result?.status === "pending") return { status: "pending", claimIntentId: metadata.claimIntentId };
+    if (response.ok && result?.status === "expired") throw new Error("保存準備の期限が切れました。元の下書きを保持したまま、拡張機能からやり直してください。");
+    throw new Error("保存結果を確認できませんでした。元の下書きを保持しています。");
+  }
   async function claimDraft(context, bootstrapPayload) {
     const extensionId = extensionIdFor(context);
-    if (!extensionId) { message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.2へ更新して、編集画面からもう一度進んでください。", "error"); setButton("拡張機能からやり直す", true); return false; }
+    if (!extensionId) {
+      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.2へ更新して、編集画面からもう一度進んでください。", "error");
+      setButton("拡張機能からやり直す", true);
+      return false;
+    }
+    const existing = metadataForContext(context);
+    if (existing?.claimStatus === "completed" && existing.manualId) return showClaimSuccess(existing.manualId);
+    if (existing?.claimStatus === "completion-pending" && existing.manualId) return completePending(context, extensionId, existing.manualId);
+    const reconciliation = await reconcileFinalize(context, extensionId, existing);
+    if (reconciliation === true) return true;
+    const resumeIntentId = reconciliation?.status === "pending" ? reconciliation.claimIntentId : null;
     message("拡張機能から手順書を受け取り、保存の準備をしています。");
     const prepared = await extensionMessage(extensionId, "handoff.prepare", context);
+    const manual = claimManualForWeb(prepared);
+    if (existing?.draftFingerprint && prepared.draftFingerprint !== existing.draftFingerprint) throw new Error("下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
     const operationId = context.operationId;
-    const intentResponse = await fetch("/api/onboarding/claim-intents", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId, assetCount: prepared.assets.length }) });
-    let intent = null; try { intent = await intentResponse.json(); } catch {}
-    if (!intentResponse.ok || typeof intent?.claimIntentId !== "string") throw new Error(intentResponse.status === 410 ? "保存準備の期限が切れました。拡張機能からもう一度進めてください。" : "保存準備に失敗しました。元の下書きは拡張機能に残っています。");
-    saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: bootstrapPayload.workspaceId || "" });
+    const intentResponse = resumeIntentId ? null : await fetch("/api/onboarding/claim-intents", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({ operationId, assetCount: prepared.assets.length })
+    });
+    let intent = resumeIntentId ? { claimIntentId: resumeIntentId } : null;
+    if (intentResponse) { try { intent = await intentResponse.json(); } catch {} }
+    if (!intent || (intentResponse && (!intentResponse.ok || typeof intent.claimIntentId !== "string"))) throw new Error(intentResponse?.status === 410 ? "保存準備の期限が切れました。拡張機能からもう一度進めてください。" : "保存準備に失敗しました。元の下書きは拡張機能に残っています。");
+    if (!resumeIntentId && !saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: bootstrapPayload.workspaceId || "", claimStatus: "uploading", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
     const staged = [];
     for (const asset of prepared.assets) {
       message("画像を安全に加工しています（" + (asset.assetSlot + 1) + "/" + prepared.assets.length + ")。");
@@ -196,29 +274,46 @@ export const ONBOARDING_JS = `(() => {
         chunks.push(decodeChunk(chunk.chunk));
       }
       const body = new Blob(chunks, { type: start.contentType });
-      const upload = await fetch("/api/onboarding/claim-intents/" + encodeURIComponent(intent.claimIntentId) + "/assets/" + encodeURIComponent(String(asset.assetSlot)), { method: "PUT", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": start.contentType, "X-Claim-Operation-Id": operationId, "X-Asset-SHA256": start.sha256, "X-Asset-Byte-Length": String(start.byteLength) }, body });
+      const uploadUrl = "/api/onboarding/claim-intents/" + encodeURIComponent(intent.claimIntentId) + "/assets/" + encodeURIComponent(String(asset.assetSlot));
+      const upload = await fetch(uploadUrl, {
+        method: "PUT",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": start.contentType,
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Claim-Operation-Id": operationId,
+          "X-Asset-SHA256": start.sha256,
+          "X-Asset-Byte-Length": String(start.byteLength)
+        },
+        body
+      });
       let uploadResult = null; try { uploadResult = await upload.json(); } catch {}
       if (!upload.ok || uploadResult?.status !== "staged") throw new Error(upload.status === 409 ? "同じ保存操作に異なる画像が指定されました。下書きを保持したまま停止しました。" : "画像の保存に失敗しました。下書きは拡張機能に残っています。");
       staged.push({ assetSlot: asset.assetSlot, sha256: start.sha256 });
     }
     message("手順書を保存しています。");
-    const claimResponse = await fetch("/api/onboarding/claims/" + encodeURIComponent(intent.claimIntentId), { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId, manual: prepared.draft, assets: staged }) });
+    if (!saveCloudMetadata({ handoffId: context.handoffId, operationId, claimStatus: "finalize-pending" })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
+    const claimUrl = "/api/onboarding/claims/" + encodeURIComponent(intent.claimIntentId);
+    const claimResponse = await fetch(claimUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({ operationId, manual, assets: staged })
+    });
     let claim = null; try { claim = await claimResponse.json(); } catch {}
-    if (!claimResponse.ok || claim?.status !== "claimed" || typeof claim.manualId !== "string") throw new Error(claimResponse.status === 409 ? "同じ保存操作の内容が変わったため保存を止めました。元の下書きは拡張機能に残っています。" : "手順書の保存結果を確認できませんでした。同じ操作で再試行してください。");
-    const completed = await extensionMessage(extensionId, "handoff.completed", context, { manualId: claim.manualId });
-    if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
-    saveCloudMetadata({ handoffId: context.handoffId, operationId, claimStatus: "completed", manualId: claim.manualId });
-    message("手順書を保存しました。保存した手順書を開きます。", "success");
-    setButton("保存した手順書を開く");
-    button.onclick = () => { location.href = "/manuals"; };
-    return true;
+    if (!claimResponse.ok || (claim?.status !== "claimed" && claim?.status !== "completed") || typeof claim.manualId !== "string") {
+      throw new Error(claimResponse.status === 409 ? "同じ保存操作の内容が変わったため保存を止めました。元の下書きは拡張機能に残っています。" : "手順書の保存結果を確認できませんでした。同じ操作で再試行してください。");
+    }
+    return completePending(context, extensionId, claim.manualId);
   }
   async function bootstrap() {
     const id = operationId();
     if (!id) { message("登録を続けるための識別情報が確認できません。拡張機能の編集画面からもう一度進んでください。", "error"); setButton("登録を続ける", true); return; }
     setButton("準備中…", true); message("認証済みのWebアプリから保存先を準備しています。手順書本文はまだ送信していません。");
     try {
-      const response = await fetch("/api/onboarding/bootstrap", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ operationId: id }) });
+      const response = await fetch("/api/onboarding/bootstrap", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify({ operationId: id }) });
       let payload = null; try { payload = await response.json(); } catch {}
       if (response.ok && payload?.status === "ready") {
         message("保存先を準備しました。手順書を安全に保存しています。");

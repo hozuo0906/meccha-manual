@@ -410,3 +410,95 @@ test("onboarding migrates a valid legacy record and fails closed on uncertain st
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("onboarding reconciles a completed finalize after the response is lost", { timeout: 20_000 }, async () => {
+  let intentCalls = 0;
+  let finalizeCalls = 0;
+  let statusCalls = 0;
+  let completed = false;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "ready", workspaceId: "workspace-1" })); return; }
+    if (url.pathname === "/api/onboarding/claim-intents" && request.method === "POST") { intentCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ claimIntentId: "intent-1" })); return; }
+    if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "GET") { statusCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify(completed ? { status: "completed", manualId: "manual-1" } : { status: "pending" })); return; }
+    if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "POST") { finalizeCalls += 1; completed = true; response.writeHead(200, { "content-type": "application/json; charset=utf-8" }); response.end(); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "S".repeat(43);
+  const extensionId = "b".repeat(32);
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript((extensionId) => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.prepare" ? { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "b".repeat(64) } : { ok: true, status: "completed" } } };
+    }, extensionId);
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
+    await page.reload();
+    await page.locator("#bootstrap").click();
+    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    assert.equal(intentCalls, 1);
+    assert.equal(finalizeCalls, 1);
+    assert.equal(statusCalls, 1);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("onboarding retries a pending finalize without re-uploading or creating a new intent", { timeout: 20_000 }, async () => {
+  let intentCalls = 0;
+  let finalizeCalls = 0;
+  let statusCalls = 0;
+  let finalizeSeen = false;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "ready", workspaceId: "workspace-1" })); return; }
+    if (url.pathname === "/api/onboarding/claim-intents" && request.method === "POST") { intentCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ claimIntentId: "intent-1" })); return; }
+    if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "GET") { statusCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify(statusCalls === 1 ? { status: "pending" } : { status: "claimed", manualId: "manual-1" })); return; }
+    if (url.pathname === "/api/onboarding/claims/intent-1" && request.method === "POST") { finalizeCalls += 1; finalizeSeen = true; if (finalizeCalls === 1) { response.writeHead(503, { "content-type": "application/json; charset=utf-8" }); response.end(JSON.stringify({ status: "pending" })); return; } response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "claimed", manualId: "manual-1" })); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "R".repeat(43);
+  const extensionId = "a".repeat(32);
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript((extensionId) => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.prepare" ? { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "a".repeat(64) } : { ok: true, status: "completed" } } };
+    }, extensionId);
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
+    await page.reload();
+    await page.locator("#bootstrap").click();
+    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    assert.equal(intentCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
+    assert.ok(finalizeCalls >= 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
+    assert.equal(statusCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

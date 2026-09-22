@@ -1,6 +1,6 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
-import { handoffStorageKey } from "../editor/handoff.js";
+import { canonicalDraftJson, fingerprintDraft, handoffStorageKey } from "../editor/handoff.js";
 
 export const CLOUD_CLAIM_SCHEMA = "meccha-manual/cloud-claim-v1";
 export const CLOUD_CLAIM_CHUNK_BYTES = 192 * 1024;
@@ -8,10 +8,12 @@ export const CLOUD_CLAIM_MAX_ASSET_BYTES = 10 * 1024 * 1024;
 export const CLOUD_CLAIM_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 export const CLOUD_CLAIM_MAX_ASSETS = 100;
 const HANDOFF_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const DRAFT_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 const transfers = new Map();
 const snapshots = new Map();
 let transferBytesTotal = 0;
+let transferBytesReserved = 0;
 let snapshotBytesTotal = 0;
 const MAX_MESSAGE_BYTES = 32 * 1024;
 
@@ -67,7 +69,7 @@ async function readHandoff(handoffId) {
 }
 
 function cleanStep(step) {
-  if (!step || typeof step !== "object" || typeof step.id !== "string" || !step.id || !Number.isInteger(step.order) || typeof step.instruction !== "string" || Array.from(step.instruction).length > 500) return null;
+  if (!step || typeof step !== "object" || typeof step.id !== "string" || !step.id || !Number.isInteger(step.order) || step.order < 1 || typeof step.instruction !== "string" || Array.from(step.instruction).length > 500) return null;
   const clean = {
     id: step.id,
     order: step.order,
@@ -91,6 +93,17 @@ export function cleanDraft(draft) {
     if (masks.some((mask) => [mask.x, mask.y, mask.width, mask.height].some((value) => !Number.isFinite(value) || value < 0 || value > 1) || !mask.width || !mask.height || mask.x + mask.width > 1 || mask.y + mask.height > 1)) return null;
     return { id: screenshot.id, masks };
   });
+  const screenshotIds = new Set();
+  for (const screenshot of screenshots) {
+    if (!screenshot || screenshotIds.has(screenshot.id)) return null;
+    screenshotIds.add(screenshot.id);
+  }
+  const stepIds = new Set();
+  for (const step of steps) {
+    if (!step || stepIds.has(step.id)) return null;
+    stepIds.add(step.id);
+    if (step.screenshotId !== undefined && !screenshotIds.has(step.screenshotId)) return null;
+  }
   if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000 || steps.some((step) => !step) || screenshots.some((screenshot) => !screenshot)) return null;
   return { title, description, steps, screenshots };
 }
@@ -154,28 +167,45 @@ function transferFor(handoffId, assetSlot) {
 }
 
 function cleanupTransfers() {
-  for (const [key, value] of transfers) if (value.expiresAt <= Date.now()) { transferBytesTotal -= value.bytes.byteLength; transfers.delete(key); }
-  for (const [key, value] of snapshots) if (value.expiresAt <= Date.now()) { snapshotBytesTotal -= value.estimatedBytes; snapshots.delete(key); }
+  for (const [key, value] of transfers) if (value.expiresAt <= Date.now()) { transferBytesTotal = Math.max(0, transferBytesTotal - value.bytes.byteLength); transfers.delete(key); }
+  for (const [key, value] of snapshots) if (value.expiresAt <= Date.now()) { snapshotBytesTotal = Math.max(0, snapshotBytesTotal - value.estimatedBytes); snapshots.delete(key); }
+}
+
+function clearClaimRuntime(handoffId) {
+  for (const [key, value] of transfers) {
+    if (!key.startsWith(`${handoffId}:`)) continue;
+    transferBytesTotal = Math.max(0, transferBytesTotal - value.bytes.byteLength);
+    transfers.delete(key);
+  }
+  const snapshot = snapshots.get(handoffId);
+  if (snapshot) {
+    snapshotBytesTotal = Math.max(0, snapshotBytesTotal - snapshot.estimatedBytes);
+    snapshots.delete(handoffId);
+  }
 }
 
 async function prepare(message, sender) {
   if (!validRequest(message, sender, "handoff.prepare")) return reject("HANDOFF_REQUEST_REJECTED");
   const metadata = await readHandoff(message.handoffId);
   if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   const draft = await draftStore.get(metadata.draftId);
   if (metadata.draftUpdatedAt !== draft?.updatedAt) return reject("DRAFT_CHANGED");
+  const draftFingerprint = await fingerprintDraft(draft);
+  if (metadata.draftFingerprint && metadata.draftFingerprint !== draftFingerprint) return reject("DRAFT_CHANGED");
   const clean = cleanDraft(draft);
   if (!clean) return reject("DRAFT_INVALID");
   const estimatedBytes = draft.screenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), 0);
   cleanupTransfers();
   if (estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
   const previous = snapshots.get(message.handoffId);
-  if (previous) snapshotBytesTotal -= previous.estimatedBytes;
-  if (snapshotBytesTotal + estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
+  const previousBytes = previous?.estimatedBytes || 0;
+  if (snapshotBytesTotal - previousBytes + estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
+  if (previous) snapshotBytesTotal = Math.max(0, snapshotBytesTotal - previousBytes);
   const assets = clean.screenshots.map((screenshot, assetSlot) => ({ assetSlot, screenshotId: screenshot.id }));
-  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draft: clean, screenshots: draft.screenshots, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
+  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draftFingerprint, draft: clean, screenshots: draft.screenshots, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
   snapshotBytesTotal += estimatedBytes;
-  return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps }, assets, draftUpdatedAt: draft.updatedAt };
+  return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps }, assets, draftUpdatedAt: draft.updatedAt, draftFingerprint };
 }
 
 async function startAsset(message, sender) {
@@ -183,22 +213,29 @@ async function startAsset(message, sender) {
   if (!validRequest(message, sender, "handoff.asset.start") || !Number.isInteger(message.assetSlot) || message.assetSlot < 0 || message.assetSlot >= CLOUD_CLAIM_MAX_ASSETS) return reject("HANDOFF_REQUEST_REJECTED");
   const metadata = await readHandoff(message.handoffId);
   if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   const snapshot = snapshots.get(message.handoffId);
-  if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || snapshot.draftUpdatedAt !== metadata.draftUpdatedAt) return reject("DRAFT_CHANGED");
+  if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || snapshot.draftUpdatedAt !== metadata.draftUpdatedAt || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
   const screenshot = snapshot.screenshots?.[message.assetSlot];
   if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
   const bytes = await maskAndEncode(screenshot);
   const totalBytes = bytes.byteLength;
   if (totalBytes > CLOUD_CLAIM_MAX_ASSET_BYTES) return reject("ASSET_TOO_LARGE");
   cleanupTransfers();
-  if (transferBytesTotal + totalBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
-  const digest = await sha256(bytes);
   const transferKey = `${message.handoffId}:${message.assetSlot}`;
   const existing = transfers.get(transferKey);
-  if (existing) transferBytesTotal -= existing.bytes.byteLength;
-  transfers.set(transferKey, { bytes, digest, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
-  transferBytesTotal += totalBytes;
-  return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType: "image/png", byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
+  const existingBytes = existing?.bytes.byteLength || 0;
+  if (transferBytesTotal - existingBytes + transferBytesReserved + totalBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
+  transferBytesReserved += Math.max(0, totalBytes - existingBytes);
+  try {
+    const digest = await sha256(bytes);
+    if (existing) transferBytesTotal = Math.max(0, transferBytesTotal - existingBytes);
+    transfers.set(transferKey, { bytes, digest, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
+    transferBytesTotal += totalBytes;
+    return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType: "image/png", byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
+  } finally {
+    transferBytesReserved = Math.max(0, transferBytesReserved - Math.max(0, totalBytes - existingBytes));
+  }
 }
 
 async function assetChunk(message, sender) {
@@ -225,26 +262,38 @@ async function completed(message, sender) {
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
   if (!metadata || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   if (metadata.status === "completed") return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
   if (metadata.status === "completion-pending") {
     if (metadata.completedManualId !== message.manualId) return reject("COMPLETION_MISMATCH");
-    try { await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt); } catch (error) { if (error?.message !== "DRAFT_MISSING") throw error; }
+    try {
+      const expected = await draftDeleteExpectation(metadata);
+      await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt, expected.canonical);
+    } catch (error) { if (error?.message !== "DRAFT_MISSING") throw error; }
     await chrome.storage.local.set({ [key]: { ...metadata, status: "completed" } });
-    const snapshot = snapshots.get(message.handoffId);
-    if (snapshot) { snapshotBytesTotal -= snapshot.estimatedBytes; snapshots.delete(message.handoffId); }
+    clearClaimRuntime(message.handoffId);
     return { ok: true, status: "completed" };
   }
   if (!isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!metadata.draftUpdatedAt) return reject("DRAFT_CHANGED");
+  const expected = await draftDeleteExpectation(metadata);
   await chrome.storage.local.set({ [key]: { ...metadata, status: "completion-pending", completedManualId: message.manualId, completedAt: new Date().toISOString() } });
-  await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt);
+  await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt, expected.canonical);
   await chrome.storage.local.set({ [key]: { ...metadata, status: "completed", completedManualId: message.manualId, completedAt: new Date().toISOString() } });
-  const snapshot = snapshots.get(message.handoffId);
-  if (snapshot) { snapshotBytesTotal -= snapshot.estimatedBytes; snapshots.delete(message.handoffId); }
+  clearClaimRuntime(message.handoffId);
   return { ok: true, status: "completed" };
 }
 
-async function transactDraftDelete(id, expectedUpdatedAt) {
+async function draftDeleteExpectation(metadata) {
+  const draft = await draftStore.get(metadata.draftId);
+  if (!draft) throw new Error("DRAFT_MISSING");
+  if (draft.updatedAt !== metadata.draftUpdatedAt) throw new Error("DRAFT_CHANGED");
+  const fingerprint = await fingerprintDraft(draft);
+  if (metadata.draftFingerprint && metadata.draftFingerprint !== fingerprint) throw new Error("DRAFT_CHANGED");
+  return { canonical: canonicalDraftJson(draft), fingerprint };
+}
+
+async function transactDraftDelete(id, expectedUpdatedAt, expectedCanonical) {
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open("meccha-manual-guest", 1);
     request.onsuccess = () => resolve(request.result);
@@ -258,7 +307,7 @@ async function transactDraftDelete(id, expectedUpdatedAt) {
       const request = store.get(id);
       request.onsuccess = () => {
         if (!request.result) { transaction.abort(); return; }
-        if (request.result.updatedAt !== expectedUpdatedAt) { abortReason = "DRAFT_CHANGED"; transaction.abort(); return; }
+        if (request.result.updatedAt !== expectedUpdatedAt || canonicalDraftJson(request.result) !== expectedCanonical) { abortReason = "DRAFT_CHANGED"; transaction.abort(); return; }
         store.delete(id);
       };
       transaction.oncomplete = resolve;
@@ -278,6 +327,7 @@ export async function handleExternalCloudClaimMessage(message, sender) {
     if (message?.type === "handoff.completed") return await completed(message, sender);
     return reject("UNKNOWN_MESSAGE");
   } catch (error) {
-    return reject(error?.message === "MASK_RENDER_UNAVAILABLE" ? "MASK_RENDER_UNAVAILABLE" : "HANDOFF_FAILED");
+    const safeErrors = new Set(["DRAFT_CHANGED", "DRAFT_FINGERPRINT_REQUIRED", "DRAFT_INVALID", "HANDOFF_EXPIRED_OR_UNKNOWN", "MASK_RENDER_UNAVAILABLE", "CLAIM_TOO_LARGE", "ASSET_TOO_LARGE", "CHUNK_SEQUENCE_INVALID"]);
+    return reject(safeErrors.has(error?.message) ? error.message : "HANDOFF_FAILED");
   }
 }

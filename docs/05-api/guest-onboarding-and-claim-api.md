@@ -322,3 +322,6 @@ Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し�
 ### B期限切れ観測時の保存境界
 
 クリック時に保存済みmetadataの期限切れを観測した場合も、fragmentの有無にかかわらず、検証済みの最新履歴から一致するhandoff／operationを再確認し、そのentryだけを`expired` tombstoneとして既存履歴と`activeHandoffId`を保持したまま保存する。保存に失敗した場合は当該ページの操作を停止し、保存成功を前提とした永続化済みとは扱わない。
+### `GET /api/onboarding/claims/{claimIntentId}?operationId={operationId}`
+
+finalize応答が失われた場合は、同じclaim intentの結果を照会する。request bodyは持たず、Access actor、workspace、claim intent、operationIdを照合する。`completed`なら同じ`manualId`を返し、未完了なら`pending`、期限切れなら`expired`を返す。別operationIdは409で拒否し、workspace・actorの境界はfail closedとする。

@@ -605,3 +605,24 @@ test("PATCH batch直前のworkspace停止はmetadataとstep配列へ副作用を
   database.prepare("UPDATE workspaces SET status = 'active' WHERE id = ?").run(workspaceId);
   database.prepare("UPDATE identities SET status = 'active' WHERE application_id = ?").run(actorId);
 });
+test("/manuals rejects service tokens before workspace resolution", async () => {
+  const result = await jsonRequest("/manuals", { claims: { sub: "", common_name: "health-check" } });
+  assert.equal(result.response.status, 403);
+});
+
+test("/manuals requires an active identity, workspace, and owner membership", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  const page = await worker.fetch(await request("/manuals"), env, {});
+  assert.equal(page.status, 200);
+
+  database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = ?").run(actorId);
+  assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
+  database.prepare("UPDATE identities SET status = 'active' WHERE application_id = ?").run(actorId);
+
+  database.prepare("UPDATE workspaces SET status = 'suspended' WHERE id = ?").run(workspaceId);
+  assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
+  database.prepare("UPDATE workspaces SET status = 'active' WHERE id = ?").run(workspaceId);
+
+  database.prepare("UPDATE workspace_members SET status = 'removed' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
+  assert.equal((await worker.fetch(await request("/manuals"), env, {})).status, 403);
+});
