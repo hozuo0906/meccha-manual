@@ -438,7 +438,13 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
     await page.addInitScript((extensionId) => {
-      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.prepare" ? { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "b".repeat(64) } : { ok: true, status: "completed" } } };
+      let recovery;
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.recovery") return recovery || { ok: false, error: "RECOVERY_NOT_FOUND" };
+        if (message.type === "handoff.prepare") return { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "b".repeat(64) };
+        if (message.type === "handoff.finalize-pending") { recovery = { ok: true, status: "finalize-pending", operationId: message.operationId, claimIntentId: message.claimIntentId, draftFingerprint: message.draftFingerprint, expiresAt: new Date(Date.now() + 60_000).toISOString() }; return recovery; }
+        return { ok: true, status: "completed" };
+      } } };
     }, extensionId);
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
@@ -484,7 +490,13 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
     await page.addInitScript((extensionId) => {
-      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.prepare" ? { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "a".repeat(64) } : { ok: true, status: "completed" } } };
+      let recovery;
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.recovery") return recovery || { ok: false, error: "RECOVERY_NOT_FOUND" };
+        if (message.type === "handoff.prepare") return { ok: true, draft: { title: "手順書", description: "", steps: [] }, assets: [], draftFingerprint: "a".repeat(64) };
+        if (message.type === "handoff.finalize-pending") { recovery = { ok: true, status: "finalize-pending", operationId: message.operationId, claimIntentId: message.claimIntentId, draftFingerprint: message.draftFingerprint, expiresAt: new Date(Date.now() + 60_000).toISOString() }; return recovery; }
+        return { ok: true, status: "completed" };
+      } } };
     }, extensionId);
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
@@ -496,6 +508,104 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     assert.equal(intentCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
     assert.ok(finalizeCalls >= 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
     assert.equal(statusCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("onboarding recovers a completed handoff from extension durable identity without bootstrap", { timeout: 20_000 }, async () => {
+  let bootstrapCalls = 0;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { bootstrapCalls += 1; response.writeHead(500).end(); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "R".repeat(43);
+  const extensionId = "c".repeat(32);
+  const operationId = "O".repeat(43);
+  const claimIntentId = "00000000-0000-4000-8000-000000000000";
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(({ extensionId: id, operation, intent }) => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.recovery"
+        ? { ok: true, status: "completed", operationId: operation, claimIntentId: intent, draftFingerprint: "a".repeat(64), expiresAt: new Date(Date.now() + 60_000).toISOString(), manualId: "manual-recovered" }
+        : { ok: false, error: "UNEXPECTED_MESSAGE" } } };
+      globalThis.recoveryExtensionId = id;
+    }, { extensionId, operation: operationId, intent: claimIntentId });
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    assert.equal(bootstrapCalls, 0);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "completed");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("onboarding keeps an expired pending finalize read-only without prepare or claim writes", { timeout: 20_000 }, async () => {
+  let bootstrapCalls = 0;
+  let statusCalls = 0;
+  let prepareCalls = 0;
+  let intentCalls = 0;
+  let finalizeCalls = 0;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { bootstrapCalls += 1; response.writeHead(500).end(); return; }
+    if (url.pathname.startsWith("/api/onboarding/claims/") && request.method === "GET") { statusCalls += 1; response.setHeader("content-type", "application/json; charset=utf-8"); response.end(JSON.stringify({ status: "pending" })); return; }
+    if (url.pathname.includes("/claim-intents") && request.method === "POST") { intentCalls += 1; response.writeHead(500).end(); return; }
+    if (url.pathname.includes("/claim-intents") && request.method === "PUT") { response.writeHead(500).end(); return; }
+    if (url.pathname.includes("/claims/") && request.method === "POST") { finalizeCalls += 1; response.writeHead(500).end(); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "T".repeat(43);
+  const extensionId = "d".repeat(32);
+  const operationId = "P".repeat(43);
+  const claimIntentId = "00000000-0000-4000-8000-000000000000";
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(({ operation, intent }) => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.recovery") return { ok: true, status: "finalize-pending", operationId: operation, claimIntentId: intent, draftFingerprint: "a".repeat(64), expiresAt: new Date(Date.now() - 60_000).toISOString() };
+        if (message.type === "handoff.prepare") { globalThis.prepareCalls = (globalThis.prepareCalls || 0) + 1; return { ok: false, error: "UNEXPECTED_PREPARE" }; }
+        return { ok: false, error: "UNEXPECTED_MESSAGE" };
+      } } };
+    }, { operation: operationId, intent: claimIntentId });
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    await page.evaluate(() => {
+      const state = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
+      state.entries[0].createdAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+      sessionStorage.setItem("meccha-manual:onboarding-operation", JSON.stringify(state));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByText(/結果を確認中です/).waitFor();
+    assert.equal(bootstrapCalls, 0);
+    assert.equal(statusCalls, 1);
+    assert.equal(intentCalls, 0);
+    assert.equal(finalizeCalls, 0);
+    assert.equal(await page.evaluate(() => globalThis.prepareCalls || 0), 0);
   } finally {
     await context?.close();
     server.closeAllConnections?.();
