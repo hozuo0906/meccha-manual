@@ -200,7 +200,7 @@ async function decodeSelectedPixels(page, base64) {
   }, base64);
 }
 
-test("MV3 cloud claim survives worker restart, masks exact pixels, and enforces sender/CAS/chunk boundaries", { timeout: 90_000 }, async () => {
+test("MV3 cloud claim survives worker restart and TTL recovery while preserving masks/CAS/chunk boundaries", { timeout: 90_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   let context;
   let worker;
@@ -221,14 +221,21 @@ test("MV3 cloud claim survives worker restart, masks exact pixels, and enforces 
     const draftFingerprint = await fingerprintDraft(draft);
     const handoffId = "A".repeat(43);
     const storageKey = handoffStorageKey(handoffId);
+    const identities = [
+      { operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000" },
+      { operationId: "P".repeat(43), claimIntentId: "11111111-1111-4111-8111-111111111111" }
+    ];
+    const createdAt = "2026-09-23T00:00:00.000Z";
+    const originalExpiresAt = new Date(Date.now() + 9 * 60 * 1000).toISOString();
     const metadata = {
       handoffId,
       draftId: draft.id,
       outputAction: "save",
       extensionId,
+      createdAt,
       draftUpdatedAt: updatedAt,
       draftFingerprint,
-      expiresAt: new Date(Date.now() + 9 * 60 * 1000).toISOString()
+      expiresAt: originalExpiresAt
     };
     await putDraft(worker, draft);
     await setMetadata(worker, storageKey, metadata);
@@ -265,6 +272,49 @@ test("MV3 cloud claim survives worker restart, masks exact pixels, and enforces 
     assert.deepEqual(pixels.pixels[2], [5, 6, 240, 255], "mask ends before ceil((x + width) * imageWidth)");
     assert.deepEqual(pixels.pixels[3], [7, 8, 240, 255], "mask end boundary is exclusive");
 
+    const finalizePendingResults = await Promise.all(identities.map(({ operationId, claimIntentId }) => sendExternal(page, extensionId, {
+      schema: "meccha-manual/cloud-claim-v1",
+      type: "handoff.finalize-pending",
+      handoffId,
+      action: "save",
+      operationId,
+      claimIntentId,
+      draftFingerprint
+    })));
+    const successfulFinalizePending = finalizePendingResults.filter((result) => result.ok);
+    const rejectedFinalizePending = finalizePendingResults.filter((result) => !result.ok);
+    assert.equal(successfulFinalizePending.length, 1, "concurrent finalize-pending must commit one identity");
+    assert.deepEqual(rejectedFinalizePending, [{ ok: false, error: "RECOVERY_MISMATCH" }]);
+    const winningIdentity = identities[finalizePendingResults.findIndex((result) => result.ok)];
+    const { operationId, claimIntentId } = winningIdentity;
+    const storedFinalizePending = await readMetadata(worker, storageKey);
+    assert.equal(storedFinalizePending.status, "finalize-pending");
+    assert.equal(storedFinalizePending.operationId, operationId);
+    assert.equal(storedFinalizePending.claimIntentId, claimIntentId);
+    assert.equal(storedFinalizePending.draftFingerprint, draftFingerprint);
+
+    const wrongOperation = await sendExternal(page, extensionId, {
+      schema: "meccha-manual/cloud-claim-v1",
+      type: "handoff.completed",
+      handoffId,
+      action: "save",
+      manualId: "manual-cas-1",
+      operationId: identities.find((identity) => identity.operationId !== operationId).operationId,
+      claimIntentId,
+      draftFingerprint
+    });
+    assert.deepEqual(wrongOperation, { ok: false, error: "RECOVERY_MISMATCH" });
+    const wrongClaimIntent = await sendExternal(page, extensionId, {
+      schema: "meccha-manual/cloud-claim-v1",
+      type: "handoff.completed",
+      handoffId,
+      action: "save",
+      manualId: "manual-cas-1",
+      operationId,
+      claimIntentId: identities.find((identity) => identity.claimIntentId !== claimIntentId).claimIntentId,
+      draftFingerprint
+    });
+    assert.deepEqual(wrongClaimIntent, { ok: false, error: "RECOVERY_MISMATCH" });
     const wrongSchema = await sendExternal(page, extensionId, { schema: "wrong/schema", type: "handoff.prepare", handoffId, action: "save" });
     assert.deepEqual(wrongSchema, { ok: false, error: "HANDOFF_REQUEST_REJECTED" });
     const legacyMetadata = { ...metadata };
@@ -279,40 +329,76 @@ test("MV3 cloud claim survives worker restart, masks exact pixels, and enforces 
       const module = await import(chrome.runtime.getURL("background/cloud-claim.js"));
       return module.handleExternalCloudClaimMessage(message, { url: "https://evil.example.test/onboarding/continue" });
     }, { message: { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" } });
-    await extensionPage.close();
     assert.deepEqual(wrongSender, { ok: false, error: "HANDOFF_REQUEST_REJECTED" });
+    const wrongRecoverySender = await extensionPage.evaluate(async ({ message }) => {
+      const module = await import(chrome.runtime.getURL("background/cloud-claim.js"));
+      return module.handleExternalCloudClaimMessage(message, { url: "https://evil.example.test/onboarding/continue" });
+    }, { message: { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId, action: "save" } });
+    assert.deepEqual(wrongRecoverySender, { ok: false, error: "HANDOFF_REQUEST_REJECTED" });
+    await extensionPage.close();
     const wrongOriginPage = await createSyntheticPage(context, WRONG_ORIGIN_URL);
     const wrongOriginExternal = await sendExternal(wrongOriginPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(wrongOriginExternal.ok, false);
     assert.equal(wrongOriginExternal.error, "RUNTIME_ERROR");
     assert.equal(typeof wrongOriginExternal.detail, "string");
-    await setMetadata(worker, storageKey, { ...metadata, expiresAt: new Date(Date.now() - 1).toISOString() });
+    const retryStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+    assert.equal(retryStarted.ok, true, "asset retry is allowed before the handoff expires");
+    const expiredAt = new Date(Date.now() - 1).toISOString();
+    await setMetadata(worker, storageKey, {
+      ...metadata,
+      status: "finalize-pending",
+      operationId,
+      claimIntentId,
+      expiresAt: expiredAt,
+      finalizePendingAt: new Date(Date.now() - 30_000).toISOString()
+    });
     const expired = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.deepEqual(expired, { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
-    await setMetadata(worker, storageKey, metadata);
+    const expiredAsset = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+    assert.deepEqual(expiredAsset, { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
+    const expiredAssetChunk = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 0 });
+    assert.deepEqual(expiredAssetChunk, { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
 
     await closeContext(context);
     ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
     const restartedPage = await createStagingPage(context);
-    const restartedPrepare = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
-    assert.equal(restartedPrepare.ok, true);
-    assert.equal(restartedPrepare.draftFingerprint, draftFingerprint, "worker restart must reread the same fingerprint");
+    const restartedExpiredPrepare = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
+    assert.deepEqual(restartedExpiredPrepare, { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
+    const restartedExpiredAsset = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+    assert.deepEqual(restartedExpiredAsset, { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
+    const recovered = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId, action: "save" });
+    assert.deepEqual(recovered, {
+      ok: true,
+      status: "finalize-pending",
+      operationId,
+      claimIntentId,
+      draftFingerprint,
+      expiresAt: expiredAt
+    }, "recovery must return the original identity and TTL without extending it");
 
     const changedDraft = { ...draft, title: "同一ms更新" };
     await putDraft(worker, changedDraft);
-    const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1" });
+    const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
     assert.deepEqual(changedCompletion, { ok: false, error: "DRAFT_CHANGED" });
     assert.equal((await getDraft(worker, draft.id)).title, changedDraft.title, "CAS mismatch must retain the changed local draft");
 
     await putDraft(worker, draft);
-    const finalPrepare = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
-    assert.equal(finalPrepare.draftFingerprint, draftFingerprint);
-    const completed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1" });
+    const completed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
     assert.deepEqual(completed, { ok: true, status: "completed" });
     assert.equal(await getDraft(worker, draft.id), null, "only completed claim may remove the local original");
     assert.equal((await readMetadata(worker, storageKey)).status, "completed");
-    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1" }), { ok: true, status: "completed" });
-    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "different-manual" }), { ok: false, error: "COMPLETION_MISMATCH" });
+    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId, action: "save" }), {
+      ok: true,
+      status: "completed",
+      operationId,
+      claimIntentId,
+      draftFingerprint,
+      manualId: "manual-cas-1",
+      expiresAt: expiredAt
+    });
+    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint }), { ok: true, status: "completed" });
+    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-other", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
+    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "different-manual", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
