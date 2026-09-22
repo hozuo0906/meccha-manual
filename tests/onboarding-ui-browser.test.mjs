@@ -555,6 +555,54 @@ test("onboarding recovers a completed handoff from extension durable identity wi
   }
 });
 
+test("onboarding stops when recovery identity cannot be persisted", { timeout: 20_000 }, async () => {
+  let bootstrapCalls = 0;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { bootstrapCalls += 1; response.writeHead(500).end(); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "U".repeat(43);
+  const extensionId = "e".repeat(32);
+  const operationId = "Q".repeat(43);
+  const claimIntentId = "00000000-0000-4000-8000-000000000000";
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(({ operation, intent }) => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => message.type === "handoff.recovery"
+        ? { ok: true, status: "finalize-pending", operationId: operation, claimIntentId: intent, draftFingerprint: "a".repeat(64), expiresAt: new Date(Date.now() + 60_000).toISOString() }
+        : { ok: false, error: "UNEXPECTED_MESSAGE" } } };
+    }, { operation: operationId, intent: claimIntentId });
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    const before = await page.evaluate(() => {
+      const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
+      return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).operationId;
+    });
+    await page.evaluate(() => { Storage.prototype.setItem = () => { throw new Error("quota"); }; });
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "結果をもう一度確認" }).waitFor();
+    assert.equal(bootstrapCalls, 0);
+    assert.deepEqual(await page.evaluate(() => {
+      const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
+      const entry = value.entries.find((item) => item.handoffId === value.activeHandoffId);
+      return { operationId: entry.operationId, state: entry.state };
+    }), { operationId: before, state: "active" });
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("onboarding keeps an expired pending finalize read-only without prepare or claim writes", { timeout: 20_000 }, async () => {
   let bootstrapCalls = 0;
   let statusCalls = 0;

@@ -206,6 +206,7 @@ export const ONBOARDING_JS = `(() => {
     } catch { return false; }
   }
   function extensionIdFor(context) { return context?.extensionId || null; }
+  function markRecoveryProbe(context) { if (!context) return null; context.state = "recovery-probe"; capturedContext = context; return context; }
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
@@ -259,12 +260,12 @@ export const ONBOARDING_JS = `(() => {
       return context;
     }
     const saved = readSaved();
-    if (!saved.ok || !saved.state) return context;
+    if (!saved.ok || !saved.state) return markRecoveryProbe(context);
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId);
-    if (!matching) return context;
+    if (!matching) return markRecoveryProbe(context);
     const canWrite = reply.status === "finalize-pending" && Number.isFinite(Date.parse(reply.expiresAt || "")) && Date.parse(reply.expiresAt) > Date.now();
     Object.assign(matching, { operationId: reply.operationId, claimIntentId: reply.claimIntentId, draftFingerprint: reply.draftFingerprint, claimStatus: reply.status, state: canWrite ? "active" : "recovery", ...(reply.expiresAt ? { recoveryExpiresAt: reply.expiresAt } : {}), ...(reply.manualId ? { manualId: reply.manualId } : {}) });
-    if (!persistState(saved.state)) return context;
+    if (!persistState(saved.state)) return markRecoveryProbe(context);
     capturedContext = matching;
     return matching;
   }
