@@ -359,11 +359,13 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Date: 2026-09-23
 - Decision:
   - Webの最初のcloud writeより前に`handoff.begin`を送り、拡張機能の`chrome.storage.local`を正本としてhandoffごとのcanonical `operationId`を排他的に確定する。同じhandoffを複数タブで開始しても、全タブは同じoperationを採用し、既存identityの再訪・期限後はread-onlyで扱う。
+  - editorの保存開始は、同じextension originのdraft IDを名前にしたWeb Locks APIの排他lockを取得してから、既存handoffのlookup、handoff生成、metadata保存、登録画面タブ作成までを一つの区間で実行する。Web Locksを取得できない場合は副作用なしで停止する。
+  - draft fingerprintは`updatedAt`を除く内容（id、タイトル、説明、手順、画像、mask）のSHA-256とし、同じ内容を再保存したeditor間でcanonical handoffを再利用する。削除CASのcanonical JSONと`updatedAt`比較は従来どおり保持し、実内容の編集は別fingerprintとして新handoffへ分離する。
   - 拡張機能の`handoff.asset.start`は同一handoff・slotを直列化し、並行digest完了でtransferの100MiB会計を二重計上しない。slot間のparallel chunksは維持する。
 - Reason:
   - `sessionStorage`はタブごとに分離され、finalize lockだけではbootstrap、claim intent、asset PUT後の最大100MiB orphanを防げない。slot単位の会計競合も、同一slotのparallel startで既存値を同時に見失う。
 - Boundary:
-  - operationのserver idempotency、claim API／D1／R2の認可契約、TTL後のGET-only回収、変更draftのCASは変更しない。外部messageは既存schemaの`handoff.begin`を追加し、既存のsender／handoff／action検証を適用する。
+  - operationのserver idempotency、claim API／D1／R2の認可契約、TTL後のGET-only回収、変更draftのCASは変更しない。外部messageは既存schemaの`handoff.begin`を追加し、既存のsender／handoff／action検証を適用する。未確定の`finalize-pending`／`completion-pending`はTTL後・編集後も既存回収を優先し、`completed`は再利用しない。旧metadataは既存fingerprintを照合するread-only互換に留め、新形式へ自動移行しない。
 
 ### DEC-078-D: finalize完了後のTTL回収identity
 

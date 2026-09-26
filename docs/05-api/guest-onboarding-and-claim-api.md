@@ -21,10 +21,11 @@ Access JWT、Access cookie、OTP等のcredentialをChrome拡張へ渡さない�
 output gateで拡張は次を行う。
 
 1. 256 bit相当の推測困難な `handoffId` を生成する。
-2. `handoffId`、local draft ID、選択済みoutput action、有効期限を拡張ローカルへ保存する。
-3. owner限定staging配布版では、`https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=<handoffId>` を通常タブで開く。配布版のconfigとhandoff判定はこのoriginとの完全一致だけを許可し、production・preview・localhost等は拒否する。
+2. 同じextension originのdraft IDを名前にするWeb Locks APIの排他lockを取得し、lock保持中に既存handoffの照合、`handoffId` metadataの生成・保存、登録画面タブの作成までを行う。lockを利用できない場合は新しいhandoff URLを作らず停止する。
+3. `handoffId`、local draft ID、選択済みoutput action、有効期限、`updatedAt`を除くdraft内容のSHA-256 fingerprintを拡張ローカルへ保存する。
+4. owner限定staging配布版では、`https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=<handoffId>` を通常タブで開く。配布版のconfigとhandoff判定はこのoriginとの完全一致だけを許可し、production・preview・localhost等は拒否する。
 
-`handoffId` はURL fragmentへ置き、HTTP request、Access log、server logへ送らない。manual本文、asset、output内容をURLへ入れない。
+`handoffId` はURL fragmentへ置き、HTTP request、Access log、server logへ送らない。manual本文、asset、output内容をURLへ入れない。同じdraft内容のfresh metadataは再利用し、`finalize-pending`／`completion-pending`はfingerprint不一致やTTL経過後も回収を優先する。`completed`は再利用しない。fingerprintは内容同一性に使い、削除CASの`updatedAt`とcanonical JSON比較は維持する。
 
 ### 認証後の外部message
 

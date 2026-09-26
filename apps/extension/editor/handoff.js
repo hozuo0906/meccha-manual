@@ -27,7 +27,18 @@ export function canonicalDraftJson(draft) {
   });
 }
 
+function canonicalDraftContentJson(draft) {
+  const parsed = JSON.parse(canonicalDraftJson(draft));
+  delete parsed.updatedAt;
+  return JSON.stringify(parsed);
+}
+
 export async function fingerprintDraft(draft) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftContentJson(draft)));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function legacyFingerprintDraft(draft) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftJson(draft)));
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
 }
@@ -86,15 +97,34 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
 export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local) {
   if (typeof draftId !== "string" || !draftId || !/^[a-f0-9]{64}$/.test(draftFingerprint || "") || !storage?.get) return null;
   const entries = await storage.get(null);
-  const recoverable = Object.values(entries || {}).filter((value) =>
+  const handoffs = Object.values(entries || {}).filter((value) =>
     value?.outputAction === "save" &&
     value?.draftId === draftId &&
-    (value?.status === "finalize-pending" || value?.status === "completion-pending") &&
     /^[A-Za-z0-9_-]{43}$/.test(value?.handoffId || "") &&
-    /^[A-Za-z0-9_-]{16,128}$/.test(value?.operationId || "") &&
-    CLAIM_INTENT_ID_PATTERN.test(value?.claimIntentId || "")
+    /^[a-f0-9]{64}$/.test(value?.draftFingerprint || "")
   );
-  return recoverable.find((value) => value.draftFingerprint === draftFingerprint) || recoverable[0] || null;
+  const pending = handoffs.filter((value) =>
+    (value.status === "finalize-pending" || value.status === "completion-pending") &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(value.operationId || "") &&
+    CLAIM_INTENT_ID_PATTERN.test(value.claimIntentId || "")
+  );
+  if (pending.length > 0) return pending.find((value) => value.draftFingerprint === draftFingerprint) || pending[0];
+  return handoffs.find((value) =>
+    value.status === undefined &&
+    value.draftFingerprint === draftFingerprint &&
+    Number.isFinite(Date.parse(value.expiresAt || "")) &&
+    Date.parse(value.expiresAt) >= Date.now()
+  ) || null;
+}
+
+export async function withHandoffDraftLock(draftId, callback, navigatorLike = globalThis.navigator) {
+  if (typeof draftId !== "string" || !draftId || typeof callback !== "function") throw new TypeError("draft lock arguments are invalid");
+  const locks = navigatorLike?.locks;
+  if (!locks || typeof locks.request !== "function") throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+  return locks.request(`meccha-manual:handoff:draft:${draftId}`, async (lock) => {
+    if (!lock) throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+    return callback();
+  });
 }
 
 export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null) {

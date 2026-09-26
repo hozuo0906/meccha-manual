@@ -1,6 +1,6 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
-import { canonicalDraftJson, fingerprintDraft, handoffStorageKey } from "../editor/handoff.js";
+import { canonicalDraftJson, fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
 
 export const CLOUD_CLAIM_SCHEMA = "meccha-manual/cloud-claim-v1";
 export const CLOUD_CLAIM_CHUNK_BYTES = 192 * 1024;
@@ -216,9 +216,13 @@ async function prepare(message, sender) {
   if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   const draft = await draftStore.get(metadata.draftId);
-  if (metadata.draftUpdatedAt !== draft?.updatedAt) return reject("DRAFT_CHANGED");
-  const draftFingerprint = await fingerprintDraft(draft);
-  if (metadata.draftFingerprint && metadata.draftFingerprint !== draftFingerprint) return reject("DRAFT_CHANGED");
+  if (!draft) return reject("DRAFT_CHANGED");
+  const contentFingerprint = await fingerprintDraft(draft);
+  if (metadata.draftFingerprint !== contentFingerprint) {
+    const legacyFingerprint = await legacyFingerprintDraft(draft);
+    if (metadata.draftFingerprint !== legacyFingerprint) return reject("DRAFT_CHANGED");
+  }
+  const draftFingerprint = metadata.draftFingerprint;
   const clean = cleanDraft(draft);
   if (!clean) return reject("DRAFT_INVALID");
   const estimatedBytes = draft.screenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), 0);
@@ -279,7 +283,7 @@ async function startAsset(message, sender) {
     if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
     const snapshot = snapshots.get(message.handoffId);
-    if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || snapshot.draftUpdatedAt !== metadata.draftUpdatedAt || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
+    if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
     const screenshot = snapshot.screenshots?.[message.assetSlot];
     if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
     const bytes = await maskAndEncode(screenshot);
@@ -464,7 +468,10 @@ async function draftDeleteExpectation(metadata) {
   if (!draft) throw new Error("DRAFT_MISSING");
   if (draft.updatedAt !== metadata.draftUpdatedAt) throw new Error("DRAFT_CHANGED");
   const fingerprint = await fingerprintDraft(draft);
-  if (metadata.draftFingerprint && metadata.draftFingerprint !== fingerprint) throw new Error("DRAFT_CHANGED");
+  if (metadata.draftFingerprint && metadata.draftFingerprint !== fingerprint) {
+    const legacyFingerprint = await legacyFingerprintDraft(draft);
+    if (metadata.draftFingerprint !== legacyFingerprint) throw new Error("DRAFT_CHANGED");
+  }
   return { canonical: canonicalDraftJson(draft), fingerprint };
 }
 

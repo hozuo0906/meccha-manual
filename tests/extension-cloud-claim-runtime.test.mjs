@@ -292,12 +292,15 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const begunMetadata = await readMetadata(worker, storageKey);
     assert.equal(begunMetadata.operationId, beginResults[0].operationId);
     assert.equal(begunMetadata.expiresAt, originalExpiresAt, "begin must preserve the original TTL");
+    const sameContentDraft = { ...draft, updatedAt: "2026-09-23T00:01:00.000Z" };
+    await putDraft(worker, sameContentDraft);
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(prepared.ok, true);
     assert.equal(prepared.status, "ready");
     assert.equal(prepared.draftFingerprint, draftFingerprint);
     assert.equal(prepared.assets[0].assetSlot, 0);
-    assert.deepEqual(await getDraft(worker, draft.id), draft, "prepare must retain the local original");
+    assert.deepEqual(await getDraft(worker, draft.id), sameContentDraft, "prepare must retain the local original");
+    assert.equal((await readMetadata(worker, storageKey)).draftUpdatedAt, updatedAt, "prepare must retain the handoff timestamp while allowing unchanged content");
 
     const started = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
     assert.equal(started.ok, true);
@@ -568,6 +571,51 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint }), { ok: true, status: "completed" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-other", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "different-manual", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
+test("two MV3 editor tabs converge on one fresh handoff and operation", { timeout: 90_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  try {
+    let openedRegistrationPages = [];
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    await context.route(`${STAGING_ORIGIN}/**`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: externalPageHtml() });
+    });
+    const draft = {
+      id: "runtime-editor-canonical-draft",
+      title: "同一内容の下書き",
+      description: "2つのeditorから保存する",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+      steps: [{ id: "step-1", order: 1, instruction: "保存する", screenshotId: "asset-1" }],
+      screenshots: [{ id: "asset-1", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [] }]
+    };
+    await putDraft(worker, draft);
+    const editorUrl = `chrome-extension://${extensionId}/editor/editor.html#${encodeURIComponent(draft.id)}`;
+    const editors = await Promise.all([context.newPage(), context.newPage()]);
+    await Promise.all(editors.map((page) => page.goto(editorUrl, { waitUntil: "domcontentloaded" })));
+    await Promise.all(editors.map((page) => page.locator("#save").click()));
+    await Promise.all(editors.map((page) => page.locator("#startRegistration").waitFor({ state: "visible" })));
+    await Promise.all(editors.map((page) => page.locator("#startRegistration").click()));
+    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "登録画面を開きました。元の手順書はこの端末に残っています。")));
+    const gateStatuses = await Promise.all(editors.map((page) => page.locator("#gateStatus").textContent()));
+    assert.deepEqual(gateStatuses, ["登録画面を開きました。元の手順書はこの端末に残っています。", "登録画面を開きました。元の手順書はこの端末に残っています。"]);
+    const allMetadata = await worker.evaluate(() => new Promise((resolve, reject) => chrome.storage.local.get(null, (result) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(result))));
+    const handoffs = Object.values(allMetadata).filter((value) => value?.draftId === "runtime-editor-canonical-draft");
+    assert.equal(handoffs.length, 1, "same draft editors must persist one metadata record");
+    openedRegistrationPages = await Promise.all([createStagingPage(context), createStagingPage(context)]);
+    const beginResults = await Promise.all(openedRegistrationPages.map((page) => sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: handoffs[0].handoffId, action: "save" })));
+    assert.deepEqual(beginResults[1], beginResults[0], "same canonical handoff must return one operation");
+    const prepared = await sendExternal(openedRegistrationPages[0], extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: handoffs[0].handoffId, action: "save" });
+    assert.equal(prepared.ok, true);
+    const started = await sendExternal(openedRegistrationPages[0], extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId: handoffs[0].handoffId, action: "save", assetSlot: 0 });
+    assert.equal(started.ok, true, "canonical handoff must reach asset start");
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);

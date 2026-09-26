@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { cleanDraft, safeMessage } from "../apps/extension/background/cloud-claim.js";
-import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
 
 const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: "A".repeat(43), action: "save" };
 
@@ -36,6 +36,11 @@ test("handoff metadata carries only a draft fingerprint for completion CAS", asy
   assert.equal(canonicalDraftJson(draft).includes(draft.screenshots[0].dataUrl), true);
 });
 
+test("draft fingerprint stays canonical across timestamp-only saves", async () => {
+  const draft = { id: "draft-same-content", title: "手順書", description: "説明", updatedAt: "2026-09-23T00:00:00.000Z", steps: [{ id: "s1", order: 1, instruction: "保存する" }], screenshots: [] };
+  assert.equal(await fingerprintDraft({ ...draft, updatedAt: "2026-09-23T00:01:00.000Z" }), await fingerprintDraft(draft));
+});
+
 test("expired completion-pending handoff remains available for cleanup recovery", async () => {
   const removed = [];
   await pruneExpiredHandoffs({
@@ -57,6 +62,32 @@ test("pending handoff recovery is reused for the same draft even after a draft e
   const recovered = await findRecoverableHandoff("draft-1", "a".repeat(64), storage);
   assert.equal(recovered.handoffId, "A".repeat(43));
   assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", recovered.handoffId, "b".repeat(32), recovered), /operationId=O{43}&claimIntentId=00000000-0000-4000-8000-000000000000&draftFingerprint=b{64}$/);
+});
+
+test("fresh handoff is reused only for the same draft content and does not add recovery params", async () => {
+  const fingerprint = "a".repeat(64);
+  const storage = {
+    async get() { return {
+      "meccha-manual:handoff:fresh": {
+        handoffId: "A".repeat(43), draftId: "draft-1", draftFingerprint: fingerprint, outputAction: "save",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      }
+    }; }
+  };
+  const recovered = await findRecoverableHandoff("draft-1", fingerprint, storage);
+  assert.equal(recovered.handoffId, "A".repeat(43));
+  assert.doesNotMatch(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", recovered.handoffId, "b".repeat(32), recovered), /operationId=/);
+  assert.equal(await findRecoverableHandoff("draft-1", "b".repeat(64), storage), null);
+});
+
+test("draft lock requires Web Locks and holds the callback across async work", async () => {
+  const calls = [];
+  const result = await withHandoffDraftLock("draft-1", async () => { calls.push("callback"); await Promise.resolve(); return "locked"; }, {
+    locks: { async request(name, callback) { calls.push(name); return callback({ name }); } }
+  });
+  assert.equal(result, "locked");
+  assert.deepEqual(calls, ["meccha-manual:handoff:draft:draft-1", "callback"]);
+  await assert.rejects(() => withHandoffDraftLock("draft-1", async () => {}, {}), /HANDOFF_LOCK_UNAVAILABLE/);
 });
 
 test("completed handoff is not selected for a changed draft", async () => {
