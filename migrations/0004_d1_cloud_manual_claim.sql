@@ -187,7 +187,7 @@ WHEN NEW.state = 'draft'
 BEGIN
   UPDATE manuals SET title = NEW.title, updated_at = NEW.updated_at
    WHERE id = NEW.manual_id AND workspace_id = NEW.workspace_id AND current_draft_revision_id = NEW.id;
-  SELECT CASE WHEN (SELECT changes()) <> 1 THEN RAISE(ABORT, 'draft manual pointer mismatch') END;
+  SELECT RAISE(ABORT, 'draft manual pointer mismatch') WHERE (SELECT changes()) <> 1;
 END;
 
 CREATE TRIGGER claim_asset_scope_insert
