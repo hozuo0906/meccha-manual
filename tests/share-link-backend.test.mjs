@@ -26,6 +26,7 @@ const HTTP_DRAFT = "33333333-3333-4333-8333-333333333333";
 const HTTP_PUBLISHED = "44444444-4444-4444-8444-444444444444";
 const HTTP_OWNER = "55555555-5555-4555-8555-555555555555";
 const HTTP_ADMIN = "77777777-7777-4777-8777-777777777777";
+const HTTP_OTHER_OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaac";
 const HTTP_LINK = "66666666-6666-4666-8666-666666666666";
 const HTTP_ASSET = "88888888-8888-4888-8888-888888888888";
 const HTTP_CLAIM_INTENT = "99999999-9999-4999-8999-999999999999";
@@ -63,6 +64,9 @@ async function httpFixture() {
     INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('${HTTP_ADMIN}', '${HTTP_ISSUER}', 'http-admin', 'active', '${NOW}', '${NOW}');
     INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('${HTTP_ADMIN}', 'Admin', 'ja-JP', 'Asia/Tokyo', '${NOW}', '${NOW}');
     INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_ADMIN}', 'owner', 'active', '${NOW}', '${NOW}');
+    INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('${HTTP_OTHER_OWNER}', '${HTTP_ISSUER}', 'http-other-owner', 'active', '${NOW}', '${NOW}');
+    INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('${HTTP_OTHER_OWNER}', 'Other Owner', 'ja-JP', 'Asia/Tokyo', '${NOW}', '${NOW}');
+    INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_OTHER_OWNER}', 'owner', 'active', '${NOW}', '${NOW}');
     INSERT INTO manuals(id, workspace_id, title, status, current_draft_revision_id, created_by, created_at, updated_at) VALUES ('${HTTP_MANUAL}', '${HTTP_WORKSPACE}', '共有手順書', 'draft', '${HTTP_DRAFT}', '${HTTP_OWNER}', '${NOW}', '${NOW}');
     INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('${HTTP_DRAFT}', '${HTTP_WORKSPACE}', '${HTTP_MANUAL}', 1, 'draft', '共有手順書', '説明', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '${NOW}', '${NOW}');
     INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('${HTTP_PUBLISHED}', '${HTTP_WORKSPACE}', '${HTTP_MANUAL}', 2, 'superseded', '公開snapshot', '公開説明', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', '${NOW}', '${NOW}');
@@ -177,6 +181,8 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     const asset = await request(`/s/api/assets/${HTTP_ASSET}`, { grant: resolved.grant });
     assert.equal(asset?.status, 200);
     assert.deepEqual([...new Uint8Array(await asset.arrayBuffer())], [137]);
+    assert.equal((await request("/s/api/assets/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaad", { grant: resolved.grant }))?.status, 404);
+    assert.equal((await request("/api/workspaces/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/manuals/cccccccc-cccc-4ccc-8ccc-cccccccccccc/share-links", { authenticated: true, subject: "http-admin" }))?.status, 403);
     fixture.raw.prepare("UPDATE manual_revisions SET title = '編集中の下書き' WHERE id = ?").run(HTTP_DRAFT);
     const contentAfterDraftEdit = await request("/s/api/content", { method: "POST", grant: resolved.grant });
     assert.equal((await contentAfterDraftEdit.json()).title, "公開snapshot");
@@ -196,6 +202,8 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal((await request("/s/api/unknown")).status, 404);
     const reissueToken = randomSecret(32);
     const reissueExpiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const missingExpiry = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-expiry", token: randomSecret(32), passcode: "reissue-passcode", expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
+    assert.equal(missingExpiry?.status, 400);
     env.DB.beforeBatch = () => fixture.raw.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = ?").run("cccccccccccccccccccccccccccccccc", HTTP_DRAFT);
     const raced = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-race", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
     assert.equal(raced?.status, 409);
@@ -203,6 +211,12 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM share_links").get().n), 1);
     env.DB.beforeBatch = null;
     fixture.raw.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = ?").run("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", HTTP_DRAFT);
+    env.DB.beforeBatch = () => fixture.raw.prepare("UPDATE workspace_members SET status = 'inactive' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
+    const permissionRaced = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-permission-race", token: randomSecret(32), passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
+    assert.equal(permissionRaced?.status, 409);
+    assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM manual_revisions").get().n), 2);
+    fixture.raw.prepare("UPDATE workspace_members SET status = 'active' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
+    env.DB.beforeBatch = null;
     const created = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0002", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
     assert.equal(created?.status, 200, await created?.clone().text());
     const retry = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0002", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });

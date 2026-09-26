@@ -8,7 +8,7 @@ Date: 2026-09-26
 
 保存済み手順書を共有するときは、owner/admin/editorが明示確認した下書きのrevisionとcontent versionをCASで照合し、同じD1 batchで新しいimmutable published revision、step、share linkを作成する。下書きの以後の編集は公開snapshotへ反映しない。既存の有効リンクがある手順書は、先に明示停止するまで再発行しない。
 
-管理APIは既存のAccess保護下に置き、共有viewerと匿名APIは `/s/` 配下だけに集約する。未知の `/s/*` は404にする。viewerはread-onlyで、発行時に有効期限と12〜128 code pointのpasscodeを必須にする。期限は最大30日、未指定時は7日とし、閲覧grantは最大15分またはshare期限の早い方までとする。
+管理APIは既存のAccess保護下に置き、共有viewerと匿名APIは `/s/` 配下だけに集約する。未知の `/s/*` は404にする。viewerはread-onlyで、発行時に有効期限と12〜128 code pointのpasscodeを必須にする。期限は最大30日とし、UIは7日を明示値として送信する。閲覧grantは最大15分またはshare期限の早い方までとする。
 
 ## 秘密値と再検証
 

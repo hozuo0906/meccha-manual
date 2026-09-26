@@ -3,7 +3,7 @@ import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { changed, type D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAppRuntimeConfig, type AccessBindings, type AppRuntimeBindings } from "./server-config.ts";
-import { derivePasscodeHash, futureIso, nowIso, randomSecret, sha256Hex, validatePasscode, validateSecret, verifyPasscode, PASSCODE_MAX_LENGTH, PASSCODE_MIN_LENGTH, SHARE_GRANT_BYTES, SHARE_TOKEN_BYTES } from "./share-link-crypto.ts";
+import { derivePasscodeHash, nowIso, randomSecret, sha256Hex, validatePasscode, validateSecret, verifyPasscode, PASSCODE_MAX_LENGTH, PASSCODE_MIN_LENGTH, SHARE_GRANT_BYTES, SHARE_TOKEN_BYTES } from "./share-link-crypto.ts";
 
 export interface ShareLinkEnv extends AccessBindings, AppRuntimeBindings {
   DB?: D1DatabaseLike;
@@ -22,7 +22,6 @@ const TOKEN_HEADER = "x-share-token";
 const GRANT_HEADER = "x-share-grant";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
-const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_GRANT_MS = 15 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const OPERATION = /^[A-Za-z0-9_-]{16,128}$/u;
@@ -115,7 +114,7 @@ async function ensureManager(database: D1DatabaseLike, actorId: string, workspac
 }
 
 function expiry(value: unknown, now: string): string {
-  if (value === undefined) return futureIso(now, DEFAULT_EXPIRY_MS);
+  if (value === undefined) throw new ShareError(400, "SHARE_EXPIRY_REQUIRED", "共有期限を指定してください。");
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new ShareError(400, "SHARE_EXPIRY_INVALID", "共有期限を確認してください。");
   const parsed = Date.parse(value);
   const base = Date.parse(now);
