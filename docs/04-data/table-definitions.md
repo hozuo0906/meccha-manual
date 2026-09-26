@@ -54,6 +54,17 @@ Superseded by [D1データ・認可境界](d1-and-storage.md)。以下はSupabas
 | `outbox_events` | `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status`, `attempts`, `available_at` | service role専用 |
 | `idempotency_keys` | `scope`, `key_hash`, `request_hash`, `response_ref`, `expires_at` | service role専用 |
 
+## D1共有リンク（Issue #258 / D）
+
+`migrations/0005_d1_share_links.sql` が正本であり、以下はこのD1 migrationの定義である。移行前baselineの同名行は適用済みの根拠にしない。
+
+| テーブル | 主要カラム | 認可・不変制約 |
+|---|---|---|
+| `share_links` | `id`, `workspace_id`, `manual_id`, `published_revision_id`, `source_draft_revision_id`, `source_content_version`, `token_hash`, `passcode_salt`, `passcode_hash`, `permission`, `expires_at`, `revoked_at`, `created_by`, `operation_id` | Access認証済みのowner/admin/editorだけが発行・停止。token/passcode平文を保存せず、active linkはmanualごとに1本。published revisionとsource draft/version、workspace、発行者active membershipをtriggerで照合し、期限延長と失効取消、公開内容の変更を拒否 |
+| `share_grants` | `id`, `share_link_id`, `token_hash`, `grant_hash`, `workspace_id`, `manual_id`, `published_revision_id`, `expires_at`, `revoked_at` | 匿名resolve成功時だけ短期grantを発行し、grant hashだけを保存。本文・assetごとにshare link、manual、revision、workspace、発行者active membership、期限・失効を再検証 |
+
+共有snapshotのstepは新しいIDで複製し、下書きstepのIDを再利用しない。assetはsnapshot stepとworkspace、`claim_assets.status = completed`、`claim_intents.status = completed`、manual一致をWorkerで確認し、private R2を直接公開しない。
+
 ## 手順書編集制約
 
 - `manuals.title` と `manual_revisions.title` はraw 1〜64文字で、`manuals_title_length` / `manual_revisions_title_length` が `char_length(title) between 1 and 64` を強制する。

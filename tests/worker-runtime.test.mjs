@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, test } from "node:test";
 
 import { APP_ASSET_VERSION, APP_CSS, APP_JS } from "../apps/worker/src/app-assets.ts";
+import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS } from "../apps/worker/src/cloud-manual-assets.ts";
 import worker from "../apps/worker/src/index.ts";
 
 const originalFetch = globalThis.fetch;
@@ -168,6 +169,10 @@ test("asset内容を変更したらversion更新が必須になる", () => {
     .update(APP_CSS)
     .update("\0")
     .update(APP_JS)
+    .update("\0")
+    .update(CLOUD_MANUAL_CSS)
+    .update("\0")
+    .update(CLOUD_MANUAL_JS)
     .digest("hex")
     .slice(0, 16)}`;
 

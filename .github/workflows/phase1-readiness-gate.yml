@@ -70,6 +70,12 @@ jobs:
       - name: Test cloud manual UI browser flow
         run: npm run test:cloud-manual:ui:browser
 
+      - name: Test cloud manual sharing UI browser flow
+        run: npm run test:cloud-manual:sharing:browser
+
+      - name: Test share viewer browser flow
+        run: npm run test:share-viewer:browser
+
       - name: Test extension cloud claim runtime flow
         run: npm run test:extension-cloud-claim:runtime
 

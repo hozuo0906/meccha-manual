@@ -21,6 +21,7 @@ let transferBytesTotal = 0;
 let transferBytesReserved = 0;
 let snapshotBytesTotal = 0;
 const MAX_MESSAGE_BYTES = 32 * 1024;
+const OUTPUT_ACTIONS = new Set(["save", "share"]);
 
 function reject(code) {
   return { ok: false, error: code };
@@ -60,7 +61,7 @@ function exactSenderOrigin(sender) {
 }
 
 function validRequest(message, sender, type) {
-  return exactSenderOrigin(sender) && safeMessage(message, type) && validSchema(message) && message?.type === type && validHandoffId(message?.handoffId) && message?.action === "save";
+  return exactSenderOrigin(sender) && safeMessage(message, type) && validSchema(message) && message?.type === type && validHandoffId(message?.handoffId) && OUTPUT_ACTIONS.has(message?.action);
 }
 
 function isFresh(metadata, now = Date.now()) {
@@ -72,7 +73,7 @@ async function readHandoff(handoffId) {
   const key = handoffStorageKey(handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !isFresh(metadata)) return null;
+  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || !isFresh(metadata)) return null;
   return metadata;
 }
 
@@ -213,7 +214,7 @@ function clearClaimRuntime(handoffId) {
 async function prepare(message, sender) {
   if (!validRequest(message, sender, "handoff.prepare")) return reject("HANDOFF_REQUEST_REJECTED");
   const metadata = await readHandoff(message.handoffId);
-  if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!metadata || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   const draft = await draftStore.get(metadata.draftId);
   if (!draft) return reject("DRAFT_CHANGED");
@@ -251,7 +252,7 @@ async function begin(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     const expiresAt = Date.parse(metadata.expiresAt || "");
     if (!Number.isFinite(expiresAt)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (OPERATION_ID_PATTERN.test(metadata.operationId || "")) {
@@ -280,7 +281,7 @@ async function startAsset(message, sender) {
   try {
     cleanupTransfers();
     const metadata = await readHandoff(message.handoffId);
-    if (!metadata) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
     const snapshot = snapshots.get(message.handoffId);
     if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
@@ -321,7 +322,7 @@ async function assetChunk(message, sender) {
     const transfer = transferFor(message.handoffId, message.assetSlot);
     if (!transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const metadata = await readHandoff(message.handoffId);
-    if (!metadata || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.outputAction !== message.action || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (transferFor(message.handoffId, message.assetSlot) !== transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const totalChunks = Math.ceil(transfer.bytes.byteLength / CLOUD_CLAIM_CHUNK_BYTES);
     if (message.sequence >= totalChunks) return reject("CHUNK_SEQUENCE_INVALID");
@@ -357,7 +358,7 @@ async function finalizePending(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
     if (metadata.operationId && metadata.operationId !== message.operationId) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "finalize-pending" || metadata.status === "completion-pending" || metadata.status === "completed") {
@@ -389,7 +390,7 @@ async function recovery(message, sender) {
   const key = handoffStorageKey(message.handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== message.handoffId || metadata.outputAction !== "save" || !["finalize-pending", "completion-pending", "completed"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
+  if (!metadata || metadata.handoffId !== message.handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !["finalize-pending", "completion-pending", "completed"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
   return {
     ok: true,
     status: metadata.status,
@@ -414,7 +415,7 @@ async function completed(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
     if (metadata.status === "completed") {
       if (metadata.operationId || metadata.claimIntentId) {

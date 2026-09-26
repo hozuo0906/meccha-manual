@@ -9,11 +9,13 @@ import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
+import { handleShareLinkRoute } from "./share-link-router.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
   DB?: D1DatabaseLike;
   ONBOARDING_RATE_LIMITER?: RateLimit;
+  SHARE_AUTH_RATE_LIMITER?: RateLimit;
   DISCORD_INTERACTION_STORE?: KVNamespace;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
@@ -2278,6 +2280,8 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
   if (useAccessD1Routes(env)) {
+    const shareResponse = await handleShareLinkRoute(request, env);
+    if (shareResponse) return shareResponse;
     const cloudManualResponse = await handleCloudManualRoute(request, env);
     if (cloudManualResponse) return cloudManualResponse;
   }

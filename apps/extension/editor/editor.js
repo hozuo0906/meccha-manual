@@ -15,6 +15,7 @@ const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
 const startRegistration = document.querySelector("#startRegistration");
+const startShare = document.querySelector("#startShare");
 const gateStatus = document.querySelector("#gateStatus");
 const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
 let selectedStepId = draft.steps[0]?.id;
@@ -143,6 +144,7 @@ for (const field of [title, description]) field.addEventListener("input", () => 
 function updateRegistrationAvailability() {
   const origin = getOnboardingOrigin();
   startRegistration.disabled = !origin;
+  if (startShare) startShare.disabled = !origin;
   if (!origin) gateStatus.textContent = pendingRegistrationMessage;
   return origin;
 }
@@ -157,28 +159,29 @@ document.querySelector("#save").addEventListener("click", async () => {
   else outputGate.hidden = false;
   updateRegistrationAvailability();
 });
-startRegistration.addEventListener("click", async () => {
+async function startOutput(outputAction) {
   const origin = updateRegistrationAvailability();
   if (!origin) return;
   startRegistration.disabled = true;
+  if (startShare) startShare.disabled = true;
   gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
       await pruneExpiredHandoffs();
       const extensionId = chrome.runtime?.id;
       const draftFingerprint = await fingerprintDraft(draft);
-      const recovery = await findRecoverableHandoff(draft.id, draftFingerprint);
+      const recovery = await findRecoverableHandoff(draft.id, draftFingerprint, undefined, outputAction);
       if (recovery) {
-        await chrome.tabs.create({ url: buildContinueUrl(origin, recovery.handoffId, extensionId, recovery) });
+        await chrome.tabs.create({ url: buildContinueUrl(origin, recovery.handoffId, extensionId, recovery, outputAction) });
         gateStatus.textContent = recovery.claimIntentId
           ? "未確定の保存操作を再開する登録画面を開きました。元の手順書はこの端末に残っています。"
           : "登録画面を開きました。元の手順書はこの端末に残っています。";
         outputGate.close();
         return;
       }
-      const metadata = createHandoffMetadata(draft.id, "save", Date.now(), extensionId, draft.updatedAt, draftFingerprint);
+      const metadata = createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
       await saveHandoffMetadata(metadata);
-      await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId) });
+      await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId, null, outputAction) });
       gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
       outputGate.close();
     });
@@ -187,7 +190,12 @@ startRegistration.addEventListener("click", async () => {
       ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
       : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
   } finally {
-    if (getOnboardingOrigin()) startRegistration.disabled = false;
+    if (getOnboardingOrigin()) {
+      startRegistration.disabled = false;
+      if (startShare) startShare.disabled = false;
+    }
   }
-});
+}
+startRegistration.addEventListener("click", () => startOutput("save"));
+startShare?.addEventListener("click", () => startOutput("share"));
 render();

@@ -36,6 +36,14 @@
             "limit": 10,
             "period": 60
           }
+        },
+        {
+          "name": "SHARE_AUTH_RATE_LIMITER",
+          "namespace_id": "1002",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
         }
       ]
     },
@@ -64,6 +72,14 @@
         {
           "name": "ONBOARDING_RATE_LIMITER",
           "namespace_id": "__PENDING_PRODUCTION_RATE_LIMIT_NAMESPACE_ID__",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        },
+        {
+          "name": "SHARE_AUTH_RATE_LIMITER",
+          "namespace_id": "__PENDING_PRODUCTION_SHARE_RATE_LIMIT_NAMESPACE_ID__",
           "simple": {
             "limit": 10,
             "period": 60

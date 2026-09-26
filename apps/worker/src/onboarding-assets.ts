@@ -13,9 +13,11 @@ export const ONBOARDING_JS = `(() => {
   const operationValues = fragmentParams.getAll("operationId");
   const claimIntentValues = fragmentParams.getAll("claimIntentId");
   const fingerprintValues = fragmentParams.getAll("draftFingerprint");
+  const actionValues = fragmentParams.getAll("action");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
+  const fragmentAction = !hasFragment ? undefined : actionValues.length === 1 ? actionValues[0] : actionValues.length === 0 ? "save" : null;
   history.replaceState(null, "", location.pathname + location.search);
   let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
@@ -27,6 +29,7 @@ export const ONBOARDING_JS = `(() => {
   function validOperationId(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   function validClaimIntentId(value) { return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value || ""); }
   function validDraftFingerprint(value) { return /^[a-f0-9]{64}$/.test(value || ""); }
+  function validOutputAction(value) { return value === "save" || value === "share"; }
   function hasRecoveryIdentity(value) { return (value?.claimStatus === "finalize-pending" || value?.claimStatus === "completion-pending" || value?.claimStatus === "completed") && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
   function recoveryFresh(value, now = Date.now()) { const expiresAt = Date.parse(value?.recoveryExpiresAt || ""); return Number.isFinite(expiresAt) && expiresAt > now; }
   function operationFresh(value, now = Date.now()) { return value?.recoveryExpiresAt !== undefined ? recoveryFresh(value, now) : isFresh(value, now); }
@@ -41,7 +44,7 @@ export const ONBOARDING_JS = `(() => {
     try { value = JSON.parse(raw); } catch { return { ok: false, state: null, needsWrite: false }; }
     if (isLegacyRecord(value)) {
       const expired = !isFresh(value, now);
-      const state = { version: STORAGE_VERSION, activeHandoffId: expired ? null : value.handoffId, entries: [{ handoffId: value.handoffId, operationId: value.operationId, createdAt: value.createdAt, state: expired ? "expired" : "active" }] };
+      const state = { version: STORAGE_VERSION, activeHandoffId: expired ? null : value.handoffId, entries: [{ handoffId: value.handoffId, operationId: value.operationId, outputAction: "save", createdAt: value.createdAt, state: expired ? "expired" : "active" }] };
       return { ok: true, state, needsWrite: true };
     }
     if (!value || typeof value !== "object" || Array.isArray(value) || value.version !== STORAGE_VERSION || !Array.isArray(value.entries) || value.entries.length === 0 || !(value.activeHandoffId === null || validHandoff(value.activeHandoffId))) return { ok: false, state: null, needsWrite: false };
@@ -54,11 +57,12 @@ export const ONBOARDING_JS = `(() => {
       operations.add(entry.operationId);
     }
     if (value.activeHandoffId === null && value.entries.some((entry) => entry.state === "active")) return { ok: false, state: null, needsWrite: false };
-    const state = { version: STORAGE_VERSION, activeHandoffId: value.activeHandoffId, entries: value.entries.map((entry) => ({ ...entry })) };
+    const state = { version: STORAGE_VERSION, activeHandoffId: value.activeHandoffId, entries: value.entries.map((entry) => ({ ...entry, outputAction: entry.outputAction || "save" })) };
     const mirror = metadataFor(state);
     if (value.activeHandoffId !== null && !mirror) return { ok: false, state: null, needsWrite: false };
-    let needsWrite = false;
+    let needsWrite = value.entries.some((entry) => entry.outputAction === undefined);
     for (const entry of state.entries) {
+      if (!validOutputAction(entry.outputAction)) return { ok: false, state: null, needsWrite: false };
       if (entry.state === "active" && !operationFresh(entry, now)) { entry.state = hasRecoveryIdentity(entry) ? "recovery" : "expired"; needsWrite = true; }
     }
     return { ok: true, state, needsWrite };
@@ -81,7 +85,7 @@ export const ONBOARDING_JS = `(() => {
       return capturedContext;
     }
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -90,7 +94,7 @@ export const ONBOARDING_JS = `(() => {
       try {
         const now = Date.now();
         const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -99,6 +103,7 @@ export const ONBOARDING_JS = `(() => {
     }
     const existing = state.entries.find((entry) => entry.handoffId === fragmentHandoff);
     if (existing) {
+      if ((existing.outputAction || "save") !== fragmentAction) return null;
       if (existing.state === "recovery" && hasRecoveryIdentity(existing)) {
         state.activeHandoffId = fragmentHandoff;
         if (!persistState(state)) return null;
@@ -129,7 +134,7 @@ export const ONBOARDING_JS = `(() => {
     try {
       const now = Date.now();
       const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -214,7 +219,7 @@ export const ONBOARDING_JS = `(() => {
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save" });
     } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
     if (!reply?.ok || !["active", "expired"].includes(reply.status) || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
     const saved = readSaved();
@@ -236,7 +241,7 @@ export const ONBOARDING_JS = `(() => {
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
-    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: "save", ...extra });
+    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...extra });
     if (!reply?.ok) throw new Error(reply?.error || "HANDOFF_FAILED");
     return reply;
   }
@@ -245,7 +250,7 @@ export const ONBOARDING_JS = `(() => {
     if (!extensionId || !globalThis.chrome?.runtime?.sendMessage || !context?.handoffId) return context;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save" });
     } catch {
       context.state = "recovery-probe";
       const saved = readSaved();
@@ -330,11 +335,13 @@ export const ONBOARDING_JS = `(() => {
     });
     return { title: String(prepared.draft.title || ""), description: String(prepared.draft.description || ""), steps };
   }
-  function showClaimSuccess(manualId) {
+  function showClaimSuccess(context, manualId) {
+    const isShare = context?.outputAction === "share";
     message("手順書を保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
-    setButton("保存した手順書を開く");
-    button.onclick = () => { location.href = "/manuals"; };
+    if (isShare) message("共有用の保存が完了しました。共有設定を開いて発行を確認してください。", "success");
+    setButton(isShare ? "共有設定を開く" : "保存した手順書を開く");
+    button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);
   }
   async function completePending(context, extensionId, manualId) {
@@ -349,7 +356,7 @@ export const ONBOARDING_JS = `(() => {
     if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
     const completedSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completed", manualId });
     if (!completedSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
-    return showClaimSuccess(manualId);
+    return showClaimSuccess(context, manualId);
   }
   async function reconcileFinalize(context, extensionId, metadata) {
     if (!(metadata?.claimStatus === "finalize-pending" || metadata?.claimStatus === "expired") || typeof metadata.claimIntentId !== "string") return false;
@@ -377,12 +384,12 @@ export const ONBOARDING_JS = `(() => {
   async function claimDraft(context, bootstrapPayload) {
     const extensionId = extensionIdFor(context);
     if (!extensionId) {
-      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.2へ更新して、編集画面からもう一度進んでください。", "error");
+      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.3へ更新して、編集画面からもう一度進んでください。", "error");
       setButton("拡張機能からやり直す", true);
       return false;
     }
     const existing = metadataForContext(context);
-    if (existing?.claimStatus === "completed" && existing.manualId) return showClaimSuccess(existing.manualId);
+    if (existing?.claimStatus === "completed" && existing.manualId) return showClaimSuccess(context, existing.manualId);
     if (existing?.claimStatus === "completion-pending" && existing.manualId) return completePending(context, extensionId, existing.manualId);
     const reconciliation = await reconcileFinalize(context, extensionId, existing);
     if (reconciliation === true) return true;

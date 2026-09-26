@@ -19,8 +19,8 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-009 | Chrome Extension + Manual | 認証後asset upload / Worker proxy read | local guest assets, private R2 after claim | ADR-0006, ADR-0011, ADR-0031, ADR-0032 | MVP-AC-005, 010, 011 | Extension MVP / EPIC-05 |
 | FR-010 | Chrome Extension | local normalization / claim validation | - | ADR-0031 | MVP-AC-004 | Extension MVP / EPIC-05 |
 | FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs` | Extension MVP / EPIC-05/06 |
-| FR-012 | Output gate / Share | share APIs after auth+claim | share_links | ADR-0008, ADR-0032 | MVP-AC-012, AC-030, AC-031 | MVP / EPIC-08 |
-| FR-013 | Public share viewer | share read API | share_links | ADR-0008 | AC-030, AC-031 | MVP / EPIC-08 |
+| FR-012 | Output gate / Share | `POST/GET/DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` after auth+claim; explicit expiry/passcode and immutable snapshot CAS | `share_links`, `share_grants`, published `manual_revisions` | ADR-0005, ADR-0008, ADR-0028, ADR-0034 | MVP-AC-012, AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
+| FR-013 | Public share viewer | `POST /s/api/resolve`, `POST /s/api/content`, `GET /s/api/assets/{assetId}` under narrow `/s/` prefix | `share_links`, `share_grants`, private R2 proxy | ADR-0005, ADR-0006, ADR-0008, ADR-0034 | AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
 | FR-014 | Output gate / PDF | PDF export API after auth+claim | exports / entitlements when enabled | ADR-0032, ADR-0033 | MVP-AC-007, 013, 019、PDF export tests | MVP / EPIC-08 |
 | FR-015 | Guide Me | replay APIs | - | - | AC-040 | DEFERRED / EPIC-08 |
 | FR-016 | Chrome Extension mode selector | local responsive window control | local capture mode only | ADR-0031 | MVP-AC-003, 015 | MVP / Extension MVP |

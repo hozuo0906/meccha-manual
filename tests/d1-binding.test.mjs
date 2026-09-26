@@ -13,7 +13,8 @@ const migrationPaths = [
   new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
   new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
   new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url),
-  new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url)
+  new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url),
+  new URL("../migrations/0005_d1_share_links.sql", import.meta.url)
 ];
 const d1BindingMigrationPaths = migrationPaths.slice(0, 3);
 const NOW = "2026-09-05T00:00:00.000Z";
@@ -45,6 +46,8 @@ test("C migration remains importable through Wrangler's D1 SQL splitter", async 
     const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
     assert.ok(tables.some((row) => row.name === "manual_revisions"));
     assert.ok(tables.some((row) => row.name === "claim_assets"));
+    assert.ok(tables.some((row) => row.name === "share_links"));
+    assert.ok(tables.some((row) => row.name === "share_grants"));
 
     database.exec(`
       INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at)

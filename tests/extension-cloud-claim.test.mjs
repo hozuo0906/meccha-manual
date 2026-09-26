@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { cleanDraft, safeMessage } from "../apps/extension/background/cloud-claim.js";
+import { cleanDraft, handleExternalCloudClaimMessage, safeMessage } from "../apps/extension/background/cloud-claim.js";
 import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
 
 const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: "A".repeat(43), action: "save" };
@@ -80,6 +80,47 @@ test("fresh handoff is reused only for the same draft content and does not add r
   assert.equal(await findRecoverableHandoff("draft-1", "b".repeat(64), storage), null);
 });
 
+test("share output keeps an explicit action through handoff recovery", async () => {
+  const fingerprint = "a".repeat(64);
+  const share = createHandoffMetadata("draft-share", "share", Date.now(), "b".repeat(32), "2026-09-23T00:00:00.000Z", fingerprint);
+  assert.equal(share.outputAction, "share");
+  assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", share.handoffId, share.extensionId, null, "share"), /#handoff=.*&extensionId=.*&action=share$/);
+  assert.equal(safeMessage({ ...validMessage, action: "share" }, "handoff.prepare"), true);
+});
+
+test("guest share claim rejects mismatched actions and keeps matching recovery isolated", async () => {
+  const handoffId = "A".repeat(43);
+  const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue" };
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = {
+    storage: {
+      local: {
+        async get() {
+          return { [`meccha-manual:handoff:${handoffId}`]: {
+            handoffId, outputAction: "save", draftId: "draft-share", draftFingerprint: "a".repeat(64),
+            expiresAt: new Date(Date.now() + 60_000).toISOString()
+          } };
+        }
+      }
+    }
+  };
+  try {
+    assert.deepEqual(await handleExternalCloudClaimMessage({ ...validMessage, handoffId, action: "share" }, sender), { ok: false, error: "HANDOFF_EXPIRED_OR_UNKNOWN" });
+  } finally {
+    if (previousChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = previousChrome;
+  }
+  const fingerprint = "b".repeat(64);
+  const storage = {
+    async get() { return { [`meccha-manual:handoff:${handoffId}`]: {
+      handoffId, draftId: "draft-share", draftFingerprint: fingerprint, outputAction: "share",
+      status: "finalize-pending", operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000"
+    } }; }
+  };
+  assert.equal((await findRecoverableHandoff("draft-share", fingerprint, storage, "share")).outputAction, "share");
+  assert.equal(await findRecoverableHandoff("draft-share", fingerprint, storage, "save"), null);
+});
+
 test("draft lock requires Web Locks and holds the callback across async work", async () => {
   const calls = [];
   const result = await withHandoffDraftLock("draft-1", async () => { calls.push("callback"); await Promise.resolve(); return "locked"; }, {
@@ -102,8 +143,8 @@ test("completed handoff is not selected for a changed draft", async () => {
   assert.equal(await findRecoverableHandoff("draft-1", "a".repeat(64), storage), null);
 });
 
-test("extension distribution is pinned to staging and version 0.1.2", async () => {
+test("D extension distribution is pinned to staging and version 0.1.3", async () => {
   const manifest = JSON.parse(await readFile("apps/extension/manifest.json", "utf8"));
-  assert.equal(manifest.version, "0.1.2");
+  assert.equal(manifest.version, "0.1.3");
   assert.deepEqual(manifest.externally_connectable.matches, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
 });
