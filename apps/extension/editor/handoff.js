@@ -5,6 +5,11 @@ const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+const OUTPUT_ACTIONS = new Set(["save", "share"]);
+
+function validOutputAction(value) {
+  return OUTPUT_ACTIONS.has(value);
+}
 
 export function canonicalDraftJson(draft) {
   if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
@@ -61,7 +66,7 @@ export function validateExtensionId(extensionId) {
 
 export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined, draftFingerprint = undefined) {
   if (typeof draftId !== "string" || !draftId) throw new TypeError("draft id is required");
-  if (outputAction !== "save") throw new TypeError("unsupported output action");
+  if (!validOutputAction(outputAction)) throw new TypeError("unsupported output action");
   validateExtensionId(extensionId);
   const handoffId = createHandoffId();
   return {
@@ -94,11 +99,12 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (expired.length > 0) await storage.remove(expired);
 }
 
-export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local) {
+export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local, outputAction = "save") {
   if (typeof draftId !== "string" || !draftId || !/^[a-f0-9]{64}$/.test(draftFingerprint || "") || !storage?.get) return null;
+  if (!validOutputAction(outputAction)) return null;
   const entries = await storage.get(null);
   const handoffs = Object.values(entries || {}).filter((value) =>
-    value?.outputAction === "save" &&
+    value?.outputAction === outputAction &&
     value?.draftId === draftId &&
     /^[A-Za-z0-9_-]{43}$/.test(value?.handoffId || "") &&
     /^[a-f0-9]{64}$/.test(value?.draftFingerprint || "")
@@ -127,16 +133,18 @@ export async function withHandoffDraftLock(draftId, callback, navigatorLike = gl
   });
 }
 
-export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null) {
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save") {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
   validateExtensionId(extensionId);
+  if (!validOutputAction(outputAction)) throw new Error("UNSUPPORTED_OUTPUT_ACTION");
   const recoveryParams = recovery && /^[A-Za-z0-9_-]{16,128}$/.test(recovery.operationId || "") &&
     CLAIM_INTENT_ID_PATTERN.test(recovery.claimIntentId || "") &&
     /^[a-f0-9]{64}$/.test(recovery.draftFingerprint || "")
     ? `&operationId=${encodeURIComponent(recovery.operationId)}&claimIntentId=${encodeURIComponent(recovery.claimIntentId)}&draftFingerprint=${encodeURIComponent(recovery.draftFingerprint)}`
     : "";
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${recoveryParams}`;
+  const actionParam = outputAction === "share" ? "&action=share" : "";
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${recoveryParams}`;
 }
 
 export const HANDOFF_TTL_MINUTES = HANDOFF_TTL_MS / 60000;

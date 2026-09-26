@@ -80,6 +80,14 @@ test("fresh handoff is reused only for the same draft content and does not add r
   assert.equal(await findRecoverableHandoff("draft-1", "b".repeat(64), storage), null);
 });
 
+test("share output keeps an explicit action through handoff recovery", async () => {
+  const fingerprint = "a".repeat(64);
+  const share = createHandoffMetadata("draft-share", "share", Date.now(), "b".repeat(32), "2026-09-23T00:00:00.000Z", fingerprint);
+  assert.equal(share.outputAction, "share");
+  assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", share.handoffId, share.extensionId, null, "share"), /#handoff=.*&extensionId=.*&action=share$/);
+  assert.equal(safeMessage({ ...validMessage, action: "share" }, "handoff.prepare"), true);
+});
+
 test("draft lock requires Web Locks and holds the callback across async work", async () => {
   const calls = [];
   const result = await withHandoffDraftLock("draft-1", async () => { calls.push("callback"); await Promise.resolve(); return "locked"; }, {
