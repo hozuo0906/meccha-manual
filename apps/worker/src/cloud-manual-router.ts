@@ -299,9 +299,12 @@ async function stagedAssetRoute(request: Request, env: CloudManualEnv, claimInte
   }
   const record = { id: assetId, claimIntentId: intent.id, assetSlot: slot, workspaceId: intent.workspaceId, operationId, objectKey, contentType, byteLength: bytes.byteLength, sha256: actualSha };
   reservation ??= await repository.reserveStagedAsset(record, new Date().toISOString());
+  if (reservation.id !== assetId || reservation.claimIntentId !== intent.id || reservation.assetSlot !== slot || reservation.workspaceId !== intent.workspaceId || reservation.operationId !== operationId || reservation.objectKey !== objectKey || reservation.contentType !== contentType || reservation.byteLength !== bytes.byteLength || reservation.sha256 !== actualSha) throw new CloudManualError(409, "ASSET_RETRY_CONFLICT", "同じ画像番号へ別の画像は保存できません。");
   if (reservation.status === "staged" || reservation.status === "completed") {
-    const head = await env.MANUAL_ASSETS.head(reservation.objectKey);
-    if (!head || head.size !== reservation.byteLength) throw new CloudManualError(409, "ASSET_RECONCILIATION_REQUIRED", "画像保存状態を確認できません。");
+    let head: R2Object | null;
+    try { head = await env.MANUAL_ASSETS.head(reservation.objectKey); } catch { throw new CloudManualError(503, "ASSET_STAGING_RESULT_UNKNOWN", "画像の保存結果を確認できません。"); }
+    const headMetadata = head?.customMetadata ?? {};
+    if (!head || head.size !== bytes.byteLength || Object.keys(headMetadata).length !== 5 || Object.entries(metadata).some(([key, value]) => headMetadata[key] !== value)) throw new CloudManualError(409, "ASSET_RECONCILIATION_REQUIRED", "画像保存状態を確認できません。");
     return json({ assetSlot: slot, sha256: actualSha, byteLength: bytes.byteLength, contentType, status: "staged" });
   }
   try {
@@ -328,7 +331,15 @@ async function stagedAssetRoute(request: Request, env: CloudManualEnv, claimInte
   } catch (error) {
     if (error instanceof D1RepositoryError && error.code === "conflict") {
       const raced = await repository.getStagedAsset(actorId, intent.id, slot);
-      if (raced && raced.sha256 === actualSha && raced.byteLength === bytes.byteLength && raced.contentType === contentType) return json({ assetSlot: slot, sha256: actualSha, byteLength: bytes.byteLength, contentType, status: "staged" });
+      if (raced) {
+        if (raced.id !== assetId || raced.claimIntentId !== intent.id || raced.assetSlot !== slot || raced.workspaceId !== intent.workspaceId || raced.operationId !== operationId || raced.objectKey !== objectKey || raced.contentType !== contentType || raced.byteLength !== bytes.byteLength || raced.sha256 !== actualSha) throw new CloudManualError(409, "ASSET_RETRY_CONFLICT", "同じ画像番号へ別の画像は保存できません。");
+        if (raced.status !== "staged" && raced.status !== "completed") throw new CloudManualError(503, "ASSET_STAGING_RESULT_UNKNOWN", "画像の保存結果を確認できません。重ねて送信せず、もう一度状態を確認してください。");
+        let head: R2Object | null;
+        try { head = await env.MANUAL_ASSETS.head(raced.objectKey); } catch { throw new CloudManualError(503, "ASSET_STAGING_RESULT_UNKNOWN", "画像の保存結果を確認できません。"); }
+        const headMetadata = head?.customMetadata ?? {};
+        if (!head || head.size !== bytes.byteLength || Object.keys(headMetadata).length !== 5 || Object.entries(metadata).some(([key, value]) => headMetadata[key] !== value)) throw new CloudManualError(409, "ASSET_RECONCILIATION_REQUIRED", "画像保存状態を確認できません。");
+        return json({ assetSlot: slot, sha256: actualSha, byteLength: bytes.byteLength, contentType, status: "staged" });
+      }
     }
     throw new CloudManualError(503, "ASSET_STAGING_RESULT_UNKNOWN", "画像の保存結果を確認できません。重ねて送信せず、もう一度状態を確認してください。");
   }
