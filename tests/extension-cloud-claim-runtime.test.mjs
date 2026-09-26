@@ -247,8 +247,6 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const begunMetadata = await readMetadata(worker, storageKey);
     assert.equal(begunMetadata.operationId, beginResults[0].operationId);
     assert.equal(begunMetadata.expiresAt, originalExpiresAt, "begin must preserve the original TTL");
-    await secondTab.close();
-
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(prepared.ok, true);
     assert.equal(prepared.status, "ready");
@@ -264,14 +262,21 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
 
     const outOfOrder = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 1 });
     assert.deepEqual(outOfOrder, { ok: false, error: "CHUNK_SEQUENCE_INVALID" });
+    const chunkPages = [page, secondTab];
+    const concurrentFirstChunks = await Promise.all(chunkPages.map((chunkPage) => sendExternal(chunkPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 0 })));
+    assert.equal(concurrentFirstChunks.filter((result) => result.ok).length, 1, "parallel tabs must consume one sequence exactly once");
+    assert.deepEqual(concurrentFirstChunks.filter((result) => !result.ok), [{ ok: false, error: "CHUNK_SEQUENCE_INVALID" }]);
+    const winningChunkPage = chunkPages[concurrentFirstChunks.findIndex((result) => result.ok)];
     const chunks = [];
-    for (let sequence = 0; sequence < started.totalChunks; sequence += 1) {
-      const result = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence });
+    chunks.push(concurrentFirstChunks.find((result) => result.ok).chunk);
+    for (let sequence = 1; sequence < started.totalChunks; sequence += 1) {
+      const result = await sendExternal(winningChunkPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence });
       assert.equal(result.ok, true);
       assert.equal(result.sequence, sequence);
       assert.equal(result.done, sequence === started.totalChunks - 1);
       chunks.push(result.chunk);
     }
+    await secondTab.close();
     const encoded = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
     assert.equal(Buffer.from(encoded, "base64").byteLength, started.byteLength);
     const pixels = await decodeSelectedPixels(page, encoded);

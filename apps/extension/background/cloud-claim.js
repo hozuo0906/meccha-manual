@@ -298,21 +298,34 @@ async function startAsset(message, sender) {
 }
 
 async function assetChunk(message, sender) {
-  cleanupTransfers();
   if (!validRequest(message, sender, "handoff.asset.chunk") || !Number.isInteger(message.assetSlot) || !Number.isInteger(message.sequence) || message.sequence < 0) return reject("HANDOFF_REQUEST_REJECTED");
-  const transfer = transferFor(message.handoffId, message.assetSlot);
-  if (!transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
-  const metadata = await readHandoff(message.handoffId);
-  if (!metadata || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-  const totalChunks = Math.ceil(transfer.bytes.byteLength / CLOUD_CLAIM_CHUNK_BYTES);
-  if (message.sequence >= totalChunks) return reject("CHUNK_SEQUENCE_INVALID");
-  const start = message.sequence * CLOUD_CLAIM_CHUNK_BYTES;
-  const chunk = transfer.bytes.slice(start, start + CLOUD_CLAIM_CHUNK_BYTES);
-  transfer.nextSequence += 1;
-  const done = start + chunk.byteLength === transfer.bytes.byteLength;
-  const result = { ok: true, assetSlot: message.assetSlot, sequence: message.sequence, totalChunks, chunk: bytesToBase64(chunk), done };
-  if (done) { transferBytesTotal -= transfer.bytes.byteLength; transfers.delete(`${message.handoffId}:${message.assetSlot}`); }
-  return result;
+  const transferKey = `${message.handoffId}:${message.assetSlot}`;
+  const previous = assetStartLocks.get(transferKey) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  assetStartLocks.set(transferKey, queued);
+  await previous;
+  try {
+    cleanupTransfers();
+    const transfer = transferFor(message.handoffId, message.assetSlot);
+    if (!transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
+    const metadata = await readHandoff(message.handoffId);
+    if (!metadata || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (transferFor(message.handoffId, message.assetSlot) !== transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
+    const totalChunks = Math.ceil(transfer.bytes.byteLength / CLOUD_CLAIM_CHUNK_BYTES);
+    if (message.sequence >= totalChunks) return reject("CHUNK_SEQUENCE_INVALID");
+    const start = message.sequence * CLOUD_CLAIM_CHUNK_BYTES;
+    const chunk = transfer.bytes.slice(start, start + CLOUD_CLAIM_CHUNK_BYTES);
+    transfer.nextSequence += 1;
+    const done = start + chunk.byteLength === transfer.bytes.byteLength;
+    const result = { ok: true, assetSlot: message.assetSlot, sequence: message.sequence, totalChunks, chunk: bytesToBase64(chunk), done };
+    if (done) { transferBytesTotal -= transfer.bytes.byteLength; transfers.delete(transferKey); }
+    return result;
+  } finally {
+    release();
+    if (assetStartLocks.get(transferKey) === queued) assetStartLocks.delete(transferKey);
+  }
 }
 
 async function finalizePending(message, sender) {
