@@ -60,7 +60,7 @@ export function validatePasscode(value: unknown): string {
   if (typeof value !== "string") throw new Error("passcode invalid");
   const length = Array.from(value).length;
   if (length < PASSCODE_MIN_LENGTH || length > PASSCODE_MAX_LENGTH) throw new Error("passcode invalid");
-  if (new TextEncoder().encode(value).byteLength > PASSCODE_MAX_BYTES || /[\u0000-\u001f\u007f]/u.test(value)) throw new Error("passcode invalid");
+  if (new TextEncoder().encode(value).byteLength > PASSCODE_MAX_BYTES || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) throw new Error("passcode invalid");
   return value;
 }
 

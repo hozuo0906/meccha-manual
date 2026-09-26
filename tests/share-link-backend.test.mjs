@@ -5,7 +5,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { exportJWK, SignJWT } from "jose";
 import { randomSecret, validateSecret } from "../apps/worker/src/share-link-crypto.ts";
-import { derivePasscodeHash, sha256Hex } from "../apps/worker/src/share-link-crypto.ts";
+import { derivePasscodeHash, sha256Hex, validatePasscode } from "../apps/worker/src/share-link-crypto.ts";
 import { handleShareLinkRoute } from "../apps/worker/src/share-link-router.ts";
 
 const migrationNames = [
@@ -87,9 +87,14 @@ async function accessToken(subject = "http-owner") {
   return new SignJWT({ type: "app", sub: subject }).setProtectedHeader({ alg: "RS256", kid: httpPublicJwk.kid }).setIssuer(HTTP_ISSUER).setAudience(HTTP_AUDIENCE).setIssuedAt(issued).setExpirationTime(issued + 300).sign(httpPrivateKey);
 }
 
-async function database() {
+async function database({ mutateShareScope = false, mutateGrantExpiry = false } = {}) {
   const db = new DatabaseSync(":memory:");
-  for (const name of migrationNames) db.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  for (const name of migrationNames) {
+    let sql = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
+    if (mutateShareScope && name === "0005_d1_share_links.sql") sql = sql.replace("AND wm.role IN ('owner','admin','editor')", "AND 1 = 1");
+    if (mutateGrantExpiry && name === "0005_d1_share_links.sql") sql = sql.replace(/CREATE TRIGGER share_grant_expiry_immutable[\s\S]*?END;\r?\n/u, "");
+    db.exec(sql);
+  }
   db.exec(`
     INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('owner', 'issuer', 'owner', 'active', '${NOW}', '${NOW}');
     INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('owner', 'Owner', 'ja-JP', 'Asia/Tokyo', '${NOW}', '${NOW}');
@@ -99,6 +104,14 @@ async function database() {
     INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('draft', 'workspace', 'manual', 1, 'draft', 'Manual', 'Description', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '${NOW}', '${NOW}');
   `);
   return db;
+}
+
+function addViewerShareFixture(db) {
+  db.prepare("INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('published', 'workspace', 'manual', 2, 'published', 'Manual', 'Description', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', ?, ?)").run(NOW, NOW);
+  db.prepare("UPDATE manuals SET status = 'published', current_published_revision_id = 'published' WHERE id = 'manual'").run();
+  db.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('viewer', 'issuer', 'viewer', 'active', ?, ?)").run(NOW, NOW);
+  db.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('viewer', 'Viewer', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(NOW, NOW);
+  db.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('workspace', 'viewer', 'viewer', 'active', ?, ?)").run(NOW, NOW);
 }
 
 function insertPublished(db, { linkId = "link", revisionId = "published", tokenHash = "a".repeat(64), sourceVersion = "a".repeat(32), expiresAt = "2026-10-01T00:00:00.000Z" } = {}) {
@@ -113,6 +126,9 @@ test("共有secretはcanonicalな256bit base64urlだけを受け付ける", () =
   assert.equal(validateSecret(secret, 32), secret);
   assert.throws(() => validateSecret(`${secret}A`, 32));
   assert.throws(() => validateSecret(`${secret.slice(0, -1)}_`, 32));
+  assert.equal(validatePasscode("あいうえおかきくけこさし"), "あいうえおかきくけこさし");
+  assert.throws(() => validatePasscode(`valid-passcode\u0080`), /passcode invalid/u);
+  assert.throws(() => validatePasscode("valid-passcode\u001f"), /passcode invalid/u);
 });
 
 test("公開snapshotは内容変更・step追加・revoke取消・期限延長を拒否し、state supersededだけを許可する", async () => {
@@ -137,6 +153,33 @@ test("共有linkはmanual単位で1本に固定し、source draft CASを外れ�
   assert.throws(() => db.prepare(`INSERT INTO share_links (id, workspace_id, manual_id, published_revision_id, source_draft_revision_id, source_content_version, token_hash, passcode_salt, passcode_hash, permission, expires_at, created_by, operation_id, created_at, updated_at) VALUES ('link-2', 'workspace', 'manual', 'published', 'draft', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '${"b".repeat(64)}', 'salt-salt-salt-salt-s', '${"h".repeat(64)}', 'read_only', '2026-10-01T00:00:00.000Z', 'owner', 'operation-00000002', ?, ? )`).run(NOW, NOW), /UNIQUE|constraint/u);
   db.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = 'draft'").run("c".repeat(32));
   assert.throws(() => db.prepare(`INSERT INTO share_links (id, workspace_id, manual_id, published_revision_id, source_draft_revision_id, source_content_version, token_hash, passcode_salt, passcode_hash, permission, expires_at, created_by, operation_id, created_at, updated_at) VALUES ('link-3', 'workspace', 'manual', 'published', 'draft', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '${"c".repeat(64)}', 'salt-salt-salt-salt-s', '${"h".repeat(64)}', 'read_only', '2026-10-01T00:00:00.000Z', 'owner', 'operation-00000003', ?, ? )`).run(NOW, NOW), /share link scope mismatch/u);
+});
+
+test("share scope triggerのrole guard除去をmutation testが検出できる", async () => {
+  const guarded = await database();
+  addViewerShareFixture(guarded);
+  const values = ["link-viewer", "workspace", "manual", "published", "draft", "a".repeat(32), "d".repeat(64), "salt-salt-salt-salt-s", "h".repeat(64), "2026-10-01T00:00:00.000Z", "viewer", "operation-viewer-0001", NOW, NOW];
+  const insert = "INSERT INTO share_links (id, workspace_id, manual_id, published_revision_id, source_draft_revision_id, source_content_version, token_hash, passcode_salt, passcode_hash, permission, expires_at, created_by, operation_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'read_only', ?, ?, ?, ?, ?)";
+  assert.throws(() => guarded.prepare(insert).run(...values), /share link scope mismatch/u);
+  guarded.close();
+  const mutated = await database({ mutateShareScope: true });
+  addViewerShareFixture(mutated);
+  assert.doesNotThrow(() => mutated.prepare(insert).run(...values));
+  mutated.close();
+});
+
+test("share grant expiry guardを除去したmutationは期限延長を通して検出される", async () => {
+  const guarded = await database();
+  insertPublished(guarded);
+  const grantInsert = "INSERT INTO share_grants (id, share_link_id, token_hash, grant_hash, workspace_id, manual_id, published_revision_id, expires_at, created_at, updated_at) VALUES ('grant', 'link', ?, ?, 'workspace', 'manual', 'published', ?, ?, ?)";
+  guarded.prepare(grantInsert).run("a".repeat(64), "e".repeat(64), "2026-09-26T00:10:00.000Z", NOW, NOW);
+  assert.throws(() => guarded.prepare("UPDATE share_grants SET expires_at = '2026-09-26T00:11:00.000Z' WHERE id = 'grant'").run(), /grant expiry cannot be extended/u);
+  guarded.close();
+  const mutated = await database({ mutateGrantExpiry: true });
+  insertPublished(mutated);
+  mutated.prepare(grantInsert).run("a".repeat(64), "e".repeat(64), "2026-09-26T00:10:00.000Z", NOW, NOW);
+  assert.doesNotThrow(() => mutated.prepare("UPDATE share_grants SET expires_at = '2026-09-26T00:11:00.000Z' WHERE id = 'grant'").run());
+  mutated.close();
 });
 
 test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshotを維持し、停止後はgrantを拒否する", async () => {
