@@ -64,6 +64,46 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
   }
 });
 
+test("onboarding rejects an expired canonical begin identity before bootstrap", { timeout: 60_000 }, async () => {
+  let bootstrapCalls = 0;
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname === "/api/onboarding/bootstrap" && request.method === "POST") { bootstrapCalls += 1; response.writeHead(500).end(); return; }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const handoff = "V".repeat(43);
+  const extensionId = "f".repeat(32);
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        if (message.type === "handoff.recovery") return { ok: false, error: "RECOVERY_NOT_FOUND" };
+        if (message.type === "handoff.begin") return { ok: true, status: "expired", operationId: "O".repeat(43), expiresAt: new Date(Date.now() - 60_000).toISOString() };
+        return { ok: false, error: "UNEXPECTED_MESSAGE" };
+      } } };
+    });
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "登録を続ける" }).waitFor();
+    assert.match(await page.locator("#status").textContent(), /識別情報が確認できません/);
+    assert.equal(bootstrapCalls, 0);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].state), "expired");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("onboarding rejects malformed or empty fragments even when a fresh saved handoff exists", { timeout: 20_000 }, async () => {
   const calls = [];
   const server = createServer(async (request, response) => {

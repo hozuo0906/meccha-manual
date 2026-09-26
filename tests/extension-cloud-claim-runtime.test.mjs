@@ -221,10 +221,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const draftFingerprint = await fingerprintDraft(draft);
     const handoffId = "A".repeat(43);
     const storageKey = handoffStorageKey(handoffId);
-    const identities = [
-      { operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000" },
-      { operationId: "P".repeat(43), claimIntentId: "11111111-1111-4111-8111-111111111111" }
-    ];
+    let identities;
     const createdAt = "2026-09-23T00:00:00.000Z";
     const originalExpiresAt = new Date(Date.now() + 9 * 60 * 1000).toISOString();
     const metadata = {
@@ -250,7 +247,6 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const begunMetadata = await readMetadata(worker, storageKey);
     assert.equal(begunMetadata.operationId, beginResults[0].operationId);
     assert.equal(begunMetadata.expiresAt, originalExpiresAt, "begin must preserve the original TTL");
-    await setMetadata(worker, storageKey, metadata);
     await secondTab.close();
 
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
@@ -302,6 +298,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const afterClear = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
     assert.equal(afterClear.ok, true, "clearing a transfer must restore capacity for the next start");
 
+    identities = [
+      { operationId: beginResults[0].operationId, claimIntentId: "00000000-0000-4000-8000-000000000000" },
+      { operationId: "P".repeat(43), claimIntentId: "11111111-1111-4111-8111-111111111111" }
+    ];
     const finalizePendingResults = await Promise.all(identities.map(({ operationId, claimIntentId }) => sendExternal(page, extensionId, {
       schema: "meccha-manual/cloud-claim-v1",
       type: "handoff.finalize-pending",
@@ -322,6 +322,18 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.equal(storedFinalizePending.operationId, operationId);
     assert.equal(storedFinalizePending.claimIntentId, claimIntentId);
     assert.equal(storedFinalizePending.draftFingerprint, draftFingerprint);
+
+    const rejectedFinalize = await sendExternal(page, extensionId, {
+      schema: "meccha-manual/cloud-claim-v1",
+      type: "handoff.finalize-pending",
+      handoffId,
+      action: "save",
+      operationId: "Q".repeat(43),
+      claimIntentId: "22222222-2222-4222-8222-222222222222",
+      draftFingerprint
+    });
+    assert.deepEqual(rejectedFinalize, { ok: false, error: "RECOVERY_MISMATCH" });
+    assert.deepEqual(await readMetadata(worker, storageKey), storedFinalizePending, "mismatched finalize must not overwrite canonical identity");
 
     const wrongOperation = await sendExternal(page, extensionId, {
       schema: "meccha-manual/cloud-claim-v1",

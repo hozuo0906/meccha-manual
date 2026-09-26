@@ -324,12 +324,19 @@ async function finalizePending(message, sender) {
   const queued = previous.then(() => current);
   finalizeLocks.set(handoffId, queued);
   await previous;
+  const identityPrevious = beginLocks.get(handoffId) || Promise.resolve();
+  let identityRelease;
+  const identityCurrent = new Promise((resolve) => { identityRelease = resolve; });
+  const identityQueued = identityPrevious.then(() => identityCurrent);
+  beginLocks.set(handoffId, identityQueued);
+  await identityPrevious;
   try {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save" || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
+    if (metadata.operationId && metadata.operationId !== message.operationId) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "finalize-pending" || metadata.status === "completion-pending" || metadata.status === "completed") {
       if (metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId) return reject("RECOVERY_MISMATCH");
       return { ok: true, status: metadata.status };
@@ -347,6 +354,8 @@ async function finalizePending(message, sender) {
     });
     return { ok: true, status: "finalize-pending" };
   } finally {
+    identityRelease();
+    if (beginLocks.get(handoffId) === identityQueued) beginLocks.delete(handoffId);
     release();
     if (finalizeLocks.get(handoffId) === queued) finalizeLocks.delete(handoffId);
   }
