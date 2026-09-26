@@ -55,3 +55,15 @@ frontendは`apps/extension`、`apps/worker/src/cloud-manual-assets.ts`、cloud m
 ## 対象外
 
 共有リンク、PDF、production Access／D1／R2、Browser Run実接続、D／E／Fスライスは別作業単位とする。remote migration／deployはC全体の承認済み親実行範囲として親が判断・実施するが、この担当の実装・導入確認には含めず、実施済みとは記録しない。
+
+## D共有対応のowner限定staging配布版（manifest `0.1.3`）
+
+この節はCの0.1.2手順を履歴として保持したまま、D共有linkを含む0.1.3候補の更新手順を追加する。0.1.3の利用前に、親PMがIssue #70とPR #259のlive stateでD1 migration `0005`、D Worker、staging Access、private R2、対象CI／reviewを照合する。未確認の状態では実stagingの共有発行や`/s/`公開を完了扱いにしない。
+
+1. 親PMが用意した0.1.3配布候補のmanifest versionとstaging originを確認する。既存の拡張機能をChromeの管理画面から削除せず、同じ展開フォルダのファイルを差し替えてから拡張機能の「再読み込み」を行う。local storageと未保存draftを保持するため、別フォルダを新規登録したり、アンインストールして入れ直したりしない。
+2. Cの保存済み手順書をowner限定stagingで開き、共有設定からowner/admin/editorだけが操作できることを確認する。明示確認、期限、12〜128 code pointのpasscodeを設定して共有を発行する。検証時のtokenとpasscodeはMarkdown、ログ、スクリーンショットへ記録しない。
+3. 共有viewerを`/s/`から開き、passcode後にpublished snapshotのタイトル、説明、step、承認済み画像が表示されること、編集・保存・停止などのwrite controlが表示されないことを確認する。後続のdraft編集で共有snapshotが変わらないことを確認する。
+4. 共有link停止、発行者membership停止、grantまたはassetの期限・失効後に、本文とassetの新しいrequestが拒否されることを確認する。R2のpublic bucketやsigned read URLを使わず、Worker proxyのresponseだけを確認する。既に受信したbytesの回収は証明しない。
+5. 実Chrome導入、remote migration、Worker deploy、Access `/s/*`公開、実R2確認の結果は、対象SHAと実行時点をIssue #70またはPR #259へ記録する。token、passcode、Access credential、実workspace ID、実画像、PIIは記録しない。isolated Chromiumのmock API browser testはUI回帰の証拠であり、staging通し確認の代替にはしない。
+
+D1 migration `0005`の適用、D Worker deploy、Access `/s/*`公開、PR #259の最新CI／review／merge、C owner本人の実Chrome拡張E2Eは、この文書の追記だけでは確認済みにならない。確認日時と対象SHAをlive stateから再取得できない場合は、共有発行・migration・deploy・公開など影響操作を保留し、「未確認」と報告する。

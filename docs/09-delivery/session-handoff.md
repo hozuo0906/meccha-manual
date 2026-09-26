@@ -2,6 +2,20 @@
 
 Status: Accepted
 
+## D1共有リンク引継ぎ（Issue #258 / PR #259）
+
+Status: Accepted
+
+確認時点: 2026-09-26（Asia/Tokyo）／PR準備時点のsnapshot
+
+- 対象: D1 migration `0005_d1_share_links.sql`、共有linkのcrypto／router、`/s/` viewer、Access/D1 index dispatch、D契約、ADR-0034。管理APIはAccess認証済みowner/admin/editorだけが発行・停止し、匿名viewerはtokenのfragmentをWorker request headerへ移して短期grantで本文とprivate R2 assetを読む。snapshotはpublished revisionと新規step IDで固定し、draft編集は共有内容へ反映しない。
+- PR準備時点の状態: Issue #258、PR #259を正本候補として扱い、`0005`はremote D1へ未適用、D Workerは未deploy、Access配下の`/s/*`は未公開だった。以降のPR head SHA、最新CI、最新Codex Review、merge、migration、deploy、公開、C owner本人による実Chrome拡張E2Eの現在値はIssue #70とPR #259のlive stateから再取得し、このsnapshotを現況の根拠にしない。
+- 確認済みの範囲: localの共有backend／runtime、viewer browser（mock API）テスト、migration／契約／ADRの対応を確認する。mock APIのbrowserテストは実D1認可、実Access、実R2、remote migration、deployを証明しない。
+- stagingの次の実行条件: 親PMがIssue #70とPR #259のlive stateで対象SHA、migration順序、CI／review、owner限定staging binding、Access policy、private R2、rollback条件を照合した後に限る。D1 migration適用、Worker deploy、Access `/s/*`公開、production反映、実データ操作はこの引継ぎから自動実行しない。
+- 利用者確認では、実在のtoken、passcode、workspace ID、画像、Access credential、個人情報をログ、Markdown、スクリーンショットへ残さない。実行証跡は合成値または承認済みowner限定stagingの最小結果に限定し、live状態は毎回Issue #70とPR #259で再取得する。
+
+次の1マイルストーンは、PR #259の最新headに対するCI／review／merge状態と`0005`のremote適用、D Worker deploy、owner限定stagingの`/s/` viewer通し確認を親PMが照合し、未確認項目を残したまま公開・完了判定へ進めないことである。
+
 ## 目的
 
 ### 2026-09-17 release作業の追加確認
