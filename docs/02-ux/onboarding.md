@@ -223,7 +223,7 @@ output gateは、編集内容を明示的に確認してから登録画面へ進
 
 0.1.2の拡張機能は、handoff fragmentに拡張機能IDを添えてstaging Webへ渡す。Webはfragmentを読み取った直後にURLから除去し、extension ID、handoff、operation、claim intent、workspace等のmetadataだけを同一タブのsessionStorageへ保持する。古いextension IDなしhandoffはbootstrapの成功を手順書保存と表示せず、0.1.2の拡張機能からやり直す案内を出す。
 
-認証済みWebは外部messageで拡張機能へ`handoff.prepare`を依頼し、手順書の許可されたtitle／description／stepだけを受け取る。画像は`handoff.asset.start`と順序付き`handoff.asset.chunk`で受け取り、拡張機能内でマスクを焼き込んだPNGだけを同一originのclaim APIへ送る。raw screenshot、capture event、対象URL、credentialは外部message、DOM、URL、Web storage、ログへ複製しない。全asset uploadが成功した後、claim intentの結果を照会できる`finalize-pending`を保存してclaim finalizeを行い、同じoperation・内容fingerprint・asset slotでpendingを安全に再送する。成功結果確認後、拡張機能は下書きを削除する。編集中に下書きが変わった場合は削除せず、保存内容を保持する。
+認証済みWebは外部messageで拡張機能へ`handoff.prepare`を依頼し、手順書の許可されたtitle／description／stepだけを受け取る。画像は`handoff.asset.start`と順序付き`handoff.asset.chunk`で受け取り、拡張機能内でマスクを焼き込んだPNGだけを同一originのclaim APIへ送る。raw screenshot、capture event、対象URL、credentialは外部message、DOM、URL、Web storage、ログへ複製しない。全asset uploadが成功した後、claim intentの結果を照会できる`finalize-pending`を保存してclaim finalizeを行い、同じoperation・内容fingerprint・asset slotでpendingを安全に再送する。claim完了identityを`completion-pending`へ耐久保存してから削除を試み、削除直前のCASで下書きが変わっていた場合は変更後の下書きを残したまま完了状態を保存する。技術的な保存障害は編集済みとは扱わず、既存の未確定状態（`finalize-pending`または`completion-pending`）を維持して同じidentityを再試行する。通常のCAS成功時だけ下書きを削除し、完了結果の確認後に新しいhandoffを開始できる。
 
 保存後は`/manuals`でworkspace所属の手順書一覧を表示し、選択した手順書を再表示する。編集はowner以上のserver認可を前提に、title／descriptionを表示中versionの`expectedUpdatedAt`で保存する。409の競合時はサーバーの値をフォームへ上書きせず、入力値を保持して再読込を案内する。表示値は`textContent`でDOMへ挿入する。
 

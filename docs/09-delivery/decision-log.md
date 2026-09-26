@@ -378,3 +378,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - finalize処理と応答通知が15分TTLをまたぐと、保存済みmanualがあるのに拡張側の最初の完了通知が期限拒否され、再試行で重複handoffを作る危険がある。結果回収identityを先に永続化し、既存completed結果だけを期限後に回収することで、書込み権限を広げずにこの不整合を閉じる。
 - Boundary:
   - D1/R2の新しい書込み経路、TTL延長、production反映、共有・公開・削除は含めない。`expired`または結果不明を未確認のまま新規claimとして再開しない。
+
+### DEC-078-F: claim完了とlocal draft削除のCAS境界
+
+- Status: Accepted
+- Date: 2026-09-26
+- Decision:
+  - `handoff.completed`はclaimの完了identityを`completion-pending`へ先に`chrome.storage.local`へ保存し、local draft削除はその後のIndexedDB CASとして実行する。
+  - 削除直前に`updatedAt`またはfingerprintが一致しない場合、または原本が既に存在しない場合は、draft削除を成功扱いにせず原本を保持したまま、確定済みclaimのmetadataを`completed`として耐久保存する。`completed`は同一manual／identityの再通知を冪等成功として扱い、編集画面は旧handoffを未確定として優先せず、同じdraft IDの新しいhandoffを開始できる。
+  - `chrome.storage.local`またはIndexedDBの技術障害はdraft変更と分類せず、既存の未確定状態（`finalize-pending`または`completion-pending`）を維持して同じidentityで再試行する。TTL後のGET-only recoveryとidentity／manual一致検証は維持する。
+- Reason:
+  - 画像転送から完了通知までの編集でCASが不一致になった場合、確定済みclaimを`finalize-pending`へ残すと、編集画面が古いhandoffを再利用して新しいdraftを保存できない永久ループになる。完了の耐久保存と削除CASを分離して、確定済みclaimと新しい編集を両立させる。
+- Boundary:
+  - D1/R2 claim、manual内容、asset、TTL、共有・公開・削除APIの契約は変更しない。local draftの削除だけを確定済みclaimのCAS付き後処理として扱う。

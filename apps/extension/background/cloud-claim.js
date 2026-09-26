@@ -399,41 +399,64 @@ async function recovery(message, sender) {
 
 async function completed(message, sender) {
   if (!validRequest(message, sender, "handoff.completed") || typeof message.manualId !== "string" || message.manualId.length < 1 || message.manualId.length > 128) return reject("HANDOFF_REQUEST_REJECTED");
-  const key = handoffStorageKey(message.handoffId);
-  const result = await chrome.storage.local.get(key);
-  const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== message.handoffId || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-  if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
-  if (metadata.status === "completed") {
-    if (metadata.operationId || metadata.claimIntentId) {
-      if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+  const handoffId = message.handoffId;
+  const previous = finalizeLocks.get(handoffId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  finalizeLocks.set(handoffId, queued);
+  await previous;
+  try {
+    const key = handoffStorageKey(handoffId);
+    const result = await chrome.storage.local.get(key);
+    const metadata = result?.[key];
+    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== "save") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
+    if (metadata.status === "completed") {
+      if (metadata.operationId || metadata.claimIntentId) {
+        if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+      }
+      return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
     }
-    return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
-  }
-  const recovery = metadata.status === "finalize-pending";
-  if (recovery) {
-    if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
-  } else if (message.operationId || message.claimIntentId || message.draftFingerprint) {
-    if (!validRecoveryIdentity(message) || (metadata.operationId && metadata.operationId !== message.operationId) || (metadata.claimIntentId && metadata.claimIntentId !== message.claimIntentId) || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
-  }
-  if (metadata.status === "completion-pending") {
-    if (metadata.completedManualId !== message.manualId) return reject("COMPLETION_MISMATCH");
+    const recovery = metadata.status === "finalize-pending";
+    if (recovery) {
+      if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+    } else if (message.operationId || message.claimIntentId || message.draftFingerprint) {
+      if (!validRecoveryIdentity(message) || (metadata.operationId && metadata.operationId !== message.operationId) || (metadata.claimIntentId && metadata.claimIntentId !== message.claimIntentId) || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+    }
+    if (metadata.status === "completion-pending" && metadata.completedManualId !== message.manualId) return reject("COMPLETION_MISMATCH");
+    if (!recovery && metadata.status !== "completion-pending" && !isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata.draftUpdatedAt) return reject("DRAFT_CHANGED");
+
+    const completedAt = metadata.completedAt || new Date().toISOString();
+    const pending = {
+      ...metadata,
+      status: "completion-pending",
+      completedManualId: metadata.completedManualId || message.manualId,
+      completedAt
+    };
+    if (metadata.status !== "completion-pending") {
+      // Persist the claim result before attempting local cleanup. A storage failure
+      // keeps the durable identity retryable and must not be treated as a draft edit.
+      await chrome.storage.local.set({ [key]: pending });
+    }
+
     try {
-      const expected = await draftDeleteExpectation(metadata);
-      await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt, expected.canonical);
-    } catch (error) { if (error?.message !== "DRAFT_MISSING") throw error; }
-    await chrome.storage.local.set({ [key]: { ...metadata, status: "completed" } });
-    clearClaimRuntime(message.handoffId);
+      const expected = await draftDeleteExpectation(pending);
+      await transactDraftDelete(pending.draftId, pending.draftUpdatedAt, expected.canonical);
+    } catch (error) {
+      // A changed or already removed local draft is an expected CAS outcome. The
+      // confirmed cloud claim is still completed, while a changed draft remains
+      // available for a new handoff. Other storage failures stay retryable.
+      if (error?.message !== "DRAFT_MISSING" && error?.message !== "DRAFT_CHANGED") throw error;
+    }
+    await chrome.storage.local.set({ [key]: { ...pending, status: "completed" } });
+    clearClaimRuntime(handoffId);
     return { ok: true, status: "completed" };
+  } finally {
+    release();
+    if (finalizeLocks.get(handoffId) === queued) finalizeLocks.delete(handoffId);
   }
-  if (!recovery && !isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-  if (!metadata.draftUpdatedAt) return reject("DRAFT_CHANGED");
-  const expected = await draftDeleteExpectation(metadata);
-  await chrome.storage.local.set({ [key]: { ...metadata, status: "completion-pending", completedManualId: message.manualId, completedAt: new Date().toISOString() } });
-  await transactDraftDelete(metadata.draftId, metadata.draftUpdatedAt, expected.canonical);
-  await chrome.storage.local.set({ [key]: { ...metadata, status: "completed", completedManualId: message.manualId, completedAt: new Date().toISOString() } });
-  clearClaimRuntime(message.handoffId);
-  return { ok: true, status: "completed" };
 }
 
 async function draftDeleteExpectation(metadata) {
@@ -455,16 +478,16 @@ async function transactDraftDelete(id, expectedUpdatedAt, expectedCanonical) {
     await new Promise((resolve, reject) => {
       const transaction = db.transaction("drafts", "readwrite");
       const store = transaction.objectStore("drafts");
-      let abortReason = "DRAFT_MISSING";
+      let abortReason = null;
       const request = store.get(id);
       request.onsuccess = () => {
-        if (!request.result) { transaction.abort(); return; }
+        if (!request.result) { abortReason = "DRAFT_MISSING"; transaction.abort(); return; }
         if (request.result.updatedAt !== expectedUpdatedAt || canonicalDraftJson(request.result) !== expectedCanonical) { abortReason = "DRAFT_CHANGED"; transaction.abort(); return; }
         store.delete(id);
       };
       transaction.oncomplete = resolve;
       transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new Error(abortReason));
+      transaction.onabort = () => reject(new Error(abortReason || transaction.error?.message || "DRAFT_DELETE_FAILED"));
     });
   } finally {
     db.close();

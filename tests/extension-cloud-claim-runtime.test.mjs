@@ -424,14 +424,34 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const changedDraft = { ...draft, title: "同一ms更新" };
     await putDraft(worker, changedDraft);
     const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
-    assert.deepEqual(changedCompletion, { ok: false, error: "DRAFT_CHANGED" });
+    assert.deepEqual(changedCompletion, { ok: true, status: "completed" });
     assert.equal((await getDraft(worker, draft.id)).title, changedDraft.title, "CAS mismatch must retain the changed local draft");
+    assert.equal((await readMetadata(worker, storageKey)).status, "completed", "the confirmed claim must be durably completed after a CAS mismatch");
 
-    await putDraft(worker, draft);
-    const completed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
-    assert.deepEqual(completed, { ok: true, status: "completed" });
-    assert.equal(await getDraft(worker, draft.id), null, "only completed claim may remove the local original");
-    assert.equal((await readMetadata(worker, storageKey)).status, "completed");
+    const nextHandoffId = "B".repeat(43);
+    const nextStorageKey = handoffStorageKey(nextHandoffId);
+    const nextDraftFingerprint = await fingerprintDraft(changedDraft);
+    await worker.evaluate(async ({ key, value }) => chrome.storage.local.set({ [key]: value }), {
+        key: nextStorageKey,
+        value: {
+          handoffId: nextHandoffId,
+          draftId: draft.id,
+          outputAction: "save",
+          draftUpdatedAt: changedDraft.updatedAt,
+          draftFingerprint: nextDraftFingerprint,
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        }
+    });
+    const nextBegin = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: nextHandoffId, action: "save" });
+    assert.equal(nextBegin.ok, true, "a changed draft must be available for a new handoff after the prior claim completes");
+    const nextPrepared = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: nextHandoffId, action: "save" });
+    assert.equal(nextPrepared.ok, true);
+    const nextClaimIntentId = "33333333-3333-4333-8333-333333333333";
+    const nextFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", handoffId: nextHandoffId, action: "save", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
+    assert.deepEqual(nextFinalize, { ok: true, status: "finalize-pending" });
+    const nextCompleted = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: nextHandoffId, action: "save", manualId: "manual-cas-2", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
+    assert.deepEqual(nextCompleted, { ok: true, status: "completed" });
+    assert.equal(await getDraft(worker, draft.id), null, "an unchanged draft is removed only after its own claim completes");
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId, action: "save" }), {
       ok: true,
       status: "completed",

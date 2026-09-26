@@ -29,7 +29,7 @@ Status: Proposed
 - 最初のbootstrap／claim-intent／asset PUTより前に、Webは外部message `handoff.begin`を拡張機能へ送り、`chrome.storage.local`でhandoffごとのoperation identityを排他的・耐久的に確定する。同じhandoffを複数タブで開始しても、全タブは返されたcanonical operationIdを使う。既存operationの再訪はread-onlyで元の`expiresAt`を返し、期限後にoperationを再発行しない。
 - 拡張機能のasset slot開始はslot単位で直列化し、並行した同一slotのマスク変換・digest完了が100MiB transfer会計へ二重計上されないようにする。異なるslotのparallel chunks契約は維持する。
 - マスク処理後の画像は`OffscreenCanvas`／`createImageBitmap`でPNGへcanonicalizeし、192KiB bounded chunkへ分割する。許可形式はPNG、JPEG、WebP、1asset 10MiB、claim合計100MiB、100assetを上限とする。raw data URLは送信しない。
-- draftはcanonical JSONからSHA-256 fingerprintを計算する。handoff時の`updatedAt`とfingerprintを保存し、送信直前に再計算して変更があれば停止する。成功確認前にlocal原本を削除しない。
+- draftはcanonical JSONからSHA-256 fingerprintを計算する。handoff時の`updatedAt`とfingerprintを保存し、送信直前に再計算して変更があれば停止する。完了通知は`completion-pending`を先に耐久保存し、削除直前のCASで変更されたdraftや原本missingは削除せずにclaim metadataを`completed`として保存する。技術的なstorage failureは変更draftと扱わず、既存の未確定状態（`finalize-pending`または`completion-pending`）を維持して同じidentityで再試行する。通常のCAS成功時だけlocal原本を削除し、確定済みhandoffとは別の新しいhandoffを開始できる。
 - `/manuals`はAccess user、active identity、active personal workspace、active owner membershipをすべて満たす場合だけ表示する。service token、disabled identity、suspended workspace、inactive membershipは403とする。
 - claim intent、asset取得・再送、reserve、staged遷移、finalize、status照会は、毎回active identity・workspace・owner membershipを再検証する。owner喪失後のupload、status、finalize再送はfail closedにする。
 - finalize POSTの直前に拡張機能のlocal durable metadataへ`operationId`、`claimIntentId`、draft fingerprintを`finalize-pending`として保存する。TTL後の回収は同じidentityのGET `completed`照会と同じmanualIdの完了通知だけに限定し、期限後のprepare／asset upload／新規claim intent／通常finalizeを許可しない。編集画面は同じdraft fingerprintの未確定handoffを再利用し、結果不明のまま重複handoffを作らない。
@@ -41,7 +41,7 @@ Status: Proposed
 
 - staging以外のorigin、未知message、handoff不一致、期限切れ、chunk順序飛び、上限超過、credentialを含むmessageを拒否し、local draftに副作用がない。
 - mask焼き込み後のPNG bytesにraw screenshotが残らず、guest本文・画像・対象URL・秘密値をWebの保存領域、URL、ログへ保存しない。拡張機能のlocal draft原本はclaim成功確認まで保持する。
-- response loss、cancel、retry、changed draftでは原本を保持し、同じoperation／fingerprintで結果を照合する。別manual、別asset、別object keyを作らない。
+- response loss、cancel、retry、changed draftでは原本を保持し、同じoperation／fingerprintで結果を照合する。claim完了後の削除CASが不一致になった場合も新しいdraftを削除せず、確定済みmetadataをdurableに`completed`として保存して次handoffを許可する。別manual、別asset、別object keyを作らない。metadata保存やIndexedDBの技術障害は編集済み扱いにせず、既存の未確定状態（`finalize-pending`または`completion-pending`）から再試行する。
 - finalize完了後の応答喪失では、Web reload・service worker restart・TTL経過後も`handoff/operation/claimIntent/fingerprint`の一致を確認して同じmanualIdを回収する。`pending`、`expired`、`completed`、結果不明を区別し、`expired`／未知結果を新規書込みの成功とは扱わない。
 - Webで一覧→詳細→編集再保存ができ、version競合時にフォーム入力を保持する。
 - owner membershipを無効化した後のclaim status、asset upload、finalize再送が拒否され、別workspaceのresource ID差し替えも拒否される。

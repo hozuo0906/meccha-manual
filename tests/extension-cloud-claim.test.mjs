@@ -59,6 +59,18 @@ test("pending handoff recovery is reused for the same draft even after a draft e
   assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", recovered.handoffId, "b".repeat(32), recovered), /operationId=O{43}&claimIntentId=00000000-0000-4000-8000-000000000000&draftFingerprint=b{64}$/);
 });
 
+test("completed handoff is not selected for a changed draft", async () => {
+  const storage = {
+    async get() { return {
+      "meccha-manual:handoff:completed": {
+        handoffId: "A".repeat(43), draftId: "draft-1", draftFingerprint: "b".repeat(64), outputAction: "save",
+        status: "completed", operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000", completedManualId: "manual-1"
+      }
+    }; }
+  };
+  assert.equal(await findRecoverableHandoff("draft-1", "a".repeat(64), storage), null);
+});
+
 test("extension distribution is pinned to staging and version 0.1.2", async () => {
   const manifest = JSON.parse(await readFile("apps/extension/manifest.json", "utf8"));
   assert.equal(manifest.version, "0.1.2");
