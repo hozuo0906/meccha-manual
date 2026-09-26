@@ -55,9 +55,11 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     await page.getByRole("button", { name: "共有テスト" }).click();
     await page.getByText("共有リンクは再読み込み後に復元できません").waitFor();
     await page.once("dialog", (dialog) => dialog.accept());
+    const revokeResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/${manualId}/share-links` && response.request().method() === "DELETE" && response.status() === 200);
     await page.getByRole("button", { name: "共有を停止して再発行" }).click();
-    assert.deepEqual(revokeBody, { shareLinkId: "share-1" });
     await page.getByRole("button", { name: "共有リンクを発行" }).waitFor();
+    assert.equal((await revokeResponse).status(), 200);
+    assert.deepEqual(revokeBody, { shareLinkId: "share-1" });
     failPostOnce = true;
     await page.getByLabel("パスコード（12〜128文字）").fill("十分に長い共有用コードです");
     await page.getByLabel("発行時点の内容と期限を確認しました").check();
