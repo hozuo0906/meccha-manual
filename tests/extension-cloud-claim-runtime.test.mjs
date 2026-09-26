@@ -212,10 +212,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const updatedAt = "2026-09-23T00:00:00.000Z";
     const draft = {
       id: "runtime-claim-draft",
-      title: "隔離ランタイム検証",
-      description: "合成データのみ",
+      title: "髫秘屬繝ｩ繝ｳ繧ｿ繧､繝讀懆ｨｼ",
+      description: "蜷域・繝・・繧ｿ縺ｮ縺ｿ",
       updatedAt,
-      steps: [{ id: "step-1", order: 1, instruction: "合成操作", screenshotId: "asset-1" }],
+      steps: [{ id: "step-1", order: 1, instruction: "蜷域・謫堺ｽ・, screenshotId: "asset-1" }],
       screenshots: [{ id: "asset-1", dataUrl, masks: [{ x: 0.25, y: 0.25, width: 0.25, height: 0.25 }] }]
     };
     const draftFingerprint = await fingerprintDraft(draft);
@@ -247,8 +247,6 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const begunMetadata = await readMetadata(worker, storageKey);
     assert.equal(begunMetadata.operationId, beginResults[0].operationId);
     assert.equal(begunMetadata.expiresAt, originalExpiresAt, "begin must preserve the original TTL");
-    await secondTab.close();
-
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(prepared.ok, true);
     assert.equal(prepared.status, "ready");
@@ -264,14 +262,21 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
 
     const outOfOrder = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 1 });
     assert.deepEqual(outOfOrder, { ok: false, error: "CHUNK_SEQUENCE_INVALID" });
+    const chunkPages = [page, secondTab];
+    const concurrentFirstChunks = await Promise.all(chunkPages.map((chunkPage) => sendExternal(chunkPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 0 })));
+    assert.equal(concurrentFirstChunks.filter((result) => result.ok).length, 1, "parallel tabs must consume one sequence exactly once");
+    assert.deepEqual(concurrentFirstChunks.filter((result) => !result.ok), [{ ok: false, error: "CHUNK_SEQUENCE_INVALID" }]);
+    const winningChunkPage = chunkPages[concurrentFirstChunks.findIndex((result) => result.ok)];
     const chunks = [];
-    for (let sequence = 0; sequence < started.totalChunks; sequence += 1) {
-      const result = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence });
+    chunks.push(concurrentFirstChunks.find((result) => result.ok).chunk);
+    for (let sequence = 1; sequence < started.totalChunks; sequence += 1) {
+      const result = await sendExternal(winningChunkPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence });
       assert.equal(result.ok, true);
       assert.equal(result.sequence, sequence);
       assert.equal(result.done, sequence === started.totalChunks - 1);
       chunks.push(result.chunk);
     }
+    await secondTab.close();
     const encoded = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
     assert.equal(Buffer.from(encoded, "base64").byteLength, started.byteLength);
     const pixels = await decodeSelectedPixels(page, encoded);
@@ -418,7 +423,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
       expiresAt: expiredAt
     }, "recovery must return the original identity and TTL without extending it");
 
-    const changedDraft = { ...draft, title: "同一ms更新" };
+    const changedDraft = { ...draft, title: "蜷御ｸms譖ｴ譁ｰ" };
     await putDraft(worker, changedDraft);
     const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
     assert.deepEqual(changedCompletion, { ok: false, error: "DRAFT_CHANGED" });
@@ -446,3 +451,4 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
   }
 });
+
