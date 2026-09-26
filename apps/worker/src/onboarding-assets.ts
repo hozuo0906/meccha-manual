@@ -340,7 +340,7 @@ export const ONBOARDING_JS = `(() => {
     message("手順書を保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
     if (isShare) message("共有用の保存が完了しました。共有設定を開いて発行を確認してください。", "success");
-    setButton("保存した手順書を開く");
+    setButton(isShare ? "共有設定を開く" : "保存した手順書を開く");
     button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);
   }
@@ -384,7 +384,7 @@ export const ONBOARDING_JS = `(() => {
   async function claimDraft(context, bootstrapPayload) {
     const extensionId = extensionIdFor(context);
     if (!extensionId) {
-      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.2へ更新して、編集画面からもう一度進んでください。", "error");
+      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.3へ更新して、編集画面からもう一度進んでください。", "error");
       setButton("拡張機能からやり直す", true);
       return false;
     }
