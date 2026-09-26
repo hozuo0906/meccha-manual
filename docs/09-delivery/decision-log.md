@@ -393,3 +393,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 画像転送から完了通知までの編集でCASが不一致になった場合、確定済みclaimを`finalize-pending`へ残すと、編集画面が古いhandoffを再利用して新しいdraftを保存できない永久ループになる。完了の耐久保存と削除CASを分離して、確定済みclaimと新しい編集を両立させる。
 - Boundary:
   - D1/R2 claim、manual内容、asset、TTL、共有・公開・削除APIの契約は変更しない。local draftの削除だけを確定済みclaimのCAS付き後処理として扱う。
+
+## DEC-061: D1共有リンクはimmutable snapshotと短期grantで提供する
+
+- Status: Accepted
+- Date: 2026-09-26
+- Decision:
+  - 共有発行は明示確認、期限、passcodeを必須にし、draft revision/content versionをCAS照合した同一D1 batchで公開snapshotとshare linkを作る。draft編集は公開内容を変更しない。
+  - token/grantは256 bit乱数のdigestだけ、passcodeはsalt付きPBKDF2-HMAC-SHA-256で保存する。匿名経路は `/s/` 配下に限定し、本文・assetごとにgrant、期限、失効、workspace、manual、発行者active membershipを再検証する。
+- Reason:
+  - 下書き漏洩、古いgrantの再利用、R2公開URLの失効迂回、複数タブの二重発行を同時に防ぐため。
+- Boundary:
+  - production binding、Access policy、remote migration、deploy、PDF、課金は対象外とする。

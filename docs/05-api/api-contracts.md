@@ -99,6 +99,22 @@ Status: Accepted
 
 flagをtrueからfalseへ戻した場合は新規処理の拒否だけで終えない。egress kill switchで既存Browserの全通信を先に遮断し、全Durable Objectへ終了commandを送信し、Live View URLを即時失効して再発行を拒否し、Browser sessionのclose完了まで監査・再試行する。
 
+## D1共有リンク API（Issue #258 / D）
+
+Status: Accepted
+
+管理APIはAccess認証済みのowner/admin/editorだけに公開し、同一originのJSON bodyで明示確認・期限・passcode・期待draft revision・content version・operation IDを受け取る。`POST /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は、現在のdraftをCAS照合してimmutable published snapshotとread-only linkを同一D1 batchで作成する。active linkがある場合は拒否し、`DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` はbodyの`shareLinkId`を対象に停止する。`GET` は再読み込み後の停止操作に必要なlink metadataだけを返す。
+
+匿名viewerは `/s/` と次のAPIだけを使う。生tokenはURL query/pathへ置かず、viewer fragmentから `X-Share-Token` headerへ移す。未知の `/s/*` は404、認証失敗・期限切れ・誤passcode・失効済みは同じ拒否結果にする。
+
+| API | 入力 | 成功 | 再検証・境界 |
+|---|---|---|---|
+| `POST /s/api/resolve` | `X-Share-Token`、`{ "passcode": "..." }` | 短期grantを一度だけ返す | token digest、passcode KDF、link/manual/revision/workspace、期限、失効、発行者active membershipを検証。grant平文は保存しない |
+| `POST /s/api/content` | `X-Share-Grant` | 公開snapshot本文とstep metadata | 毎回grantと全scopeを再検証。read-only、`Cache-Control: private, no-store` |
+| `GET /s/api/assets/{assetId}` | `X-Share-Grant` | private R2からのasset bytes | snapshot step、workspace、completed claim asset/intent、grant、期限、失効を再検証。signed URLとpublic bucketは禁止 |
+
+本文とassetは共有cacheへ流さず、Referrer-Policy、CSP、X-Content-Type-Optionsを付ける。応答消失時は同じoperation IDと同じclient tokenを再送して照合し、異なる期限やdraft CASで別linkを作らない。既に受信済みのbytesを回収できるとは主張しない。
+
 ## 課金API contract
 
 `POST /v1/billing/checkout-intents` は次のofferだけを受け付ける。
