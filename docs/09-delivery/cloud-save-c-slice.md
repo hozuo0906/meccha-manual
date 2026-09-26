@@ -18,7 +18,7 @@ Status: Proposed
 
 同じ配布物を更新する場合は、最初に読み込んだ同じ導入フォルダのファイルを置き換え、拡張機能管理画面で再読み込みする。拡張機能をアンインストールするとlocal storageと下書きを失う可能性があるため、更新確認のためにアンインストールしない。
 
-この導入操作から実stagingで保存・一覧再表示・全step編集再保存までを通す確認は未実施である。isolated Chromium／実MV3 runtimeの回帰成功はこの利用者導入の証跡とは別であり、実Chrome導入の代替にしない。メールアドレス、token、実ID、実データはこの文書やログへ記録しない。実staging反映、migration／deploy、完了を示す最終SHAは未実施であり、確認時はIssue #70とPR #256のlive stateを参照する。
+この導入操作から実stagingで保存・一覧再表示・全step編集再保存までを通す確認は、Issue #70とPR #256のlive stateで確認する。isolated Chromium／実MV3 runtimeの回帰成功はこの利用者導入の証跡とは別であり、実Chrome導入の代替にしない。メールアドレス、token、実ID、実データはこの文書やログへ記録しない。実staging反映、migration／deploy、完了を示す最終SHAはこの文書から判断せず、確認時はIssue #70とPR #256のlive stateを正とする。
 
 ## 固定契約
 

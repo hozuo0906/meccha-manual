@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import { unstable_splitSqlQuery } from "wrangler";
 import { D1RepositoryError } from "../apps/worker/src/infra/d1/d1-errors.ts";
 import { D1IdentityRepository } from "../apps/worker/src/infra/d1/identity-repository.ts";
 import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-repository.ts";
@@ -10,8 +12,10 @@ import { D1OnboardingRepository } from "../apps/worker/src/infra/d1/onboarding-r
 const migrationPaths = [
   new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
   new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
-  new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url)
+  new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url),
+  new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url)
 ];
+const d1BindingMigrationPaths = migrationPaths.slice(0, 3);
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
 const TEST_TIMEOUT_MS = 45_000;
@@ -22,6 +26,55 @@ const options = {
     ? { skip: "Miniflare v5 D1 binding hangs on Windows; this smoke test runs on hosted Linux CI only." }
     : {})
 };
+
+test("C migration remains importable through Wrangler's D1 SQL splitter", async () => {
+  const migration = await readFile(new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url), "utf8");
+  const statements = unstable_splitSqlQuery(migration);
+  const draftTrigger = statements.find((statement) => statement.includes("CREATE TRIGGER manual_revision_sync_draft"));
+
+  assert.ok(draftTrigger, "manual draft synchronization trigger must remain one split statement");
+  assert.match(draftTrigger, /SELECT RAISE\(ABORT/u);
+  assert.match(draftTrigger, /changes\(\)/u);
+  assert.doesNotMatch(draftTrigger, /\bCASE\b/u, "D1 trigger body must avoid nested CASE/END parser ambiguity");
+
+  const database = new DatabaseSync(":memory:");
+  try {
+    for (const migrationPath of migrationPaths) {
+      for (const statement of unstable_splitSqlQuery(await readFile(migrationPath, "utf8"))) database.exec(statement);
+    }
+    const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+    assert.ok(tables.some((row) => row.name === "manual_revisions"));
+    assert.ok(tables.some((row) => row.name === "claim_assets"));
+
+    database.exec(`
+      INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at)
+      VALUES ('parser-owner', 'issuer', 'parser-owner', 'active', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z');
+      INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind)
+      VALUES ('parser-workspace', 'Parser workspace', 'parser-workspace', 'active', 'parser-owner', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z', 'personal');
+      INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at)
+      VALUES ('parser-workspace', 'parser-owner', 'owner', 'active', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z');
+      INSERT INTO manuals(id, workspace_id, title, status, current_draft_revision_id, created_by, created_at, updated_at)
+      VALUES ('parser-manual', 'parser-workspace', 'Original title', 'draft', 'parser-revision', 'parser-owner', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z');
+      INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at)
+      VALUES ('parser-revision', 'parser-workspace', 'parser-manual', 1, 'draft', 'Original title', '', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z');
+    `);
+    database.prepare("UPDATE manual_revisions SET title = ?, content_version = ?, updated_at = ? WHERE id = ?")
+      .run("Synchronized title", "b".repeat(32), "2026-09-26T00:01:00.000Z", "parser-revision");
+    assert.equal(database.prepare("SELECT title FROM manuals WHERE id = 'parser-manual'").get().title, "Synchronized title");
+
+    database.prepare("UPDATE manuals SET current_draft_revision_id = ? WHERE id = ?").run("missing-revision", "parser-manual");
+    const beforeRejectedRevision = database.prepare("SELECT title, content_version, updated_at FROM manual_revisions WHERE id = ?").get("parser-revision");
+    assert.throws(
+      () => database.prepare("UPDATE manual_revisions SET title = ?, content_version = ?, updated_at = ? WHERE id = ?")
+        .run("Rejected title", "c".repeat(32), "2026-09-26T00:02:00.000Z", "parser-revision"),
+      /draft manual pointer mismatch/u
+    );
+    assert.deepEqual(database.prepare("SELECT title, content_version, updated_at FROM manual_revisions WHERE id = ?").get("parser-revision"), beforeRejectedRevision);
+    assert.equal(database.prepare("SELECT title FROM manuals WHERE id = 'parser-manual'").get().title, "Synchronized title");
+  } finally {
+    database.close();
+  }
+});
 
 test("Miniflare D1 binding applies migration and exercises the real workspace repository", options, async () => {
   if (process.platform === "win32") return;
@@ -47,7 +100,7 @@ test("Miniflare D1 binding applies migration and exercises the real workspace re
     disposeTimer.unref?.();
 
     const db = await miniflare.getD1Database("DB");
-    for (const migrationPath of migrationPaths) await applyMigration(db, await readFile(migrationPath, "utf8"));
+    for (const migrationPath of d1BindingMigrationPaths) await applyMigration(db, await readFile(migrationPath, "utf8"));
     await assertMigrationAndSeed(db);
 
     const identities = new D1IdentityRepository(db);

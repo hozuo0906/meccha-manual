@@ -32,7 +32,13 @@ remote D1 migrationは次の順番を守る。
 
 各migrationの適用結果、D1 workspace越境拒否、未認証／unknown actor拒否、同一operation再送、失敗時rollbackを staging の検証証跡として確認する。`0004`はCのclaim／asset／manual境界とR2 bindingのgateであり、B1〜B3のbootstrap検証済みを置き換えない。migrationファイルを追加しただけ、またはdry-runだけでは適用済みと扱わない。
 
-現行C `0.1.2`では、上記のD1／rate limiterに加えて、private R2の `MANUAL_ASSETS` bindingをstaging Workerへ接続し、`0004_d1_cloud_manual_claim.sql`でclaim／asset／manualの記録境界を適用する。拡張機能から受け取る手順書本文とマスク後のPNG画像は、このC経路のclaim／asset転送で扱う。これはB履歴の範囲を更新するものではなく、Cの別runbookで管理する。実stagingのmigration・binding・deployは現時点で未実施であり、この追記を適用済みの証跡にしない。
+現行C `0.1.2`では、上記のD1／rate limiterに加えて、private R2の `MANUAL_ASSETS` bindingをstaging Workerへ接続し、`0004_d1_cloud_manual_claim.sql`でclaim／asset／manualの記録境界を適用する。拡張機能から受け取る手順書本文とマスク後のPNG画像は、このC経路のclaim／asset転送で扱う。これはB履歴の範囲を更新するものではなく、Cの別runbookで管理する。実stagingのmigration・binding・deployの反映状態はこの文書から判断せず、Issue #70とPR #256のlive stateを正とする。
+
+### `0004` のD1リモートSQLパーサー互換性
+
+2026-09-26のowner限定staging事前確認で、`0004_d1_cloud_manual_claim.sql`の `manual_revision_sync_draft` triggerにあった `SELECT CASE WHEN ... THEN RAISE(...) END;` が、D1 remote executeで `incomplete input`（`SQLITE_ERROR 7500`）になった。ファイルの改行形式やGit blobの内容差分ではなく、trigger本体内のネストした `CASE ... END` をD1側のSQLパーサーが誤って終端として扱う互換性問題である。同じguardを `SELECT RAISE(...) WHERE (SELECT changes()) <> 1;` に置き換えると、DB変更なしのparse確認は成功した。
+
+この修正はdraft manual pointer mismatchのabort条件を保持し、Wranglerの `unstable_splitSqlQuery` で分割した全migration statementをローカルSQLiteへ順番にimportする回帰テストで確認する。remote migrationの適用済み・deploy済みという判定はこの修正やテストだけでは行わず、Issue #70とPR #256のlive stateを確認する。
 
 ### Windows checkoutの既存migrationをLFへ正規化する手順
 
