@@ -73,9 +73,13 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await fillShareForm();
     await page.locator("#cloud-message.warning").waitFor();
     assert.equal(postBodies.length, 0);
+    const detailReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1` && response.request().method() === "GET" && response.status() === 200);
+    const metadataReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "GET" && response.status() === 200);
     await page.once("dialog", (dialog) => dialog.accept());
     await list.nth(0).click();
-    await page.locator("[data-share-passcode]").waitFor();
+    assert.equal((await detailReloadResponse).status(), 200);
+    assert.equal((await metadataReloadResponse).status(), 200);
+    await page.waitForFunction(() => document.querySelector('input[aria-label="タイトル"]')?.value === "Manual One" && document.querySelector("[data-share-passcode]")?.isConnected);
 
     for (const status of [400, 403, 409]) {
       failureStatus = status;
@@ -85,7 +89,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       const response = await responsePromise;
       assert.equal(response.status(), status);
       assert.equal(postBodies.length, expectedPostCount);
-      await page.locator("#cloud-message.error").waitFor();
+      await page.getByText(`拒否 ${status}`, { exact: true }).waitFor();
       assert.equal(postBodies.at(-1)?.body.confirmed, true);
       assert.equal(await page.locator("input.share-link-value").count(), 0);
     }
