@@ -178,24 +178,30 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+function removeTransfer(key, transfer) {
+  if (transfers.get(key) !== transfer) return false;
+  transfers.delete(key);
+  transferBytesTotal = Math.max(0, transferBytesTotal - transfer.bytes.byteLength);
+  return true;
+}
+
 function transferFor(handoffId, assetSlot) {
   const key = `${handoffId}:${assetSlot}`;
   const transfer = transfers.get(key);
   if (transfer && transfer.expiresAt > Date.now()) return transfer;
-  transfers.delete(key);
+  if (transfer) removeTransfer(key, transfer);
   return null;
 }
 
 function cleanupTransfers() {
-  for (const [key, value] of transfers) if (value.expiresAt <= Date.now()) { transferBytesTotal = Math.max(0, transferBytesTotal - value.bytes.byteLength); transfers.delete(key); }
+  for (const [key, value] of transfers) if (value.expiresAt <= Date.now()) removeTransfer(key, value);
   for (const [key, value] of snapshots) if (value.expiresAt <= Date.now()) { snapshotBytesTotal = Math.max(0, snapshotBytesTotal - value.estimatedBytes); snapshots.delete(key); }
 }
 
 function clearClaimRuntime(handoffId) {
   for (const [key, value] of transfers) {
     if (!key.startsWith(`${handoffId}:`)) continue;
-    transferBytesTotal = Math.max(0, transferBytesTotal - value.bytes.byteLength);
-    transfers.delete(key);
+    removeTransfer(key, value);
   }
   const snapshot = snapshots.get(handoffId);
   if (snapshot) {
@@ -286,7 +292,7 @@ async function startAsset(message, sender) {
     if (transferBytesTotal - existingBytes + transferBytesReserved + totalBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
     reservedBytes = Math.max(0, totalBytes - existingBytes);
     transferBytesReserved += reservedBytes;
-    if (existing) transferBytesTotal = Math.max(0, transferBytesTotal - existingBytes);
+    if (existing) removeTransfer(transferKey, existing);
     transfers.set(transferKey, { bytes, digest, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
     transferBytesTotal += totalBytes;
     return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType: "image/png", byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
@@ -320,7 +326,7 @@ async function assetChunk(message, sender) {
     transfer.nextSequence += 1;
     const done = start + chunk.byteLength === transfer.bytes.byteLength;
     const result = { ok: true, assetSlot: message.assetSlot, sequence: message.sequence, totalChunks, chunk: bytesToBase64(chunk), done };
-    if (done) { transferBytesTotal -= transfer.bytes.byteLength; transfers.delete(transferKey); }
+    if (done) removeTransfer(transferKey, transfer);
     return result;
   } finally {
     release();

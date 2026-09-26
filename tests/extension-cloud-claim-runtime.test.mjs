@@ -149,10 +149,8 @@ async function readMetadata(worker, key) {
   }), key);
 }
 
-async function createNoisePng(page) {
-  return page.evaluate(() => {
-    const width = 384;
-    const height = 384;
+async function createNoisePng(page, width = 384, height = 384) {
+  return page.evaluate(({ width, height }) => {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -177,7 +175,7 @@ async function createNoisePng(page) {
     }
     context.putImageData(image, 0, 0);
     return { dataUrl: canvas.toDataURL("image/png"), width, height };
-  });
+  }, { width, height });
 }
 
 async function decodeSelectedPixels(page, base64) {
@@ -446,6 +444,70 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint }), { ok: true, status: "completed" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-other", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "different-manual", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
+test("MV3 expired in-flight transfer releases capacity exactly once", { timeout: 120_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  let worker;
+  let extensionId;
+  try {
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const page = await createStagingPage(context);
+    const { dataUrl } = await createNoisePng(page, 1450, 1450);
+    const updatedAt = "2026-09-23T00:00:00.000Z";
+    const draft = {
+      id: "runtime-transfer-expiry-draft",
+      title: "転送期限会計検証",
+      description: "合成データのみ",
+      updatedAt,
+      steps: [],
+      screenshots: [{ id: "asset-0", dataUrl, masks: [] }]
+    };
+    const draftFingerprint = await fingerprintDraft(draft);
+    const handoffId = "B".repeat(43);
+    const storageKey = handoffStorageKey(handoffId);
+    await putDraft(worker, draft);
+    await setMetadata(worker, storageKey, {
+      handoffId,
+      draftId: draft.id,
+      outputAction: "save",
+      extensionId,
+      createdAt: "2026-09-23T00:00:00.000Z",
+      draftUpdatedAt: updatedAt,
+      draftFingerprint,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    });
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId, action: "save" })).ok, true);
+    const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
+    assert.equal(prepared.ok, true);
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const started = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+      assert.equal(started.ok, true);
+      assert.ok(started.byteLength > 6 * 1024 * 1024, "fixture must make the total transfer limit observable");
+      await worker.evaluate(() => {
+        const originalDateNow = Date.now;
+        const base = originalDateNow();
+        let calls = 0;
+        globalThis.__cloudClaimTestOriginalDateNow = originalDateNow;
+        // cleanupTransfers and the first transfer lookup stay before expiry; readHandoff then crosses it before the second lookup.
+        Date.now = () => (calls++ < 3 ? base : base + 11 * 60 * 1000);
+      });
+      const expiredChunk = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 0, sequence: 0 });
+      assert.deepEqual(expiredChunk, { ok: false, error: "CHUNK_SEQUENCE_INVALID" }, "expiry after the first lookup must remove the in-flight transfer");
+      await worker.evaluate(() => {
+        Date.now = globalThis.__cloudClaimTestOriginalDateNow;
+        delete globalThis.__cloudClaimTestOriginalDateNow;
+      });
+    }
+
+    const restartedStart = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
+    assert.equal(restartedStart.ok, true, "capacity must recover after every expired transfer is removed");
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
