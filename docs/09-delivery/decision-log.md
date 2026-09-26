@@ -333,3 +333,63 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - bootstrapの確定結果を別tenantのworkspaceへ直接挿入・移動・削除して再送判定を変えられないようにし、`createdIdentity`とserver-generated eventのexactly-once結果を保持する。
 - Boundary:
   - 対象はS2 onboarding bootstrapの2 tableとそれらが参照する既存identity／workspace／membershipの整合性だけである。既存のworkspace identity、workspace kind、owner保護triggerを再定義しない。remote D1へのmigration適用やproduction変更は含まない。
+
+## DEC-078: C sliceのcloud manual保存DTOとasset再送境界を固定する
+
+- Status: Accepted
+- Date: 2026-09-22
+- Decision:
+  - guest claimのfinalizeと既存手順書編集は、手順の種類・見出し・本文・操作種別・対象・URL・asset参照を含むserver-side expanded DTOへ正規化する。既存手順書の更新は`PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft`へ集約し、`expectedUpdatedAt`、全step配列、workspace／revision固定集合をD1 batchで照合して一度に保存する。409では入力中の値を破棄せず、GETで`contentVersion`を照合して再開する。
+  - staged imageは1件ごとのbounded PUTとし、`X-Asset-Byte-Length`、実bodyのSHA-256、PNG/JPEG/WebP signatureを検証する。R2 keyは`{workspace_id}/manuals/{claim_intent_id}/{asset_id}.{ext}`の4要素に固定し、asset IDはclaim intentとslotから決定的に導出する。同じslotの再送は固定ID・key・5項目metadata・size・digestが一致した場合だけ同じ結果を返し、R2 PUT結果不明はhead照合なしに成功扱いしない。
+  - C sliceのsessionはMANUAL_ASSETS bindingが存在する環境だけ`manuals.status: ready`とし、未設定環境は`migration`のままfail closedにする。`members.status: migration`、publish/archive/share/PDFの有効化は含めない。production D1/R2への適用や本番binding準備は含めない。
+- Reason:
+  - 個別step保存は途中成功後の再送で編集中の値を失うため、revision全体のCASへ集約する。R2とD1の不一致や並行PUTによるtenant越境・容量超過を固定metadata、D1制約、同一operation照合でfail closedにする。
+- Boundary:
+  - Claim用のassetSlotはfinalize中だけ許可し、D1保存後のAPI応答やR2 metadataへguest handoff ID、extension ID、URL本文、入力値、秘密値を含めない。共有、公開、削除、PDF、production操作は対象外とする。
+
+### DEC-078-C: claim asset reservation before R2 PUT
+
+- 状態: Accepted
+- 日付: 2026-09-23
+- claim assetはR2 PUT前にD1の`reserved`行をatomicに確保し、reserved/staged/completedを合計して100MiBを超えないようにする。PUT後は同じ固定asset ID、object key、digest、metadataを照合してstagedへ遷移する。結果不明時は予約を保持し、同じkeyの再送でreconcileする。遅延したPUTによる容量超過を避けるため、未確認の予約を自動削除しない。
+
+### DEC-078-E: same-handoff operation identity and asset slot accounting
+
+- Status: Accepted
+- Date: 2026-09-23
+- Decision:
+  - Webの最初のcloud writeより前に`handoff.begin`を送り、拡張機能の`chrome.storage.local`を正本としてhandoffごとのcanonical `operationId`を排他的に確定する。同じhandoffを複数タブで開始しても、全タブは同じoperationを採用し、既存identityの再訪・期限後はread-onlyで扱う。
+  - editorの保存開始は、同じextension originのdraft IDを名前にしたWeb Locks APIの排他lockを取得してから、既存handoffのlookup、handoff生成、metadata保存、登録画面タブ作成までを一つの区間で実行する。Web Locksを取得できない場合は副作用なしで停止する。
+  - draft fingerprintは`updatedAt`を除く内容（id、タイトル、説明、手順、画像、mask）のSHA-256とし、同じ内容を再保存したeditor間でcanonical handoffを再利用する。削除CASのcanonical JSONと`updatedAt`比較は従来どおり保持し、実内容の編集は別fingerprintとして新handoffへ分離する。
+  - 拡張機能の`handoff.asset.start`は同一handoff・slotを直列化し、並行digest完了でtransferの100MiB会計を二重計上しない。slot間のparallel chunksは維持する。
+- Reason:
+  - `sessionStorage`はタブごとに分離され、finalize lockだけではbootstrap、claim intent、asset PUT後の最大100MiB orphanを防げない。slot単位の会計競合も、同一slotのparallel startで既存値を同時に見失う。
+- Boundary:
+  - operationのserver idempotency、claim API／D1／R2の認可契約、TTL後のGET-only回収、変更draftのCASは変更しない。外部messageは既存schemaの`handoff.begin`を追加し、既存のsender／handoff／action検証を適用する。未確定の`finalize-pending`／`completion-pending`はTTL後・編集後も既存回収を優先し、`completed`は再利用しない。旧metadataは既存fingerprintを照合するread-only互換に留め、新形式へ自動移行しない。
+
+### DEC-078-D: finalize完了後のTTL回収identity
+
+- Status: Accepted
+- Date: 2026-09-23
+- Decision:
+  - finalize POST直前に、拡張機能の`chrome.storage.local`へ同じhandoffの`operationId`、`claimIntentId`、draft fingerprintを`finalize-pending`として保存する。保存対象は結果回収identityだけで、期限後のprepare、asset upload、claim-intent作成、通常finalizeを許可しない。
+  - Web reload・service worker restart・handoff URL再訪では、同じidentityを復元してclaim statusをGETする。`completed`だけを同じmanualIdの完了通知へ進め、`pending`、`expired`、未知結果を新規operationの作成で解消しない。編集画面は同じdraft fingerprintの未確定handoffを再利用する。
+  - `handoff.recovery`は`status`、operation／intent／fingerprint、元の`expiresAt`、completed時のmanualIdを返すread-only照会とし、Webは元の期限を優先する。通信失敗・不正応答・未知statusは結果不明として同じ照会を再試行し、`RECOVERY_NOT_FOUND`でも期限切れoperationのidentityは再発行しない。
+  - draft fingerprintのCASと同一manualId通知の冪等性を維持し、別operation／intent／fingerprintはfail closedにする。local原本は同じmanualIdの完了確認まで削除しない。
+- Reason:
+  - finalize処理と応答通知が15分TTLをまたぐと、保存済みmanualがあるのに拡張側の最初の完了通知が期限拒否され、再試行で重複handoffを作る危険がある。結果回収identityを先に永続化し、既存completed結果だけを期限後に回収することで、書込み権限を広げずにこの不整合を閉じる。
+- Boundary:
+  - D1/R2の新しい書込み経路、TTL延長、production反映、共有・公開・削除は含めない。`expired`または結果不明を未確認のまま新規claimとして再開しない。
+
+### DEC-078-F: claim完了とlocal draft削除のCAS境界
+
+- Status: Accepted
+- Date: 2026-09-26
+- Decision:
+  - `handoff.completed`はclaimの完了identityを`completion-pending`へ先に`chrome.storage.local`へ保存し、local draft削除はその後のIndexedDB CASとして実行する。
+  - 削除直前に`updatedAt`またはfingerprintが一致しない場合、または原本が既に存在しない場合は、draft削除を成功扱いにせず原本を保持したまま、確定済みclaimのmetadataを`completed`として耐久保存する。`completed`は同一manual／identityの再通知を冪等成功として扱い、編集画面は旧handoffを未確定として優先せず、同じdraft IDの新しいhandoffを開始できる。
+  - `chrome.storage.local`またはIndexedDBの技術障害はdraft変更と分類せず、既存の未確定状態（`finalize-pending`または`completion-pending`）を維持して同じidentityで再試行する。TTL後のGET-only recoveryとidentity／manual一致検証は維持する。
+- Reason:
+  - 画像転送から完了通知までの編集でCASが不一致になった場合、確定済みclaimを`finalize-pending`へ残すと、編集画面が古いhandoffを再利用して新しいdraftを保存できない永久ループになる。完了の耐久保存と削除CASを分離して、確定済みclaimと新しい編集を両立させる。
+- Boundary:
+  - D1/R2 claim、manual内容、asset、TTL、共有・公開・削除APIの契約は変更しない。local draftの削除だけを確定済みclaimのCAS付き後処理として扱う。

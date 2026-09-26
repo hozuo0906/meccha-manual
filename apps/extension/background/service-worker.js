@@ -6,6 +6,7 @@ import { draftStore } from "../storage/draft-store.js";
 import { mergeCaptureEvents } from "./event-merge.js";
 import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
+import { handleExternalCloudClaimMessage } from "./cloud-claim.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
@@ -346,6 +347,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     throw new TypeError("不正なメッセージです");
   })().then((value) => sendResponse({ ok: true, value }), () => sendResponse({ ok: false, error: "操作を完了できませんでした。記録データはこの端末に残っています。もう一度お試しください。" }));
+  return true;
+});
+
+chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
+  handleExternalCloudClaimMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
 });
 

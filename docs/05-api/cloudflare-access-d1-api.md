@@ -62,7 +62,7 @@ M2ではこの2つのexact POST pathを常時 `503 CALLBACK_MIGRATION_IN_PROGRES
 
 `GET /api/session` は検証済みAccess identityをD1のapplication identity、profile、active workspace membershipへ解決する。
 
-Access modeのsession応答は `manuals.status: "migration"` を含む。M4完了まではUIの手順書入口を無効化し、移行中の状態を表示する。
+Access modeのsession応答は、`MANUAL_ASSETS` bindingが利用できる環境だけ `manuals.status: "ready"` とし、bindingがない環境では `manuals.status: "migration"` を返す。`migration` の環境では、claim（画像0件を含む）、manual list/detail、draft PATCH、`/manuals`、cloud manual static assetをすべて `503 MANUAL_MIGRATION_IN_PROGRESS` でfail closedにし、認証・D1/R2書込み・保存済み内容の返却を開始しない。bootstrapと既存の移行中エラー契約は維持する。
 
 - Access JWTなし・不正・期限切れ: 401
 - Access認証済みだが未招待または未登録: 403
@@ -99,14 +99,17 @@ WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないwork
 
 ## Manual API
 
+manual detailはmanual、表示対象revision、active steps、active identity/workspace/member roleを1つのD1 `SELECT`（JSON1 aggregationを含む）で取得し、同一snapshotの値だけをDTOへ組み立てる。別queryの結果を合成しない。
+
 manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能な限り維持する。Postgres SECURITY DEFINER RPCは、単一の条件付きSQL、`D1Database.batch()`、schema constraint/triggerを組み合わせたD1対応のatomic operationと用途別repository methodへ置換する。interactive transaction APIの存在を前提にしない。
 
-- create: manualと最初のdraftを同じatomic operationで作成
-- update: workspace、role、draft state、期待versionを同じatomic operationで照合
+- C sliceのcreateはguest claim finalizeだけで、単独manual create／draft create endpointは公開しない。manual list/detailは認証済みworkspace所属へ限定する。
+- update: workspace、role、draft state、期待version、全step内容を同じ`PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft`のatomic operationで照合する。入力は`title`、`description`、`steps`、`expectedUpdatedAt`の固定DTOで、step配列の順序をpositionとし、既存stepは`id`、新規stepはid省略、`assetId`は同じworkspaceのmanual imageだけを許可する。競合は409で入力値を保持する。
 - publish: manual pointerと期待draft IDを再照合し、公開版を不変化
 - next draft: 期待published IDから複製
 - archive: 期待manual versionを照合し、内容を保持して非破壊化
-- step mutation: draft lock、200件上限、position、URL、body上限を維持
+- step mutation: draft lock、200件上限、position、URL、body上限を維持し、個別step操作ではなくdraft PATCHへ集約する。detail responseの各stepは、asset参照がある場合だけ認可済み同originの`assetUrl`（`/api/workspaces/{workspaceId}/assets/{assetId}`）を返す。
+- step URLは空値を`null`として扱い、HTTP/HTTPSだけを許可する。userinfo、空白・制御文字、backslash、壊れたauthority、範囲外port、`xn--` punycode hostnameを拒否する。Workerは入力を拒否する前にWHATWG `URL`で検証し、`toString()`のASCII正規形（空port・先行ゼロport・標準port、query/fragment encodingを含む）を保存する。入力と正規化後のURLはそれぞれ2048 code point以内、正規化後のserialized budgetも2048以内とし、WorkerとD1 direct RPCの境界を一致させる。
 
 結果不明時の自動再送禁止、古い応答破棄、同一origin、JSON body上限、response上限は維持する。
 
@@ -134,11 +137,12 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 - owner喪失
 - version競合
 - D1 timeout、途中失敗、response破損
-- 重複送信と結果不明
+- 重複送信と結果不明（draft PATCHは`expectedUpdatedAt`と返却`contentVersion`をGETで照合してから再開する）
+- claim finalizeの結果不明時は`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で同一actorの`pending`、`expired`、`completed`を照会でき、completedでは同じ`manualId`を返す。queryの余分な項目、actor／workspace／operationの不一致は拒否する。
 
 ## Migration gate
 
-Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。M3でPhase 1をAccess/D1へ切り替えた後、Phase 2 manualのD1切替が完了するM4までは全manual read/mutation routeとUI入口をfail closedで一時停止する。APIは安定した `503 MANUAL_MIGRATION_IN_PROGRESS` を返し、Supabase Auth/PostgREST/RPC呼出し、自動再送、queued write、fallback、二重認証、二重書込みを行わない。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
+Supabase runtime呼出しを削除する前に、新経路が対応する正常系・異常系・競合・途中失敗テストを満たすことを同一headで確認する。C sliceではAccess/D1/R2のmanual list/detail、guest claim、draft PATCHを有効化し、未実装のpublish/archive/share/PDFは個別契約のまま停止する。M4のD1 schema、atomic rollback、認可negative test、API/E2Eが同一headで成功した後だけ再開する。新経路が未完成の間、productionや外部ユーザーへ公開しない。
 
 Capture/mobile-preview routeはmanual migrationとは別契約で、Access modeでも `503 BROWSER_EGRESS_NOT_VERIFIED` を返す。検証済みegressが有効になるまでSupabase fallbackやBrowser Run通信を行わない。
 

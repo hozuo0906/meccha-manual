@@ -7,6 +7,8 @@ import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
+import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
+import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
@@ -21,6 +23,7 @@ interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
   DISCORD_ALLOW_UNSCOPED_COMMANDS?: string;
   GITHUB_ISSUE_TOKEN?: string;
   GITHUB_ISSUE_REPOSITORY?: string;
+  MANUAL_ASSETS?: R2Bucket;
 }
 
 interface HealthResponse {
@@ -441,7 +444,7 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
       user: { id: actorId },
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
-      manuals: { status: "migration" },
+      manuals: { status: env.MANUAL_ASSETS ? "ready" : "migration" },
       members: { status: "migration" }
     });
   } catch (error) {
@@ -455,6 +458,25 @@ async function listD1Workspaces(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ workspaces: (await repository.listWorkspaces(actorId)).map(apiWorkspaceSummary) });
   } catch (error) {
     throw d1ErrorResponse(error, "workspaces");
+  }
+}
+
+async function cloudManualPage(request: Request, env: Env): Promise<Response> {
+  let auth;
+  try {
+    auth = await authenticateD1User(request, env);
+  } catch (error) {
+    if (error instanceof D1RepositoryError) throw d1ErrorResponse(error, "profile");
+    throw error;
+  }
+  try {
+    const workspace = await auth.repository.getPersonalWorkspace(auth.actorId);
+    return htmlResponse(renderCloudManualsPage({ workspaceId: workspace.id, assetVersion: APP_ASSET_VERSION }));
+  } catch (error) {
+    if (error instanceof D1RepositoryError && error.code === "personal_workspace_unavailable") {
+      throw new AppError(403, "PERSONAL_WORKSPACE_UNAVAILABLE", "Personal Workspaceを利用できないため、手順書を表示できません。");
+    }
+    throw d1ErrorResponse(error, "profile");
   }
 }
 
@@ -2225,6 +2247,13 @@ function accessLegacyRouteMigrationResponse(): Response {
   }, { status: 503 });
 }
 
+function cloudManualMigrationResponse(): Response {
+  return jsonResponse({
+    code: ACCESS_LEGACY_ROUTE_MIGRATION_CODE,
+    message: "手順書機能は移行中のため、現在利用できません。"
+  }, { status: 503 });
+}
+
 function isLegacySupabaseProtectedRoute(pathname: string): boolean {
   return (
     /^\/api\/auth\/(?:login|refresh)$/.test(pathname) ||
@@ -2248,6 +2277,11 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
+  if (useAccessD1Routes(env)) {
+    const cloudManualResponse = await handleCloudManualRoute(request, env);
+    if (cloudManualResponse) return cloudManualResponse;
+  }
+
   verifySameOriginWrite(request);
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
@@ -2261,6 +2295,22 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
+    return cloudManualMigrationResponse();
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
+    return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
+    return cloudManualMigrationResponse();
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
+    return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/manuals") {
+    if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
+    return cloudManualPage(request, env);
   }
   if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
   if (request.method === "GET" && url.pathname === "/assets/app.css") {

@@ -1,5 +1,5 @@
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
-import { buildContinueUrl, createHandoffMetadata, pruneExpiredHandoffs, saveHandoffMetadata } from "./handoff.js";
+import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -163,14 +163,27 @@ startRegistration.addEventListener("click", async () => {
   startRegistration.disabled = true;
   gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
   try {
-    await pruneExpiredHandoffs();
-    const metadata = createHandoffMetadata(draft.id, "save");
-    await saveHandoffMetadata(metadata);
-    await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId) });
-    gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
-    outputGate.close();
+    await withHandoffDraftLock(draft.id, async () => {
+      await pruneExpiredHandoffs();
+      const extensionId = chrome.runtime?.id;
+      const draftFingerprint = await fingerprintDraft(draft);
+      const recovery = await findRecoverableHandoff(draft.id, draftFingerprint);
+      if (recovery) {
+        await chrome.tabs.create({ url: buildContinueUrl(origin, recovery.handoffId, extensionId, recovery) });
+        gateStatus.textContent = recovery.claimIntentId
+          ? "未確定の保存操作を再開する登録画面を開きました。元の手順書はこの端末に残っています。"
+          : "登録画面を開きました。元の手順書はこの端末に残っています。";
+        outputGate.close();
+        return;
+      }
+      const metadata = createHandoffMetadata(draft.id, "save", Date.now(), extensionId, draft.updatedAt, draftFingerprint);
+      await saveHandoffMetadata(metadata);
+      await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId) });
+      gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
+      outputGate.close();
+    });
   } catch (error) {
-    gateStatus.textContent = error?.message === "HANDOFF_STORAGE_UNAVAILABLE"
+    gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
       ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
       : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
   } finally {

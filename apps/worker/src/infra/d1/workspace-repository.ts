@@ -349,6 +349,28 @@ export class D1WorkspaceRepository {
     }
   }
 
+  async getPersonalWorkspace(actorId: string): Promise<WorkspaceSummary> {
+    try {
+      const existing = await this.db
+        .prepare(
+          `SELECT w.id, w.name, w.slug, w.status, w.workspace_kind, w.created_at
+             FROM workspaces AS w
+             JOIN identities AS i ON i.application_id = w.created_by
+             JOIN workspace_members AS m ON m.workspace_id = w.id
+            WHERE w.created_by = ?1 AND w.workspace_kind = 'personal'
+              AND w.status = 'active' AND i.status = 'active'
+              AND m.application_id = ?1 AND m.role = 'owner' AND m.status = 'active'
+            LIMIT 1`
+        )
+        .bind(actorId)
+        .first<PersonalWorkspaceRow>();
+      if (!existing) throw new D1RepositoryError("personal_workspace_unavailable");
+      return this.requireActivePersonalWorkspace(existing);
+    } catch (error) {
+      throw ensureRepositoryError(error);
+    }
+  }
+
   private async findPersonalWorkspace(actorId: string): Promise<PersonalWorkspaceRow | null> {
     return this.db
       .prepare(

@@ -3,6 +3,45 @@ import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
+const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+
+export function canonicalDraftJson(draft) {
+  if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
+  return JSON.stringify({
+    id: draft.id ?? null,
+    title: draft.title ?? "",
+    description: draft.description ?? "",
+    updatedAt: draft.updatedAt ?? null,
+    steps: Array.isArray(draft.steps) ? draft.steps.map((step) => ({
+      id: step?.id ?? null,
+      order: step?.order ?? null,
+      instruction: step?.instruction ?? "",
+      screenshotId: step?.screenshotId ?? null
+    })) : [],
+    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map((screenshot) => ({
+      id: screenshot?.id ?? null,
+      dataUrl: screenshot?.dataUrl ?? "",
+      masks: Array.isArray(screenshot?.masks) ? screenshot.masks.map((mask) => ({ x: mask?.x ?? null, y: mask?.y ?? null, width: mask?.width ?? null, height: mask?.height ?? null })) : []
+    })) : []
+  });
+}
+
+function canonicalDraftContentJson(draft) {
+  const parsed = JSON.parse(canonicalDraftJson(draft));
+  delete parsed.updatedAt;
+  return JSON.stringify(parsed);
+}
+
+export async function fingerprintDraft(draft) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftContentJson(draft)));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function legacyFingerprintDraft(draft) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftJson(draft)));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
 
 function toBase64Url(bytes) {
   let binary = "";
@@ -15,14 +54,23 @@ export function createHandoffId(random = crypto.getRandomValues(new Uint8Array(H
   return toBase64Url(random);
 }
 
-export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now()) {
+export function validateExtensionId(extensionId) {
+  if (typeof extensionId !== "string" || !EXTENSION_ID_PATTERN.test(extensionId)) throw new TypeError("invalid extension id");
+  return extensionId;
+}
+
+export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined, draftFingerprint = undefined) {
   if (typeof draftId !== "string" || !draftId) throw new TypeError("draft id is required");
   if (outputAction !== "save") throw new TypeError("unsupported output action");
+  validateExtensionId(extensionId);
   const handoffId = createHandoffId();
   return {
     handoffId,
     draftId,
     outputAction,
+    extensionId,
+    ...(typeof draftUpdatedAt === "string" ? { draftUpdatedAt } : {}),
+    ...(typeof draftFingerprint === "string" && /^[a-f0-9]{64}$/.test(draftFingerprint) ? { draftFingerprint } : {}),
     expiresAt: new Date(now + HANDOFF_TTL_MS).toISOString()
   };
 }
@@ -41,15 +89,54 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (!storage?.get || !storage?.remove) return;
   const entries = await storage.get(null);
   const expired = Object.entries(entries || {})
-    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && Date.parse(value?.expiresAt || "") <= now)
+    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && value?.status !== "completion-pending" && value?.status !== "finalize-pending" && Date.parse(value?.expiresAt || "") <= now)
     .map(([key]) => key);
   if (expired.length > 0) await storage.remove(expired);
 }
 
-export function buildContinueUrl(origin, handoffId) {
+export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local) {
+  if (typeof draftId !== "string" || !draftId || !/^[a-f0-9]{64}$/.test(draftFingerprint || "") || !storage?.get) return null;
+  const entries = await storage.get(null);
+  const handoffs = Object.values(entries || {}).filter((value) =>
+    value?.outputAction === "save" &&
+    value?.draftId === draftId &&
+    /^[A-Za-z0-9_-]{43}$/.test(value?.handoffId || "") &&
+    /^[a-f0-9]{64}$/.test(value?.draftFingerprint || "")
+  );
+  const pending = handoffs.filter((value) =>
+    (value.status === "finalize-pending" || value.status === "completion-pending") &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(value.operationId || "") &&
+    CLAIM_INTENT_ID_PATTERN.test(value.claimIntentId || "")
+  );
+  if (pending.length > 0) return pending.find((value) => value.draftFingerprint === draftFingerprint) || pending[0];
+  return handoffs.find((value) =>
+    value.status === undefined &&
+    value.draftFingerprint === draftFingerprint &&
+    Number.isFinite(Date.parse(value.expiresAt || "")) &&
+    Date.parse(value.expiresAt) >= Date.now()
+  ) || null;
+}
+
+export async function withHandoffDraftLock(draftId, callback, navigatorLike = globalThis.navigator) {
+  if (typeof draftId !== "string" || !draftId || typeof callback !== "function") throw new TypeError("draft lock arguments are invalid");
+  const locks = navigatorLike?.locks;
+  if (!locks || typeof locks.request !== "function") throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+  return locks.request(`meccha-manual:handoff:draft:${draftId}`, async (lock) => {
+    if (!lock) throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+    return callback();
+  });
+}
+
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}`;
+  validateExtensionId(extensionId);
+  const recoveryParams = recovery && /^[A-Za-z0-9_-]{16,128}$/.test(recovery.operationId || "") &&
+    CLAIM_INTENT_ID_PATTERN.test(recovery.claimIntentId || "") &&
+    /^[a-f0-9]{64}$/.test(recovery.draftFingerprint || "")
+    ? `&operationId=${encodeURIComponent(recovery.operationId)}&claimIntentId=${encodeURIComponent(recovery.claimIntentId)}&draftFingerprint=${encodeURIComponent(recovery.draftFingerprint)}`
+    : "";
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${recoveryParams}`;
 }
 
 export const HANDOFF_TTL_MINUTES = HANDOFF_TTL_MS / 60000;

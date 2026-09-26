@@ -34,6 +34,12 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
+## Cクラウド保存の追跡
+
+FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`のsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。
+
+受入証跡は、external-origin／unknown schema／期限切れ／oversize／chunk order／credential拒否、mask焼き込み、local failure／cancel／retry／changed-draft cleanup、同じdraftを2つのMV3 editorタブで保存して1つのhandoff／operationへ収束すること、同じ内容のtimestampだけが変わるprepare／asset start、completed後の新handoff、別draft分離、Web Locks／storage取得失敗時の新URL 0件、一覧→再表示→編集→version競合を対象とする。クラウド手順書画面はタイトル・説明・手順本文の編集、追加・削除・並替え、画像再表示をローカル編集状態へ保持し、明示した一回のdraft PATCHへまとめる。保存中の入力変更は応答で上書きせず、保存結果不明時はclaim状態照会を先に行う。handoff metadataには本文・画像を保存せず、`updatedAt`を除くdraft fingerprintだけを保持する。完了通知は`completion-pending`の耐久保存後に削除を行い、同一msでもfingerprintが異なるdraftや削除直前のCAS不一致は新しいdraftを削除せず、確定済みclaimを`completed`として保存して次handoffを許可する。metadata／IndexedDBの技術障害はCAS不一致と混同せず再試行可能にする。対応する実ブラウザ証跡は`tests/cloud-manual-ui-browser.test.mjs`と`tests/onboarding-ui-browser.test.mjs`、extension契約証跡は`tests/extension-cloud-claim.test.mjs`に置く。owner限定stagingの実Chrome通し確認とAPI route接続は、統合後の環境証跡として別に判定する。
+
 ## セルフサーブbootstrap境界
 
 FR-001 / FR-002の商用MVPは、従来の `SCR-WORKSPACE -> POST /api/workspaces` を初回利用者に要求しない。

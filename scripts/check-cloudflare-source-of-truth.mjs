@@ -100,7 +100,7 @@ const required = new Map([
     "`workspace_kind`は`standard | personal`", "既存rowは安全側の`standard`へbackfill", "`PERSONAL_WORKSPACE_UNAVAILABLE`", "`getOrCreatePersonalWorkspace`", "migrations/0002_d1_personal_workspace.sql"
   ]],
   ["docs/05-api/cloudflare-access-d1-api.md", [
-    "Status: Accepted", "access_user | service_token", "503 MANUAL_MIGRATION_IN_PROGRESS", "service-token JWT",
+    "Status: Accepted", "access_user | service_token", "C sliceのcreateはguest claim finalizeだけ", "service-token JWT",
     "not-beforeはclaimが存在する場合に検証", "nbfなしservice-token JWT",
     "空文字の `sub`、trim後非空の `common_name` の3条件すべて", "空の `sub` だけ",
     "External provider callback", "receiptと再実行可能なwork/outboxを単一のatomic operation",
