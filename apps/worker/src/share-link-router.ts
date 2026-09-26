@@ -108,6 +108,12 @@ async function actor(request: Request, env: ShareLinkEnv): Promise<{ actorId: st
   return { actorId: auth.identity.applicationId, database };
 }
 
+async function ensureManager(database: D1DatabaseLike, actorId: string, workspaceId: string, manualId: string): Promise<"owner" | "admin" | "editor"> {
+  const row = await database.prepare(`SELECT wm.role FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id JOIN manuals m ON m.workspace_id = wm.workspace_id WHERE wm.workspace_id = ?1 AND wm.application_id = ?2 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active' AND m.id = ?3 AND m.archived_at IS NULL LIMIT 1`).bind(workspaceId, actorId, manualId).first<{ role: "owner" | "admin" | "editor" }>();
+  if (!row) throw new ShareError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  return row.role;
+}
+
 function expiry(value: unknown, now: string): string {
   if (value === undefined) return futureIso(now, DEFAULT_EXPIRY_MS);
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new ShareError(400, "SHARE_EXPIRY_INVALID", "共有期限を確認してください。");
@@ -142,6 +148,7 @@ interface GrantRow { id: string; share_link_id: string; token_hash: string; work
 async function createShare(request: Request, env: ShareLinkEnv, workspaceId: string, manualId: string): Promise<Response> {
   assertSameOrigin(request, env);
   const { actorId, database } = await actor(request, env);
+  await ensureManager(database, actorId, workspaceId, manualId);
   const body = await readJson(request);
   if (Object.keys(body).some((key) => !["operationId", "token", "passcode", "expiresAt", "expectedDraftRevisionId", "expectedContentVersion", "confirmed"].includes(key))) throw new ShareError(400, "INPUT_INVALID", "指定できない項目が含まれています。");
   if (body.confirmed !== true) throw new ShareError(400, "SHARE_CONFIRMATION_REQUIRED", "共有する内容を確認してから発行してください。");
@@ -187,17 +194,19 @@ async function createShare(request: Request, env: ShareLinkEnv, workspaceId: str
 async function revokeShare(request: Request, env: ShareLinkEnv, workspaceId: string, manualId: string): Promise<Response> {
   assertSameOrigin(request, env);
   const { actorId, database } = await actor(request, env);
+  const actorRole = await ensureManager(database, actorId, workspaceId, manualId);
   const body = await readJson(request);
   if (Object.keys(body).some((key) => key !== "shareLinkId")) throw new ShareError(400, "INPUT_INVALID", "指定できない項目が含まれています。");
   const shareLinkId = id(body.shareLinkId, "SHARE_LINK_ID_INVALID");
-  const result = await database.prepare(`UPDATE share_links SET revoked_at = COALESCE(revoked_at, ?1), updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3 AND manual_id = ?4 AND EXISTS (SELECT 1 FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id WHERE wm.workspace_id = ?3 AND wm.application_id = ?5 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active') AND (created_by = ?5 OR EXISTS (SELECT 1 FROM workspace_members admin_member WHERE admin_member.workspace_id = ?3 AND admin_member.application_id = ?5 AND admin_member.status = 'active' AND admin_member.role IN ('owner','admin')))`).bind(nowIso(), shareLinkId, workspaceId, manualId, actorId).run();
+  const result = await database.prepare(`UPDATE share_links SET revoked_at = ?1, updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3 AND manual_id = ?4 AND revoked_at IS NULL AND (created_by = ?5 OR ?6 IN ('owner','admin'))`).bind(nowIso(), shareLinkId, workspaceId, manualId, actorId, actorRole).run();
   if (changed(result) > 1) throw new ShareError(503, "SHARE_UNAVAILABLE", "共有停止結果を確認できません。");
   return json({ revoked: changed(result) === 1, shareLinkId });
 }
 
 async function shareMetadata(request: Request, env: ShareLinkEnv, workspaceId: string, manualId: string): Promise<Response> {
   const { actorId, database } = await actor(request, env);
-  const row = await database.prepare(`SELECT s.id, s.expires_at, s.revoked_at, s.permission FROM share_links s JOIN workspace_members wm ON wm.workspace_id = s.workspace_id AND wm.application_id = ?3 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') JOIN identities i ON i.application_id = wm.application_id AND i.status = 'active' JOIN workspaces w ON w.id = s.workspace_id AND w.status = 'active' WHERE s.workspace_id = ?1 AND s.manual_id = ?2 AND (s.created_by = ?3 OR wm.role IN ('owner','admin')) ORDER BY s.created_at DESC, s.id DESC LIMIT 1`).bind(workspaceId, manualId, actorId).first<{ id: string; expires_at: string; revoked_at: string | null; permission: "read_only" }>();
+  const actorRole = await ensureManager(database, actorId, workspaceId, manualId);
+  const row = await database.prepare(`SELECT s.id, s.expires_at, s.revoked_at, s.permission FROM share_links s WHERE s.workspace_id = ?1 AND s.manual_id = ?2 AND (s.created_by = ?3 OR ?4 IN ('owner','admin')) ORDER BY s.created_at DESC, s.id DESC LIMIT 1`).bind(workspaceId, manualId, actorId, actorRole).first<{ id: string; expires_at: string; revoked_at: string | null; permission: "read_only" }>();
   if (!row) return json({ share: null });
   return json({ share: { shareLinkId: row.id, expiresAt: row.expires_at, revokedAt: row.revoked_at, permission: row.permission, viewerPath: "/s/" } });
 }

@@ -103,7 +103,7 @@ flagをtrueからfalseへ戻した場合は新規処理の拒否だけで終え�
 
 Status: Accepted
 
-管理APIはAccess認証済みのowner/admin/editorだけに公開し、同一originのJSON bodyで明示確認・期限・passcode・期待draft revision・content version・operation IDを受け取る。`POST /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は、現在のdraftをCAS照合してimmutable published snapshotとread-only linkを同一D1 batchで作成する。active linkがある場合は拒否し、`DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` はbodyの`shareLinkId`を対象に停止する。`GET` は再読み込み後の停止操作に必要なlink metadataだけを返す。
+管理APIはAccess認証済みのowner/admin/editorだけに公開する。POST/DELETEは同一originのJSON bodyで明示確認・期限・passcode・期待draft revision・content version・operation IDを受け取る。`POST /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は、現在のdraftをCAS照合してimmutable published snapshotとread-only linkを同一D1 batchで作成する。active linkがある場合は拒否し、`DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` はbodyの`shareLinkId`を対象に停止する。Access認証済みのGETは再読み込み後の停止操作に必要なlink metadataだけを返す。
 
 匿名viewerは `/s/` と次のAPIだけを使う。生tokenはURL query/pathへ置かず、viewer fragmentから `X-Share-Token` headerへ移す。未知の `/s/*` は404、認証失敗・期限切れ・誤passcode・失効済みは同じ拒否結果にする。
 

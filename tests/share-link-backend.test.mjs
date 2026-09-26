@@ -42,9 +42,10 @@ class HttpStatement {
 }
 
 class HttpD1 {
-  constructor(database) { this.database = database; this.failAt = -1; }
+  constructor(database) { this.database = database; this.failAt = -1; this.beforeBatch = null; }
   prepare(sql) { return new HttpStatement(this.database, sql); }
   async batch(statements) {
+    this.beforeBatch?.();
     this.database.exec("BEGIN IMMEDIATE");
     try { const results = []; for (const [index, statement] of statements.entries()) { if (index === this.failAt) throw new Error("injected batch failure"); results.push(await statement.run()); } this.database.exec("COMMIT"); return results; }
     catch (error) { this.database.exec("ROLLBACK"); throw error; }
@@ -115,9 +116,14 @@ test("公開snapshotは内容変更・step追加・revoke取消・期限延長�
   insertPublished(db);
   assert.throws(() => db.prepare("UPDATE manual_revisions SET title = 'changed' WHERE id = 'published'").run(), /published revision is immutable/u);
   assert.throws(() => db.prepare("INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, created_at, updated_at) VALUES ('step', 'workspace', 'published', 0, 'action', 'Step', 'Instruction', ?, ?)").run(NOW, NOW), /published step is immutable/u);
+  db.prepare("INSERT INTO share_grants (id, share_link_id, token_hash, grant_hash, workspace_id, manual_id, published_revision_id, expires_at, created_at, updated_at) VALUES ('grant', 'link', ?, ?, 'workspace', 'manual', 'published', ?, ?, ?)").run("a".repeat(64), "b".repeat(64), "2026-09-26T00:10:00.000Z", NOW, NOW);
+  assert.throws(() => db.prepare("UPDATE share_grants SET expires_at = '2026-09-26T00:11:00.000Z' WHERE id = 'grant'").run(), /grant expiry cannot be extended/u);
+  db.prepare("UPDATE share_grants SET revoked_at = ? WHERE id = 'grant'").run(NOW);
+  assert.throws(() => db.prepare("UPDATE share_grants SET revoked_at = NULL WHERE id = 'grant'").run(), /grant revoke cannot be undone/u);
   db.prepare("UPDATE manual_revisions SET state = 'superseded' WHERE id = 'published'").run();
   assert.throws(() => db.prepare("UPDATE share_links SET expires_at = '2027-01-01T00:00:00.000Z' WHERE id = 'link'").run(), /expiry cannot be extended/u);
   db.prepare("UPDATE share_links SET revoked_at = ? WHERE id = 'link'").run(NOW);
+  assert.throws(() => db.prepare("INSERT INTO share_grants (id, share_link_id, token_hash, grant_hash, workspace_id, manual_id, published_revision_id, expires_at, created_at, updated_at) VALUES ('grant-2', 'link', ?, ?, 'workspace', 'manual', 'published', ?, ?, ?)").run("a".repeat(64), "c".repeat(64), "2026-09-26T00:10:00.000Z", NOW, NOW), /grant scope or expiry mismatch/u);
   assert.throws(() => db.prepare("UPDATE share_links SET revoked_at = NULL WHERE id = 'link'").run(), /revoke cannot be undone/u);
 });
 
@@ -152,6 +158,17 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal(resolve?.status, 200);
     const resolved = await resolve.json();
     assert.match(resolved.grant, /^[A-Za-z0-9_-]{43}$/u);
+    const wrong = await request("/s/api/resolve", { method: "POST", body: { passcode: "wrong-passcode" }, token: fixture.token });
+    const unknown = await request("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: randomSecret(32) });
+    assert.equal(wrong?.status, 401);
+    assert.equal(unknown?.status, 401);
+    assert.deepEqual(await wrong.json(), await unknown.json());
+    const savedLimiter = env.SHARE_AUTH_RATE_LIMITER;
+    env.SHARE_AUTH_RATE_LIMITER = undefined;
+    assert.equal((await request("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: fixture.token }))?.status, 503);
+    env.SHARE_AUTH_RATE_LIMITER = { limit: async () => ({ success: false }) };
+    assert.equal((await request("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: fixture.token }))?.status, 429);
+    env.SHARE_AUTH_RATE_LIMITER = savedLimiter;
     const content = await request("/s/api/content", { method: "POST", grant: resolved.grant });
     assert.equal(content?.status, 200);
     const payload = await content.json();
@@ -166,6 +183,8 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     fixture.raw.prepare("UPDATE workspace_members SET role = 'viewer' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_OWNER);
     const membershipDenied = await request("/s/api/content", { method: "POST", grant: resolved.grant });
     assert.equal(membershipDenied?.status, 401);
+    assert.equal((await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { authenticated: true }))?.status, 403);
+    assert.equal((await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "DELETE", body: { shareLinkId: HTTP_LINK }, authenticated: true }))?.status, 403);
     const adminMetadata = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { authenticated: true, subject: "http-admin" });
     assert.equal(adminMetadata?.status, 200);
     assert.equal((await adminMetadata.json()).share.shareLinkId, HTTP_LINK);
@@ -177,10 +196,31 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal((await request("/s/api/unknown")).status, 404);
     const reissueToken = randomSecret(32);
     const reissueExpiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    env.DB.beforeBatch = () => fixture.raw.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = ?").run("cccccccccccccccccccccccccccccccc", HTTP_DRAFT);
+    const raced = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-race", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
+    assert.equal(raced?.status, 409);
+    assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM manual_revisions").get().n), 2);
+    assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM share_links").get().n), 1);
+    env.DB.beforeBatch = null;
+    fixture.raw.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = ?").run("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", HTTP_DRAFT);
     const created = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0002", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
     assert.equal(created?.status, 200, await created?.clone().text());
+    const retry = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0002", token: reissueToken, passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
+    assert.equal(retry?.status, 200);
+    assert.equal((await retry.json()).reused, true);
+    const altered = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0002", token: randomSecret(32), passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
+    assert.equal(altered?.status, 409);
     const reissued = await request("/s/api/resolve", { method: "POST", body: { passcode: "reissue-passcode" }, token: reissueToken });
-    assert.equal(reissued?.status, 200);
+    assert.equal(reissued?.status, 200, await reissued?.clone().text());
+    const reissuedPayload = await reissued.json();
+    const oldRevoke = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "DELETE", body: { shareLinkId: HTTP_LINK }, authenticated: true, subject: "http-admin" });
+    assert.equal(oldRevoke?.status, 200);
+    assert.equal((await oldRevoke.json()).revoked, false);
+    assert.equal((await request("/s/api/content", { method: "POST", grant: reissuedPayload.grant }))?.status, 200);
+    fixture.raw.prepare("UPDATE share_grants SET expires_at = ? WHERE grant_hash = (SELECT grant_hash FROM share_grants ORDER BY created_at DESC LIMIT 1)").run(new Date(Date.now() - 1000).toISOString());
+    assert.equal((await request("/s/api/content", { method: "POST", grant: reissuedPayload.grant }))?.status, 401);
+    fixture.raw.prepare("UPDATE share_links SET expires_at = ? WHERE id = (SELECT id FROM share_links ORDER BY created_at DESC LIMIT 1)").run(new Date(Date.now() - 1000).toISOString());
+    assert.equal((await request("/s/api/resolve", { method: "POST", body: { passcode: "reissue-passcode" }, token: reissueToken }))?.status, 401);
     env.DB.failAt = 2;
     const failedToken = randomSecret(32);
     const failed = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-0003", token: failedToken, passcode: "failed-passcode", expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });

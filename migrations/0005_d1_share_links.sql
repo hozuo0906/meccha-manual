@@ -88,7 +88,12 @@ WHEN NOT EXISTS (
     AND s.workspace_id = NEW.workspace_id AND s.manual_id = NEW.manual_id
     AND s.published_revision_id = NEW.published_revision_id
 )
-BEGIN SELECT RAISE(ABORT, 'share grant scope mismatch'); END;
+ OR EXISTS (SELECT 1 FROM share_links s WHERE s.id = NEW.share_link_id AND (s.revoked_at IS NOT NULL OR NEW.expires_at > s.expires_at))
+ OR strftime('%s', NEW.expires_at) IS NULL
+ OR strftime('%s', NEW.created_at) IS NULL
+ OR strftime('%s', NEW.expires_at) <= strftime('%s', NEW.created_at)
+ OR strftime('%s', NEW.expires_at) - strftime('%s', NEW.created_at) > 900
+BEGIN SELECT RAISE(ABORT, 'share grant scope or expiry mismatch'); END;
 
 CREATE TRIGGER share_grants_identity_immutable
 BEFORE UPDATE OF id, share_link_id, token_hash, grant_hash, workspace_id, manual_id, published_revision_id
@@ -97,6 +102,16 @@ WHEN NEW.id <> OLD.id OR NEW.share_link_id <> OLD.share_link_id OR NEW.token_has
   OR NEW.grant_hash <> OLD.grant_hash OR NEW.workspace_id <> OLD.workspace_id
   OR NEW.manual_id <> OLD.manual_id OR NEW.published_revision_id <> OLD.published_revision_id
 BEGIN SELECT RAISE(ABORT, 'share grant identity is immutable'); END;
+
+CREATE TRIGGER share_grant_expiry_immutable
+BEFORE UPDATE OF expires_at ON share_grants
+WHEN NEW.expires_at > OLD.expires_at
+BEGIN SELECT RAISE(ABORT, 'share grant expiry cannot be extended'); END;
+
+CREATE TRIGGER share_grant_revoke_immutable
+BEFORE UPDATE OF revoked_at ON share_grants
+WHEN OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NULL
+BEGIN SELECT RAISE(ABORT, 'share grant revoke cannot be undone'); END;
 
 CREATE TRIGGER share_link_expiry_immutable
 BEFORE UPDATE OF expires_at ON share_links
