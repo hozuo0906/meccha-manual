@@ -216,13 +216,19 @@ export const ONBOARDING_JS = `(() => {
     try {
       reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: "save" });
     } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
-    if (!reply?.ok || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
+    if (!reply?.ok || !["active", "expired"].includes(reply.status) || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
     const saved = readSaved();
     if (!saved.ok || !saved.state) throw new Error("CLOUD_STATE_UNAVAILABLE");
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId);
     if (!matching) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     matching.operationId = reply.operationId;
     matching.recoveryExpiresAt = reply.expiresAt;
+    if (reply.status === "expired" || Date.parse(reply.expiresAt) <= Date.now()) {
+      matching.state = "expired";
+      if (!persistState(saved.state)) throw new Error("CLOUD_STATE_UNAVAILABLE");
+      capturedContext = matching;
+      return null;
+    }
     if (!persistState(saved.state)) throw new Error("CLOUD_STATE_UNAVAILABLE");
     capturedContext = matching;
     return matching;
