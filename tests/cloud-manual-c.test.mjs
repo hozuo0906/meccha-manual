@@ -93,6 +93,55 @@ class DetailRaceD1 {
   batch(statements) { return this.inner.batch(statements); }
 }
 
+class AssetReservationRaceD1 {
+  constructor(inner, afterStage = () => {}) {
+    this.inner = inner;
+    this.afterStage = afterStage;
+    this.assetReads = 0;
+    this.releaseFirstAssetRead = null;
+    this.firstAssetReadReady = new Promise((resolve) => { this.releaseFirstAssetRead = resolve; });
+    this.releaseSecondAssetRead = null;
+    this.secondAssetReadReady = new Promise((resolve) => { this.releaseSecondAssetRead = resolve; });
+    this.stagedRelease = false;
+    this.intentId = null;
+  }
+  prepare(sql) {
+    const statement = this.inner.prepare(sql);
+    const isInitialAssetRead = /FROM claim_assets a/u.test(sql) && /c\.actor_application_id = \?3/u.test(sql);
+    return {
+      bind: (...values) => {
+        const bound = statement.bind(...values);
+        return {
+          first: async (...args) => {
+            const result = await bound.first(...args);
+            if (isInitialAssetRead) {
+              const readNo = this.assetReads += 1;
+              if (readNo === 1) await this.firstAssetReadReady;
+              else if (readNo === 2) {
+                this.releaseFirstAssetRead();
+                await this.secondAssetReadReady;
+              }
+            }
+            return result;
+          },
+          all: (...args) => bound.all(...args),
+          run: async (...args) => {
+            const result = await bound.run(...args);
+            if (!this.stagedRelease && /UPDATE claim_assets SET status = 'staged'/u.test(sql)) {
+              this.stagedRelease = true;
+              this.inner.database.prepare("UPDATE claim_intents SET status = 'completed' WHERE id = ?").run(this.intentId);
+              this.afterStage();
+              this.releaseSecondAssetRead();
+            }
+            return result;
+          }
+        };
+      }
+    };
+  }
+  batch(statements) { return this.inner.batch(statements); }
+}
+
 class MemoryR2 {
   constructor() { this.objects = new Map(); this.putCount = 0; this.failPut = false; this.failAfterPut = false; this.failHead = false; this.failGet = false; }
   async put(key, body, options = {}) {
@@ -532,6 +581,89 @@ test("R2 put後の応答不達はorphanを残さず、同じslotの再送で一�
   assert.equal(one("SELECT status FROM claim_assets WHERE claim_intent_id = ?", unknownIntent.payload.claimIntentId).status, "staged");
   assert.equal(count("claim_assets"), 2);
   assert.equal(r2.objects.size, 2);
+});
+
+test("同じslotの異なる画像が予約行の競合結果を再利用せず409になる", async () => {
+  await bootstrap();
+  const intent = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: "asset-reservation-race-01", assetCount: 1 } });
+  assert.equal(intent.response.status, 201, JSON.stringify(intent.payload));
+  const differentBytes = ONE_PIXEL_PNG.slice();
+  differentBytes[differentBytes.length - 1] ^= 1;
+  const reservationRaceD1 = new AssetReservationRaceD1(d1);
+  reservationRaceD1.intentId = intent.payload.claimIntentId;
+  const originalDb = env.DB;
+  env.DB = reservationRaceD1;
+  let results;
+  try {
+    results = await Promise.all([
+      uploadIntentAsset(intent.payload, "asset-reservation-race-01", 0, ONE_PIXEL_PNG),
+      uploadIntentAsset(intent.payload, "asset-reservation-race-01", 0, differentBytes)
+    ]);
+  } finally {
+    env.DB = originalDb;
+  }
+  assert.equal(reservationRaceD1.assetReads, 2);
+  assert.deepEqual(results.map((result) => result.response.status).sort(), [200, 409]);
+  const conflict = results.find((result) => result.response.status === 409);
+  assert.equal(conflict?.payload.code, "ASSET_RETRY_CONFLICT", JSON.stringify(results));
+  assert.equal(r2.putCount, 1);
+  assert.equal(count("claim_assets"), 1);
+  assert.equal(one("SELECT status FROM claim_assets WHERE claim_intent_id = ?", intent.payload.claimIntentId).status, "staged");
+});
+
+test("予約行の競合再利用はR2 HEAD結果不明を成功扱いしない", async () => {
+  await bootstrap();
+  const intent = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: "asset-reservation-head-01", assetCount: 1 } });
+  assert.equal(intent.response.status, 201, JSON.stringify(intent.payload));
+  const reservationRaceD1 = new AssetReservationRaceD1(d1, () => { r2.failHead = true; });
+  reservationRaceD1.intentId = intent.payload.claimIntentId;
+  const originalDb = env.DB;
+  env.DB = reservationRaceD1;
+  let results;
+  try {
+    results = await Promise.all([
+      uploadIntentAsset(intent.payload, "asset-reservation-head-01", 0, ONE_PIXEL_PNG),
+      uploadIntentAsset(intent.payload, "asset-reservation-head-01", 0, ONE_PIXEL_PNG)
+    ]);
+  } finally {
+    env.DB = originalDb;
+  }
+  assert.equal(reservationRaceD1.assetReads, 2);
+  assert.deepEqual(results.map((result) => result.response.status).sort(), [200, 503]);
+  const unknown = results.find((result) => result.response.status === 503);
+  assert.equal(unknown?.payload.code, "ASSET_STAGING_RESULT_UNKNOWN", JSON.stringify(results));
+  assert.equal(r2.putCount, 1);
+  assert.equal(count("claim_assets"), 1);
+  assert.equal(one("SELECT status FROM claim_assets WHERE claim_intent_id = ?", intent.payload.claimIntentId).status, "staged");
+});
+
+test("予約行の競合再利用はR2 HEADの固定metadata不一致を409にする", async () => {
+  await bootstrap();
+  const intent = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: "asset-reservation-head-02", assetCount: 1 } });
+  assert.equal(intent.response.status, 201, JSON.stringify(intent.payload));
+  const reservationRaceD1 = new AssetReservationRaceD1(d1, () => {
+    const object = r2.objects.values().next().value;
+    object.customMetadata.checksum_sha256 = "0".repeat(64);
+  });
+  reservationRaceD1.intentId = intent.payload.claimIntentId;
+  const originalDb = env.DB;
+  env.DB = reservationRaceD1;
+  let results;
+  try {
+    results = await Promise.all([
+      uploadIntentAsset(intent.payload, "asset-reservation-head-02", 0, ONE_PIXEL_PNG),
+      uploadIntentAsset(intent.payload, "asset-reservation-head-02", 0, ONE_PIXEL_PNG)
+    ]);
+  } finally {
+    env.DB = originalDb;
+  }
+  assert.equal(reservationRaceD1.assetReads, 2);
+  assert.deepEqual(results.map((result) => result.response.status).sort(), [200, 409]);
+  const mismatch = results.find((result) => result.response.status === 409);
+  assert.equal(mismatch?.payload.code, "ASSET_RECONCILIATION_REQUIRED", JSON.stringify(results));
+  assert.equal(r2.putCount, 1);
+  assert.equal(count("claim_assets"), 1);
+  assert.equal(one("SELECT status FROM claim_assets WHERE claim_intent_id = ?", intent.payload.claimIntentId).status, "staged");
 });
 
 test("completed claimの期限切れ後も同一payloadの再送は同じmanualを返し、別payloadは拒否する", async () => {
