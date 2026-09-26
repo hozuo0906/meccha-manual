@@ -27,6 +27,7 @@
     "test:onboarding-ui:browser": "node --experimental-strip-types --test tests/onboarding-ui-browser.test.mjs",
     "test:onboarding-ui": "npm run test:onboarding-ui:unit && npm run test:onboarding-ui:browser",
     "test:cloud-manual:ui:browser": "node --experimental-strip-types --test tests/cloud-manual-ui-browser.test.mjs",
+    "test:cloud-manual:sharing:browser": "node --experimental-strip-types --test tests/cloud-manual-sharing-ui.test.mjs",
     "test:share-viewer:browser": "node --experimental-strip-types --test tests/share-viewer-browser.test.mjs",
     "test:extension-cloud-claim:runtime": "node --test tests/extension-cloud-claim-runtime.test.mjs",
     "browser-run:egress:check": "node scripts/browser-run-egress-proof.mjs --check",
