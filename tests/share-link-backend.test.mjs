@@ -35,16 +35,16 @@ const { privateKey: httpPrivateKey, publicKey: httpPublicKey } = generateKeyPair
 const httpPublicJwk = { ...await exportJWK(httpPublicKey), kid: "share-test", alg: "RS256", use: "sig" };
 
 class HttpStatement {
-  constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
-  bind(...values) { return new HttpStatement(this.database, this.sql, values); }
-  async run() { const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  constructor(database, sql, values = [], beforeRun = null) { this.database = database; this.sql = sql; this.values = values; this.beforeRun = beforeRun; }
+  bind(...values) { return new HttpStatement(this.database, this.sql, values, this.beforeRun); }
+  async run() { this.beforeRun?.(); const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
 }
 
 class HttpD1 {
-  constructor(database) { this.database = database; this.failAt = -1; this.beforeBatch = null; }
-  prepare(sql) { return new HttpStatement(this.database, sql); }
+  constructor(database) { this.database = database; this.failAt = -1; this.beforeBatch = null; this.beforeMutation = null; }
+  prepare(sql) { return new HttpStatement(this.database, sql, [], () => { if (/^UPDATE share_links\b/u.test(sql.trim())) this.beforeMutation?.(); }); }
   async batch(statements) {
     this.beforeBatch?.();
     this.database.exec("BEGIN IMMEDIATE");
@@ -63,7 +63,7 @@ async function httpFixture() {
     INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_OWNER}', 'owner', 'active', '${NOW}', '${NOW}');
     INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('${HTTP_ADMIN}', '${HTTP_ISSUER}', 'http-admin', 'active', '${NOW}', '${NOW}');
     INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('${HTTP_ADMIN}', 'Admin', 'ja-JP', 'Asia/Tokyo', '${NOW}', '${NOW}');
-    INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_ADMIN}', 'owner', 'active', '${NOW}', '${NOW}');
+    INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_ADMIN}', 'admin', 'active', '${NOW}', '${NOW}');
     INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('${HTTP_OTHER_OWNER}', '${HTTP_ISSUER}', 'http-other-owner', 'active', '${NOW}', '${NOW}');
     INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('${HTTP_OTHER_OWNER}', 'Other Owner', 'ja-JP', 'Asia/Tokyo', '${NOW}', '${NOW}');
     INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('${HTTP_WORKSPACE}', '${HTTP_OTHER_OWNER}', 'owner', 'active', '${NOW}', '${NOW}');
@@ -237,6 +237,14 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     const adminMetadata = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { authenticated: true, subject: "http-admin" });
     assert.equal(adminMetadata?.status, 200);
     assert.equal((await adminMetadata.json()).share.shareLinkId, HTTP_LINK);
+    env.DB.beforeMutation = () => {
+      fixture.raw.prepare("UPDATE workspace_members SET role = 'viewer' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
+      env.DB.beforeMutation = null;
+    };
+    const revokePermissionRaced = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "DELETE", body: { shareLinkId: HTTP_LINK }, authenticated: true, subject: "http-admin" });
+    assert.equal(revokePermissionRaced?.status, 403, await revokePermissionRaced?.clone().text());
+    assert.equal(fixture.raw.prepare("SELECT revoked_at FROM share_links WHERE id = ?").get(HTTP_LINK).revoked_at, null);
+    fixture.raw.prepare("UPDATE workspace_members SET role = 'admin' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
     const stopped = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "DELETE", body: { shareLinkId: HTTP_LINK }, authenticated: true, subject: "http-admin" });
     assert.equal(stopped?.status, 200, await stopped?.clone().text());
     const denied = await request("/s/api/content", { method: "POST", grant: resolved.grant });
@@ -254,7 +262,7 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM share_links").get().n), 1);
     env.DB.beforeBatch = null;
     fixture.raw.prepare("UPDATE manual_revisions SET content_version = ? WHERE id = ?").run("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", HTTP_DRAFT);
-    env.DB.beforeBatch = () => fixture.raw.prepare("UPDATE workspace_members SET status = 'inactive' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
+    env.DB.beforeBatch = () => fixture.raw.prepare("UPDATE workspace_members SET status = 'invited' WHERE workspace_id = ? AND application_id = ?").run(HTTP_WORKSPACE, HTTP_ADMIN);
     const permissionRaced = await request(`/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "POST", authenticated: true, subject: "http-admin", body: { confirmed: true, operationId: "http-share-operation-permission-race", token: randomSecret(32), passcode: "reissue-passcode", expiresAt: reissueExpiry, expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } });
     assert.equal(permissionRaced?.status, 409);
     assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM manual_revisions").get().n), 2);

@@ -123,7 +123,7 @@ function expiry(value: unknown, now: string): string {
 }
 
 function shareViewerHtml(): string {
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>共有された手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/s/assets/share.css"></head><body><main id="share-viewer" class="share-shell"><h1>共有された手順書</h1><p id="share-message" role="status" aria-live="polite">共有情報を確認しています。</p><section id="share-auth" hidden><label for="share-passcode">パスコード</label><input id="share-passcode" type="password" minlength="${PASSCODE_MIN_LENGTH}" maxlength="${PASSCODE_MAX_LENGTH}" autocomplete="off"><button id="share-submit" type="button">手順書を表示</button></section><article id="share-content" hidden></article></main><script src="/s/assets/share.js" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>共有された手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/s/assets/share.css"></head><body><main id="share-viewer" class="share-shell"><h1>共有された手順書</h1><p id="share-message" role="status" aria-live="polite">共有情報を確認しています。</p><section id="share-auth" hidden><label for="share-passcode">パスコード</label><input id="share-passcode" type="password" minlength="${PASSCODE_MIN_LENGTH}" maxlength="256" autocomplete="off"><button id="share-submit" type="button">手順書を表示</button></section><article id="share-content" hidden></article></main><script src="/s/assets/share.js" defer></script></body></html>`;
 }
 
 const SHARE_CSS = `.share-shell{box-sizing:border-box;max-width:860px;margin:0 auto;padding:24px 16px;font:16px/1.7 system-ui,sans-serif;color:#17202a}.share-shell h1{font-size:clamp(1.4rem,4vw,2rem)}#share-message{padding:12px 0}#share-auth{display:grid;gap:10px;max-width:420px}#share-auth[hidden],#share-content[hidden]{display:none!important}#share-auth input{min-height:44px;padding:8px;border:1px solid #98a2b3;border-radius:6px}#share-auth button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:#175cd3;color:#fff;font-weight:700}#share-content img{max-width:100%;height:auto;display:block;margin:12px 0;border-radius:8px} .share-step{padding:16px 0;border-top:1px solid #d0d5dd} .share-note{color:#667085}`;
@@ -193,12 +193,17 @@ async function createShare(request: Request, env: ShareLinkEnv, workspaceId: str
 async function revokeShare(request: Request, env: ShareLinkEnv, workspaceId: string, manualId: string): Promise<Response> {
   assertSameOrigin(request, env);
   const { actorId, database } = await actor(request, env);
-  const actorRole = await ensureManager(database, actorId, workspaceId, manualId);
+  await ensureManager(database, actorId, workspaceId, manualId);
   const body = await readJson(request);
   if (Object.keys(body).some((key) => key !== "shareLinkId")) throw new ShareError(400, "INPUT_INVALID", "指定できない項目が含まれています。");
   const shareLinkId = id(body.shareLinkId, "SHARE_LINK_ID_INVALID");
-  const result = await database.prepare(`UPDATE share_links SET revoked_at = ?1, updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3 AND manual_id = ?4 AND revoked_at IS NULL AND (created_by = ?5 OR ?6 IN ('owner','admin'))`).bind(nowIso(), shareLinkId, workspaceId, manualId, actorId, actorRole).run();
+  const result = await database.prepare(`UPDATE share_links SET revoked_at = ?1, updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3 AND manual_id = ?4 AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id JOIN manuals m ON m.id = ?4 AND m.workspace_id = ?3 WHERE wm.workspace_id = ?3 AND wm.application_id = ?5 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active' AND m.archived_at IS NULL AND (wm.role IN ('owner','admin') OR (wm.role = 'editor' AND share_links.created_by = ?5)))`).bind(nowIso(), shareLinkId, workspaceId, manualId, actorId).run();
   if (changed(result) > 1) throw new ShareError(503, "SHARE_UNAVAILABLE", "共有停止結果を確認できません。");
+  if (changed(result) === 0) {
+    await ensureManager(database, actorId, workspaceId, manualId);
+    const current = await database.prepare("SELECT revoked_at FROM share_links WHERE id = ?1 AND workspace_id = ?2 AND manual_id = ?3 LIMIT 1").bind(shareLinkId, workspaceId, manualId).first<{ revoked_at: string | null }>();
+    if (current && current.revoked_at === null) throw new ShareError(409, "SHARE_CONFLICT", "共有リンクの停止状態を確認できませんでした。最新状態を確認してから再試行してください。");
+  }
   return json({ revoked: changed(result) === 1, shareLinkId });
 }
 

@@ -168,3 +168,29 @@ test("share viewer removes an image when the grant is rejected on asset fetch", 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("share viewer sends an 80-emoji passcode without truncating it", { timeout: 30_000 }, async () => {
+  const passcode = "😀".repeat(80);
+  assert.equal([...passcode].length, 80);
+  assert.equal(passcode.codePointAt(0), 0x1f600);
+  const { baseUrl, server, state } = await startViewerServer({ resolvePasscode: passcode });
+  let context;
+  try {
+    const launched = await launchPage();
+    context = launched.context;
+    const page = launched.page;
+    await page.goto(`${baseUrl}/s/#token=${SHARE_TOKEN}`);
+    const input = page.locator("#share-passcode");
+    assert.equal(await input.getAttribute("maxlength"), "256");
+    await input.fill(passcode);
+    assert.equal(await input.inputValue(), passcode);
+    await page.locator("#share-submit").click();
+    await page.locator("#share-content").waitFor({ state: "visible" });
+    assert.deepEqual(state.passcodes, [passcode]);
+    assert.equal(await page.locator("#share-content h2").count(), 1);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
