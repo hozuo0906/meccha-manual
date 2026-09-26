@@ -15,6 +15,8 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
   let failureStatus = null;
   let delayedManualId = null;
   let releaseDelayedPost = null;
+  let delayedPostReadyResolve;
+  const delayedPostReady = new Promise((resolve) => { delayedPostReadyResolve = resolve; });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
@@ -37,7 +39,9 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       if (request.method === "POST") {
         const parsed = JSON.parse(body); postBodies.push({ manualId, body: parsed });
         if (failureStatus) { const status = failureStatus; failureStatus = null; json(status, { message: `拒否 ${status}` }); return; }
-        if (delayedManualId === manualId) await new Promise((resolve) => { releaseDelayedPost = resolve; });
+        if (delayedManualId === manualId) {
+          await new Promise((resolve) => { releaseDelayedPost = resolve; delayedPostReadyResolve(); });
+        }
         const share = { shareLinkId: `share-${manualId}`, expiresAt: parsed.expiresAt, revokedAt: null, permission: "read_only", viewerPath: "/s/" };
         shares.set(manualId, share); json(200, { ...share, reused: false }); return;
       }
@@ -75,15 +79,20 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
 
     for (const status of [400, 403, 409]) {
       failureStatus = status;
+      const expectedPostCount = postBodies.length + 1;
+      const responsePromise = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "POST" && response.status() === status);
       await fillShareForm();
+      const response = await responsePromise;
+      assert.equal(response.status(), status);
+      assert.equal(postBodies.length, expectedPostCount);
       await page.locator("#cloud-message.error").waitFor();
-      assert.equal(postBodies.at(-1).body.confirmed, true);
+      assert.equal(postBodies.at(-1)?.body.confirmed, true);
       assert.equal(await page.locator("input.share-link-value").count(), 0);
     }
 
     delayedManualId = "manual-1";
     await fillShareForm();
-    for (let attempt = 0; attempt < 20 && !releaseDelayedPost; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    await delayedPostReady;
     assert.equal(typeof releaseDelayedPost, "function");
     await list.nth(1).click();
     await page.locator("#cloud-detail h2").filter({ hasText: "Manual Two" }).waitFor();
@@ -91,9 +100,10 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await fillShareForm();
     await page.locator("#cloud-message.warning").waitFor();
     assert.equal(postBodies.length, postsBeforeBusyAttempt);
+    const delayedResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "POST" && response.status() === 200);
     releaseDelayedPost();
     releaseDelayedPost = null;
-    await page.waitForTimeout(100);
+    assert.equal((await delayedResponse).status(), 200);
     assert.match(await page.locator("#cloud-detail h2").textContent(), /Manual Two/);
     assert.equal(await page.locator("[data-share-passcode]").isVisible(), true);
   } finally {
