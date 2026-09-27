@@ -20,6 +20,7 @@ const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
 const emptyState = document.querySelector("#emptyState");
+const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
 
 const MODE_LABELS = {
   pc: "PC",
@@ -38,8 +39,9 @@ async function send(message) {
 function instructionFor(event) {
   if (event?.kind === "scroll") return `画面を${({ up: "上", down: "下", left: "左", right: "右" })[event.direction] || "指定方向"}へスクロールする`;
   if (event?.kind === "navigation") return "次のページへ移動する";
-  if (event?.kind === "input") return `${event.label || "入力欄"}に入力する`;
-  return `${event?.label || "操作対象"}を操作する`;
+  const semanticLabel = SEMANTIC_LABELS.has(event?.label) ? event.label : "操作対象";
+  if (event?.kind === "input") return `${semanticLabel}に入力する`;
+  return `${semanticLabel}を操作する`;
 }
 
 function setImage(image, source, alt) {
