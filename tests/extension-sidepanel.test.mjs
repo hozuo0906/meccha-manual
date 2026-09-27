@@ -16,6 +16,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(source, /capture:start/);
   assert.match(source, /capture:pause/);
   assert.match(source, /capture:finish/);
+  assert.match(await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8"), /chrome\.sidePanel\.open/);
   assert.match(source, /captureLiveStore\.list/);
   assert.match(html, /id="liveSteps"/);
   assert.match(html, /id="finish"/);

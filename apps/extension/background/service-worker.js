@@ -417,8 +417,11 @@ async function captureStatus() {
   };
 }
 
-if (chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
+  chrome.action.onClicked.addListener((tab) => {
+    if (!tab?.windowId) return;
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+  });
 }
 
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
