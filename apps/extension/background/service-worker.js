@@ -665,17 +665,13 @@ async function handleHandoffPageReady(message, sender) {
     if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
     if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual" };
-    try {
-      await chrome.tabs.update(sender.tab.id, { active: true });
-    } catch {
-      return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
-    }
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready" };
     const latest = (await chrome.storage.local.get(key))?.[key];
     const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
     if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const readyAt = new Date().toISOString();
-    await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: readyAt } });
+    await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: null } });
     return { ok: true, status: "ready" };
   });
 }

@@ -685,6 +685,19 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const page = await createStagingPage(context, positiveUrl);
     const tabId = await tabIdForPage(worker, page);
     assert.equal(Number.isInteger(tabId), true, "the real MV3 sender tab must be discoverable");
+    const foregroundPage = await createStagingPage(context, `${STAGING_ORIGIN}/onboarding/continue?runtime-test=ready-foreground`);
+    await foregroundPage.bringToFront();
+    const foregroundTabId = await tabIdForPage(worker, foregroundPage);
+    assert.equal(Number.isInteger(foregroundTabId), true, "the separate foreground tab must be discoverable");
+    const activeTabIds = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tabs.filter((tab) => tab.active).map((tab) => tab.id));
+      });
+    }));
+    assert.equal(activeTabIds.includes(foregroundTabId), true, "the unrelated foreground tab must be active before ready");
+    assert.equal(activeTabIds.includes(tabId), false, "the ready sender must begin in the background");
     const draft = {
       id: "runtime-ready-flow-draft",
       title: "ready 通知の下書き",
@@ -732,7 +745,16 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" });
     const firstReady = await readMetadata(worker, readyKey);
     assert.equal(Number.isFinite(Date.parse(firstReady.pageReadyAt)), true);
-    assert.equal(Number.isFinite(Date.parse(firstReady.activatedAt)), true);
+    assert.equal(firstReady.activatedAt, null, "background ready notification must not activate the sender tab");
+    const activeTabIdsAfterReady = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tabs.filter((tab) => tab.active).map((tab) => tab.id));
+      });
+    }));
+    assert.equal(activeTabIdsAfterReady.includes(foregroundTabId), true, "the unrelated foreground tab must remain active");
+    assert.equal(activeTabIdsAfterReady.includes(tabId), false, "background ready must not foreground the sender tab");
     assert.deepEqual(await readMetadata(worker, handoffKey), handoffMetadata, "ready must not overwrite operation or claim identity");
     assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" }, "duplicate ready is idempotent");
     assert.deepEqual(await readMetadata(worker, readyKey), firstReady, "duplicate ready must preserve the first timestamps");

@@ -286,10 +286,31 @@ async function waitForPageReady(handoffId, launchId, tabId, run) {
   while (Date.now() < deadline) {
     if (!isActiveHandoffRun(run)) return null;
     const stored = (await chrome.storage.local.get(key))?.[key];
-    if (stored?.handoffId === handoffId && stored.launchId === launchId && stored.tabId === tabId && Number.isFinite(Date.parse(stored.pageReadyAt || "")) && Number.isFinite(Date.parse(stored.activatedAt || ""))) return stored;
+    if (stored?.handoffId === handoffId && stored.launchId === launchId && stored.tabId === tabId && Number.isFinite(Date.parse(stored.pageReadyAt || ""))) return stored;
     await waitFor(100);
   }
   return null;
+}
+
+async function activateReadyHandoff(run, ready) {
+  if (!isActiveHandoffRun(run) || !ready || ready.handoffId !== run.handoffId || ready.launchId !== run.launchId || ready.tabId !== run.tabId) return false;
+  return withHandoffReadyLock(run.handoffId, async () => {
+    if (!isActiveHandoffRun(run)) return false;
+    const key = handoffReadyStorageKey(run.handoffId, run.launchId);
+    const latest = (await chrome.storage.local.get(key))?.[key];
+    const deadline = Date.parse(latest?.activationDeadlineAt || "");
+    if (!latest || latest.handoffId !== run.handoffId || latest.launchId !== run.launchId || latest.tabId !== run.tabId || latest.activationPolicy !== "auto" || !Number.isFinite(Date.parse(latest.pageReadyAt || "")) || (Number.isFinite(deadline) && deadline < Date.now())) return false;
+    if (!isActiveHandoffRun(run)) return false;
+    await chrome.tabs.update(run.tabId, { active: true });
+    if (!isActiveHandoffRun(run)) {
+      return false;
+    }
+    const activatedAt = new Date().toISOString();
+    const after = (await chrome.storage.local.get(key))?.[key];
+    if (!after || after.handoffId !== run.handoffId || after.launchId !== run.launchId || after.tabId !== run.tabId || after.activationPolicy !== "auto") return false;
+    await chrome.storage.local.set({ [key]: { ...after, activatedAt } });
+    return true;
+  });
 }
 
 async function startOutput(outputAction) {
@@ -323,6 +344,7 @@ async function startOutput(outputAction) {
       const ready = await waitForPageReady(opened.metadata.handoffId, opened.launchId, opened.tabId, run);
       if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
       if (ready) {
+        if (!await activateReadyHandoff(run, ready)) throw new Error("HANDOFF_CANCELLED");
         activeHandoffAttempt = null;
         pendingHandoffTabId = null;
         if (activateHandoff) activateHandoff.hidden = true;
