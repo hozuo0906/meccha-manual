@@ -89,6 +89,15 @@ function firstScreenshot(draft) {
   return screenshot?.dataUrl || null;
 }
 
+function editorUrl(draftId) {
+  return chrome.runtime.getURL(`editor/editor.html#${encodeURIComponent(draftId)}`);
+}
+
+async function openDraftEditor(draftId) {
+  if (typeof draftId !== "string" || !draftId) throw new Error("下書きIDがありません");
+  return chrome.tabs.create({ url: editorUrl(draftId) });
+}
+
 function renderDrafts(items = []) {
   const sorted = [...items].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
   drafts.replaceChildren();
@@ -107,7 +116,7 @@ function renderDrafts(items = []) {
     const open = document.createElement("button");
     open.type = "button";
     open.textContent = "手順書を開く";
-    open.addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${encodeURIComponent(draft.id)}`) }));
+    open.addEventListener("click", () => openDraftEditor(draft.id));
     content.append(title, detail, open);
     card.append(image, content);
     drafts.append(card);
@@ -186,11 +195,30 @@ start.addEventListener("click", () => withError(async () => {
 
 finish.addEventListener("click", () => withError(async () => {
   const result = await send({ type: "capture:finish" });
-  await refresh();
+  let editorOpenError = result?.draftId ? null : new Error("下書きIDがありません");
+  if (!editorOpenError) {
+    try {
+      await openDraftEditor(result.draftId);
+    } catch (error) {
+      editorOpenError = error;
+    }
+  }
+  let refreshError = null;
+  try {
+    await refresh();
+  } catch (error) {
+    refreshError = error;
+  }
   statusOverride = "";
-  status.textContent = result?.missingImageCount
-    ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
-    : "記録できました。画像付きの手順を保存しました。";
+  if (editorOpenError) {
+    statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+    status.textContent = statusOverride;
+  } else {
+    status.textContent = result?.missingImageCount
+      ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
+      : "記録できました。画像付きの手順を保存しました。";
+    if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
+  }
 }, "記録を終了できませんでした。記録内容はこの端末に保持しています。"));
 
 pause.addEventListener("click", () => withError(async () => {

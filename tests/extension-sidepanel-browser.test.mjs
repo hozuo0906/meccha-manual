@@ -152,6 +152,34 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await clickNative("#finish");
     const draftImageCount = await waitForNativeValue("document.querySelectorAll('.draft-card img').length", (value) => value > 0);
     assert.ok(draftImageCount > 0, "saved draft should retain its step image");
+    const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
+    let editorPage;
+    const editorDeadline = Date.now() + 10_000;
+    while (!editorPage && Date.now() < editorDeadline) {
+      editorPage = context.pages().find((candidate) => candidate.url().startsWith(editorUrlPrefix));
+      if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(editorPage, "successful finish should open the saved draft editor");
+    await editorPage.waitForSelector("#title");
+    await editorPage.waitForFunction(() => document.querySelector("#title")?.value === "新しい手順書");
+    assert.equal(await editorPage.locator("#title").inputValue(), "新しい手順書");
+    assert.equal(await editorPage.locator("#steps li").count(), 2, "editor should show both recorded steps");
+    const stepButtons = editorPage.locator("#steps li button");
+    const imageSources = [];
+    for (const index of [0, 1]) {
+      const stepButton = stepButtons.nth(index);
+      const instruction = await stepButton.textContent();
+      await stepButton.click();
+      const detailInstruction = editorPage.locator("#detail textarea");
+      await detailInstruction.waitFor();
+      assert.equal(await detailInstruction.inputValue(), instruction, "editor detail should match the selected step text");
+      const image = editorPage.locator(".screenshot-preview img");
+      await image.waitFor();
+      await image.evaluate((element) => element.decode());
+      assert.ok(await image.evaluate((element) => element.naturalWidth > 0), "selected step image should be decoded");
+      imageSources.push(await image.getAttribute("src"));
+    }
+    assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
     if (process.env.MECCHA_SIDEPANEL_DRAFT) {
       const draftSnapshot = await waitForNativeValue(`new Promise((resolve) => {
         const request = indexedDB.open("meccha-manual-guest", 1);
