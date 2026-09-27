@@ -17,12 +17,14 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(source, /capture:pause/);
   assert.match(source, /capture:finish/);
   assert.match(source, /captureLimitReached/);
+  assert.match(source, /captureLimitReached: state\.captureLimitReached/);
   assert.match(source, /100/);
   assert.match(source, /200/);
   const worker = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(worker, /chrome\.sidePanel\.open/);
   assert.match(worker, /CLOUD_CLAIM_MAX_ASSETS/);
   assert.doesNotMatch(worker, /typeof importedCaptureLiveStore/);
+  assert.match(worker, /captureLimitReached: session\?\.captureLimitReached/);
   assert.match(source, /captureLiveStore\.list/);
   assert.match(html, /id="liveSteps"/);
   assert.match(html, /id="finish"/);

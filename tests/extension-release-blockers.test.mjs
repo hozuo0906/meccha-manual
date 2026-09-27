@@ -132,8 +132,8 @@ test("bounded recovery journal survives duplicate drained events and keeps retry
 test("finish retains drained events before either persistence attempt", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   const finishStart = source.indexOf("async function finishCapture()");
-  const journal = source.indexOf("await persistRecoveryJournal(session.id, pendingEvents)", finishStart);
-  const merge = source.indexOf("for (const event of pendingEvents) session = await recordEventWithoutImage(session, event);", finishStart);
+  const journal = source.indexOf("await persistRecoveryJournal(session.id, acceptedPendingEvents)", finishStart);
+  const merge = source.indexOf("for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);", finishStart);
   const persist = source.indexOf("await setSession(session);", merge);
   assert.ok(finishStart >= 0 && merge > finishStart && journal > merge && persist > journal);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);

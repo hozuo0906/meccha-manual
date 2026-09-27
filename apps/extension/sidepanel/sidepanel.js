@@ -156,6 +156,7 @@ async function refresh() {
   const statusKey = JSON.stringify({
     sessionId: state.sessionId,
     phase: state.phase,
+    captureLimitReached: state.captureLimitReached || null,
     events: (state.events || []).map(({ eventId, at }) => [eventId, at]),
     stepImageRefs: state.stepImageRefs || []
   });

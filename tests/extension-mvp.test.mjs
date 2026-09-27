@@ -202,7 +202,7 @@ test("service worker keeps durable recovery, verified masking and independent re
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
-  assert.match(source, /persistRecoveryJournal\(session\.id, pendingEvents\)/);
+  assert.match(source, /persistRecoveryJournal\(session\.id, acceptedPendingEvents\)/);
   assert.match(source, /verifySensitiveMasks/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);

@@ -224,11 +224,13 @@ test("capture stops before the 101st image and exposes the limit", async () => {
   for (let index = 0; index < 100; index += 1) {
     await capture.event({ kind: "click", at: index + 1, eventId: `click:${index}`, target: { tagName: "button" } });
   }
+  capture.session().stepImageRefs = Array.from({ length: 100 }, (_, index) => ({ eventId: `click:${index}`, status: "ready" }));
   const blocked = await capture.event({ kind: "click", at: 101, eventId: "click:100", target: { tagName: "button" } });
   assert.equal(blocked.value.accepted, false);
   assert.equal(capture.session().phase, "paused");
   assert.equal(capture.session().captureLimitReached, "images");
   assert.equal(capture.session().events.length, 100);
+  assert.equal((await capture.status()).captureLimitReached, "images");
 });
 
 test("capture stops before the 201st step and exposes the limit", async () => {
@@ -249,6 +251,9 @@ test("an image-limited session can still save all 100 recorded images", async ()
   capture.session().phase = "paused";
   capture.session().captureLimitReached = "images";
   capture.seedLiveImages(events.map((event, index) => ({ id: `image:${index}`, dataUrl: "data:image/jpeg;base64,AA", status: "ready", eventId: event.eventId, sessionId: "capture-1" })));
+  const status = await capture.status();
+  assert.equal(status.captureLimitReached, "images");
+  assert.equal(status.events.length, 100);
   await capture.finish();
   assert.equal(capture.draft().steps.length, 100);
   assert.equal(capture.draft().screenshots.length, 100);
@@ -264,6 +269,34 @@ test("a step-limited session can still save all 200 recorded steps", async () =>
   assert.equal(capture.draft().steps.length, 200);
   assert.equal(capture.draft().screenshots.length, 0);
   assert.equal(capture.session(), null);
+});
+
+test("failed and unavailable images do not consume the image cap before the 200-step limit", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  for (let index = 0; index < 200; index += 1) {
+    const response = await capture.event({ kind: "click", at: index + 1, eventId: `mixed:${index}`, target: { tagName: "button" } });
+    assert.equal(response.value.accepted, true);
+  }
+  assert.equal(capture.session().events.length, 200);
+  assert.equal(capture.session().stepImageRefs.filter((ref) => ref.status === "ready").length, 1);
+  assert.equal((await capture.status()).captureLimitReached, undefined);
+  await capture.finish();
+  assert.equal(capture.draft().steps.length, 200);
+});
+
+test("an image-cap rejected pending event is not appended during finish", async () => {
+  const capture = await harness();
+  capture.session().events = Array.from({ length: 100 }, (_, index) => ({ kind: "click", at: index + 1, eventId: `ready:${index}` }));
+  capture.session().stepImageRefs = Array.from({ length: 100 }, (_, index) => ({ eventId: `ready:${index}`, status: "ready" }));
+  const blocked = await capture.event({ kind: "click", at: 101, eventId: "rejected:101", target: { tagName: "button" } });
+  assert.equal(blocked.value.accepted, false);
+  assert.equal(capture.session().captureLimitReached, "images");
+  const status = await capture.status();
+  assert.equal(status.captureLimitReached, "images");
+  assert.equal(status.events.length, 100);
+  await capture.finish();
+  assert.equal(capture.draft().steps.length, 100);
+  assert.equal(capture.draft().steps.some((step) => step.eventId === "rejected:101"), false);
 });
 
 test("an over-limit pending event is discarded without blocking the capped draft save", async () => {

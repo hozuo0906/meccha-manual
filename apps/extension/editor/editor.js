@@ -191,25 +191,53 @@ function cancelHandoffRun(run) {
   run.cancelled = true;
   if (activeHandoffAttempt === run) activeHandoffAttempt = null;
   updateHandoffActivationPolicy(run, "cancelled").catch(() => undefined);
+  cleanupProvisionalHandoffTab(run).catch(() => undefined);
+}
+
+async function cleanupProvisionalHandoffTab(run) {
+  if (!run || run.tabState !== "provisional" || !Number.isInteger(run.tabId) || run.tabCleanupStarted) return;
+  run.tabCleanupStarted = true;
+  try {
+    const current = typeof chrome.tabs.get === "function" ? await chrome.tabs.get(run.tabId) : null;
+    const currentUrl = current?.url;
+    const pendingUrl = current?.pendingUrl;
+    const isKnownProvisional = pendingUrl === "about:blank" && (currentUrl === "" || currentUrl === "about:blank");
+    const isStableBlank = currentUrl === "about:blank" && (pendingUrl === undefined || pendingUrl === null);
+    if (!current || (!isKnownProvisional && !isStableBlank)) return;
+    await chrome.tabs.remove(run.tabId);
+    run.tabState = "closed";
+  } catch {
+    // The tab may have been closed by the user while cancellation was settling.
+  }
 }
 
 async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
   if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
   const launchId = createHandoffAttemptId();
   const tab = await chrome.tabs.create({ url: "about:blank", active: false });
-  if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
   if (!Number.isInteger(tab?.id)) throw new Error("HANDOFF_TAB_UNAVAILABLE");
   run.tabId = tab.id;
+  run.tabState = "provisional";
+  if (!isActiveHandoffRun(run)) {
+    await cleanupProvisionalHandoffTab(run);
+    throw new Error("HANDOFF_CANCELLED");
+  }
   const key = handoffStorageKey(metadata.handoffId);
   const latest = (await chrome.storage.local.get(key))?.[key];
-  if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+  if (!isActiveHandoffRun(run)) {
+    await cleanupProvisionalHandoffTab(run);
+    throw new Error("HANDOFF_CANCELLED");
+  }
   const base = latest?.handoffId === metadata.handoffId ? latest : metadata;
   run.handoffId = base.handoffId;
   if (!latest) await saveHandoffMetadata(base);
   run.launchId = launchId;
   const readyKey = handoffReadyStorageKey(base.handoffId, launchId);
   await withHandoffReadyLock(base.handoffId, async () => {
-    if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+    if (!isActiveHandoffRun(run)) {
+      await cleanupProvisionalHandoffTab(run);
+      throw new Error("HANDOFF_CANCELLED");
+    }
     await chrome.storage.local.set({ [readyKey]: {
       handoffId: base.handoffId,
       launchId,
@@ -220,11 +248,21 @@ async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
       pageReadyAt: null,
       activatedAt: null
     } });
-    if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
-    await chrome.tabs.update(tab.id, {
-      url: buildContinueUrl(origin, base.handoffId, base.extensionId, recovery, outputAction, launchId),
-      active: false
-    });
+    if (!isActiveHandoffRun(run)) {
+      await cleanupProvisionalHandoffTab(run);
+      throw new Error("HANDOFF_CANCELLED");
+    }
+    run.tabState = "navigating";
+    try {
+      await chrome.tabs.update(tab.id, {
+        url: buildContinueUrl(origin, base.handoffId, base.extensionId, recovery, outputAction, launchId),
+        active: false
+      });
+      run.tabState = "prepared";
+    } catch (error) {
+      run.tabState = "provisional";
+      throw error;
+    }
   });
   if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
   return { tabId: tab.id, launchId, metadata: base };
@@ -259,7 +297,7 @@ async function startOutput(outputAction) {
   outputInFlight = true;
   const previousAttempt = activeHandoffAttempt;
   cancelHandoffRun(previousAttempt);
-  const run = { runId: ++handoffRunGeneration, cancelled: false, handoffId: null, launchId: null, tabId: null };
+  const run = { runId: ++handoffRunGeneration, cancelled: false, handoffId: null, launchId: null, tabId: null, tabState: "none", tabCleanupStarted: false };
   activeHandoffAttempt = run;
   pendingHandoffTabId = null;
   if (activateHandoff) activateHandoff.hidden = true;
@@ -299,6 +337,7 @@ async function startOutput(outputAction) {
       return;
     });
   } catch (error) {
+    await cleanupProvisionalHandoffTab(run);
     if (isActiveHandoffRun(run)) {
       if (handoffProgress) handoffProgress.hidden = true;
       gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)

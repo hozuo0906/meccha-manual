@@ -303,16 +303,24 @@ test("cancel during delayed handoff preparation cannot activate a late tab", { t
     page.setDefaultTimeout(3_000);
     await page.addInitScript(() => {
       globalThis.__tabsUpdateCalls = [];
+      globalThis.__tabsRemoveCalls = [];
       globalThis.__handoffStorage = {};
       globalThis.__delayFirstStorageSet = true;
+      globalThis.__delayNextStorageSet = false;
       globalThis.__storageSetStarted = false;
       globalThis.__releaseStorageSet = null;
+      globalThis.__delayTabsCreate = false;
+      globalThis.__tabsCreateStarted = false;
+      globalThis.__releaseTabsCreate = null;
+      globalThis.__nextTabId = 31;
+      globalThis.__tabUrlState = { url: "", pendingUrl: "about:blank" };
       globalThis.chrome = {
         runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         storage: { local: {
           set: async (values) => {
-            if (globalThis.__delayFirstStorageSet) {
+            if (globalThis.__delayFirstStorageSet || globalThis.__delayNextStorageSet) {
               globalThis.__delayFirstStorageSet = false;
+              globalThis.__delayNextStorageSet = false;
               globalThis.__storageSetStarted = true;
               await new Promise((resolve) => { globalThis.__releaseStorageSet = resolve; });
             }
@@ -322,7 +330,16 @@ test("cancel during delayed handoff preparation cannot activate a late tab", { t
           remove: async () => undefined
         } },
         tabs: {
-          create: async ({ url, active }) => ({ id: 31, url, active }),
+          create: async ({ url, active }) => {
+            if (globalThis.__delayTabsCreate) {
+              globalThis.__delayTabsCreate = false;
+              globalThis.__tabsCreateStarted = true;
+              await new Promise((resolve) => { globalThis.__releaseTabsCreate = resolve; });
+            }
+            return { id: globalThis.__nextTabId++, url, active };
+          },
+          get: async (tabId) => ({ id: tabId, ...globalThis.__tabUrlState }),
+          remove: async (tabId) => { globalThis.__tabsRemoveCalls.push(tabId); },
           update: async (tabId, details) => { globalThis.__tabsUpdateCalls.push({ tabId, ...details }); return { id: tabId, ...details }; }
         }
       };
@@ -342,11 +359,37 @@ test("cancel during delayed handoff preparation cannot activate a late tab", { t
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true)), false);
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ url }) => Boolean(url))), false);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31], "cancel must remove its own provisional tab");
     assert.ok(await page.evaluate(async () => Boolean(await (await import("/storage/draft-store.js")).draftStore.get("cancel-during-handoff-fixture"))), "cancel must keep the local draft");
 
     await page.locator("#save").click();
     await page.waitForFunction(() => document.querySelector("#outputGate")?.open === true);
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "cancelled preparation must leave the editor resumable");
+
+    await page.evaluate(() => { globalThis.__delayTabsCreate = true; });
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__tabsCreateStarted === true);
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseTabsCreate?.());
+    await page.waitForTimeout(150);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31, 32], "cancel after delayed tab creation must remove the returned provisional tab");
+
+    await page.locator("#save").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === true);
+    await page.evaluate(() => {
+      globalThis.__delayNextStorageSet = true;
+      globalThis.__storageSetStarted = false;
+      globalThis.__tabUrlState = { url: "", pendingUrl: "about:blank" };
+    });
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__storageSetStarted === true);
+    await page.evaluate(() => { globalThis.__tabUrlState = { url: "https://user.example.test/page" }; });
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseStorageSet?.());
+    await page.waitForTimeout(150);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31, 32], "cancel must keep a provisional tab after the user navigates it away");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
