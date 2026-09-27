@@ -59,6 +59,10 @@ test("expired handoff metadata is pruned without touching local draft content", 
 test("onboarding page uses CSP-compatible external assets and metadata-only bootstrap", () => {
   const html = renderOnboardingContinuePage({ bootstrapEnabled: false });
   assert.match(html, /data-bootstrap-enabled="false"/);
+  assert.match(html, /meccha-manual-logo-mark\.png/);
+  assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
+  assert.match(html, /Accessで認証済みの場合だけ/);
+  assert.doesNotMatch(html, /cloudflareaccess\.com|\/cdn-cgi\/access/);
   assert.match(html, /assets\/onboarding\.css/);
   assert.match(html, /assets\/onboarding\.js/);
   assert.doesNotMatch(html, /<style|<script>[^<]/);
@@ -69,6 +73,8 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /handoff\.asset\.chunk/);
   assert.match(ONBOARDING_JS, /claim-intents/);
   assert.match(ONBOARDING_JS, /claimStatus: "finalize-pending"/);
+  assert.match(ONBOARDING_CSS, /prefers-reduced-motion/);
+  assert.match(ONBOARDING_CSS, /#eaf8fb/);
   assert.match(ONBOARDING_JS, /method: "GET"/);
   assert.match(ONBOARDING_JS, /X-Requested-With/);
   assert.match(ONBOARDING_JS, /手順書を保存/);
@@ -128,8 +134,15 @@ test("dedicated onboarding Wrangler config separates staging and fail-closed pro
 
 test("editor gate keeps save failure from opening registration", async () => {
   const source = await readFile(new URL("../apps/extension/editor/editor.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../apps/extension/editor/editor.css", import.meta.url), "utf8");
   assert.match(source, /if \(!await persist\(/);
   assert.match(source, /保存に失敗したため、登録画面へ進めません/);
+  assert.match(source, /setSaveState\("保存中…", "saving"\)/);
+  assert.match(source, /setSaveState\("保存済み", "saved"\)/);
+  assert.match(html, /meccha-manual-logo-mark\.png/);
+  assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
+  assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(source, /__MECCHA_MANUAL_APP_ORIGIN__/);
 });
 

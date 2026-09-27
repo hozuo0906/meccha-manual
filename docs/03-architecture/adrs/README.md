@@ -37,3 +37,4 @@ Status: Accepted
 | ADR-0032 | Accepted | アカウント登録をoutput境界へ遅延し、production self-service OTP、Personal bootstrap、secure extension handoff、guest draft claimを採用する |
 | ADR-0033 | Accepted | Free/Pro/Teamへ商品設計を簡素化し、Browser Run時間を料金軸から外す |
 | ADR-0034 | Accepted | D1共有リンクのimmutable snapshot、短期grant、/s/匿名境界、再検証を定める |
+| ADR-0035 | Accepted | 拡張編集画面を既存ブランドへ統合し、認証後handoffの準備状態とreduced-motionを定める |

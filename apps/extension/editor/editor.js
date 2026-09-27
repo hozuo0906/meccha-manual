@@ -17,22 +17,34 @@ const outputGate = document.querySelector("#outputGate");
 const startRegistration = document.querySelector("#startRegistration");
 const startShare = document.querySelector("#startShare");
 const gateStatus = document.querySelector("#gateStatus");
+const saveState = document.querySelector("#saveState");
+const handoffProgress = document.querySelector("#handoffProgress");
+const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
 let selectedStepId = draft.steps[0]?.id;
 
 title.value = draft.title;
 description.value = draft.description;
 
+function setSaveState(label, state = "saved") {
+  if (!saveState) return;
+  saveState.textContent = label;
+  saveState.dataset.state = state;
+}
+
 async function persist(message = "この端末に保存しました。") {
   draft.title = title.value;
   draft.description = description.value;
   draft.updatedAt = new Date().toISOString();
+  setSaveState("保存中…", "saving");
   try {
     await draftStore.put(draft);
     status.textContent = message;
+    setSaveState("保存済み", "saved");
     return true;
   } catch {
     status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
+    setSaveState("保存できません", "error");
     return false;
   }
 }
@@ -62,7 +74,7 @@ function renderScreenshot(step) {
   area.append(preview);
 
   const hint = document.createElement("p");
-  hint.textContent = "画像上をドラッグすると追加のマスクを作成できます。";
+  hint.textContent = "機密情報を隠すには、画像上をドラッグしてマスクを作成します。保存・共有時にもマスクが引き継がれます。";
   area.append(hint);
   let start;
   const normalizedPoint = (event, rect) => ({ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) });
@@ -164,7 +176,9 @@ async function startOutput(outputAction) {
   if (!origin) return;
   startRegistration.disabled = true;
   if (startShare) startShare.disabled = true;
-  gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
+  if (handoffProgress) handoffProgress.hidden = false;
+  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有設定の準備をしています。" : "保存先を準備しています。";
+  gateStatus.textContent = "準備画面を開いています。認証後に保存先を準備します。手順書本文は送信しません。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
       await pruneExpiredHandoffs();
@@ -182,7 +196,7 @@ async function startOutput(outputAction) {
       const metadata = createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
       await saveHandoffMetadata(metadata);
       await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId, null, outputAction) });
-      gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
+      gateStatus.textContent = "準備画面を開きました。認証後に保存先を準備します。元の手順書はこの端末に残っています。";
       outputGate.close();
     });
   } catch (error) {
