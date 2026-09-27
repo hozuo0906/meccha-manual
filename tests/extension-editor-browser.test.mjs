@@ -389,12 +389,21 @@ test("ready config opens the registration tab once and keeps local edits", { tim
       globalThis.__tabsUpdateCalls = [];
       globalThis.__createdTabUrl = null;
       globalThis.__handoffStorageWrites = 0;
+      globalThis.__expireNextReady = false;
+      globalThis.__delayReadyPoll = false;
       globalThis.__handoffStorage = {};
       globalThis.chrome = {
         runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         storage: { local: {
           set: async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); },
-          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
+          get: async (key) => {
+            const result = key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage;
+            if (globalThis.__delayReadyPoll && typeof key === "string" && key.includes(":handoff-ready:") && result[key]?.pageReadyAt) {
+              globalThis.__delayReadyPoll = false;
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            return result;
+          },
           remove: async () => undefined
         } },
         tabs: {
@@ -402,8 +411,14 @@ test("ready config opens the registration tab once and keeps local edits", { tim
           update: async (tabId, details) => {
             globalThis.__tabsUpdateCalls.push({ tabId, ...details });
             if (details.url) {
-              const readyKey = Object.keys(globalThis.__handoffStorage).find((key) => key.includes(":handoff-ready:"));
-              globalThis.__handoffStorage[readyKey] = { ...globalThis.__handoffStorage[readyKey], pageReadyAt: new Date().toISOString(), activatedAt: null };
+              const readyKey = Object.keys(globalThis.__handoffStorage).find((key) => key.includes(":handoff-ready:") && !globalThis.__handoffStorage[key]?.pageReadyAt);
+              globalThis.__handoffStorage[readyKey] = {
+                ...globalThis.__handoffStorage[readyKey],
+                pageReadyAt: new Date().toISOString(),
+                activationDeadlineAt: globalThis.__expireNextReady ? new Date(Date.now() + 10).toISOString() : globalThis.__handoffStorage[readyKey]?.activationDeadlineAt,
+                activatedAt: null
+              };
+              globalThis.__expireNextReady = false;
             }
             return { id: tabId, ...details };
           }
@@ -441,6 +456,19 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     assert.equal(await page.locator("#title").inputValue(), "編集を保持するタイトル");
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 3);
     assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
+
+    await page.evaluate(() => { globalThis.__expireNextReady = true; globalThis.__delayReadyPoll = true; });
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "an expired automatic activation should remain in the gate");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length), 1);
+    await page.locator("#activateHandoff").click();
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length === 2);
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
+    const activeTabIds = await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).map(({ tabId }) => tabId));
+    assert.deepEqual(activeTabIds, [17, 17], "manual activation should reuse the prepared tab");
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "the same prepared tab should be manually activated");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
