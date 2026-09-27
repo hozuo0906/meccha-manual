@@ -301,6 +301,7 @@ async function startOutput(outputAction) {
   activeHandoffAttempt = run;
   pendingHandoffTabId = null;
   if (activateHandoff) activateHandoff.hidden = true;
+  if (activateHandoff) activateHandoff.disabled = false;
   startRegistration.disabled = true;
   if (startShare) startShare.disabled = true;
   if (handoffProgress) handoffProgress.hidden = false;
@@ -354,20 +355,28 @@ async function startOutput(outputAction) {
   }
 }
 activateHandoff?.addEventListener("click", async () => {
-  const tabId = pendingHandoffTabId;
-  if (!Number.isInteger(tabId)) return;
+  const attempt = activeHandoffAttempt;
+  const tabId = attempt?.tabId ?? pendingHandoffTabId;
+  if (!Number.isInteger(tabId) || !attempt || attempt.cancelled || !isActiveHandoffRun(attempt)) return;
   activateHandoff.disabled = true;
   try {
-    const attempt = activeHandoffAttempt;
-    if (!attempt || attempt.cancelled) return;
-    activeHandoffAttempt = null;
     await updateHandoffActivationPolicy(attempt, "manual");
+    if (!isActiveHandoffRun(attempt) || pendingHandoffTabId !== tabId) return;
     await chrome.tabs.update(tabId, { active: true });
+    if (!isActiveHandoffRun(attempt)) return;
+    activeHandoffAttempt = null;
     pendingHandoffTabId = null;
     activateHandoff.hidden = true;
     outputGate.close();
+  } catch {
+    if (isActiveHandoffRun(attempt)) {
+      activeHandoffAttempt = null;
+      pendingHandoffTabId = null;
+      activateHandoff.hidden = true;
+      gateStatus.textContent = "登録画面を表示できませんでした。『登録画面へ進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
+    }
   } finally {
-    activateHandoff.disabled = false;
+    if (activeHandoffAttempt === attempt || activeHandoffAttempt === null) activateHandoff.disabled = false;
   }
 });
 startRegistration.addEventListener("click", () => startOutput("save"));

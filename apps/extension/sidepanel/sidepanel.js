@@ -210,7 +210,11 @@ finish.addEventListener("click", () => withError(async () => {
     refreshError = error;
   }
   statusOverride = "";
-  if (editorOpenError) {
+  if (result?.restorePending) {
+    statusOverride = "記録は保存済みです。画面をもう一度復元してから続けてください。";
+    restore.hidden = false;
+    status.textContent = statusOverride;
+  } else if (editorOpenError) {
     statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
     status.textContent = statusOverride;
   } else {
