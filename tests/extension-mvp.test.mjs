@@ -101,11 +101,12 @@ test("masked screenshot is captured only after masking and always unmasked after
   const order = [];
   const image = await captureWithMaskBoundary({
     applyMasks: async () => { order.push("mask"); return { applied: true }; },
+    waitForPaint: async () => { order.push("paint"); },
     capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
     removeMasks: async () => { order.push("remove"); }
   });
   assert.equal(image.startsWith("data:image/"), true);
-  assert.deepEqual(order, ["mask", "capture", "remove"]);
+  assert.deepEqual(order, ["mask", "paint", "capture", "remove"]);
 });
 
 test("mask verification failure discards image and still removes masks", async () => {
@@ -123,6 +124,19 @@ test("masking failure cannot fall back to an unmasked screenshot", async () => {
   let captured = false;
   let removed = false;
   await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: false }), capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { removed = true; } }), /SCREENSHOT_MASK_FAILED/);
+  assert.equal(captured, false);
+  assert.equal(removed, true);
+});
+
+test("paint boundary failure refuses capture and still restores masks", async () => {
+  let captured = false;
+  let removed = false;
+  await assert.rejects(captureWithMaskBoundary({
+    applyMasks: async () => ({ applied: true }),
+    waitForPaint: async () => { throw new Error("SCREENSHOT_PAINT_TIMEOUT"); },
+    capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; },
+    removeMasks: async () => { removed = true; }
+  }), /SCREENSHOT_PAINT_TIMEOUT/);
   assert.equal(captured, false);
   assert.equal(removed, true);
 });

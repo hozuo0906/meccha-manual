@@ -201,6 +201,49 @@ async function startCapture(tabId, mode) {
 async function takeMaskedScreenshot(session) {
   return captureWithMaskBoundary({
     applyMasks: async () => (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: installSensitiveMasks }))[0]?.result,
+    waitForPaint: async () => {
+      const tab = await chrome.tabs.get(session.tabId);
+      if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
+      const [paintResult] = await chrome.scripting.executeScript({
+        target: { tabId: session.tabId },
+        func: () => new Promise((resolve, reject) => {
+          if (document.visibilityState === "hidden") {
+            reject(new Error("TARGET_TAB_NOT_VISIBLE"));
+            return;
+          }
+          let settled = false;
+          const fail = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            reject(error);
+          };
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve(true);
+          };
+          const timeout = setTimeout(() => fail(new Error("SCREENSHOT_PAINT_TIMEOUT")), 1000);
+          if (typeof requestAnimationFrame !== "function") {
+            fail(new Error("SCREENSHOT_PAINT_UNAVAILABLE"));
+            return;
+          }
+          try {
+            requestAnimationFrame(() => {
+              try {
+                requestAnimationFrame(finish);
+              } catch (error) {
+                fail(error);
+              }
+            });
+          } catch (error) {
+            fail(error);
+          }
+        })
+      });
+      if (paintResult?.result !== true) throw new Error("SCREENSHOT_PAINT_UNAVAILABLE");
+    },
     capture: async () => {
       const tab = await chrome.tabs.get(session.tabId);
       if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
