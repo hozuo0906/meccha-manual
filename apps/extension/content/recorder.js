@@ -26,6 +26,36 @@
   const sendEvent = (event) => chrome.runtime.sendMessage({ type: "capture:event", event })
     .then((response) => Boolean(response?.ok && response?.value?.accepted !== false), () => false);
 
+  const trackedActions = new Map();
+  const failedActionIds = new Set();
+  const actionGenerations = new Map();
+  const trackAction = (event, onAccepted) => {
+    const generation = (actionGenerations.get(event.eventId) || 0) + 1;
+    actionGenerations.set(event.eventId, generation);
+    trackedActions.set(event.eventId, event);
+    let sendPromise;
+    try {
+      sendPromise = sendEvent(event);
+    } catch {
+      failedActionIds.add(event.eventId);
+      return Promise.resolve(false);
+    }
+    return Promise.resolve(sendPromise).then((accepted) => {
+      if (actionGenerations.get(event.eventId) !== generation) return;
+      if (accepted) {
+        trackedActions.delete(event.eventId);
+        failedActionIds.delete(event.eventId);
+        onAccepted?.();
+      } else {
+        failedActionIds.add(event.eventId);
+      }
+      return accepted;
+    }, () => {
+      if (actionGenerations.get(event.eventId) === generation) failedActionIds.add(event.eventId);
+      return false;
+    });
+  };
+
   let pendingInput;
   let inputFlush = Promise.resolve(true);
   const flushInput = () => {
@@ -33,11 +63,8 @@
     const pending = pendingInput;
     const event = captureEvent("input", pending.target, { eventId: pending.eventId, at: pending.at });
     pendingInput = undefined;
-    trackedActions.set(event.eventId, event);
     const transmit = async () => {
-      const accepted = await sendEvent(event);
-      if (accepted) trackedActions.delete(event.eventId);
-      return accepted;
+      return trackAction(event);
     };
     inputFlush = inputFlush.then(transmit, transmit);
     return inputFlush;
@@ -83,11 +110,8 @@
     });
     pendingScroll = undefined;
     scrollPositions.set(pending.target, pending.position);
-    trackedActions.set(event.eventId, event);
     const transmit = async () => {
-      const accepted = await sendEvent(event);
-      if (accepted) trackedActions.delete(event.eventId);
-      return accepted;
+      return trackAction(event);
     };
     scrollFlush = scrollFlush.then(transmit, transmit);
     return scrollFlush;
@@ -116,22 +140,12 @@
     scrollTimer = setTimeout(() => { void flushScroll(); }, 250);
   };
 
-  const trackedActions = new Map();
   const checkpoint = (pending, event) => {
-    trackedActions.set(event.eventId, event);
-    void sendEvent(event).then((accepted) => {
-      if (accepted) {
-        pending.acknowledged = true;
-        trackedActions.delete(event.eventId);
-      }
-    });
+    trackAction(event, () => { pending.acknowledged = true; });
   };
   const trackAndSend = (kind, target, extra = {}) => {
     const event = captureEvent(kind, target, { eventId: nextEventId(), ...extra });
-    trackedActions.set(event.eventId, event);
-    void sendEvent(event).then((accepted) => {
-      if (accepted) trackedActions.delete(event.eventId);
-    });
+    trackAction(event);
     return event;
   };
 
@@ -153,10 +167,7 @@
     if (!pendingNavigation) return;
     const event = pendingNavigation;
     pendingNavigation = undefined;
-    trackedActions.set(event.eventId, event);
-    void sendEvent(event).then((accepted) => {
-      if (accepted) trackedActions.delete(event.eventId);
-    });
+    trackAction(event);
   };
   const recordSameDocumentNavigation = () => {
     void flushBeforeAction();
@@ -168,8 +179,7 @@
   const flushBeforeNavigation = () => { void flushInput(); void flushScroll(); };
   const pagehide = () => { flushBeforeNavigation(); flushNavigation(); };
   const beforeunload = (event) => {
-    if ((pendingInput && !pendingInput.acknowledged) || (pendingScroll && !pendingScroll.acknowledged)
-      || trackedActions.size || pendingNavigation || retainedEvents.length) {
+    if (failedActionIds.size || retainedEvents.length) {
       flushBeforeNavigation();
       flushNavigation();
       event.preventDefault();
@@ -200,6 +210,8 @@
     pendingScroll = undefined;
     pendingNavigation = undefined;
     trackedActions.clear();
+    failedActionIds.clear();
+    actionGenerations.clear();
     return uniqueEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
   };
   const removeRecordingListeners = ({ keepBeforeUnload = false } = {}) => {

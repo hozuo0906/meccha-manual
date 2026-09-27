@@ -424,3 +424,16 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Status: Accepted
 - Date: 2026-09-20
 - `cancel_failed`をキャンセル意図と一時画像削除／window復元の再試行状態として扱い、service worker再起動後もfinishへ戻さず、session・journal・IDB cleanup完了後だけidleへ遷移する。
+
+## DEC-080: capture event送信中の離脱警告を失敗確定時へ限定する
+
+- Status: Accepted
+- Date: 2026-09-27
+- Decision:
+  - 通常の`capture:event`送信中はbeforeunloadを阻止しない。送信失敗が判明して保存成功を確認できないeventと、retainで保持した未保存batchだけを離脱警告・再試行保護の対象にする。再送成功を確認するまで失敗保護を保持する。
+  - event IDごとの送信世代を照合し、古いACKが新しい送信の失敗保護やtracked eventを解除しない。background側の画像処理を含む通常ACK遅延は失敗確定と混同しない。
+  - サイト自身のbeforeunload登録は拡張側で変更せず、通常遷移で記録を失わないためにpagehideと既存のbackground ACK経路を維持する。
+- Reason:
+  - 非同期ACK待ちだけで全リンク遷移に「このサイトを離れますか？」を表示すると、通常操作の導線を阻害する。一方、保存失敗とretain中のbatchは離脱前に利用者へ再試行を促す必要があるため、確定した失敗だけを保護する。
+- Boundary:
+  - backgroundのcapture保存、画像上限、Worker／DB／Access契約、サイト自身の警告文言は変更しない。ブラウザが警告を無視した場合の永続化は保証しない。

@@ -10,6 +10,7 @@ function recorder(sendMessage) {
   class Element {
     constructor() { this.tagName = "INPUT"; this.scrollTop = 0; this.scrollLeft = 0; }
     getAttribute() { return null; }
+    closest() { return this; }
   }
   const initialScrollContainer = new Element();
   initialScrollContainer.scrollTop = 1000;
@@ -97,7 +98,7 @@ test("dynamic scroll containers seed their first position before recording delta
   assert.equal(resumed.stop()[0].direction, "up");
 });
 
-test("input and scroll start durable delivery before pagehide; pending delivery requests an unload warning", async () => {
+test("input and scroll start durable delivery before pagehide without an unload warning while pending", async () => {
   const sent = [];
   const capture = recorder((message) => { sent.push(message); return new Promise(() => {}); });
   const target = capture.existing();
@@ -108,9 +109,65 @@ test("input and scroll start durable delivery before pagehide; pending delivery 
   let warned = false;
   const event = { preventDefault() { warned = true; } };
   capture.emitEvent("beforeunload", event);
+  assert.equal(warned, false);
+  assert.equal(event.returnValue, undefined);
+  assert.equal(capture.stop().length, 2);
+});
+
+test("a confirmed capture rejection requests an unload warning and retains the event", async () => {
+  const capture = recorder(() => Promise.reject(new Error("offline")));
+  capture.emit("click", capture.input());
+  await new Promise((resolve) => setImmediate(resolve));
+  let warned = false;
+  const event = { preventDefault() { warned = true; } };
+  capture.emitEvent("beforeunload", event);
   assert.equal(warned, true);
   assert.equal(event.returnValue, "");
-  assert.equal(capture.stop().length, 2);
+  assert.equal(capture.stop().length, 1);
+});
+
+test("a retry keeps the confirmed failure warning until its new acknowledgement succeeds", async () => {
+  const acknowledgements = [];
+  const capture = recorder(() => new Promise((resolve, reject) => {
+    acknowledgements.push({ resolve, reject });
+  }));
+  const target = capture.input();
+  capture.emit("input", target);
+  acknowledgements[0].reject(new Error("offline"));
+  await new Promise((resolve) => setImmediate(resolve));
+  capture.emit("input", target);
+  await new Promise((resolve) => setImmediate(resolve));
+  let warned = false;
+  capture.emitEvent("beforeunload", { preventDefault() { warned = true; } });
+  assert.equal(warned, true);
+  await new Promise((resolve) => setImmediate(resolve));
+  acknowledgements.slice(1).forEach(({ resolve }) => resolve({ ok: true, value: { accepted: true } }));
+  await new Promise((resolve) => setImmediate(resolve));
+  warned = false;
+  capture.emitEvent("beforeunload", { preventDefault() { warned = true; } });
+  assert.equal(warned, false);
+  capture.stop();
+});
+
+test("a late acknowledgement from an older send generation cannot clear a newer pending action", async () => {
+  const acknowledgements = [];
+  const capture = recorder(() => new Promise((resolve) => acknowledgements.push(resolve)));
+  const target = capture.input();
+  capture.emit("input", target);
+  capture.emit("input", target);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(acknowledgements.length, 2);
+  acknowledgements[0]({ ok: true, value: { accepted: true } });
+  await new Promise((resolve) => setImmediate(resolve));
+  let warned = false;
+  capture.emitEvent("beforeunload", { preventDefault() { warned = true; } });
+  assert.equal(warned, false);
+  acknowledgements[1]({ ok: false, value: { accepted: false } });
+  await new Promise((resolve) => setImmediate(resolve));
+  warned = false;
+  capture.emitEvent("beforeunload", { preventDefault() { warned = true; } });
+  assert.equal(warned, true);
+  assert.equal(capture.stop().length, 1);
 });
 
 test("acknowledged edits do not require an unload warning", async () => {

@@ -209,3 +209,158 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
+
+test("real MV3 navigation does not warn while recording, preserves events, and keeps site warnings", { timeout: 60_000 }, async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>navigation fixture</title></head><body>
+      <main><h1>申請一覧</h1><a id="normal-link" href="/next">次の一覧へ</a>
+      <form id="request-form" action="/form-next" method="get"><label>申請番号<input id="request-id" name="requestId"></label><button id="submit-form" type="submit">申請を送信</button></form>
+      <a id="site-warning" href="/site-warning">サイトの警告を確認</a></main>
+      <script>
+        let showSiteWarning = false;
+        document.querySelector('#site-warning').addEventListener('click', () => { showSiteWarning = true; });
+        addEventListener('beforeunload', (event) => {
+          if (!showSiteWarning) return;
+          event.preventDefault();
+          event.returnValue = '';
+        });
+      </script>
+    </body></html>`);
+  });
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/`;
+  const userDataDir = await mkdtemp(join(tmpdir(), "meccha-manual-navigation-runtime-"));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: true,
+      args: ["--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`]
+    });
+    const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker", { timeout: 15_000 });
+    const extensionId = new URL(worker.url()).hostname;
+    const target = await context.newPage();
+    await target.goto(baseUrl);
+    const browserCdp = await context.browser().newBrowserCDPSession();
+    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
+    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
+    assert.ok(targetInfo, "navigation fixture tab should be discoverable");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    let panelTarget;
+    const panelDeadline = Date.now() + 15_000;
+    while (!panelTarget && Date.now() < panelDeadline) {
+      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
+    let evaluationId = 0;
+    const evaluateNative = (expression) => new Promise((resolve, reject) => {
+      const id = ++evaluationId;
+      const timer = setTimeout(() => {
+        browserCdp.off("Target.receivedMessageFromTarget", receive);
+        reject(new Error("native navigation sidepanel evaluation timed out"));
+      }, 5_000);
+      const receive = (event) => {
+        if (event.sessionId !== sessionId) return;
+        const result = JSON.parse(event.message);
+        if (result.id !== id) return;
+        clearTimeout(timer);
+        browserCdp.off("Target.receivedMessageFromTarget", receive);
+        if (result.error) reject(new Error(`${result.error.message}: ${JSON.stringify(result.error.data || null)}`));
+        else resolve(result.result?.result?.value);
+      };
+      browserCdp.on("Target.receivedMessageFromTarget", receive);
+      browserCdp.send("Target.sendMessageToTarget", {
+        sessionId,
+        message: JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true } })
+      }).catch(reject);
+    });
+    const clickNative = async (selector) => {
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
+    };
+    const waitForRecorder = async (label) => {
+      const deadline = Date.now() + 15_000;
+      let state;
+      do {
+        state = await worker.evaluate(async (id) => {
+          const { activeCaptureSession: session } = await chrome.storage.session.get("activeCaptureSession");
+          let recorder = false;
+          try {
+            const [result] = await chrome.scripting.executeScript({
+              target: { tabId: id },
+              func: () => typeof globalThis.__mecchaManualRecorder === "function"
+            });
+            recorder = result?.result === true;
+          } catch {
+            recorder = false;
+          }
+          return { session, recorder };
+        }, tabId);
+        if (state?.session?.phase === "recording" && state.session.tabId === tabId && state.recorder) return state;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      assert.fail(`${label}: recording session and recorder injection were not both ready`);
+    };
+    await target.bringToFront();
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+    assert.ok(tabId, "navigation fixture tab should be active");
+    await clickNative("#start");
+    await waitForRecorder("initial page");
+
+    let unexpectedDialog;
+    const unexpectedDialogHandler = async (dialog) => {
+      unexpectedDialog = dialog.type();
+      await dialog.dismiss();
+    };
+    target.on("dialog", unexpectedDialogHandler);
+    await target.locator("#normal-link").click({ noWaitAfter: true });
+    assert.equal(unexpectedDialog, undefined, "normal link navigation should not show an unload warning");
+    await target.waitForURL(`${baseUrl}next`);
+    await waitForRecorder("normal link destination");
+    await target.locator("#request-id").fill("申請-001");
+    await target.locator("#submit-form").click({ noWaitAfter: true });
+    assert.equal(unexpectedDialog, undefined, "form navigation should not show an unload warning");
+    await target.waitForURL((url) => url.pathname === "/form-next" && url.searchParams.get("requestId") === "申請-001");
+    await waitForRecorder("form destination");
+    target.off("dialog", unexpectedDialogHandler);
+
+    let siteWarningType;
+    const siteWarning = new Promise((resolve) => {
+      target.once("dialog", async (dialog) => {
+        siteWarningType = dialog.type();
+        await dialog.dismiss();
+        resolve();
+      });
+    });
+    await target.locator("#site-warning").click();
+    await siteWarning;
+    assert.equal(siteWarningType, "beforeunload", "the site's own beforeunload warning should remain visible");
+    assert.match(await target.url(), /\/form-next\?requestId=/, "dismissing the site's warning should keep the page open");
+
+    await clickNative("#finish");
+    const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
+    let editorPage;
+    const editorDeadline = Date.now() + 15_000;
+    while (!editorPage && Date.now() < editorDeadline) {
+      editorPage = context.pages().find((candidate) => candidate.url().startsWith(editorUrlPrefix));
+      if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(editorPage, "successful finish should open the saved draft editor");
+    await editorPage.waitForSelector("#steps li");
+    const instructions = await editorPage.locator("#steps li button").allTextContents();
+    assert.ok(instructions.some((instruction) => instruction.includes("リンクを操作する")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("ボタンを操作する")), "form submit click should be retained");
+  } finally {
+    await context?.close();
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});

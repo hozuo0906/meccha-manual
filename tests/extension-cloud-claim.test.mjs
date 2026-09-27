@@ -143,8 +143,8 @@ test("completed handoff is not selected for a changed draft", async () => {
   assert.equal(await findRecoverableHandoff("draft-1", "a".repeat(64), storage), null);
 });
 
-test("D extension distribution is pinned to staging and version 0.1.4", async () => {
+test("D extension distribution is pinned to staging and version 0.1.5", async () => {
   const manifest = JSON.parse(await readFile("apps/extension/manifest.json", "utf8"));
-  assert.equal(manifest.version, "0.1.4");
+  assert.equal(manifest.version, "0.1.5");
   assert.deepEqual(manifest.externally_connectable.matches, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
 });
