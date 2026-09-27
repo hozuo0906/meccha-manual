@@ -115,7 +115,7 @@ function render() {
   for (const step of draft.steps) {
     const item = document.createElement("li");
     const select = document.createElement("button");
-    select.textContent = `${step.order}. ${step.instruction}`;
+    select.textContent = step.instruction;
     select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
     select.addEventListener("click", () => { selectedStepId = step.id; render(); });
     item.append(select);
@@ -143,7 +143,7 @@ function render() {
 
 function renderListOnly() {
   const labels = steps.querySelectorAll("button");
-  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction}`; });
+  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = step.instruction; });
 }
 
 addStepButton.addEventListener("click", async () => {

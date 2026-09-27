@@ -61,7 +61,7 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(html, /data-bootstrap-enabled="false"/);
   assert.match(html, /meccha-manual-logo-mark\.png/);
   assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
-  assert.match(html, /Accessで認証済みの場合だけ/);
+  assert.match(html, /ログインを確認してから、保存へ進みます/);
   assert.doesNotMatch(html, /cloudflareaccess\.com|\/cdn-cgi\/access/);
   assert.match(html, /assets\/onboarding\.css/);
   assert.match(html, /assets\/onboarding\.js/);
