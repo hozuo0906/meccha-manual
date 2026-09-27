@@ -71,6 +71,8 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 
+capture runtimeはcloud claim契約と同じ画像100件・手順200件を上限とし、上限到達時は記録を一時停止して終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
+
 ## Browser Run legacy traceability
 
 以下は過去のBrowser Run設計を削除せず追跡するためのLegacy行であり、現行MVPのFR-007/FR-016実装先ではない。Browser Runが無効な間はMVPリリースGateをブロックしない。
@@ -109,3 +111,7 @@ FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複f
 ### B期限切れ観測時の保存境界
 
 実ブラウザ回帰では、fragment付きページとfragmentなし再読込の両方で、TTL経過後のクリックをAPIへ送信せず、対象entryを`expired` tombstoneとして保存すること、時計を戻した同一ページ・再読込・同じhandoff再訪でも操作を再開しないことを確認する。`sessionStorage`の保存に失敗した場合は当該ページをfail closedにし、既存履歴を置換せず、永続化成功を主張しない。
+
+### C handoff準備完了の受入境界
+
+FR-001、FR-002、FR-022の登録／共有handoffでは、拡張機能がinactive tabを作成してからWebページの`handoff.page-ready`を受け、自動activate期限内に固定origin・`/onboarding/continue`・tab ID・launch ID・保存済みdraft fingerprintの存在・64桁hex形式・TTLを検証した場合だけactivateする。handoff作成時のdraft fingerprint照合とclaim本体のrequest fingerprint検証は別境界として追跡する。古い通知、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用0で拒否し、Accessログイン等でreadyを受信できない場合はtimeout後に自動activateせず利用者の明示操作で画面を表示する。実装は`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、回帰は`tests/onboarding-ui.test.mjs`と`tests/extension-editor-browser.test.mjs`で追跡する。

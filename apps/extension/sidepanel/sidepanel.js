@@ -125,16 +125,27 @@ function renderStatus(state = {}, imageEntries = []) {
   liveSection.hidden = !active;
   finish.hidden = !active;
   pause.hidden = state.phase !== "recording";
-  resume.hidden = !["paused", "reinjection_failed"].includes(state.phase);
+  resume.hidden = !["paused", "reinjection_failed"].includes(state.phase) || Boolean(state.captureLimitReached);
   cancel.hidden = !active && !waitingForRestore;
   restore.hidden = !waitingForRestore;
   mode.disabled = active || waitingForRestore;
   start.disabled = active || waitingForRestore;
   emptyState.hidden = active || waitingForRestore || Boolean(state.hasDrafts);
-  renderLiveSteps(state.events || [], imageEntries, state.stepImageRefs || []);
-  if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
+  const liveKey = JSON.stringify({
+    events: state.events || [],
+    imageRefs: state.stepImageRefs || [],
+    images: imageEntries.map(({ eventId, id, status, dataUrl }) => [eventId, id, status, Boolean(dataUrl)])
+  });
+  if (liveKey !== lastLiveKey) {
+    lastLiveKey = liveKey;
+    renderLiveSteps(state.events || [], imageEntries, state.stepImageRefs || []);
+  }
+  if (statusOverride) status.textContent = statusOverride;
+  else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に再開できません。対象タブで再開するか、ここまでの内容を終了してください。";
   else if (state.phase === "finish_failed") status.textContent = "終了処理に失敗しました。記録内容はこの端末に保持しています。";
+  else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
+  else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
   else if (active) status.textContent = "このタブだけを記録しています。入力した値は保存しません。";
   else if (!state.hasDrafts) status.textContent = "";
@@ -161,12 +172,13 @@ async function refresh() {
 
 async function withError(action, fallback) {
   try { await action(); }
-  catch (error) { status.textContent = `${fallback}（${error.message}）`; await refresh().catch(() => undefined); }
+  catch (error) { statusOverride = `${fallback}（${error.message}）`; await refresh().catch(() => undefined); }
 }
 
 start.addEventListener("click", () => withError(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await send({ type: "capture:start", tabId: tab?.id, mode: mode.value });
+  statusOverride = "";
   status.textContent = "記録を開始しました。対象タブで操作してください。";
   await refresh();
 }, "記録を開始できませんでした。対象ページを開いて、もう一度お試しください。"));
@@ -174,6 +186,7 @@ start.addEventListener("click", () => withError(async () => {
 finish.addEventListener("click", () => withError(async () => {
   const result = await send({ type: "capture:finish" });
   await refresh();
+  statusOverride = "";
   status.textContent = result?.missingImageCount
     ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
     : "記録できました。画像付きの手順を保存しました。";
@@ -181,28 +194,34 @@ finish.addEventListener("click", () => withError(async () => {
 
 pause.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:pause" });
+  statusOverride = "";
   await refresh();
 }, "一時停止できませんでした。記録内容は保持しています。"));
 
 resume.addEventListener("click", () => withError(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await send({ type: "capture:resume", tabId: tab?.id });
+  statusOverride = "";
   await refresh();
 }, "記録を再開できませんでした。記録内容は保持しています。"));
 
 cancel.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:cancel" });
   await refresh();
+  statusOverride = "";
   status.textContent = "記録をキャンセルしました。保存済みの下書きは残っています。";
 }, "キャンセルを完了できませんでした。記録データと復元情報は残っています。"));
 
 restore.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:restore" });
+  statusOverride = "";
   await refresh();
 }, "画面を復元できませんでした。復元情報は残っています。"));
 
 let refreshTimer;
 let lastStatusKey = "";
+let lastLiveKey = "";
+let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
 async function startPolling() {

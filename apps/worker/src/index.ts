@@ -2267,6 +2267,8 @@ function isLegacySupabaseProtectedRoute(pathname: string): boolean {
 const BRAND_ASSET_PATHS: Record<string, string> = {
   "/assets/meccha-manual-logo-mark.png": "/assets/meccha-manual-logo-mark.png",
   "/assets/meccha-manual-mascot-me-clear-eyes.png": "/assets/meccha-manual-mascot-me-clear-eyes.png",
+  "/s/assets/brand/logo.png": "/assets/meccha-manual-logo-mark.png",
+  "/s/assets/brand/mascot.png": "/assets/meccha-manual-mascot-me-clear-eyes.png",
 };
 
 async function brandAssetResponse(request: Request, env: Env): Promise<Response | null> {
@@ -2294,6 +2296,9 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
+  const brandAsset = await brandAssetResponse(request, env);
+  if (brandAsset) return brandAsset;
+
   if (useAccessD1Routes(env)) {
     const shareResponse = await handleShareLinkRoute(request, env);
     if (shareResponse) return shareResponse;
@@ -2315,8 +2320,6 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
   }
-  const brandAsset = await brandAssetResponse(request, env);
-  if (brandAsset) return brandAsset;
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }

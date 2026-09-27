@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { inflateSync } from "node:zlib";
-import { buildContinueUrl, createHandoffId, createHandoffMetadata, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, createHandoffAttemptId, createHandoffId, createHandoffMetadata, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
 import { getOnboardingOrigin } from "../apps/extension/onboarding-config.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 import worker from "../apps/worker/src/index.ts";
@@ -17,6 +17,8 @@ test("handoff is 256-bit metadata and only the staging origin can be used", () =
   assert.equal(metadata.outputAction, "save");
   assert.equal("title" in metadata, false);
   assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", metadata.handoffId, extensionId), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=.*&extensionId=a{32}$/);
+  const launchId = createHandoffAttemptId(new Uint8Array(32));
+  assert.match(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", metadata.handoffId, extensionId, null, "save", launchId), new RegExp(`&launchId=${launchId}$`));
   for (const origin of [
     "https://meccha-manual.meccha-iiyatsu.com",
     "https://meccha-manual-staging.meccha-iiyatsu.com.evil.invalid",
@@ -49,12 +51,14 @@ test("expired handoff metadata is pruned without touching local draft content", 
     async get() { return {
       "meccha-manual:handoff:expired": { expiresAt: "2026-09-19T23:00:00.000Z" },
       "meccha-manual:handoff:fresh": { expiresAt: "2026-09-20T02:00:00.000Z", draftId: "draft-1" },
+      "meccha-manual:handoff-ready:expired:launch": { expiresAt: "2026-09-19T23:00:00.000Z" },
+      "meccha-manual:handoff-ready:pending:launch": { expiresAt: "2026-09-19T23:00:00.000Z", status: "completion-pending" },
       draft: { id: "draft-1", title: "local" }
     }; },
     async remove(keys) { removed.push(...keys); }
   };
   await pruneExpiredHandoffs(storage, Date.parse("2026-09-20T00:00:00.000Z"));
-  assert.deepEqual(removed, ["meccha-manual:handoff:expired"]);
+  assert.deepEqual(removed, ["meccha-manual:handoff:expired", "meccha-manual:handoff-ready:expired:launch"]);
 });
 
 test("onboarding page uses CSP-compatible external assets and metadata-only bootstrap", () => {
@@ -71,6 +75,9 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /credentials: "same-origin"/);
   assert.match(ONBOARDING_JS, /sessionStorage/);
   assert.match(ONBOARDING_JS, /HANDOFF_TTL_MS/);
+  assert.match(ONBOARDING_JS, /handoff\.page-ready/);
+  assert.match(ONBOARDING_JS, /launchId/);
+  assert.doesNotMatch(ONBOARDING_JS, /accessToken|authorization|cookie|password/);
   assert.match(ONBOARDING_JS, /handoff\.asset\.chunk/);
   assert.match(ONBOARDING_JS, /claim-intents/);
   assert.match(ONBOARDING_JS, /claimStatus: "finalize-pending"/);

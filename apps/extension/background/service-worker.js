@@ -7,7 +7,9 @@ import { captureLiveStore as importedCaptureLiveStore } from "../storage/capture
 import { mergeCaptureEvents } from "./event-merge.js";
 import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
-import { handleExternalCloudClaimMessage } from "./cloud-claim.js";
+import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
+import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
+import { handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
@@ -15,10 +17,10 @@ let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
 let lastStepScreenshotAt = 0;
+const captureEventGenerations = new Map();
 const MIN_STEP_SCREENSHOT_INTERVAL_MS = 500;
-const captureLiveStore = typeof importedCaptureLiveStore === "undefined"
-  ? { available: false, put: async () => undefined, list: async () => [], clear: async () => undefined }
-  : importedCaptureLiveStore;
+const captureLiveStore = importedCaptureLiveStore;
+const MAX_CAPTURE_STEPS = 200;
 
 function clearNavigationFallback(sessionId) {
   if (!sessionId || navigationFallback?.sessionId === sessionId) navigationFallback = null;
@@ -54,6 +56,11 @@ async function persistRecoveryJournal(sessionId, events = [], phase) {
 async function clearRecoveryJournal(sessionId) {
   const current = await readRecoveryJournal();
   if (!current || !sessionId || current.sessionId === sessionId) await chrome.storage.local.remove(RECOVERY_KEY);
+}
+
+async function clearLiveCapture(sessionId) {
+  if (!sessionId) return;
+  await captureLiveStore.clear(sessionId).catch(() => undefined);
 }
 
 async function getSession() {
@@ -105,6 +112,7 @@ async function appendCaptureEvent(session, event) {
   if (!event) return session;
   const next = mergeCaptureEvents(session, [event]);
   if (next === session) return session;
+  if (next.events.length > MAX_CAPTURE_STEPS) return markCaptureLimit(session, "steps");
   try {
     await setSession(next);
   } catch (error) {
@@ -174,6 +182,7 @@ async function startCapture(tabId, mode) {
     stepImageRefs: [],
     startedAt: Date.now()
   };
+  lastStepScreenshotAt = 0;
   await clearRecoveryJournal();
   await setSession(session);
   try {
@@ -245,41 +254,48 @@ async function finishCapture() {
     for (const event of pendingEvents) session = await recordEventWithoutImage(session, event);
     if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents).catch(() => undefined);
     await setSession(session);
-    const liveImages = (await captureLiveStore.list(session.id).catch(() => [])).filter((image) => image.status === "ready" && image.dataUrl);
-    let imageByEventId = new Map(liveImages.map((image) => [image.eventId, image]));
-    if (captureLiveStore.available === false && session.events.length) {
-      const dataUrl = await takeMaskedScreenshot(session);
-      const lastEvent = session.events.at(-1);
-      imageByEventId = new Map(imageByEventId).set(lastEvent.eventId, { id: crypto.randomUUID(), dataUrl });
+    let liveImages;
+    try {
+      liveImages = (await captureLiveStore.list(session.id)).filter((image) => image.status === "ready" && image.dataUrl);
+    } catch {
+      throw new Error("CAPTURE_LIVE_READ_FAILED");
     }
-    const screenshots = session.events
-      .map((event) => imageByEventId.get(event.eventId))
-      .filter(Boolean)
-      .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [] }));
-    if (!session.events.length) {
-      const dataUrl = await takeMaskedScreenshot(session);
-      screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
+    const existingDraft = await draftStore.get(session.id);
+    if (existingDraft?.id === session.id) {
+      draftId = existingDraft.id;
+      imageCount = existingDraft.screenshots.length;
+      missingImageCount = Math.max(0, session.events.length - imageCount);
+    } else {
+      const imageByEventId = new Map(liveImages.map((image) => [image.eventId, image]));
+      const screenshots = session.events
+        .map((event) => imageByEventId.get(event.eventId))
+        .filter(Boolean)
+        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [] }));
+      if (!session.events.length) {
+        const dataUrl = await takeMaskedScreenshot(session);
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
+      }
+      const draft = {
+        id: session.id,
+        title: "新しい手順書",
+        description: "",
+        displayMode: session.mode,
+        createdAt: new Date(session.startedAt).toISOString(),
+        updatedAt: new Date().toISOString(),
+        steps: session.events.map((event, index) => ({
+          id: crypto.randomUUID(),
+          order: index + 1,
+          instruction: instructionFor(event),
+          ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
+          ...event
+        })),
+        screenshots
+      };
+      imageCount = screenshots.length;
+      missingImageCount = Math.max(0, session.events.length - imageCount);
+      await draftStore.put(draft);
+      draftId = draft.id;
     }
-    const draft = {
-      id: session.id,
-      title: "新しい手順書",
-      description: "",
-      displayMode: session.mode,
-      createdAt: new Date(session.startedAt).toISOString(),
-      updatedAt: new Date().toISOString(),
-      steps: session.events.map((event, index) => ({
-        id: crypto.randomUUID(),
-        order: index + 1,
-        instruction: instructionFor(event),
-        ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
-        ...event
-      })),
-      screenshots
-    };
-    imageCount = screenshots.length;
-    missingImageCount = Math.max(0, session.events.length - imageCount);
-    await draftStore.put(draft);
-    draftId = draft.id;
     await captureLiveStore.clear(session.id).catch(() => undefined);
   } catch {
     const pendingEvents = await stopRecorder(session.tabId);
@@ -305,6 +321,7 @@ async function cancelCapture() {
   await stopRecorder(session.tabId);
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   const restored = await attemptRestore(cancelSession);
+  await clearLiveCapture(session.id);
   if (restored) {
     await setSession(null);
     await clearRecoveryJournal(session.id);
@@ -344,14 +361,35 @@ function imageRefsWithStatus(session, eventId, status) {
   return { ...session, stepImageRefs: refs };
 }
 
-async function recordStepImage(session, eventId) {
+function nextCaptureEventGeneration(tabId) {
+  const next = (captureEventGenerations.get(tabId) || 0) + 1;
+  captureEventGenerations.set(tabId, next);
+  return next;
+}
+
+async function markCaptureLimit(session, limit) {
+  const limited = { ...session, phase: "paused", paused: true, captureLimitReached: limit };
+  await setSession(limited).catch(() => undefined);
+  return limited;
+}
+
+async function recordStepImage(session, eventId, eventGeneration = captureEventGenerations.get(session.tabId)) {
   let pendingSession = imageRefsWithStatus(session, eventId, "capturing");
   await setSession(pendingSession).catch(() => undefined);
   try {
-    const waitMs = Math.max(0, MIN_STEP_SCREENSHOT_INTERVAL_MS - (Date.now() - lastStepScreenshotAt));
-    if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const elapsed = Date.now() - lastStepScreenshotAt;
+    if (lastStepScreenshotAt && elapsed < MIN_STEP_SCREENSHOT_INTERVAL_MS) {
+      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
+      await setSession(pendingSession).catch(() => undefined);
+      return pendingSession;
+    }
     lastStepScreenshotAt = Date.now();
     const dataUrl = await takeMaskedScreenshot(session);
+    if (captureEventGenerations.get(session.tabId) !== eventGeneration) {
+      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
+      await setSession(pendingSession).catch(() => undefined);
+      return pendingSession;
+    }
     await captureLiveStore.put({ id: crypto.randomUUID(), dataUrl, status: "ready", eventId, sessionId: session.id });
     pendingSession = imageRefsWithStatus(pendingSession, eventId, "ready");
   } catch {
@@ -361,13 +399,17 @@ async function recordStepImage(session, eventId) {
   return pendingSession;
 }
 
-async function recordEventWithImage(session, event) {
+async function recordEventWithImage(session, event, eventGeneration = captureEventGenerations.get(session.tabId)) {
+  const merged = mergeCaptureEvents(session, [event]);
+  if (merged === session) return session;
+  if (session.stepImageRefs?.length >= CLOUD_CLAIM_MAX_ASSETS) return markCaptureLimit(session, "images");
   const next = await appendCaptureEvent(session, event);
+  if (next.captureLimitReached) return next;
   if (next === session) return next;
   const normalized = next.events.find((candidate) => candidate.eventId === event.eventId)
     || next.events.find((candidate) => candidate.at === event.at);
   if (!normalized) return next;
-  return recordStepImage(next, normalized.eventId || `event:${normalized.at}`);
+  return recordStepImage(next, normalized.eventId || `event:${normalized.at}`, eventGeneration);
 }
 
 async function recordEventWithoutImage(session, event) {
@@ -383,6 +425,7 @@ async function recordEventWithoutImage(session, event) {
 
 async function resumeCapture(tabId) {
   const session = await getSession();
+  if (session?.captureLimitReached) throw new Error("CAPTURE_LIMIT_REACHED");
   if (!session || !["paused", "reinjection_failed"].includes(session.phase)) throw new Error("再開できる記録がありません");
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
   try {
@@ -426,9 +469,72 @@ if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
 
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
 
+const HANDOFF_PAGE_READY_SCHEMA = "meccha-manual/cloud-claim-v1";
+const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
+const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
+const handoffExternalOperations = new Map();
+
+function queueHandoffExternalOperation(message, sender, callback) {
+  const handoffId = message?.handoffId;
+  if (!HANDOFF_PAGE_READY_PATTERN.test(handoffId || "")) return callback();
+  const senderTabId = Number.isInteger(sender?.tab?.id) ? sender.tab.id : "";
+  const operationKey = message?.type === "handoff.page-ready"
+    ? `${handoffId}:${message.launchId || ""}:${senderTabId}:${message.action || ""}`
+    : `${handoffId}:${message.action || ""}`;
+  const previous = handoffExternalOperations.get(operationKey) || Promise.resolve();
+  const operation = previous.catch(() => undefined).then(callback);
+  handoffExternalOperations.set(operationKey, operation);
+  return operation.finally(() => {
+    if (handoffExternalOperations.get(operationKey) === operation) handoffExternalOperations.delete(operationKey);
+  });
+}
+
+function validHandoffPageReadySender(sender) {
+  try {
+    const url = new URL(sender?.url || "");
+    return url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && !url.username && !url.password && sender?.frameId === 0 && Number.isInteger(sender?.tab?.id);
+  } catch {
+    return false;
+  }
+}
+
+async function handleHandoffPageReady(message, sender) {
+  const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
+    message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.page-ready" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
+    HANDOFF_PAGE_READY_TYPES.has(message.action) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action"].includes(key));
+  if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+  const key = handoffStorageKey(message.handoffId);
+  const readyKey = handoffReadyStorageKey(message.handoffId, message.launchId);
+  return withHandoffReadyLock(message.handoffId, async () => {
+    const stored = (await chrome.storage.local.get(key))?.[key];
+    const ready = (await chrome.storage.local.get(readyKey))?.[readyKey];
+    const expiresAt = Date.parse(stored?.expiresAt || "");
+    if (!stored || stored.handoffId !== message.handoffId || stored.outputAction !== message.action || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!ready || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready" };
+    if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
+    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual" };
+    try {
+      await chrome.tabs.update(sender.tab.id, { active: true });
+    } catch {
+      return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    }
+    const latest = (await chrome.storage.local.get(key))?.[key];
+    const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
+    if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    const readyAt = new Date().toISOString();
+    await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: readyAt } });
+    return { ok: true, status: "ready" };
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
-    const fromExtensionPage = !sender.tab;
+    const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
     if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());
@@ -437,11 +543,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "capture:resume" && fromExtensionPage) return serializeSessionOperation(() => resumeCapture(message.tabId));
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
+      const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
       return serializeSessionOperation(async () => {
         const session = await getSession();
         if (session?.phase !== "recording" || sender.tab?.id !== session.tabId) return { accepted: false };
-        await recordEventWithImage(session, message.event);
-        return { accepted: true };
+        const recorded = await recordEventWithImage(session, message.event, eventGeneration);
+        return recorded.captureLimitReached
+          ? { accepted: false, error: "CAPTURE_LIMIT_REACHED" }
+          : { accepted: true };
       });
     }
     throw new TypeError("不正なメッセージです");
@@ -450,7 +559,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
-  handleExternalCloudClaimMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
+  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : handleExternalCloudClaimMessage;
+  queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
 });
 
@@ -459,6 +569,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
+    if (session.events.length >= MAX_CAPTURE_STEPS) {
+      await markCaptureLimit(session, "steps");
+      return;
+    }
+    if (session.stepImageRefs?.length >= CLOUD_CLAIM_MAX_ASSETS) {
+      await markCaptureLimit(session, "images");
+      return;
+    }
+    const eventGeneration = nextCaptureEventGeneration(tabId);
     const navigationEvent = { kind: "navigation", at: Date.now(), eventId: `navigation:${crypto.randomUUID()}` };
     const withNavigation = mergeCaptureEvents(session, [navigationEvent]);
     try {
@@ -474,7 +593,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     }
     try {
       await injectRecorder(tabId);
-      await recordStepImage(withNavigation, navigationEvent.eventId);
+      await recordStepImage(withNavigation, navigationEvent.eventId, eventGeneration);
     } catch {
       reinjectionFailureSessionId = session.id;
       const failedSession = {
@@ -498,6 +617,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (session?.tabId !== tabId) return;
     if (removeInfo?.isWindowClosing) {
       clearNavigationFallback(session.id);
+      await clearLiveCapture(session.id);
       await setSession(null);
       await clearRecoveryJournal(session.id);
       return;
@@ -511,10 +631,12 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
       windowExists = false;
     }
     if (!windowExists) {
+      await clearLiveCapture(session.id);
       await setSession(null);
       await clearRecoveryJournal(session.id);
       return;
     }
+    await clearLiveCapture(session.id);
     const restored = await attemptRestore(session);
     if (restored) {
       await setSession(null);

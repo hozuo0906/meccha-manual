@@ -3,6 +3,7 @@ import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
+const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const OUTPUT_ACTIONS = new Set(["save", "share"]);
@@ -94,7 +95,7 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (!storage?.get || !storage?.remove) return;
   const entries = await storage.get(null);
   const expired = Object.entries(entries || {})
-    .filter(([key, value]) => key.startsWith(HANDOFF_KEY_PREFIX) && value?.status !== "completion-pending" && value?.status !== "finalize-pending" && Date.parse(value?.expiresAt || "") <= now)
+    .filter(([key, value]) => (key.startsWith(HANDOFF_KEY_PREFIX) || key.startsWith(HANDOFF_READY_KEY_PREFIX)) && value?.status !== "completion-pending" && value?.status !== "finalize-pending" && Date.parse(value?.expiresAt || "") <= now)
     .map(([key]) => key);
   if (expired.length > 0) await storage.remove(expired);
 }
@@ -133,18 +134,40 @@ export async function withHandoffDraftLock(draftId, callback, navigatorLike = gl
   });
 }
 
-export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save") {
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save", launchId = null) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
   validateExtensionId(extensionId);
   if (!validOutputAction(outputAction)) throw new Error("UNSUPPORTED_OUTPUT_ACTION");
+  if (launchId !== null && !/^[A-Za-z0-9_-]{43}$/.test(launchId)) throw new Error("INVALID_LAUNCH_ID");
   const recoveryParams = recovery && /^[A-Za-z0-9_-]{16,128}$/.test(recovery.operationId || "") &&
     CLAIM_INTENT_ID_PATTERN.test(recovery.claimIntentId || "") &&
     /^[a-f0-9]{64}$/.test(recovery.draftFingerprint || "")
     ? `&operationId=${encodeURIComponent(recovery.operationId)}&claimIntentId=${encodeURIComponent(recovery.claimIntentId)}&draftFingerprint=${encodeURIComponent(recovery.draftFingerprint)}`
     : "";
   const actionParam = outputAction === "share" ? "&action=share" : "";
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${recoveryParams}`;
+  const launchParam = launchId ? `&launchId=${encodeURIComponent(launchId)}` : "";
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${recoveryParams}${launchParam}`;
+}
+
+export async function withHandoffReadyLock(handoffId, callback, navigatorLike = globalThis.navigator) {
+  if (typeof handoffId !== "string" || !handoffId || typeof callback !== "function") throw new TypeError("ready lock arguments are invalid");
+  const locks = navigatorLike?.locks;
+  if (!locks || typeof locks.request !== "function") throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+  return locks.request(`meccha-manual:handoff:ready:${handoffId}`, async (lock) => {
+    if (!lock) throw new Error("HANDOFF_LOCK_UNAVAILABLE");
+    return callback();
+  });
+}
+
+export function handoffReadyStorageKey(handoffId, launchId = null) {
+  if (typeof handoffId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new TypeError("invalid handoff id");
+  if (launchId !== null && (typeof launchId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(launchId))) throw new TypeError("invalid launch id");
+  return `${HANDOFF_READY_KEY_PREFIX}${handoffId}${launchId === null ? "" : `:${launchId}`}`;
+}
+
+export function createHandoffAttemptId(random = crypto.getRandomValues(new Uint8Array(HANDOFF_BYTES))) {
+  return createHandoffId(random);
 }
 
 export const HANDOFF_TTL_MINUTES = HANDOFF_TTL_MS / 60000;

@@ -22,3 +22,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node --test tests/extension-mask-browser.test.mjs
       - run: node --test tests/extension-editor-browser.test.mjs
+      - run: node --test tests/extension-sidepanel-browser.test.mjs
+        env:
+          MECCHA_SIDEPANEL_DRAFT: .artifacts/experience-repair/captured-synthetic-draft.json
+      - run: node --experimental-strip-types scripts/verify-recorded-workflow.mjs
+        env:
+          MECCHA_RECORDED_WORKFLOW_DRAFT: .artifacts/experience-repair/captured-synthetic-draft.json

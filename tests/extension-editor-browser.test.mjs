@@ -168,16 +168,28 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     const page = await context.newPage();
     await page.addInitScript(() => {
       globalThis.__tabsCreateCalls = 0;
+      globalThis.__tabsUpdateCalls = [];
       globalThis.__createdTabUrl = null;
       globalThis.__handoffStorageWrites = 0;
+      globalThis.__handoffStorage = {};
       globalThis.chrome = {
         runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         storage: { local: {
-          set: async () => { globalThis.__handoffStorageWrites += 1; },
-          get: async () => ({}),
+          set: async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); },
+          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
           remove: async () => undefined
         } },
-        tabs: { create: async ({ url }) => { globalThis.__tabsCreateCalls += 1; globalThis.__createdTabUrl = url; } }
+        tabs: {
+          create: async ({ url, active }) => { globalThis.__tabsCreateCalls += 1; globalThis.__createdTabUrl = url; return { id: 17, active }; },
+          update: async (tabId, details) => {
+            globalThis.__tabsUpdateCalls.push({ tabId, ...details });
+            if (details.url) {
+              const readyKey = Object.keys(globalThis.__handoffStorage).find((key) => key.includes(":handoff-ready:"));
+              globalThis.__handoffStorage[readyKey] = { ...globalThis.__handoffStorage[readyKey], pageReadyAt: new Date().toISOString(), activatedAt: new Date().toISOString() };
+            }
+            return { id: tabId, ...details };
+          }
+        }
       };
     });
     await page.goto(`${baseUrl}/seed.html`);
@@ -194,16 +206,147 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     });
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => /保存できませんでした/.test(document.querySelector("#gateStatus")?.textContent || ""));
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 0, "handoff storage failure must not open a registration URL");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 0, "handoff storage failure must not navigate to a registration URL");
     await page.evaluate(() => {
-      chrome.storage.local.set = async () => { globalThis.__handoffStorageWrites += 1; };
+      chrome.storage.local.set = async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); };
     });
     await page.locator("#startRegistration").click();
-    await page.waitForFunction(() => globalThis.__tabsCreateCalls === 1);
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 1);
-    assert.match(await page.evaluate(() => globalThis.__createdTabUrl), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}&extensionId=a{32}$/);
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.length === 1);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 1);
+    assert.equal(await page.evaluate(() => globalThis.__createdTabUrl), "about:blank");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 1);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[0]?.tabId), 17);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[0]?.active), false);
+    assert.match(await page.evaluate(() => globalThis.__tabsUpdateCalls.find(({ url }) => url)?.url || ""), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}&extensionId=a{32}&launchId=[A-Za-z0-9_-]{43}$/);
     assert.equal(await page.locator("#title").inputValue(), "編集を保持するタイトル");
-    assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 1);
+    assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 2);
+    assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("handoff timeout keeps the editor visible and activation is explicit and idempotent", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    await page.addInitScript(() => {
+      globalThis.__tabsCreateCalls = 0;
+      globalThis.__tabsUpdateCalls = [];
+      globalThis.__handoffStorage = {};
+      globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        storage: { local: {
+          set: async (values) => Object.assign(globalThis.__handoffStorage, values),
+          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
+          remove: async () => undefined
+        } },
+        tabs: {
+          create: async ({ url, active }) => { globalThis.__tabsCreateCalls += 1; return { id: 21 + globalThis.__tabsCreateCalls, url, active }; },
+          update: async (tabId, details) => { globalThis.__tabsUpdateCalls.push({ tabId, ...details }); return { id: tabId, ...details }; }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "timeout-output-gate-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#timeout-output-gate-fixture`);
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+    assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
+    assert.match(await page.locator("#gateStatus").textContent(), /ログインや接続が必要な場合があります/);
+    await page.evaluate(() => {
+      const button = document.querySelector("#activateHandoff");
+      button.click();
+      button.click();
+    });
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true));
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length), 1);
+
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.filter(({ url }) => url).length === 2, null, { timeout: 5_000 });
+    const launchIds = await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ url }) => url).map(({ url }) => new URL(url).hash.match(/[&?]launchId=([A-Za-z0-9_-]{43})$/)?.[1]));
+    assert.equal(launchIds.length, 2);
+    assert.notEqual(launchIds[0], launchIds[1], "retry must use a new launch id");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("cancel during delayed handoff preparation cannot activate a late tab", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    await page.addInitScript(() => {
+      globalThis.__tabsUpdateCalls = [];
+      globalThis.__handoffStorage = {};
+      globalThis.__delayFirstStorageSet = true;
+      globalThis.__storageSetStarted = false;
+      globalThis.__releaseStorageSet = null;
+      globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        storage: { local: {
+          set: async (values) => {
+            if (globalThis.__delayFirstStorageSet) {
+              globalThis.__delayFirstStorageSet = false;
+              globalThis.__storageSetStarted = true;
+              await new Promise((resolve) => { globalThis.__releaseStorageSet = resolve; });
+            }
+            Object.assign(globalThis.__handoffStorage, values);
+          },
+          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
+          remove: async () => undefined
+        } },
+        tabs: {
+          create: async ({ url, active }) => ({ id: 31, url, active }),
+          update: async (tabId, details) => { globalThis.__tabsUpdateCalls.push({ tabId, ...details }); return { id: tabId, ...details }; }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "cancel-during-handoff-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#cancel-during-handoff-fixture`);
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__storageSetStarted === true);
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseStorageSet?.());
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true)), false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ url }) => Boolean(url))), false);
+    assert.ok(await page.evaluate(async () => Boolean(await (await import("/storage/draft-store.js")).draftStore.get("cancel-during-handoff-fixture"))), "cancel must keep the local draft");
+
+    await page.locator("#save").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === true);
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "cancelled preparation must leave the editor resumable");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
