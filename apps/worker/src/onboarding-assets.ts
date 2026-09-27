@@ -1,4 +1,4 @@
-export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-apple-system,sans-serif;color:#17202a;background:#f7f8fa}body{margin:0;min-height:100vh;display:grid;place-items:center}main{width:min(620px,calc(100% - 32px));padding:28px;background:#fff;border:1px solid #d0d5dd;border-radius:16px;box-shadow:0 16px 38px #1018281a}h1{margin:0 0 12px;font-size:1.65rem}p{line-height:1.7}.notice{padding:14px 16px;border-radius:10px;background:#fffaeb;border:1px solid #fedf89}.success{background:#ecfdf3;border-color:#abefc6}.error{background:#fef3f2;border-color:#fecdca}button{min-height:44px;padding:10px 18px;border:0;border-radius:8px;background:#175cd3;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px #1d4ed8}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}`;
+export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-apple-system,sans-serif;color:#202124;background:linear-gradient(145deg,#eaf8fb,#f8fbfc 44%,#e9f8f0)}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center}main{width:min(680px,calc(100% - 32px));padding:28px;background:rgba(255,255,255,.92);border:1px solid #fff;border-radius:24px;box-shadow:0 20px 52px #2021241f}.brand{display:flex;align-items:center;gap:12px;margin-bottom:20px;color:#075e5b;font-weight:800}.brand img{width:48px;height:48px;object-fit:contain;border-radius:12px}.eyebrow{margin:0;color:#075e5b;font-size:.75rem;font-weight:800;letter-spacing:.08em}h1{margin:4px 0 12px;font-size:clamp(1.55rem,4vw,2rem);line-height:1.2}p{line-height:1.7}.prep{display:flex;align-items:center;gap:16px;padding:14px;border:1px solid #bdebf1;border-radius:16px;background:#eaf8fb}.prep img{width:112px;height:112px;object-fit:contain}.prep p{margin:0;font-weight:800;color:#075e5b}.notice{padding:14px 16px;border-radius:12px;background:#e9f8f0;border:1px solid #a7e3c2}.success{background:#e9f8f0;border-color:#a7e3c2;color:#146b42}.error{background:#fff1ee;border-color:#f4b4a8;color:#a53c2b}button{min-height:44px;padding:10px 18px;border:0;border-radius:12px;background:#087f7a;color:#fff;font-weight:800;cursor:pointer;transition:transform 120ms ease-out,background-color 120ms ease-out}button:hover{background:#075e5b}button:active{transform:scale(.98)}button:disabled{opacity:.55;cursor:not-allowed}:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px #1d4ed8}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}@media(max-width:560px){main{width:min(100% - 20px,680px);padding:20px}.prep{display:block}.prep img{display:block;margin:0 auto 8px}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}button:active{transform:none}}`;
 
 export const ONBOARDING_JS = `(() => {
   const root = document.querySelector("#onboarding");
@@ -9,6 +9,7 @@ export const ONBOARDING_JS = `(() => {
   const configured = root?.dataset.bootstrapEnabled === "true";
   const fragmentParams = new URLSearchParams(location.hash.slice(1));
   const fragmentValues = fragmentParams.getAll("handoff");
+  const launchValues = fragmentParams.getAll("launchId");
   const extensionValues = fragmentParams.getAll("extensionId");
   const operationValues = fragmentParams.getAll("operationId");
   const claimIntentValues = fragmentParams.getAll("claimIntentId");
@@ -16,6 +17,7 @@ export const ONBOARDING_JS = `(() => {
   const actionValues = fragmentParams.getAll("action");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
+  const fragmentLaunchId = !hasFragment ? undefined : launchValues.length === 1 ? launchValues[0] : null;
   const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
   const fragmentAction = !hasFragment ? undefined : actionValues.length === 1 ? actionValues[0] : actionValues.length === 0 ? "save" : null;
   history.replaceState(null, "", location.pathname + location.search);
@@ -23,6 +25,7 @@ export const ONBOARDING_JS = `(() => {
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
+  function validLaunchId(value) { return validHandoff(value); }
   function validExtensionId(value) { return /^[a-p]{32}$/.test(value || ""); }
   const HANDOFF_TTL_MS = 15 * 60 * 1000;
   function isFresh(value, now = Date.now()) { const createdAt = Date.parse(value?.createdAt || ""); return Number.isFinite(createdAt) && now - createdAt >= 0 && now - createdAt <= HANDOFF_TTL_MS; }
@@ -85,7 +88,7 @@ export const ONBOARDING_JS = `(() => {
       return capturedContext;
     }
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -211,6 +214,17 @@ export const ONBOARDING_JS = `(() => {
     } catch { return false; }
   }
   function extensionIdFor(context) { return context?.extensionId || null; }
+  async function signalPageReady(context) {
+    if (!configured || !hasFragment || !validHandoff(fragmentHandoff) || !validLaunchId(fragmentLaunchId) || !validExtensionId(fragmentExtensionId) || !context || context.handoffId !== fragmentHandoff) return false;
+    if (!globalThis.chrome?.runtime?.sendMessage) return false;
+    let reply;
+    try {
+      reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId: fragmentHandoff, launchId: fragmentLaunchId, action: context.outputAction || "save" });
+    } catch {
+      return false;
+    }
+    return reply?.ok === true && ["manual", "ready"].includes(reply.status);
+  }
   function markRecoveryProbe(context) { if (!context) return null; context.state = "recovery-probe"; capturedContext = context; return context; }
   async function beginExtensionContext(context) {
     if (!context || context.state !== "active") return context;
@@ -485,7 +499,7 @@ export const ONBOARDING_JS = `(() => {
       try { await claimDraft(context, { workspaceId: existing.workspaceId || "" }); } catch (error) { message(error?.message || "保存結果を確認できませんでした。元の下書きは保持しています。", "error"); setButton(existing.claimStatus === "expired" ? "期限切れ（原本保持）" : "同じ操作で再試行", existing.claimStatus === "expired"); }
       return;
     }
-    setButton("準備中…", true); message("認証済みのWebアプリから保存先を準備しています。手順書本文はまだ送信しません。");
+    setButton("準備中…", true); message("認証済みのWebアプリから保存先を準備しています。準備完了後に手順書を送信します。");
     try {
       const response = await fetch("/api/onboarding/bootstrap", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify({ operationId: id }) });
       let payload = null; try { payload = await response.json(); } catch {}
@@ -505,10 +519,15 @@ export const ONBOARDING_JS = `(() => {
   }
   if (!configured) { message("登録画面は現在準備中です。元の手順書は拡張機能のこの端末に残っています。"); setButton("登録画面は準備中", true); }
   else if (!getHandoff()) { message("登録を続けるための識別情報が確認できません。拡張機能の編集画面から進んでください。", "error"); setButton("登録を続ける", true); }
-  else { message("メールで認証済みの場合は、保存先の準備を開始できます。手順書本文は送信されません。"); button.addEventListener("click", bootstrap); }
+  else { message("メールで認証済みの場合は、保存先の準備を開始できます。準備完了後に手順書を送信します。認証情報は拡張機能へ渡しません。"); button.addEventListener("click", bootstrap); }
+  if (configured && validLaunchId(fragmentLaunchId)) {
+    signalPageReady(currentOperation()).then((ready) => {
+      if (!ready) message("登録画面の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");
+    });
+  }
 })();`;
 
 export function renderOnboardingContinuePage({ bootstrapEnabled = false, assetVersion = "" } = {}) {
   const version = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : "";
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>登録を続ける | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><p aria-hidden="true">MECCHA MANUAL</p><h1>登録を続ける</h1><p>メールで認証したあと、手順書の保存先を準備します。</p><p class="notice" id="status" role="status" aria-live="polite"></p><button id="bootstrap" type="button">保存先を準備する</button><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>登録を続ける | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><div class="brand"><img src="/assets/meccha-manual-logo-mark.png" width="48" height="48" alt="めっちゃマニュアル"><span>めっちゃマニュアル</span></div><p class="eyebrow">保存・共有</p><h1>手順書の保存先を準備します</h1><div class="prep"><img src="/assets/meccha-manual-mascot-me-clear-eyes.png" width="112" height="112" alt="保存先の準備を手伝うめっちゃマニュアルのキャラクター"><p>ログインを確認してから、保存へ進みます。</p></div><p>メールでログインしたあと、手順書の保存先を準備します。ログインと保存先の準備が完了するまで、手順書本文と画像は送信しません。</p><p class="notice" id="status" role="status" aria-live="polite">ログイン済みの場合に、保存先の準備を開始できます。</p><button id="bootstrap" type="button">保存先を準備する</button><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
 }

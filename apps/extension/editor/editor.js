@@ -1,5 +1,5 @@
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
-import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock } from "./handoff.js";
+import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -14,25 +14,44 @@ const detail = document.querySelector("#detail");
 const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
+const cancelOutput = document.querySelector("#cancelOutput");
 const startRegistration = document.querySelector("#startRegistration");
 const startShare = document.querySelector("#startShare");
+const activateHandoff = document.querySelector("#activateHandoff");
 const gateStatus = document.querySelector("#gateStatus");
+const saveState = document.querySelector("#saveState");
+const handoffProgress = document.querySelector("#handoffProgress");
+const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
+const HANDOFF_READY_TIMEOUT_MS = 8_000;
+let outputInFlight = false;
+let pendingHandoffTabId = null;
+let activeHandoffAttempt = null;
+let handoffRunGeneration = 0;
 let selectedStepId = draft.steps[0]?.id;
 
 title.value = draft.title;
 description.value = draft.description;
 
+function setSaveState(label, state = "saved") {
+  if (!saveState) return;
+  saveState.textContent = label;
+  saveState.dataset.state = state;
+}
+
 async function persist(message = "この端末に保存しました。") {
   draft.title = title.value;
   draft.description = description.value;
   draft.updatedAt = new Date().toISOString();
+  setSaveState("保存中…", "saving");
   try {
     await draftStore.put(draft);
     status.textContent = message;
+    setSaveState("保存済み", "saved");
     return true;
   } catch {
     status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
+    setSaveState("保存できません", "error");
     return false;
   }
 }
@@ -62,7 +81,7 @@ function renderScreenshot(step) {
   area.append(preview);
 
   const hint = document.createElement("p");
-  hint.textContent = "画像上をドラッグすると追加のマスクを作成できます。";
+  hint.textContent = "機密情報を隠すには、画像上をドラッグしてマスクを作成します。保存・共有時にもマスクが引き継がれます。";
   area.append(hint);
   let start;
   const normalizedPoint = (event, rect) => ({ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) });
@@ -103,7 +122,7 @@ function render() {
   for (const step of draft.steps) {
     const item = document.createElement("li");
     const select = document.createElement("button");
-    select.textContent = `${step.order}. ${step.instruction}`;
+    select.textContent = step.instruction;
     select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
     select.addEventListener("click", () => { selectedStepId = step.id; render(); });
     item.append(select);
@@ -131,7 +150,7 @@ function render() {
 
 function renderListOnly() {
   const labels = steps.querySelectorAll("button");
-  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction}`; });
+  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = step.instruction; });
 }
 
 addStepButton.addEventListener("click", async () => {
@@ -159,43 +178,289 @@ document.querySelector("#save").addEventListener("click", async () => {
   else outputGate.hidden = false;
   updateRegistrationAvailability();
 });
+
+function waitFor(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isActiveHandoffRun(run) {
+  return Boolean(run && !run.cancelled && run.runId === handoffRunGeneration && activeHandoffAttempt === run);
+}
+
+function cancelHandoffRun(run) {
+  if (!run || run.cancelled || run.tabState === "activating") return;
+  run.cancelled = true;
+  if (activeHandoffAttempt === run) activeHandoffAttempt = null;
+  updateHandoffActivationPolicy(run, "cancelled").catch(() => undefined);
+  cleanupProvisionalHandoffTab(run).catch(() => undefined);
+}
+
+async function cleanupProvisionalHandoffTab(run) {
+  if (!run || run.tabState !== "provisional" || !Number.isInteger(run.tabId) || run.tabCleanupStarted) return;
+  run.tabCleanupStarted = true;
+  try {
+    const current = typeof chrome.tabs.get === "function" ? await chrome.tabs.get(run.tabId) : null;
+    const currentUrl = current?.url;
+    const pendingUrl = current?.pendingUrl;
+    const isKnownProvisional = pendingUrl === "about:blank" && (currentUrl === "" || currentUrl === "about:blank");
+    const isStableBlank = currentUrl === "about:blank" && (pendingUrl === undefined || pendingUrl === null);
+    if (!current || (!isKnownProvisional && !isStableBlank)) return;
+    await chrome.tabs.remove(run.tabId);
+    run.tabState = "closed";
+  } catch {
+    // The tab may have been closed by the user while cancellation was settling.
+  }
+}
+
+async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
+  if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+  const launchId = createHandoffAttemptId();
+  const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+  if (!Number.isInteger(tab?.id)) throw new Error("HANDOFF_TAB_UNAVAILABLE");
+  run.tabId = tab.id;
+  run.tabState = "provisional";
+  if (!isActiveHandoffRun(run)) {
+    await cleanupProvisionalHandoffTab(run);
+    throw new Error("HANDOFF_CANCELLED");
+  }
+  const key = handoffStorageKey(metadata.handoffId);
+  const latest = (await chrome.storage.local.get(key))?.[key];
+  if (!isActiveHandoffRun(run)) {
+    await cleanupProvisionalHandoffTab(run);
+    throw new Error("HANDOFF_CANCELLED");
+  }
+  const base = latest?.handoffId === metadata.handoffId ? latest : metadata;
+  run.handoffId = base.handoffId;
+  if (!latest) await saveHandoffMetadata(base);
+  run.launchId = launchId;
+  const readyKey = handoffReadyStorageKey(base.handoffId, launchId);
+  await withHandoffReadyLock(base.handoffId, async () => {
+    if (!isActiveHandoffRun(run)) {
+      await cleanupProvisionalHandoffTab(run);
+      throw new Error("HANDOFF_CANCELLED");
+    }
+    await chrome.storage.local.set({ [readyKey]: {
+      handoffId: base.handoffId,
+      launchId,
+      tabId: tab.id,
+      expiresAt: base.expiresAt,
+      activationPolicy: "auto",
+      activationDeadlineAt: new Date(Date.now() + HANDOFF_READY_TIMEOUT_MS).toISOString(),
+      pageReadyAt: null,
+      activatedAt: null
+    } });
+    if (!isActiveHandoffRun(run)) {
+      await cleanupProvisionalHandoffTab(run);
+      throw new Error("HANDOFF_CANCELLED");
+    }
+    run.tabState = "navigating";
+    try {
+      await chrome.tabs.update(tab.id, {
+        url: buildContinueUrl(origin, base.handoffId, base.extensionId, recovery, outputAction, launchId),
+        active: false
+      });
+      run.tabState = "prepared";
+    } catch (error) {
+      run.tabState = "provisional";
+      throw error;
+    }
+  });
+  if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+  return { tabId: tab.id, launchId, metadata: base };
+}
+
+async function updateHandoffActivationPolicy(attempt, policy) {
+  if (!attempt || !attempt.handoffId || !attempt.launchId || !Number.isInteger(attempt.tabId) || !["cancelled", "manual"].includes(policy)) return;
+  await withHandoffReadyLock(attempt.handoffId, async () => {
+    if (policy === "manual" && attempt.cancelled) return;
+    const key = handoffReadyStorageKey(attempt.handoffId, attempt.launchId);
+    const latest = (await chrome.storage.local.get(key))?.[key];
+    if (!latest || latest.handoffId !== attempt.handoffId || latest.launchId !== attempt.launchId || latest.tabId !== attempt.tabId) return;
+    await chrome.storage.local.set({ [key]: { ...latest, activationPolicy: policy, activationDeadlineAt: new Date().toISOString() } });
+  });
+}
+
+async function waitForPageReady(handoffId, launchId, tabId, run) {
+  const key = handoffReadyStorageKey(handoffId, launchId);
+  const deadline = Date.now() + HANDOFF_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!isActiveHandoffRun(run)) return null;
+    const stored = (await chrome.storage.local.get(key))?.[key];
+    if (stored?.handoffId === handoffId && stored.launchId === launchId && stored.tabId === tabId && Number.isFinite(Date.parse(stored.pageReadyAt || ""))) return stored;
+    await waitFor(100);
+  }
+  return null;
+}
+
+async function activateHandoffTab(run, policy) {
+  if (!isActiveHandoffRun(run)) return { activated: false, reason: "cancelled" };
+  try {
+    return await withHandoffReadyLock(run.handoffId, async () => {
+      if (!isActiveHandoffRun(run)) return { activated: false, reason: "cancelled" };
+      const key = handoffReadyStorageKey(run.handoffId, run.launchId);
+      const latest = (await chrome.storage.local.get(key))?.[key];
+      const deadline = Date.parse(latest?.activationDeadlineAt || "");
+      const validReady = latest && latest.handoffId === run.handoffId && latest.launchId === run.launchId && latest.tabId === run.tabId && latest.activationPolicy === policy;
+      const withinAutoWindow = policy !== "auto" || (Number.isFinite(Date.parse(latest?.pageReadyAt || "")) && Number.isFinite(deadline) && deadline >= Date.now());
+      if (!isActiveHandoffRun(run)) return { activated: false, reason: "cancelled" };
+      if (!validReady) return { activated: false, reason: "invalid" };
+      if (!withinAutoWindow) {
+        const expired = policy === "auto" && Number.isFinite(deadline) && deadline < Date.now();
+        return { activated: false, reason: expired ? "expired" : "invalid" };
+      }
+      run.tabState = "activating";
+      cancelOutput.disabled = true;
+      startRegistration.disabled = true;
+      if (startShare) startShare.disabled = true;
+      if (activateHandoff) activateHandoff.disabled = true;
+      gateStatus.textContent = "\u753b\u9762\u3092\u8868\u793a\u3057\u3066\u3044\u307e\u3059\u3002";
+      try {
+        await chrome.tabs.update(run.tabId, { active: true });
+      } catch (error) {
+        run.tabState = "prepared";
+        throw error;
+      }
+      if (!isActiveHandoffRun(run)) {
+        run.tabState = "prepared";
+        return { activated: false, reason: "cancelled" };
+      }
+      const after = (await chrome.storage.local.get(key))?.[key];
+      if (!after || after.handoffId !== run.handoffId || after.launchId !== run.launchId || after.tabId !== run.tabId || after.activationPolicy !== policy) {
+        run.tabState = "prepared";
+        return { activated: false, reason: "invalid" };
+      }
+      await chrome.storage.local.set({ [key]: { ...after, activatedAt: new Date().toISOString() } });
+      run.tabState = "prepared";
+      return { activated: true };
+    });
+  } catch (error) {
+    if (run.tabState === "activating") run.tabState = "prepared";
+    throw error;
+  } finally {
+    if (activeHandoffAttempt === run && run.tabState !== "activating") {
+      cancelOutput.disabled = false;
+      startRegistration.disabled = false;
+      if (startShare) startShare.disabled = false;
+      if (activateHandoff) activateHandoff.disabled = false;
+    }
+  }
+}
+
+async function activateReadyHandoff(run, ready) {
+  if (!isActiveHandoffRun(run) || !ready || ready.handoffId !== run.handoffId || ready.launchId !== run.launchId || ready.tabId !== run.tabId) return { activated: false, reason: "invalid" };
+  return activateHandoffTab(run, "auto");
+}
+
 async function startOutput(outputAction) {
   const origin = updateRegistrationAvailability();
-  if (!origin) return;
+  if (!origin || outputInFlight || activeHandoffAttempt?.tabState === "activating") return;
+  outputInFlight = true;
+  const previousAttempt = activeHandoffAttempt;
+  cancelHandoffRun(previousAttempt);
+  const run = { runId: ++handoffRunGeneration, cancelled: false, handoffId: null, launchId: null, tabId: null, tabState: "none", tabCleanupStarted: false };
+  activeHandoffAttempt = run;
+  pendingHandoffTabId = null;
+  if (activateHandoff) activateHandoff.hidden = true;
+  if (activateHandoff) activateHandoff.disabled = false;
   startRegistration.disabled = true;
   if (startShare) startShare.disabled = true;
-  gateStatus.textContent = "登録画面を準備しています。手順書本文は送信しません。";
+  if (handoffProgress) handoffProgress.hidden = false;
+  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有設定の準備をしています。" : "保存先を準備しています。";
+  gateStatus.textContent = "準備画面を開いています。ログインと保存先の準備が完了した後に手順書を送信します。認証情報は拡張機能へ渡しません。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
       await pruneExpiredHandoffs();
       const extensionId = chrome.runtime?.id;
       const draftFingerprint = await fingerprintDraft(draft);
       const recovery = await findRecoverableHandoff(draft.id, draftFingerprint, undefined, outputAction);
-      if (recovery) {
-        await chrome.tabs.create({ url: buildContinueUrl(origin, recovery.handoffId, extensionId, recovery, outputAction) });
-        gateStatus.textContent = recovery.claimIntentId
-          ? "未確定の保存操作を再開する登録画面を開きました。元の手順書はこの端末に残っています。"
-          : "登録画面を開きました。元の手順書はこの端末に残っています。";
-        outputGate.close();
-        return;
+      const metadata = recovery || createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
+      if (metadata.draftFingerprint !== draftFingerprint) throw new Error("DRAFT_CHANGED");
+      run.handoffId = metadata.handoffId;
+      if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+      const opened = await openHandoffTab(origin, metadata, recovery, outputAction, run);
+      if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+      const ready = await waitForPageReady(opened.metadata.handoffId, opened.launchId, opened.tabId, run);
+      if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+      if (ready) {
+        const activation = await activateReadyHandoff(run, ready);
+        if (activation.activated) {
+          activeHandoffAttempt = null;
+          pendingHandoffTabId = null;
+          if (activateHandoff) activateHandoff.hidden = true;
+          if (handoffProgress) handoffProgress.hidden = true;
+          gateStatus.textContent = "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。";
+          outputGate.close();
+          return;
+        }
+        if (activation.reason !== "expired") throw new Error("HANDOFF_CANCELLED");
       }
-      const metadata = createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
-      await saveHandoffMetadata(metadata);
-      await chrome.tabs.create({ url: buildContinueUrl(origin, metadata.handoffId, extensionId, null, outputAction) });
-      gateStatus.textContent = "登録画面を開きました。元の手順書はこの端末に残っています。";
-      outputGate.close();
+      if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+      await updateHandoffActivationPolicy(run, "manual");
+      if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
+      pendingHandoffTabId = opened.tabId;
+      if (activateHandoff) activateHandoff.hidden = false;
+      if (handoffProgress) handoffProgress.hidden = true;
+      gateStatus.textContent = "登録画面の準備を確認できませんでした。ログインや接続が必要な場合があります。『ログイン・接続を確認する』を押すと画面を表示できます。手順書はこの端末に残っています。";
+      return;
     });
   } catch (error) {
-    gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
-      ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
-      : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
+    await cleanupProvisionalHandoffTab(run);
+    if (isActiveHandoffRun(run)) {
+      if (handoffProgress) handoffProgress.hidden = true;
+      gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
+        ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
+        : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
+      activeHandoffAttempt = null;
+    }
   } finally {
     if (getOnboardingOrigin()) {
       startRegistration.disabled = false;
       if (startShare) startShare.disabled = false;
     }
+    outputInFlight = false;
   }
 }
+activateHandoff?.addEventListener("click", async () => {
+  const attempt = activeHandoffAttempt;
+  const tabId = attempt?.tabId ?? pendingHandoffTabId;
+  if (!Number.isInteger(tabId) || !attempt || attempt.cancelled || !isActiveHandoffRun(attempt)) return;
+  activateHandoff.disabled = true;
+  try {
+    await updateHandoffActivationPolicy(attempt, "manual");
+    if (!isActiveHandoffRun(attempt) || pendingHandoffTabId !== tabId) return;
+    const activation = await activateHandoffTab(attempt, "manual");
+    if (!activation.activated) return;
+    activeHandoffAttempt = null;
+    pendingHandoffTabId = null;
+    activateHandoff.hidden = true;
+    outputGate.close();
+  } catch {
+    if (isActiveHandoffRun(attempt)) {
+      activeHandoffAttempt = null;
+      pendingHandoffTabId = null;
+      activateHandoff.hidden = true;
+      gateStatus.textContent = "登録画面を表示できませんでした。『登録画面へ進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
+    }
+  } finally {
+    if ((activeHandoffAttempt === attempt || activeHandoffAttempt === null) && attempt.tabState !== "activating") activateHandoff.disabled = false;
+  }
+});
 startRegistration.addEventListener("click", () => startOutput("save"));
 startShare?.addEventListener("click", () => startOutput("share"));
+cancelOutput?.addEventListener("click", () => {
+  if (activeHandoffAttempt?.tabState === "activating") return;
+  cancelHandoffRun(activeHandoffAttempt);
+});
+outputGate.addEventListener("cancel", (event) => {
+  const attempt = activeHandoffAttempt;
+  if (attempt?.tabState === "activating") {
+    event.preventDefault();
+    return;
+  }
+  cancelHandoffRun(attempt);
+});
+outputGate.addEventListener("close", () => {
+  const attempt = activeHandoffAttempt;
+  cancelHandoffRun(attempt);
+});
 render();

@@ -2,6 +2,18 @@
 
 Status: Accepted
 
+## Issue #260 / PR #261 実記録からWorker保存・共有までの回帰（未完）
+
+Status: Accepted
+
+確認時点: 2026-09-27（Asia/Tokyo）／source化した回帰試験のsnapshot
+
+- 対象: native sidepanelがexportしたdraftの実画像bytesを、実Worker route・D1 migration／SQLite adapter・memory R2へ保存し、cloud viewerと共有viewerで復元・CSP・共有停止を確認する回帰試験。CIではsidepanel test直後に `scripts/verify-recorded-workflow.mjs` を実行し、draft pathが欠落した場合は失敗させる。
+- 検証境界: 現在は合成JWT、local Worker、SQLite D1 adapter、memory R2の再現可能な証跡であり、実Access、remote D1／R2、staging deploy、owner限定本番相当データの成功を証明しない。metadata出力へ画像bytes、token、passcodeを残さず、PNG成果物はこの合成検証の画面証跡に限定する。
+- 旧版の扱い: 旧拡張版は記録終了時に最後の操作へだけ画像を付けていた。保存されていない過去の画像は復元できず、必要な手順は新版で再記録する。過去の単独API smokeを実記録からの通し成功として流用しない。
+
+次の1マイルストーンは、Issue #260／PR #261のlatest SHAへCI・review・品質ゲートを照合し、承認済み範囲で限定反映と引継ぎ記録更新を行うことである。本番成功や最終SHAはこのsnapshotでは判定しない。
+
 ## D1共有リンク引継ぎ（Issue #258 / PR #259）
 
 Status: Accepted

@@ -3,16 +3,24 @@ import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, v
 import { VIEWPORTS } from "../responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../responsive/window-lifecycle.js";
 import { draftStore } from "../storage/draft-store.js";
+import { captureLiveStore as importedCaptureLiveStore } from "../storage/capture-live-store.js";
 import { mergeCaptureEvents } from "./event-merge.js";
 import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
-import { handleExternalCloudClaimMessage } from "./cloud-claim.js";
+import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
+import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
+import { handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
+let lastStepScreenshotAt = 0;
+const captureEventGenerations = new Map();
+const MIN_STEP_SCREENSHOT_INTERVAL_MS = 500;
+const captureLiveStore = importedCaptureLiveStore;
+const MAX_CAPTURE_STEPS = 200;
 
 function clearNavigationFallback(sessionId) {
   if (!sessionId || navigationFallback?.sessionId === sessionId) navigationFallback = null;
@@ -37,9 +45,11 @@ async function readRecoveryJournal() {
   return (await chrome.storage.local.get(RECOVERY_KEY))[RECOVERY_KEY] ?? null;
 }
 
-async function persistRecoveryJournal(sessionId, events = [], phase) {
+async function persistRecoveryJournal(sessionId, events = [], phase, captureLimitReached) {
   const current = await readRecoveryJournal();
   const next = nextRecoveryJournal(current, { sessionId, events, phase });
+  const limit = captureLimitReached || (current?.sessionId === sessionId ? current.captureLimitReached : undefined);
+  if (limit) next.captureLimitReached = limit;
   await chrome.storage.local.set({ [RECOVERY_KEY]: next });
   if (phase && phase !== "reinjection_failed") clearReinjectionFailureMarker(sessionId);
   return next;
@@ -50,19 +60,74 @@ async function clearRecoveryJournal(sessionId) {
   if (!current || !sessionId || current.sessionId === sessionId) await chrome.storage.local.remove(RECOVERY_KEY);
 }
 
+async function clearLiveCapture(sessionId) {
+  if (!sessionId) return true;
+  try {
+    await captureLiveStore.clear(sessionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function retainCancelFailure(session) {
+  const failedSession = {
+    ...session,
+    phase: "cancel_failed",
+    finishFailed: false,
+    failureCategory: "cancel_cleanup_failed",
+    restorePending: Boolean(session.restorePending)
+  };
+  const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "cancel_failed").then(() => true, () => false);
+  const sessionSaved = await setSession(failedSession).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("キャンセルした記録の一時画像を削除できませんでした。対象タブを閉じずに、もう一度キャンセルしてください。");
+  return failedSession;
+}
+
+async function finalizeCancelledSession(session) {
+  try {
+    await clearRecoveryJournal(session.id);
+    await setSession(null);
+    return true;
+  } catch {
+    await retainCancelFailure(session);
+    return false;
+  }
+}
+
 async function getSession() {
   let session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  const recovery = await readRecoveryJournal();
+  if (!session && recovery?.phase === "cancel_failed" && typeof recovery.sessionId === "string" && recovery.sessionId) {
+    return {
+      id: recovery.sessionId,
+      tabId: null,
+      windowId: null,
+      mode: "pc",
+      phase: "cancel_failed",
+      finishFailed: false,
+      restorePending: false,
+      events: recovery.events || [],
+      stepImageRefs: []
+    };
+  }
   if (!session) {
     clearNavigationFallback();
     return null;
   }
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
-  const recovery = await readRecoveryJournal();
-  if (recovery?.sessionId === session.id) session = mergeCaptureEvents(session, recovery.events || []);
+  if (recovery?.sessionId === session.id) {
+    session = mergeCaptureEvents(session, recovery.events || []);
+  }
   if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
   else clearNavigationFallback();
   if (recovery?.sessionId === session.id && recovery.phase && session.id !== reinjectionFailureSessionId) {
-    return { ...session, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || session.finishFailed };
+    return {
+      ...session,
+      phase: recovery.phase,
+      finishFailed: recovery.phase === "finish_failed" ? true : recovery.phase === "cancel_failed" ? false : session.finishFailed,
+      ...(recovery.captureLimitReached ? { captureLimitReached: recovery.captureLimitReached } : {})
+    };
   }
   return session;
 }
@@ -90,8 +155,39 @@ async function injectRecorder(tabId) {
   return chrome.scripting.executeScript({ target, files: ["content/recorder.js"] });
 }
 
-async function stopRecorder(tabId) {
-  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__mecchaManualRecorder?.() }).catch(() => []);
+async function stopRecorder(tabId, command = "drain") {
+  const execute = () => chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: (recorderCommand) => {
+      if (recorderCommand === "retain") {
+        const recorder = globalThis.__mecchaManualRecorder;
+        if (typeof recorder !== "function") return { retainAck: true, recorderPresent: false, events: [] };
+        const events = recorder("retain");
+        return { retainAck: true, recorderPresent: true, events };
+      }
+      if (recorderCommand !== "release") return globalThis.__mecchaManualRecorder?.(recorderCommand);
+      const recorder = globalThis.__mecchaManualRecorder;
+      if (typeof recorder !== "function") return { releaseAck: true };
+      const result = recorder("release");
+      return { releaseAck: globalThis.__mecchaManualRecorder === undefined, result };
+    },
+    args: [command]
+  });
+  if (command === "release") {
+    const results = await execute();
+    if (!Array.isArray(results) || results.length === 0 || results.some((entry) => entry?.result?.releaseAck !== true)) {
+      throw new Error("RECORDER_RELEASE_UNCONFIRMED");
+    }
+    return [];
+  }
+  if (command === "retain") {
+    const results = await execute();
+    if (!Array.isArray(results) || results.length === 0 || results.some((entry) => entry?.result?.retainAck !== true || !Array.isArray(entry.result.events))) {
+      throw new Error("RECORDER_RETAIN_UNCONFIRMED");
+    }
+    return results.flatMap(({ result }) => result.events);
+  }
+  const results = await execute().catch(() => []);
   return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
 }
 
@@ -99,6 +195,7 @@ async function appendCaptureEvent(session, event) {
   if (!event) return session;
   const next = mergeCaptureEvents(session, [event]);
   if (next === session) return session;
+  if (next.events.length > MAX_CAPTURE_STEPS) return markCaptureLimit(session, "steps");
   try {
     await setSession(next);
   } catch (error) {
@@ -165,8 +262,10 @@ async function startCapture(tabId, mode) {
     restorePending: false,
     originalWindow: originalWindowSnapshot(window),
     events: [],
+    stepImageRefs: [],
     startedAt: Date.now()
   };
+  lastStepScreenshotAt = 0;
   await clearRecoveryJournal();
   await setSession(session);
   try {
@@ -185,6 +284,49 @@ async function startCapture(tabId, mode) {
 async function takeMaskedScreenshot(session) {
   return captureWithMaskBoundary({
     applyMasks: async () => (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: installSensitiveMasks }))[0]?.result,
+    waitForPaint: async () => {
+      const tab = await chrome.tabs.get(session.tabId);
+      if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
+      const [paintResult] = await chrome.scripting.executeScript({
+        target: { tabId: session.tabId },
+        func: () => new Promise((resolve, reject) => {
+          if (document.visibilityState === "hidden") {
+            reject(new Error("TARGET_TAB_NOT_VISIBLE"));
+            return;
+          }
+          let settled = false;
+          const fail = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            reject(error);
+          };
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve(true);
+          };
+          const timeout = setTimeout(() => fail(new Error("SCREENSHOT_PAINT_TIMEOUT")), 1000);
+          if (typeof requestAnimationFrame !== "function") {
+            fail(new Error("SCREENSHOT_PAINT_UNAVAILABLE"));
+            return;
+          }
+          try {
+            requestAnimationFrame(() => {
+              try {
+                requestAnimationFrame(finish);
+              } catch (error) {
+                fail(error);
+              }
+            });
+          } catch (error) {
+            fail(error);
+          }
+        })
+      });
+      if (paintResult?.result !== true) throw new Error("SCREENSHOT_PAINT_UNAVAILABLE");
+    },
     capture: async () => {
       const tab = await chrome.tabs.get(session.tabId);
       if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
@@ -200,13 +342,23 @@ async function takeMaskedScreenshot(session) {
 }
 
 function instructionFor(event) {
+  const semanticLabel = {
+    "ボタン": "ボタン",
+    "リンク": "リンク",
+    "メニュー": "メニュー",
+    "入力欄": "入力欄",
+    "選択欄": "選択欄",
+    "ファイル選択": "ファイル選択",
+    "保護された入力欄": "保護された入力欄",
+    "操作対象": "操作対象"
+  }[event.label] || "操作対象";
   if (event.kind === "scroll") {
     const label = { up: "上", down: "下", left: "左", right: "右" }[event.direction] || "指定方向";
     return `画面を${label}へスクロールする`;
   }
   if (event.kind === "navigation") return "次のページへ移動する";
-  if (event.kind === "input") return `${event.label}に入力する`;
-  return `${event.label}を操作する`;
+  if (event.kind === "input") return `${semanticLabel}に入力する`;
+  return `${semanticLabel}を操作する`;
 }
 
 async function prepareRetryViewport(session) {
@@ -218,42 +370,75 @@ async function prepareRetryViewport(session) {
 
 async function finishCapture() {
   let session = await getSession();
-  if (!session || !["recording", "finish_failed", "reinjection_failed"].includes(session.phase)) throw new Error("終了できる記録がありません");
+  if (!session || !["recording", "paused", "finish_failed", "reinjection_failed"].includes(session.phase)) throw new Error("終了できる記録がありません");
   let draftId;
+  let imageCount = 0;
+  let missingImageCount = 0;
+  let readyImageCountKnown = false;
+  let drainedPendingEvents;
   try {
     await prepareRetryViewport(session);
-    const pendingEvents = await stopRecorder(session.tabId);
-    session = mergeCaptureEvents(session, pendingEvents);
-    if (pendingEvents.length) await persistRecoveryJournal(session.id, pendingEvents).catch(() => undefined);
+    const readyImages = await readyImageCount(session);
+    if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+    readyImageCountKnown = true;
+    if (readyImages >= CLOUD_CLAIM_MAX_ASSETS && session.captureLimitReached !== "images") session = await markCaptureLimit(session, "images");
+    const pendingEvents = await stopRecorder(session.tabId, "retain");
+    drainedPendingEvents = pendingEvents;
+    const acceptedPendingEvents = pendingEventsForSession(session, pendingEvents);
+    for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);
+    if (acceptedPendingEvents.length) await persistRecoveryJournal(session.id, acceptedPendingEvents).catch(() => undefined);
     await setSession(session);
-    const dataUrl = await takeMaskedScreenshot(session);
-    const screenshot = { id: crypto.randomUUID(), dataUrl, masks: [] };
-    const lastIndex = session.events.length - 1;
-    const draft = {
-      id: session.id,
-      title: "新しい手順書",
-      description: "",
-      displayMode: session.mode,
-      createdAt: new Date(session.startedAt).toISOString(),
-      updatedAt: new Date().toISOString(),
-      steps: session.events.map((event, index) => ({
-        id: crypto.randomUUID(),
-        order: index + 1,
-        instruction: instructionFor(event),
-        ...(index === lastIndex ? { screenshotId: screenshot.id } : {}),
-        ...event
-      })),
-      screenshots: [screenshot]
-    };
-    await draftStore.put(draft);
-    draftId = draft.id;
+    let liveImages;
+    try {
+      liveImages = (await captureLiveStore.list(session.id)).filter((image) => image.status === "ready" && image.dataUrl);
+    } catch {
+      throw new Error("CAPTURE_LIVE_READ_FAILED");
+    }
+    const existingDraft = await draftStore.get(session.id);
+    if (existingDraft?.id === session.id) {
+      draftId = existingDraft.id;
+      imageCount = existingDraft.screenshots.length;
+      missingImageCount = Math.max(0, session.events.length - imageCount);
+    } else {
+      const imageByEventId = new Map(liveImages.map((image) => [image.eventId, image]));
+      const screenshots = session.events
+        .map((event) => imageByEventId.get(event.eventId))
+        .filter(Boolean)
+        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [] }));
+      if (!session.events.length) {
+        const dataUrl = await takeMaskedScreenshot(session);
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
+      }
+      const draft = {
+        id: session.id,
+        title: "新しい手順書",
+        description: "",
+        displayMode: session.mode,
+        createdAt: new Date(session.startedAt).toISOString(),
+        updatedAt: new Date().toISOString(),
+        steps: session.events.map((event, index) => ({
+          id: crypto.randomUUID(),
+          order: index + 1,
+          instruction: instructionFor(event),
+          ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
+          ...event
+        })),
+        screenshots
+      };
+      imageCount = screenshots.length;
+      missingImageCount = Math.max(0, session.events.length - imageCount);
+      await draftStore.put(draft);
+      draftId = draft.id;
+    }
+    await captureLiveStore.clear(session.id);
+    await stopRecorder(session.tabId, "release");
   } catch {
-    const pendingEvents = await stopRecorder(session.tabId);
-    session = mergeCaptureEvents(session, pendingEvents);
-    const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
+    const retryBase = readyImageCountKnown && drainedPendingEvents !== undefined ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
+    const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
     const sessionSaved = await setSession({ ...retrySession, restorePending: !restored }).then(() => true, () => false);
+    if ((journalSaved || sessionSaved) && readyImageCountKnown && drainedPendingEvents !== undefined) await stopRecorder(session.tabId, "release");
     if (!journalSaved && !sessionSaved) throw new Error("端末の保存領域へ記録を保存できませんでした。記録の復旧を保証できません。対象タブを閉じずに空き容量を確認してください。");
     throw new Error(restored
       ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
@@ -262,29 +447,38 @@ async function finishCapture() {
   const restored = await attemptRestore(session);
   if (restored) await setSession(null);
   await clearRecoveryJournal(session.id);
-  return { draftId, restorePending: !restored };
+  return { draftId, restorePending: !restored, imageCount, missingImageCount };
 }
 
 async function cancelCapture() {
   const session = await getSession();
   if (!session) return { cancelled: true, restorePending: false };
-  await stopRecorder(session.tabId);
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
-  const restored = await attemptRestore(cancelSession);
-  if (restored) {
-    await setSession(null);
-    await clearRecoveryJournal(session.id);
+  await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
+  if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
+  const shouldRestore = session.mode !== "pc"
+    && await windowStillExists(session.windowId);
+  const restored = shouldRestore ? await attemptRestore(cancelSession) : true;
+  const cleared = await clearLiveCapture(session.id);
+  if (!restored || !cleared) {
+    await retainCancelFailure({ ...cancelSession, restorePending: !restored });
+    throw new Error(!restored
+      ? "対象ウィンドウを復元できないため、キャンセルを完了できませんでした。もう一度キャンセルしてください。"
+      : "キャンセルした記録の一時画像を削除できませんでした。もう一度キャンセルしてください。");
   }
-  return { cancelled: true, restorePending: !restored };
+  if (!await finalizeCancelledSession({ ...cancelSession, restorePending: false })) throw new Error("キャンセルした記録の削除完了を確認できませんでした。もう一度キャンセルしてください。");
+  return { cancelled: true, restorePending: false };
 }
 
 async function retryRestore() {
   const session = await getSession();
   if (!session?.restorePending && session?.phase !== "starting") return { restored: true };
-  const retainAfterRestore = Boolean(session.finishFailed);
+  const retainAfterCancel = session.phase === "cancel_failed";
+  const retainAfterRestore = !retainAfterCancel && Boolean(session.finishFailed);
   const restored = await attemptRestore(session);
   if (restored) {
     if (retainAfterRestore) await setSession({ ...session, phase: "finish_failed", restorePending: false });
+    else if (retainAfterCancel) await setSession({ ...session, phase: "cancel_failed", restorePending: false });
     else {
       await setSession(null);
       await clearRecoveryJournal(session.id);
@@ -293,22 +487,174 @@ async function retryRestore() {
   return { restored };
 }
 
+async function pauseCapture() {
+  const session = await getSession();
+  if (!session || session.phase !== "recording") throw new Error("一時停止できる記録がありません");
+  const readyImages = await readyImageCount(session);
+  if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+  const pausedIntent = {
+    ...session,
+    phase: "paused",
+    paused: true,
+    ...(readyImages >= CLOUD_CLAIM_MAX_ASSETS ? { captureLimitReached: "images" } : {})
+  };
+  const journalSaved = await persistRecoveryJournal(pausedIntent.id, pausedIntent.events, "paused", pausedIntent.captureLimitReached).then(() => true, () => false);
+  const sessionSaved = await setSession(pausedIntent).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("PAUSE_STATE_UNAVAILABLE");
+  const pendingEvents = await stopRecorder(session.tabId, "retain");
+  let pausedSession = pausedIntent;
+  pausedSession = mergePendingEventsWithoutImages(pausedSession, pendingEvents);
+  const finalJournalSaved = await persistRecoveryJournal(pausedSession.id, pausedSession.events, "paused", pausedSession.captureLimitReached).then(() => true, () => false);
+  const finalSessionSaved = await setSession({ ...pausedSession, paused: true }).then(() => true, () => false);
+  if (!finalJournalSaved && !finalSessionSaved) {
+    navigationFallback = { sessionId: pausedSession.id, events: pausedSession.events };
+    throw new Error("PAUSE_STATE_UNAVAILABLE");
+  }
+  await stopRecorder(session.tabId, "release");
+  return { paused: true };
+}
+
+function imageRefsWithStatus(session, eventId, status) {
+  const refs = (session.stepImageRefs || []).filter((ref) => ref.eventId !== eventId);
+  refs.push({ eventId, status });
+  return { ...session, stepImageRefs: refs };
+}
+
+function nextCaptureEventGeneration(tabId) {
+  const next = (captureEventGenerations.get(tabId) || 0) + 1;
+  captureEventGenerations.set(tabId, next);
+  return next;
+}
+
+async function markCaptureLimit(session, limit) {
+  const limited = { ...session, phase: "paused", paused: true, captureLimitReached: limit };
+  const journalSaved = await persistRecoveryJournal(limited.id, limited.events || [], "paused", limit).then(() => true, () => false);
+  const sessionSaved = await setSession(limited).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("CAPTURE_LIMIT_STATE_UNAVAILABLE");
+  if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
+  return limited;
+}
+
+async function readyImageCount(session) {
+  try {
+    return await captureLiveStore.count(session.id);
+  } catch {
+    return null;
+  }
+}
+
+function pendingEventsForSession(session, events) {
+  if (session.captureLimitReached === "images" || session.events.length >= MAX_CAPTURE_STEPS) return [];
+  return events;
+}
+
+function mergePendingEventsWithoutImages(session, events) {
+  const accepted = pendingEventsForSession(session, events);
+  if (!accepted.length) return session;
+  let next = session;
+  let reachedStepLimit = false;
+  for (const event of accepted) {
+    const merged = mergeCaptureEvents(next, [event]);
+    if (merged === next) continue;
+    if (merged.events.length > MAX_CAPTURE_STEPS) {
+      reachedStepLimit = true;
+      continue;
+    }
+    const normalized = merged.events.find((candidate) => candidate.eventId === event.eventId)
+      || merged.events.find((candidate) => candidate.at === event.at);
+    next = normalized
+      ? imageRefsWithStatus(merged, normalized.eventId || `event:${normalized.at}`, "unavailable")
+      : merged;
+  }
+  if (reachedStepLimit) next = { ...next, phase: "paused", paused: true, captureLimitReached: "steps" };
+  return next;
+}
+
+async function recordStepImage(session, eventId, eventGeneration = captureEventGenerations.get(session.tabId)) {
+  let pendingSession = imageRefsWithStatus(session, eventId, "capturing");
+  await setSession(pendingSession).catch(() => undefined);
+  try {
+    const elapsed = Date.now() - lastStepScreenshotAt;
+    if (lastStepScreenshotAt && elapsed < MIN_STEP_SCREENSHOT_INTERVAL_MS) {
+      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
+      await setSession(pendingSession);
+      return pendingSession;
+    }
+    lastStepScreenshotAt = Date.now();
+    const dataUrl = await takeMaskedScreenshot(session);
+    if (captureEventGenerations.get(session.tabId) !== eventGeneration) {
+      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
+      await setSession(pendingSession);
+      return pendingSession;
+    }
+    await captureLiveStore.put({ id: crypto.randomUUID(), dataUrl, status: "ready", eventId, sessionId: session.id });
+    pendingSession = imageRefsWithStatus(pendingSession, eventId, "ready");
+  } catch {
+    pendingSession = imageRefsWithStatus(pendingSession, eventId, "failed");
+  }
+  await setSession(pendingSession);
+  return pendingSession;
+}
+
+async function recordEventWithImage(session, event, eventGeneration = captureEventGenerations.get(session.tabId)) {
+  const merged = mergeCaptureEvents(session, [event]);
+  if (merged === session) return session;
+  const readyImages = await readyImageCount(session);
+  if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+  if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) {
+    return markCaptureLimit(session, "images");
+  }
+  const next = await appendCaptureEvent(session, event);
+  if (next.captureLimitReached) return next;
+  if (next === session) return next;
+  const normalized = next.events.find((candidate) => candidate.eventId === event.eventId)
+    || next.events.find((candidate) => candidate.at === event.at);
+  if (!normalized) return next;
+  return recordStepImage(next, normalized.eventId || `event:${normalized.at}`, eventGeneration);
+}
+
+async function recordEventWithoutImage(session, event) {
+  const next = await appendCaptureEvent(session, event);
+  if (next === session) return next;
+  const normalized = next.events.find((candidate) => candidate.eventId === event.eventId)
+    || next.events.find((candidate) => candidate.at === event.at);
+  if (!normalized) return next;
+  const unavailable = imageRefsWithStatus(next, normalized.eventId || `event:${normalized.at}`, "unavailable");
+  await setSession(unavailable);
+  return unavailable;
+}
+
 async function resumeCapture(tabId) {
   const session = await getSession();
-  if (!session || session.phase !== "reinjection_failed") throw new Error("再開できる記録がありません");
+  if (session?.captureLimitReached) throw new Error("CAPTURE_LIMIT_REACHED");
+  if (!session || !["paused", "reinjection_failed"].includes(session.phase)) throw new Error("再開できる記録がありません");
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
+  let retainedEvents;
+  let resumeBase = session;
   try {
-    await injectRecorder(tabId);
-    const resumedSession = { ...session, phase: "recording", reinjectionFailed: false, failureCategory: undefined };
+    retainedEvents = await stopRecorder(tabId, "retain");
+    resumeBase = mergePendingEventsWithoutImages(session, retainedEvents);
+    const resumedSession = { ...resumeBase, phase: "recording", paused: false, reinjectionFailed: false, failureCategory: undefined };
     await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
     await setSession(resumedSession);
+    await stopRecorder(tabId, "release");
+    await injectRecorder(tabId);
     await clearRecoveryJournal(session.id).catch(() => undefined);
     reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
-    const failedSession = { ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
-    await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").catch(() => undefined);
-    await setSession(failedSession).catch(() => undefined);
+    const recoveredPending = retainedEvents === undefined
+      ? undefined
+      : await stopRecorder(tabId, "retain").catch(() => undefined);
+    const recoveredSession = recoveredPending === undefined
+      ? resumeBase
+      : mergePendingEventsWithoutImages(resumeBase, recoveredPending);
+    const failedSession = { ...recoveredSession, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
+    reinjectionFailureSessionId = session.id;
+    const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").then(() => true, () => false);
+    const sessionSaved = await setSession(failedSession).then(() => true, () => false);
+    if ((journalSaved || sessionSaved) && recoveredPending !== undefined) await stopRecorder(tabId, "release");
+    else if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
     throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
   }
 }
@@ -320,29 +666,103 @@ async function captureStatus() {
     recording: session?.phase === "recording",
     phase: session?.phase ?? null,
     mode: session?.mode,
+    sessionId: session?.id,
+    events: session?.events || [],
+    stepImageRefs: session?.stepImageRefs || [],
+    captureLimitReached: session?.captureLimitReached,
     restorePending: Boolean(session?.restorePending || session?.phase === "starting"),
     finishFailed: Boolean(session?.finishFailed),
     reinjectionFailed: Boolean(session?.reinjectionFailed)
   };
 }
 
+if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
+  chrome.action.onClicked.addListener((tab) => {
+    if (!tab?.windowId) return;
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+  });
+}
+
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
+
+const HANDOFF_PAGE_READY_SCHEMA = "meccha-manual/cloud-claim-v1";
+const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
+const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
+const handoffExternalOperations = new Map();
+
+function queueHandoffExternalOperation(message, sender, callback) {
+  const handoffId = message?.handoffId;
+  if (!HANDOFF_PAGE_READY_PATTERN.test(handoffId || "")) return callback();
+  const senderTabId = Number.isInteger(sender?.tab?.id) ? sender.tab.id : "";
+  const operationKey = message?.type === "handoff.page-ready"
+    ? `${handoffId}:${message.launchId || ""}:${senderTabId}:${message.action || ""}`
+    : `${handoffId}:${message.action || ""}`;
+  const previous = handoffExternalOperations.get(operationKey) || Promise.resolve();
+  const operation = previous.catch(() => undefined).then(callback);
+  handoffExternalOperations.set(operationKey, operation);
+  return operation.finally(() => {
+    if (handoffExternalOperations.get(operationKey) === operation) handoffExternalOperations.delete(operationKey);
+  });
+}
+
+function validHandoffPageReadySender(sender) {
+  try {
+    const url = new URL(sender?.url || "");
+    return url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && !url.username && !url.password && sender?.frameId === 0 && Number.isInteger(sender?.tab?.id);
+  } catch {
+    return false;
+  }
+}
+
+async function handleHandoffPageReady(message, sender) {
+  const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
+    message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.page-ready" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
+    HANDOFF_PAGE_READY_TYPES.has(message.action) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action"].includes(key));
+  if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+  const key = handoffStorageKey(message.handoffId);
+  const readyKey = handoffReadyStorageKey(message.handoffId, message.launchId);
+  return withHandoffReadyLock(message.handoffId, async () => {
+    const stored = (await chrome.storage.local.get(key))?.[key];
+    const ready = (await chrome.storage.local.get(readyKey))?.[readyKey];
+    const expiresAt = Date.parse(stored?.expiresAt || "");
+    if (!stored || stored.handoffId !== message.handoffId || stored.outputAction !== message.action || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!ready || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready" };
+    if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
+    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual" };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready" };
+    const latest = (await chrome.storage.local.get(key))?.[key];
+    const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
+    if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    const readyAt = new Date().toISOString();
+    await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: null } });
+    return { ok: true, status: "ready" };
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
-    const fromExtensionPage = !sender.tab;
+    const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
+    if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());
     if (message?.type === "capture:cancel" && fromExtensionPage) return serializeSessionOperation(() => cancelCapture());
     if (message?.type === "capture:restore" && fromExtensionPage) return serializeSessionOperation(() => retryRestore());
     if (message?.type === "capture:resume" && fromExtensionPage) return serializeSessionOperation(() => resumeCapture(message.tabId));
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
+      const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
       return serializeSessionOperation(async () => {
         const session = await getSession();
         if (session?.phase !== "recording" || sender.tab?.id !== session.tabId) return { accepted: false };
-        await appendCaptureEvent(session, message.event);
-        return { accepted: true };
+        const recorded = await recordEventWithImage(session, message.event, eventGeneration);
+        return recorded.captureLimitReached
+          ? { accepted: false, error: "CAPTURE_LIMIT_REACHED" }
+          : { accepted: true };
       });
     }
     throw new TypeError("不正なメッセージです");
@@ -351,7 +771,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
-  handleExternalCloudClaimMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
+  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : handleExternalCloudClaimMessage;
+  queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
 });
 
@@ -360,6 +781,28 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
+    if (session.events.length >= MAX_CAPTURE_STEPS) {
+      await markCaptureLimit(session, "steps");
+      return;
+    }
+    const readyImages = await readyImageCount(session);
+    if (readyImages === null) {
+      reinjectionFailureSessionId = session.id;
+      const failedSession = {
+        ...session,
+        phase: "reinjection_failed",
+        reinjectionFailed: true,
+        failureCategory: "capture_live_read_failed"
+      };
+      await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").catch(() => undefined);
+      await setSession(failedSession).catch(() => undefined);
+      return;
+    }
+    if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) {
+      await markCaptureLimit(session, "images");
+      return;
+    }
+    const eventGeneration = nextCaptureEventGeneration(tabId);
     const navigationEvent = { kind: "navigation", at: Date.now(), eventId: `navigation:${crypto.randomUUID()}` };
     const withNavigation = mergeCaptureEvents(session, [navigationEvent]);
     try {
@@ -388,6 +831,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       } catch {
         await persistRecoveryJournal(session.id, [], "reinjection_failed").catch(() => undefined);
       }
+      return;
+    }
+    try {
+      await recordStepImage(withNavigation, navigationEvent.eventId, eventGeneration);
+    } catch {
+      await persistRecoveryJournal(session.id, navigationFallbackEvents(session.id, navigationEvent), "recording").catch(() => undefined);
     }
   }).catch(() => undefined);
 });
@@ -398,8 +847,12 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (session?.tabId !== tabId) return;
     if (removeInfo?.isWindowClosing) {
       clearNavigationFallback(session.id);
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+      await retainCancelFailure({ ...cancelSession, restorePending: false });
+      if (!await clearLiveCapture(session.id)) {
+        return;
+      }
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
       return;
     }
     let windowExists = true;
@@ -411,14 +864,26 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
       windowExists = false;
     }
     if (!windowExists) {
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+      await retainCancelFailure({ ...cancelSession, restorePending: false });
+      if (!await clearLiveCapture(session.id)) {
+        return;
+      }
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
       return;
     }
-    const restored = await attemptRestore(session);
+    const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+    await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
+    if (!await clearLiveCapture(session.id)) {
+      const restored = session.mode === "pc" ? true : await attemptRestore(cancelSession);
+      await retainCancelFailure({ ...cancelSession, restorePending: !restored });
+      return;
+    }
+    const restored = session.mode === "pc" ? true : await attemptRestore(cancelSession);
     if (restored) {
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
+    } else {
+      await retainCancelFailure({ ...cancelSession, restorePending: true });
     }
   }).catch(() => undefined);
 });

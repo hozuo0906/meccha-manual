@@ -25,7 +25,7 @@ function recorder(sendMessage) {
     removeEventListener: (type) => listeners.delete(type)
   };
   vm.runInNewContext(source, context);
-  return { input: () => new Element(), existing: () => initialScrollContainer, existingAll: () => [initialScrollContainer, secondScrollContainer], emit: (type, target) => listeners.get(type)({ target }), emitEvent: (type, event) => listeners.get(type)(event), stop: () => context.__mecchaManualRecorder() };
+  return { input: () => new Element(), existing: () => initialScrollContainer, existingAll: () => [initialScrollContainer, secondScrollContainer], emit: (type, target) => listeners.get(type)?.({ target }), emitEvent: (type, event) => listeners.get(type)?.(event), stop: (command) => context.__mecchaManualRecorder(command) };
 }
 
 for (const acknowledgement of ["delayed", "rejected"]) {
@@ -121,4 +121,29 @@ test("acknowledged edits do not require an unload warning", async () => {
   capture.emitEvent("beforeunload", { preventDefault() { warned = true; } });
   assert.equal(warned, false);
   capture.stop();
+});
+
+test("retained recorder batch survives late acknowledgement and releases only explicitly", async () => {
+  let acknowledge;
+  const capture = recorder(() => new Promise((resolve) => { acknowledge = resolve; }));
+  const target = capture.input();
+  capture.emit("input", target);
+  await new Promise((resolve) => setImmediate(resolve));
+  const retained = capture.stop("retain");
+  assert.equal(retained.length, 1);
+  let warned = false;
+  capture.emitEvent("beforeunload", { preventDefault() { warned = true; }, returnValue: "" });
+  assert.equal(warned, true);
+  acknowledge({ ok: true, value: { accepted: true } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(capture.stop("retain"), retained);
+  assert.equal(capture.stop("release").length, 0);
+});
+
+test("stopped recorder listeners do not collect a new click while retained", () => {
+  const capture = recorder(() => new Promise(() => {}));
+  capture.stop("retain");
+  capture.emit("click", capture.input());
+  assert.equal(capture.stop("retain").length, 0);
+  capture.stop("release");
 });

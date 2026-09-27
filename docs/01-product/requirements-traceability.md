@@ -11,14 +11,14 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-001 | OUTPUT-GATE, Access認証 | Access JWT検証、`POST /api/onboarding/bootstrap` | identities, profiles | ADR-0028, ADR-0032 | MVP-AC-007, 008, 009 | Extension MVP / EPIC-02 |
 | FR-002 | 認証後はPersonal Workspace自動準備 | `POST /api/onboarding/bootstrap` | workspaces, workspace_members, identities, profiles | ADR-0028, ADR-0032 | MVP-AC-008, 009 | Extension MVP / EPIC-02 |
 | FR-003 | Team設定 | workspace member APIs | workspace_members | ADR-0028, ADR-0025 | AC-007, AC-008, AC-009, AC-014 | NEXT / EPIC-02 |
-| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005 | AC-010, AC-011, AC-017、Phase2 manual tests | EPIC-06 |
-| FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005 | manual edit/reorder tests | EPIC-06 |
+| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035 | AC-010, AC-011, AC-017、Phase2 manual tests、画像中心editor／保存状態UI | EPIC-06 |
+| FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005, ADR-0035 | manual edit/reorder tests、画像欠落時の再記録案内 | EPIC-06 |
 | FR-006 | Manual editor | local deterministic suggestion | - | ADR-0009 | manual instruction template tests | EPIC-06 |
 | FR-007 | Chrome Extension | extension local capture + 認証後claim API | guest local capture state, 認証後manual | ADR-0031 | MVP-AC-002, 016 | Extension MVP / EPIC-05 |
 | FR-008 | Chrome Extension | local event normalization | guest local event state | ADR-0031 | MVP-AC-002, 004, 005 | Extension MVP / EPIC-05 |
 | FR-009 | Chrome Extension + Manual | 認証後asset upload / Worker proxy read | local guest assets, private R2 after claim | ADR-0006, ADR-0011, ADR-0031, ADR-0032 | MVP-AC-005, 010, 011 | Extension MVP / EPIC-05 |
 | FR-010 | Chrome Extension | local normalization / claim validation | - | ADR-0031 | MVP-AC-004 | Extension MVP / EPIC-05 |
-| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs` | Extension MVP / EPIC-05/06 |
+| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032, ADR-0035 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs`、ブランド／保存状態／reduced-motion確認 | Extension MVP / EPIC-05/06 |
 | FR-012 | Output gate / Share | `POST/GET/DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` after auth+claim; explicit expiry/passcode and immutable snapshot CAS | `share_links`, `share_grants`, published `manual_revisions` | ADR-0005, ADR-0008, ADR-0028, ADR-0034 | MVP-AC-012, AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
 | FR-013 | Public share viewer | `POST /s/api/resolve`, `POST /s/api/content`, `GET /s/api/assets/{assetId}` under narrow `/s/` prefix | `share_links`, `share_grants`, private R2 proxy | ADR-0005, ADR-0006, ADR-0008, ADR-0034 | AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
 | FR-014 | Output gate / PDF | PDF export API after auth+claim | exports / entitlements when enabled | ADR-0032, ADR-0033 | MVP-AC-007, 013, 019、PDF export tests | MVP / EPIC-08 |
@@ -29,14 +29,14 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-019 | Billing | billing APIs, Stripe webhook | billing_customers, checkout_intents, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023, ADR-0033 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | NEXT / EPIC-10 |
 | FR-020 | AI settings | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | DEFERRED / EPIC-14 |
 | FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
-| FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests | MVP / Extension MVP |
+| FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示 | MVP / Extension MVP |
 | FR-023 | Markdown / HTML export | export APIs after auth+claim | exports / entitlements when enabled | ADR-0033 | 形式別export tests when enabled | NEXT / EPIC-08 |
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
 ## Cクラウド保存の追跡
 
-FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`のsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。
+FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`の認証後準備表示とsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。拡張editorに画像がない手順は最後の画面で補完せず、再記録を案内する。各操作と画像IDを収集するcapture側の実装は別担当の契約で同期する。
 
 受入証跡は、external-origin／unknown schema／期限切れ／oversize／chunk order／credential拒否、mask焼き込み、local failure／cancel／retry／changed-draft cleanup、同じdraftを2つのMV3 editorタブで保存して1つのhandoff／operationへ収束すること、同じ内容のtimestampだけが変わるprepare／asset start、completed後の新handoff、別draft分離、Web Locks／storage取得失敗時の新URL 0件、一覧→再表示→編集→version競合を対象とする。クラウド手順書画面はタイトル・説明・手順本文の編集、追加・削除・並替え、画像再表示をローカル編集状態へ保持し、明示した一回のdraft PATCHへまとめる。保存中の入力変更は応答で上書きせず、保存結果不明時はclaim状態照会を先に行う。handoff metadataには本文・画像を保存せず、`updatedAt`を除くdraft fingerprintだけを保持する。完了通知は`completion-pending`の耐久保存後に削除を行い、同一msでもfingerprintが異なるdraftや削除直前のCAS不一致は新しいdraftを削除せず、確定済みclaimを`completed`として保存して次handoffを許可する。metadata／IndexedDBの技術障害はCAS不一致と混同せず再試行可能にする。対応する実ブラウザ証跡は`tests/cloud-manual-ui-browser.test.mjs`と`tests/onboarding-ui-browser.test.mjs`、extension契約証跡は`tests/extension-cloud-claim.test.mjs`に置く。owner限定stagingの実Chrome通し確認とAPI route接続は、統合後の環境証跡として別に判定する。
 
@@ -70,6 +70,10 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - guest contentは認証前にD1/R2へ送らない。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
+
+capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。通常pauseはdrain前に`paused`意図をsessionまたはrecovery journalへ保存し、両方が失敗した場合はrecorderを停止しない。停止時のpending batchはページ側でclone保持し、sessionまたはjournalへの保存確認後だけreleaseする。recorderのretain確認が欠落または失敗した場合はbatchを空配列として保存せず、releaseや再注入を行わない。release確認が欠落または失敗した場合も成功扱いにせず、保持中のbatchと再試行可能な状態を維持する。上限到達時はrecorderを停止して記録を一時停止し、終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
+
+キャンセル後の一時画像削除に失敗した場合は`cancel_failed` phaseでキャンセル意図と復旧情報を保持し、画像削除とsession／journalの終了確認が完了するまで終了済みとして扱わない。既存draftは削除せず、対象ウィンドウが復元可能な場合だけ復元を再試行する。ブラウザ再起動や拡張再読み込みでsessionが失われても、local journalの有効な`cancel_failed`からcleanup専用状態を復元し、旧tab/windowを推測して操作しない。
 
 ## Browser Run legacy traceability
 
@@ -109,3 +113,7 @@ FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複f
 ### B期限切れ観測時の保存境界
 
 実ブラウザ回帰では、fragment付きページとfragmentなし再読込の両方で、TTL経過後のクリックをAPIへ送信せず、対象entryを`expired` tombstoneとして保存すること、時計を戻した同一ページ・再読込・同じhandoff再訪でも操作を再開しないことを確認する。`sessionStorage`の保存に失敗した場合は当該ページをfail closedにし、既存履歴を置換せず、永続化成功を主張しない。
+
+### C handoff準備完了の受入境界
+
+FR-001、FR-002、FR-022の登録／共有handoffでは、拡張機能がinactive tabを作成してからWebページの`handoff.page-ready`を受け、自動activate期限内に固定origin・`/onboarding/continue`・tab ID・launch ID・保存済みdraft fingerprintの存在・64桁hex形式・TTLを検証してpageReadyAtだけを記録し、現activeなeditorがrun／launch／tab／期限を再検証した場合だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合とclaim本体のrequest fingerprint検証は別境界として追跡する。古い通知、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用0で拒否し、Accessログイン等でreadyを受信できない場合はtimeout後に自動activateせず利用者の明示操作で画面を表示する。ready観測後にauto期限を超えた場合は同じ準備済みtabでmanual継続し、回帰で確認する。実装は`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、回帰は`tests/onboarding-ui.test.mjs`と`tests/extension-editor-browser.test.mjs`で追跡する。

@@ -405,3 +405,22 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 下書き漏洩、古いgrantの再利用、R2公開URLの失効迂回、複数タブの二重発行を同時に防ぐため。
 - Boundary:
   - production binding、Access policy、remote migration、deploy、PDF、課金は対象外とする。
+
+## DEC-079: 拡張編集画面はブランド状態表示と認証後handoffを正本にする
+
+- Status: Accepted
+- Date: 2026-09-27
+- Decision:
+  - 拡張編集画面は採用済みのロゴ・キャラクター、淡い水色・淡い緑、墨色の本文を使い、手順画像を中心に表示する。保存状態は編集中／保存中／保存済み／保存失敗を明示し、機密マスクの保存・共有継承を案内する。
+  - 保存・共有のhandoffは本文・画像をmetadataへ入れず、Access認証と同一originの保存先準備が成功した場合だけclaimへ進む。handoff先は自社UIの準備中表示を先に描画し、認証前の本文・画像送信、Cloudflare Access迂回、管理URL公開、無期限待機、偽進捗を許可しない。
+  - handoff fragmentでWebへ渡してよい値は、必須の`handoff`・`extensionId`・`launchId`と、選択した`action`、結果回収時だけの`operationId`・`claimIntentId`・`draftFingerprint`に限る。本文、画像、credential、共有tokenはfragmentと`handoff.page-ready` messageへ入れず、ログにも記録しない。認証後のclaim APIへの本文・asset転送は既存のclaim契約に従う。登録画面はinactive tabで準備し、launchごとのready recordをclaim metadataから分離して保存する。`handoff.page-ready`は固定origin、top-level frame、sender tab、launch、action、保存済みdraft fingerprintの存在・64桁hex形式、TTLを検証し、Web Lock内でpageReadyAtだけを記録し、現activeなeditorがrun／launch／tab／期限を再検証した後に一度だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合とclaim本体のrequest fingerprint検証は別境界として扱う。自動activateは8秒の期限内だけ許可し、期限切れ・Accessログイン待ち・cancelはmanual表示へ切り替え、late readyでフォーカスを奪わない。
+  - 認証失敗、結果不明、期限切れはlocal原本を保持し、正確な再試行または結果確認を案内する。既存draftの画像が欠ける場合は最後の画面で補完せず、再記録を案内する。
+- Reason:
+  - 画像中心の編集と保存・共有へのhandoffで、利用者が現在の状態と次の操作を判断できるようにし、認証境界と機密情報の保存契約を維持するため。
+- Boundary:
+  - capture側で操作ごとの画像IDを収集する実装、Workerの静的brand asset配信、cloud manual／share viewerの画面統合は各担当の変更で本決定を参照する。外部AI、Access設定、共有リンク自動発行、PDF/HTML出力は対象外。
+## Capture cleanup補足（DEC-071）
+
+- Status: Accepted
+- Date: 2026-09-20
+- `cancel_failed`をキャンセル意図と一時画像削除／window復元の再試行状態として扱い、service worker再起動後もfinishへ戻さず、session・journal・IDB cleanup完了後だけidleへ遷移する。

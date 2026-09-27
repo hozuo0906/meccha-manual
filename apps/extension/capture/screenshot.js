@@ -1,9 +1,10 @@
-export async function captureWithMaskBoundary({ applyMasks, capture, verifyMasks, removeMasks }) {
+export async function captureWithMaskBoundary({ applyMasks, waitForPaint = async () => undefined, capture, verifyMasks, removeMasks }) {
   let maskingAttempted = false;
   try {
     maskingAttempted = true;
     const result = await applyMasks();
     if (!result?.applied || (verifyMasks && !result?.token)) throw new Error("SCREENSHOT_MASK_FAILED");
+    await waitForPaint();
     const image = await capture();
     if (typeof image !== "string" || !image.startsWith("data:image/")) throw new Error("SCREENSHOT_CAPTURE_FAILED");
     if (verifyMasks && !(await verifyMasks(result.token))) throw new Error("SCREENSHOT_MASK_INVALIDATED");

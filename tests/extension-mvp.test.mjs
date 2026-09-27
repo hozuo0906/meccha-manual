@@ -101,11 +101,12 @@ test("masked screenshot is captured only after masking and always unmasked after
   const order = [];
   const image = await captureWithMaskBoundary({
     applyMasks: async () => { order.push("mask"); return { applied: true }; },
+    waitForPaint: async () => { order.push("paint"); },
     capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
     removeMasks: async () => { order.push("remove"); }
   });
   assert.equal(image.startsWith("data:image/"), true);
-  assert.deepEqual(order, ["mask", "capture", "remove"]);
+  assert.deepEqual(order, ["mask", "paint", "capture", "remove"]);
 });
 
 test("mask verification failure discards image and still removes masks", async () => {
@@ -123,6 +124,19 @@ test("masking failure cannot fall back to an unmasked screenshot", async () => {
   let captured = false;
   let removed = false;
   await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: false }), capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { removed = true; } }), /SCREENSHOT_MASK_FAILED/);
+  assert.equal(captured, false);
+  assert.equal(removed, true);
+});
+
+test("paint boundary failure refuses capture and still restores masks", async () => {
+  let captured = false;
+  let removed = false;
+  await assert.rejects(captureWithMaskBoundary({
+    applyMasks: async () => ({ applied: true }),
+    waitForPaint: async () => { throw new Error("SCREENSHOT_PAINT_TIMEOUT"); },
+    capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; },
+    removeMasks: async () => { removed = true; }
+  }), /SCREENSHOT_PAINT_TIMEOUT/);
   assert.equal(captured, false);
   assert.equal(removed, true);
 });
@@ -188,12 +202,13 @@ test("service worker keeps durable recovery, verified masking and independent re
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
-  assert.match(source, /persistRecoveryJournal\(session\.id, pendingEvents\)/);
+  assert.match(source, /persistRecoveryJournal\(session\.id, acceptedPendingEvents\)/);
   assert.match(source, /verifySensitiveMasks/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);
-  assert.match(source, /index === lastIndex \? \{ screenshotId: screenshot\.id \} : \{\}/);
+  assert.match(source, /captureLiveStore\.list\(session\.id\)/);
+  assert.match(source, /imageByEventId\.has\(event\.eventId\)/);
 });
 
 test("service worker recovers starting sessions and injects bridge/recorder into eligible frames", async () => {

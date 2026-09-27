@@ -156,6 +156,224 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
   }
 });
 
+test("sidepanel keeps restore-pending finish guidance when refresh succeeds or fails", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__statusPhase = "recording";
+      globalThis.__restorePending = false;
+      globalThis.__finishResult = { draftId: "restore-pending-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
+      globalThis.__tabsCreateCalls = [];
+      globalThis.chrome = {
+        runtime: {
+          getURL: (path) => `chrome-extension://test/${path}`,
+          sendMessage: async (message) => {
+            if (message?.type === "capture:status") {
+              if (globalThis.__refreshMode === "fail") throw new Error("STATUS_UNAVAILABLE");
+              return { ok: true, value: { phase: globalThis.__statusPhase, restorePending: globalThis.__restorePending, events: [], stepImageRefs: [] } };
+            }
+            if (message?.type === "capture:finish") {
+              const result = globalThis.__finishResult;
+              globalThis.__statusPhase = result.restorePending ? "finish_failed" : "idle";
+              globalThis.__restorePending = Boolean(result.restorePending);
+              return { ok: true, value: result };
+            }
+            return { ok: true, value: null };
+          }
+        },
+        tabs: {
+          create: async (details) => { globalThis.__tabsCreateCalls.push(details); return { id: globalThis.__tabsCreateCalls.length }; }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/sidepanel/sidepanel.html`);
+    await page.locator("#finish").waitFor({ state: "visible" });
+
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /保存済み/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 1, "finish success should open the editor once");
+
+    await page.evaluate(() => { globalThis.__refreshMode = "fail"; });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /保存済み/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false, "restore remains available when status refresh fails");
+    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 2, "refresh failure must not turn a successful finish into a finish failure");
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
+    });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("sidepanel exposes a retryable cancel failure and returns to the empty state", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__phase = "cancel_failed";
+      globalThis.__cancelCalls = 0;
+      globalThis.chrome = {
+        runtime: {
+          getURL: (path) => `chrome-extension://test/${path}`,
+          sendMessage: async (message) => {
+            if (message?.type === "capture:status") {
+              return {
+                ok: true,
+                value: {
+                  phase: globalThis.__phase,
+                  events: [],
+                  stepImageRefs: [],
+                  sessionId: null,
+                  hasDrafts: false,
+                  restorePending: false
+                }
+              };
+            }
+            if (message?.type === "capture:cancel") {
+              globalThis.__cancelCalls += 1;
+              globalThis.__phase = null;
+              return { ok: true, value: { cancelled: true, restorePending: false } };
+            }
+            return { ok: true, value: null };
+          }
+        },
+        tabs: {
+          query: async () => [],
+          create: async () => ({ id: 1 })
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/sidepanel/sidepanel.html`);
+    await page.waitForFunction(() => /キャンセルが完了していません/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#start").isDisabled(), true, "start must be unavailable while cancellation is retryable");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "finish must be unavailable after cancel failure");
+    assert.equal(await page.locator("#resume").evaluate((element) => element.hidden), true, "resume must be unavailable after cancel failure");
+    assert.equal(await page.locator("#cancel").evaluate((element) => element.hidden), false, "cancel retry must remain available");
+    assert.equal(await page.locator("#emptyState").evaluate((element) => element.hidden), true, "empty state must stay hidden while retry is pending");
+
+    await page.locator("#cancel").click();
+    await page.waitForFunction(() => globalThis.__phase === null
+      && document.querySelector("#emptyState")?.hidden === false
+      && document.querySelector("#cancel")?.hidden === true);
+    assert.equal(await page.evaluate(() => globalThis.__cancelCalls), 1, "cancel retry should be sent once");
+    assert.equal(await page.locator("#start").isDisabled(), false, "start must be available after cancellation succeeds");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#resume").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#cancel").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#emptyState").evaluate((element) => element.hidden), false);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("sidepanel refreshes drafts independently from unchanged capture state", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const sourcePage = await context.newPage();
+    await sourcePage.goto(`${baseUrl}/seed.html`);
+    await sourcePage.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "sidepanel-draft-refresh-fixture",
+        title: "最初のタイトル",
+        description: "説明",
+        updatedAt: "2026-09-27T00:00:00.000Z",
+        steps: [{ id: "step", order: 1, instruction: "手順" }],
+        screenshots: []
+      });
+    });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__statusCalls = 0;
+      globalThis.chrome = {
+        runtime: {
+          getURL: (path) => `chrome-extension://test/${path}`,
+          sendMessage: async (message) => {
+            if (message?.type === "capture:status") {
+              globalThis.__statusCalls += 1;
+              return { ok: true, value: { phase: "idle", events: [], stepImageRefs: [], sessionId: null } };
+            }
+            return { ok: true, value: null };
+          }
+        },
+        tabs: { create: async () => ({ id: 1 }) }
+      };
+    });
+    await page.goto(`${baseUrl}/sidepanel/sidepanel.html`);
+    await page.locator(".draft-card h3").waitFor();
+    assert.equal(await page.locator(".draft-card h3").textContent(), "最初のタイトル");
+    const openButton = page.locator(".draft-card button");
+    await openButton.focus();
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset?.draftId), "sidepanel-draft-refresh-fixture");
+
+    await sourcePage.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "sidepanel-draft-refresh-fixture",
+        title: "別ページから更新したタイトル",
+        description: "説明",
+        updatedAt: "2026-09-27T00:01:00.000Z",
+        steps: [{ id: "step", order: 1, instruction: "手順" }],
+        screenshots: []
+      });
+    });
+    await page.waitForFunction(() => document.querySelector(".draft-card h3")?.textContent === "別ページから更新したタイトル", null, { timeout: 5_000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset?.draftId), "sidepanel-draft-refresh-fixture", "draft refresh should preserve button focus");
+    assert.ok(await page.evaluate(() => globalThis.__statusCalls > 1), "draft refresh should poll while capture status is unchanged");
+
+    await sourcePage.evaluate(async () => {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open("meccha-manual-guest", 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const transaction = request.result.transaction("drafts", "readwrite");
+          transaction.objectStore("drafts").delete("sidepanel-draft-refresh-fixture");
+          transaction.oncomplete = () => { request.result.close(); resolve(); };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      });
+    });
+    await page.waitForFunction(() => document.querySelectorAll(".draft-card").length === 0
+      && document.querySelector("#draftSection")?.hidden === true
+      && document.querySelector("#emptyState")?.hidden === false, null, { timeout: 5_000 });
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("ready config opens the registration tab once and keeps local edits", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
@@ -168,16 +386,43 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     const page = await context.newPage();
     await page.addInitScript(() => {
       globalThis.__tabsCreateCalls = 0;
+      globalThis.__tabsUpdateCalls = [];
       globalThis.__createdTabUrl = null;
       globalThis.__handoffStorageWrites = 0;
+      globalThis.__expireNextReady = false;
+      globalThis.__delayReadyPoll = false;
+      globalThis.__handoffStorage = {};
       globalThis.chrome = {
         runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         storage: { local: {
-          set: async () => { globalThis.__handoffStorageWrites += 1; },
-          get: async () => ({}),
+          set: async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); },
+          get: async (key) => {
+            const result = key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage;
+            if (globalThis.__delayReadyPoll && typeof key === "string" && key.includes(":handoff-ready:") && result[key]?.pageReadyAt) {
+              globalThis.__delayReadyPoll = false;
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            return result;
+          },
           remove: async () => undefined
         } },
-        tabs: { create: async ({ url }) => { globalThis.__tabsCreateCalls += 1; globalThis.__createdTabUrl = url; } }
+        tabs: {
+          create: async ({ url, active }) => { globalThis.__tabsCreateCalls += 1; globalThis.__createdTabUrl = url; return { id: 17, active }; },
+          update: async (tabId, details) => {
+            globalThis.__tabsUpdateCalls.push({ tabId, ...details });
+            if (details.url) {
+              const readyKey = Object.keys(globalThis.__handoffStorage).find((key) => key.includes(":handoff-ready:") && !globalThis.__handoffStorage[key]?.pageReadyAt);
+              globalThis.__handoffStorage[readyKey] = {
+                ...globalThis.__handoffStorage[readyKey],
+                pageReadyAt: new Date().toISOString(),
+                activationDeadlineAt: globalThis.__expireNextReady ? new Date(Date.now() + 10).toISOString() : globalThis.__handoffStorage[readyKey]?.activationDeadlineAt,
+                activatedAt: null
+              };
+              globalThis.__expireNextReady = false;
+            }
+            return { id: tabId, ...details };
+          }
+        }
       };
     });
     await page.goto(`${baseUrl}/seed.html`);
@@ -194,16 +439,297 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     });
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => /保存できませんでした/.test(document.querySelector("#gateStatus")?.textContent || ""));
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 0, "handoff storage failure must not open a registration URL");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 0, "handoff storage failure must not navigate to a registration URL");
     await page.evaluate(() => {
-      chrome.storage.local.set = async () => { globalThis.__handoffStorageWrites += 1; };
+      chrome.storage.local.set = async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); };
     });
     await page.locator("#startRegistration").click();
-    await page.waitForFunction(() => globalThis.__tabsCreateCalls === 1);
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls), 1);
-    assert.match(await page.evaluate(() => globalThis.__createdTabUrl), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}&extensionId=a{32}$/);
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.length === 2);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 2);
+    assert.equal(await page.evaluate(() => globalThis.__createdTabUrl), "about:blank");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 2);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[0]?.tabId), 17);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[0]?.active), false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[1]?.tabId), 17);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls[1]?.active), true);
+    assert.match(await page.evaluate(() => globalThis.__tabsUpdateCalls.find(({ url }) => url)?.url || ""), /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=[A-Za-z0-9_-]{43}&extensionId=a{32}&launchId=[A-Za-z0-9_-]{43}$/);
     assert.equal(await page.locator("#title").inputValue(), "編集を保持するタイトル");
-    assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 1);
+    assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 3);
+    assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
+
+    await page.evaluate(() => { globalThis.__expireNextReady = true; globalThis.__delayReadyPoll = true; });
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "an expired automatic activation should remain in the gate");
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length), 1);
+    await page.locator("#activateHandoff").click();
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length === 2);
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
+    const activeTabIds = await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).map(({ tabId }) => tabId));
+    assert.deepEqual(activeTabIds, [17, 17], "manual activation should reuse the prepared tab");
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "the same prepared tab should be manually activated");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("handoff timeout keeps the editor visible and activation is explicit and idempotent", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    await page.addInitScript(() => {
+      globalThis.__tabsCreateCalls = 0;
+      globalThis.__tabsUpdateCalls = [];
+      globalThis.__failActivationUpdate = false;
+      globalThis.__delayActivationUpdate = false;
+      globalThis.__releaseActivationUpdate = null;
+      globalThis.__handoffStorage = {};
+      globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        storage: { local: {
+          set: async (values) => Object.assign(globalThis.__handoffStorage, values),
+          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
+          remove: async () => undefined
+        } },
+        tabs: {
+          create: async ({ url, active }) => { globalThis.__tabsCreateCalls += 1; return { id: 21 + globalThis.__tabsCreateCalls, url, active }; },
+          update: async (tabId, details) => {
+            globalThis.__tabsUpdateCalls.push({ tabId, ...details });
+            if (details.active && globalThis.__delayActivationUpdate) {
+              globalThis.__delayActivationUpdate = false;
+              await new Promise((resolve) => { globalThis.__releaseActivationUpdate = resolve; });
+            }
+            if (details.active && globalThis.__failActivationUpdate) throw new Error("TAB_CLOSED");
+            return { id: tabId, ...details };
+          }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "timeout-output-gate-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#timeout-output-gate-fixture`);
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+    assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
+    assert.match(await page.locator("#gateStatus").textContent(), /ログインや接続が必要な場合があります/);
+    await page.evaluate(() => { globalThis.__delayActivationUpdate = true; });
+    await page.locator("#activateHandoff").click();
+    await page.waitForFunction(() => typeof globalThis.__releaseActivationUpdate === "function");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "Esc must not cancel an activation already in progress");
+    assert.equal(await page.locator("#cancelOutput").isDisabled(), true, "cancel must wait for activation to settle");
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "a new handoff must wait for activation to settle");
+    await page.evaluate(() => document.querySelector("#activateHandoff")?.click());
+    await page.evaluate(() => globalThis.__releaseActivationUpdate?.());
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length), 1);
+
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.filter(({ url }) => url).length === 2, null, { timeout: 5_000 });
+    const launchIds = await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ url }) => url).map(({ url }) => new URL(url).hash.match(/[&?]launchId=([A-Za-z0-9_-]{43})$/)?.[1]));
+    assert.equal(launchIds.length, 2);
+    assert.notEqual(launchIds[0], launchIds[1], "retry must use a new launch id");
+    await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
+    await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
+    await page.locator("#activateHandoff").click();
+    await page.waitForFunction(() => /登録画面へ進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
+    assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("cancel during delayed handoff preparation cannot activate a late tab", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    await page.addInitScript(() => {
+      globalThis.__tabsUpdateCalls = [];
+      globalThis.__tabsRemoveCalls = [];
+      globalThis.__handoffStorage = {};
+      globalThis.__delayFirstStorageSet = true;
+      globalThis.__delayNextStorageSet = false;
+      globalThis.__storageSetStarted = false;
+      globalThis.__releaseStorageSet = null;
+      globalThis.__delayTabsCreate = false;
+      globalThis.__tabsCreateStarted = false;
+      globalThis.__releaseTabsCreate = null;
+      globalThis.__nextTabId = 31;
+      globalThis.__tabUrlState = { url: "", pendingUrl: "about:blank" };
+      globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        storage: { local: {
+          set: async (values) => {
+            if (globalThis.__delayFirstStorageSet || globalThis.__delayNextStorageSet) {
+              globalThis.__delayFirstStorageSet = false;
+              globalThis.__delayNextStorageSet = false;
+              globalThis.__storageSetStarted = true;
+              await new Promise((resolve) => { globalThis.__releaseStorageSet = resolve; });
+            }
+            Object.assign(globalThis.__handoffStorage, values);
+          },
+          get: async (key) => key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage,
+          remove: async () => undefined
+        } },
+        tabs: {
+          create: async ({ url, active }) => {
+            if (globalThis.__delayTabsCreate) {
+              globalThis.__delayTabsCreate = false;
+              globalThis.__tabsCreateStarted = true;
+              await new Promise((resolve) => { globalThis.__releaseTabsCreate = resolve; });
+            }
+            return { id: globalThis.__nextTabId++, url, active };
+          },
+          get: async (tabId) => ({ id: tabId, ...globalThis.__tabUrlState }),
+          remove: async (tabId) => { globalThis.__tabsRemoveCalls.push(tabId); },
+          update: async (tabId, details) => { globalThis.__tabsUpdateCalls.push({ tabId, ...details }); return { id: tabId, ...details }; }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "cancel-during-handoff-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#cancel-during-handoff-fixture`);
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__storageSetStarted === true);
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseStorageSet?.());
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true)), false);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ url }) => Boolean(url))), false);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31], "cancel must remove its own provisional tab");
+    assert.ok(await page.evaluate(async () => Boolean(await (await import("/storage/draft-store.js")).draftStore.get("cancel-during-handoff-fixture"))), "cancel must keep the local draft");
+
+    await page.locator("#save").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === true);
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "cancelled preparation must leave the editor resumable");
+
+    await page.evaluate(() => { globalThis.__delayTabsCreate = true; });
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__tabsCreateStarted === true);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseTabsCreate?.());
+    await page.waitForTimeout(150);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31, 32], "cancel after delayed tab creation must remove the returned provisional tab");
+
+    await page.locator("#save").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === true);
+    await page.evaluate(() => {
+      globalThis.__delayNextStorageSet = true;
+      globalThis.__storageSetStarted = false;
+      globalThis.__tabUrlState = { url: "", pendingUrl: "about:blank" };
+    });
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__storageSetStarted === true);
+    await page.evaluate(() => { globalThis.__tabUrlState = { url: "https://user.example.test/page" }; });
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseStorageSet?.());
+    await page.waitForTimeout(150);
+    assert.deepEqual(await page.evaluate(() => globalThis.__tabsRemoveCalls), [31, 32], "cancel must keep a provisional tab after the user navigates it away");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("cancel prevents late editor activation when cancellation persistence fails", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    await page.addInitScript(() => {
+      globalThis.__handoffStorage = {};
+      globalThis.__tabsUpdateCalls = [];
+      globalThis.__failCancelPolicySet = true;
+      globalThis.__holdReadyRead = false;
+      globalThis.__releaseReadyRead = null;
+      globalThis.chrome = {
+        runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        storage: { local: {
+          set: async (values) => {
+            if (globalThis.__failCancelPolicySet && Object.values(values).some((value) => value?.activationPolicy === "cancelled")) {
+              globalThis.__failCancelPolicySet = false;
+              throw new Error("CANCEL_POLICY_STORAGE_UNAVAILABLE");
+            }
+            Object.assign(globalThis.__handoffStorage, values);
+          },
+          get: async (key) => {
+            if (key && key.includes(":handoff-ready:") && globalThis.__holdReadyRead) {
+              globalThis.__holdReadyRead = false;
+              await new Promise((resolve) => { globalThis.__releaseReadyRead = resolve; });
+            }
+            return key ? { [key]: globalThis.__handoffStorage[key] } : globalThis.__handoffStorage;
+          },
+          remove: async () => undefined
+        } },
+        tabs: {
+          create: async ({ url, active }) => ({ id: 41, url, active }),
+          update: async (tabId, details) => {
+            globalThis.__tabsUpdateCalls.push({ tabId, ...details });
+            if (details.url) {
+              const readyKey = Object.keys(globalThis.__handoffStorage).find((key) => key.includes(":handoff-ready:"));
+              globalThis.__handoffStorage[readyKey] = { ...globalThis.__handoffStorage[readyKey], pageReadyAt: new Date().toISOString(), activatedAt: null };
+              globalThis.__holdReadyRead = true;
+            }
+            return { id: tabId, ...details };
+          }
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "cancel-ready-storage-failure-fixture", title: "cancel ready fixture", description: "", steps: [], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#cancel-ready-storage-failure-fixture`);
+    await page.locator("#save").click();
+    await page.locator("#startRegistration").click();
+    await page.waitForFunction(() => globalThis.__holdReadyRead === false && typeof globalThis.__releaseReadyRead === "function");
+    await page.locator("#cancelOutput").click();
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
+    await page.evaluate(() => globalThis.__releaseReadyRead?.());
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true)), false, "late ready must not foreground after synchronous cancellation");
+    assert.equal(await page.evaluate(() => Object.values(globalThis.__handoffStorage).find((value) => value?.launchId)?.activationPolicy), "auto", "the failed cancellation write must be observable in the fixture");
   } finally {
     await context?.close();
     server.closeAllConnections?.();

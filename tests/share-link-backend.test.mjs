@@ -7,6 +7,7 @@ import { exportJWK, SignJWT } from "jose";
 import { randomSecret, validateSecret } from "../apps/worker/src/share-link-crypto.ts";
 import { derivePasscodeHash, sha256Hex, validatePasscode } from "../apps/worker/src/share-link-crypto.ts";
 import { handleShareLinkRoute } from "../apps/worker/src/share-link-router.ts";
+import worker from "../apps/worker/src/index.ts";
 
 const migrationNames = [
   "0001_d1_identity_workspace.sql",
@@ -187,6 +188,17 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => { assert.equal(String(url), HTTP_JWKS_URL); return Response.json({ keys: [httpPublicJwk] }); };
   const env = { APP_ENV: "staging", APP_BASE_URL: HTTP_BASE_URL, ACCESS_ISSUER: HTTP_ISSUER, ACCESS_AUDIENCE: HTTP_AUDIENCE, ACCESS_JWKS_URL: HTTP_JWKS_URL, DB: new HttpD1(fixture.raw), MANUAL_ASSETS: { get: async (key) => key === `manual/${HTTP_ASSET}` ? { body: new Uint8Array([137]), size: 1 } : null }, SHARE_AUTH_RATE_LIMITER: { limit: async () => ({ success: true }) } };
+  const appEnv = { ...env, ASSETS: { fetch: async (assetRequest) => {
+    const path = new URL(assetRequest.url).pathname;
+    const filename = path === "/assets/meccha-manual-logo-mark.png" ? "meccha-manual-logo-mark.png" : path === "/assets/meccha-manual-mascot-me-clear-eyes.png" ? "meccha-manual-mascot-me-clear-eyes.png" : null;
+    if (!filename) return new Response("Not Found", { status: 404 });
+    return new Response(await readFile(new URL(`../apps/worker/brand-assets/assets/${filename}`, import.meta.url)), { headers: { "content-type": "image/png" } });
+  } } };
+  const appRequest = async (path, { method = "GET", body, headers = {} } = {}) => {
+    const requestHeaders = new Headers({ origin: HTTP_BASE_URL, ...headers });
+    if (body !== undefined) { requestHeaders.set("content-type", "application/json"); body = JSON.stringify(body); }
+    return worker.fetch(new Request(`${HTTP_BASE_URL}${path}`, { method, headers: requestHeaders, body }), appEnv, {});
+  };
   const request = async (path, { method = "GET", body, token, grant, authenticated = false, subject = "http-owner" } = {}) => {
     const headers = new Headers({ origin: HTTP_BASE_URL });
     if (token) headers.set("x-share-token", token);
@@ -201,6 +213,13 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.match(await viewer.text(), /id="share-viewer"/u);
     const viewerCss = await request("/s/assets/share.css");
     assert.match(await viewerCss.text(), /#share-auth\[hidden\].*display:none/u);
+    for (const path of ["/s/assets/brand/logo.png", "/s/assets/brand/mascot.png"]) {
+      const brand = await appRequest(path);
+      assert.equal(brand.status, 200);
+      assert.equal(brand.headers.get("content-type"), "image/png");
+      assert.ok((await brand.arrayBuffer()).byteLength > 0);
+    }
+    assert.equal((await appRequest("/s/assets/brand/unknown.png")).status, 404);
     const resolve = await request("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: fixture.token });
     assert.equal(resolve?.status, 200);
     const resolved = await resolve.json();
@@ -224,6 +243,7 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     const asset = await request(`/s/api/assets/${HTTP_ASSET}`, { grant: resolved.grant });
     assert.equal(asset?.status, 200);
     assert.deepEqual([...new Uint8Array(await asset.arrayBuffer())], [137]);
+    assert.equal((await appRequest(`/s/api/assets/${HTTP_ASSET}`)).status, 401);
     assert.equal((await request("/s/api/assets/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaad", { grant: resolved.grant }))?.status, 404);
     assert.equal((await request("/api/workspaces/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/manuals/cccccccc-cccc-4ccc-8ccc-cccccccccccc/share-links", { authenticated: true, subject: "http-admin" }))?.status, 403);
     fixture.raw.prepare("UPDATE manual_revisions SET title = '編集中の下書き' WHERE id = ?").run(HTTP_DRAFT);

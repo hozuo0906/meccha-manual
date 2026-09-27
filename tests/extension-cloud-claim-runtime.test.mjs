@@ -5,15 +5,37 @@ import { fileURLToPath } from "node:url";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { chromium } from "@playwright/test";
-import { fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
+import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const STAGING_URL = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=1`;
 const WRONG_ORIGIN_URL = "https://evil.example.test/onboarding/continue?runtime-test=1";
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 
-function externalPageHtml() {
-  return "<!doctype html><meta charset='utf-8'><title>synthetic staging sender</title>";
+function externalPageHtml(extensionId = null) {
+  const readyScript = extensionId ? `<script defer>
+(() => {
+  const id = ${JSON.stringify(extensionId)};
+  let sent = false;
+  const sendReady = async () => {
+    if (sent || typeof globalThis.chrome?.runtime?.sendMessage !== "function") return;
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const handoffId = fragment.get("handoff");
+    const launchId = fragment.get("launchId");
+    const action = fragment.get("action") || "save";
+    if (!handoffId || !launchId) return;
+    sent = true;
+    try {
+      await chrome.runtime.sendMessage(id, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId, launchId, action });
+    } catch {
+      sent = false;
+    }
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sendReady, { once: true });
+  else void sendReady();
+})();
+</script>` : "";
+  return `<!doctype html><meta charset='utf-8'><title>synthetic staging sender</title>${readyScript}`;
 }
 
 async function createSyntheticPage(context, url) {
@@ -33,8 +55,8 @@ async function createSyntheticPage(context, url) {
   return page;
 }
 
-async function createStagingPage(context) {
-  return createSyntheticPage(context, STAGING_URL);
+async function createStagingPage(context, url = STAGING_URL) {
+  return createSyntheticPage(context, url);
 }
 
 async function sendExternal(page, extensionId, message) {
@@ -147,6 +169,36 @@ async function readMetadata(worker, key) {
       if (error) reject(new Error(error.message)); else resolve(result?.[storageKey] ?? null);
     });
   }), key);
+}
+
+async function sendExternalFromFrame(frame, extensionId, message) {
+  return frame.evaluate(({ extensionId: id, message: payload }) => {
+    if (typeof chrome?.runtime?.sendMessage !== "function") return { ok: false, error: "RUNTIME_ERROR", detail: "chrome.runtime.sendMessage unavailable" };
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(id, payload, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          resolve(runtimeError ? { ok: false, error: "RUNTIME_ERROR", detail: runtimeError.message } : response);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }, { extensionId, message });
+}
+
+async function tabIdForPage(worker, page) {
+  const pageUrl = page.url();
+  return worker.evaluate((url) => new Promise((resolve, reject) => {
+    chrome.tabs.query({}, (tabs) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(tabs.find((tab) => tab.url === url)?.id ?? null);
+    });
+  }), pageUrl);
 }
 
 async function failStorageSetOnCall(worker, failureCall = 1) {
@@ -586,7 +638,7 @@ test("two MV3 editor tabs converge on one fresh handoff and operation", { timeou
     let extensionId;
     ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
     await context.route(`${STAGING_ORIGIN}/**`, async (route) => {
-      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: externalPageHtml() });
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: externalPageHtml(extensionId) });
     });
     const draft = {
       id: "runtime-editor-canonical-draft",
@@ -603,9 +655,9 @@ test("two MV3 editor tabs converge on one fresh handoff and operation", { timeou
     await Promise.all(editors.map((page) => page.locator("#save").click()));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").waitFor({ state: "visible" })));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").click()));
-    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "登録画面を開きました。元の手順書はこの端末に残っています。")));
+    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", null, { timeout: 30_000 })));
     const gateStatuses = await Promise.all(editors.map((page) => page.locator("#gateStatus").textContent()));
-    assert.deepEqual(gateStatuses, ["登録画面を開きました。元の手順書はこの端末に残っています。", "登録画面を開きました。元の手順書はこの端末に残っています。"]);
+    assert.deepEqual(gateStatuses, ["登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。"]);
     const allMetadata = await worker.evaluate(() => new Promise((resolve, reject) => chrome.storage.local.get(null, (result) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(result))));
     const handoffs = Object.values(allMetadata).filter((value) => value?.draftId === "runtime-editor-canonical-draft");
     assert.equal(handoffs.length, 1, "same draft editors must persist one metadata record");
@@ -616,6 +668,171 @@ test("two MV3 editor tabs converge on one fresh handoff and operation", { timeou
     assert.equal(prepared.ok, true);
     const started = await sendExternal(openedRegistrationPages[0], extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId: handoffs[0].handoffId, action: "save", assetSlot: 0 });
     assert.equal(started.ok, true, "canonical handoff must reach asset start");
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
+test("MV3 page-ready uses launch and tab state without changing claim identity", { timeout: 60_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const positiveUrl = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=ready-positive`;
+    const page = await createStagingPage(context, positiveUrl);
+    const tabId = await tabIdForPage(worker, page);
+    assert.equal(Number.isInteger(tabId), true, "the real MV3 sender tab must be discoverable");
+    const foregroundTabId = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.create({ url: "about:blank", active: true }, (tab) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tab?.id ?? null);
+      });
+    }));
+    assert.equal(Number.isInteger(foregroundTabId), true, "the separate foreground tab must be discoverable");
+    const activeTabIds = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tabs.filter((tab) => tab.active).map((tab) => tab.id));
+      });
+    }));
+    assert.equal(activeTabIds.includes(foregroundTabId), true, "the unrelated foreground tab must be active before ready");
+    assert.equal(activeTabIds.includes(tabId), false, "the ready sender must begin in the background");
+    const draft = {
+      id: "runtime-ready-flow-draft",
+      title: "ready 通知の下書き",
+      description: "claim metadata の identity を保持する",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+      steps: [],
+      screenshots: []
+    };
+    const draftFingerprint = await fingerprintDraft(draft);
+    await putDraft(worker, draft);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const handoffId = "R".repeat(43);
+    const launchId = "L".repeat(43);
+    const operationId = "O".repeat(43);
+    const claimIntentId = "01234567-89ab-4cde-8fab-0123456789ab";
+    const handoffKey = handoffStorageKey(handoffId);
+    const handoffMetadata = {
+      handoffId,
+      draftId: draft.id,
+      outputAction: "save",
+      extensionId,
+      createdAt: new Date().toISOString(),
+      draftUpdatedAt: draft.updatedAt,
+      draftFingerprint,
+      expiresAt,
+      status: "finalize-pending",
+      operationId,
+      claimIntentId
+    };
+    await setMetadata(worker, handoffKey, handoffMetadata);
+    const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    const readyMetadata = {
+      handoffId,
+      launchId,
+      tabId,
+      expiresAt,
+      activationPolicy: "auto",
+      activationDeadlineAt: new Date(Date.now() + 8_000).toISOString(),
+      pageReadyAt: null,
+      activatedAt: null
+    };
+    await setMetadata(worker, readyKey, readyMetadata);
+    const readyMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId, launchId, action: "save" };
+
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" });
+    const firstReady = await readMetadata(worker, readyKey);
+    assert.equal(Number.isFinite(Date.parse(firstReady.pageReadyAt)), true);
+    assert.equal(firstReady.activatedAt, null, "background ready notification must not activate the sender tab");
+    const activeTabIdsAfterReady = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tabs.filter((tab) => tab.active).map((tab) => tab.id));
+      });
+    }));
+    assert.equal(activeTabIdsAfterReady.includes(foregroundTabId), true, "the unrelated foreground tab must remain active");
+    assert.equal(activeTabIdsAfterReady.includes(tabId), false, "background ready must not foreground the sender tab");
+    assert.deepEqual(await readMetadata(worker, handoffKey), handoffMetadata, "ready must not overwrite operation or claim identity");
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" }, "duplicate ready is idempotent");
+    assert.deepEqual(await readMetadata(worker, readyKey), firstReady, "duplicate ready must preserve the first timestamps");
+
+    assert.deepEqual(await sendExternal(page, extensionId, {
+      ...readyMessage,
+      launchId: "W".repeat(43)
+    }), { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" }, "an unknown launch must be rejected");
+
+    const wrongTab = await createStagingPage(context, `${STAGING_ORIGIN}/onboarding/continue?runtime-test=ready-wrong-tab`);
+    assert.notEqual(await tabIdForPage(worker, wrongTab), tabId);
+    assert.deepEqual(await sendExternal(wrongTab, extensionId, readyMessage), { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" }, "a different tab must be rejected");
+
+    const wrongOrigin = await createSyntheticPage(context, WRONG_ORIGIN_URL);
+    assert.deepEqual(await sendExternal(wrongOrigin, extensionId, readyMessage), { ok: false, error: "RUNTIME_ERROR", detail: "chrome.runtime.sendMessage unavailable" }, "the manifest must keep external messaging unavailable on a different origin");
+    const wrongPath = await createSyntheticPage(context, `${STAGING_ORIGIN}/onboarding/wrong-path?runtime-test=ready-wrong-path`);
+    assert.deepEqual(await sendExternal(wrongPath, extensionId, readyMessage), { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" }, "the service worker must reject a staging sender on the wrong path");
+
+    await page.evaluate(() => {
+      const iframe = document.createElement("iframe");
+      iframe.src = location.href;
+      iframe.id = "ready-frame";
+      document.body.append(iframe);
+    });
+    await page.waitForFunction(() => document.querySelector("#ready-frame")?.contentDocument?.readyState === "complete");
+    const childFrame = page.frames().find((frame) => frame !== page.mainFrame());
+    assert.ok(childFrame, "the real web frame must be available for frameId validation");
+    assert.deepEqual(await sendExternalFromFrame(childFrame, extensionId, readyMessage), { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" }, "a non-top-level frame must be rejected");
+
+    async function installAttempt(attemptHandoffId, attemptLaunchId, activationPolicy, activationDeadlineAt, attemptOperationId) {
+      const attemptExpiresAt = new Date(Date.now() + 60_000).toISOString();
+      await setMetadata(worker, handoffStorageKey(attemptHandoffId), {
+        ...handoffMetadata,
+        handoffId: attemptHandoffId,
+        expiresAt: attemptExpiresAt,
+        operationId: attemptOperationId
+      });
+      await setMetadata(worker, handoffReadyStorageKey(attemptHandoffId, attemptLaunchId), {
+        handoffId: attemptHandoffId,
+        launchId: attemptLaunchId,
+        tabId,
+        expiresAt: attemptExpiresAt,
+        activationPolicy,
+        activationDeadlineAt,
+        pageReadyAt: null,
+        activatedAt: null
+      });
+    }
+
+    const timedOutHandoffId = "T".repeat(43);
+    const timedOutLaunchId = "U".repeat(43);
+    await installAttempt(timedOutHandoffId, timedOutLaunchId, "auto", new Date(Date.now() - 1).toISOString(), "P".repeat(43));
+    const timedOutReady = { ...readyMessage, handoffId: timedOutHandoffId, launchId: timedOutLaunchId };
+    assert.deepEqual(await sendExternal(page, extensionId, timedOutReady), { ok: true, status: "manual" }, "a ready after the activation deadline must require manual activation");
+    const timedOutStored = await readMetadata(worker, handoffReadyStorageKey(timedOutHandoffId, timedOutLaunchId));
+    assert.equal(timedOutStored.pageReadyAt, null);
+    assert.equal(timedOutStored.activatedAt, null);
+
+    const manualHandoffId = "M".repeat(43);
+    const manualLaunchId = "N".repeat(43);
+    await installAttempt(manualHandoffId, manualLaunchId, "manual", new Date(Date.now() + 8_000).toISOString(), "Q".repeat(43));
+    const manualReady = { ...readyMessage, handoffId: manualHandoffId, launchId: manualLaunchId };
+    assert.deepEqual(await sendExternal(page, extensionId, manualReady), { ok: true, status: "manual" }, "manual policy must never auto activate on a late ready");
+    const manualStored = await readMetadata(worker, handoffReadyStorageKey(manualHandoffId, manualLaunchId));
+    assert.equal(manualStored.pageReadyAt, null);
+    assert.equal(manualStored.activatedAt, null);
+
+    const cancelledHandoffId = "C".repeat(43);
+    const cancelledLaunchId = "D".repeat(43);
+    await installAttempt(cancelledHandoffId, cancelledLaunchId, "cancelled", new Date(Date.now() + 8_000).toISOString(), "S".repeat(43));
+    assert.deepEqual(await sendExternal(page, extensionId, { ...readyMessage, handoffId: cancelledHandoffId, launchId: cancelledLaunchId }), { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" }, "a cancelled attempt must reject a late ready");
+    const cancelledStored = await readMetadata(worker, handoffReadyStorageKey(cancelledHandoffId, cancelledLaunchId));
+    assert.equal(cancelledStored.pageReadyAt, null);
+    assert.equal(cancelledStored.activatedAt, null);
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
