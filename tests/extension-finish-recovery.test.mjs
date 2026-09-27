@@ -62,11 +62,11 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   });
   const restart = async () => {
     context = createContext();
-    vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.cancel = cancelCapture; globalThis.settle = () => sessionOperation; globalThis.status = captureStatus; globalThis.restore = retryRestore;", context);
+    vm.runInNewContext(source + "\nglobalThis.start = startCapture; globalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.cancel = cancelCapture; globalThis.settle = () => sessionOperation; globalThis.status = captureStatus; globalThis.restore = retryRestore;", context);
     await context.settle();
   };
   await restart();
-  return { finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), cancel: () => context.cancel(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
+  return { start: () => context.start(1, "pc"), finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), cancel: () => context.cancel(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
     journal: () => journal,
     injections, status: () => context.status(), restore: () => context.restore(), restart,
     setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setRestoreSucceeds: (value) => { restoreSuccess = value; }, setWindowExists: (value) => { windowExists = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
@@ -76,7 +76,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     }, setStorageRemoveFails: (sessionValue, localValue) => {
       sessionRemoveFailure = sessionValue;
       localRemoveFailure = localValue;
-    }, viewportApplied: () => viewportApplied,
+    }, dropSession: () => { session = null; }, viewportApplied: () => viewportApplied,
     navigate: async () => { onUpdated(1, { status: "complete" }); await context.settle(); },
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
     close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); } };
@@ -383,6 +383,27 @@ test("journal-only responsive cancel retries restoration after worker restart", 
   await capture.cancel();
   assert.equal(capture.restoreCalls() > restoreCallsBeforeRetry, true);
   assert.equal(capture.session(), null);
+});
+
+test("browser restart rebuilds cancel_failed from the local journal without restoring the old tab", async () => {
+  const existingDraft = { id: "unrelated-draft", screenshots: [{ id: "draft-image", dataUrl: "data:image/jpeg;base64,draft" }] };
+  const capture = await harness({ clearFails: true, localFails: false, initialDraft: existingDraft, pendingEvents: [] });
+  capture.seedLiveImages([{ id: "orphan-image", sessionId: "capture-1", eventId: "browser-restart:1", status: "ready", dataUrl: "data:image/jpeg;base64,orphan" }]);
+  await assert.rejects(capture.cancel());
+  assert.equal(capture.journal().phase, "cancel_failed");
+  capture.dropSession();
+  await capture.restart();
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  await assert.rejects(capture.start());
+  await assert.rejects(capture.finish());
+  await assert.rejects(capture.resume());
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.restoreCalls(), 0);
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.journal(), null);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.draft(), existingDraft);
 });
 
 test("cancel cleanup retries after journal or session removal failure", async () => {

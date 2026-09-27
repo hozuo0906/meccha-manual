@@ -95,12 +95,25 @@ async function finalizeCancelledSession(session) {
 
 async function getSession() {
   let session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] ?? null;
+  const recovery = await readRecoveryJournal();
+  if (!session && recovery?.phase === "cancel_failed" && typeof recovery.sessionId === "string" && recovery.sessionId) {
+    return {
+      id: recovery.sessionId,
+      tabId: null,
+      windowId: null,
+      mode: "pc",
+      phase: "cancel_failed",
+      finishFailed: false,
+      restorePending: false,
+      events: recovery.events || [],
+      stepImageRefs: []
+    };
+  }
   if (!session) {
     clearNavigationFallback();
     return null;
   }
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
-  const recovery = await readRecoveryJournal();
   if (recovery?.sessionId === session.id) session = mergeCaptureEvents(session, recovery.events || []);
   if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
   else clearNavigationFallback();
@@ -404,7 +417,7 @@ async function cancelCapture() {
   if (!session) return { cancelled: true, restorePending: false };
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
-  await stopRecorder(session.tabId);
+  if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
   const shouldRestore = session.mode !== "pc"
     && await windowStillExists(session.windowId);
   const restored = shouldRestore ? await attemptRestore(cancelSession) : true;

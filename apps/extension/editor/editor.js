@@ -14,6 +14,7 @@ const detail = document.querySelector("#detail");
 const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
+const cancelOutput = document.querySelector("#cancelOutput");
 const startRegistration = document.querySelector("#startRegistration");
 const startShare = document.querySelector("#startShare");
 const activateHandoff = document.querySelector("#activateHandoff");
@@ -381,6 +382,10 @@ activateHandoff?.addEventListener("click", async () => {
 });
 startRegistration.addEventListener("click", () => startOutput("save"));
 startShare?.addEventListener("click", () => startOutput("share"));
+cancelOutput?.addEventListener("click", () => cancelHandoffRun(activeHandoffAttempt));
+outputGate.addEventListener("cancel", () => {
+  cancelHandoffRun(activeHandoffAttempt);
+});
 outputGate.addEventListener("close", () => {
   const attempt = activeHandoffAttempt;
   cancelHandoffRun(attempt);

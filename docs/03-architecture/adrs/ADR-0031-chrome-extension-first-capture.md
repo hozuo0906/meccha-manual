@@ -144,4 +144,4 @@ Cloudflare Browser RunはMVPおよび現行Product Roadmapのcapture方式とし
 - 対象タブ以外を収集しない。
 - 入力値・Cookie・Authorizationを保存しないnegative testが通る。
 - 初期ICPが利用する代表Webサービスで実用可能性を確認する。
-- キャンセル処理は意図を先にsession/recovery journalへ保存し、一時画像削除またはwindow復元の失敗を`cancel_failed`として保持する。service worker再起動後も終了保存へ戻さず、復元可能なら復元を再試行し、削除・復旧情報の終了確認後だけsessionを破棄する。
+- キャンセル処理は意図を先にsession/recovery journalへ保存し、一時画像削除またはwindow復元の失敗を`cancel_failed`として保持する。service worker再起動後も終了保存へ戻さず、復元可能なら復元を再試行し、削除・復旧情報の終了確認後だけsessionを破棄する。ブラウザ再起動や拡張再読み込みで`storage.session`が失われた場合は、local journalの`cancel_failed`とsession IDからcleanup専用状態を復元し、旧tab/windowの復元・停止は行わず、IDB画像削除とjournal終了だけを再試行する。

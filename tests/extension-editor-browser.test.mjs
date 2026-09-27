@@ -598,7 +598,7 @@ test("cancel during delayed handoff preparation cannot activate a late tab", { t
     await page.evaluate(() => { globalThis.__delayTabsCreate = true; });
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => globalThis.__tabsCreateStarted === true);
-    await page.locator("#cancelOutput").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
     await page.evaluate(() => globalThis.__releaseTabsCreate?.());
     await page.waitForTimeout(150);
