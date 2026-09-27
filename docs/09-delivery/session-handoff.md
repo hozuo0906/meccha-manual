@@ -441,3 +441,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 配布引継ぎ: manifest `0.1.2`のZIP展開・unpacked load・「操作を記録」から「保存した手順書を開く」までの利用者手順と、一覧・全手順編集・「変更を保存」の確認手順をC sliceへ追加した。Chromeの拡張機能管理画面は利用者本人が操作する範囲であり、実Chrome導入から実staging保存までの通し確認は未実施。isolated Chromium／実MV3 runtime回帰は別証跡である。
 - 状態: staging実環境のmigration／deploy／最終SHA／完了判定は未確認・未実施。親によるwrangler dry-runはbinding反映なしで確認済み。最新の実状態はIssue #70とPR #256のlive stateを正本とする。
 - 次の候補: Cの実staging適用と最終SHAの確認後に、親PMがDの着手を明示する。C完了後にDへ自動着手しない。D／E／Fはこのcheckpoint時点では未着手である。
+
+### 2026-09-27 Issue #264: editor image workspace
+
+- 対象branchは `codex/editor-image-workspace`、baseは `b125a0e5014ff7eed1a584c1b8a7de95763544ea`。ローカル統合検証時点では未commit・未pushでPR未作成だった。この時点の作業状態を成果物の最終状態とは扱わず、CI・最新Codex Review・remote保存状態はIssue #70とPRの記録で確定する。
+- 全手順article、sticky目次・scrollspy、native画像編集dialog、local注釈と既存maskの共有asset焼き込み境界はADR-0036／DEC-081へ反映済み。
+- ローカル統合検証はextension 114/114（`final-extension-test.log`）、annotation/cloud 17/17、MV3 runtime 4/4（`final-cloud-runtime.log`）、editor browser 11/11（`final-editor-browser.log`）、encoding 334、sensitive 369、docs 132をPASSした。目次17番のJPEG、1366x768、文字サイズ入力でEnterしてもdialogが閉じないことを実Chrome合成で確認した。強化browserはUTF-8で復旧し、後半の既存8テストはGit HEADと完全一致することを確認した。保存中の入力抑止、Escape維持、元putによる保存、reload後の文字とfont32保持を第2テスト追記後のfocused 1/1で確認した。
+- Issue #265の全画面日本語リライトは次のマイルストーンであり、まだ実装していない。
+- remote本人受入、CI・最新Codex Review・remote保存状態の最終確認は未確認であり、Issue #70とPRの記録で確定する。

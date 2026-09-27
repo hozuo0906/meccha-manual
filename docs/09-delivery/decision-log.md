@@ -437,3 +437,11 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 非同期ACK待ちだけで全リンク遷移に「このサイトを離れますか？」を表示すると、通常操作の導線を阻害する。一方、保存失敗とretain中のbatchは離脱前に利用者へ再試行を促す必要があるため、確定した失敗だけを保護する。
 - Boundary:
   - backgroundのcapture保存、画像上限、Worker／DB／Access契約、サイト自身の警告文言は変更しない。ブラウザが警告を無視した場合の永続化は保証しない。
+
+### DEC-081: ローカル画像注釈と共有assetの焼き込み
+
+- Status: Accepted
+- Date: 2026-09-27
+- Issue: #264
+- Decision: 注釈はlocal draftに限定し、既存maskと共通rendererでPNGへ焼き込んでからclaimする。空の注釈は旧canonical形状を維持し、非空の正規化注釈だけをfingerprintへ含める。本文・画像・注釈はhandoff metadataへ保存しない。編集中の空文字は許可し、保存時に空の文字要素を削除する。プレビュー枠は固定比率で画像全体をcontain表示し、近傍からdecodeする。専用画像編集画面は元画像の解像度を使う。
+- Evidence: `apps/extension/editor/image-editor.js`、`tests/extension-editor-browser.test.mjs`、ADR-0036。
