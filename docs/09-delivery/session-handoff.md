@@ -2,6 +2,18 @@
 
 Status: Accepted
 
+## Issue #262 / manifest 0.1.5 離脱警告回帰（作業中）
+
+Status: Accepted
+
+確認時点: 2026-09-27（Asia/Tokyo）／native・unit回帰実行後
+
+- 対象: manifest `0.1.5`候補で、通常の送信pendingと送信失敗・保存成功未確認を分離し、通常リンク／フォーム遷移では離脱警告を出さず、失敗時の再試行保護とサイト自身のbeforeunload警告を維持する。retain中の未保存batchも保護する。
+- 検証済み: `extension-sidepanel-browser.test.mjs` native MV3 2/2、extension unit 110/110、cloud claim unit 12/12、通常遷移前後のclick／input／navigation／form submit保持、世代違いACK、失敗後再送、retain警告。`npm ci`成功、docs／encoding／diff check成功。
+- 未確認: `npm run check`は既存brand checkの`_headers` cache rule不足で停止した。最新CI・review・配布候補の状態はIssue #70のlive stateを参照する。今回Worker、DB、productionの変更はない。
+
+次の1マイルストーンは、本人の拡張機能更新後にIssue #262の通常遷移・保存失敗・サイト自身警告を実Chromeで確認し、Issue #70へ最新CI／review／配布証跡を同期することである。
+
 ## Issue #260 / PR #261 実記録からWorker保存・共有までの回帰（未完）
 
 Status: Accepted

@@ -33,6 +33,8 @@ navigationでsession storageとrecovery journalの両方が一時的に失敗し
 
 scrollは記録開始時点のdocumentと既存要素の現在位置をbaselineとしてseedする。開始後に追加された未知要素は最初のscrollで現在位置だけをseedし、そのイベントをstepへ出さず、次の位置差分から方向を記録する。未知baselineを0と推測しないため、動的要素の追加直後の一回目だけは記録対象外となる。
 
+通常のevent送信中はページ離脱を妨げない。`capture:event` のACK待ちは未保存確定とは扱わず、送信失敗が判明して保存成功を確認できないeventだけを再試行可能な保護対象としてbeforeunloadで警告する。再送成功を確認するまで失敗保護を保持し、送信世代を照合して遅着ACKが新しい送信を消さないようにする。retainで保持したpending batchの警告と明示的なサイト自身のbeforeunloadは維持する。
+
 ## `externally_connectable` handoff
 
 output時の認証後、guest draftを自社Webアプリへ渡すため、Manifest V3の `externally_connectable` を使用する。
