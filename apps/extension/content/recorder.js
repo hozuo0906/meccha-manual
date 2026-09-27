@@ -146,6 +146,7 @@
 
   let pendingNavigation;
   let navigationTimer;
+  let retainedEvents = [];
   const flushNavigation = () => {
     clearTimeout(navigationTimer);
     navigationTimer = undefined;
@@ -168,7 +169,7 @@
   const pagehide = () => { flushBeforeNavigation(); flushNavigation(); };
   const beforeunload = (event) => {
     if ((pendingInput && !pendingInput.acknowledged) || (pendingScroll && !pendingScroll.acknowledged)
-      || trackedActions.size || pendingNavigation) {
+      || trackedActions.size || pendingNavigation || retainedEvents.length) {
       flushBeforeNavigation();
       flushNavigation();
       event.preventDefault();
@@ -176,6 +177,44 @@
     }
   };
   const historyNavigation = () => recordSameDocumentNavigation();
+
+  const cloneEvent = (event) => ({ ...event, target: event.target && { ...event.target } });
+  const collectPendingEvents = () => {
+    const pendingEvents = [];
+    if (pendingInput) pendingEvents.push(captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId, at: pendingInput.at }));
+    if (pendingScroll) pendingEvents.push(captureEvent("scroll", document.documentElement, {
+      eventId: pendingScroll.eventId,
+      at: pendingScroll.at,
+      direction: pendingScroll.direction
+    }));
+    if (pendingNavigation) pendingEvents.push(pendingNavigation);
+    pendingEvents.push(...trackedActions.values());
+    const uniqueEvents = [];
+    const seen = new Set();
+    for (const event of pendingEvents) {
+      if (event.eventId && seen.has(event.eventId)) continue;
+      if (event.eventId) seen.add(event.eventId);
+      uniqueEvents.push(event);
+    }
+    pendingInput = undefined;
+    pendingScroll = undefined;
+    pendingNavigation = undefined;
+    trackedActions.clear();
+    return uniqueEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
+  };
+  const removeRecordingListeners = ({ keepBeforeUnload = false } = {}) => {
+    removeEventListener("click", click, true);
+    removeEventListener("input", queueInput, true);
+    removeEventListener("change", commitInput, true);
+    removeEventListener("scroll", scroll, true);
+    removeEventListener("pagehide", pagehide, true);
+    if (!keepBeforeUnload) removeEventListener("beforeunload", beforeunload, true);
+    removeEventListener("popstate", historyNavigation, true);
+    removeEventListener("hashchange", historyNavigation, true);
+    removeEventListener(HISTORY_EVENT, historyNavigation, true);
+    clearTimeout(scrollTimer);
+    clearTimeout(navigationTimer);
+  };
 
   addEventListener("click", click, true);
   addEventListener("input", queueInput, true);
@@ -187,42 +226,22 @@
   addEventListener("hashchange", historyNavigation, true);
   addEventListener(HISTORY_EVENT, historyNavigation, true);
 
-  globalThis.__mecchaManualRecorder = () => {
-    const pendingEvents = [];
-    if (pendingInput) pendingEvents.push(captureEvent("input", pendingInput.target, { eventId: pendingInput.eventId, at: pendingInput.at }));
-    if (pendingScroll) pendingEvents.push(captureEvent("scroll", document.documentElement, {
-      eventId: pendingScroll.eventId,
-      at: pendingScroll.at,
-      direction: pendingScroll.direction
-    }));
-    if (pendingNavigation) pendingEvents.push(pendingNavigation);
-    pendingEvents.push(...trackedActions.values());
-
-    const uniqueEvents = [];
-    const seen = new Set();
-    for (const event of pendingEvents) {
-      if (event.eventId && seen.has(event.eventId)) continue;
-      if (event.eventId) seen.add(event.eventId);
-      uniqueEvents.push(event);
+  globalThis.__mecchaManualRecorder = (command = "drain") => {
+    if (command === "retain") {
+      if (!retainedEvents.length) retainedEvents = collectPendingEvents().map(cloneEvent);
+      removeRecordingListeners({ keepBeforeUnload: true });
+      return retainedEvents.map(cloneEvent);
     }
-    pendingEvents.length = 0;
-    pendingEvents.push(...uniqueEvents);
-
-    pendingInput = undefined;
-    pendingScroll = undefined;
-    pendingNavigation = undefined;
-    trackedActions.clear();
-    removeEventListener("click", click, true);
-    removeEventListener("input", queueInput, true);
-    removeEventListener("change", commitInput, true);
-    removeEventListener("scroll", scroll, true);
-    removeEventListener("pagehide", pagehide, true);
-    removeEventListener("beforeunload", beforeunload, true);
-    removeEventListener("popstate", historyNavigation, true);
-    removeEventListener("hashchange", historyNavigation, true);
-    removeEventListener(HISTORY_EVENT, historyNavigation, true);
-    clearTimeout(scrollTimer);
-    clearTimeout(navigationTimer);
+    if (command === "release") {
+      retainedEvents = [];
+      collectPendingEvents();
+      removeRecordingListeners();
+      delete globalThis.__mecchaManualRecorder;
+      return [];
+    }
+    const pendingEvents = [...retainedEvents, ...collectPendingEvents()].map(cloneEvent);
+    retainedEvents = [];
+    removeRecordingListeners();
     delete globalThis.__mecchaManualRecorder;
     return pendingEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
   };

@@ -13,6 +13,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let session = { id: "capture-1", tabId: 1, windowId: 2, mode, phase: "recording", events: [], startedAt: 1 };
   let journal;
   let drained = false;
+  let retainedPendingEvents = null;
   let draft = initialDraft;
   let restoreCalls = 0;
   let viewportApplied = false;
@@ -55,7 +56,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
         session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
         local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
       },
-      scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFails) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const result = drained ? [] : pendingEvents; drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result }]; } },
+      scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFails) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: (retainedPendingEvents || []).slice() }]; } if (command === "release") { retainedPendingEvents = null; return [{ result: [] }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
       tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
@@ -139,7 +140,7 @@ test("navigation count failure enters retryable reinjection state and resumes re
   assert.equal(resumed.value.accepted, true);
 });
 
-test("resume stops a recorder left running when journal persistence fails after injection", async () => {
+test("resume retains pending events when persistence fails before reinjection", async () => {
   for (const [label, storage] of [["journal", { localFails: true, sessionFails: false }], ["session", { localFails: false, sessionFails: true }], ["both", { localFails: true, sessionFails: true }]]) {
     const capture = await harness({ ...storage, pendingEvents: [{ kind: "click", at: 10, eventId: `resume-${label}:pending`, target: { tagName: "button" } }] });
     capture.session().phase = "paused";
@@ -147,7 +148,7 @@ test("resume stops a recorder left running when journal persistence fails after 
     const failed = await capture.status();
     assert.equal(failed.phase, "reinjection_failed");
     assert.equal(failed.events.some((event) => event.eventId === `resume-${label}:pending`), true);
-    assert.equal(capture.recorderStopCalls(), 1);
+    assert.equal(capture.recorderStopCalls(), label === "both" ? 2 : 3);
     capture.setStorageFails(false, false);
     assert.equal((await capture.resume()).resumed, true);
     assert.equal((await capture.status()).phase, "recording");
@@ -494,13 +495,13 @@ test("pause establishes a retryable paused intent when either persistence store 
   await journalFailure.pause();
   assert.equal((await journalFailure.status()).phase, "paused");
   assert.equal((await journalFailure.status()).events.length, 1);
-  assert.equal(journalFailure.recorderStopCalls(), 1);
+  assert.equal(journalFailure.recorderStopCalls(), 2);
 
   const sessionFailure = await harness({ localFails: false, sessionFails: true, pendingEvents: [{ kind: "click", at: 10, eventId: "pause-session-failure:1", target: { tagName: "button" } }] });
   await sessionFailure.pause();
   assert.equal((await sessionFailure.status()).phase, "paused");
   assert.equal((await sessionFailure.status()).events.length, 1);
-  assert.equal(sessionFailure.recorderStopCalls(), 1);
+  assert.equal(sessionFailure.recorderStopCalls(), 2);
 });
 
 test("pause refuses to stop the recorder when both persistence stores fail", async () => {
@@ -520,6 +521,25 @@ test("pause keeps the pure-merged drained events in the existing fallback when f
   assert.equal(capture.draft().steps.length, 1);
 });
 
+test("pause retained events survive a worker restart until finish saves them", async () => {
+  const capture = await harness({ localFails: false, sessionFails: false, failBothAfterStop: true, pendingEvents: [{ kind: "click", at: 10, eventId: "pause-worker-restart:1", target: { tagName: "button" } }] });
+  await assert.rejects(capture.pause());
+  await capture.restart();
+  assert.equal((await capture.status()).phase, "paused");
+  capture.setStorageFails(false, false);
+  await capture.finish();
+  assert.equal(capture.draft().steps.some((step) => step.eventId === "pause-worker-restart:1"), true);
+});
+
+test("pause retained events survive a worker restart until resume releases them", async () => {
+  const capture = await harness({ localFails: false, sessionFails: false, failBothAfterStop: true, pendingEvents: [{ kind: "click", at: 10, eventId: "pause-worker-restart-resume:1", target: { tagName: "button" } }] });
+  await assert.rejects(capture.pause());
+  await capture.restart();
+  assert.equal((await capture.status()).phase, "paused");
+  capture.setStorageFails(false, false);
+  assert.equal((await capture.resume()).resumed, true);
+  assert.equal((await capture.status()).events.some((event) => event.eventId === "pause-worker-restart-resume:1"), true);
+});
 test("pause at the image cap stops the recorder and drops pending events", async () => {
   const capture = await harness({ pendingEvents: [{ kind: "click", at: 101, eventId: "pause-image-cap:pending", target: { tagName: "button" } }] });
   const events = Array.from({ length: 100 }, (_, index) => ({ kind: "click", at: index + 1, eventId: `pause-image-cap:${index}`, target: { tagName: "button" } }));
@@ -530,7 +550,7 @@ test("pause at the image cap stops the recorder and drops pending events", async
   const status = await capture.status();
   assert.equal(status.captureLimitReached, "images");
   assert.equal(status.events.length, 100);
-  assert.equal(capture.recorderStopCalls(), 1);
+  assert.equal(capture.recorderStopCalls(), 2);
 });
 
 test("journal-only image limit rejects resume after session persistence fails", async () => {
@@ -622,7 +642,7 @@ test("an image-limited session can still save all 100 recorded images", async ()
   assert.equal(capture.draft().steps.length, 100);
   assert.equal(capture.draft().screenshots.length, 100);
   assert.equal(capture.session(), null);
-  assert.equal(capture.recorderStopCalls(), 1);
+  assert.equal(capture.recorderStopCalls(), 2);
 });
 
 test("a step-limited session can still save all 200 recorded steps", async () => {

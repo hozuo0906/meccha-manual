@@ -155,8 +155,12 @@ async function injectRecorder(tabId) {
   return chrome.scripting.executeScript({ target, files: ["content/recorder.js"] });
 }
 
-async function stopRecorder(tabId) {
-  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__mecchaManualRecorder?.() }).catch(() => []);
+async function stopRecorder(tabId, command = "drain") {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: (recorderCommand) => globalThis.__mecchaManualRecorder?.(recorderCommand),
+    args: [command]
+  }).catch(() => []);
   return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
 }
 
@@ -351,7 +355,7 @@ async function finishCapture() {
     if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
     readyImageCountKnown = true;
     if (readyImages >= CLOUD_CLAIM_MAX_ASSETS && session.captureLimitReached !== "images") session = await markCaptureLimit(session, "images");
-    const pendingEvents = await stopRecorder(session.tabId);
+    const pendingEvents = await stopRecorder(session.tabId, "retain");
     drainedPendingEvents = pendingEvents;
     const acceptedPendingEvents = pendingEventsForSession(session, pendingEvents);
     for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);
@@ -400,12 +404,14 @@ async function finishCapture() {
       draftId = draft.id;
     }
     await captureLiveStore.clear(session.id);
+    await stopRecorder(session.tabId, "release");
   } catch {
     const retryBase = readyImageCountKnown ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
     const sessionSaved = await setSession({ ...retrySession, restorePending: !restored }).then(() => true, () => false);
+    if ((journalSaved || sessionSaved) && readyImageCountKnown) await stopRecorder(session.tabId, "release");
     if (!journalSaved && !sessionSaved) throw new Error("端末の保存領域へ記録を保存できませんでした。記録の復旧を保証できません。対象タブを閉じずに空き容量を確認してください。");
     throw new Error(restored
       ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
@@ -468,7 +474,7 @@ async function pauseCapture() {
   const journalSaved = await persistRecoveryJournal(pausedIntent.id, pausedIntent.events, "paused", pausedIntent.captureLimitReached).then(() => true, () => false);
   const sessionSaved = await setSession(pausedIntent).then(() => true, () => false);
   if (!journalSaved && !sessionSaved) throw new Error("PAUSE_STATE_UNAVAILABLE");
-  const pendingEvents = await stopRecorder(session.tabId);
+  const pendingEvents = await stopRecorder(session.tabId, "retain");
   let pausedSession = pausedIntent;
   pausedSession = mergePendingEventsWithoutImages(pausedSession, pendingEvents);
   const finalJournalSaved = await persistRecoveryJournal(pausedSession.id, pausedSession.events, "paused", pausedSession.captureLimitReached).then(() => true, () => false);
@@ -477,6 +483,7 @@ async function pauseCapture() {
     navigationFallback = { sessionId: pausedSession.id, events: pausedSession.events };
     throw new Error("PAUSE_STATE_UNAVAILABLE");
   }
+  await stopRecorder(session.tabId, "release");
   return { paused: true };
 }
 
@@ -595,22 +602,26 @@ async function resumeCapture(tabId) {
   if (session?.captureLimitReached) throw new Error("CAPTURE_LIMIT_REACHED");
   if (!session || !["paused", "reinjection_failed"].includes(session.phase)) throw new Error("再開できる記録がありません");
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
+  const retainedEvents = await stopRecorder(tabId, "retain");
+  const resumeBase = mergePendingEventsWithoutImages(session, retainedEvents);
   try {
-    await injectRecorder(tabId);
-    const resumedSession = { ...session, phase: "recording", paused: false, reinjectionFailed: false, failureCategory: undefined };
+    const resumedSession = { ...resumeBase, phase: "recording", paused: false, reinjectionFailed: false, failureCategory: undefined };
     await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
     await setSession(resumedSession);
+    await stopRecorder(tabId, "release");
+    await injectRecorder(tabId);
     await clearRecoveryJournal(session.id).catch(() => undefined);
     reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
-    const pendingEvents = await stopRecorder(tabId);
-    const recoveredSession = mergePendingEventsWithoutImages(session, pendingEvents);
+    const pendingEvents = await stopRecorder(tabId, "retain");
+    const recoveredSession = mergePendingEventsWithoutImages(resumeBase, pendingEvents);
     const failedSession = { ...recoveredSession, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
     reinjectionFailureSessionId = session.id;
     const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").then(() => true, () => false);
     const sessionSaved = await setSession(failedSession).then(() => true, () => false);
-    if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
+    if (journalSaved || sessionSaved) await stopRecorder(tabId, "release");
+    else navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
     throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
   }
 }
