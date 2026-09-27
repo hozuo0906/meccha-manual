@@ -59,8 +59,38 @@ async function clearRecoveryJournal(sessionId) {
 }
 
 async function clearLiveCapture(sessionId) {
-  if (!sessionId) return;
-  await captureLiveStore.clear(sessionId).catch(() => undefined);
+  if (!sessionId) return true;
+  try {
+    await captureLiveStore.clear(sessionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function retainCancelFailure(session) {
+  const failedSession = {
+    ...session,
+    phase: "cancel_failed",
+    finishFailed: false,
+    failureCategory: "cancel_cleanup_failed",
+    restorePending: Boolean(session.restorePending)
+  };
+  const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "cancel_failed").then(() => true, () => false);
+  const sessionSaved = await setSession(failedSession).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("キャンセルした記録の一時画像を削除できませんでした。対象タブを閉じずに、もう一度キャンセルしてください。");
+  return failedSession;
+}
+
+async function finalizeCancelledSession(session) {
+  try {
+    await clearRecoveryJournal(session.id);
+    await setSession(null);
+    return true;
+  } catch {
+    await retainCancelFailure(session);
+    return false;
+  }
 }
 
 async function getSession() {
@@ -75,7 +105,11 @@ async function getSession() {
   if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
   else clearNavigationFallback();
   if (recovery?.sessionId === session.id && recovery.phase && session.id !== reinjectionFailureSessionId) {
-    return { ...session, phase: recovery.phase, finishFailed: recovery.phase === "finish_failed" || session.finishFailed };
+    return {
+      ...session,
+      phase: recovery.phase,
+      finishFailed: recovery.phase === "finish_failed" ? true : recovery.phase === "cancel_failed" ? false : session.finishFailed
+    };
   }
   return session;
 }
@@ -347,7 +381,7 @@ async function finishCapture() {
       await draftStore.put(draft);
       draftId = draft.id;
     }
-    await captureLiveStore.clear(session.id).catch(() => undefined);
+    await captureLiveStore.clear(session.id);
   } catch {
     const retryBase = readyImageCountKnown ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
@@ -368,24 +402,32 @@ async function finishCapture() {
 async function cancelCapture() {
   const session = await getSession();
   if (!session) return { cancelled: true, restorePending: false };
-  await stopRecorder(session.tabId);
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
-  const restored = await attemptRestore(cancelSession);
-  await clearLiveCapture(session.id);
-  if (restored) {
-    await setSession(null);
-    await clearRecoveryJournal(session.id);
+  await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
+  await stopRecorder(session.tabId);
+  const shouldRestore = session.mode !== "pc"
+    && await windowStillExists(session.windowId);
+  const restored = shouldRestore ? await attemptRestore(cancelSession) : true;
+  const cleared = await clearLiveCapture(session.id);
+  if (!restored || !cleared) {
+    await retainCancelFailure({ ...cancelSession, restorePending: !restored });
+    throw new Error(!restored
+      ? "対象ウィンドウを復元できないため、キャンセルを完了できませんでした。もう一度キャンセルしてください。"
+      : "キャンセルした記録の一時画像を削除できませんでした。もう一度キャンセルしてください。");
   }
-  return { cancelled: true, restorePending: !restored };
+  if (!await finalizeCancelledSession({ ...cancelSession, restorePending: false })) throw new Error("キャンセルした記録の削除完了を確認できませんでした。もう一度キャンセルしてください。");
+  return { cancelled: true, restorePending: false };
 }
 
 async function retryRestore() {
   const session = await getSession();
   if (!session?.restorePending && session?.phase !== "starting") return { restored: true };
-  const retainAfterRestore = Boolean(session.finishFailed);
+  const retainAfterCancel = session.phase === "cancel_failed";
+  const retainAfterRestore = !retainAfterCancel && Boolean(session.finishFailed);
   const restored = await attemptRestore(session);
   if (restored) {
     if (retainAfterRestore) await setSession({ ...session, phase: "finish_failed", restorePending: false });
+    else if (retainAfterCancel) await setSession({ ...session, phase: "cancel_failed", restorePending: false });
     else {
       await setSession(null);
       await clearRecoveryJournal(session.id);
@@ -728,9 +770,12 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (session?.tabId !== tabId) return;
     if (removeInfo?.isWindowClosing) {
       clearNavigationFallback(session.id);
-      await clearLiveCapture(session.id);
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+      await retainCancelFailure({ ...cancelSession, restorePending: false });
+      if (!await clearLiveCapture(session.id)) {
+        return;
+      }
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
       return;
     }
     let windowExists = true;
@@ -742,16 +787,26 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
       windowExists = false;
     }
     if (!windowExists) {
-      await clearLiveCapture(session.id);
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+      await retainCancelFailure({ ...cancelSession, restorePending: false });
+      if (!await clearLiveCapture(session.id)) {
+        return;
+      }
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
       return;
     }
-    await clearLiveCapture(session.id);
-    const restored = await attemptRestore(session);
+    const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
+    await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
+    if (!await clearLiveCapture(session.id)) {
+      const restored = session.mode === "pc" ? true : await attemptRestore(cancelSession);
+      await retainCancelFailure({ ...cancelSession, restorePending: !restored });
+      return;
+    }
+    const restored = session.mode === "pc" ? true : await attemptRestore(cancelSession);
     if (restored) {
-      await setSession(null);
-      await clearRecoveryJournal(session.id);
+      await finalizeCancelledSession({ ...cancelSession, restorePending: false });
+    } else {
+      await retainCancelFailure({ ...cancelSession, restorePending: true });
     }
   }).catch(() => undefined);
 });

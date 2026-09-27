@@ -147,7 +147,8 @@ function renderDrafts(items = []) {
 }
 
 function renderStatus(state = {}, imageEntries = []) {
-  const active = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
+  const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase);
+  const canFinish = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
   const waitingForRestore = Boolean(state.restorePending || state.phase === "starting");
   if (state.mode) {
     mode.value = state.mode;
@@ -155,7 +156,7 @@ function renderStatus(state = {}, imageEntries = []) {
   }
   startSection.hidden = active || waitingForRestore;
   liveSection.hidden = !active;
-  finish.hidden = !active;
+  finish.hidden = !canFinish;
   pause.hidden = state.phase !== "recording";
   resume.hidden = !["paused", "reinjection_failed"].includes(state.phase) || Boolean(state.captureLimitReached);
   cancel.hidden = !active && !waitingForRestore;
@@ -175,6 +176,7 @@ function renderStatus(state = {}, imageEntries = []) {
   if (statusOverride) status.textContent = statusOverride;
   else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に再開できません。対象タブで再開するか、ここまでの内容を終了してください。";
+  else if (state.phase === "cancel_failed") status.textContent = "キャンセルが完了していません。もう一度キャンセルしてください。";
   else if (state.phase === "finish_failed") status.textContent = "終了処理に失敗しました。記録内容はこの端末に保持しています。";
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";

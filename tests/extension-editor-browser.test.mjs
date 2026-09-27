@@ -222,6 +222,75 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
   }
 });
 
+test("sidepanel exposes a retryable cancel failure and returns to the empty state", { timeout: 15_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__phase = "cancel_failed";
+      globalThis.__cancelCalls = 0;
+      globalThis.chrome = {
+        runtime: {
+          getURL: (path) => `chrome-extension://test/${path}`,
+          sendMessage: async (message) => {
+            if (message?.type === "capture:status") {
+              return {
+                ok: true,
+                value: {
+                  phase: globalThis.__phase,
+                  events: [],
+                  stepImageRefs: [],
+                  sessionId: null,
+                  hasDrafts: false,
+                  restorePending: false
+                }
+              };
+            }
+            if (message?.type === "capture:cancel") {
+              globalThis.__cancelCalls += 1;
+              globalThis.__phase = null;
+              return { ok: true, value: { cancelled: true, restorePending: false } };
+            }
+            return { ok: true, value: null };
+          }
+        },
+        tabs: {
+          query: async () => [],
+          create: async () => ({ id: 1 })
+        }
+      };
+    });
+    await page.goto(`${baseUrl}/sidepanel/sidepanel.html`);
+    await page.waitForFunction(() => /キャンセルが完了していません/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#start").isDisabled(), true, "start must be unavailable while cancellation is retryable");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "finish must be unavailable after cancel failure");
+    assert.equal(await page.locator("#resume").evaluate((element) => element.hidden), true, "resume must be unavailable after cancel failure");
+    assert.equal(await page.locator("#cancel").evaluate((element) => element.hidden), false, "cancel retry must remain available");
+    assert.equal(await page.locator("#emptyState").evaluate((element) => element.hidden), true, "empty state must stay hidden while retry is pending");
+
+    await page.locator("#cancel").click();
+    await page.waitForFunction(() => globalThis.__phase === null
+      && document.querySelector("#emptyState")?.hidden === false
+      && document.querySelector("#cancel")?.hidden === true);
+    assert.equal(await page.evaluate(() => globalThis.__cancelCalls), 1, "cancel retry should be sent once");
+    assert.equal(await page.locator("#start").isDisabled(), false, "start must be available after cancellation succeeds");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#resume").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#cancel").evaluate((element) => element.hidden), true);
+    assert.equal(await page.locator("#emptyState").evaluate((element) => element.hidden), false);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("sidepanel refreshes drafts independently from unchanged capture state", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));

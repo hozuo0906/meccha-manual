@@ -9,32 +9,36 @@ import { VIEWPORTS } from "../apps/extension/responsive/viewports.js";
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, localFails = true, sessionFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, clearFails = false, listFails = false, countFails = false, screenshotDelayMs = 0, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, screenshotDelayMs = 0, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let session = { id: "capture-1", tabId: 1, windowId: 2, mode, phase: "recording", events: [], startedAt: 1 };
   let journal;
   let drained = false;
-  let draft;
+  let draft = initialDraft;
   let restoreCalls = 0;
   let viewportApplied = false;
   let liveEntries = [];
   let screenshotFailure = screenshotFails;
   let draftPutFailure = draftPutFails;
+  let restoreSuccess = restoreSucceeds;
   let liveStoreReadFailure = listFails;
   let liveStoreCountFailure = countFails;
   let sessionStorageFailure = sessionFails;
+  let sessionRemoveFailure = sessionRemoveFails;
   let failSessionAfterLivePut = sessionFailsAfterLivePut;
   let localStorageFailure = localFails;
+  let localRemoveFailure = localRemoveFails;
   let onRemoved;
   let onUpdated;
   let onMessage;
   const injections = [];
-  const context = {
+  let context;
+  const createContext = () => ({
     crypto, Date, Promise, VIEWPORTS, CLOUD_CLAIM_MAX_ASSETS: 100, mergeCaptureEvents, nextRecoveryJournal, normalizeCaptureEvent,
     installSensitiveMasks() {}, removeSensitiveMasks() {}, verifySensitiveMasks() {},
     captureWithMaskBoundary: async () => { if (screenshotFailure) throw new Error("mask failed"); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; },
     applyResponsiveViewport: async () => { viewportApplied = true; },
     draftStore: { get: async (id) => (draft?.id === id ? draft : undefined), put: async (value) => { if (draftPutFailure) throw new Error("draft unavailable"); draft = value; } },
-    recoverWindowSession: async () => { restoreCalls++; return { restored: restoreSucceeds }; },
+    recoverWindowSession: async () => { restoreCalls++; return { restored: restoreSuccess }; },
     importedCaptureLiveStore: {
       available: true,
       put: async (entry) => { liveEntries.push(entry); if (failSessionAfterLivePut) sessionStorageFailure = true; },
@@ -47,28 +51,35 @@ async function harness({ screenshotFails = false, draftPutFails = false, localFa
     },
     chrome: {
       storage: {
-        session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { session = null; } },
-        local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { journal = null; } }
+        session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
+        local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
       },
       scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFails) throw new Error("injection denied"); return []; } const result = drained ? [] : pendingEvents; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
-      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } } },
-      windows: { get: async () => { throw new Error("must not query a closing window"); } }
+      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
+      windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
+  });
+  const restart = async () => {
+    context = createContext();
+    vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.cancel = cancelCapture; globalThis.settle = () => sessionOperation; globalThis.status = captureStatus; globalThis.restore = retryRestore;", context);
+    await context.settle();
   };
-  vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.status = captureStatus; globalThis.restore = retryRestore; globalThis.settle = () => sessionOperation;", context);
-  await context.settle();
-  return { finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
+  await restart();
+  return { finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), cancel: () => context.cancel(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
     journal: () => journal,
-    injections, status: () => context.status(), restore: () => context.restore(),
-    setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
+    injections, status: () => context.status(), restore: () => context.restore(), restart,
+    setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setRestoreSucceeds: (value) => { restoreSuccess = value; }, setWindowExists: (value) => { windowExists = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
     setStorageFails: (sessionValue, localValue) => {
       sessionStorageFailure = sessionValue;
       localStorageFailure = localValue;
+    }, setStorageRemoveFails: (sessionValue, localValue) => {
+      sessionRemoveFailure = sessionValue;
+      localRemoveFailure = localValue;
     }, viewportApplied: () => viewportApplied,
     navigate: async () => { onUpdated(1, { status: "complete" }); await context.settle(); },
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
-    close: async () => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing: true }); await context.settle(); } };
+    close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); } };
 }
 
 test("local journal failure does not discard the first drained batch when session storage works", async () => {
@@ -235,11 +246,157 @@ test("event arriving during screenshot capture cannot receive the earlier screen
 });
 
 test("cancel clears live images without touching an existing draft", async () => {
-  const capture = await harness();
+  const capture = await harness({ initialDraft: { id: "existing-draft", title: "edited draft", description: "", screenshots: [], steps: [] } });
   await capture.event({ kind: "click", at: 10, eventId: "click:1", target: { tagName: "button" } });
   assert.equal(capture.liveImages().length, 1);
-  await capture.close();
+  await capture.cancel();
   assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.draft().title, "edited draft");
+});
+
+test("cancel cleanup failure keeps a retryable session until the live images are removed", async () => {
+  const capture = await harness({ clearFails: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "cancel-failure:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  assert.equal(capture.journal().phase, "cancel_failed");
+  assert.equal(capture.liveImages().length, 1);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+});
+
+test("cancel intent survives when only the recovery journal can be written", async () => {
+  const capture = await harness({ sessionFails: true, clearFails: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "journal-only-cancel-failure:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  const status = await capture.status();
+  assert.equal(status.phase, "cancel_failed");
+  assert.equal(status.finishFailed, false);
+  assert.equal(capture.journal().phase, "cancel_failed");
+  await assert.rejects(capture.finish());
+  capture.setStorageFails(false, false);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.session(), null);
+});
+
+test("responsive cancel cleanup failure retries restoration before cleanup", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, clearFails: true, windowExists: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "responsive-cancel-failure:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  assert.equal((await capture.status()).restorePending, true);
+  capture.setRestoreSucceeds(true);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.restoreCalls() >= 2, true);
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+});
+
+test("cancel restoration failure keeps cancel intent even after image cleanup succeeds", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, windowExists: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "responsive-cancel-restore-failure:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  const status = await capture.status();
+  assert.equal(status.phase, "cancel_failed");
+  assert.equal(status.restorePending, true);
+  assert.equal(capture.liveImages().length, 0);
+  capture.setRestoreSucceeds(true);
+  await capture.cancel();
+  assert.equal(capture.session(), null);
+});
+
+test("window close cleanup failure keeps the session for a later cancel retry", async () => {
+  const capture = await harness({ clearFails: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "window-close-failure:1", target: { tagName: "button" } });
+  await capture.close();
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  assert.equal((await capture.status()).restorePending, false);
+  assert.equal(capture.liveImages().length, 1);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+});
+
+test("tab close with a remaining window preserves cleanup failure for cancel retry", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, clearFails: true, windowExists: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "tab-close-failure:1", target: { tagName: "button" } });
+  await capture.close(false);
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  assert.equal(capture.liveImages().length, 1);
+  capture.setRestoreSucceeds(true);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+});
+
+test("cancel retry skips stale restoration when the window disappeared", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, clearFails: true, windowExists: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "tab-close-window-gone:1", target: { tagName: "button" } });
+  await capture.close(false);
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  assert.equal((await capture.status()).restorePending, true);
+  const restoreCallsBeforeRetry = capture.restoreCalls();
+  capture.setWindowExists(false);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.restoreCalls(), restoreCallsBeforeRetry);
+  assert.equal(capture.session(), null);
+});
+
+test("cancel_failed survives worker restart and never returns to finish", async () => {
+  const capture = await harness({ clearFails: true, sessionFails: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "cancel-restart:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  capture.session().phase = "finish_failed";
+  capture.session().finishFailed = true;
+  await capture.restart();
+  const restarted = await capture.status();
+  assert.equal(restarted.phase, "cancel_failed");
+  assert.equal(restarted.finishFailed, false);
+  await assert.rejects(capture.finish());
+  capture.setStorageFails(false, false);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.liveImages().length, 0);
+  assert.equal(capture.session(), null);
+});
+
+test("journal-only responsive cancel retries restoration after worker restart", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, windowExists: true, clearFails: true, sessionFails: true, localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "responsive-cancel-journal-only:1", target: { tagName: "button" } });
+  await assert.rejects(capture.cancel());
+  await capture.restart();
+  const restarted = await capture.status();
+  assert.equal(restarted.phase, "cancel_failed");
+  assert.equal(restarted.restorePending, false);
+  const restoreCallsBeforeRetry = capture.restoreCalls();
+  capture.setRestoreSucceeds(true);
+  capture.setStorageFails(false, false);
+  capture.setLiveCleanupFails(false);
+  await capture.cancel();
+  assert.equal(capture.restoreCalls() > restoreCallsBeforeRetry, true);
+  assert.equal(capture.session(), null);
+});
+
+test("cancel cleanup retries after journal or session removal failure", async () => {
+  const capture = await harness({ localFails: false, pendingEvents: [] });
+  await capture.event({ kind: "click", at: 10, eventId: "cancel-remove-failure:1", target: { tagName: "button" } });
+  capture.setStorageRemoveFails(false, true);
+  await assert.rejects(capture.cancel());
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  capture.setStorageRemoveFails(true, false);
+  await assert.rejects(capture.cancel());
+  assert.equal((await capture.status()).phase, "cancel_failed");
+  capture.setStorageRemoveFails(false, false);
+  await capture.cancel();
+  assert.equal(capture.session(), null);
 });
 
 test("retry after restore failure preserves the already stored draft image", async () => {
@@ -255,7 +412,8 @@ test("retry after restore failure preserves the already stored draft image", asy
 test("retry after restore failure preserves an edited draft with no image", async () => {
   const capture = await harness({ mode: "smartphonePortrait", restoreSucceeds: false, clearFails: true });
   capture.session().events = [{ kind: "click", at: 10, eventId: "click:1", label: "button" }];
-  await capture.finish();
+  await assert.rejects(capture.finish());
+  capture.setLiveCleanupFails(false);
   capture.draft().title = "利用者が編集した手順書";
   await capture.finish();
   assert.equal(capture.draft().title, "利用者が編集した手順書");

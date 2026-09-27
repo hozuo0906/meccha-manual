@@ -18,6 +18,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(source, /capture:finish/);
   assert.match(source, /captureLimitReached/);
   assert.match(source, /captureLimitReached: state\.captureLimitReached/);
+  assert.match(source, /cancel_failed/);
   assert.match(source, /100/);
   assert.match(source, /200/);
   const worker = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");

@@ -195,3 +195,6 @@ M2の停止期間中、Discord Interactionは上記契約に従い `503 CALLBACK
   "requestId": "req_xxx"
 }
 ```
+### Chrome拡張 capture status contract
+
+Chrome拡張の`capture:status`は既存の`starting`、`recording`、`paused`、`restore_pending`、`finish_failed`、`reinjection_failed`へ`cancel_failed`を追加したsession phaseを返し、sessionがない完了状態は`phase: null`（UIではidle）とする。`cancel_failed`はキャンセル後の一時画像削除または復元に失敗し、cancel intentとrecovery情報を保持している状態である。この状態ではfinish/start/resumeを許可せず、cancel再試行と必要な画面復元を許可する。復元だけではcancel intent/sessionを破棄せず、削除・session・journalの終了が確認できた場合だけ`phase: null`へ遷移する。

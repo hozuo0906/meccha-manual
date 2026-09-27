@@ -419,3 +419,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 画像中心の編集と保存・共有へのhandoffで、利用者が現在の状態と次の操作を判断できるようにし、認証境界と機密情報の保存契約を維持するため。
 - Boundary:
   - capture側で操作ごとの画像IDを収集する実装、Workerの静的brand asset配信、cloud manual／share viewerの画面統合は各担当の変更で本決定を参照する。外部AI、Access設定、共有リンク自動発行、PDF/HTML出力は対象外。
+## Capture cleanup補足（DEC-071）
+
+- Status: Accepted
+- Date: 2026-09-20
+- `cancel_failed`をキャンセル意図と一時画像削除／window復元の再試行状態として扱い、service worker再起動後もfinishへ戻さず、session・journal・IDB cleanup完了後だけidleへ遷移する。
