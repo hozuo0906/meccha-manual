@@ -685,9 +685,13 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const page = await createStagingPage(context, positiveUrl);
     const tabId = await tabIdForPage(worker, page);
     assert.equal(Number.isInteger(tabId), true, "the real MV3 sender tab must be discoverable");
-    const foregroundPage = await createStagingPage(context, `${STAGING_ORIGIN}/onboarding/continue?runtime-test=ready-foreground`);
-    await foregroundPage.bringToFront();
-    const foregroundTabId = await tabIdForPage(worker, foregroundPage);
+    const foregroundTabId = await worker.evaluate(() => new Promise((resolve, reject) => {
+      chrome.tabs.create({ url: "about:blank", active: true }, (tab) => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve(tab?.id ?? null);
+      });
+    }));
     assert.equal(Number.isInteger(foregroundTabId), true, "the separate foreground tab must be discoverable");
     const activeTabIds = await worker.evaluate(() => new Promise((resolve, reject) => {
       chrome.tabs.query({}, (tabs) => {

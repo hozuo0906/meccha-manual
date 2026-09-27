@@ -463,6 +463,8 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
       globalThis.__tabsCreateCalls = 0;
       globalThis.__tabsUpdateCalls = [];
       globalThis.__failActivationUpdate = false;
+      globalThis.__delayActivationUpdate = false;
+      globalThis.__releaseActivationUpdate = null;
       globalThis.__handoffStorage = {};
       globalThis.chrome = {
         runtime: { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
@@ -475,6 +477,10 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
           create: async ({ url, active }) => { globalThis.__tabsCreateCalls += 1; return { id: 21 + globalThis.__tabsCreateCalls, url, active }; },
           update: async (tabId, details) => {
             globalThis.__tabsUpdateCalls.push({ tabId, ...details });
+            if (details.active && globalThis.__delayActivationUpdate) {
+              globalThis.__delayActivationUpdate = false;
+              await new Promise((resolve) => { globalThis.__releaseActivationUpdate = resolve; });
+            }
             if (details.active && globalThis.__failActivationUpdate) throw new Error("TAB_CLOSED");
             return { id: tabId, ...details };
           }
@@ -493,13 +499,16 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
     assert.match(await page.locator("#gateStatus").textContent(), /ログインや接続が必要な場合があります/);
-    await page.evaluate(() => {
-      const button = document.querySelector("#activateHandoff");
-      button.click();
-      button.click();
-    });
-    await page.waitForFunction(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true));
-    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false);
+    await page.evaluate(() => { globalThis.__delayActivationUpdate = true; });
+    await page.locator("#activateHandoff").click();
+    await page.waitForFunction(() => typeof globalThis.__releaseActivationUpdate === "function");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true, "Esc must not cancel an activation already in progress");
+    assert.equal(await page.locator("#cancelOutput").isDisabled(), true, "cancel must wait for activation to settle");
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "a new handoff must wait for activation to settle");
+    await page.evaluate(() => document.querySelector("#activateHandoff")?.click());
+    await page.evaluate(() => globalThis.__releaseActivationUpdate?.());
+    await page.waitForFunction(() => document.querySelector("#outputGate")?.open === false);
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.filter(({ active }) => active === true).length), 1);
 
     await page.locator("#save").click();
