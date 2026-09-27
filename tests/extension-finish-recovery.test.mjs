@@ -9,7 +9,7 @@ import { VIEWPORTS } from "../apps/extension/responsive/viewports.js";
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, screenshotDelayMs = 0, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let session = { id: "capture-1", tabId: 1, windowId: 2, mode, phase: "recording", events: [], startedAt: 1 };
   let journal;
   let drained = false;
@@ -19,16 +19,23 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let viewportApplied = false;
   let liveEntries = [];
   let screenshotFailure = screenshotFails;
+  let injectionFailure = injectionFails;
   let draftPutFailure = draftPutFails;
   let restoreSuccess = restoreSucceeds;
   let liveStoreReadFailure = listFails;
   let liveStoreCountFailure = countFails;
   let recorderStopCalls = 0;
+  let recorderReleaseCalls = 0;
   let sessionStorageFailure = sessionFails;
   let sessionRemoveFailure = sessionRemoveFails;
   let failSessionAfterLivePut = sessionFailsAfterLivePut;
   let recorderReleaseFailure = releaseFails;
   let recorderReleaseEmptyResults = releaseEmptyResults;
+  let recorderRetainFailure = retainFails;
+  let recorderRetainFailureAfter = retainFailsAfter;
+  let recorderRetainMissingAck = retainMissingAck;
+  let recorderRetainEmptyResults = retainEmptyResults;
+  let recorderRetainMissingEvents = retainMissingEvents;
   let recorderReleaseMissingAck = releaseMissingAck;
   let localStorageFailure = localFails;
   let localRemoveFailure = localRemoveFails;
@@ -59,7 +66,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
         session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
         local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
       },
-      scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFails) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: (retainedPendingEvents || []).slice() }]; } if (command === "release") { if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
+      scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
       tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
@@ -71,10 +78,10 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     await context.settle();
   };
   await restart();
-  return { start: () => context.start(1, "pc"), finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), cancel: () => context.cancel(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls, recorderStopCalls: () => recorderStopCalls,
+  return { start: () => context.start(1, "pc"), recorderReleaseCalls: () => recorderReleaseCalls, finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), cancel: () => context.cancel(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls, recorderStopCalls: () => recorderStopCalls,
     journal: () => journal,
     injections, status: () => context.status(), restore: () => context.restore(), restart,
-    setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setRestoreSucceeds: (value) => { restoreSuccess = value; }, setWindowExists: (value) => { windowExists = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, setReleaseOutcome: (fails, missingAck = false, emptyResults = false) => { recorderReleaseFailure = fails; recorderReleaseMissingAck = missingAck; recorderReleaseEmptyResults = emptyResults; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
+    setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setRestoreSucceeds: (value) => { restoreSuccess = value; }, setWindowExists: (value) => { windowExists = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, setReleaseOutcome: (fails, missingAck = false, emptyResults = false) => { recorderReleaseFailure = fails; recorderReleaseMissingAck = missingAck; recorderReleaseEmptyResults = emptyResults; }, setRetainOutcome: (fails, missingAck = false, emptyResults = false, missingEvents = false, failureAfter = 0) => { recorderRetainFailure = fails; recorderRetainMissingAck = missingAck; recorderRetainEmptyResults = emptyResults; recorderRetainMissingEvents = missingEvents; recorderRetainFailureAfter = failureAfter; }, setInjectionFails: (value) => { injectionFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
     setStorageFails: (sessionValue, localValue) => {
       sessionStorageFailure = sessionValue;
       localStorageFailure = localValue;
@@ -143,6 +150,51 @@ test("navigation count failure enters retryable reinjection state and resumes re
   assert.equal(resumed.value.accepted, true);
 });
 
+test("resume does not release after inject failure when catch retain is unconfirmed", async () => {
+  const capture = await harness({ localFails: false, sessionFails: false, injectionFails: true, retainFailsAfter: 1, pendingEvents: [{ kind: "click", at: 10, eventId: "retain-catch-failure:pending", target: { tagName: "button" } }] });
+  capture.session().phase = "paused";
+  await assert.rejects(capture.resume());
+  assert.equal((await capture.status()).phase, "reinjection_failed");
+  assert.equal(capture.recorderReleaseCalls(), 1);
+});
+test("resume rejects unconfirmed retain without releasing or injecting, then retries", async () => {
+  for (const outcome of ["throw", "empty", "missing-ack", "missing-events"]) {
+    const capture = await harness({ localFails: false, sessionFails: false, retainFails: outcome === "throw", retainEmptyResults: outcome === "empty", retainMissingAck: outcome === "missing-ack", retainMissingEvents: outcome === "missing-events", pendingEvents: [{ kind: "click", at: 10, eventId: `retain-resume-${outcome}:pending`, target: { tagName: "button" } }] });
+    capture.session().phase = "paused";
+    await assert.rejects(capture.resume());
+    assert.equal((await capture.status()).phase, "reinjection_failed");
+    assert.equal(capture.recorderReleaseCalls(), 0);
+    capture.setRetainOutcome(false, false, false, false);
+    assert.equal((await capture.resume()).resumed, true);
+    await capture.finish();
+    assert.equal(capture.draft().steps.some((step) => step.eventId === `retain-resume-${outcome}:pending`), true);
+  }
+});
+
+test("pause rejects unconfirmed retain without releasing or dropping pending events", async () => {
+  for (const outcome of ["throw", "empty", "missing-ack", "missing-events"]) {
+    const capture = await harness({ localFails: false, sessionFails: false, retainFails: outcome === "throw", retainEmptyResults: outcome === "empty", retainMissingAck: outcome === "missing-ack", retainMissingEvents: outcome === "missing-events", pendingEvents: [{ kind: "click", at: 10, eventId: `retain-pause-${outcome}:pending`, target: { tagName: "button" } }] });
+    await assert.rejects(capture.pause());
+    assert.equal((await capture.status()).phase, "paused");
+    assert.equal(capture.recorderReleaseCalls(), 0);
+    capture.setRetainOutcome(false, false, false, false);
+    await capture.finish();
+    assert.equal(capture.draft().steps.some((step) => step.eventId === `retain-pause-${outcome}:pending`), true);
+  }
+});
+
+test("finish rejects unconfirmed retain without releasing or saving an empty draft", async () => {
+  for (const outcome of ["throw", "empty", "missing-ack", "missing-events"]) {
+    const capture = await harness({ localFails: false, sessionFails: false, retainFails: outcome === "throw", retainEmptyResults: outcome === "empty", retainMissingAck: outcome === "missing-ack", retainMissingEvents: outcome === "missing-events", pendingEvents: [{ kind: "click", at: 10, eventId: `retain-finish-${outcome}:pending`, target: { tagName: "button" } }] });
+    await assert.rejects(capture.finish());
+    assert.equal((await capture.status()).phase, "finish_failed");
+    assert.equal(capture.draft(), undefined);
+    assert.equal(capture.recorderReleaseCalls(), 0);
+    capture.setRetainOutcome(false, false, false, false);
+    await capture.finish();
+    assert.equal(capture.draft().steps.some((step) => step.eventId === `retain-finish-${outcome}:pending`), true);
+  }
+});
 test("resume retains pending events when persistence fails before reinjection", async () => {
   for (const [label, storage] of [["journal", { localFails: true, sessionFails: false }], ["session", { localFails: false, sessionFails: true }], ["both", { localFails: true, sessionFails: true }]]) {
     const capture = await harness({ ...storage, pendingEvents: [{ kind: "click", at: 10, eventId: `resume-${label}:pending`, target: { tagName: "button" } }] });

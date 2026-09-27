@@ -159,6 +159,12 @@ async function stopRecorder(tabId, command = "drain") {
   const execute = () => chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: (recorderCommand) => {
+      if (recorderCommand === "retain") {
+        const recorder = globalThis.__mecchaManualRecorder;
+        if (typeof recorder !== "function") return { retainAck: true, recorderPresent: false, events: [] };
+        const events = recorder("retain");
+        return { retainAck: true, recorderPresent: true, events };
+      }
       if (recorderCommand !== "release") return globalThis.__mecchaManualRecorder?.(recorderCommand);
       const recorder = globalThis.__mecchaManualRecorder;
       if (typeof recorder !== "function") return { releaseAck: true };
@@ -173,6 +179,13 @@ async function stopRecorder(tabId, command = "drain") {
       throw new Error("RECORDER_RELEASE_UNCONFIRMED");
     }
     return [];
+  }
+  if (command === "retain") {
+    const results = await execute();
+    if (!Array.isArray(results) || results.length === 0 || results.some((entry) => entry?.result?.retainAck !== true || !Array.isArray(entry.result.events))) {
+      throw new Error("RECORDER_RETAIN_UNCONFIRMED");
+    }
+    return results.flatMap(({ result }) => result.events);
   }
   const results = await execute().catch(() => []);
   return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
@@ -362,7 +375,7 @@ async function finishCapture() {
   let imageCount = 0;
   let missingImageCount = 0;
   let readyImageCountKnown = false;
-  let drainedPendingEvents = [];
+  let drainedPendingEvents;
   try {
     await prepareRetryViewport(session);
     const readyImages = await readyImageCount(session);
@@ -420,12 +433,12 @@ async function finishCapture() {
     await captureLiveStore.clear(session.id);
     await stopRecorder(session.tabId, "release");
   } catch {
-    const retryBase = readyImageCountKnown ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
+    const retryBase = readyImageCountKnown && drainedPendingEvents !== undefined ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
     const sessionSaved = await setSession({ ...retrySession, restorePending: !restored }).then(() => true, () => false);
-    if ((journalSaved || sessionSaved) && readyImageCountKnown) await stopRecorder(session.tabId, "release");
+    if ((journalSaved || sessionSaved) && readyImageCountKnown && drainedPendingEvents !== undefined) await stopRecorder(session.tabId, "release");
     if (!journalSaved && !sessionSaved) throw new Error("端末の保存領域へ記録を保存できませんでした。記録の復旧を保証できません。対象タブを閉じずに空き容量を確認してください。");
     throw new Error(restored
       ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
@@ -616,9 +629,11 @@ async function resumeCapture(tabId) {
   if (session?.captureLimitReached) throw new Error("CAPTURE_LIMIT_REACHED");
   if (!session || !["paused", "reinjection_failed"].includes(session.phase)) throw new Error("再開できる記録がありません");
   if (tabId !== session.tabId) throw new Error("記録対象のタブを開いてから再開してください");
-  const retainedEvents = await stopRecorder(tabId, "retain");
-  const resumeBase = mergePendingEventsWithoutImages(session, retainedEvents);
+  let retainedEvents;
+  let resumeBase = session;
   try {
+    retainedEvents = await stopRecorder(tabId, "retain");
+    resumeBase = mergePendingEventsWithoutImages(session, retainedEvents);
     const resumedSession = { ...resumeBase, phase: "recording", paused: false, reinjectionFailed: false, failureCategory: undefined };
     await persistRecoveryJournal(session.id, resumedSession.events || [], "recording");
     await setSession(resumedSession);
@@ -628,14 +643,18 @@ async function resumeCapture(tabId) {
     reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
-    const pendingEvents = await stopRecorder(tabId, "retain");
-    const recoveredSession = mergePendingEventsWithoutImages(resumeBase, pendingEvents);
+    const recoveredPending = retainedEvents === undefined
+      ? undefined
+      : await stopRecorder(tabId, "retain").catch(() => undefined);
+    const recoveredSession = recoveredPending === undefined
+      ? resumeBase
+      : mergePendingEventsWithoutImages(resumeBase, recoveredPending);
     const failedSession = { ...recoveredSession, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
     reinjectionFailureSessionId = session.id;
     const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").then(() => true, () => false);
     const sessionSaved = await setSession(failedSession).then(() => true, () => false);
-    if (journalSaved || sessionSaved) await stopRecorder(tabId, "release");
-    else navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
+    if ((journalSaved || sessionSaved) && recoveredPending !== undefined) await stopRecorder(tabId, "release");
+    else if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
     throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
   }
 }
