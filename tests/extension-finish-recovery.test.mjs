@@ -56,9 +56,9 @@ async function harness({ screenshotFails = false, draftPutFails = false, localFa
       windows: { get: async () => { throw new Error("must not query a closing window"); } }
     }
   };
-  vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.status = captureStatus; globalThis.restore = retryRestore; globalThis.settle = () => sessionOperation;", context);
+  vm.runInNewContext(source + "\nglobalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.status = captureStatus; globalThis.restore = retryRestore; globalThis.settle = () => sessionOperation;", context);
   await context.settle();
-  return { finish: () => context.finish(), pause: () => context.pause(), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
+  return { finish: () => context.finish(), pause: () => context.pause(), resume: () => context.resume(1), session: () => session, draft: () => draft, restoreCalls: () => restoreCalls,
     journal: () => journal,
     injections, status: () => context.status(), restore: () => context.restore(),
     setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
@@ -106,6 +106,57 @@ test("recovered journal retains navigation fallback when session storage is stil
   capture.setStorageFails(false, false);
   await capture.finish();
   assert.equal(capture.draft().steps.filter((step) => step.kind === "navigation").length, 1);
+});
+
+test("navigation count failure enters retryable reinjection state and resumes recording", async () => {
+  const capture = await harness({ localFails: false, pendingEvents: [] });
+  const first = await capture.event({ kind: "click", at: 1, eventId: "before-navigation-count-failure", target: { tagName: "button" } });
+  assert.equal(first.value.accepted, true);
+  capture.setLiveCountFails(true);
+  await capture.navigate();
+  const failed = await capture.status();
+  assert.equal(failed.phase, "reinjection_failed");
+  assert.equal(failed.reinjectionFailed, true);
+  assert.equal(failed.events.length, 1);
+  assert.equal(capture.injections.length, 0);
+
+  capture.setLiveCountFails(false);
+  assert.equal((await capture.resume()).resumed, true);
+  assert.equal((await capture.status()).phase, "recording");
+  const resumed = await capture.event({ kind: "click", at: 2, eventId: "after-navigation-count-recovery", target: { tagName: "button" } });
+  assert.equal(resumed.value.accepted, true);
+});
+
+test("finish recovery pure-merges drained events when session persistence fails", async () => {
+  const capture = await harness({ mode: "smartphonePortrait", sessionFails: true, localFails: false });
+  await assert.rejects(capture.finish());
+  assert.equal(capture.restoreCalls(), 1);
+  assert.equal(capture.session().events.length, 0);
+  assert.equal(capture.journal().phase, "finish_failed");
+  assert.equal(capture.journal().events.length, 1);
+
+  capture.setStorageFails(false, false);
+  await capture.finish();
+  assert.equal(capture.draft().steps.length, 1);
+  assert.equal(capture.draft().screenshots.length, 0);
+});
+
+test("finish recovery preserves existing steps while rejecting pending steps over 200", async () => {
+  const capture = await harness({ sessionFails: true, localFails: false, pendingEvents: [
+    { kind: "click", at: 0, eventId: "older-pending", target: { tagName: "button" } },
+    { kind: "click", at: 300, eventId: "over-limit-pending", target: { tagName: "button" } }
+  ] });
+  capture.session().events = Array.from({ length: 199 }, (_, index) => ({ kind: "click", at: index + 10, eventId: `existing:${index}`, target: { tagName: "button" } }));
+  await assert.rejects(capture.finish());
+  assert.equal(capture.journal().events.length, 200);
+  assert.equal(capture.journal().events.some((event) => event.eventId === "older-pending"), true);
+  assert.equal(capture.journal().events.some((event) => event.eventId === "over-limit-pending"), false);
+
+  capture.setStorageFails(false, false);
+  await capture.finish();
+  assert.equal(capture.draft().steps.length, 200);
+  assert.equal(capture.draft().steps.some((step) => step.eventId === "older-pending"), true);
+  assert.equal(capture.draft().steps.some((step) => step.eventId === "over-limit-pending"), false);
 });
 
 test("failed reinjection remains visible when both persistence writes fail", async () => {

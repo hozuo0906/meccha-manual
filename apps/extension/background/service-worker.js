@@ -349,10 +349,8 @@ async function finishCapture() {
     }
     await captureLiveStore.clear(session.id).catch(() => undefined);
   } catch {
-    const pendingEvents = readyImageCountKnown ? [...drainedPendingEvents, ...(await stopRecorder(session.tabId))] : [];
-    const acceptedPendingEvents = readyImageCountKnown ? pendingEventsForSession(session, pendingEvents) : [];
-    for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);
-    const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
+    const retryBase = readyImageCountKnown ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
+    const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
     const sessionSaved = await setSession({ ...retrySession, restorePending: !restored }).then(() => true, () => false);
@@ -437,8 +435,30 @@ async function readyImageCount(session) {
 }
 
 function pendingEventsForSession(session, events) {
-  if (session.captureLimitReached === "images") return [];
+  if (session.captureLimitReached === "images" || session.events.length >= MAX_CAPTURE_STEPS) return [];
   return events;
+}
+
+function mergePendingEventsWithoutImages(session, events) {
+  const accepted = pendingEventsForSession(session, events);
+  if (!accepted.length) return session;
+  let next = session;
+  let reachedStepLimit = false;
+  for (const event of accepted) {
+    const merged = mergeCaptureEvents(next, [event]);
+    if (merged === next) continue;
+    if (merged.events.length > MAX_CAPTURE_STEPS) {
+      reachedStepLimit = true;
+      continue;
+    }
+    const normalized = merged.events.find((candidate) => candidate.eventId === event.eventId)
+      || merged.events.find((candidate) => candidate.at === event.at);
+    next = normalized
+      ? imageRefsWithStatus(merged, normalized.eventId || `event:${normalized.at}`, "unavailable")
+      : merged;
+  }
+  if (reachedStepLimit) next = { ...next, phase: "paused", paused: true, captureLimitReached: "steps" };
+  return next;
 }
 
 async function recordStepImage(session, eventId, eventGeneration = captureEventGenerations.get(session.tabId)) {
@@ -647,7 +667,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       return;
     }
     const readyImages = await readyImageCount(session);
-    if (readyImages === null) return;
+    if (readyImages === null) {
+      reinjectionFailureSessionId = session.id;
+      const failedSession = {
+        ...session,
+        phase: "reinjection_failed",
+        reinjectionFailed: true,
+        failureCategory: "capture_live_read_failed"
+      };
+      await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").catch(() => undefined);
+      await setSession(failedSession).catch(() => undefined);
+      return;
+    }
     if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) {
       await markCaptureLimit(session, "images");
       return;
