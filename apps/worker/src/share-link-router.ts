@@ -126,9 +126,58 @@ function shareViewerHtml(): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>共有された手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/s/assets/share.css"></head><body><main id="share-viewer" class="share-shell"><h1>共有された手順書</h1><p id="share-message" role="status" aria-live="polite">共有情報を確認しています。</p><section id="share-auth" hidden><label for="share-passcode">パスコード</label><input id="share-passcode" type="password" minlength="${PASSCODE_MIN_LENGTH}" maxlength="256" autocomplete="off"><button id="share-submit" type="button">手順書を表示</button></section><article id="share-content" hidden></article></main><script src="/s/assets/share.js" defer></script></body></html>`;
 }
 
-const SHARE_CSS = `.share-shell{box-sizing:border-box;max-width:860px;margin:0 auto;padding:24px 16px;font:16px/1.7 system-ui,sans-serif;color:#17202a}.share-shell h1{font-size:clamp(1.4rem,4vw,2rem)}#share-message{padding:12px 0}#share-auth{display:grid;gap:10px;max-width:420px}#share-auth[hidden],#share-content[hidden]{display:none!important}#share-auth input{min-height:44px;padding:8px;border:1px solid #98a2b3;border-radius:6px}#share-auth button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:#175cd3;color:#fff;font-weight:700}#share-content img{max-width:100%;height:auto;display:block;margin:12px 0;border-radius:8px} .share-step{padding:16px 0;border-top:1px solid #d0d5dd} .share-note{color:#667085}`;
+const SHARE_CSS = `.share-shell{box-sizing:border-box;max-width:860px;margin:0 auto;padding:24px 16px;font:16px/1.7 system-ui,sans-serif;color:#20282e;background:#f3fbfa;min-height:100vh}.share-shell h1{font-size:clamp(1.4rem,4vw,2rem)}#share-message{padding:12px 0;color:#46555b}#share-auth{display:grid;gap:10px;max-width:420px}#share-auth[hidden],#share-content[hidden],#share-content [hidden]{display:none!important}#share-auth input{min-height:44px;padding:8px;border:1px solid #9abbb8;border-radius:6px}#share-auth button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:#149b8a;color:#fff;font-weight:700}#share-content img{max-width:100%;height:auto;display:block;margin:12px 0;border-radius:8px}.share-step{padding:16px 0;border-top:1px solid #b6deda}.share-step-image-card{margin-top:12px;padding:12px;border:1px solid #b6deda;border-radius:10px;background:#f7fffd}.share-step-image-card img{margin:0}.share-image-status{margin:0;color:#52666a}.share-image-error{margin:0;color:#a3362b}.share-image-retry{min-height:36px;margin-top:8px;padding:6px 12px;border:1px solid #149b8a;border-radius:7px;background:#e9faf7;color:#126b5c;font-weight:700;cursor:pointer}.share-note{color:#52666a}`;
 
 const SHARE_JS = `(() => { const message=document.querySelector('#share-message'); const auth=document.querySelector('#share-auth'); const passcode=document.querySelector('#share-passcode'); const submit=document.querySelector('#share-submit'); const content=document.querySelector('#share-content'); const token=location.hash.startsWith('#token=') ? location.hash.slice(7) : ''; let grant=''; const objectUrls=[]; function setMessage(value){message.textContent=value;} function validSecret(value){return /^[A-Za-z0-9_-]{43}$/.test(value);} async function request(path, init={}){const headers={Accept:'application/json',...(init.body?{'Content-Type':'application/json'}:{}),...(init.headers||{})};const response=await fetch(path,{...init,headers,credentials:'same-origin',cache:'no-store'});let body=null;try{body=await response.json();}catch{}if(!response.ok){const error=new Error(body?.message||'共有内容を表示できません。');error.status=response.status;throw error;}return body;} async function loadImage(image, assetId){const response=await fetch('/s/api/assets/'+encodeURIComponent(assetId),{headers:{Accept:'image/*','X-Share-Grant':grant},credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error('asset unavailable');const url=URL.createObjectURL(await response.blob());objectUrls.push(url);image.src=url;} function render(data){content.replaceChildren();const title=document.createElement('h2');title.textContent=data.title||'手順書';content.append(title);if(data.description){const description=document.createElement('p');description.textContent=data.description;content.append(description);}for(const step of data.steps||[]){const item=document.createElement('section');item.className='share-step';const heading=document.createElement('h3');heading.textContent=step.title||'手順';item.append(heading);const text=document.createElement('p');text.textContent=step.instruction||'';item.append(text);if(step.assetId){const image=document.createElement('img');image.alt='操作を記録';image.addEventListener('error',()=>{image.remove();});item.append(image);loadImage(image,step.assetId).catch(()=>image.remove());}content.append(item);}} async function start(){if(!validSecret(token)){setMessage('共有リンクを確認できません。');return;} auth.hidden=false;setMessage('パスコードを入力してください。');submit.addEventListener('click',async()=>{submit.disabled=true;try{const result=await request('/s/api/resolve',{method:'POST',headers:{'X-Share-Token':token},body:JSON.stringify({passcode:passcode.value})});grant=result.grant;history.replaceState(null,'',location.pathname);setMessage('共有された手順書を表示しています。');const data=await request('/s/api/content',{method:'POST',headers:{'X-Share-Grant':grant},body:'{}'});render(data);content.hidden=false;auth.hidden=true;}catch(error){setMessage(error.status===429?'試行回数が多いため、時間をおいてください。':'共有リンクまたはパスコードを確認してください。');}finally{submit.disabled=false;}});} addEventListener('pagehide',()=>objectUrls.splice(0).forEach((url)=>URL.revokeObjectURL(url))); start(); })();`;
+
+const SHARE_JS_V2 = `(() => {
+  const message = document.querySelector('#share-message');
+  const auth = document.querySelector('#share-auth');
+  const passcode = document.querySelector('#share-passcode');
+  const submit = document.querySelector('#share-submit');
+  const content = document.querySelector('#share-content');
+  const token = location.hash.startsWith('#token=') ? location.hash.slice(7) : '';
+  let grant = '';
+  const objectUrls = [];
+  const setMessage = (value) => { message.textContent = value; };
+  const validSecret = (value) => /^[A-Za-z0-9_-]{43}$/.test(value);
+  async function request(path, init = {}) {
+    const headers = { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) };
+    const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
+    let body = null; try { body = await response.json(); } catch {}
+    if (!response.ok) { const error = new Error(body?.message || '共有内容を表示できません。'); error.status = response.status; throw error; }
+    return body;
+  }
+  async function loadImage(image, assetId, status, error, retry) {
+    image.hidden = true; status.hidden = false; error.hidden = true; retry.hidden = true;
+    try {
+      const response = await fetch('/s/api/assets/' + encodeURIComponent(assetId), { headers: { Accept: 'image/*', 'X-Share-Grant': grant }, credentials: 'same-origin', cache: 'no-store' });
+      if (!response.ok) { const failure = new Error('asset unavailable'); failure.status = response.status; throw failure; }
+      const url = URL.createObjectURL(await response.blob()); objectUrls.push(url); image.src = url;
+      await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; });
+      status.hidden = true; image.hidden = false;
+    } catch (failure) {
+      status.hidden = true; error.textContent = failure?.status === 401 ? '共有期限が切れているか、共有権限を確認できません。' : '画像を読み込めませんでした。'; error.hidden = false; retry.hidden = false;
+    }
+  }
+  function render(data) {
+    content.replaceChildren(); const title = document.createElement('h2'); title.textContent = data.title || '手順書'; content.append(title);
+    if (data.description) { const description = document.createElement('p'); description.textContent = data.description; content.append(description); }
+    for (const step of data.steps || []) {
+      const item = document.createElement('section'); item.className = 'share-step'; const heading = document.createElement('h3'); heading.textContent = step.title || '手順'; item.append(heading); const text = document.createElement('p'); text.textContent = step.instruction || ''; item.append(text);
+      if (step.assetId) {
+        const card = document.createElement('div'); card.className = 'share-step-image-card'; const status = document.createElement('p'); status.className = 'share-image-status'; status.textContent = '画像を読み込んでいます…'; const error = document.createElement('p'); error.className = 'share-image-error'; error.hidden = true; const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'share-image-retry'; retry.textContent = '画像を再読み込み'; retry.hidden = true; const image = document.createElement('img'); image.alt = '操作を記録'; image.loading = 'eager'; retry.addEventListener('click', () => loadImage(image, step.assetId, status, error, retry)); card.append(status, error, retry, image); item.append(card); loadImage(image, step.assetId, status, error, retry);
+      }
+      content.append(item);
+    }
+  }
+  async function start() {
+    if (!validSecret(token)) { setMessage('共有リンクを確認できません。'); return; }
+    auth.hidden = false; setMessage('パスコードを入力してください。');
+    submit.addEventListener('click', async () => { submit.disabled = true; try { const result = await request('/s/api/resolve', { method: 'POST', headers: { 'X-Share-Token': token }, body: JSON.stringify({ passcode: passcode.value }) }); grant = result.grant; history.replaceState(null, '', location.pathname); setMessage('共有された手順書を表示しています。'); const data = await request('/s/api/content', { method: 'POST', headers: { 'X-Share-Grant': grant }, body: '{}' }); render(data); content.hidden = false; auth.hidden = true; } catch (failure) { setMessage(failure.status === 429 ? '試行回数が多いため、時間をおいてください。' : '共有リンクまたはパスコードを確認してください。'); } finally { submit.disabled = false; } });
+  }
+  addEventListener('pagehide', () => objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url))); start();
+})();`;
 
 async function rateLimit(request: Request, env: ShareLinkEnv, tokenHash: string): Promise<void> {
   if (!env.SHARE_AUTH_RATE_LIMITER) throw new ShareError(503, "SHARE_RATE_LIMIT_UNAVAILABLE", "共有確認を一時停止しています。");
@@ -258,7 +307,7 @@ export async function handleShareLinkRoute(request: Request, env: ShareLinkEnv):
   const url = new URL(request.url); const path = url.pathname;
   if (path === "/s/" && request.method === "GET") return html(shareViewerHtml());
   if (path === "/s/assets/share.css" && request.method === "GET") return new Response(SHARE_CSS, { headers: { ...JSON_HEADERS, "content-type": "text/css; charset=utf-8" } });
-  if (path === "/s/assets/share.js" && request.method === "GET") return new Response(SHARE_JS, { headers: { ...JSON_HEADERS, "content-type": "application/javascript; charset=utf-8" } });
+  if (path === "/s/assets/share.js" && request.method === "GET") return new Response(SHARE_JS_V2, { headers: { ...JSON_HEADERS, "content-type": "application/javascript; charset=utf-8" } });
   const resolve = path === "/s/api/resolve";
   if (resolve || path === "/s/api/content" || /^\/s\/api\/assets\/[^/]+$/u.test(path) || /^\/api\/workspaces\/[^/]+\/manuals\/[^/]+\/share-links$/u.test(path)) {
     try {

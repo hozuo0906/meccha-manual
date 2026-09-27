@@ -29,8 +29,8 @@ async function serveStaticWorkerRoute(request, response) {
   return true;
 }
 
-async function startViewerServer({ assetStatus = 200, resolvePasscode = null } = {}) {
-  const state = { tokens: [], grants: [], passcodes: [], assetGrants: [], contentGrants: [] };
+async function startViewerServer({ assetStatus = 200, assetStatuses = null, resolvePasscode = null } = {}) {
+  const state = { tokens: [], grants: [], passcodes: [], assetGrants: [], contentGrants: [], assetAttempts: 0 };
   const server = createServer(async (request, response) => {
     try {
       if (await serveStaticWorkerRoute(request, response)) return;
@@ -50,7 +50,9 @@ async function startViewerServer({ assetStatus = 200, resolvePasscode = null } =
       if (url.pathname === "/s/api/assets/asset-1" && request.method === "GET") {
         state.assetGrants.push(request.headers["x-share-grant"] || "");
         if ((request.headers["x-share-grant"] || "") !== SHARE_GRANT) return sendJson(response, 401, { code: "SHARE_UNAVAILABLE" });
-        if (assetStatus !== 200) return sendJson(response, assetStatus, { code: "SHARE_UNAVAILABLE" });
+        const status = Array.isArray(assetStatuses) ? assetStatuses[Math.min(state.assetAttempts, assetStatuses.length - 1)] : assetStatus;
+        state.assetAttempts += 1;
+        if (status !== 200) return sendJson(response, status, { code: "SHARE_UNAVAILABLE" });
         response.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
         return response.end(PNG);
       }
@@ -94,7 +96,7 @@ test("share viewer renders a snapshot, passes grant headers to image fetch, and 
     assert.equal(await page.locator("#share-content").getByText("共有された手順書").count(), 1);
     assert.equal(await page.locator("#share-content").getByText("画像付き手順").count(), 1);
     assert.equal(await page.locator("#share-content img").count(), 1);
-    assert.equal(await page.locator("button").count(), 1);
+    assert.equal(await page.locator("#share-submit").count(), 1);
     assert.equal(await page.locator("input").count(), 1);
     assert.equal(await page.locator("#share-auth").isHidden(), true);
 
@@ -148,7 +150,7 @@ test("share viewer hides auth for an invalid token and retries a rejected passco
   }
 });
 
-test("share viewer removes an image when the grant is rejected on asset fetch", { timeout: 30_000 }, async () => {
+test("share viewer keeps a failed image visible with a retry action when the grant is rejected", { timeout: 30_000 }, async () => {
   const { baseUrl, server, state } = await startViewerServer({ assetStatus: 401 });
   let context;
   try {
@@ -159,9 +161,39 @@ test("share viewer removes an image when the grant is rejected on asset fetch", 
     await page.locator("#share-passcode").fill("correct-passcode");
     await page.locator("#share-submit").click();
     await page.locator("#share-content").waitFor({ state: "visible" });
-    await page.waitForFunction(() => document.querySelectorAll("#share-content img").length === 0);
+    await page.locator("#share-content img").waitFor({ state: "attached" });
+    await page.waitForFunction(() => document.querySelector("#share-content img")?.hidden === true);
     assert.equal(state.assetGrants.length, 1);
     assert.equal(state.assetGrants[0] === SHARE_GRANT, true);
+    assert.equal(await page.locator(".share-image-error:visible").count(), 1);
+    assert.equal(await page.getByRole("button", { name: "画像を再読み込み" }).count(), 1);
+    assert.equal(await page.locator("#share-content img").count(), 1);
+    assert.equal(await page.locator("#share-content img").isHidden(), true);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("share viewer retries a failed image with the retained grant", { timeout: 30_000 }, async () => {
+  const { baseUrl, server, state } = await startViewerServer({ assetStatuses: [500, 200] });
+  let context;
+  try {
+    const launched = await launchPage();
+    context = launched.context;
+    const page = launched.page;
+    await page.goto(`${baseUrl}/s/#token=${SHARE_TOKEN}`);
+    await page.locator("#share-passcode").fill("correct-passcode");
+    await page.locator("#share-submit").click();
+    await page.locator("#share-content").waitFor({ state: "visible" });
+    await page.locator(".share-image-retry").waitFor();
+    assert.equal(state.assetAttempts, 1);
+    await page.locator(".share-image-retry").click();
+    await page.waitForFunction(() => document.querySelector("#share-content img")?.naturalWidth === 1);
+    assert.equal(state.assetAttempts, 2);
+    assert.deepEqual(state.assetGrants, [SHARE_GRANT, SHARE_GRANT]);
+    assert.equal(new URL(page.url()).hash.length, 0);
   } finally {
     await context?.close();
     server.closeAllConnections?.();
