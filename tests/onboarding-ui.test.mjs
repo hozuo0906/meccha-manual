@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { inflateSync } from "node:zlib";
 import { buildContinueUrl, createHandoffId, createHandoffMetadata, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
 import { getOnboardingOrigin } from "../apps/extension/onboarding-config.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
@@ -190,7 +191,45 @@ test("worker serves onboarding page/assets and fails closed when bindings are un
   assert.match(await pending.text(), /data-bootstrap-enabled="false"/);
 });
 
-test("worker serves the onboarding brand PNGs through the configured static asset binding", async () => {
+function decodePngScanlines(bytes) {
+  const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.deepEqual(bytes.slice(0, signature.length), signature);
+  let offset = signature.length;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idat = [];
+  while (offset + 12 <= bytes.length) {
+    const length = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0);
+    const type = new TextDecoder().decode(bytes.slice(offset + 4, offset + 8));
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    assert.ok(dataEnd + 4 <= bytes.length, `PNG chunk ${type} exceeds file`);
+    if (type === "IHDR") {
+      const header = new DataView(bytes.buffer, bytes.byteOffset + dataStart, length);
+      width = header.getUint32(0);
+      height = header.getUint32(4);
+      bitDepth = header.getUint8(8);
+      colorType = header.getUint8(9);
+    } else if (type === "IDAT") {
+      idat.push(Buffer.from(bytes.slice(dataStart, dataEnd)));
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = dataEnd + 4;
+  }
+  assert.ok(width > 0 && height > 0);
+  assert.equal(bitDepth, 8);
+  assert.ok(colorType === 2 || colorType === 6, `unsupported PNG color type ${colorType}`);
+  const channels = colorType === 6 ? 4 : 3;
+  const decoded = inflateSync(Buffer.concat(idat));
+  const rowBytes = width * channels;
+  assert.equal(decoded.byteLength, (rowBytes + 1) * height);
+  return { width, height };
+}
+
+test("worker serves and decodes the onboarding brand PNGs through the configured static asset binding", async () => {
   const files = new Map([
     ["/assets/meccha-manual-logo-mark.png", await readFile(new URL("../apps/worker/brand-assets/assets/meccha-manual-logo-mark.png", import.meta.url))],
     ["/assets/meccha-manual-mascot-me-clear-eyes.png", await readFile(new URL("../apps/worker/brand-assets/assets/meccha-manual-mascot-me-clear-eyes.png", import.meta.url))],
@@ -214,6 +253,9 @@ test("worker serves the onboarding brand PNGs through the configured static asse
     const response = await worker.fetch(new Request(`https://meccha-manual-staging.meccha-iiyatsu.com${path}`), env, {});
     assert.equal(response.status, 200, path);
     assert.equal(response.headers.get("content-type"), "image/png", path);
-    assert.deepEqual(new Uint8Array(await response.arrayBuffer()).slice(0, pngSignature.length), pngSignature, path);
+    const body = new Uint8Array(await response.arrayBuffer());
+    assert.deepEqual(body.slice(0, pngSignature.length), pngSignature, path);
+    const decoded = decodePngScanlines(body);
+    assert.deepEqual(decoded, { width: 1254, height: 1254 }, path);
   }
 });
