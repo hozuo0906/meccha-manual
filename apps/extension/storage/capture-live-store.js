@@ -29,15 +29,43 @@ async function transact(mode, action) {
   }
 }
 
+async function countReady(sessionId) {
+  const db = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE, "readonly");
+      const range = IDBKeyRange.bound(`${sessionId}:`, `${sessionId}:\uffff`);
+      const request = transaction.objectStore(STORE).openKeyCursor(range);
+      let count = 0;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        count += 1;
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve(count);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export const captureLiveStore = {
   available: true,
-  put: (entry) => transact("readwrite", (store) => store.put(structuredClone({
-    ...entry,
-    key: `${entry.sessionId}:${entry.eventId}`
-  }))),
+  put: (entry) => {
+    if (entry?.status !== "ready" || !entry.dataUrl) return Promise.reject(new Error("capture live entry must be ready"));
+    return transact("readwrite", (store) => store.put(structuredClone({
+      ...entry,
+      key: `${entry.sessionId}:${entry.eventId}`
+    })));
+  },
   list: async (sessionId) => (await transact("readonly", (store) => store.getAll()))
     .filter((entry) => entry.sessionId === sessionId)
     .sort((left, right) => String(left.eventId).localeCompare(String(right.eventId))),
+  count: (sessionId) => countReady(sessionId),
   clear: async (sessionId) => {
     const entries = await captureLiveStore.list(sessionId);
     if (!entries.length) return;

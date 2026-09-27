@@ -71,7 +71,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 
-capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、上限到達時は記録を一時停止して終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
+capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。上限到達時は記録を一時停止して終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
 
 ## Browser Run legacy traceability
 

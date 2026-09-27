@@ -291,10 +291,16 @@ async function finishCapture() {
   let draftId;
   let imageCount = 0;
   let missingImageCount = 0;
+  let readyImageCountKnown = false;
+  let drainedPendingEvents = [];
   try {
     await prepareRetryViewport(session);
+    const readyImages = await readyImageCount(session);
+    if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+    readyImageCountKnown = true;
+    if (readyImages >= CLOUD_CLAIM_MAX_ASSETS && session.captureLimitReached !== "images") session = await markCaptureLimit(session, "images");
     const pendingEvents = await stopRecorder(session.tabId);
-    if (readyImageCount(session) >= CLOUD_CLAIM_MAX_ASSETS && session.captureLimitReached !== "images") session = await markCaptureLimit(session, "images");
+    drainedPendingEvents = pendingEvents;
     const acceptedPendingEvents = pendingEventsForSession(session, pendingEvents);
     for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);
     if (acceptedPendingEvents.length) await persistRecoveryJournal(session.id, acceptedPendingEvents).catch(() => undefined);
@@ -343,8 +349,9 @@ async function finishCapture() {
     }
     await captureLiveStore.clear(session.id).catch(() => undefined);
   } catch {
-    const pendingEvents = await stopRecorder(session.tabId);
-    for (const event of pendingEventsForSession(session, pendingEvents)) session = await recordEventWithoutImage(session, event);
+    const pendingEvents = readyImageCountKnown ? [...drainedPendingEvents, ...(await stopRecorder(session.tabId))] : [];
+    const acceptedPendingEvents = readyImageCountKnown ? pendingEventsForSession(session, pendingEvents) : [];
+    for (const event of acceptedPendingEvents) session = await recordEventWithoutImage(session, event);
     const retrySession = { ...session, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
     const journalSaved = await persistRecoveryJournal(session.id, retrySession.events, "finish_failed").then(() => true, () => false);
     const restored = await attemptRestore(retrySession);
@@ -392,9 +399,11 @@ async function retryRestore() {
 async function pauseCapture() {
   const session = await getSession();
   if (!session || session.phase !== "recording") throw new Error("一時停止できる記録がありません");
+  const readyImages = await readyImageCount(session);
+  if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
   const pendingEvents = await stopRecorder(session.tabId);
   let pausedSession = { ...session, phase: "paused" };
-  if (readyImageCount(pausedSession) >= CLOUD_CLAIM_MAX_ASSETS) pausedSession = await markCaptureLimit(pausedSession, "images");
+  if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) pausedSession = await markCaptureLimit(pausedSession, "images");
   for (const event of pendingEventsForSession(pausedSession, pendingEvents)) pausedSession = await recordEventWithoutImage(pausedSession, event);
   await persistRecoveryJournal(pausedSession.id, pausedSession.events, "paused");
   await setSession({ ...pausedSession, paused: true });
@@ -419,12 +428,16 @@ async function markCaptureLimit(session, limit) {
   return limited;
 }
 
-function readyImageCount(session) {
-  return (session.stepImageRefs || []).filter((ref) => ref.status === "ready").length;
+async function readyImageCount(session) {
+  try {
+    return await captureLiveStore.count(session.id);
+  } catch {
+    return null;
+  }
 }
 
 function pendingEventsForSession(session, events) {
-  if (session.captureLimitReached === "images" || readyImageCount(session) >= CLOUD_CLAIM_MAX_ASSETS) return [];
+  if (session.captureLimitReached === "images") return [];
   return events;
 }
 
@@ -435,14 +448,14 @@ async function recordStepImage(session, eventId, eventGeneration = captureEventG
     const elapsed = Date.now() - lastStepScreenshotAt;
     if (lastStepScreenshotAt && elapsed < MIN_STEP_SCREENSHOT_INTERVAL_MS) {
       pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
-      await setSession(pendingSession).catch(() => undefined);
+      await setSession(pendingSession);
       return pendingSession;
     }
     lastStepScreenshotAt = Date.now();
     const dataUrl = await takeMaskedScreenshot(session);
     if (captureEventGenerations.get(session.tabId) !== eventGeneration) {
       pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
-      await setSession(pendingSession).catch(() => undefined);
+      await setSession(pendingSession);
       return pendingSession;
     }
     await captureLiveStore.put({ id: crypto.randomUUID(), dataUrl, status: "ready", eventId, sessionId: session.id });
@@ -450,14 +463,16 @@ async function recordStepImage(session, eventId, eventGeneration = captureEventG
   } catch {
     pendingSession = imageRefsWithStatus(pendingSession, eventId, "failed");
   }
-  await setSession(pendingSession).catch(() => undefined);
+  await setSession(pendingSession);
   return pendingSession;
 }
 
 async function recordEventWithImage(session, event, eventGeneration = captureEventGenerations.get(session.tabId)) {
   const merged = mergeCaptureEvents(session, [event]);
   if (merged === session) return session;
-  if (readyImageCount(session) >= CLOUD_CLAIM_MAX_ASSETS) {
+  const readyImages = await readyImageCount(session);
+  if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+  if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) {
     return markCaptureLimit(session, "images");
   }
   const next = await appendCaptureEvent(session, event);
@@ -631,7 +646,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       await markCaptureLimit(session, "steps");
       return;
     }
-    if (readyImageCount(session) >= CLOUD_CLAIM_MAX_ASSETS) {
+    const readyImages = await readyImageCount(session);
+    if (readyImages === null) return;
+    if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) {
       await markCaptureLimit(session, "images");
       return;
     }
@@ -651,7 +668,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     }
     try {
       await injectRecorder(tabId);
-      await recordStepImage(withNavigation, navigationEvent.eventId, eventGeneration);
     } catch {
       reinjectionFailureSessionId = session.id;
       const failedSession = {
@@ -665,6 +681,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       } catch {
         await persistRecoveryJournal(session.id, [], "reinjection_failed").catch(() => undefined);
       }
+      return;
+    }
+    try {
+      await recordStepImage(withNavigation, navigationEvent.eventId, eventGeneration);
+    } catch {
+      await persistRecoveryJournal(session.id, navigationFallbackEvents(session.id, navigationEvent), "recording").catch(() => undefined);
     }
   }).catch(() => undefined);
 });
