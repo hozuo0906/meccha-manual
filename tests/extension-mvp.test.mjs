@@ -193,7 +193,8 @@ test("service worker keeps durable recovery, verified masking and independent re
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);
-  assert.match(source, /index === lastIndex \? \{ screenshotId: screenshot\.id \} : \{\}/);
+  assert.match(source, /captureLiveStore\.list\(session\.id\)/);
+  assert.match(source, /imageByEventId\.has\(event\.eventId\)/);
 });
 
 test("service worker recovers starting sessions and injects bridge/recorder into eligible frames", async () => {

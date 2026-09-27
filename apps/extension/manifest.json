@@ -1,15 +1,17 @@
 {
   "manifest_version": 3,
   "name": "めっちゃマニュアル",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "いま開いているタブの操作を記録し、手順書をローカルで作成します。",
-  "permissions": ["activeTab", "scripting", "storage", "windows"],
+  "permissions": ["activeTab", "scripting", "storage", "windows", "sidePanel"],
   "externally_connectable": {
     "matches": ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]
   },
   "action": {
-    "default_popup": "popup/popup.html",
     "default_title": "操作を記録"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
   },
   "background": {
     "service_worker": "background/service-worker.js",
