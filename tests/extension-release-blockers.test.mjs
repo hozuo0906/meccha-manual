@@ -152,7 +152,9 @@ test("successful recorder resume reconciles the durable recovery phase before re
   const success = body.indexOf("return { resumed: true }");
   assert.ok(start >= 0 && journalRecording > 0 && persistSession > journalRecording && clearJournal > persistSession && success > clearJournal);
   assert.match(body, /persistRecoveryJournal\(session\.id, failedSession\.events \|\| \[\], "reinjection_failed"\)/);
-  assert.match(body, /setSession\(failedSession\)\.catch/);
+  assert.match(body, /await stopRecorder\(tabId\)/);
+  assert.match(body, /mergePendingEventsWithoutImages\(session, pendingEvents\)/);
+  assert.match(body, /setSession\(failedSession\)\.then\(\(\) => true, \(\) => false\)/);
 });
 
 test("zero-event capture screenshot is claimed by the first added step and remains maskable", () => {

@@ -71,7 +71,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 
-capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。上限到達時は記録を一時停止して終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
+capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。通常pauseはdrain前に`paused`意図をsessionまたはrecovery journalへ保存し、両方が失敗した場合はrecorderを停止しない。上限到達時はrecorderを停止して記録を一時停止し、終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
 
 キャンセル後の一時画像削除に失敗した場合は`cancel_failed` phaseでキャンセル意図と復旧情報を保持し、画像削除とsession／journalの終了確認が完了するまで終了済みとして扱わない。既存draftは削除せず、対象ウィンドウが復元可能な場合だけ復元を再試行する。ブラウザ再起動や拡張再読み込みでsessionが失われても、local journalの有効な`cancel_failed`からcleanup専用状態を復元し、旧tab/windowを推測して操作しない。
 

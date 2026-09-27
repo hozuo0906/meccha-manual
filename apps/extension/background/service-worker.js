@@ -45,9 +45,11 @@ async function readRecoveryJournal() {
   return (await chrome.storage.local.get(RECOVERY_KEY))[RECOVERY_KEY] ?? null;
 }
 
-async function persistRecoveryJournal(sessionId, events = [], phase) {
+async function persistRecoveryJournal(sessionId, events = [], phase, captureLimitReached) {
   const current = await readRecoveryJournal();
   const next = nextRecoveryJournal(current, { sessionId, events, phase });
+  const limit = captureLimitReached || (current?.sessionId === sessionId ? current.captureLimitReached : undefined);
+  if (limit) next.captureLimitReached = limit;
   await chrome.storage.local.set({ [RECOVERY_KEY]: next });
   if (phase && phase !== "reinjection_failed") clearReinjectionFailureMarker(sessionId);
   return next;
@@ -114,14 +116,17 @@ async function getSession() {
     return null;
   }
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
-  if (recovery?.sessionId === session.id) session = mergeCaptureEvents(session, recovery.events || []);
+  if (recovery?.sessionId === session.id) {
+    session = mergeCaptureEvents(session, recovery.events || []);
+  }
   if (navigationFallback?.sessionId === session.id) session = mergeCaptureEvents(session, navigationFallback.events || []);
   else clearNavigationFallback();
   if (recovery?.sessionId === session.id && recovery.phase && session.id !== reinjectionFailureSessionId) {
     return {
       ...session,
       phase: recovery.phase,
-      finishFailed: recovery.phase === "finish_failed" ? true : recovery.phase === "cancel_failed" ? false : session.finishFailed
+      finishFailed: recovery.phase === "finish_failed" ? true : recovery.phase === "cancel_failed" ? false : session.finishFailed,
+      ...(recovery.captureLimitReached ? { captureLimitReached: recovery.captureLimitReached } : {})
     };
   }
   return session;
@@ -454,12 +459,24 @@ async function pauseCapture() {
   if (!session || session.phase !== "recording") throw new Error("一時停止できる記録がありません");
   const readyImages = await readyImageCount(session);
   if (readyImages === null) throw new Error("CAPTURE_LIVE_READ_FAILED");
+  const pausedIntent = {
+    ...session,
+    phase: "paused",
+    paused: true,
+    ...(readyImages >= CLOUD_CLAIM_MAX_ASSETS ? { captureLimitReached: "images" } : {})
+  };
+  const journalSaved = await persistRecoveryJournal(pausedIntent.id, pausedIntent.events, "paused", pausedIntent.captureLimitReached).then(() => true, () => false);
+  const sessionSaved = await setSession(pausedIntent).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("PAUSE_STATE_UNAVAILABLE");
   const pendingEvents = await stopRecorder(session.tabId);
-  let pausedSession = { ...session, phase: "paused" };
-  if (readyImages >= CLOUD_CLAIM_MAX_ASSETS) pausedSession = await markCaptureLimit(pausedSession, "images");
-  for (const event of pendingEventsForSession(pausedSession, pendingEvents)) pausedSession = await recordEventWithoutImage(pausedSession, event);
-  await persistRecoveryJournal(pausedSession.id, pausedSession.events, "paused");
-  await setSession({ ...pausedSession, paused: true });
+  let pausedSession = pausedIntent;
+  pausedSession = mergePendingEventsWithoutImages(pausedSession, pendingEvents);
+  const finalJournalSaved = await persistRecoveryJournal(pausedSession.id, pausedSession.events, "paused", pausedSession.captureLimitReached).then(() => true, () => false);
+  const finalSessionSaved = await setSession({ ...pausedSession, paused: true }).then(() => true, () => false);
+  if (!finalJournalSaved && !finalSessionSaved) {
+    navigationFallback = { sessionId: pausedSession.id, events: pausedSession.events };
+    throw new Error("PAUSE_STATE_UNAVAILABLE");
+  }
   return { paused: true };
 }
 
@@ -477,7 +494,10 @@ function nextCaptureEventGeneration(tabId) {
 
 async function markCaptureLimit(session, limit) {
   const limited = { ...session, phase: "paused", paused: true, captureLimitReached: limit };
-  await setSession(limited).catch(() => undefined);
+  const journalSaved = await persistRecoveryJournal(limited.id, limited.events || [], "paused", limit).then(() => true, () => false);
+  const sessionSaved = await setSession(limited).then(() => true, () => false);
+  if (!journalSaved && !sessionSaved) throw new Error("CAPTURE_LIMIT_STATE_UNAVAILABLE");
+  if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
   return limited;
 }
 
@@ -584,9 +604,13 @@ async function resumeCapture(tabId) {
     reinjectionFailureSessionId = null;
     return { resumed: true };
   } catch {
-    const failedSession = { ...session, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
-    await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").catch(() => undefined);
-    await setSession(failedSession).catch(() => undefined);
+    const pendingEvents = await stopRecorder(tabId);
+    const recoveredSession = mergePendingEventsWithoutImages(session, pendingEvents);
+    const failedSession = { ...recoveredSession, phase: "reinjection_failed", reinjectionFailed: true, failureCategory: "recorder_reinjection_failed" };
+    reinjectionFailureSessionId = session.id;
+    const journalSaved = await persistRecoveryJournal(session.id, failedSession.events || [], "reinjection_failed").then(() => true, () => false);
+    const sessionSaved = await setSession(failedSession).then(() => true, () => false);
+    if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
     throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
   }
 }
