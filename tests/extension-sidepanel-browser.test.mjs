@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -41,6 +41,11 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     } catch (error) {
       throw error;
     }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
+      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+      : []);
+    assert.ok(sidePanelContexts.length > 0, "action should create a SIDE_PANEL extension context");
     const panel = await panelPromise || await context.newPage();
     if (!panel.url().startsWith(`chrome-extension://${extensionId}/sidepanel/`)) {
       await panel.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
@@ -65,7 +70,8 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.equal(finished.ok, true);
     await panel.locator(".draft-card").waitFor({ timeout: 15_000 });
     assert.ok(await panel.locator(".draft-card img").count(), "saved draft should retain its step image");
-    const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(userDataDir, "sidepanel.png");
+    const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
+    await mkdir(resolve(screenshotPath, ".."), { recursive: true });
     await panel.screenshot({ path: screenshotPath, fullPage: true });
   } finally {
     await context?.close();

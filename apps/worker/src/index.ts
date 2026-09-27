@@ -26,6 +26,7 @@ interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
   GITHUB_ISSUE_TOKEN?: string;
   GITHUB_ISSUE_REPOSITORY?: string;
   MANUAL_ASSETS?: R2Bucket;
+  ASSETS?: Fetcher;
 }
 
 interface HealthResponse {
@@ -2263,6 +2264,20 @@ function isLegacySupabaseProtectedRoute(pathname: string): boolean {
   );
 }
 
+const BRAND_ASSET_PATHS: Record<string, string> = {
+  "/assets/meccha-manual-logo-mark.png": "/assets/meccha-manual-logo-mark.png",
+  "/assets/meccha-manual-mascot-me-clear-eyes.png": "/assets/meccha-manual-mascot-me-clear-eyes.png",
+};
+
+async function brandAssetResponse(request: Request, env: Env): Promise<Response | null> {
+  if (request.method !== "GET") return null;
+  const assetPath = BRAND_ASSET_PATHS[new URL(request.url).pathname];
+  if (!assetPath) return null;
+  if (!env.ASSETS) return new Response("Not Found", { status: 404 });
+  const target = new URL(assetPath, request.url);
+  return env.ASSETS.fetch(new Request(target, { method: "GET", headers: request.headers }));
+}
+
 async function route(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (useAccessD1Routes(env) && isLegacySupabaseProtectedRoute(url.pathname)) {
@@ -2300,6 +2315,8 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
   }
+  const brandAsset = await brandAssetResponse(request, env);
+  if (brandAsset) return brandAsset;
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }

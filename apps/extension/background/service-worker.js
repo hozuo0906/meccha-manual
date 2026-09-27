@@ -421,13 +421,6 @@ if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 }
 
-if (chrome.action?.onClicked?.addListener) {
-  chrome.action.onClicked.addListener((tab) => {
-    if (!chrome.sidePanel?.open || !tab?.windowId) return;
-    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
-  });
-}
-
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -115,6 +115,13 @@ test("dedicated onboarding Wrangler config separates staging and fail-closed pro
   assert.equal(config.keep_vars, true);
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
+  assert.deepEqual(config.assets, {
+    binding: "ASSETS",
+    directory: "./apps/worker/brand-assets",
+    run_worker_first: true,
+    not_found_handling: "404-page",
+    html_handling: "drop-trailing-slash",
+  });
   assert.equal(config.env.staging.preview_urls, true);
   assert.equal(config.env.production.preview_urls, false);
   assert.deepEqual(config.env.staging.vars, {
@@ -181,4 +188,32 @@ test("worker serves onboarding page/assets and fails closed when bindings are un
   const pending = await worker.fetch(new Request("https://meccha-manual.meccha-iiyatsu.com/onboarding/continue"), { ACCESS_ISSUER: "", ACCESS_AUDIENCE: "", ACCESS_JWKS_URL: "" }, {});
   assert.equal(pending.status, 200);
   assert.match(await pending.text(), /data-bootstrap-enabled="false"/);
+});
+
+test("worker serves the onboarding brand PNGs through the configured static asset binding", async () => {
+  const files = new Map([
+    ["/assets/meccha-manual-logo-mark.png", await readFile(new URL("../apps/worker/brand-assets/assets/meccha-manual-logo-mark.png", import.meta.url))],
+    ["/assets/meccha-manual-mascot-me-clear-eyes.png", await readFile(new URL("../apps/worker/brand-assets/assets/meccha-manual-mascot-me-clear-eyes.png", import.meta.url))],
+  ]);
+  const assets = {
+    async fetch(input) {
+      const bytes = files.get(new URL(input instanceof Request ? input.url : input).pathname);
+      return bytes ? new Response(bytes, { headers: { "content-type": "image/png" } }) : new Response("Not Found", { status: 404 });
+    },
+  };
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    ASSETS: assets,
+  };
+  const pngSignature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  for (const path of [
+    "/assets/meccha-manual-logo-mark.png",
+    "/assets/meccha-manual-mascot-me-clear-eyes.png",
+  ]) {
+    const response = await worker.fetch(new Request(`https://meccha-manual-staging.meccha-iiyatsu.com${path}`), env, {});
+    assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get("content-type"), "image/png", path);
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()).slice(0, pngSignature.length), pngSignature, path);
+  }
 });

@@ -1,13 +1,6 @@
 ﻿import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { chromium } from "@playwright/test";
-
-const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 
 test("sidepanel is the action surface and keeps recording controls explicit", async () => {
   const manifest = JSON.parse(await readFile(new URL("../apps/extension/manifest.json", import.meta.url), "utf8"));
@@ -17,6 +10,8 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.equal(manifest.version, "0.1.4");
   assert.equal(manifest.permissions.includes("sidePanel"), true);
   assert.equal(manifest.action.default_popup, undefined);
+  assert.equal(manifest.action.default_icon["128"], "assets/meccha-manual-logo-mark.png");
+  assert.equal(manifest.icons["128"], "assets/meccha-manual-logo-mark.png");
   assert.equal(manifest.side_panel.default_path, "sidepanel/sidepanel.html");
   assert.match(source, /capture:start/);
   assert.match(source, /capture:pause/);
