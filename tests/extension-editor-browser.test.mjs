@@ -222,6 +222,89 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
   }
 });
 
+test("sidepanel refreshes drafts independently from unchanged capture state", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const sourcePage = await context.newPage();
+    await sourcePage.goto(`${baseUrl}/seed.html`);
+    await sourcePage.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "sidepanel-draft-refresh-fixture",
+        title: "最初のタイトル",
+        description: "説明",
+        updatedAt: "2026-09-27T00:00:00.000Z",
+        steps: [{ id: "step", order: 1, instruction: "手順" }],
+        screenshots: []
+      });
+    });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__statusCalls = 0;
+      globalThis.chrome = {
+        runtime: {
+          getURL: (path) => `chrome-extension://test/${path}`,
+          sendMessage: async (message) => {
+            if (message?.type === "capture:status") {
+              globalThis.__statusCalls += 1;
+              return { ok: true, value: { phase: "idle", events: [], stepImageRefs: [], sessionId: null } };
+            }
+            return { ok: true, value: null };
+          }
+        },
+        tabs: { create: async () => ({ id: 1 }) }
+      };
+    });
+    await page.goto(`${baseUrl}/sidepanel/sidepanel.html`);
+    await page.locator(".draft-card h3").waitFor();
+    assert.equal(await page.locator(".draft-card h3").textContent(), "最初のタイトル");
+    const openButton = page.locator(".draft-card button");
+    await openButton.focus();
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset?.draftId), "sidepanel-draft-refresh-fixture");
+
+    await sourcePage.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "sidepanel-draft-refresh-fixture",
+        title: "別ページから更新したタイトル",
+        description: "説明",
+        updatedAt: "2026-09-27T00:01:00.000Z",
+        steps: [{ id: "step", order: 1, instruction: "手順" }],
+        screenshots: []
+      });
+    });
+    await page.waitForFunction(() => document.querySelector(".draft-card h3")?.textContent === "別ページから更新したタイトル", null, { timeout: 5_000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset?.draftId), "sidepanel-draft-refresh-fixture", "draft refresh should preserve button focus");
+    assert.ok(await page.evaluate(() => globalThis.__statusCalls > 1), "draft refresh should poll while capture status is unchanged");
+
+    await sourcePage.evaluate(async () => {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open("meccha-manual-guest", 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const transaction = request.result.transaction("drafts", "readwrite");
+          transaction.objectStore("drafts").delete("sidepanel-draft-refresh-fixture");
+          transaction.oncomplete = () => { request.result.close(); resolve(); };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      });
+    });
+    await page.waitForFunction(() => document.querySelectorAll(".draft-card").length === 0
+      && document.querySelector("#draftSection")?.hidden === true
+      && document.querySelector("#emptyState")?.hidden === false, null, { timeout: 5_000 });
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("ready config opens the registration tab once and keeps local edits", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));

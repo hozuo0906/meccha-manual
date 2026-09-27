@@ -21,6 +21,7 @@ const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
 const emptyState = document.querySelector("#emptyState");
 const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
+const DRAFT_POLL_INTERVAL_MS = 3_000;
 
 const MODE_LABELS = {
   pc: "PC",
@@ -98,7 +99,23 @@ async function openDraftEditor(draftId) {
   return chrome.tabs.create({ url: editorUrl(draftId) });
 }
 
+function draftRenderKey(items = []) {
+  return JSON.stringify(items.map((draft) => {
+    const screenshot = draft?.screenshots?.find((item) => item?.dataUrl);
+    return {
+      id: draft?.id || "",
+      updatedAt: draft?.updatedAt || "",
+      title: draft?.title || "",
+      description: draft?.description || "",
+      stepCount: draft?.steps?.length || 0,
+      firstScreenshotId: screenshot?.id || "",
+      firstScreenshotLength: screenshot?.dataUrl?.length || 0
+    };
+  }).sort((a, b) => a.id.localeCompare(b.id)));
+}
+
 function renderDrafts(items = []) {
+  const focusedDraftId = document.activeElement?.dataset?.draftId || "";
   const sorted = [...items].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
   drafts.replaceChildren();
   draftCount.textContent = String(sorted.length);
@@ -115,11 +132,17 @@ function renderDrafts(items = []) {
     detail.textContent = `${draft.steps?.length || 0}手順・端末に保存済み`;
     const open = document.createElement("button");
     open.type = "button";
+    open.dataset.draftId = draft.id;
     open.textContent = "手順書を開く";
     open.addEventListener("click", () => openDraftEditor(draft.id));
     content.append(title, detail, open);
     card.append(image, content);
     drafts.append(card);
+  }
+  if (focusedDraftId) {
+    const focused = [...drafts.querySelectorAll("button[data-draft-id]")]
+      .find((button) => button.dataset.draftId === focusedDraftId);
+    focused?.focus();
   }
 }
 
@@ -160,24 +183,54 @@ function renderStatus(state = {}, imageEntries = []) {
   else if (!state.hasDrafts) status.textContent = "";
 }
 
-async function refresh() {
-  const state = await send({ type: "capture:status" });
-  const statusKey = JSON.stringify({
-    sessionId: state.sessionId,
-    phase: state.phase,
-    captureLimitReached: state.captureLimitReached || null,
-    events: (state.events || []).map(({ eventId, at }) => [eventId, at]),
-    stepImageRefs: state.stepImageRefs || []
-  });
-  if (statusKey !== lastStatusKey) {
-    lastStatusKey = statusKey;
-    [localDrafts, liveImages] = await Promise.all([
-      draftStore.list(),
-      state.sessionId ? captureLiveStore.list(state.sessionId) : Promise.resolve([])
-    ]);
-    renderDrafts(localDrafts);
+let refreshInFlight = null;
+async function refresh(forceDraftPoll = false) {
+  if (refreshInFlight) {
+    const inFlight = refreshInFlight;
+    try {
+      await inFlight;
+    } catch (error) {
+      if (!forceDraftPoll) throw error;
+    }
+    if (refreshInFlight === inFlight) refreshInFlight = null;
+    return forceDraftPoll ? refresh(true) : undefined;
   }
-  renderStatus({ ...state, hasDrafts: localDrafts.length > 0 }, liveImages);
+  const operation = (async () => {
+    const state = await send({ type: "capture:status" });
+    const nextStatusKey = JSON.stringify({
+      sessionId: state.sessionId,
+      phase: state.phase,
+      captureLimitReached: state.captureLimitReached || null,
+      events: (state.events || []).map(({ eventId, at }) => [eventId, at]),
+      stepImageRefs: state.stepImageRefs || []
+    });
+    const statusChanged = nextStatusKey !== lastStatusKey;
+    const shouldPollDrafts = forceDraftPoll || statusChanged || Date.now() - lastDraftPollAt >= DRAFT_POLL_INTERVAL_MS;
+    const nextDrafts = shouldPollDrafts ? await draftStore.list() : localDrafts;
+    const nextLiveImages = statusChanged
+      ? (state.sessionId ? await captureLiveStore.list(state.sessionId) : [])
+      : liveImages;
+    if (statusChanged) {
+      lastStatusKey = nextStatusKey;
+      liveImages = nextLiveImages;
+    }
+    if (shouldPollDrafts) {
+      lastDraftPollAt = Date.now();
+      const nextDraftKey = draftRenderKey(nextDrafts);
+      if (nextDraftKey !== lastDraftKey) {
+        localDrafts = nextDrafts;
+        lastDraftKey = nextDraftKey;
+        renderDrafts(localDrafts);
+      }
+    }
+    renderStatus({ ...state, hasDrafts: localDrafts.length > 0 }, liveImages);
+  })();
+  refreshInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (refreshInFlight === operation) refreshInFlight = null;
+  }
 }
 
 async function withError(action, fallback) {
@@ -205,7 +258,7 @@ finish.addEventListener("click", () => withError(async () => {
   }
   let refreshError = null;
   try {
-    await refresh();
+    await refresh(true);
   } catch (error) {
     refreshError = error;
   }
@@ -253,6 +306,8 @@ restore.addEventListener("click", () => withError(async () => {
 
 let refreshTimer;
 let lastStatusKey = "";
+let lastDraftKey = null;
+let lastDraftPollAt = 0;
 let lastLiveKey = "";
 let statusOverride = "";
 let liveImages = [];
