@@ -156,11 +156,25 @@ async function injectRecorder(tabId) {
 }
 
 async function stopRecorder(tabId, command = "drain") {
-  const results = await chrome.scripting.executeScript({
+  const execute = () => chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
-    func: (recorderCommand) => globalThis.__mecchaManualRecorder?.(recorderCommand),
+    func: (recorderCommand) => {
+      if (recorderCommand !== "release") return globalThis.__mecchaManualRecorder?.(recorderCommand);
+      const recorder = globalThis.__mecchaManualRecorder;
+      if (typeof recorder !== "function") return { releaseAck: true };
+      const result = recorder("release");
+      return { releaseAck: globalThis.__mecchaManualRecorder === undefined, result };
+    },
     args: [command]
-  }).catch(() => []);
+  });
+  if (command === "release") {
+    const results = await execute();
+    if (!Array.isArray(results) || results.length === 0 || results.some((entry) => entry?.result?.releaseAck !== true)) {
+      throw new Error("RECORDER_RELEASE_UNCONFIRMED");
+    }
+    return [];
+  }
+  const results = await execute().catch(() => []);
   return results.flatMap(({ result }) => Array.isArray(result) ? result : result ? [result] : []);
 }
 
