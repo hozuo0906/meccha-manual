@@ -98,6 +98,10 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
     </style><main>
       <span class="copy" id="email-one">repeat@example.com</span>
       <span class="copy" id="email-two">repeat@example.com</span>
+      <span class="copy" id="phone-one">03-1234-5678</span>
+      <span class="copy" id="phone-two">03-1234-5678</span>
+      <span class="copy" id="postal-one">123-4567</span>
+      <span class="copy" id="postal-two">123-4567</span>
     </main>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -112,13 +116,13 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
     const before = await page.screenshot({ type: "png" });
-    const beforeRects = await page.evaluate(() => ["email-one", "email-two"].map((id) => {
+    const beforeRects = await page.evaluate(() => ["email-one", "email-two", "phone-one", "phone-two", "postal-one", "postal-two"].map((id) => {
       const rect = document.getElementById(id).getBoundingClientRect();
       return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
     }));
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
-    assert.equal(mask.privacyMaskedCount, 2);
+    assert.equal(mask.privacyMaskedCount, 6, "電話番号の一部を郵便番号として重ねて処理しない");
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     assert.deepEqual(await page.evaluate(() => [
       document.getElementById("email-one").textContent,

@@ -93,7 +93,7 @@ export function installSensitiveMasks() {
     const textPatterns = [
       { kind: "email", pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
       { kind: "phone", pattern: /(?:^|[^\d])((?:0\d{1,4})[-ー−‐– ]?(?:\d{1,4})[-ー−‐– ]?\d{3,4})(?!\d)/g },
-      { kind: "address", pattern: /(?:〒?\d{3}[-ー−‐– ]?\d{4})/g }
+      { kind: "address", pattern: /(?:^|[^\d])(〒?\d{3}[-ー−‐– ]?\d{4})(?!\d)/g }
     ];
     const collectPrivacyCandidates = () => {
       const candidates = [];
@@ -115,6 +115,7 @@ export function installSensitiveMasks() {
       const pairSelectors = ["dt + dd", "th + td"];
       for (const selectorText of pairSelectors) {
         for (const valueElement of document.querySelectorAll?.(selectorText) || []) {
+          if (candidates.length >= maxPrivacyOverlays) return candidates;
           const labelElement = valueElement.previousElementSibling;
           const kind = semanticKind(labelElement?.textContent);
           if (!kind || !isVisibleTextElement(valueElement)) continue;
@@ -129,7 +130,7 @@ export function installSensitiveMasks() {
       const showText = globalThis.NodeFilter?.SHOW_TEXT ?? 4;
       const walker = document.createTreeWalker(document.body || document.documentElement, showText);
       let node;
-      while ((node = walker.nextNode?.())) {
+      while (candidates.length < maxPrivacyOverlays && (node = walker.nextNode?.())) {
         const parent = node.parentElement;
         const pairedAncestor = parent?.closest?.("dd,td");
         if (!parent || pairedValues.has(parent) || (pairedAncestor && pairedValues.has(pairedAncestor)) || !isVisibleTextElement(parent)) continue;
