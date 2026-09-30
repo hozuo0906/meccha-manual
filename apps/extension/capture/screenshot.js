@@ -68,38 +68,47 @@ export function installSensitiveMasks() {
       const roots = [];
       const seen = new Set();
       const traversal = { inspected: 0 };
-      const hasDirectText = (element) => [...element.childNodes || []].some((child) => child.nodeType === 3 && String(child.nodeValue ?? "").trim());
-      const visit = (root) => {
+      const frames = [];
+      const visitRoot = (root) => {
         if (!root?.childNodes || seen.has(root) || privacyRootTraversalOverflow) return;
         seen.add(root);
         roots.push(root);
-        const visitNode = (node) => {
-          if (privacyRootTraversalOverflow || isOwnedPrivacyOverlayNode(node)) return;
-          if (node.nodeType !== 1) {
-            for (const child of node.childNodes || []) visitNode(child);
-            return;
-          }
-          if (node.matches?.("script,style,noscript,template")) return;
-          let shadow;
-          try {
-            shadow = shadowRootOf(node);
-          } catch {
-            privacyRootTraversalOverflow = true;
-            return;
-          }
-          if (hasDirectText(node) || shadow) {
-            traversal.inspected += 1;
-            if (traversal.inspected > maxPrivacyTraversalNodes) {
-              privacyRootTraversalOverflow = true;
-              return;
-            }
-          }
-          for (const child of node.childNodes || []) visitNode(child);
-          if (shadow?.childNodes) visit(shadow);
-        };
-        for (const child of root.childNodes) visitNode(child);
+        traversal.inspected += 1;
+        if (traversal.inspected > maxPrivacyTraversalNodes) {
+          privacyRootTraversalOverflow = true;
+          return;
+        }
+        frames.push({ parent: root, index: 0 });
       };
-      visit(document);
+      visitRoot(document);
+      while (frames.length && !privacyRootTraversalOverflow) {
+        const frame = frames[frames.length - 1];
+        if (frame.index >= frame.parent.childNodes.length) {
+          frames.pop();
+          continue;
+        }
+        const node = frame.parent.childNodes[frame.index++];
+        if (isOwnedPrivacyOverlayNode(node)) continue;
+        traversal.inspected += 1;
+        if (traversal.inspected > maxPrivacyTraversalNodes) {
+          privacyRootTraversalOverflow = true;
+          break;
+        }
+        if (node.nodeType !== 1) {
+          if (node.childNodes?.length) frames.push({ parent: node, index: 0 });
+          continue;
+        }
+        if (node.matches?.("script,style,noscript,template")) continue;
+        let shadow;
+        try {
+          shadow = shadowRootOf(node);
+        } catch {
+          privacyRootTraversalOverflow = true;
+          break;
+        }
+        if (shadow?.childNodes) visitRoot(shadow);
+        if (node.childNodes?.length) frames.push({ parent: node, index: 0 });
+      }
       return roots;
     };
 
@@ -190,43 +199,55 @@ export function installSensitiveMasks() {
       };
       const rootRecords = new Map();
       const seenRoots = new Set();
-      const hasDirectText = (element) => [...element.childNodes || []].some((child) => child.nodeType === 3 && String(child.nodeValue ?? "").trim());
       const visitRoot = (root) => {
         if (!root?.childNodes || seenRoots.has(root) || traversal.exceeded) return;
         seenRoots.add(root);
         const record = { root, elements: [], textNodes: [] };
         rootRecords.set(root, record);
-        const visitNode = (node) => {
-          if (traversal.exceeded || isOwnedPrivacyOverlayNode(node)) return;
-          if (node.nodeType === 3) {
-            if (node.parentElement) record.textNodes.push(node);
-            return;
-          }
-          if (node.nodeType !== 1) {
-            for (const child of node.childNodes || []) visitNode(child);
-            return;
-          }
-          if (node.matches?.("script,style,noscript,template")) return;
-          const shadow = node.shadowRoot;
-          if (hasDirectText(node) || shadow) {
-            traversal.inspected += 1;
-            if (traversal.inspected > maxPrivacyTraversalNodes) {
-              traversal.exceeded = true;
-              return;
-            }
-          }
-          record.elements.push(node);
-          for (const child of node.childNodes || []) visitNode(child);
-          if (shadow?.querySelectorAll) visitRoot(shadow);
-        };
-        for (const child of root.childNodes) visitNode(child);
+        traversal.inspected += 1;
+        if (traversal.inspected > maxPrivacyTraversalNodes) {
+          traversal.exceeded = true;
+          return;
+        }
+        frames.push({ parent: root, index: 0, record });
       };
+      const frames = [];
       visitRoot(document);
+      while (frames.length && !traversal.exceeded) {
+        const frame = frames[frames.length - 1];
+        if (frame.index >= frame.parent.childNodes.length) {
+          frames.pop();
+          continue;
+        }
+        const node = frame.parent.childNodes[frame.index++];
+        if (isOwnedPrivacyOverlayNode(node)) continue;
+        traversal.inspected += 1;
+        if (traversal.inspected > maxPrivacyTraversalNodes) {
+          traversal.exceeded = true;
+          break;
+        }
+        if (node.nodeType === 3) {
+          if (node.parentElement) frame.record.textNodes.push(node);
+          continue;
+        }
+        if (node.nodeType !== 1) {
+          if (node.childNodes?.length) frames.push({ parent: node, index: 0, record: frame.record });
+          continue;
+        }
+        if (node.matches?.("script,style,noscript,template")) continue;
+        frame.record.elements.push(node);
+        const shadow = node.shadowRoot;
+        if (shadow?.childNodes) visitRoot(shadow);
+        if (node.childNodes?.length) frames.push({ parent: node, index: 0, record: frame.record });
+      }
       for (const record of rootRecords.values()) {
         for (const valueElement of record.elements) {
           if (candidateOverflow) break;
           const labelElement = valueElement.previousElementSibling;
-          const kind = ["DD", "TD"].includes(String(valueElement.tagName || "").toUpperCase()) ? semanticKind(labelElement?.textContent) : null;
+          const valueTag = String(valueElement.tagName || "").toUpperCase();
+          const labelTag = String(labelElement?.tagName || "").toUpperCase();
+          const isSemanticPair = (labelTag === "DT" && valueTag === "DD") || (labelTag === "TH" && valueTag === "TD");
+          const kind = isSemanticPair ? semanticKind(labelElement?.textContent) : null;
           if (!kind || !isVisibleTextElement(valueElement)) continue;
           const text = normalizeText(valueElement.textContent);
           if (!text || text.length > 160) continue;
