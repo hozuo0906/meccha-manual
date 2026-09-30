@@ -20,6 +20,8 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(source, /liveLatest/);
   assert.match(source, /scrollLiveLatest/);
   assert.match(source, /window\.scrollTo\(\{ top: targetScrollY, behavior: scrollBehavior \}\)/);
+  assert.match(source, /if \(programmaticFollowPending\) \{\s*if \(isLiveTailVisible\(\)\) programmaticFollowPending = false;/);
+  assert.doesNotMatch(source, /event\?\.isTrusted\) programmaticFollowPending = false/);
   assert.doesNotMatch(source, /latest\.scrollIntoView/);
   assert.doesNotMatch(source, /window\.scrollBy\(\{ top: overlap/);
   assert.match(source, /captureLimitReached/);

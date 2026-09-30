@@ -75,7 +75,7 @@ function updateLiveLatestVisibility() {
   liveLatest.hidden = followLiveTail || !liveSteps.children.length;
 }
 
-function scrollLiveLatest({ behavior = "smooth" } = {}) {
+function scrollLiveLatest({ behavior = "smooth", scheduleRepair = true } = {}) {
   const latest = liveSteps.lastElementChild;
   if (!latest) return;
   followLiveTail = true;
@@ -87,6 +87,16 @@ function scrollLiveLatest({ behavior = "smooth" } = {}) {
   const targetScrollY = Math.max(0, window.scrollY + latest.getBoundingClientRect().bottom - footerTop + 8);
   if (Math.abs(targetScrollY - window.scrollY) > 1) {
     window.scrollTo({ top: targetScrollY, behavior: scrollBehavior });
+  }
+  const repairFollow = followLiveTail;
+  if (repairFollow && scheduleRepair) {
+    const repairGeneration = ++liveTailRepairGeneration;
+    for (const delay of [80, 220, 420]) {
+      setTimeout(() => {
+        if (repairGeneration !== liveTailRepairGeneration || !followLiveTail || liveSection.hidden) return;
+        if (!isLiveTailVisible()) scrollLiveLatest({ behavior: "auto", scheduleRepair: false });
+      }, delay);
+    }
   }
   requestAnimationFrame(() => {
     if (isLiveTailVisible()) programmaticFollowPending = false;
@@ -116,6 +126,17 @@ function restoreLiveScrollAnchor(anchor) {
   if (!next) return;
   const delta = next.getBoundingClientRect().top - anchor.top;
   if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "auto" });
+}
+
+function keepLiveTailVisibleAfterResize() {
+  if (!followLiveTail || liveSection.hidden) return;
+  requestAnimationFrame(() => {
+    if (followLiveTail && !isLiveTailVisible()) scrollLiveLatest({ behavior: "auto" });
+  });
+}
+
+if (typeof ResizeObserver === "function" && liveSteps) {
+  new ResizeObserver(keepLiveTailVisibleAfterResize).observe(liveSteps);
 }
 
 function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
@@ -499,12 +520,12 @@ let localDrafts = [];
 let liveSessionId = null;
 let followLiveTail = true;
 let programmaticFollowPending = false;
+let liveTailRepairGeneration = 0;
 
-function updateLiveTailPosition(event) {
-  if (event?.isTrusted) programmaticFollowPending = false;
+function updateLiveTailPosition() {
   if (programmaticFollowPending) {
-    if (!isLiveTailVisible()) return;
-    programmaticFollowPending = false;
+    if (isLiveTailVisible()) programmaticFollowPending = false;
+    else return;
   }
   if (!liveSection.hidden) followLiveTail = isLiveTailVisible();
   updateLiveLatestVisibility();
