@@ -102,8 +102,8 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
       sessionRemoveFailure = sessionValue;
       localRemoveFailure = localValue;
     }, dropSession: () => { session = null; }, viewportApplied: () => viewportApplied,
-    navigate: async () => { onUpdated(1, { status: "complete" }); await context.settle(); },
-    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => { onUpdated(17, { url, status: "loading" }); await new Promise((resolve) => setTimeout(resolve, 0)); await context.settle(); },
+    navigate: async () => { await onUpdated(1, { status: "complete" }); await context.settle(); },
+    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => { await onUpdated(17, { url, status: "loading" }); await context.settle(); },
     tabUpdates: () => tabUpdates,
     handoffStorage: () => handoffStorage,
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
@@ -137,6 +137,7 @@ test("Access認証から戻ったhandoff対象タブへfragmentを復元する",
   const updates = capture.tabUpdates();
   assert.equal(updates.length, 1);
   assert.equal(updates[0].tabId, 17);
+  assert.equal(updates[0].active, undefined, "Access recovery must preserve the tab's current active state");
   assert.match(updates[0].url, /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=A{43}&extensionId=a{32}&launchId=B{43}$/);
   assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 1);
 

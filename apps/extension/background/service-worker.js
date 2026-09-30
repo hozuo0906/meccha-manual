@@ -733,7 +733,7 @@ async function restoreHandoffAfterAccess(tabId, changeInfo) {
         return;
       }
       await chrome.storage.local.set({ [readyKey]: { ...latest, restoreAttempts: Number(latest.restoreAttempts || 0) + 1 } });
-      await chrome.tabs.update(tabId, { url: pendingUrl, active: false });
+      await chrome.tabs.update(tabId, { url: pendingUrl });
     }).catch(() => undefined);
   }
 }
@@ -824,8 +824,8 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  restoreHandoffAfterAccess(tabId, changeInfo).catch(() => undefined);
-  if (changeInfo.status !== "complete") return;
+  const handoffRestore = restoreHandoffAfterAccess(tabId, changeInfo).catch(() => undefined);
+  if (changeInfo.status !== "complete") return handoffRestore;
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
@@ -887,6 +887,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       await persistRecoveryJournal(session.id, navigationFallbackEvents(session.id, navigationEvent), "recording").catch(() => undefined);
     }
   }).catch(() => undefined);
+  return handoffRestore;
 });
 
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {

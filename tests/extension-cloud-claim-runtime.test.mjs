@@ -6,9 +6,12 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { chromium } from "@playwright/test";
 import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
+import { ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const STAGING_URL = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=1`;
+const ACCESS_AUTH_ORIGIN = "https://meccha-manual-access-login.example.test";
+const ACCESS_AUTH_URL = `${ACCESS_AUTH_ORIGIN}/cdn-cgi/access/login?runtime-test=1`;
 const WRONG_ORIGIN_URL = "https://evil.example.test/onboarding/continue?runtime-test=1";
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 
@@ -57,6 +60,44 @@ async function createSyntheticPage(context, url) {
 
 async function createStagingPage(context, url = STAGING_URL) {
   return createSyntheticPage(context, url);
+}
+
+async function createRealStagingPage(context, url = STAGING_URL, { bootstrapEnabled = false } = {}) {
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.origin !== STAGING_ORIGIN) {
+      await route.abort();
+      return;
+    }
+    if (requestUrl.pathname === "/onboarding/continue") {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: renderOnboardingContinuePage({ bootstrapEnabled }) });
+      return;
+    }
+    if (requestUrl.pathname === "/assets/onboarding.js") {
+      await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: ONBOARDING_JS });
+      return;
+    }
+    if (requestUrl.pathname === "/api/onboarding/bootstrap") {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "ready", workspaceId: "runtime-workspace" }) });
+      return;
+    }
+    if (requestUrl.pathname === "/api/onboarding/claim-intents") {
+      await route.fulfill({ status: 201, contentType: "application/json; charset=utf-8", body: JSON.stringify({ claimIntentId: "12345678-1234-4234-8234-123456789012" }) });
+      return;
+    }
+    if (requestUrl.pathname.includes("/assets/")) {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "staged" }) });
+      return;
+    }
+    if (requestUrl.pathname.startsWith("/api/onboarding/claims/")) {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "claimed", manualId: "runtime-manual-1" }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
+  });
+  await page.goto(url, { waitUntil: "commit" });
+  return page;
 }
 
 async function sendExternal(page, extensionId, message) {
@@ -957,18 +998,29 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
     const handoffId = "V".repeat(43);
     const launchId = "W".repeat(43);
     const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
-    const page = await createStagingPage(context, hashlessUrl);
+    const page = await createRealStagingPage(context, hashlessUrl, { bootstrapEnabled: true });
     await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
-    await page.route(`${STAGING_ORIGIN}/onboarding/continue*`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: externalPageHtml() }));
+    await page.route(`${ACCESS_AUTH_ORIGIN}/**`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" }));
     const tabId = await tabIdForPage(worker, page);
     assert.equal(Number.isInteger(tabId), true);
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const draft = {
+      id: "runtime-access-restore-draft",
+      title: "Access復帰確認",
+      description: "実MV3復元経路の保存確認",
+      updatedAt: "2026-09-30T00:00:00.000Z",
+      steps: [{ id: "runtime-access-step", order: 1, instruction: "保存する", screenshotId: "runtime-access-asset" }],
+      screenshots: [{ id: "runtime-access-asset", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [] }]
+    };
+    const draftFingerprint = await fingerprintDraft(draft);
+    await putDraft(worker, draft);
     await setMetadata(worker, handoffStorageKey(handoffId), {
       handoffId,
-      draftId: "runtime-access-restore-draft",
+      draftId: draft.id,
       outputAction: "save",
       extensionId,
-      draftFingerprint: "e".repeat(64),
+      draftUpdatedAt: draft.updatedAt,
+      draftFingerprint,
       expiresAt
     });
     await setMetadata(worker, handoffReadyStorageKey(handoffId, launchId), {
@@ -980,10 +1032,26 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
       pageReadyAt: new Date().toISOString(),
       activatedAt: new Date().toISOString()
     });
+    await page.goto(`${hashlessUrl}#handoff=${handoffId}&extensionId=${extensionId}&launchId=${launchId}&action=save`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => location.hash === "");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "a normal handoff page must not trigger Access recovery");
+    await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
+    assert.match(page.url(), new RegExp(`${ACCESS_AUTH_ORIGIN.replaceAll(".", "\\.")}/cdn-cgi/access/login`));
     await page.goto(hashlessUrl, { waitUntil: "commit" });
-    await page.waitForURL(new RegExp(`${STAGING_ORIGIN.replaceAll(".", "\\.")}/onboarding/continue#handoff=V{43}`));
-    assert.match(page.url(), /&extensionId=[a-p]{32}&launchId=W{43}$/);
-    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, 1);
+    const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    for (let attempt = 0; attempt < 30 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1, "a hashless return after Access must restore once");
+    const tabState = await worker.evaluate((url) => new Promise((resolve) => chrome.tabs.query({}, (tabs) => resolve(tabs.find((tab) => tab.url === url) || null))), page.url());
+    assert.equal(tabState?.active, true, "Access recovery must keep the already active tab in front");
+    await page.locator("#bootstrap").click();
+    for (let attempt = 0; attempt < 40 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const completed = await readMetadata(worker, handoffStorageKey(handoffId));
+    assert.equal(completed.status, "completed", "the real onboarding page must complete the restored handoff");
+    assert.equal(completed.manualId, "runtime-manual-1");
+    assert.equal(await getDraft(worker, draft.id), null, "completed workflow must clear the unchanged local draft");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const savedContext = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"));
+    assert.equal(savedContext?.entries?.find((entry) => entry.handoffId === "V".repeat(43))?.claimStatus, "completed", "reopening the page must retain the completed claim context");
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
