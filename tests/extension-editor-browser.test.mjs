@@ -107,6 +107,64 @@ async function readScreenshot(page, draftId, screenshotId = "image-1") {
   }, { draftId, screenshotId });
 }
 
+test("nearby previews render portrait images without moving the reserved frame and release distant buffers", { timeout: 35_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = "http://127.0.0.1:" + server.address().port;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "editor-preview-buffer-regression";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(6_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+    const portraitDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 240; canvas.height = 1200;
+      const context = canvas.getContext("2d"); context.fillStyle = "#eaf8fb"; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#087f7a"; context.fillRect(42, 120, 156, 960);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ draftId: currentDraftId, portrait }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get(currentDraftId);
+      draft.screenshots.find((screenshot) => screenshot.id === "image-1").dataUrl = portrait;
+      await draftStore.put(draft);
+    }, { draftId, portrait: portraitDataUrl });
+    await page.reload();
+
+    const preview = page.locator("#step-step-1 .screenshot-preview");
+    const canvas = page.locator("#step-step-1 .screenshot-canvas");
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
+    });
+    const firstFrame = await preview.boundingBox();
+    assert.ok(firstFrame && Math.abs(firstFrame.width / firstFrame.height - 16 / 9) < .03, "画像の縦横比にかかわらずプレビュー枠を固定する");
+    assert.equal(await canvas.evaluate((element) => element.style.aspectRatio), "", "canvasへ画像ごとの比率を設定しない");
+
+    await page.locator("#step-step-22").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 1 && target?.height === 1 && target?.dataset.previewRendered === "false";
+    });
+    const reservedFrame = await preview.boundingBox();
+    assert.ok(reservedFrame && Math.abs(reservedFrame.width / reservedFrame.height - 16 / 9) < .03, "遠い画像のpixel bufferを解放しても枠を維持する");
+
+    await page.locator("#step-step-1").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
+    });
+    const restoredFrame = await preview.boundingBox();
+    assert.ok(restoredFrame && Math.abs(restoredFrame.width / restoredFrame.height - 16 / 9) < .03, "再表示時も目次の移動先を変えない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("editor navigation and image edits persist exact annotation and mask coordinates", { timeout: 45_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
@@ -318,6 +376,86 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存中も保持");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "32");
     await page.locator("[data-editor-cancel]").first().click();
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("a pending image write preserves concurrent title, step text, order, add, and delete edits", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const originalDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d"); context.fillStyle = "#ffffff"; context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async (dataUrl) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "pending-image-concurrent-edits",
+        title: "元のタイトル",
+        description: "説明",
+        steps: [
+          { id: "step-1", order: 1, instruction: "元の手順1", screenshotId: "image-1" },
+          { id: "step-2", order: 2, instruction: "元の手順2" },
+          { id: "step-3", order: 3, instruction: "削除する手順" }
+        ],
+        screenshots: [{ id: "image-1", dataUrl, annotations: [], masks: [] }]
+      });
+    }, originalDataUrl);
+    await page.goto(`${baseUrl}/editor/editor.html#pending-image-concurrent-edits`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      globalThis.__originalDraftPut = draftStore.put;
+      globalThis.__pendingDraftPut = null;
+      globalThis.__draftPutCalls = 0;
+      draftStore.put = async (candidate) => {
+        globalThis.__draftPutCalls += 1;
+        if (globalThis.__draftPutCalls === 1) return new Promise((resolve) => { globalThis.__pendingDraftPut = { candidate, resolve }; });
+        return globalThis.__originalDraftPut(candidate);
+      };
+    });
+    const replacementDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d"); context.fillStyle = "#087f7a"; context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL("image/png");
+    });
+    await page.locator("#step-step-1 .image-upload-panel input[type=file]").setInputFiles({
+      name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64")
+    });
+    await page.waitForFunction(() => globalThis.__pendingDraftPut !== null && globalThis.__draftPutCalls === 1);
+
+    // These edits happen while the first IDB write is still unresolved. The
+    // controls deliberately use the real editor event handlers so the test
+    // covers the same queued persistence path as a user interaction.
+    await page.locator("#title").fill("同時編集後のタイトル");
+    await page.locator("#step-step-1 textarea").fill("同時編集後の説明");
+    await page.locator("#addStep").click();
+    await page.locator("#step-step-2 button").filter({ hasText: "上へ" }).click();
+    await page.locator("#step-step-3 button").filter({ hasText: "削除" }).click();
+    await page.evaluate(() => globalThis.__pendingDraftPut.resolve());
+    await page.waitForFunction(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const value = await draftStore.get("pending-image-concurrent-edits");
+      return value?.title === "同時編集後のタイトル" && value.steps.length === 3 && value.steps.every((step, index) => step.order === index + 1);
+    });
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("pending-image-concurrent-edits")));
+    assert.equal(stored.title, "同時編集後のタイトル");
+    assert.equal(stored.steps.find((step) => step.id === "step-1")?.instruction, "同時編集後の説明");
+    assert.equal(stored.steps.some((step) => step.id === "step-3"), false, "削除した手順を復活させない");
+    assert.equal(stored.steps.some((step) => step.instruction === "新しい手順"), true, "追加した手順を保持する");
+    assert.deepEqual(stored.steps.map((step) => step.id), ["step-2", "step-1", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
+    assert.notEqual(stored.screenshots[0].dataUrl, originalDataUrl, "画像の変更を保持する");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
@@ -1052,6 +1190,248 @@ test("cancel prevents late editor activation when cancellation persistence fails
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.some(({ active }) => active === true)), false, "late ready must not foreground after synchronous cancellation");
     assert.equal(await page.evaluate(() => Object.values(globalThis.__handoffStorage).find((value) => value?.launchId)?.activationPolicy), "auto", "the failed cancellation write must be observable in the fixture");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("a manually added step accepts a sanitized image and opens the editor", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "manual-upload-fixture", title: "合成画像の確認", description: "", steps: [{ id: "manual-step", order: 1, instruction: "手動で追加した手順" }], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#manual-upload-fixture`);
+    const input = page.locator(".image-upload-panel input[type=file]");
+    assert.equal(await input.count(), 1, "画像がない手順には画像追加欄を表示する");
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    await input.setInputFiles({ name: "synthetic-with-metadata.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => Boolean(document.querySelector(".screenshot-canvas")));
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("manual-upload-fixture")));
+    assert.equal(stored.screenshots.length, 1);
+    assert.equal(stored.steps[0].screenshotId, stored.screenshots[0].id);
+    assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true, "画像は再エンコードしたdata URLとして保存する");
+    await page.locator("#step-manual-step .image-edit-button").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+    assert.equal(await page.locator("[data-editor-tool]").count(), 6);
+    await page.locator("[data-editor-cancel]").first().click();
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("JPEG header scanning accepts fill bytes and TEM before SOF, while malformed segments fail closed", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "jpeg-marker-fixture", title: "JPEGマーカー確認", description: "", steps: [{ id: "jpeg-step", order: 1, instruction: "JPEGを追加" }], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#jpeg-marker-fixture`);
+
+    const jpegDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 180;
+      const context = canvas.getContext("2d"); context.fillStyle = "#087f7a"; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#ffffff"; context.font = "bold 24px system-ui"; context.fillText("JPEG fixture", 24, 60);
+      return canvas.toDataURL("image/jpeg", .82);
+    });
+    const jpegBytes = Buffer.from(jpegDataUrl.split(",")[1], "base64");
+    assert.deepEqual([...jpegBytes.subarray(0, 2)], [0xff, 0xd8], "canvas JPEGはSOIから始まる");
+    const decoratedJpeg = Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xff, 0x01, 0xff]), jpegBytes.subarray(2)]);
+    const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
+    await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
+    await page.waitForFunction(async () => {
+      const draft = await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture");
+      return draft?.screenshots?.length === 1 && draft.screenshots[0].dataUrl.startsWith("data:image/");
+    });
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    const storedImage = await page.evaluate(async (dataUrl) => {
+      const image = new Image(); image.src = dataUrl; await image.decode();
+      return { width: image.naturalWidth, height: image.naturalHeight, dataUrl: image.src };
+    }, stored.screenshots[0].dataUrl);
+    assert.deepEqual({ width: storedImage.width, height: storedImage.height }, { width: 320, height: 180 }, "SOF後の寸法を保存する");
+    assert.equal(storedImage.dataUrl.startsWith("data:image/png"), true, "保存時にメタデータを除いたPNGへ正規化する");
+    assert.notEqual(storedImage.dataUrl, `data:image/jpeg;base64,${decoratedJpeg.toString("base64")}`, "入力JPEGのマーカー列をそのまま保存しない");
+
+    await page.reload();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector("#step-jpeg-step .screenshot-canvas");
+      return canvas?.width === 320 && canvas?.height === 180 && canvas?.dataset.previewRendered === "true";
+    });
+    const reloaded = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(reloaded.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "再読込後も保存済み画像bytesを保持する");
+
+    const assertMalformed = async (bytes, name) => {
+      await input.setInputFiles({ name, mimeType: "image/jpeg", buffer: bytes });
+      await page.getByText("画像の大きさを確認できませんでした。別の画像を選んでください。", { exact: true }).waitFor();
+      const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+      assert.equal(afterReject.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, `${name}は保存済み画像を変更しない`);
+    };
+    await assertMalformed(Buffer.from([0xff, 0xd8, 0xff]), "truncated.jpeg");
+    await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x00]), "truncated-segment.jpeg");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("image upload keeps transparency, isolates shared replacements, and rejects oversized decoded images", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const originalDataUrl = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2; canvas.height = 2;
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ originalDataUrl }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "shared-image-upload-fixture",
+        title: "画像差し替えの確認",
+        description: "",
+        steps: [
+          { id: "shared-step-1", order: 1, instruction: "一つ目", screenshotId: "shared-image" },
+          { id: "shared-step-2", order: 2, instruction: "二つ目", screenshotId: "shared-image" }
+        ],
+        screenshots: [{ id: "shared-image", dataUrl: originalDataUrl, annotations: [], masks: [] }]
+      });
+    }, { originalDataUrl });
+    await page.goto(`${baseUrl}/editor/editor.html#shared-image-upload-fixture`);
+    const input = page.locator("#step-shared-step-1 .image-upload-panel input[type=file]");
+    assert.equal(await input.getAttribute("tabindex"), "-1", "ファイル選択用の補助入力をTab順から外す");
+    const transparentDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, 2, 2);
+      context.fillStyle = "rgba(8, 127, 122, .5)";
+      context.fillRect(1, 1, 1, 1);
+      return canvas.toDataURL("image/png");
+    });
+    const transparentPng = Buffer.from(transparentDataUrl.split(",")[1], "base64");
+    await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
+    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    const replaced = await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const current = await draftStore.get("shared-image-upload-fixture");
+      const image = new Image(); image.src = current.screenshots.find((item) => item.id === current.steps[0].screenshotId).dataUrl; await image.decode();
+      const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d"); context.drawImage(image, 0, 0);
+      return { current, alpha: context.getImageData(0, 0, 1, 1).data[3] };
+    });
+    assert.notEqual(replaced.current.steps[0].screenshotId, "shared-image", "共有画像の差し替えは対象手順専用の画像に分ける");
+    assert.equal(replaced.current.steps[1].screenshotId, "shared-image", "別手順の画像参照を保持する");
+    assert.equal(replaced.current.screenshots.find((item) => item.id === "shared-image").dataUrl, originalDataUrl, "共有元画像を変更しない");
+    assert.equal(replaced.alpha, 0, "透明PNGの透明度を保持する");
+
+    await page.evaluate(() => {
+      globalThis.__originalCreateImageBitmap = globalThis.createImageBitmap;
+      globalThis.__decodeCalled = false;
+      globalThis.createImageBitmap = async () => {
+        globalThis.__decodeCalled = true;
+        return { width: 12_001, height: 1, close() {} };
+      };
+    });
+    const secondInput = page.locator("#step-shared-step-2 .image-upload-panel input[type=file]");
+    const oversizedPng = Buffer.from(transparentPng);
+    oversizedPng.writeUInt32BE(12_001, 16);
+    await secondInput.setInputFiles({ name: "too-wide.png", mimeType: "image/png", buffer: oversizedPng });
+    await page.getByText("画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => globalThis.__decodeCalled), false, "画像の寸法を確認できないままデコードしない");
+    const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("shared-image-upload-fixture")));
+    assert.equal(afterReject.steps[1].screenshotId, "shared-image", "解像度超過時は下書きを変更しない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("image upload enforces draft image count and total capacity", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const tinyPng = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ tinyPng }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "image-limit-fixture",
+        title: "画像上限の確認",
+        description: "",
+        steps: [
+          { id: "limit-step-1", order: 1, instruction: "一つ目", screenshotId: "image-0" },
+          { id: "limit-step-2", order: 2, instruction: "二つ目", screenshotId: "image-0" }
+        ],
+        screenshots: Array.from({ length: 100 }, (_, index) => ({ id: `image-${index}`, dataUrl: tinyPng, annotations: [], masks: [] }))
+      });
+    }, { tinyPng });
+    await page.goto(`${baseUrl}/editor/editor.html#image-limit-fixture`);
+    const countInput = page.locator("#step-limit-step-1 .image-upload-panel input[type=file]");
+    const upload = Buffer.from(tinyPng.split(",")[1], "base64");
+    await countInput.setInputFiles({ name: "count-limit.png", mimeType: "image/png", buffer: upload });
+    await page.getByText("画像は100件まで追加できます。", { exact: true }).waitFor();
+    const countDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("image-limit-fixture")));
+    assert.equal(countDraft.screenshots.length, 100, "画像件数超過時は下書きを変更しない");
+
+    await page.evaluate(async ({ tinyPng }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "image-total-fixture", title: "画像合計サイズの確認", description: "", steps: [{ id: "total-step", order: 1, instruction: "一つ目", screenshotId: "total-image" }], screenshots: [{ id: "total-image", dataUrl: tinyPng, annotations: [], masks: [] }] });
+    }, { tinyPng });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.goto(`${baseUrl}/editor/editor.html#image-total-fixture`);
+    await page.evaluate(() => {
+      globalThis.__originalReadAsDataURL = FileReader.prototype.readAsDataURL;
+      FileReader.prototype.readAsDataURL = function () {
+        Object.defineProperty(this, "result", { configurable: true, value: `data:image/png;base64,${"A".repeat(140_000_000)}` });
+        queueMicrotask(() => this.onload?.());
+      };
+    });
+    const totalInput = page.locator("#step-total-step .image-upload-panel input[type=file]");
+    await totalInput.setInputFiles({ name: "total-limit.png", mimeType: "image/png", buffer: upload });
+    await page.getByText("画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。", { exact: true }).waitFor();
+    const totalDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("image-total-fixture")));
+    assert.equal(totalDraft.screenshots[0].id, "total-image", "合計サイズ超過時は元画像を保持する");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
