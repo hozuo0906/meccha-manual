@@ -52,6 +52,7 @@ Status: Accepted
 
 - input actionでも入力した値を受け取る欄を設けない。
 - password、カード番号、token、個人番号を手順書UIからAPIへ送らない。
+- 記録時に高信頼なメールアドレス・電話番号・郵便番号と、氏名・住所等の意味ラベル付き表示値は固定ダミー値へ置換する。画像内文字や複雑な表示は自動置換を保証しないため、編集画面で手動の黒塗りを確認できる案内を表示する。
 - `targetText`には「メールアドレス欄」「保存ボタン」など対象名だけを入力する。
 - manual、step、instruction、targetText、URLをlocalStorage/sessionStorageへ保存しない。
 - 編集中の値は現在タブのDOM・JavaScriptメモリだけに置き、ログアウト・ユーザー変更・ワークスペース変更で破棄する。

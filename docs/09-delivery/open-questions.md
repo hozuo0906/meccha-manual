@@ -12,7 +12,7 @@ Status: Accepted
 | OQ-004 | 管理者による全セッション閲覧 | Live Viewは現行MVP対象外。将来再導入時も覗き見は禁止し、監査／メタデータ閲覧だけを候補とする | Browser Run再導入判断 |
 | OQ-005 | Browser Run同時実行上限 | ADR-0031で現行MVP対象外。将来再導入を決める別ADRで原価・上限を再評価する | Browser Run再導入判断 |
 | OQ-006 | 許可/禁止ドメインと検証済みegress方式 | Cloudflare session guardrailsのoutbound HTTP/S制限を候補にするが、全通信を送信前peer検証済みegressへ拘束できるとIssue #86でP0実証できるまでは、運営承認済みdestinationを含めBrowser Run起動・navigateを全面拒否する | Browser Run全通信 |
-| OQ-007 | 自動マスキング範囲 | password、カード、トークン、個人番号、メール候補 | 操作記録 |
+| OQ-007 | 自動マスキング範囲 | 入力欄・canvas・iframe・shadow配下は既存maskを維持する。表示DOMはメールアドレス・電話番号・郵便番号の明確な形式と、意味ラベルに対応する`dt/dd`・`th/td`の表示値だけを一時overlayで固定ダミー値へ置換する。OCR、画像内文字、複雑なレイアウト、cross-origin iframeは自動置換を保証せず、手動確認を案内する | 操作記録 |
 | OQ-008 | 共有リンク既定 | ADR-0008／ADR-0030で解決済み。デフォルトOFF、期限・パスコード・権限範囲・失効を必須にする | なし |
 | OQ-009 | 料金体系 | ADR-0033で旧固定価格をSuperseded。Free / Pro / Teamを第一候補とし、価格と上限はProduct検証後に確定する | 課金公開 |
 | OQ-010 | AI機能 | 初期OFF、将来管理者ON | AI拡張 |

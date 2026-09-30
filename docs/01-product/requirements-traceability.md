@@ -64,6 +64,8 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
+スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。元DOMを変更せず、overlayの幾何・接続・document identityの検証に失敗した画像は保存しない。OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
 - MVP capture runtimeはChrome拡張のみ。

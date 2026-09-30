@@ -33,6 +33,8 @@ click eventのlabelは`button`、`link`、`menuitem`、`select`等の固定seman
 
 スクリーンショット取得前に、入力欄・編集領域・canvas・iframeとclosed shadow配下の機密画素をopacity maskで隠し、mask検証に失敗した画像は破棄する。mask中に`visibility:hidden`や`display:none`で編集対象を非表示にしてfocus、selection、IME入力を失わせてはならない。closed shadowのtop-layerを含む子孫とmask中に追加された子孫も個別に検証し、`::backdrop`は対象shadow root内の一時styleでopacity maskする。styleの欠落・接続不良・computed opacity不成立はfail closedとし、復元時は拡張が変更したinline styleと一時styleだけを除去する。
 
+画面に表示された個人情報については、入力欄等の既存maskに加えて、スクリーンショット直前に高信頼なDOM候補だけを一時overlayで置き換える。対象はメールアドレス・電話番号・郵便番号の明確な形式と、`氏名／名前／住所／電話／メール`等の意味ラベルに対応する`dt/dd`・`th/td`の表示値に限定し、overlayへは固定のダミー値（例: `山田太郎`、`100-0000`、`03-0000-0000`、`manual@example.invalid`）を描画する。表示viewportと交差する候補だけを対象にし、候補overlayの生成は1回のcaptureにつき64件までに固定する。これは生成数の上限であり、ページ内DOMを一般用途の無制限scannerとして扱う契約ではない。元のDOM文字列・入力値・イベントは変更せず、overlayはcapture後に必ず除去する。overlayの接続状態、対象要素とoverlayの位置、document identityを再検証し、レイアウト変化や復元不能があれば画像を保存せずfail closedとする。OCR、画像内文字、複雑なレイアウト、cross-origin iframeの内容は自動置換の保証範囲外であり、編集画面での手動黒塗り確認を案内する。
+
 navigationでsession storageとrecovery journalの両方が一時的に失敗した場合は、同じcapture session IDにだけ紐づく一時fallbackへ正規化済みnavigation eventを保持する。後続のstorage書込みまたはfinishでsessionへmergeし、event IDで重複排除してからfallbackを破棄する。service worker終了中のメモリ状態まで永続化する保証はなく、入力値・URL・ページ文字列はfallbackへ含めない。
 
 scrollは記録開始時点のdocumentと既存要素の現在位置をbaselineとしてseedする。開始後に追加された未知要素は最初のscrollで現在位置だけをseedし、そのイベントをstepへ出さず、次の位置差分から方向を記録する。未知baselineを0と推測しないため、動的要素の追加直後の一回目だけは記録対象外となる。
