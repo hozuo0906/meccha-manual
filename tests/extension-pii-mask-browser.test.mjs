@@ -319,6 +319,40 @@ test("initially empty capture fails closed when a later open shadow root adds PI
   }
 });
 
+test("hidden subtree transient visibility probe", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><div id=hidden-pii style=display:none><span>hidden@example.com</span></div>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const host = document.getElementById("hidden-pii");
+      host.style.display = "block";
+      host.style.display = "none";
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator("#hidden-pii").textContent(), "hidden@example.com");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("unrelated dashboard mutations remain valid but transient PII is rejected", async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
