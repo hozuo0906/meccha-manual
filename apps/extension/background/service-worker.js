@@ -342,24 +342,15 @@ async function takeMaskedScreenshot(session) {
 }
 
 function instructionFor(event) {
-  const semanticLabels = {
-    "ボタン": "ボタン",
-    "リンク": "リンク",
-    "メニュー": "メニュー",
-    "入力欄": "入力欄",
-    "選択欄": "選択欄",
-    "ファイル選択": "ファイル選択",
-    "保護された入力欄": "保護された入力欄",
-    "操作対象": "操作対象"
-  };
-  const semanticLabel = semanticLabels[event.label] || "操作対象";
+  const semanticLabels = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
+  const semanticLabel = semanticLabels.has(event.label) ? event.label : "操作対象";
   if (event.kind === "scroll") {
     const label = { up: "上", down: "下", left: "左", right: "右" }[event.direction] || "指定方向";
     return `画面を${label}へスクロールする`;
   }
   if (event.kind === "navigation") return "次のページへ移動する";
   if (event.kind === "input") return `${semanticLabel}に入力する`;
-  if (event.kind === "click" && event.label && !semanticLabels[event.label]) return `【${event.label}】クリック`;
+  if (event.kind === "click" && event.label && !semanticLabels.has(event.label)) return `【${event.label}】クリック`;
   return `${semanticLabel}を操作する`;
 }
 

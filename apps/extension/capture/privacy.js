@@ -6,7 +6,7 @@ const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
 const CONTROL_NAME_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?(?:[/?#]|$)/u;
 const CONTROL_NAME_IPV6 = /^\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u;
-const CONTROL_NAME_PHONE = /(?:\+?81[- ]?|0)\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}/;
+const CONTROL_NAME_PHONE = /(?:\+|00)[\s().-]*\d(?:[\s().-]*\d){7,14}|(?:\+?81[- ]?|0)\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}/u;
 const CONTROL_NAME_POSTAL = /(?:〒?\d{3}[- ]?\d{4})/;
 const CONTROL_NAME_SENSITIVE = /(?:password|passcode|token|secret|authorization|cookie|カード|クレジット|cvv|cvc|暗証|認証コード|ワンタイム|個人番号|マイナンバー)/i;
 const SECRET_LIKE_LABEL = /(?:eyJ[A-Za-z0-9_-]{10,}\.|\b(?:\d[ -]?){13,19}\b|\b[A-Fa-f0-9]{24,}\b|\b[A-Za-z0-9_-]{32,}\b)/;
@@ -62,8 +62,12 @@ function looksLikeUrl(value) {
   if (!compact) return false;
   // A caption may decorate a URL with Japanese text or punctuation.
   if (/[A-Za-z][A-Za-z0-9+.-]*:\/\/|\/\/|www\./iu.test(compact)) return true;
+  // Schemes and authorities may be embedded after a caption or punctuation.
+  if (/(?:^|[^\p{L}\p{N}])[A-Za-z][A-Za-z0-9+.-]*:/u.test(compact)) return true;
   if (/(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?/u.test(compact)) return true;
   if (CONTROL_NAME_SCHEME.test(compact) || compact.startsWith("//")) return true;
+  if (/(?:^|[^\p{L}\p{N}])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
+  if (/(?:^|[^\p{L}\p{N}])\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
   if (CONTROL_NAME_IPV4.test(compact) || CONTROL_NAME_IPV6.test(compact)) return true;
 
   const authority = compact.match(/^([^/?#\\]+)(?:[/?#]|$)/u)?.[1];

@@ -127,12 +127,33 @@ test("click labels reject URL-shaped captions without a fixed TLD allowlist", ()
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "参照" }), "参照");
 });
 
+test("click labels reject decorated schemes, IP addresses, and international phone numbers", () => {
+  for (const ariaLabel of [
+    "参照：about:blank",
+    "参照：mailto:alice@localhost",
+    "参照：[2001:db8::1]:443/admin",
+    "参照：127.0.0.1:8080/health",
+    "+33 1 42 68 53 00",
+    "+1 (202) 555-0182",
+    "00 44 20 7946 0958"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
 test("all caption sources reject the existing sensitive-name vocabulary", () => {
   for (const field of ["visibleText", "title", "controlCaption", "imageAlt"]) {
     for (const caption of ["PIN 1234", "auth 1234", "Use card ending 1234", "credit 1234"]) {
       assert.equal(safeTargetLabel({ tagName: "button", [field]: caption }), "ボタン", `${field}: ${caption}`);
     }
   }
+});
+
+test("persisted instructions use a closed semantic-label set", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /const semanticLabels = new Set\(/);
+  assert.match(source, /semanticLabels\.has\(event\.label\)/);
+  assert.doesNotMatch(source, /semanticLabels\[event\.label\]/);
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
