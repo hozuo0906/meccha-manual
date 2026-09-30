@@ -690,7 +690,10 @@ const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
 const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
 const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
+const HANDOFF_ACCESS_NAVIGATION_KEY_PREFIX = "meccha-manual:handoff-access-navigation:";
+const HANDOFF_ACCESS_NAVIGATION_TTL_MS = 15 * 60 * 1000;
 const handoffExternalOperations = new Map();
+const accessNavigationWrites = new Map();
 
 function isHashlessOnboardingNavigation(value) {
   try {
@@ -699,6 +702,43 @@ function isHashlessOnboardingNavigation(value) {
   } catch {
     return false;
   }
+}
+
+function isAccessLoginNavigation(value) {
+  try {
+    const url = new URL(value || "");
+    return url.pathname === "/cdn-cgi/access/login" || url.pathname.startsWith("/cdn-cgi/access/login/");
+  } catch {
+    return false;
+  }
+}
+
+function accessNavigationStorageKey(tabId) {
+  return `${HANDOFF_ACCESS_NAVIGATION_KEY_PREFIX}${tabId}`;
+}
+
+async function rememberAccessNavigation(tabId) {
+  const key = accessNavigationStorageKey(tabId);
+  let entries;
+  try {
+    entries = await chrome.storage.local.get(null);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  const handoffs = [];
+  for (const [readyKey, ready] of Object.entries(entries || {})) {
+    if (!readyKey.startsWith(HANDOFF_READY_KEY_PREFIX) || ready?.tabId !== tabId || ready?.activationPolicy === "cancelled" || !HANDOFF_PAGE_READY_PATTERN.test(ready?.handoffId || "") || !HANDOFF_PAGE_READY_PATTERN.test(ready?.launchId || "")) continue;
+    const expiresAt = Date.parse(ready.expiresAt || "");
+    const metadata = entries[handoffStorageKey(ready.handoffId)];
+    if (!Number.isFinite(expiresAt) || expiresAt <= now || !metadata || metadata.handoffId !== ready.handoffId || metadata.expiresAt !== ready.expiresAt || metadata.status === "completed" || !HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) || !HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "")) continue;
+    handoffs.push({ handoffId: ready.handoffId, launchId: ready.launchId, expiresAt: ready.expiresAt });
+  }
+  if (!handoffs.length) {
+    await chrome.storage.local.remove(key).catch(() => undefined);
+    return;
+  }
+  await chrome.storage.local.set({ [key]: { tabId, seenAt: new Date(now).toISOString(), handoffs } }).catch(() => undefined);
 }
 
 function recoveryMetadataForHandoff(metadata) {
@@ -717,9 +757,20 @@ async function restoreHandoffAfterAccess(tabId, changeInfo) {
   } catch {
     return;
   }
+  const accessNavigationKey = accessNavigationStorageKey(tabId);
+  const accessNavigation = entries[accessNavigationKey];
+  const accessNavigationAt = Date.parse(accessNavigation?.seenAt || "");
+  if (accessNavigation?.tabId !== tabId || !Array.isArray(accessNavigation.handoffs) || !Number.isFinite(accessNavigationAt) || accessNavigationAt > Date.now() || Date.now() - accessNavigationAt > HANDOFF_ACCESS_NAVIGATION_TTL_MS) {
+    if (accessNavigation) await chrome.storage.local.remove(accessNavigationKey).catch(() => undefined);
+    return;
+  }
   for (const [readyKey, ready] of Object.entries(entries || {})) {
     if (!readyKey.startsWith(HANDOFF_READY_KEY_PREFIX) || ready?.tabId !== tabId || !HANDOFF_PAGE_READY_PATTERN.test(ready?.handoffId || "") || !HANDOFF_PAGE_READY_PATTERN.test(ready?.launchId || "")) continue;
     await withHandoffReadyLock(ready.handoffId, async () => {
+      const marker = (await chrome.storage.local.get(accessNavigationKey))?.[accessNavigationKey];
+      const markerAt = Date.parse(marker?.seenAt || "");
+      const markerHandoff = marker?.handoffs?.find((item) => item?.handoffId === ready.handoffId && item?.launchId === ready.launchId && item?.expiresAt === ready.expiresAt);
+      if (marker?.tabId !== tabId || !markerHandoff || !Number.isFinite(markerAt) || markerAt > Date.now() || Date.now() - markerAt > HANDOFF_ACCESS_NAVIGATION_TTL_MS) return;
       const latest = (await chrome.storage.local.get(readyKey))?.[readyKey];
       const readyExpiresAt = Date.parse(latest?.expiresAt || "");
       if (!latest || latest.tabId !== tabId || latest.handoffId !== ready.handoffId || latest.launchId !== ready.launchId || latest.activationPolicy === "cancelled" || !Number.isFinite(readyExpiresAt) || readyExpiresAt <= Date.now() || Number(latest.restoreAttempts || 0) >= 3) return;
@@ -732,6 +783,7 @@ async function restoreHandoffAfterAccess(tabId, changeInfo) {
       } catch {
         return;
       }
+      await chrome.storage.local.remove(accessNavigationKey);
       await chrome.storage.local.set({ [readyKey]: { ...latest, restoreAttempts: Number(latest.restoreAttempts || 0) + 1 } });
       await chrome.tabs.update(tabId, { url: pendingUrl });
     }).catch(() => undefined);
@@ -824,7 +876,18 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  const handoffRestore = restoreHandoffAfterAccess(tabId, changeInfo).catch(() => undefined);
+  const accessLogin = Number.isInteger(tabId) && isAccessLoginNavigation(changeInfo?.url);
+  const accessNavigation = accessLogin
+    ? rememberAccessNavigation(tabId)
+    : accessNavigationWrites.get(tabId) || Promise.resolve();
+  if (accessLogin) accessNavigationWrites.set(tabId, accessNavigation);
+  if (Number.isInteger(tabId) && !isAccessLoginNavigation(changeInfo?.url)) {
+    try {
+      const url = new URL(changeInfo?.url || "");
+      if (url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && url.hash) accessNavigation.then(() => chrome.storage.local.remove(accessNavigationStorageKey(tabId))).catch(() => undefined);
+    } catch {}
+  }
+  const handoffRestore = accessNavigation.then(() => restoreHandoffAfterAccess(tabId, changeInfo)).catch(() => undefined);
   if (changeInfo.status !== "complete") return handoffRestore;
   serializeSessionOperation(async () => {
     const session = await getSession();
