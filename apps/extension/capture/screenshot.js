@@ -411,6 +411,20 @@ export function installSensitiveMasks() {
       }
       return false;
     };
+    const isProtectedAncestorMutationNode = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return false;
+      for (const target of protectedTargets) {
+        for (const candidate of [target, target?.previousElementSibling]) {
+          let current = candidate;
+          while (current) {
+            if (current === element) return true;
+            current = current.parentElement || current.getRootNode?.()?.host || null;
+          }
+        }
+      }
+      return false;
+    };
     const containsPiiText = (value) => {
       const text = String(value ?? "");
       return textPatterns.some(({ pattern }) => {
@@ -453,7 +467,13 @@ export function installSensitiveMasks() {
           || containsPiiText(record.oldValue)
           || containsPiiText(record.target?.nodeValue);
       }
-      if (record.type === "attributes") return isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target);
+      if (record.type === "attributes") {
+        return isProtectedMutationNode(record.target)
+          || isProtectedAncestorMutationNode(record.target)
+          || isSemanticMutationNode(record.target)
+          || containsPiiText(record.target?.textContent)
+          || containsSemanticCandidate(record.target);
+      }
       if (record.type !== "childList") return false;
       if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
       for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
