@@ -947,6 +947,49 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
   }
 });
 
+test("MV3 Access hashless return restores the same activated handoff", { timeout: 60_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const handoffId = "V".repeat(43);
+    const launchId = "W".repeat(43);
+    const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
+    const page = await createStagingPage(context, hashlessUrl);
+    await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
+    await page.route(`${STAGING_ORIGIN}/onboarding/continue*`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: externalPageHtml() }));
+    const tabId = await tabIdForPage(worker, page);
+    assert.equal(Number.isInteger(tabId), true);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await setMetadata(worker, handoffStorageKey(handoffId), {
+      handoffId,
+      draftId: "runtime-access-restore-draft",
+      outputAction: "save",
+      extensionId,
+      draftFingerprint: "e".repeat(64),
+      expiresAt
+    });
+    await setMetadata(worker, handoffReadyStorageKey(handoffId, launchId), {
+      handoffId,
+      launchId,
+      tabId,
+      expiresAt,
+      activationPolicy: "manual",
+      pageReadyAt: new Date().toISOString(),
+      activatedAt: new Date().toISOString()
+    });
+    await page.goto(hashlessUrl, { waitUntil: "commit" });
+    await page.waitForURL(new RegExp(`${STAGING_ORIGIN.replaceAll(".", "\\.")}/onboarding/continue#handoff=V{43}`));
+    assert.match(page.url(), /&extensionId=[a-p]{32}&launchId=W{43}$/);
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, 1);
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
 test("MV3 expired in-flight transfer releases capacity exactly once", { timeout: 120_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   let context;
