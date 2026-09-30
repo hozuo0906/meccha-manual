@@ -20,12 +20,16 @@ test("real extension API masks standard/custom closed-shadow top-layer controls 
     const page = await context.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(() => {
+      document.body.style.background = "rgb(0,0,255)";
       globalThis.testDialogs = [];
       globalThis.testRoots = [];
       for (const host of [document.querySelector("#host"), document.querySelector("private-editor")]) {
         host.style.display = "block";
         const root = host.attachShadow({ mode: "closed" });
         testRoots.push(root);
+        const backdropStyle = document.createElement("style");
+        backdropStyle.textContent = "dialog::backdrop{background:rgb(0,255,0)}";
+        root.append(backdropStyle);
         const dialog = document.createElement("dialog");
         dialog.style.cssText = "visibility:visible;background:rgb(255,0,0);width:160px;height:80px;padding:0";
         dialog.innerHTML = '<input value="SYNTHETIC-SECRET" style="visibility:visible">';
@@ -42,6 +46,7 @@ test("real extension API masks standard/custom closed-shadow top-layer controls 
       const rect = testDialogs[0].getBoundingClientRect();
       return { x: Math.floor(rect.left + rect.width / 2), y: Math.floor(rect.top + rect.height / 2) };
     });
+    const backdropPoint = { x: 8, y: 8 };
     const pixelPage = await context.newPage();
     const pngPixel = (png, x, y) => pixelPage.evaluate(async ({ base64, x: pixelX, y: pixelY }) => {
       const image = new Image();
@@ -56,11 +61,13 @@ test("real extension API masks standard/custom closed-shadow top-layer controls 
     }, { base64: png.toString("base64"), x, y });
     const beforeMask = await page.screenshot({ type: "png" });
     assert.deepEqual(await pngPixel(beforeMask, dialogCenter.x, dialogCenter.y), [255, 0, 0, 255]);
+    assert.deepEqual(await pngPixel(beforeMask, backdropPoint.x, backdropPoint.y), [0, 255, 0, 255]);
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const maskedBeforeLate = await pngPixel(await page.screenshot({ type: "png" }), dialogCenter.x, dialogCenter.y);
     assert.notDeepEqual(maskedBeforeLate, [255, 0, 0, 255]);
+    assert.deepEqual(await pngPixel(await page.screenshot({ type: "png" }), backdropPoint.x, backdropPoint.y), [0, 0, 255, 255]);
     const lateDialog = await page.evaluate(() => {
       const dialog = document.createElement("dialog");
       dialog.innerHTML = "<span>late synthetic secret</span>";
@@ -76,10 +83,16 @@ test("real extension API masks standard/custom closed-shadow top-layer controls 
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("canvas")).opacity), "0");
     const maskedPixel = await pngPixel(await page.screenshot({ type: "png" }), dialogCenter.x, dialogCenter.y);
     assert.notDeepEqual(maskedPixel, [255, 0, 0, 255]);
+    await page.evaluate(() => {
+      const style = [...testRoots[0].querySelectorAll("style")].find((candidate) => candidate.textContent.includes("*::backdrop"));
+      style?.remove();
+    });
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
     await inject(removeSensitiveMasks);
     await page.evaluate(() => testDialogs.at(-1)?.close());
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     assert.deepEqual(await pngPixel(await page.screenshot({ type: "png" }), dialogCenter.x, dialogCenter.y), [255, 0, 0, 255]);
+    assert.deepEqual(await page.evaluate(() => testRoots.map((root) => [...root.querySelectorAll("style")].map((style) => style.textContent))), [["dialog::backdrop{background:rgb(0,255,0)}"], ["dialog::backdrop{background:rgb(0,255,0)}"]]);
     assert.ok(await page.evaluate(() => testDialogs.slice(0, 2).every((dialog) => dialog.getClientRects().length > 0 && getComputedStyle(dialog).opacity === "1")));
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("canvas")).opacity), "1");
   } finally {

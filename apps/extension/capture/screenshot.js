@@ -20,7 +20,10 @@ export function installSensitiveMasks() {
 
   const masks = [];
   const observers = [];
+  const backdropMasks = [];
   const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const backdropSelector = "*";
+  const backdropRule = "*::backdrop{opacity:0!important;transition:none!important;animation:none!important;}";
   const restoreMask = (mask) => {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
@@ -44,6 +47,16 @@ export function installSensitiveMasks() {
     ].join(",");
     const masked = new WeakSet();
     const observedRoots = new WeakMap();
+    const backdropRoots = new WeakSet();
+
+    const installBackdropMask = (root) => {
+      const style = document.createElement("style");
+      style.textContent = backdropRule;
+      const parent = root === document ? (document.head || document.documentElement) : root;
+      if (!parent?.append) throw new Error("BACKDROP_MASK_INSTALL_FAILED");
+      parent.append(style);
+      backdropMasks.push({ root, style });
+    };
 
     const maskElement = (element, opaqueSubtree = false) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
@@ -77,6 +90,10 @@ export function installSensitiveMasks() {
 
     const scanRoot = (root, maskAllDescendants = false) => {
       if (!root?.querySelectorAll) throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
+      if (root.host && maskAllDescendants && !backdropRoots.has(root)) {
+        installBackdropMask(root);
+        backdropRoots.add(root);
+      }
       if (maskAllDescendants) {
         for (const element of root.querySelectorAll("*")) maskElement(element, true);
       }
@@ -117,10 +134,11 @@ export function installSensitiveMasks() {
     };
 
     scanRoot(document);
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule };
     return { applied: true, count: masks.length, token };
   } catch {
     for (const observer of observers) observer.disconnect();
+    for (const backdropMask of backdropMasks) backdropMask.style.remove();
     for (const mask of masks) restoreMask(mask);
     delete globalThis.__mecchaManualScreenshotMasks;
     return { applied: false };
@@ -132,6 +150,9 @@ export function verifySensitiveMasks(expectedToken) {
   if (!state?.token || state.token !== expectedToken) return false;
   try {
     if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") return false;
+    for (const { root, style } of state.backdropMasks || []) {
+      if (!style?.isConnected || style.getRootNode() !== root || style.textContent !== state.backdropRule) return false;
+    }
     const shadowRootOf = (host) => host instanceof HTMLElement ? chrome.dom.openOrClosedShadowRoot(host) : host.shadowRoot;
     const selector = [
       "input",
@@ -145,12 +166,16 @@ export function verifySensitiveMasks(expectedToken) {
       "[aria-valuetext]",
       "iframe"
     ].join(",");
+    const backdropElements = [];
+    const styledRoots = new Set((state.backdropMasks || []).map(({ root }) => root));
     const roots = [{ root: document, maskAllDescendants: false }];
     const elements = [];
     for (let index = 0; index < roots.length; index += 1) {
       const { root, maskAllDescendants } = roots[index];
+      if (maskAllDescendants && !styledRoots.has(root)) return false;
       if (maskAllDescendants) elements.push(...root.querySelectorAll("*"));
       elements.push(...root.querySelectorAll(selector));
+      if (styledRoots.has(root)) backdropElements.push(...root.querySelectorAll(state.backdropSelector || "*"));
       for (const host of root.querySelectorAll("*")) {
         const shadow = shadowRootOf(host);
         if (shadow && !host.shadowRoot) {
@@ -160,6 +185,9 @@ export function verifySensitiveMasks(expectedToken) {
           roots.push({ root: shadow, maskAllDescendants: true });
         } else if (shadow) roots.push({ root: shadow, maskAllDescendants });
       }
+    }
+    for (const element of new Set(backdropElements)) {
+      if (getComputedStyle(element, "::backdrop").opacity !== "0") return false;
     }
     for (const element of new Set(elements)) {
       const rect = element.getBoundingClientRect();
@@ -177,6 +205,7 @@ export function verifySensitiveMasks(expectedToken) {
 export function removeSensitiveMasks() {
   const state = globalThis.__mecchaManualScreenshotMasks;
   for (const observer of state?.observers || []) observer.disconnect();
+  for (const backdropMask of state?.backdropMasks || []) backdropMask.style.remove();
   for (const mask of state?.masks || []) {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);

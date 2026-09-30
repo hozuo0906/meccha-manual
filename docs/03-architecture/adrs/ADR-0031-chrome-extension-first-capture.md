@@ -31,7 +31,7 @@ click eventのlabelは`button`、`link`、`menuitem`、`select`等の固定seman
 
 ### スクリーンショットのマスキング境界 (2026-09-30)
 
-スクリーンショット取得前に、入力欄・編集領域・canvas・iframeとclosed shadow配下の機密画素をopacity maskで隠し、mask検証に失敗した画像は破棄する。mask中に`visibility:hidden`や`display:none`で編集対象を非表示にしてfocus、selection、IME入力を失わせてはならない。closed shadowのtop-layerを含む子孫とmask中に追加された子孫も個別に検証し、復元時は拡張が変更したinline styleだけを戻す。
+スクリーンショット取得前に、入力欄・編集領域・canvas・iframeとclosed shadow配下の機密画素をopacity maskで隠し、mask検証に失敗した画像は破棄する。mask中に`visibility:hidden`や`display:none`で編集対象を非表示にしてfocus、selection、IME入力を失わせてはならない。closed shadowのtop-layerを含む子孫とmask中に追加された子孫も個別に検証し、`::backdrop`は対象shadow root内の一時styleでopacity maskする。styleの欠落・接続不良・computed opacity不成立はfail closedとし、復元時は拡張が変更したinline styleと一時styleだけを除去する。
 
 navigationでsession storageとrecovery journalの両方が一時的に失敗した場合は、同じcapture session IDにだけ紐づく一時fallbackへ正規化済みnavigation eventを保持する。後続のstorage書込みまたはfinishでsessionへmergeし、event IDで重複排除してからfallbackを破棄する。service worker終了中のメモリ状態まで永続化する保証はなく、入力値・URL・ページ文字列はfallbackへ含めない。
 

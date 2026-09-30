@@ -227,11 +227,27 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     matches: () => false,
     getBoundingClientRect: () => ({ left: 1, top: 1, width: 180, height: 32 })
   };
-  const root = { querySelectorAll(selector) { return selector === "*" ? [element] : []; } };
+  let backdropStyle;
+  const closedRoot = {
+    host: element,
+    append(styleElement) { backdropStyle = styleElement; },
+    querySelectorAll() { return []; }
+  };
+  const root = {
+    createElement() {
+      return backdropStyle = {
+        textContent: "",
+        isConnected: true,
+        getRootNode: () => closedRoot,
+        remove() { this.isConnected = false; }
+      };
+    },
+    querySelectorAll(selector) { return selector === "*" ? [element] : []; }
+  };
 
   try {
     globalThis.HTMLElement = Object;
-    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => ({ mode: "closed", querySelectorAll: () => [] }) } };
+    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => closedRoot } };
     globalThis.document = root;
     globalThis.getComputedStyle = (target) => ({
       visibility: target.style.getPropertyValue("visibility") || "visible",

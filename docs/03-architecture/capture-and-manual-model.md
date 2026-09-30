@@ -32,6 +32,6 @@ Status: Accepted
 
 - password inputは常に対象。
 - カード番号、トークン、個人番号候補は検出対象。
-- スクリーンショット取得時はopacity maskで機密画素を隠し、入力欄のfocus、selection、IME入力を失わせる非表示方法を使わない。closed shadowとtop-layer、mask中に追加された子孫も検証対象にする。
+- スクリーンショット取得時はopacity maskで機密画素を隠し、入力欄のfocus、selection、IME入力を失わせる非表示方法を使わない。closed shadowとtop-layer、`::backdrop`、mask中に追加された子孫も検証対象にし、一時styleの欠落・接続不良・computed opacity不成立は保存前に拒否する。
 - 画像内の繰り返し氏名/メールアドレスは一括ぼかし候補にする。
 - 公開前に機密情報確認を必須にする。

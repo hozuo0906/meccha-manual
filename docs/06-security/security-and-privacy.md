@@ -30,7 +30,7 @@ Status: Accepted
 - Cookie、Authorization、password manager由来情報を取得・送信しない。
 - DOMから取得する文字列は手順生成に必要な対象名・ラベル等へ限定する。
 - screenshotの保存前にマスキング境界を適用する。
-- マスキング中もfocus、selection、IME入力を維持するため、編集対象を`visibility:hidden`／`display:none`にせずopacity maskを使う。closed shadowのtop-layerとmask中に追加された子孫を検証できない場合は画像を保存しない。
+- マスキング中もfocus、selection、IME入力を維持するため、編集対象を`visibility:hidden`／`display:none`にせずopacity maskを使う。closed shadowのtop-layerと`::backdrop`、mask中に追加された子孫を検証できない場合は画像を保存しない。一時styleは接続とcomputed opacityを確認し、復元時に除去する。
 - extension ID、content scriptからの申告、local stateだけを認証・workspace認可の根拠にしない。
 - 記録停止時にcontent scriptの記録状態を終了し、不要な一時データを破棄する。
 - Chrome権限を追加・拡大する変更はsecurity review対象とする。
