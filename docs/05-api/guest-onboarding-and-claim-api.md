@@ -10,7 +10,7 @@ Status: Accepted
 
 ゲスト中のmanual本文、screenshot、capture eventはChrome拡張ローカルだけに存在し、APIへ送らない。
 
-スクリーンショット取得前に、既存の入力欄等のmaskと高信頼DOM個人情報の一時ダミーoverlayを適用する。claimへ渡せる画像はoverlay描画後に取得し、元DOM文字列・入力値・検出候補・画像原本をhandoff metadata、event、ログ、API payloadへ含めない。メールアドレス・電話番号・郵便番号の明確な形式と意味ラベル付き表示値以外は自動置換を保証せず、画像OCRやcross-origin iframeも対象外とするため、編集画面で手動マスクを確認する。
+スクリーンショット取得前に、既存の入力欄等のmaskと高信頼DOM個人情報の一時ダミーoverlayを適用する。claimへ渡せる画像はoverlay描画後に取得し、元DOM文字列・入力値・検出候補・画像原本をhandoff metadata、event、ログ、API payloadへ含めない。open shadow root内の通常テキストも候補境界内で対象とし、closed shadow rootは既存のhost全体maskで保護する。祖先`opacity: 0`の値は候補にせず、overlayの不透明性・位置・接続・document identityのいずれかを確認できない場合は画像をclaimへ渡さずfail closedにする。メールアドレス・電話番号・郵便番号の明確な形式と意味ラベル付き表示値以外は自動置換を保証せず、画像OCRやcross-origin iframeも対象外とするため、編集画面で手動マスクを確認する。
 
 サーバーAPIを使い始めるのは、利用者が `保存 / 共有 / PDF出力` 等を選び、Cloudflare Accessでhuman actorとして認証された後とする。
 

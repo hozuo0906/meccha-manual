@@ -74,11 +74,14 @@ export function installSensitiveMasks() {
     const isConnected = (element) => element && (element.isConnected === undefined || element.isConnected);
     const isVisibleTextElement = (element) => {
       if (!element || typeof element.getBoundingClientRect !== "function") return false;
-      if (element.closest?.(`.${privacyOverlayClass},script,style,noscript,template,[aria-hidden="true"]`)) return false;
-      const rect = element.getBoundingClientRect();
-      if (!usableRect(rect)) return false;
-      const computed = getComputedStyle(element);
-      return computed.display !== "none" && computed.visibility !== "hidden" && Number(computed.opacity) !== 0;
+      let current = element;
+      while (current) {
+        if (current.closest?.(`.${privacyOverlayClass},script,style,noscript,template,[aria-hidden="true"]`)) return false;
+        const computed = getComputedStyle(current);
+        if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
+        current = current.parentElement || current.getRootNode?.()?.host || null;
+      }
+      return usableRect(element.getBoundingClientRect());
     };
     const rangeRect = (range) => {
       if (typeof range?.getClientRects !== "function") return null;
@@ -93,7 +96,7 @@ export function installSensitiveMasks() {
     const textPatterns = [
       { kind: "email", pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
       { kind: "phone", pattern: /(?:^|[^\d])((?:0\d{1,4})[-ー−‐– ]?(?:\d{1,4})[-ー−‐– ]?\d{3,4})(?!\d)/g },
-      { kind: "address", pattern: /(?:〒?\d{3}[-ー−‐– ]?\d{4})/g }
+      { kind: "address", pattern: /(?:^|[^\d])(〒?\d{3}[-ー−‐– ]?\d{4})(?!\d)/g }
     ];
     const collectPrivacyCandidates = () => {
       const candidates = [];
@@ -112,41 +115,56 @@ export function installSensitiveMasks() {
         candidateKeys.add(key);
         candidates.push(candidate);
       };
-      const pairSelectors = ["dt + dd", "th + td"];
-      for (const selectorText of pairSelectors) {
-        for (const valueElement of document.querySelectorAll?.(selectorText) || []) {
-          const labelElement = valueElement.previousElementSibling;
-          const kind = semanticKind(labelElement?.textContent);
-          if (!kind || !isVisibleTextElement(valueElement)) continue;
-          const text = normalizeText(valueElement.textContent);
-          if (!text || text.length > 160) continue;
-          const rect = rectValues(valueElement.getBoundingClientRect());
-          pairedValues.add(valueElement);
-          addCandidate({ kind, target: valueElement, rect, key: `pair:${kind}:${candidates.length}` });
+      const roots = [];
+      const seenRoots = new Set();
+      const collectOpenShadowRoots = (root) => {
+        if (!root?.querySelectorAll || seenRoots.has(root)) return;
+        seenRoots.add(root);
+        roots.push(root);
+        for (const host of root.querySelectorAll("*")) {
+          const shadow = shadowRootOf(host);
+          if (shadow?.querySelectorAll && host.shadowRoot) collectOpenShadowRoots(shadow);
         }
-      }
-      if (typeof document.createTreeWalker !== "function") return candidates;
-      const showText = globalThis.NodeFilter?.SHOW_TEXT ?? 4;
-      const walker = document.createTreeWalker(document.body || document.documentElement, showText);
-      let node;
-      while ((node = walker.nextNode?.())) {
-        const parent = node.parentElement;
-        const pairedAncestor = parent?.closest?.("dd,td");
-        if (!parent || pairedValues.has(parent) || (pairedAncestor && pairedValues.has(pairedAncestor)) || !isVisibleTextElement(parent)) continue;
-        const value = String(node.nodeValue ?? "");
-        if (!value.trim()) continue;
-        for (const { kind, pattern } of textPatterns) {
-          pattern.lastIndex = 0;
-          let match;
-          while ((match = pattern.exec(value)) && candidates.length < maxPrivacyOverlays) {
-            const matchedValue = match[1] || match[0];
-            const offset = match.index + (match[0].length - matchedValue.length);
-            const range = document.createRange?.();
-            if (!range) break;
-            range.setStart(node, offset);
-            range.setEnd(node, offset + matchedValue.length);
-            const rect = rangeRect(range);
-            if (rect) addCandidate({ kind, target: parent, rect, range, key: `text:${kind}:${textNodeId(node)}:${offset}:${matchedValue.length}` });
+      };
+      collectOpenShadowRoots(document);
+      const pairSelectors = ["dt + dd", "th + td"];
+      for (const root of roots) {
+        for (const selectorText of pairSelectors) {
+          for (const valueElement of root.querySelectorAll?.(selectorText) || []) {
+            if (candidates.length >= maxPrivacyOverlays) return candidates;
+            const labelElement = valueElement.previousElementSibling;
+            const kind = semanticKind(labelElement?.textContent);
+            if (!kind || !isVisibleTextElement(valueElement)) continue;
+            const text = normalizeText(valueElement.textContent);
+            if (!text || text.length > 160) continue;
+            const rect = rectValues(valueElement.getBoundingClientRect());
+            pairedValues.add(valueElement);
+            addCandidate({ kind, target: valueElement, rect, key: `pair:${kind}:${candidates.length}` });
+          }
+        }
+        if (typeof document.createTreeWalker !== "function") continue;
+        const showText = globalThis.NodeFilter?.SHOW_TEXT ?? 4;
+        const walker = root.createTreeWalker?.(root, showText) || document.createTreeWalker(root, showText);
+        let node;
+        while (candidates.length < maxPrivacyOverlays && (node = walker.nextNode?.())) {
+          const parent = node.parentElement;
+          const pairedAncestor = parent?.closest?.("dd,td");
+          if (!parent || pairedValues.has(parent) || (pairedAncestor && pairedValues.has(pairedAncestor)) || !isVisibleTextElement(parent)) continue;
+          const value = String(node.nodeValue ?? "");
+          if (!value.trim()) continue;
+          for (const { kind, pattern } of textPatterns) {
+            pattern.lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(value)) && candidates.length < maxPrivacyOverlays) {
+              const matchedValue = match[1] || match[0];
+              const offset = match.index + (match[0].length - matchedValue.length);
+              const range = root.createRange?.() || document.createRange?.();
+              if (!range) break;
+              range.setStart(node, offset);
+              range.setEnd(node, offset + matchedValue.length);
+              const rect = rangeRect(range);
+              if (rect) addCandidate({ kind, target: parent, rect, range, key: `text:${kind}:${textNodeId(node)}:${offset}:${matchedValue.length}` });
+            }
           }
         }
       }
@@ -176,6 +194,16 @@ export function installSensitiveMasks() {
       }
       return "rgb(255, 255, 255)";
     };
+    const overlayBoundarySafe = (overlay) => {
+      let current = overlay;
+      while (current) {
+        const computed = getComputedStyle(current);
+        if (Number(computed.opacity) !== 1) return false;
+        if (computed.filter !== "none" || computed.mixBlendMode !== "normal" || computed.clipPath !== "none" || computed.mask !== "none" || computed.maskImage !== "none" || computed.webkitMaskImage !== "none") return false;
+        current = current.parentElement;
+      }
+      return true;
+    };
     const addPrivacyOverlays = () => {
       if (!document.body || typeof document.createElement !== "function") return 0;
       const overlayHost = document.documentElement || document.body;
@@ -204,6 +232,11 @@ export function installSensitiveMasks() {
         style.setProperty("padding", "0", "important");
         style.setProperty("border", "0", "important");
         style.setProperty("background-color", overlayBackground(candidate.target), "important");
+        style.setProperty("opacity", "1", "important");
+        style.setProperty("filter", "none", "important");
+        style.setProperty("mix-blend-mode", "normal", "important");
+        style.setProperty("clip-path", "none", "important");
+        style.setProperty("mask", "none", "important");
         style.setProperty("color", computed.color || "rgb(0, 0, 0)", "important");
         style.setProperty("font-family", computed.fontFamily || "sans-serif", "important");
         style.setProperty("font-size", computed.fontSize || "16px", "important");
@@ -216,7 +249,7 @@ export function installSensitiveMasks() {
         // cannot establish a different fixed-position containing block.
         overlayHost.append(overlay);
         const overlayRect = overlay.getBoundingClientRect?.();
-        if (!isConnected(overlay) || !usableRect(overlayRect)) {
+        if (!isConnected(overlay) || !usableRect(overlayRect) || !overlayBoundarySafe(overlay)) {
           overlay.remove?.();
           throw new Error("SCREENSHOT_PII_OVERLAY_FAILED");
         }
@@ -320,15 +353,35 @@ export function installSensitiveMasks() {
     scanRoot(document);
     const privacyMaskedCount = addPrivacyOverlays();
     if (privacyOverlays.length && typeof MutationObserver === "function") {
-      const privacyObserver = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.closest?.(`.${privacyOverlayClass}`);
-          const addedOnlyOverlay = [...record.addedNodes || []].every((node) => node.nodeType === 3 ? node.parentElement?.closest?.(`.${privacyOverlayClass}`) : node.closest?.(`.${privacyOverlayClass}`));
-          return !target && !addedOnlyOverlay;
-        })) privacyMutation.detected = true;
-      });
-      privacyObserver.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style", "class", "hidden", "aria-hidden"] });
-      observers.push(privacyObserver);
+      const privacyRoots = [];
+      const seenPrivacyRoots = new Set();
+      const collectPrivacyRoots = (root) => {
+        if (!root?.querySelectorAll || seenPrivacyRoots.has(root)) return;
+        seenPrivacyRoots.add(root);
+        privacyRoots.push(root);
+        for (const host of root.querySelectorAll("*")) {
+          const shadow = shadowRootOf(host);
+          if (shadow?.querySelectorAll && host.shadowRoot) collectPrivacyRoots(shadow);
+        }
+      };
+      collectPrivacyRoots(document);
+      const isOverlayNode = (node) => node?.nodeType === 3
+        ? node.parentElement?.closest?.(`.${privacyOverlayClass}`)
+        : node?.closest?.(`.${privacyOverlayClass}`);
+      for (const root of privacyRoots) {
+        const target = root === document ? document.body : root;
+        if (!target) continue;
+        const privacyObserver = new MutationObserver((records) => {
+          if (records.some((record) => {
+            if (record.target?.closest?.(`.${privacyOverlayClass}`)) return false;
+            if (record.removedNodes?.length) return true;
+            if (record.type === "attributes") return true;
+            return ![...record.addedNodes || []].every(isOverlayNode);
+          })) privacyMutation.detected = true;
+        });
+        privacyObserver.observe(target, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style", "class", "hidden", "aria-hidden"] });
+        observers.push(privacyObserver);
+      }
     }
     globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, document, privacyOverlayClass };
     return { applied: true, count: masks.length, privacyMaskedCount, token };
@@ -349,6 +402,16 @@ export function verifySensitiveMasks(expectedToken) {
     if (state.document !== document) return false;
     const sameRect = (left, right) => ["left", "top", "width", "height"].every((key) => Number.isFinite(left?.[key]) && Number.isFinite(right?.[key]) && Math.abs(left[key] - right[key]) <= 1);
     const usableRect = (rect) => rect && [rect.left, rect.top, rect.width, rect.height].every((value) => Number.isFinite(value)) && rect.width > 0 && rect.height > 0;
+    const overlayBoundarySafe = (overlay) => {
+      let current = overlay;
+      while (current) {
+        const computed = getComputedStyle(current);
+        if (Number(computed.opacity) !== 1) return false;
+        if (computed.filter !== "none" || computed.mixBlendMode !== "normal" || computed.clipPath !== "none" || computed.mask !== "none" || computed.maskImage !== "none" || computed.webkitMaskImage !== "none") return false;
+        current = current.parentElement;
+      }
+      return true;
+    };
     const rangeRect = (range) => {
       if (typeof range?.getClientRects !== "function") return null;
       const rects = [...range.getClientRects()].filter(usableRect);
@@ -382,7 +445,7 @@ export function verifySensitiveMasks(expectedToken) {
       const overlayStyle = getComputedStyle(item.overlay);
       const background = String(overlayStyle.backgroundColor || "").toLowerCase();
       const rgba = background.match(/^rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)$/);
-      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) === 0 || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1)) return false;
+      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
       const rect = item.overlay.getBoundingClientRect();
       const previousPointerEvents = item.overlay.style.getPropertyValue("pointer-events");
       const previousPointerPriority = item.overlay.style.getPropertyPriority("pointer-events");
