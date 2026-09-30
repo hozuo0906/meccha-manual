@@ -763,17 +763,25 @@ export function verifySensitiveMasks(expectedToken) {
       const webkitBackgroundClip = String(overlayStyle.webkitBackgroundClip || "").toLowerCase();
       if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || !clipIsAuto(overlayStyle.clip) || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || overlayStyle.maskImage !== "none" || overlayStyle.webkitMaskImage !== "none" || overlayStyle.backgroundImage !== "none" || String(overlayStyle.backgroundClip).toLowerCase() !== "border-box" || (webkitBackgroundClip && webkitBackgroundClip !== "border-box") || overlayStyle.borderRadius !== "0px" || overlayStyle.boxShadow !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
       const rect = item.overlay.getBoundingClientRect();
+      const viewportWidth = Number(globalThis.innerWidth || document.documentElement?.clientWidth || 0);
+      const viewportHeight = Number(globalThis.innerHeight || document.documentElement?.clientHeight || 0);
+      const visibleLeft = Math.max(0, rect.left);
+      const visibleTop = Math.max(0, rect.top);
+      const visibleRight = Math.min(viewportWidth, rect.left + rect.width);
+      const visibleBottom = Math.min(viewportHeight, rect.top + rect.height);
+      if (![viewportWidth, viewportHeight, visibleLeft, visibleTop, visibleRight, visibleBottom].every(Number.isFinite)
+        || visibleRight <= visibleLeft || visibleBottom <= visibleTop) return false;
       const previousPointerEvents = item.overlay.style.getPropertyValue("pointer-events");
       const previousPointerPriority = item.overlay.style.getPropertyPriority("pointer-events");
       let topElement;
       try {
         item.overlay.style.setProperty("pointer-events", "auto", "important");
-        topElement = document.elementFromPoint?.(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        topElement = document.elementFromPoint?.((visibleLeft + visibleRight) / 2, (visibleTop + visibleBottom) / 2);
       } finally {
         if (previousPointerEvents) item.overlay.style.setProperty("pointer-events", previousPointerEvents, previousPointerPriority);
         else item.overlay.style.removeProperty("pointer-events");
       }
-      if (topElement && topElement !== item.overlay && !item.overlay.contains?.(topElement)) return false;
+      if (!topElement || (topElement !== item.overlay && !item.overlay.contains?.(topElement))) return false;
     }
     if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") return false;
     for (const { root, style } of state.backdropMasks || []) {
