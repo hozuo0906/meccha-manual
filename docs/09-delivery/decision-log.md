@@ -463,3 +463,12 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision: 共有停止の4xxはAPIの案内を表示する。5xx、通信切断は結果不明として共有リンクと`shareLinkId`を画面に保持し、画面を閉じずに同じリンクの停止を再試行する。結果不明を新しい共有リンク作成や別の識別子の停止で解消しない。
 - Reason: 停止要求がサーバーへ到達したか、停止後の応答だけが失われたかを画面から判定できない場合に、リンクを失って再発行したり、利用者が停止済みリンクを使い続けたりする誤操作を防ぐため。
 - Boundary: APIの権限判定、D1の停止処理、匿名viewerのgrant再検証、production反映、deploy、共有リンク公開は変更しない。
+
+### DEC-085: Access復帰印を使ったhandoff再付与の境界
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #274
+- Decision: 拡張機能は同じtabにある未完了handoffを確認できたときだけ、`/cdn-cgi/access/login`への遷移をhandoff ID、launch ID、元のexpiresAt、tab ID、観測時刻とともに15分間の復帰印としてlocal領域へ保持する。同じtabが同一originの`/onboarding/continue`へfragmentなしで戻った場合に限り、印と現在のmetadataを再照合して同じfragmentを一度だけ再付与する。復帰印の15分は元のexpiresAtを延長しない。通常のhandoffページがfragmentを`history.replaceState`で除去する経路、別tab、期限切れ、取消済み、完了済み、metadata不一致は復帰として扱わない。復帰印は再付与時に消費し、本文・画像・認証情報・共有tokenは保存せずURLにも含めない。
+- Reason: Web画面がfragmentを読み取り後に除去する通常経路と、Access認証後にfragmentが失われた復帰経路を区別しないと、通常の初回表示を最大3回再読み込みし、保存画面を不安定にするため。復帰の識別を対象tab、Access login path、TTL、未完了handoffの再検証へ限定して、同じ保存identityを一度だけ再開する。
+- Boundary: Access policy、認証credential、Worker／D1／R2、claim API、production設定、共有公開は変更しない。実ブラウザ回帰は、通常fragment除去0回、Access経由1回、active tab維持、claim完了、local draft削除、再読込後の完了状態を実MV3で確認する。

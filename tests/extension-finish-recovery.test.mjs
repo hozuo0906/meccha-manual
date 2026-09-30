@@ -103,7 +103,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
       localRemoveFailure = localValue;
     }, dropSession: () => { session = null; }, viewportApplied: () => viewportApplied,
     navigate: async () => { await onUpdated(1, { status: "complete" }); await context.settle(); },
-    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => { await onUpdated(17, { url, status: "loading" }); await context.settle(); },
+    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => { await onUpdated(17, { url: "https://access.example.invalid/cdn-cgi/access/login", status: "loading" }); await context.settle(); await onUpdated(17, { url, status: "loading" }); await context.settle(); },
     tabUpdates: () => tabUpdates,
     handoffStorage: () => handoffStorage,
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),

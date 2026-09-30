@@ -319,6 +319,12 @@ Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoff
 
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
+### C Access認証後のhandoff復帰境界
+
+拡張機能は対象tabに紐づく未完了handoffがある場合だけ、`/cdn-cgi/access/login`への遷移を観測したtab ID、handoff ID、launch ID、元のexpiresAtと時刻を一時的な復帰印として保持する。対象tabが15分以内に同一originの`/onboarding/continue`へfragmentなしで戻った場合に限り、印に保存したhandoff ID、launch ID、expiresAtと、現在の未完了・期限内metadataを再検証して同じfragmentを一度だけ再付与する。復帰印の15分はmetadataのexpiresAtを延長しない。通常のhandoffページがfragmentを読み取った後に行う同一originの`history.replaceState`によるfragment除去、別tab、期限切れ、取消済み、完了済み、metadata不一致は復帰の根拠にしない。
+
+復帰印は復帰処理で消費し、fragmentへ本文・画像・認証情報・共有tokenを追加しない。復帰に失敗した場合はlocal原本を保持したまま再試行可能な状態を表示し、保存成功やclaim完了を推測しない。
+
 owner限定staging配布版はstaging B登録UIへ接続する。production originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
 ### B handoff fragment と operation の期限境界
 

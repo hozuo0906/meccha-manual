@@ -1000,6 +1000,7 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
     const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
     const page = await createRealStagingPage(context, hashlessUrl, { bootstrapEnabled: true });
     await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
+    await page.waitForFunction(() => location.hash === "");
     await page.route(`${ACCESS_AUTH_ORIGIN}/**`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" }));
     const tabId = await tabIdForPage(worker, page);
     assert.equal(Number.isInteger(tabId), true);
@@ -1043,11 +1044,12 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
     assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1, "a hashless return after Access must restore once");
     const tabState = await worker.evaluate((url) => new Promise((resolve) => chrome.tabs.query({}, (tabs) => resolve(tabs.find((tab) => tab.url === url) || null))), page.url());
     assert.equal(tabState?.active, true, "Access recovery must keep the already active tab in front");
+    await page.waitForSelector("#bootstrap", { state: "visible" });
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 40 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));
     assert.equal(completed.status, "completed", "the real onboarding page must complete the restored handoff");
-    assert.equal(completed.manualId, "runtime-manual-1");
+    assert.equal(completed.completedManualId, "runtime-manual-1");
     assert.equal(await getDraft(worker, draft.id), null, "completed workflow must clear the unchanged local draft");
     await page.reload({ waitUntil: "domcontentloaded" });
     const savedContext = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"));

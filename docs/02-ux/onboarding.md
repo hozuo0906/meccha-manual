@@ -214,6 +214,8 @@ output gateは、編集内容を確認してから保存先の準備画面へ進
 
 保存先の準備画面へ進む場合、拡張機能は本文・画像・ログイン情報を送らず、256bit相当のhandoff識別子とlocal draftの参照情報だけを拡張機能のlocal領域へ保持する。owner限定staging配布版のhandoff識別子は`https://meccha-manual-staging.meccha-iiyatsu.com`のURL fragmentにだけ置き、production・preview・localhost等のoriginは拒否する。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して保存をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。専用WorkerのWeb画面は、信頼済み`APP_ENV`と環境別に固定した`APP_BASE_URL`が一致し、request originも完全一致する場合だけ保存操作を有効化する。production originまたはAccess環境が未準備の限定配布版では保存操作を無効化し、日本語の準備中表示に留める。
 
+Access認証によってfragmentが失われた復帰だけは、拡張機能が同じtabにある未完了handoffのhandoff ID・launch ID・元の期限とともに、`/cdn-cgi/access/login`への遷移を15分だけ記録する。同じtabが同一originの`/onboarding/continue`へ戻った場合に、記録と現在のhandoffを照合できるときだけfragmentを一度再付与する。この15分の記録でhandoffの期限は延長しない。通常のfragment除去、別tab、期限切れ、取消済み、完了済みのhandoffは再付与せず、認証情報・本文・画像は復帰URLへ含めない。
+
 認証後のWeb画面は同一originの`POST /api/onboarding/bootstrap`へ`operationId`だけを送る。成功表示は保存先の準備完了に限り、手順書が保存・claim・共有されたとは表示しない。401、403、429、503、応答消失ではlocal原本を保持し、metadataがTTL内である限り同じ`operationId`で再試行できる。TTL経過後は再試行せず、拡張機能で新しいhandoffを発行する。
 
 このスライスではguest本文のclaim、画像upload、元のsave/share/PDFの再開、Webから拡張機能への完了通知を実装完了と扱わない。これらはC以降の受入条件である。
