@@ -721,9 +721,11 @@ async function restoreHandoffAfterAccess(tabId, changeInfo) {
     if (!readyKey.startsWith(HANDOFF_READY_KEY_PREFIX) || ready?.tabId !== tabId || !HANDOFF_PAGE_READY_PATTERN.test(ready?.handoffId || "") || !HANDOFF_PAGE_READY_PATTERN.test(ready?.launchId || "")) continue;
     await withHandoffReadyLock(ready.handoffId, async () => {
       const latest = (await chrome.storage.local.get(readyKey))?.[readyKey];
-      if (!latest || latest.tabId !== tabId || latest.handoffId !== ready.handoffId || latest.launchId !== ready.launchId || latest.activationPolicy === "cancelled" || latest.activatedAt || Date.parse(latest.expiresAt || "") <= Date.now() || Number(latest.restoreAttempts || 0) >= 3) return;
+      const readyExpiresAt = Date.parse(latest?.expiresAt || "");
+      if (!latest || latest.tabId !== tabId || latest.handoffId !== ready.handoffId || latest.launchId !== ready.launchId || latest.activationPolicy === "cancelled" || !Number.isFinite(readyExpiresAt) || readyExpiresAt <= Date.now() || Number(latest.restoreAttempts || 0) >= 3) return;
       const metadata = (await chrome.storage.local.get(handoffStorageKey(latest.handoffId)))?.[handoffStorageKey(latest.handoffId)];
-      if (!metadata || metadata.handoffId !== latest.handoffId || !HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) || !HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "")) return;
+      const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+      if (!metadata || metadata.handoffId !== latest.handoffId || metadata.expiresAt !== latest.expiresAt || !Number.isFinite(metadataExpiresAt) || metadataExpiresAt <= Date.now() || metadata.status === "completed" || !HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) || !HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "")) return;
       let pendingUrl;
       try {
         pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, metadata.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, latest.launchId);

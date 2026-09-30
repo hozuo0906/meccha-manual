@@ -144,6 +144,55 @@ test("Access認証から戻ったhandoff対象タブへfragmentを復元する",
   assert.equal(capture.tabUpdates().length, 1, "fragment付き遷移は再度書き換えない");
 });
 
+test("hashless return restores an activated tab and rejects invalid or completed handoffs", async () => {
+  const handoffId = "C".repeat(43);
+  const launchId = "D".repeat(43);
+  const readyKey = handoffReadyStorageKey(handoffId, launchId);
+  const handoffKey = handoffStorageKey(handoffId);
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const metadata = {
+    handoffId,
+    draftId: "synthetic-draft-activated",
+    outputAction: "save",
+    extensionId: "b".repeat(32),
+    draftFingerprint: "c".repeat(64),
+    expiresAt
+  };
+  const ready = {
+    handoffId,
+    launchId,
+    tabId: 17,
+    expiresAt,
+    activationPolicy: "manual",
+    pageReadyAt: new Date().toISOString(),
+    activatedAt: new Date().toISOString()
+  };
+  const capture = await harness({ localFails: false, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await capture.accessReturn();
+  assert.equal(capture.tabUpdates().length, 1, "activated tabs still need the fragment after an Access redirect");
+
+  const completed = await harness({ localFails: false, handoffRecords: {
+    [handoffKey]: { ...metadata, status: "completed", completedManualId: "manual-1" },
+    [readyKey]: ready
+  } });
+  await completed.accessReturn();
+  assert.equal(completed.tabUpdates().length, 0, "completed handoffs must not be reopened");
+
+  const malformedExpiry = await harness({ localFails: false, handoffRecords: {
+    [handoffKey]: { ...metadata, expiresAt: "invalid" },
+    [readyKey]: ready
+  } });
+  await malformedExpiry.accessReturn();
+  assert.equal(malformedExpiry.tabUpdates().length, 0, "invalid metadata expiry must fail closed");
+
+  const mismatchedExpiry = await harness({ localFails: false, handoffRecords: {
+    [handoffKey]: { ...metadata, expiresAt: new Date(Date.now() + 120_000).toISOString() },
+    [readyKey]: ready
+  } });
+  await mismatchedExpiry.accessReturn();
+  assert.equal(mismatchedExpiry.tabUpdates().length, 0, "ready and metadata expiry must refer to the same handoff");
+});
+
 test("local journal failure does not discard the first drained batch when session storage works", async () => {
   const capture = await harness();
   await capture.finish();
