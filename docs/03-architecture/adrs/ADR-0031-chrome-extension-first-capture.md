@@ -29,6 +29,10 @@ Chrome拡張は、利用者自身が開いているWebページ上で明示的�
 
 click eventのlabelは`button`、`link`、`menuitem`、`select`等の固定semantic値だけを保存し、`aria-label`、関連label、placeholder、本文などページ由来の文字列を保存しない。入力欄は既存の機密判定を先に適用し、入力値と機密metadataをevent／下書きへ複製しない。
 
+### スクリーンショットのマスキング境界 (2026-09-30)
+
+スクリーンショット取得前に、入力欄・編集領域・canvas・iframeとclosed shadow配下の機密画素をopacity maskで隠し、mask検証に失敗した画像は破棄する。mask中に`visibility:hidden`や`display:none`で編集対象を非表示にしてfocus、selection、IME入力を失わせてはならない。closed shadowのtop-layerを含む子孫とmask中に追加された子孫も個別に検証し、`::backdrop`は対象shadow root内の一時styleでopacity maskする。styleの欠落・接続不良・computed opacity不成立はfail closedとし、復元時は拡張が変更したinline styleと一時styleだけを除去する。
+
 navigationでsession storageとrecovery journalの両方が一時的に失敗した場合は、同じcapture session IDにだけ紐づく一時fallbackへ正規化済みnavigation eventを保持する。後続のstorage書込みまたはfinishでsessionへmergeし、event IDで重複排除してからfallbackを破棄する。service worker終了中のメモリ状態まで永続化する保証はなく、入力値・URL・ページ文字列はfallbackへ含めない。
 
 scrollは記録開始時点のdocumentと既存要素の現在位置をbaselineとしてseedする。開始後に追加された未知要素は最初のscrollで現在位置だけをseedし、そのイベントをstepへ出さず、次の位置差分から方向を記録する。未知baselineを0と推測しないため、動的要素の追加直後の一回目だけは記録対象外となる。

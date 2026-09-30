@@ -377,3 +377,107 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
+
+test("recording a focused input keeps typing available while its screenshot is captured", { timeout: 60_000 }, async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><html lang="ja"><body><main><form id="form"><label for="entry">入力</label><input id="entry" autocomplete="off"><button id="submit" type="submit">確定</button></form></main><script>
+      window.entryTrace = [];
+      for (const type of ["blur", "change", "submit", "keydown", "input"]) addEventListener(type, (event) => entryTrace.push({ type, key: event.key || "" }), true);
+      document.querySelector("#form").addEventListener("submit", (event) => event.preventDefault());
+    </script></body></html>`);
+  });
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/`;
+  const userDataDir = await mkdtemp(join(tmpdir(), "meccha-manual-input-focus-runtime-"));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: true,
+      args: ["--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`]
+    });
+    const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker", { timeout: 15_000 });
+    const extensionId = new URL(worker.url()).hostname;
+    const target = await context.newPage();
+    await target.goto(baseUrl);
+    await target.bringToFront();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const browserCdp = await context.browser().newBrowserCDPSession();
+    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
+    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
+    assert.ok(targetInfo, "input fixture tab should be discoverable");
+    await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    let panelTarget;
+    const panelDeadline = Date.now() + 15_000;
+    while (!panelTarget && Date.now() < panelDeadline) {
+      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
+    let evaluationId = 0;
+    const evaluateNative = (expression) => new Promise((resolve, reject) => {
+      const id = ++evaluationId;
+      const timer = setTimeout(() => { browserCdp.off("Target.receivedMessageFromTarget", receive); reject(new Error("native input sidepanel evaluation timed out")); }, 5_000);
+      const receive = (event) => {
+        if (event.sessionId !== sessionId) return;
+        const result = JSON.parse(event.message);
+        if (result.id !== id) return;
+        clearTimeout(timer);
+        browserCdp.off("Target.receivedMessageFromTarget", receive);
+        if (result.error) reject(new Error(`${result.error.message}: ${JSON.stringify(result.error.data || null)}`));
+        else resolve(result.result?.result?.value);
+      };
+      browserCdp.on("Target.receivedMessageFromTarget", receive);
+      browserCdp.send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true } }) }).catch(reject);
+    });
+    const waitForNativeValue = async (expression, predicate) => {
+      const deadline = Date.now() + 15_000;
+      let value;
+      do {
+        value = await evaluateNative(expression);
+        if (predicate(value)) return value;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      throw new Error(`timed out waiting for native input sidepanel value: ${JSON.stringify(value)}`);
+    };
+    const clickNative = async (selector) => {
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
+    };
+    await target.bringToFront();
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+    assert.ok(tabId, "input fixture tab should be active");
+    await clickNative("#start");
+    assert.equal(await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true), true);
+    await target.locator("#entry").click();
+    assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 1), 1);
+    await target.evaluate(() => { window.entryTrace = []; });
+    await target.keyboard.type("a");
+    assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 2), 2);
+    await target.keyboard.type("b");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(await target.locator("#entry").inputValue(), "ab");
+    assert.deepEqual(await target.evaluate(() => ({ active: document.activeElement?.id, value: document.querySelector("#entry")?.value })), { active: "entry", value: "ab" });
+    const trace = await target.evaluate(() => window.entryTrace);
+    assert.equal(trace.some(({ type, key }) => type === "blur" || type === "change" || type === "submit" || key === "Enter"), false);
+    await clickNative("#finish");
+    const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
+    let editorPage;
+    const editorDeadline = Date.now() + 10_000;
+    while (!editorPage && Date.now() < editorDeadline) {
+      editorPage = context.pages().find((candidate) => candidate.url().startsWith(editorUrlPrefix));
+      if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(editorPage, "successful finish should open the saved draft editor");
+    await editorPage.waitForSelector("#steps li");
+    assert.equal(await editorPage.locator("#steps li").count(), 2, "input click and typing should produce two steps");
+  } finally {
+    await context?.close();
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});

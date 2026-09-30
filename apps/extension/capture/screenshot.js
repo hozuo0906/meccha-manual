@@ -20,7 +20,10 @@ export function installSensitiveMasks() {
 
   const masks = [];
   const observers = [];
+  const backdropMasks = [];
   const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const backdropSelector = "*";
+  const backdropRule = "*::backdrop{opacity:0!important;transition:none!important;animation:none!important;}";
   const restoreMask = (mask) => {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
@@ -43,7 +46,17 @@ export function installSensitiveMasks() {
       "iframe"
     ].join(",");
     const masked = new WeakSet();
-    const observedRoots = new WeakSet();
+    const observedRoots = new WeakMap();
+    const backdropRoots = new WeakSet();
+
+    const installBackdropMask = (root) => {
+      const style = document.createElement("style");
+      style.textContent = backdropRule;
+      const parent = root === document ? (document.head || document.documentElement) : root;
+      if (!parent?.append) throw new Error("BACKDROP_MASK_INSTALL_FAILED");
+      parent.append(style);
+      backdropMasks.push({ root, style });
+    };
 
     const maskElement = (element, opaqueSubtree = false) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
@@ -52,16 +65,12 @@ export function installSensitiveMasks() {
       const computed = getComputedStyle(element);
       if (computed.display === "none" || (!opaqueSubtree && Number(computed.opacity) === 0)) return;
 
-      const previousVisibility = element.style.getPropertyValue("visibility");
-      const previousPriority = element.style.getPropertyPriority("visibility");
       const previousTransition = element.style.getPropertyValue("transition");
       const previousTransitionPriority = element.style.getPropertyPriority("transition");
       const previousAnimation = element.style.getPropertyValue("animation");
       const previousAnimationPriority = element.style.getPropertyPriority("animation");
       const previous = [
-        { property: "display", value: element.style.getPropertyValue("display"), priority: element.style.getPropertyPriority("display") },
         { property: "opacity", value: element.style.getPropertyValue("opacity"), priority: element.style.getPropertyPriority("opacity") },
-        { property: "visibility", value: previousVisibility, priority: previousPriority },
         { property: "transition", value: previousTransition, priority: previousTransitionPriority },
         { property: "animation", value: previousAnimation, priority: previousAnimationPriority }
       ];
@@ -70,12 +79,8 @@ export function installSensitiveMasks() {
       element.style.setProperty("animation", "none", "important");
       // opacity composites the entire subtree, including inaccessible closed shadow roots.
       element.style.setProperty("opacity", "0", "important");
-      element.style.setProperty("visibility", "hidden", "important");
-      // Top-layer descendants escape opacity, but not display:none on a
-      // shadow-including ancestor (CSS Positioned Layout 4, Top Layer Styling).
-      if (opaqueSubtree) element.style.setProperty("display", "none", "important");
       const mask = { element, previous };
-      if (opaqueSubtree ? getComputedStyle(element).display !== "none" : Number(getComputedStyle(element).opacity) !== 0) {
+      if (Number(getComputedStyle(element).opacity) !== 0) {
         restoreMask(mask);
         throw new Error("SCREENSHOT_MASK_NOT_EFFECTIVE");
       }
@@ -83,36 +88,57 @@ export function installSensitiveMasks() {
       masks.push(mask);
     };
 
-    const scanRoot = (root) => {
-      if (!root?.querySelectorAll) return;
+    const scanRoot = (root, maskAllDescendants = false) => {
+      if (!root?.querySelectorAll) throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
+      if (root.host && maskAllDescendants && !backdropRoots.has(root)) {
+        installBackdropMask(root);
+        backdropRoots.add(root);
+      }
+      if (maskAllDescendants) {
+        for (const element of root.querySelectorAll("*")) maskElement(element, true);
+      }
       for (const element of root.querySelectorAll(selector)) maskElement(element, Boolean(shadowRootOf(element) && !element.shadowRoot));
       for (const host of root.querySelectorAll("*")) {
         const shadow = shadowRootOf(host);
-        if (shadow && !host.shadowRoot) maskElement(host, true);
-        else if (shadow) scanRoot(shadow);
+        if (shadow && !shadow.querySelectorAll) throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
+        if (shadow && !host.shadowRoot) {
+          maskElement(host, true);
+          scanRoot(shadow, true);
+        }
+        else if (shadow) scanRoot(shadow, maskAllDescendants);
       }
-      if (typeof MutationObserver === "function" && !observedRoots.has(root)) {
+      if (typeof MutationObserver === "function") {
+        const previousObserver = observedRoots.get(root);
+        if (previousObserver && (previousObserver.maskAllDescendants || !maskAllDescendants)) return;
+        previousObserver?.observer.disconnect();
         const observer = new MutationObserver((records) => {
           for (const record of records) {
             for (const node of record.addedNodes || []) {
               if (!(node instanceof Element)) continue;
-              if (shadowRootOf(node) && !node.shadowRoot) maskElement(node, true);
-              else if (node.matches?.(selector)) maskElement(node);
-              scanRoot(node);
+              const shadow = shadowRootOf(node);
+              if (shadow && !node.shadowRoot) {
+                maskElement(node, true);
+                scanRoot(shadow, true);
+              } else {
+                if (maskAllDescendants) maskElement(node, true);
+                else if (node.matches?.(selector)) maskElement(node);
+              }
+              scanRoot(node, maskAllDescendants);
             }
           }
         });
         observer.observe(root, { childList: true, subtree: true });
-        observedRoots.add(root);
+        observedRoots.set(root, { observer, maskAllDescendants });
         observers.push(observer);
       }
     };
 
     scanRoot(document);
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule };
     return { applied: true, count: masks.length, token };
   } catch {
     for (const observer of observers) observer.disconnect();
+    for (const backdropMask of backdropMasks) backdropMask.style.remove();
     for (const mask of masks) restoreMask(mask);
     delete globalThis.__mecchaManualScreenshotMasks;
     return { applied: false };
@@ -124,6 +150,9 @@ export function verifySensitiveMasks(expectedToken) {
   if (!state?.token || state.token !== expectedToken) return false;
   try {
     if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") return false;
+    for (const { root, style } of state.backdropMasks || []) {
+      if (!style?.isConnected || style.getRootNode() !== root || style.textContent !== state.backdropRule) return false;
+    }
     const shadowRootOf = (host) => host instanceof HTMLElement ? chrome.dom.openOrClosedShadowRoot(host) : host.shadowRoot;
     const selector = [
       "input",
@@ -137,18 +166,28 @@ export function verifySensitiveMasks(expectedToken) {
       "[aria-valuetext]",
       "iframe"
     ].join(",");
-    const roots = [document];
+    const backdropElements = [];
+    const styledRoots = new Set((state.backdropMasks || []).map(({ root }) => root));
+    const roots = [{ root: document, maskAllDescendants: false }];
     const elements = [];
     for (let index = 0; index < roots.length; index += 1) {
-      const root = roots[index];
+      const { root, maskAllDescendants } = roots[index];
+      if (maskAllDescendants && !styledRoots.has(root)) return false;
+      if (maskAllDescendants) elements.push(...root.querySelectorAll("*"));
       elements.push(...root.querySelectorAll(selector));
+      if (styledRoots.has(root)) backdropElements.push(...root.querySelectorAll(state.backdropSelector || "*"));
       for (const host of root.querySelectorAll("*")) {
         const shadow = shadowRootOf(host);
         if (shadow && !host.shadowRoot) {
-          if (getComputedStyle(host).display !== "none") return false;
+          if (Number(getComputedStyle(host).opacity) !== 0) return false;
           elements.push(host);
-        } else if (shadow) roots.push(shadow);
+          if (!shadow.querySelectorAll) return false;
+          roots.push({ root: shadow, maskAllDescendants: true });
+        } else if (shadow) roots.push({ root: shadow, maskAllDescendants });
       }
+    }
+    for (const element of new Set(backdropElements)) {
+      if (getComputedStyle(element, "::backdrop").opacity !== "0") return false;
     }
     for (const element of new Set(elements)) {
       const rect = element.getBoundingClientRect();
@@ -166,6 +205,7 @@ export function verifySensitiveMasks(expectedToken) {
 export function removeSensitiveMasks() {
   const state = globalThis.__mecchaManualScreenshotMasks;
   for (const observer of state?.observers || []) observer.disconnect();
+  for (const backdropMask of state?.backdropMasks || []) backdropMask.style.remove();
   for (const mask of state?.masks || []) {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
