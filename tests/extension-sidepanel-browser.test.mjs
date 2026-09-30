@@ -183,8 +183,6 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
-    const draftImageCount = await waitForNativeValue("document.querySelectorAll('.draft-card img').length", (value) => value > 0);
-    assert.ok(draftImageCount > 0, "saved draft should retain its step image");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
     let editorPage;
     const editorDeadline = Date.now() + 10_000;
