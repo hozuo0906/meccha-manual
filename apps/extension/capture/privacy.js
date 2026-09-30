@@ -115,7 +115,9 @@ function normalizeControlName(value) {
   // detection (including U+034F COMBINING GRAPHEME JOINER).
   const emailSource = raw.replace(/\p{Cc}/gu, " ").replace(/\p{Cf}/gu, "");
   const emailValue = emailSource.normalize("NFKC");
-  const emailCandidate = emailValue.replace(/@\s+/gu, "@");
+  // Keep Cc whitespace semantics for email layout, but remove combining marks
+  // from the address candidate so a mark cannot hide the first domain letter.
+  const emailCandidate = emailValue.replace(/\p{M}/gu, "").replace(/@\s+/gu, "@");
   const privacySource = raw.replace(/[\p{Cc}\p{Cf}\p{M}]/gu, "");
   const privacyValue = normalizePrivacyDigits(privacySource.normalize("NFKC"));
   if (privacyValue === null) return null;

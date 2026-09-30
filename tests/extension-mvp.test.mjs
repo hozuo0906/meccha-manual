@@ -186,6 +186,10 @@ test("click caption privacy checks compact layout whitespace for email detection
 test("click caption privacy checks combining-mark mailboxes and all Unicode Cc controls", () => {
   for (const ariaLabel of [
     "उपयोगकर्ता@\nआंतरिक",
+    "alice@\u034Flocalhost",
+    "山田@\u034F社内",
+    "alice@\n\u034Flocalhost",
+    "\u034Falice\u034F@\u034Flocal\u034Fhost\u034F",
     "to\u0080ken",
     "090-12\u008034-5678",
     "090-12\u034F34-5678",
