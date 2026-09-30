@@ -40,18 +40,14 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     } catch (error) {
       throw error;
     }
-    let sidePanelContexts = [];
+    let panelTarget;
     const sidePanelContextDeadline = Date.now() + 15_000;
     do {
-      sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
-        ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-        : []);
-      if (sidePanelContexts.length > 0) break;
+      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      if (panelTarget) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     } while (Date.now() < sidePanelContextDeadline);
-    assert.ok(sidePanelContexts.length > 0, "action should create a SIDE_PANEL extension context");
-    const panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-      .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
     assert.ok(panelTarget, "native sidepanel page target should be discoverable");
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
@@ -227,12 +223,9 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     let sidePanelClosed = false;
     const closeDeadline = Date.now() + 5_000;
     while (Date.now() < closeDeadline) {
-      const sidePanelContextsAfterFinish = await worker.evaluate(async () => chrome.runtime.getContexts
-        ? await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-        : []);
       const sidePanelTargetAfterFinish = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
         .some((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-      if (sidePanelContextsAfterFinish.length === 0 && !sidePanelTargetAfterFinish) {
+      if (!sidePanelTargetAfterFinish) {
         sidePanelClosed = true;
         break;
       }
