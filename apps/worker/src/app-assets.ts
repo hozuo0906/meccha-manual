@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-abbe7ee2a50ed6bc";
+export const APP_ASSET_VERSION = "sha256-2b4cae285bd630fc";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2546,22 +2546,22 @@ function manualListHtml(currentWorkspace) {
   const roleKnown = workspaceMembersState?.workspaceId === currentWorkspace.id && Boolean(workspaceMembersState.currentUserRole);
   let body = "";
   if (state.status === "idle" || state.status === "loading") {
-    body = '<div class="empty" role="status" aria-live="polite" aria-busy="true">手順書を読み込んでいます。</div>';
+    body = '<div class="empty" role="status" aria-live="polite" aria-busy="true">手順書を読み込んでいます…</div>';
   } else if (state.status === "error") {
-    body = '<div class="empty"><p>手順書一覧を表示できませんでした。</p><button id="manuals-retry-button" class="secondary-button" type="button">もう一度読み込む</button></div>';
+    body = '<div class="empty"><p>手順書一覧を表示できませんでした。もう一度読み込んでください。</p><button id="manuals-retry-button" class="secondary-button" type="button">再読み込み</button></div>';
   } else if (state.items.length === 0) {
-    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? '右側のフォームから最初の手順書を作成できます。' : '編集者以上の権限を持つメンバーが作成できます。') + '</div>';
+    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。' : '編集者以上の権限を持つメンバーが作成できます。') + '</div>';
   } else {
     body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
       '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +
-        '<span><span class="manual-list-item-title">' + escapeHtml(manual.title) + '</span><span class="muted">更新：' + escapeHtml(new Date(manual.updatedAt).toLocaleString("ja-JP")) + '</span></span>' +
+        '<span><span class="manual-list-item-title">' + escapeHtml(manual.title) + '</span><span class="muted">最終更新：' + escapeHtml(new Date(manual.updatedAt).toLocaleString("ja-JP")) + '</span></span>' +
         '<span class="badge">' + escapeHtml(manualStatusLabels[manual.status] || manual.status) + '</span>' +
       '</button></div>'
     ).join("") + '</div>';
   }
   const createPanel = canEdit
     ? '<form id="manual-create-form" class="workspace-form manual-form" novalidate>' +
-        '<h2>新しい手順書</h2><p>タイトルだけでも作成できます。説明は後から変更できます。</p>' +
+        '<h2>新しい手順書</h2><p>タイトルだけで作成できます。説明は後から変更できます。</p>' +
         '<div class="field"><label for="manual-create-title">タイトル</label><input id="manual-create-title" name="title" data-code-point-max="64" required></div>' +
         '<div class="field"><label for="manual-create-description">説明</label><textarea id="manual-create-description" name="description" data-code-point-max="10000"></textarea></div>' +
         '<button class="primary-button" type="submit"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>' + (manualMutationInFlight ? '作成中' : '手順書を作成') + '</button>' +
@@ -2621,9 +2621,9 @@ function manualRevisionState(value) {
 
 function manualRevisionReadOnlyLabel(value) {
   const revisionState = manualRevisionState(value);
-  if (revisionState === "draft") return "下書き（読み取り専用）";
-  if (revisionState === "published") return "公開版（読み取り専用）";
-  return "保存済み内容（読み取り専用）";
+  if (revisionState === "draft") return "下書き（閲覧専用）";
+  if (revisionState === "published") return "公開版（閲覧専用）";
+  return "保存済み内容（閲覧専用）";
 }
 
 function closeManualReadingPreview(restoreFocus = true) {
@@ -2652,7 +2652,7 @@ function openManualReadingPreview() {
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-labelledby", "manual-reading-preview-title");
   overlay.innerHTML = '<div class="manual-reading-preview-panel">' +
-    '<header class="manual-reading-preview-header"><div><p class="eyebrow">保存済み内容のみ</p><h2 id="manual-reading-preview-title">' + escapeHtml(title) + '</h2><span class="badge">' + escapeHtml(revisionState === "draft" ? "下書き" : revisionState === "published" ? "公開版" : "保存済み") + '</span></div><button id="manual-reading-preview-close" class="secondary-button" type="button">閉じる</button></header>' +
+    '<header class="manual-reading-preview-header"><div><p class="eyebrow">保存済みの内容</p><h2 id="manual-reading-preview-title">' + escapeHtml(title) + '</h2><span class="badge">' + escapeHtml(revisionState === "draft" ? "下書き" : revisionState === "published" ? "公開版" : "保存済み") + '</span></div><button id="manual-reading-preview-close" class="secondary-button" type="button">閉じる</button></header>' +
     '<div class="manual-reading-preview-content"><p class="manual-reading-preview-description">' + escapeHtml(description || "説明はありません。") + '</p><div class="manual-reading-preview-steps">' + stepsHtml + '</div></div>' +
     '<footer class="manual-reading-preview-footer"><button id="manual-reading-preview-close-footer" class="primary-button" type="button">' + (value.permissions?.canEdit ? "編集画面へ戻る" : "手順書へ戻る") + '</button></footer>' +
     '</div>';
@@ -2727,7 +2727,7 @@ function manualDetailHtml(currentWorkspace) {
       '</form>'
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
-    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>保存済み内容を閲覧プレビュー</button></div>' + metadata + '</section>' +
+    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>保存済み内容を確認</button></div>' + metadata + '</section>' +
     '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + archiveActions + '</div>' +
   '</div>';
 }

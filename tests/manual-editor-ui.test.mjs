@@ -17,7 +17,7 @@ test("manual navigation and editor states are embedded in the app shell", async 
     'manual-reading-preview',
     'function openManualReadingPreview',
     'function closeManualReadingPreview',
-    '保存済み内容のみ',
+    '保存済みの内容',
     'manualRevisionReadOnlyLabel',
     'id="manual-step-add-form"',
     'steps.length >= 200',

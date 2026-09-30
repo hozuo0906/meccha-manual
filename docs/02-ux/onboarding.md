@@ -47,7 +47,7 @@ Status: Accepted
 ### ゲスト状態でできないこと
 
 - サーバー保存。
-- 共有リンク発行。
+- 共有リンクを作成する。
 - PDF等のサーバーoutput生成。
 - Teamへの引き継ぎ。
 
@@ -89,7 +89,7 @@ Team機能を使う時点で必要な管理概念を段階的に開示する。
 - `Chromeに追加して手順書を作る` の主要CTA。
 - 「普段の業務画面をそのまま操作すると、手順書になります」。
 - 「記録を開始したタブだけを対象にします」。
-- 「入力した文字列、パスワード、Cookieは保存しません」。
+- 「入力欄の内容は記録せず、画像でも隠します」。
 - インストール後に1クリックで記録へ進める導線。
 
 `activeTab`、`scripting`、Manifest V3等の技術用語は通常利用者へ表示しない。
@@ -120,8 +120,7 @@ Team機能を使う時点で必要な管理概念を段階的に開示する。
 最低限伝えること:
 
 - 今から開いている対象タブだけを記録する。
-- 入力した文字列そのものは保存しない。
-- パスワード、カード番号、Cookie、Authorization等は保存しない。
+- 入力欄の内容は記録しない。入力欄以外の機密情報は画像に写る場合があるため、画像編集で黒塗りする。
 - 記録停止後は継続監視しない。
 - スマホ／タブレット表示はレスポンシブ表示の再現であり、実機固有動作と完全一致しない場合がある。
 
@@ -211,9 +210,9 @@ Activationは次を満たした時点とする。
 
 ## B登録UIスライス（実装範囲）
 
-output gateは、編集内容を明示的に確認してから登録画面へ進む。取消時は編集中の値と拡張機能のlocal原本を保持する。
+output gateは、編集内容を確認してから保存先の準備画面へ進む。キャンセル時は編集中の値と拡張機能のlocal原本を保持する。
 
-登録画面へ進む場合、拡張機能は本文・画像・認証情報を送らず、256bit相当のhandoff識別子とlocal draftの参照情報だけを拡張機能のlocal領域へ保持する。owner限定staging配布版のhandoff識別子は`https://meccha-manual-staging.meccha-iiyatsu.com`のURL fragmentにだけ置き、production・preview・localhost等のoriginは拒否する。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して登録をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。専用WorkerのWeb画面は、信頼済み`APP_ENV`と環境別に固定した`APP_BASE_URL`が一致し、request originも完全一致する場合だけ登録操作を有効化する。production originまたはAccess環境が未準備の限定配布版では登録操作を無効化し、日本語の準備中表示に留める。
+保存先の準備画面へ進む場合、拡張機能は本文・画像・ログイン情報を送らず、256bit相当のhandoff識別子とlocal draftの参照情報だけを拡張機能のlocal領域へ保持する。owner限定staging配布版のhandoff識別子は`https://meccha-manual-staging.meccha-iiyatsu.com`のURL fragmentにだけ置き、production・preview・localhost等のoriginは拒否する。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して保存をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。専用WorkerのWeb画面は、信頼済み`APP_ENV`と環境別に固定した`APP_BASE_URL`が一致し、request originも完全一致する場合だけ保存操作を有効化する。production originまたはAccess環境が未準備の限定配布版では保存操作を無効化し、日本語の準備中表示に留める。
 
 認証後のWeb画面は同一originの`POST /api/onboarding/bootstrap`へ`operationId`だけを送る。成功表示は保存先の準備完了に限り、手順書が保存・claim・共有されたとは表示しない。401、403、429、503、応答消失ではlocal原本を保持し、metadataがTTL内である限り同じ`operationId`で再試行できる。TTL経過後は再試行せず、拡張機能で新しいhandoffを発行する。
 
@@ -229,7 +228,7 @@ output gateは、編集内容を明示的に確認してから登録画面へ進
 
 ### D共有出力の限定配布記録
 
-D共有出力の限定配布候補は拡張機能manifest `0.1.3` とする。ゲストの共有出力は認証・claim完了後に対象手順書の共有設定へ戻り、共有リンクを自動発行しない。実Chrome導入と配布反映の状態は、Issue #70および該当PRのlive recordを正本として確認する。
+D共有出力の限定配布候補は拡張機能manifest `0.1.3` とする。ゲストの共有出力は認証・claim完了後に対象手順書の共有設定へ戻り、共有リンクを自動作成しない。実Chrome導入と配布反映の状態は、Issue #70および該当PRのlive recordを正本として確認する。
 
 ## セキュリティ境界
 
@@ -247,4 +246,4 @@ D共有出力の限定配布候補は拡張機能manifest `0.1.3` とする。�
 
 ### 共有設定UI（D）
 
-認証・guest claim後の共有出力は対象手順書へ戻り、共有リンクの発行は利用者が共有設定で期限・パスコード・発行時点の内容を確認した後にだけ行う。認証やclaimの完了だけでリンクを自動発行せず、再読込後はトークンを復元しない。既存リンクが有効または期限切れの場合は停止を先に行い、発行済みsnapshotは後続の下書き編集から分離する。
+認証・guest claim後の共有出力は対象手順書へ戻り、共有リンクの作成は利用者が共有設定で期限・パスコード・作成時点の内容を確認した後にだけ行う。認証やclaimの完了だけでリンクを自動作成せず、再読込後はトークンを復元しない。既存リンクが有効または期限切れの場合は停止を先に行い、作成済みsnapshotは後続の下書き編集から分離する。

@@ -129,7 +129,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (drag?.operation === "new-mask" && transient && transient.width > 0 && transient.height > 0) masks.push(transient);
     const context = canvas.getContext("2d");
     try { drawScreenshot(context, image, { annotations, masks }); renderSelection(context); }
-    catch { canvas.width = 1; canvas.height = 1; setStatus("画像の注釈データを読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); }
+    catch { canvas.width = 1; canvas.height = 1; setStatus("画像の編集内容を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); }
   }
 
   function selectTool(next) {
@@ -147,7 +147,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     entries.forEach((entry) => {
       const row = document.createElement("div"); const choose = document.createElement("button"); choose.type = "button"; choose.textContent = entry.label; choose.setAttribute("aria-pressed", String(selected?.id === entry.id));
       choose.addEventListener("click", () => { if (isBusy()) return; selectItem(entry.kind, entry.id); refreshSelection(); redraw(); }, { signal });
-      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "削除"; remove.dataset.editorDelete = entry.id;
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "削除"; remove.setAttribute("aria-label", `${entry.label}を削除`); remove.title = `${entry.label}を削除`; remove.dataset.editorDelete = entry.id;
       remove.addEventListener("click", () => { if (isBusy()) return; if (entry.kind === "annotation") working.annotations = working.annotations.filter((item) => item.id !== entry.id); else working.masks = working.masks.filter((item) => item.id !== entry.id); if (selected?.id === entry.id) selected = null; refreshSelection(); redraw(); }, { signal });
       row.append(choose, remove); selection.append(row);
     });

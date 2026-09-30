@@ -24,7 +24,7 @@ const gateStatus = document.querySelector("#gateStatus");
 const saveState = document.querySelector("#saveState");
 const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
-const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
+const pendingRegistrationMessage = "保存先を準備できません。時間をおいてもう一度お試しください。手順書はこの端末に残っています。";
 const HANDOFF_READY_TIMEOUT_MS = 8_000;
 let outputInFlight = false;
 let pendingHandoffTabId = null;
@@ -75,10 +75,10 @@ function persist(message = "この端末に保存しました。") {
     try {
       await draftStore.put(draft);
       status.textContent = message;
-      setSaveState("保存済み", "saved");
+      setSaveState("端末に保存済み", "saved");
       return true;
     } catch {
-      status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
+      status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認するか、もう一度お試しください。";
       setSaveState("保存できません", "error");
       return false;
     }
@@ -92,8 +92,8 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
     candidate.description = description.value;
     candidate.updatedAt = new Date().toISOString();
     setSaveState("保存中…", "saving");
-    try { await draftStore.put(candidate); status.textContent = message; setSaveState("保存済み", "saved"); return { ok: true, candidate }; }
-    catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認してもう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
+    try { await draftStore.put(candidate); status.textContent = message; setSaveState("端末に保存済み", "saved"); return { ok: true, candidate }; }
+    catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
   });
 }
 
@@ -193,8 +193,8 @@ function updateRegistrationAvailability() {
 }
 
 document.querySelector("#save").addEventListener("click", async () => {
-  if (!await persist("この端末に保存しました。登録画面へ進むか、編集に戻れます。")) {
-    gateStatus.textContent = "保存に失敗したため、登録画面へ進めません。編集内容を確認して再試行してください。";
+  if (!await persist("この端末に保存しました。保存の準備に進むか、編集に戻れます。")) {
+    gateStatus.textContent = "保存に失敗したため、保存先へ進めません。編集内容を確認して、もう一度お試しください。";
     return;
   }
   gateStatus.textContent = "";
@@ -337,7 +337,7 @@ async function activateHandoffTab(run, policy) {
       startRegistration.disabled = true;
       if (startShare) startShare.disabled = true;
       if (activateHandoff) activateHandoff.disabled = true;
-      gateStatus.textContent = "\u753b\u9762\u3092\u8868\u793a\u3057\u3066\u3044\u307e\u3059\u3002";
+      gateStatus.textContent = "保存先を表示しています。";
       try {
         await chrome.tabs.update(run.tabId, { active: true });
       } catch (error) {
@@ -389,8 +389,8 @@ async function startOutput(outputAction) {
   startRegistration.disabled = true;
   if (startShare) startShare.disabled = true;
   if (handoffProgress) handoffProgress.hidden = false;
-  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有設定の準備をしています。" : "保存先を準備しています。";
-  gateStatus.textContent = "準備画面を開いています。ログインと保存先の準備が完了した後に手順書を送信します。認証情報は拡張機能へ渡しません。";
+  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有の準備をしています。" : "ワークスペースへの保存を準備しています。";
+  gateStatus.textContent = "保存先の準備画面を開いています。ログインが必要な場合は、表示された画面で続けてください。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
       await pruneExpiredHandoffs();
@@ -412,7 +412,7 @@ async function startOutput(outputAction) {
           pendingHandoffTabId = null;
           if (activateHandoff) activateHandoff.hidden = true;
           if (handoffProgress) handoffProgress.hidden = true;
-          gateStatus.textContent = "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。";
+          gateStatus.textContent = "保存先の準備画面を表示しました。ログインが必要な場合は、表示された画面で続けてください。";
           outputGate.close();
           return;
         }
@@ -424,7 +424,7 @@ async function startOutput(outputAction) {
       pendingHandoffTabId = opened.tabId;
       if (activateHandoff) activateHandoff.hidden = false;
       if (handoffProgress) handoffProgress.hidden = true;
-      gateStatus.textContent = "登録画面の準備を確認できませんでした。ログインや接続が必要な場合があります。『ログイン・接続を確認する』を押すと画面を表示できます。手順書はこの端末に残っています。";
+      gateStatus.textContent = "保存先の準備画面を確認できませんでした。ログインや接続が必要な場合があります。『準備画面を表示』を押すと画面を表示できます。手順書はこの端末に残っています。";
       return;
     });
   } catch (error) {
@@ -432,8 +432,8 @@ async function startOutput(outputAction) {
     if (isActiveHandoffRun(run)) {
       if (handoffProgress) handoffProgress.hidden = true;
       gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
-        ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
-        : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
+        ? "保存の準備ができませんでした。編集画面からもう一度お試しください。手順書はこの端末に残っています。"
+        : "保存先を開けませんでした。元の手順書はこの端末に残っています。";
       activeHandoffAttempt = null;
     }
   } finally {
@@ -463,7 +463,7 @@ activateHandoff?.addEventListener("click", async () => {
       activeHandoffAttempt = null;
       pendingHandoffTabId = null;
       activateHandoff.hidden = true;
-      gateStatus.textContent = "登録画面を表示できませんでした。『登録画面へ進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
+      gateStatus.textContent = "保存先を表示できませんでした。『保存の準備に進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
     }
   } finally {
     if ((activeHandoffAttempt === attempt || activeHandoffAttempt === null) && attempt.tabState !== "activating") activateHandoff.disabled = false;

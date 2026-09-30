@@ -18,7 +18,7 @@ async function send(message) {
 }
 
 function renderCaptureState(state = {}) {
-  const active = ["recording", "finish_failed", "reinjection_failed"].includes(state.phase);
+  const active = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
   if (state.mode) mode.value = state.mode;
   start.hidden = active || state.restorePending;
   mode.disabled = active || state.restorePending;
@@ -36,10 +36,52 @@ function renderCaptureState(state = {}) {
   } else if (state.phase === "finish_failed") {
     status.textContent = "終了処理に失敗しましたが、記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
   } else if (state.recording) {
-    status.textContent = "このタブだけを記録しています。入力した値は保存しません。";
+    status.textContent = "このタブだけを記録しています。入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があります。";
   } else {
     status.textContent = "";
   }
+}
+
+function finishFailureMessage(state, statusAvailable, draftsState) {
+  const unknownMessage = !draftsState?.available
+    ? "記録終了の結果を確認できませんでした。下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。"
+    : draftsState.count === 0
+      ? "記録終了の結果を確認できませんでした。下書きが見つかりませんでした。対象タブの状態を確認してから、もう一度お試しください。"
+      : "記録終了の結果を確認できませんでした。今回の記録が保存されたか確認できません。下書き一覧を確認してください。";
+  if (!statusAvailable) return unknownMessage;
+  if (state?.restorePending || state?.phase === "starting" || state?.phase === "restore_pending") {
+    return "画面を元に戻せませんでした。復元情報は残っています。先に復元してください。";
+  }
+  if (state?.phase === "finish_failed") {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+  }
+  if (["recording", "paused", "reinjection_failed"].includes(state?.phase)) {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブの状態を確認して、もう一度終了してください。";
+  }
+  return unknownMessage;
+}
+
+function savedDraftOpenMessage(draftsState) {
+  return draftsState?.available && draftsState.count > 0
+    ? "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。"
+    : draftsState?.available
+      ? "記録は保存しましたが、編集画面を開けませんでした。もう一度この画面を開いて確認してください。"
+      : "記録は保存しましたが、編集画面と下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。";
+}
+
+async function showFinishFailureOutcome() {
+  let current = {};
+  let statusAvailable = true;
+  try {
+    current = await send({ type: "capture:status" });
+    if (!current || typeof current !== "object" || Array.isArray(current)) throw new Error("INVALID_CAPTURE_STATUS");
+  } catch {
+    statusAvailable = false;
+    current = {};
+  }
+  const draftsState = await refreshDrafts();
+  renderCaptureState(current);
+  status.textContent = finishFailureMessage(current, statusAvailable, draftsState);
 }
 
 async function refreshDrafts() {
@@ -53,8 +95,10 @@ async function refreshDrafts() {
       recentDraft.append(option);
     }
     draftSection.hidden = drafts.length === 0;
+    return { available: true, count: drafts.length };
   } catch {
     draftSection.hidden = true;
+    return { available: false, count: 0 };
   }
 }
 
@@ -67,24 +111,41 @@ start.addEventListener("click", async () => {
     const current = await send({ type: "capture:status" }).catch(() => ({}));
     renderCaptureState(current);
     if (current.restorePending) {
-      status.textContent = `${status.textContent} (${error.message})`;
+      status.textContent = "画面を元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
       return;
     }
-    status.textContent = `記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。 (${error.message})`;
+    status.textContent = "記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。";
   }
 });
 
 finish.addEventListener("click", async () => {
+  let result;
   try {
-    const { draftId, restorePending } = await send({ type: "capture:finish" });
+    result = await send({ type: "capture:finish" });
+  } catch {
+    await showFinishFailureOutcome();
+    return;
+  }
+
+  const { draftId, restorePending } = result || {};
+  if (typeof draftId !== "string" || !draftId) {
+    await showFinishFailureOutcome();
+    return;
+  }
+  let editorOpenError = null;
+  try {
     await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${draftId}`) });
-    await refreshDrafts();
-    if (restorePending) renderCaptureState({ restorePending: true });
-    else window.close();
   } catch (error) {
-    const current = await send({ type: "capture:status" }).catch(() => ({}));
-    renderCaptureState(current);
-    status.textContent = `${status.textContent} (${error.message})`;
+    editorOpenError = error;
+  }
+  const draftsState = await refreshDrafts();
+  renderCaptureState({ restorePending: Boolean(restorePending) });
+  if (restorePending) {
+    return;
+  } else if (editorOpenError) {
+    status.textContent = savedDraftOpenMessage(draftsState);
+  } else {
+    window.close();
   }
 });
 
@@ -94,7 +155,7 @@ resume.addEventListener("click", async () => {
     await send({ type: "capture:resume", tabId: tab.id });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
-    status.textContent = `記録を再開できませんでした。記録内容は保持しています。 (${error.message})`;
+    status.textContent = "記録を再開できませんでした。記録内容は保持しています。対象タブを開いて、もう一度お試しください。";
   }
 });
 

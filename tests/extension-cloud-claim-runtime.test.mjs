@@ -737,12 +737,38 @@ test("two MV3 editor tabs converge on one fresh handoff and operation", { timeou
     await Promise.all(editors.map((page) => page.locator("#save").click()));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").waitFor({ state: "visible" })));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").click()));
-    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", null, { timeout: 30_000 })));
-    const gateStatuses = await Promise.all(editors.map((page) => page.locator("#gateStatus").textContent()));
-    assert.deepEqual(gateStatuses, ["登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。"]);
+    const canonicalGateStatus = "保存先の準備画面を表示しました。ログインが必要な場合は、表示された画面で続けてください。";
+    const manualGateStatus = "保存先の準備画面を確認できませんでした。ログインや接続が必要な場合があります。『準備画面を表示』を押すと画面を表示できます。手順書はこの端末に残っています。";
+    const activatedGateStatus = "保存先を表示しています。";
+    await Promise.all(editors.map((page) => page.waitForFunction(({ canonical, manual }) => {
+      const status = document.querySelector("#gateStatus")?.textContent;
+      const activate = document.querySelector("#activateHandoff");
+      return status === canonical || (status === manual && activate && !activate.hidden);
+    }, { canonical: canonicalGateStatus, manual: manualGateStatus }, { timeout: 30_000 })));
+    const editorOutcomes = await Promise.all(editors.map(async (page) => {
+      const manual = await page.locator("#gateStatus").textContent() === manualGateStatus;
+      if (manual) {
+        await page.locator("#activateHandoff").click();
+      }
+      await page.waitForFunction(({ canonical, activated, manual: manualFallback }) => {
+        const status = document.querySelector("#gateStatus")?.textContent;
+        const gate = document.querySelector("#outputGate");
+        const activate = document.querySelector("#activateHandoff");
+        const expected = manualFallback ? activated : canonical;
+        return status === expected && gate && !gate.open && activate?.hidden;
+      }, { canonical: canonicalGateStatus, activated: activatedGateStatus, manual }, { timeout: 30_000 });
+      assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "canonical activation must close the output gate");
+      assert.equal(await page.locator("#activateHandoff").isHidden(), true, "canonical activation must hide manual fallback");
+      assert.equal(await page.locator("#gateStatus").textContent(), manual ? activatedGateStatus : canonicalGateStatus, "canonical activation must show the destination state");
+      return { manual };
+    }));
     const allMetadata = await worker.evaluate(() => new Promise((resolve, reject) => chrome.storage.local.get(null, (result) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(result))));
     const handoffs = Object.values(allMetadata).filter((value) => value?.draftId === "runtime-editor-canonical-draft");
     assert.equal(handoffs.length, 1, "same draft editors must persist one metadata record");
+    const readyRecords = Object.values(allMetadata).filter((value) => value?.handoffId === handoffs[0].handoffId && value?.launchId);
+    assert.equal(readyRecords.length, 2, "each editor must persist one ready record for the canonical handoff");
+    assert.equal(readyRecords.every((value) => typeof value.activatedAt === "string"), true, "each editor must activate its prepared tab");
+    assert.deepEqual(new Set(readyRecords.map((value) => value.activationPolicy)), new Set(editorOutcomes.map(({ manual }) => manual ? "manual" : "auto")), "ready records must preserve the observed activation paths");
     openedRegistrationPages = await Promise.all([createStagingPage(context), createStagingPage(context)]);
     const beginResults = await Promise.all(openedRegistrationPages.map((page) => sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: handoffs[0].handoffId, action: "save" })));
     assert.deepEqual(beginResults[1], beginResults[0], "same canonical handoff must return one operation");

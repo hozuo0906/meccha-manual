@@ -848,7 +848,7 @@ test("編集者は保存済み内容だけを閲覧プレビューでき、未�
   });
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
-  const previewButton = page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" });
+  const previewButton = page.getByRole("button", { name: "保存済み内容を確認" });
   const draftForm = page.locator("#manual-draft-form");
   const stepForm = page.locator(`.manual-step-form[data-step-id="${firstStepId}"]`);
   const savedVersions = {
@@ -867,7 +867,7 @@ test("編集者は保存済み内容だけを閲覧プレビューでき、未�
 
   const preview = page.locator("dialog.manual-reading-preview");
   await expect(preview).toBeVisible();
-  await expect(preview.getByText("保存済み内容のみ")).toBeVisible();
+  await expect(preview.getByText("保存済みの内容")).toBeVisible();
   await expect(preview.getByRole("heading", { name: "既存の保存手順" })).toBeVisible();
   await expect(preview.getByText("受付担当者向け")).toBeVisible();
   await expect(preview.getByText("一行目の手順です。\n二行目の手順です。")).toBeVisible();
@@ -897,13 +897,13 @@ test("閲覧プレビューは空の手順を表示し、開閉でmutationを発
   page.on("request", (request) => {
     if (request.method() !== "GET") mutationRequests.push(request);
   });
-  await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
+  await page.getByRole("button", { name: "保存済み内容を確認" }).click();
   const preview = page.locator("dialog.manual-reading-preview");
   await expect(preview).toBeVisible();
   await expect(preview.getByText("手順はまだありません。")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(preview).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "保存済み内容を確認" })).toBeFocused();
   expect(mutationRequests).toHaveLength(0);
 });
 
@@ -911,8 +911,8 @@ test("閲覧者のプレビューはrevision stateのラベルと閲覧専用の
   await installManualFixture(page, "viewer");
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
-  await expect(page.getByText("下書き（読み取り専用）")).toBeVisible();
-  await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
+  await expect(page.getByText("下書き（閲覧専用）")).toBeVisible();
+  await page.getByRole("button", { name: "保存済み内容を確認" }).click();
   const draftPreview = page.locator("dialog.manual-reading-preview");
   await expect(draftPreview.getByText("下書き", { exact: true })).toBeVisible();
   await expect(draftPreview.getByRole("button", { name: "手順書へ戻る" })).toBeVisible();
@@ -923,8 +923,8 @@ test("閲覧者の公開版プレビューは公開版ラベルを表示する",
   await installManualFixture(page, "viewer", { published: true });
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
-  await expect(page.getByText("公開版（読み取り専用）")).toBeVisible();
-  await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
+  await expect(page.getByText("公開版（閲覧専用）")).toBeVisible();
+  await page.getByRole("button", { name: "保存済み内容を確認" }).click();
   const publishedPreview = page.locator("dialog.manual-reading-preview");
   await expect(publishedPreview.getByText("公開版", { exact: true })).toBeVisible();
   await expect(publishedPreview.getByRole("button", { name: "手順書へ戻る" })).toBeVisible();
@@ -934,7 +934,7 @@ test("別の手順書へ移動すると閲覧プレビューを閉じ、古い�
   await installManualFixture(page, "editor", { secondManual: true });
   await openManualScreen(page);
   await page.getByRole("button", { name: /既存の保存手順/ }).click();
-  await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
+  await page.getByRole("button", { name: "保存済み内容を確認" }).click();
   await expect(page.locator("dialog.manual-reading-preview")).toBeVisible();
   await page.locator("dialog.manual-reading-preview").getByRole("button", { name: "編集画面へ戻る" }).click();
   await expect(page.locator("dialog.manual-reading-preview")).toHaveCount(0);
@@ -942,7 +942,7 @@ test("別の手順書へ移動すると閲覧プレビューを閉じ、古い�
   await expect(page.locator("dialog.manual-reading-preview")).toHaveCount(0);
   await page.getByRole("button", { name: /別の保存手順/ }).click();
   await expect(page.getByRole("heading", { name: "別の保存手順" })).toBeVisible();
-  await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
+  await page.getByRole("button", { name: "保存済み内容を確認" }).click();
   const preview = page.locator("dialog.manual-reading-preview");
   await expect(preview.getByRole("heading", { name: "別の保存手順" })).toBeVisible();
   await expect(preview).not.toContainText("既存の保存手順");

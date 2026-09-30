@@ -21,7 +21,7 @@ Chrome拡張オンリー、PC/スマホ/タブレット表示、guest-first onbo
 | MVP-AC-009 | 同じemailのdisabled/retired identityが存在する | 別subjectまたはemail一致だけでbootstrapしようとする | email一致だけで既存identityを移動・復活・統合せず、安全に拒否または新identity境界として処理する |
 | MVP-AC-010 | bootstrap済みactorとguest draft | guest claimを実行する | 同じoperation/fingerprintからmanualを一度だけ作成し、claim確定までlocal原本を消さない |
 | MVP-AC-011 | guest claimの応答が失われた | 同operationIdで再試行する | 二重manualを作らず同じ結果を照合・返却する |
-| MVP-AC-012 | guestがshareを選んで認証・claim完了 | 共有リンクを発行する | デフォルトOFF、期限、パスコード、権限範囲を設定したlinkだけ発行され、無効化できる |
+| MVP-AC-012 | guestがshareを選んで認証・claim完了 | 共有リンクを作成する | デフォルトOFF、期限、パスコード、権限範囲を設定したlinkだけ作成され、無効化できる |
 | MVP-AC-013 | guestがoutput gateでsave/share/exportを選択済み | signup/bootstrap/claimが成功する | 利用者に同じ操作を押し直させず、元のoutputを自動再開する |
 | MVP-AC-014 | guest draftがある | 拡張削除またはブラウザデータ削除前の通常利用 | local-onlyであることと削除時に復元不能なことを必要な場面で案内する |
 | MVP-AC-015 | smartphone/tablet responsive mode | viewport依存の代表Webサービスを操作する | responsive layoutの主要操作を記録できる。UA/touch/DPR依存で実機と差がある場合は完全再現を主張しない |

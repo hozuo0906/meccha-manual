@@ -409,7 +409,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     });
     await page.locator("#save").click();
     assert.equal(await page.locator("#startRegistration").isDisabled(), true);
-    assert.match(await page.locator("#gateStatus").textContent(), /準備中/);
+    assert.match(await page.locator("#gateStatus").textContent(), /保存先を準備できません/);
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 0, "pending CTA must not persist unused handoffs");
   } finally {
@@ -430,10 +430,22 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
     await page.addInitScript(() => {
+      globalThis.__draftListMode = "ok";
+      const originalGetAll = IDBObjectStore.prototype.getAll;
+      IDBObjectStore.prototype.getAll = function (...args) {
+        if (globalThis.__draftListMode === "fail" && this.name === "drafts") {
+          const request = {};
+          queueMicrotask(() => request.onerror?.());
+          return request;
+        }
+        return originalGetAll.apply(this, args);
+      };
       globalThis.__refreshMode = "ok";
       globalThis.__statusPhase = "recording";
       globalThis.__restorePending = false;
       globalThis.__finishResult = { draftId: "restore-pending-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
+      globalThis.__finishError = false;
+      globalThis.__tabsCreateMode = "ok";
       globalThis.__tabsCreateCalls = [];
       globalThis.chrome = {
         runtime: {
@@ -444,6 +456,11 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
               return { ok: true, value: { phase: globalThis.__statusPhase, restorePending: globalThis.__restorePending, events: [], stepImageRefs: [] } };
             }
             if (message?.type === "capture:finish") {
+              if (globalThis.__finishError) {
+                globalThis.__statusPhase = "idle";
+                globalThis.__restorePending = false;
+                return { ok: false, error: "FINISH_RESPONSE_LOST" };
+              }
               const result = globalThis.__finishResult;
               globalThis.__statusPhase = result.restorePending ? "finish_failed" : "idle";
               globalThis.__restorePending = Boolean(result.restorePending);
@@ -453,7 +470,11 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
           }
         },
         tabs: {
-          create: async (details) => { globalThis.__tabsCreateCalls.push(details); return { id: globalThis.__tabsCreateCalls.length }; }
+          create: async (details) => {
+            globalThis.__tabsCreateCalls.push(details);
+            if (globalThis.__tabsCreateMode === "fail") throw new Error("TABS_UNAVAILABLE");
+            return { id: globalThis.__tabsCreateCalls.length };
+          }
         }
       };
     });
@@ -465,19 +486,55 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false);
     assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 1, "finish success should open the editor once");
 
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__finishError = true;
+      globalThis.__statusPhase = "recording";
+    });
+    await page.locator("#finish").waitFor({ state: "visible" });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /記録終了の結果を確認できませんでした/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "idle after a lost finish response must not offer an unverified retry");
+    assert.doesNotMatch(await page.locator("#status").textContent(), /保存済み/);
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__finishError = false;
+      globalThis.__statusPhase = "recording";
+      globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
+    });
+    await page.locator("#finish").waitFor({ state: "visible" });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__tabsCreateMode = "ok";
+      globalThis.__draftListMode = "ok";
+      globalThis.__statusPhase = "recording";
+      globalThis.__finishResult = { draftId: "refresh-failure-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
+    });
+    await page.locator("#finish").waitFor({ state: "visible" });
     await page.evaluate(() => { globalThis.__refreshMode = "fail"; });
     await page.locator("#finish").click();
     await page.waitForFunction(() => /保存済み/.test(document.querySelector("#status")?.textContent || ""));
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false, "restore remains available when status refresh fails");
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 2, "refresh failure must not turn a successful finish into a finish failure");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "saved finish must hide stale recording controls after refresh failure");
 
     await page.evaluate(() => {
       globalThis.__refreshMode = "ok";
-      globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
+      globalThis.__tabsCreateMode = "fail";
+      globalThis.__draftListMode = "ok";
+      globalThis.__statusPhase = "recording";
+      globalThis.__finishResult = { draftId: "double-failure-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
     });
+    await page.locator("#finish").waitFor({ state: "visible" });
+    await page.evaluate(() => { globalThis.__draftListMode = "fail"; });
     await page.locator("#finish").click();
-    await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
-    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");
+    await page.waitForFunction(() => /もう一度この画面を開いて確認してください/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "saved finish must hide stale recording controls after list failure");
+    assert.doesNotMatch(await page.locator("#status").textContent(), /下書き一覧から開いてください/);
   } finally {
     await context?.close();
     server.closeAllConnections?.();
@@ -701,7 +758,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
       chrome.storage.local.set = async () => { throw new Error("HANDOFF_STORAGE_UNAVAILABLE"); };
     });
     await page.locator("#startRegistration").click();
-    await page.waitForFunction(() => /保存できませんでした/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /^保存の準備ができませんでした。編集画面からもう一度お試しください。/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 0, "handoff storage failure must not navigate to a registration URL");
     await page.evaluate(() => {
       chrome.storage.local.set = async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); };
@@ -811,7 +868,7 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
-    await page.waitForFunction(() => /登録画面へ進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /保存の準備に進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
   } finally {

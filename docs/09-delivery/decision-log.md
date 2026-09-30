@@ -445,3 +445,11 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Issue: #264
 - Decision: 注釈はlocal draftに限定し、既存maskと共通rendererでPNGへ焼き込んでからclaimする。空の注釈は旧canonical形状を維持し、非空の正規化注釈だけをfingerprintへ含める。本文・画像・注釈はhandoff metadataへ保存しない。編集中の空文字は許可し、保存時に空の文字要素を削除する。プレビュー枠は固定比率で画像全体をcontain表示し、近傍からdecodeする。専用画像編集画面は元画像の解像度を使う。
 - Evidence: `apps/extension/editor/image-editor.js`、`tests/extension-editor-browser.test.mjs`、ADR-0036。
+
+### DEC-082: 記録保存後の表示障害からの復旧案内
+
+- Status: Accepted
+- Date: 2026-09-30
+- Issue: #265 / PR #269
+- Decision: `capture:finish`が`draftId`を返した保存成功後は、popup／sidepanelで終了操作の再試行を表示しない。`restorePending`があれば復元案内を優先し、編集画面を開けず下書き一覧に保存済み項目が確認できる場合だけ一覧から開く導線を表示する。一覧が空または取得できない二重障害では、存在しない下書きを案内せず、同じ画面を開き直して確認する復旧案内を表示する。sidepanelは一覧更新が失敗しても保存成功後の記録中操作を残さない。
+- Evidence: `apps/extension/popup/popup.js`、`apps/extension/sidepanel/sidepanel.js`、`tests/extension-release-blockers.test.mjs`、`docs/05-api/api-contracts.md`。
