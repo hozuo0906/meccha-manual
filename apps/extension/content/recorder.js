@@ -10,6 +10,13 @@
     if (!(element instanceof Element)) return {};
     const id = element.id;
     const associatedLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : undefined;
+    const tagName = element.tagName.toLowerCase();
+    const role = element.getAttribute("role");
+    const isNamedControl = tagName === "button" || tagName === "a" || ["button", "link", "menuitem"].includes(role);
+    const hasNestedValueControl = isNamedControl && element.querySelector("input,textarea,select,[contenteditable]:not([contenteditable=\"false\"])");
+    const visibleText = isNamedControl && !hasNestedValueControl
+      ? Array.from(element.innerText || "").slice(0, 80).join("")
+      : undefined;
     return {
       type: element.getAttribute("type"),
       name: element.getAttribute("name"),
@@ -17,9 +24,11 @@
       autocomplete: element.getAttribute("autocomplete"),
       ariaLabel: element.getAttribute("aria-label"),
       placeholder: element.getAttribute("placeholder"),
+      title: element.getAttribute("title"),
       associatedLabel: associatedLabel?.trim(),
-      role: element.getAttribute("role"),
-      tagName: element.tagName.toLowerCase()
+      visibleText: visibleText?.trim(),
+      role,
+      tagName
     };
   };
   const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...extra });

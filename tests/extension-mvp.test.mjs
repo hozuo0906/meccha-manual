@@ -4,7 +4,7 @@ import test from "node:test";
 import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js";
 import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
 import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
-import { isSensitiveInput, normalizeCaptureEvent, safeTargetLabel } from "../apps/extension/capture/privacy.js";
+import { isSensitiveInput, normalizeCaptureEvent, safeControlName, safeTargetLabel } from "../apps/extension/capture/privacy.js";
 import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
 import { VIEWPORTS, targetOuterBounds } from "../apps/extension/responsive/viewports.js";
@@ -82,18 +82,23 @@ test("associated labels participate in sensitive classification", () => {
   }
 });
 
-test("click labels use fixed semantic labels and never dynamic metadata", () => {
-  assert.equal(safeTargetLabel({ tagName: "button", textContent: "秘密を含むページ本文" }), "ボタン");
-  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存" }), "ボタン");
-  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 SECRET_VALUE" }), "保護された入力欄");
-  assert.equal(safeTargetLabel({ role: "link", ariaLabel: "顧客名 12345" }), "リンク");
-  assert.equal(safeTargetLabel({ role: "menuitem", associatedLabel: "利用者の入力" }), "メニュー");
-  assert.equal(safeTargetLabel({ ariaLabel: "任意の個人情報" }), "操作対象");
+test("click labels use only short control names and fall back for values or sensitive candidates", () => {
+  assert.equal(safeTargetLabel({ tagName: "button", visibleText: "参照" }), "参照");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存" }), "保存");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 SECRET_VALUE" }), "ボタン");
+  assert.equal(safeTargetLabel({ role: "link", ariaLabel: "顧客名 12345" }), "顧客名 12345");
+  assert.equal(safeTargetLabel({ role: "menuitem", associatedLabel: "利用者の入力" }), "利用者の入力");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "user@example.com" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "012-3456-7890" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "a".repeat(41) }), "ボタン");
+  assert.equal(safeControlName({ tagName: "select", ariaLabel: "参照" }), null);
+  assert.equal(safeTargetLabel({ tagName: "input", type: "button", ariaLabel: "参照", value: "参照" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "任意の個人情報" }), "任意の個人情報");
   assert.equal(safeTargetLabel({ tagName: "input", type: "text", ariaLabel: "利用者が入力した値" }), "入力欄");
   const normalized = normalizeCaptureEvent({ kind: "click", at: 1, eventId: "click:1", target: {
-    tagName: "button", ariaLabel: "利用者の氏名", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
+    tagName: "button", ariaLabel: "参照", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
   } });
-  assert.deepEqual(normalized, { kind: "click", at: 1, label: "ボタン", eventId: "click:1" });
+  assert.deepEqual(normalized, { kind: "click", at: 1, label: "参照", eventId: "click:1" });
   assert.equal(JSON.stringify(normalized).includes("問い合わせ本文"), false);
 });
 
@@ -192,6 +197,9 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.match(source, /target\.scrollLeft/);
   assert.match(source, /deltaX/);
   assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
+  assert.match(source, /hasNestedValueControl/);
+  assert.match(source, /element\.querySelector\("input,textarea,select/);
+  assert.match(source, /element\.innerText/);
   assert.match(source, /return pendingEvents\.sort/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
   assert.doesNotMatch(source, /element\.textContent/);

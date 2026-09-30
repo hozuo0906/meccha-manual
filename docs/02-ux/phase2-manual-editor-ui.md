@@ -53,6 +53,7 @@ Status: Accepted
 - input actionでも入力した値を受け取る欄を設けない。
 - password、カード番号、token、個人番号を手順書UIからAPIへ送らない。
 - `targetText`には「メールアドレス欄」「保存ボタン」など対象名だけを入力する。
+- Chrome拡張の操作記録では、button・link・menuitemの短い操作名を手順文へ反映することがある。入力値・placeholder・selectの選択値・対象外の本文は取り込まず、機密候補や長い文字列は「ボタン」「リンク」などの一般的な表現へ戻す。氏名や住所の完全自動判定は保証せず、保存前に手順文を確認・修正できるようにする。
 - manual、step、instruction、targetText、URLをlocalStorage/sessionStorageへ保存しない。
 - 編集中の値は現在タブのDOM・JavaScriptメモリだけに置き、ログアウト・ユーザー変更・ワークスペース変更で破棄する。
 

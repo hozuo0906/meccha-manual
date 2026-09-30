@@ -27,7 +27,7 @@ Chrome拡張は、利用者自身が開いているWebページ上で明示的�
 
 ## 記録イベントの完全性と表示由来metadata
 
-click eventのlabelは`button`、`link`、`menuitem`、`select`等の固定semantic値だけを保存し、`aria-label`、関連label、placeholder、本文などページ由来の文字列を保存しない。入力欄は既存の機密判定を先に適用し、入力値と機密metadataをevent／下書きへ複製しない。
+click eventのlabelは、短く安全な操作名を取得できた`button`、`link`、`menuitem`に限り、`aria-label`、関連label、title、対象要素自身の可視テキストを候補として決定的に正規化する。40 Unicode code pointを超える文字列、入力値・placeholder・selectの選択値、URL、メールアドレス、電話番号、郵便番号、token、password、カード情報等の機密候補は保存せず、固定semantic値へ戻す。一般的な氏名や住所を短い操作名から完全検出できる保証はないため、候補が曖昧な場合は利用者が手順文を確認・修正する。入力欄は既存の機密判定を先に適用し、入力値と機密metadataをevent／下書きへ複製しない。
 
 ### スクリーンショットのマスキング境界 (2026-09-30)
 

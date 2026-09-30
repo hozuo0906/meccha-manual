@@ -29,6 +29,8 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 未知field、入力値、password、カード番号、token、Cookie、Authorization、座標の生値は出力eventへ複製しない。機密候補を含むtarget labelは`入力欄`へ置換する。
 
+Chrome拡張のguest下書きでだけ、別契約のローカル正規化が安全な短いbutton・link・menuitem名を生成文へ反映する。これは本APIの`targetText`契約を変更せず、selectの選択値、inputのvalue、placeholder、対象外の本文は取り込まない。
+
 ## 決定的draft生成
 
 正規化eventは外部AI APIを使わず、日本語のmanual step候補へ変換する。
