@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -40,7 +40,9 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(html, /id="liveCurrentStep"/);
   assert.match(html, /id="liveCurrentStatus"/);
   assert.match(html, /id="liveLatest"/);
+  assert.ok(html.indexOf('id="liveProgress"') < html.indexOf('id="liveSection"'), "live progress must precede the scrollable recording section");
   assert.match(html, /id="finish"/);
   assert.match(html, /id="pause"/);
   assert.match(css, /prefers-reduced-motion/);
+  assert.match(css, /\.live-progress \{[^}]*position: sticky/);
 });

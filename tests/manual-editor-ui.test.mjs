@@ -24,7 +24,7 @@ test("manual navigation and editor states are embedded in the app shell", async 
     '手順は200件までです',
     '作成結果を一覧で確認してください。重ねて作成しないでください。',
     '処理結果を詳細で確認してください。重ねて操作しないでください。',
-    '入力した値やパスワードは記録せず',
+    '操作対象の名前だけを入力してください。氏名やパスワードなどは入力しないでください。',
     '外部AIは使用しません。',
     'function captureManualDetailDrafts',
     'function restoreManualDetailDrafts',

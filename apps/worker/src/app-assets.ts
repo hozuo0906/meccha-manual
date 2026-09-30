@@ -2717,7 +2717,7 @@ function manualDetailHtml(currentWorkspace) {
     : '<div class="empty" role="status">手順はまだありません。</div>';
   const addForm = canEdit && hasEditableDraft
     ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +
-        '<h2>手順を追加</h2><p>入力した値やパスワードは記録せず、操作対象名だけを入力してください。</p>' +
+        '<h2>手順を追加</h2><p>操作対象の名前だけを入力してください。氏名やパスワードなどは入力しないでください。</p>' +
         '<div class="manual-step-grid"><div class="field"><label for="new-step-type">種類</label><select id="new-step-type" name="type">' + stepTypeOptions("action") + '</select></div><div class="field"><label for="new-step-action">操作</label><select id="new-step-action" name="actionType">' + actionTypeOptions("click") + '</select></div></div>' +
         '<div class="field"><label for="new-step-title">見出し</label><input id="new-step-title" name="title" data-code-point-max="128" required></div>' +
         '<div class="field"><label for="new-step-target">操作対象</label><input id="new-step-target" name="targetText" data-code-point-max="256" placeholder="例：保存ボタン"></div>' +

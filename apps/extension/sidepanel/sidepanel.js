@@ -19,6 +19,7 @@ const liveDescription = document.querySelector("#liveDescription");
 const liveCurrentStep = document.querySelector("#liveCurrentStep");
 const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
 const liveLatest = document.querySelector("#liveLatest");
+const liveProgress = document.querySelector("#liveProgress");
 const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
@@ -278,6 +279,7 @@ function renderStatus(state = {}, imageEntries = []) {
   }
   startSection.hidden = active || waitingForRestore;
   liveSection.hidden = !active;
+  liveProgress.hidden = !active;
   finish.hidden = !canFinish;
   finish.disabled = false;
   pause.hidden = state.phase !== "recording";
