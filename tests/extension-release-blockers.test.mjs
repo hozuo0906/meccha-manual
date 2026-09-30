@@ -99,7 +99,8 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
           if (message.type === "capture:status") {
             statusCalls += 1;
             if (statusError) throw new Error("STATUS_UNAVAILABLE");
-            return { ok: true, value: statusResponse };
+            const response = finishCalls && finishResponse.statusResponse !== undefined ? finishResponse.statusResponse : statusResponse;
+            return { ok: true, value: response };
           }
           return { ok: true, value: null };
         }
@@ -139,16 +140,21 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
   assert.match(activeAfterLostResponse.elements.get("#status").textContent, /記録内容はこの端末に保持しています/);
   assert.match(activeAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
 
-  const idleAfterLostResponse = await createPopup({
-    finishResponse: { error: "response lost" },
-    statusResponse: { phase: null, restorePending: false },
-    drafts: []
-  });
-  await idleAfterLostResponse.elements.get("#finish").listeners.click();
-  assert.equal(idleAfterLostResponse.elements.get("#finish").hidden, true, "idle status must not expose a second finish operation");
-  assert.match(idleAfterLostResponse.elements.get("#status").textContent, /記録終了の結果を確認できませんでした/);
-  assert.match(idleAfterLostResponse.elements.get("#status").textContent, /下書きが見つかりませんでした/);
-  assert.doesNotMatch(idleAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
+  for (const [label, failedStatus] of [
+    ["idle status", { phase: null, restorePending: false }],
+    ["empty status", null]
+  ]) {
+    const idleAfterLostResponse = await createPopup({
+      finishResponse: { error: "response lost", statusResponse: failedStatus },
+      statusResponse: { phase: "recording", restorePending: false },
+      drafts: []
+    });
+    await idleAfterLostResponse.elements.get("#finish").listeners.click();
+    assert.equal(idleAfterLostResponse.elements.get("#finish").hidden, true, `${label} must not expose a second finish operation`);
+    assert.match(idleAfterLostResponse.elements.get("#status").textContent, /記録終了の結果を確認できませんでした/);
+    assert.match(idleAfterLostResponse.elements.get("#status").textContent, /下書きが見つかりませんでした/);
+    assert.doesNotMatch(idleAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
+  }
 
   const statusUnavailable = await createPopup({
     finishResponse: { error: "response lost" },

@@ -445,7 +445,11 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
               return { ok: true, value: { phase: globalThis.__statusPhase, restorePending: globalThis.__restorePending, events: [], stepImageRefs: [] } };
             }
             if (message?.type === "capture:finish") {
-              if (globalThis.__finishError) return { ok: false, error: "FINISH_RESPONSE_LOST" };
+              if (globalThis.__finishError) {
+                globalThis.__statusPhase = "idle";
+                globalThis.__restorePending = false;
+                return { ok: false, error: "FINISH_RESPONSE_LOST" };
+              }
               const result = globalThis.__finishResult;
               globalThis.__statusPhase = result.restorePending ? "finish_failed" : "idle";
               globalThis.__restorePending = Boolean(result.restorePending);
@@ -476,8 +480,6 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     await page.evaluate(() => {
       globalThis.__refreshMode = "ok";
       globalThis.__finishError = true;
-      globalThis.__statusPhase = "idle";
-      globalThis.__restorePending = false;
     });
     await page.locator("#finish").click();
     await page.waitForFunction(() => /記録終了の結果を確認できませんでした/.test(document.querySelector("#status")?.textContent || ""));
@@ -487,8 +489,10 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     await page.evaluate(() => {
       globalThis.__refreshMode = "ok";
       globalThis.__finishError = false;
+      globalThis.__statusPhase = "recording";
       globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
     });
+    await page.locator("#finish").waitFor({ state: "visible" });
     await page.locator("#finish").click();
     await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");

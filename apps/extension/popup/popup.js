@@ -69,6 +69,7 @@ async function showFinishFailureOutcome() {
     if (!current || typeof current !== "object" || Array.isArray(current)) throw new Error("INVALID_CAPTURE_STATUS");
   } catch {
     statusAvailable = false;
+    current = {};
   }
   const draftsState = await refreshDrafts();
   renderCaptureState(current);
