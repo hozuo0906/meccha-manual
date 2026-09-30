@@ -34,6 +34,9 @@ export function installSensitiveMasks() {
     email: "manual@example.invalid"
   });
   const maxPrivacyOverlays = 64;
+  // Keep candidate count and composed-tree evidence traversal bounded separately:
+  // unrelated DOM depth must not consume the overlay budget.
+  const maxPrivacyTraversalNodes = 4096;
   const restoreMask = (mask) => {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
@@ -467,7 +470,7 @@ export function installSensitiveMasks() {
         for (const child of root.childNodes) {
           if (matched || budgetExceeded) return;
           inspected += 1;
-          if (inspected > maxPrivacyOverlays) {
+          if (inspected > maxPrivacyTraversalNodes) {
             budgetExceeded = true;
             return;
           }
