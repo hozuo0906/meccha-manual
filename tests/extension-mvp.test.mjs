@@ -177,18 +177,20 @@ test("click caption privacy checks reject Unicode mailboxes and domestic phone f
 });
 
 test("click caption privacy checks compact layout whitespace for email detection", () => {
-  for (const ariaLabel of ["alice@\nlocalhost", "alice@\u2028localhost", "alice@ localhost"]) {
+  for (const ariaLabel of ["alice@\nlocalhost", "alice@\u2028localhost", "alice@ localhost", "利用者@\n社内", "利用者@\u2028社内"]) {
     assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
   }
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
 });
 
 test("click caption privacy checks Unicode decimal digits beyond NFKC", () => {
+  const adlamPhone = String.fromCodePoint(...[0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8].map((digit) => 0x1e950 + digit));
   for (const ariaLabel of [
     "٠٩٠-١٢٣٤-٥٦٧٨",
     "۰۹۰-۱۲۳۴-۵۶۷۸",
     "١٢٣-٤٥٦٧",
-    "۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱"
+    "۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱",
+    adlamPhone
   ]) {
     assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
   }

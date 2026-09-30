@@ -6,6 +6,10 @@ const CONTROL_NAME_MAX_LENGTH = 40;
 // not enough to make it sensitive.
 const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?/u;
 const CONTROL_NAME_EMAIL_LAYOUT = /[A-Za-z0-9][A-Za-z0-9._%+-]*\s*@\s*[A-Za-z0-9]/u;
+// Unicode mailbox characters may be separated from the domain by a line
+// break. Keep the left side adjacent to `@` so ordinary prose such as
+// `保存 @ 次へ` remains a valid caption.
+const CONTROL_NAME_UNICODE_EMAIL_LAYOUT = /[\p{L}\p{N}][\p{L}\p{N}._%+-]*@\s*[\p{L}\p{N}]/u;
 const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
 const CONTROL_NAME_INTERNATIONAL_HOST_LABEL = /^(?=.{1,63}$)[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?$/u;
@@ -16,17 +20,11 @@ const CONTROL_NAME_POSTAL = /(?:〒?\d{3}[- ]?\d{4})/;
 const CONTROL_NAME_SENSITIVE = /(?:password|passcode|token|secret|authorization|cookie|カード|クレジット|cvv|cvc|暗証|認証コード|ワンタイム|個人番号|マイナンバー)/i;
 const SECRET_LIKE_LABEL = /(?:eyJ[A-Za-z0-9_-]{10,}\.|\b(?:\d[ -]?){13,19}\b|\b[A-Fa-f0-9]{24,}\b|\b[A-Za-z0-9_-]{32,}\b)/;
 // JavaScript's digit shorthand is ASCII-only even with the Unicode flag.
-// Keep this map in the privacy view so every Unicode Nd digit participates in
-// phone, postal, and card detection without changing the returned caption.
-const DECIMAL_DIGIT_ZEROES = [
-  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6,
-  0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090, 0x17e0, 0x1810,
-  0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620,
-  0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0,
-  0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x114d0, 0x11650, 0x116c0,
-  0x11730, 0x118e0, 0x16a60, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec,
-  0x1d7f6
-];
+// Unicode Nd sets are encoded as consecutive groups of ten code points. A
+// bounded lookback finds the current group's start without a frozen list that
+// can miss a later Unicode block (for example Adlam digits).
+const DECIMAL_DIGIT = /\p{Nd}/u;
+const DECIMAL_DIGIT_RUN_LOOKBACK = 64;
 
 export function isSensitiveInput(input) {
   const type = String(input?.type ?? "").toLowerCase();
@@ -107,9 +105,11 @@ function normalizeControlName(value) {
   // and the returned caption so the storage boundary covers actual output.
   const caption = normalized.replace(/\p{Cf}/gu, "");
   const privacyValue = normalizePrivacyDigits(caption.normalize("NFKC"));
+  if (privacyValue === null) return null;
   const compactPrivacyValue = privacyValue.replace(/\s+/gu, "");
   const hasEmail = CONTROL_NAME_EMAIL.test(privacyValue)
-    || (CONTROL_NAME_EMAIL_LAYOUT.test(privacyValue) && CONTROL_NAME_EMAIL.test(compactPrivacyValue));
+    || ((CONTROL_NAME_EMAIL_LAYOUT.test(privacyValue) || CONTROL_NAME_UNICODE_EMAIL_LAYOUT.test(privacyValue))
+      && CONTROL_NAME_EMAIL.test(compactPrivacyValue));
   if (Array.from(caption).length > CONTROL_NAME_MAX_LENGTH) return null;
   if (hasEmail || looksLikeUrl(privacyValue) || CONTROL_NAME_PHONE.test(privacyValue) || CONTROL_NAME_POSTAL.test(privacyValue)) return null;
   if (SENSITIVE_NAME.test(privacyValue) || CONTROL_NAME_SENSITIVE.test(privacyValue) || SECRET_LIKE_LABEL.test(privacyValue)) return null;
@@ -117,11 +117,28 @@ function normalizeControlName(value) {
 }
 
 function normalizePrivacyDigits(value) {
-  return Array.from(value, (character) => {
+  let failed = false;
+  const normalized = Array.from(value, (character) => {
     const codePoint = character.codePointAt(0);
-    const zero = DECIMAL_DIGIT_ZEROES.find((candidate) => codePoint >= candidate && codePoint <= candidate + 9);
-    return zero === undefined ? character : String(codePoint - zero);
-  }).join("");
+    if (!DECIMAL_DIGIT.test(character)) return character;
+    let runStart = codePoint;
+    let lookback = 0;
+    while (runStart > 0 && lookback < DECIMAL_DIGIT_RUN_LOOKBACK
+      && DECIMAL_DIGIT.test(String.fromCodePoint(runStart - 1))) {
+      runStart -= 1;
+      lookback += 1;
+    }
+    // A run that cannot be bounded is outside the Unicode Nd shape this
+    // detector understands; fail closed instead of preserving an unknown
+    // decimal digit in the privacy view.
+    if (lookback === DECIMAL_DIGIT_RUN_LOOKBACK && runStart > 0
+      && DECIMAL_DIGIT.test(String.fromCodePoint(runStart - 1))) {
+      failed = true;
+      return character;
+    }
+    return String((codePoint - runStart) % 10);
+  });
+  return failed ? null : normalized.join("");
 }
 
 /** Returns a short, non-value-bearing control name for a local click step. */

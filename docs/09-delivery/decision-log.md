@@ -471,6 +471,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision:
   - clickの対象がbutton、link、menuitem、またはinputのbutton／submit／reset／imageで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキスト、input button／submit／resetのHTML `value`属性、input imageの`alt`属性を候補にする。inputのvalueはこのcaption境界に限って扱い、テキスト入力の現在値は読まない。
   - 候補は空白・制御文字を正規化し、40 Unicode code pointを上限とする。メールアドレス、URL、電話番号、郵便番号、token、password、カード情報などの高信頼な機密候補は固定semantic値へ戻す。
+  - privacy viewのUnicode decimal digitは固定のzero一覧を持たず、Unicode `Nd`カテゴリの連続runを最大64 code pointだけ後方探索して10進値へ写像する。Unicode data上の隣接した数学用数字を含む10桁単位のrunを対象とし、boundを超える未知のrunはfail closedで固定semantic値へ戻す。メールのlayout補助判定はUnicode mailboxの`@`直前隣接と改行・空白後のdomainを検査するが、`保存 @ 次へ`のような両側空白の通常captionは保持する。
   - selectの選択値、テキスト入力の現在値、placeholder、対象要素外の本文は取得しない。inputのvalueはbutton／submit／resetのcaption候補としてだけ扱う。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
   - 安全な候補はローカルeventとguest下書きの生成文にだけ反映し、既存のサーバー側capture APIのgeneric target契約、入力値非保存、外部AI API初期OFFを変更しない。
 - Reason:
