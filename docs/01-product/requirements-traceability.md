@@ -76,7 +76,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 - 通常の`capture:event`送信中は離脱警告を出さず、送信失敗が判明して保存成功を確認できないeventとretain中の未保存batchだけをbeforeunload保護対象とする。再送成功まで失敗保護を保持し、送信世代を照合して遅着ACKによる新しいeventの消去を防ぐ。
-- 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。保存成功後に編集画面を開けた場合だけサイドパネルを閉じ、結果不明・復元待ち・編集画面の表示失敗では復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。
+- 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。現在地表示は保存済み下書き一覧まで含むサイドパネル全体で固定し、終了時はeditorが下書き取得と初回renderを完了した`editor:ready`を確認できた場合だけサイドパネルを閉じる。結果不明・復元待ち・editorの下書き取得／render失敗・readyタイムアウトでは復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。
 
 capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。通常pauseはdrain前に`paused`意図をsessionまたはrecovery journalへ保存し、両方が失敗した場合はrecorderを停止しない。停止時のpending batchはページ側でclone保持し、sessionまたはjournalへの保存確認後だけreleaseする。recorderのretain確認が欠落または失敗した場合はbatchを空配列として保存せず、releaseや再注入を行わない。release確認が欠落または失敗した場合も成功扱いにせず、保持中のbatchと再試行可能な状態を維持する。上限到達時はrecorderを停止して記録を一時停止し、終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
 

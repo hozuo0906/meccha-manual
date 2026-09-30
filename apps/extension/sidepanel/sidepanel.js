@@ -19,6 +19,7 @@ const liveDescription = document.querySelector("#liveDescription");
 const liveCurrentStep = document.querySelector("#liveCurrentStep");
 const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
 const liveLatest = document.querySelector("#liveLatest");
+const liveProgress = document.querySelector("#liveProgress");
 const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
@@ -26,6 +27,7 @@ const emptyState = document.querySelector("#emptyState");
 const controls = document.querySelector(".controls");
 const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
 const DRAFT_POLL_INTERVAL_MS = 3_000;
+const EDITOR_READY_TIMEOUT_MS = 8_000;
 
 function syncControlsSpace() {
   if (!controls) return;
@@ -33,7 +35,12 @@ function syncControlsSpace() {
 }
 
 syncControlsSpace();
-if (typeof ResizeObserver === "function" && controls) new ResizeObserver(syncControlsSpace).observe(controls);
+if (typeof ResizeObserver === "function" && controls) {
+  new ResizeObserver(() => {
+    syncControlsSpace();
+    keepLiveTailVisibleAfterResize();
+  }).observe(controls);
+}
 window.addEventListener("resize", syncControlsSpace, { passive: true });
 
 const MODE_LABELS = {
@@ -205,9 +212,54 @@ function editorUrl(draftId) {
   return chrome.runtime.getURL(`editor/editor.html#${encodeURIComponent(draftId)}`);
 }
 
-async function openDraftEditor(draftId) {
+function isEditorReadySender(sender, draftId) {
+  try {
+    const senderUrl = new URL(sender?.url || "");
+    const expectedUrl = new URL(editorUrl(draftId));
+    return senderUrl.origin === expectedUrl.origin && senderUrl.pathname === expectedUrl.pathname;
+  } catch {
+    return false;
+  }
+}
+
+function waitForEditorReady(draftId) {
+  if (!chrome.runtime?.onMessage?.addListener) return { promise: Promise.resolve(false), cancel() {} };
+  let finishWait;
+  const promise = new Promise((resolve) => {
+    let settled = false;
+    finishWait = (ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(listener);
+      resolve(ready);
+    };
+    const listener = (message, sender) => {
+      if (message?.type !== "editor:ready" || message.draftId !== draftId || message.ready !== true) return;
+      if (!isEditorReadySender(sender, draftId)) return;
+      finishWait(true);
+    };
+    const timeout = setTimeout(() => finishWait(false), EDITOR_READY_TIMEOUT_MS);
+    chrome.runtime.onMessage.addListener(listener);
+  });
+  return {
+    promise,
+    cancel() { finishWait(false); }
+  };
+}
+
+async function openDraftEditor(draftId, { waitForReady = false } = {}) {
   if (typeof draftId !== "string" || !draftId) throw new Error("下書きIDがありません");
-  return chrome.tabs.create({ url: editorUrl(draftId) });
+  const readyWaiter = waitForReady ? waitForEditorReady(draftId) : null;
+  try {
+    const tab = await chrome.tabs.create({ url: editorUrl(draftId) });
+    if (!waitForReady) return tab;
+    if (!(await readyWaiter.promise)) throw new Error("EDITOR_NOT_READY");
+    return tab;
+  } catch (error) {
+    readyWaiter?.cancel();
+    throw error;
+  }
 }
 
 async function closeSidePanel() {
@@ -278,6 +330,7 @@ function renderStatus(state = {}, imageEntries = []) {
   }
   startSection.hidden = active || waitingForRestore;
   liveSection.hidden = !active;
+  liveProgress.hidden = !active;
   finish.hidden = !canFinish;
   finish.disabled = false;
   pause.hidden = state.phase !== "recording";
@@ -440,7 +493,7 @@ finish.addEventListener("click", async () => {
     let editorOpenError = null;
     let sidePanelClosed = false;
     try {
-      await openDraftEditor(result.draftId);
+      await openDraftEditor(result.draftId, { waitForReady: true });
     } catch (error) {
       editorOpenError = error;
     }

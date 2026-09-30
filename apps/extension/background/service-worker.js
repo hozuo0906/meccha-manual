@@ -655,7 +655,7 @@ async function resumeCapture(tabId) {
     const sessionSaved = await setSession(failedSession).then(() => true, () => false);
     if ((journalSaved || sessionSaved) && recoveredPending !== undefined) await stopRecorder(tabId, "release");
     else if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
-    throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
+    throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの操作で記録を終了して、手順書を編集してください。");
   }
 }
 
@@ -764,6 +764,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "capture:restore" && fromExtensionPage) return serializeSessionOperation(() => retryRestore());
     if (message?.type === "capture:resume" && fromExtensionPage) return serializeSessionOperation(() => resumeCapture(message.tabId));
     if (message?.type === "capture:close-panel" && fromExtensionPage) return closeCaptureSidePanel(message.windowId);
+    if (message?.type === "editor:ready" && fromExtensionPage) return { ready: message.ready === true };
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
       const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
