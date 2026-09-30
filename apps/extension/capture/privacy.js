@@ -2,7 +2,10 @@ const SENSITIVE_AUTOCOMPLETE = /(?:password|cc-|one-time-code)/i;
 const SENSITIVE_NAME = /(?:pass(?:word)?|token|secret|auth(?:orization)?|cookie|card|credit|cvv|cvc|pin|個人番号|マイナンバー|カード|クレジット|暗証|認証コード|ワンタイム)/i;
 const CONTROL_NAME_MAX_LENGTH = 40;
 const CONTROL_NAME_EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
-const CONTROL_NAME_URL = /(?:https?:\/\/|www\.)|\b[A-Z0-9.-]+\.(?:com|net|org|jp|co\.jp)\b/i;
+const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
+const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
+const CONTROL_NAME_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?(?:[/?#]|$)/u;
+const CONTROL_NAME_IPV6 = /^\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u;
 const CONTROL_NAME_PHONE = /(?:\+?81[- ]?|0)\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}/;
 const CONTROL_NAME_POSTAL = /(?:〒?\d{3}[- ]?\d{4})/;
 const CONTROL_NAME_SENSITIVE = /(?:password|passcode|token|secret|authorization|cookie|カード|クレジット|cvv|cvc|暗証|認証コード|ワンタイム|個人番号|マイナンバー)/i;
@@ -53,10 +56,28 @@ function isNamedControl(target) {
     || (tagName === "input" && ["button", "submit", "reset", "image"].includes(type));
 }
 
+function looksLikeUrl(value) {
+  // Remove whitespace only for URL detection so a line break cannot hide a URL.
+  const compact = value.replace(/\s+/gu, "");
+  if (!compact) return false;
+  if (CONTROL_NAME_SCHEME.test(compact) || compact.startsWith("//")) return true;
+  if (CONTROL_NAME_IPV4.test(compact) || CONTROL_NAME_IPV6.test(compact)) return true;
+
+  const authority = compact.match(/^([^/?#\\]+)(?:[/?#]|$)/u)?.[1];
+  if (!authority) return false;
+  const hostPort = authority.slice(authority.lastIndexOf("@") + 1);
+  const host = hostPort.replace(/:\d+$/u, "");
+  if (!host.includes(".")) return false;
+  // A dotted non-ASCII host is URL-shaped even when it uses an internationalized name.
+  if (/[^\u0000-\u007f]/u.test(host)) return true;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((label) => CONTROL_NAME_HOST_LABEL.test(label));
+}
+
 function normalizeControlName(value) {
   const normalized = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/gu, " ").trim();
   if (!normalized || Array.from(normalized).length > CONTROL_NAME_MAX_LENGTH) return null;
-  if (CONTROL_NAME_EMAIL.test(normalized) || CONTROL_NAME_URL.test(normalized) || CONTROL_NAME_PHONE.test(normalized) || CONTROL_NAME_POSTAL.test(normalized)) return null;
+  if (CONTROL_NAME_EMAIL.test(normalized) || looksLikeUrl(normalized) || CONTROL_NAME_PHONE.test(normalized) || CONTROL_NAME_POSTAL.test(normalized)) return null;
   if (CONTROL_NAME_SENSITIVE.test(normalized) || SECRET_LIKE_LABEL.test(normalized)) return null;
   return normalized;
 }

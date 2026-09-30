@@ -106,6 +106,24 @@ test("click labels use only short control names and fall back for values or sens
   assert.equal(JSON.stringify(normalized).includes("問い合わせ本文"), false);
 });
 
+test("click labels reject URL-shaped captions without a fixed TLD allowlist", () => {
+  const urlCaptions = [
+    "tenant.example.dev",
+    "portal.example.io/path?query=1#fragment",
+    "customer.example.co.uk:443",
+    "https://tenant.example.dev/path",
+    "ftp://portal.example.io/resource",
+    "127.0.0.1:8080/health",
+    "[::1]:443/health",
+    "https://例え.テスト/ページ",
+    "tenant.example.\ndev"
+  ];
+  for (const ariaLabel of urlCaptions) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "参照" }), "参照");
+});
+
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
   const order = [];
   const image = await captureWithMaskBoundary({
