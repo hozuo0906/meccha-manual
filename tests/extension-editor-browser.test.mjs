@@ -1234,6 +1234,70 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
   }
 });
 
+test("JPEG header scanning accepts fill bytes and TEM before SOF, while malformed segments fail closed", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "jpeg-marker-fixture", title: "JPEGマーカー確認", description: "", steps: [{ id: "jpeg-step", order: 1, instruction: "JPEGを追加" }], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#jpeg-marker-fixture`);
+
+    const jpegDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 180;
+      const context = canvas.getContext("2d"); context.fillStyle = "#087f7a"; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#ffffff"; context.font = "bold 24px system-ui"; context.fillText("JPEG fixture", 24, 60);
+      return canvas.toDataURL("image/jpeg", .82);
+    });
+    const jpegBytes = Buffer.from(jpegDataUrl.split(",")[1], "base64");
+    assert.deepEqual([...jpegBytes.subarray(0, 2)], [0xff, 0xd8], "canvas JPEGはSOIから始まる");
+    const decoratedJpeg = Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xff, 0x01, 0xff]), jpegBytes.subarray(2)]);
+    const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
+    await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
+    await page.waitForFunction(async () => {
+      const draft = await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture");
+      return draft?.screenshots?.length === 1 && draft.screenshots[0].dataUrl.startsWith("data:image/");
+    });
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    const storedImage = await page.evaluate(async (dataUrl) => {
+      const image = new Image(); image.src = dataUrl; await image.decode();
+      return { width: image.naturalWidth, height: image.naturalHeight, dataUrl: image.src };
+    }, stored.screenshots[0].dataUrl);
+    assert.deepEqual({ width: storedImage.width, height: storedImage.height }, { width: 320, height: 180 }, "SOF後の寸法を保存する");
+    assert.equal(storedImage.dataUrl.startsWith("data:image/png"), true, "保存時にメタデータを除いたPNGへ正規化する");
+    assert.notEqual(storedImage.dataUrl, `data:image/jpeg;base64,${decoratedJpeg.toString("base64")}`, "入力JPEGのマーカー列をそのまま保存しない");
+
+    await page.reload();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector("#step-jpeg-step .screenshot-canvas");
+      return canvas?.width === 320 && canvas?.height === 180 && canvas?.dataset.previewRendered === "true";
+    });
+    const reloaded = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(reloaded.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "再読込後も保存済み画像bytesを保持する");
+
+    const assertMalformed = async (bytes, name) => {
+      await input.setInputFiles({ name, mimeType: "image/jpeg", buffer: bytes });
+      await page.getByText("画像の大きさを確認できませんでした。別の画像を選んでください。", { exact: true }).waitFor();
+      const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+      assert.equal(afterReject.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, `${name}は保存済み画像を変更しない`);
+    };
+    await assertMalformed(Buffer.from([0xff, 0xd8, 0xff]), "truncated.jpeg");
+    await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x00]), "truncated-segment.jpeg");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("image upload keeps transparency, isolates shared replacements, and rejects oversized decoded images", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));

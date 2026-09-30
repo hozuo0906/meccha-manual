@@ -259,12 +259,21 @@ async function readImageHeaderDimensions(file) {
   }
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
     let offset = 2;
-    while (offset + 8 < bytes.length) {
+    while (offset < bytes.length) {
       if (bytes[offset] !== 0xff) { offset += 1; continue; }
-      const marker = bytes[offset + 1]; offset += 2;
-      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue;
-      const length = view.getUint16(offset); if (length < 2 || offset + length > bytes.length) break;
-      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) return { width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) break;
+      const marker = bytes[offset]; offset += 1;
+      if (marker === 0x00) break;
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (offset + 2 > bytes.length) break;
+      const length = view.getUint16(offset);
+      if (length < 2 || offset + length > bytes.length) break;
+      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+        if (length < 8) break;
+        return { width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
+      }
       offset += length;
     }
   }
