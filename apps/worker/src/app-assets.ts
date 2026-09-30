@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-a2b05fe162eef3d9";
+export const APP_ASSET_VERSION = "sha256-bf73e83aa06bc604";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1714,7 +1714,7 @@ function renderLogin(message = "") {
       });
       await loadSession({ focusId: "workspace-heading" });
     } catch (error) {
-      setBox("login-message", "ログインできません。入力内容と接続を確認して、もう一度操作してください。", "error");
+      setBox("login-message", error.message, "error");
     } finally {
       button.disabled = false;
       button.textContent = "ログイン";
