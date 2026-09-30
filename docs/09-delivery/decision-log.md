@@ -472,6 +472,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 既存の入力欄・canvas・iframe・shadow配下のopacity maskを維持し、追加の自動置換はメールアドレス・電話番号・郵便番号の明確な形式と、`氏名／名前／住所／電話／メール`の意味ラベルに対応する`dt/dd`・`th/td`の表示値に限定する。表示viewportと交差する候補overlayは1回のcaptureにつき64件までとし、既存の画像100件・手順200件のcapture上限とは別に、生成するoverlay数を固定する。ページ内のDOM走査そのものを無制限に一般化したり、画面外の候補を保存したりしない。
   - capture直前にviewport上の同じ位置へ固定ダミー値を描画する一時overlayを追加する。元DOMの文字列・入力値・イベント・ページ状態は変更せず、保存するのはoverlay描画後のpixelだけとする。
   - overlayの接続、対象要素とoverlayの幾何、document identityをcapture後に検証する。検証失敗、レイアウト変化、overlayの復元失敗は画像保存を成功扱いにしない。
+  - open shadow root内の通常テキストも同じ64件の候補上限で走査し、closed shadow rootは既存のhost全体maskで保護する。祖先`opacity: 0`の値は候補にせず、overlay自身または祖先の半透明、filter、blend、clip、mask等により不透明描画を確認できない場合はfail closedとする。open shadow rootの変更もcapture前のMutationObserverで検知する。
   - OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外とし、自動置換が漏れる可能性を利用者へ短く案内して手動黒塗りを残す。外部AIや新しい権限は追加しない。
 - Reason:
   - 実在の業務画面に含まれる代表的な連絡先や氏名を、元ページの操作を壊さずcapture pixel上だけで置き換えるため。検出範囲を限定し、未検出を自動保護済みと誤認させない。

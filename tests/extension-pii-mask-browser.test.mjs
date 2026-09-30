@@ -167,3 +167,80 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("open shadow text is replaced and later shadow mutations fail closed", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial,sans-serif;color:#102a43}open-pii-host{display:block}</style><open-pii-host></open-pii-host><script>
+      const host = document.querySelector('open-pii-host');
+      const root = host.attachShadow({mode:'open'});
+      root.innerHTML = '<span id="shadow-email">open@example.com</span>';
+    </script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 1);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").textContent(), "manual@example.invalid");
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.evaluate(() => document.querySelector("open-pii-host").shadowRoot.querySelector("#shadow-email").firstChild.nodeValue = "changed@example.com");
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
+    assert.equal(await page.evaluate(() => document.querySelector("open-pii-host").shadowRoot.querySelector("#shadow-email").textContent), "changed@example.com");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("fractional overlay style and zero-opacity ancestors fail closed without changing source text", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (request.url === "/hidden") {
+      response.end(`<!doctype html><style>body{opacity:0}</style><p id="hidden-email">hidden@example.com</p>`);
+      return;
+    }
+    response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial,sans-serif}</style><p id="email">visible@example.com</p>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.locator(".meccha-manual-pii-overlay").evaluate((overlay) => overlay.style.setProperty("opacity", "0.5", "important"));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`http://127.0.0.1:${server.address().port}/hidden`);
+    const hiddenMask = await inject(installSensitiveMasks);
+    assert.equal(hiddenMask.applied, true);
+    assert.equal(hiddenMask.privacyMaskedCount, 0);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
+    assert.equal(await page.locator("#hidden-email").textContent(), "hidden@example.com");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
