@@ -83,15 +83,14 @@ function scrollLiveLatest({ behavior = "smooth" } = {}) {
   updateLiveLatestVisibility();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const scrollBehavior = reducedMotion ? "auto" : behavior;
-  latest.scrollIntoView({ behavior: scrollBehavior, block: "end" });
-  const align = () => {
-    const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
-    const overlap = latest.getBoundingClientRect().bottom - footerTop;
-    if (overlap > 0) window.scrollBy({ top: overlap + 8, behavior: scrollBehavior });
+  const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
+  const targetScrollY = Math.max(0, window.scrollY + latest.getBoundingClientRect().bottom - footerTop + 8);
+  if (Math.abs(targetScrollY - window.scrollY) > 1) {
+    window.scrollTo({ top: targetScrollY, behavior: scrollBehavior });
+  }
+  requestAnimationFrame(() => {
     if (isLiveTailVisible()) programmaticFollowPending = false;
-  };
-  align();
-  requestAnimationFrame(align);
+  });
 }
 
 function isLiveTailVisible() {

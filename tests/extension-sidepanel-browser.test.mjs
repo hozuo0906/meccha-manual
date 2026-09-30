@@ -191,8 +191,8 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     assert.equal(returnedToLatest, true, "the latest-step control should restore tail following");
     const viewportLayout = await waitForNativeValue(
-      "(() => { const image = document.querySelector('.step-card:last-child img'); const footer = document.querySelector('.controls'); const imageRect = image?.getBoundingClientRect(); const footerRect = footer?.getBoundingClientRect(); return { viewport: { width: window.innerWidth, height: window.innerHeight }, image: imageRect && { top: imageRect.top, bottom: imageRect.bottom, height: imageRect.height }, footer: footerRect && { top: footerRect.top, bottom: footerRect.bottom, height: footerRect.height }, complete: image?.complete, naturalWidth: image?.naturalWidth }; })()",
-      (value) => value?.image?.complete && value.image.naturalWidth > 0 && value.footer?.height > 0
+      "(() => { const image = document.querySelector('.step-card:last-child img'); const footer = document.querySelector('.controls'); const imageRect = image?.getBoundingClientRect(); const footerRect = footer?.getBoundingClientRect(); return { viewport: { width: window.innerWidth, height: window.innerHeight }, current: document.querySelector('#liveCurrentStep')?.textContent, image: imageRect && { top: imageRect.top, bottom: imageRect.bottom, height: imageRect.height }, footer: footerRect && { top: footerRect.top, bottom: footerRect.bottom, height: footerRect.height }, complete: image?.complete, naturalWidth: image?.naturalWidth }; })()",
+      (value) => value?.current?.startsWith("手順 4") && value?.image?.complete && value.image.naturalWidth > 0 && value.footer?.height > 0 && value.image.bottom <= value.footer.top + 1 && value.image.top < value.footer.top
     );
     assert.ok(viewportLayout.image.bottom <= viewportLayout.footer.top + 1, `latest screenshot must remain above the fixed controls: ${JSON.stringify(viewportLayout)}`);
     assert.ok(viewportLayout.image.top < viewportLayout.footer.top, `latest screenshot must be visible in the viewport: ${JSON.stringify(viewportLayout)}`);
