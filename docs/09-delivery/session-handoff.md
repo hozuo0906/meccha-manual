@@ -449,3 +449,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - ローカル統合検証はextension 114/114（`final-extension-test.log`）、annotation/cloud 17/17、MV3 runtime 4/4（`final-cloud-runtime.log`）、editor browser 11/11（`final-editor-browser.log`）、encoding 334、sensitive 369、docs 132をPASSした。目次17番のJPEG、1366x768、文字サイズ入力でEnterしてもdialogが閉じないことを実Chrome合成で確認した。強化browserはUTF-8で復旧し、後半の既存8テストはGit HEADと完全一致することを確認した。保存中の入力抑止、Escape維持、元putによる保存、reload後の文字とfont32保持を第2テスト追記後のfocused 1/1で確認した。
 - Issue #265の全画面日本語リライトは次のマイルストーンであり、まだ実装していない。
 - remote本人受入、CI・最新Codex Review・remote保存状態の最終確認は未確認であり、Issue #70とPRの記録で確定する。
+
+## Issue #267 記録中入力のフォーカス回帰（2026-09-30）
+
+- 対象: Issue #267。作業branchは `codex/recording-input-focus`、確認時刻は `2026-09-30T16:12:58+09:00`（Asia/Tokyo）。ローカルHEADは `7503f8b58451a33f56726fe157f478c564a8fb51` のままで、今回の修正は未commit・未push。PRは親担当が作成・更新する。
+- 原因根拠: 実Chromeで、編集中のinputへ `visibility:hidden` を適用してpaint後に待つとfocusが外れてblur/changeが発生し、後続入力が同じ欄へ入らなかった。opacityだけのmaskではfocus、値、caret、selectionを保持した。
+- 実装境界: screenshot maskはvisibility/displayを変更せずopacityだけを適用し、closed shadow内はnested open shadow、top-layerのplain text、動的追加を含めて走査・検証する。closed shadowを検査できない場合はfail closed。復元時はmaskが変更したinline styleだけを戻す。入力値は保存・ログ出力しない。
+- 検証: `npm run extension:test` は114/114 PASS。実Chromeの `tests/extension-mask-browser.test.mjs` は4/4 PASS（同一dialogのmask前後・復元pixel、closed shadow、focus/selection、CDP IME確定前後）。実Chromeの `tests/extension-sidepanel-browser.test.mjs` は3/3 PASS（native MV3、画像1→2保存待ち、a→b連続入力、ab、focus維持、blur/change/submit/Enterなし、step数2）。合成fixtureと固定値のみを使い、実ユーザー内容・動画内容は記録していない。
+- 検証境界と残作業: 親の `npm ci` は成功。親が確認した `npm run check` のWindows改行差分と既存audit警告は今回の変更原因ではない。stage、commit、push、PR反映、Issue #70同期、最新SHAのCI/Codex Review確認は親のrelease gateで実施する。
