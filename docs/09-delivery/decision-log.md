@@ -300,8 +300,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 - Status: Accepted
 - Date: 2026-09-20
+- 関係: click labelを固定semantic値へ戻す境界のうち、安全な短い操作名をguest下書きへ反映する範囲だけDEC-084で部分的にSuperseded。入力値・秘密値を保存しない境界は継続する。
 - Decision:
-  - click eventのlabelは固定semantic値へ正規化し、ページ上の`aria-label`、関連label、placeholder、本文をlocal event／draftへ保存しない。
+  - click eventのlabelは固定semantic値へ正規化する。ただしDEC-084で定める安全な短い操作名の候補だけは、その決定で定める範囲に限りlocal event／draftの生成文へ反映する。placeholder、本文、入力欄の現在値は保存しない。
   - navigationのsession storageとrecovery journalが同時に失敗した場合は、同一session IDに限定した一時fallbackへ保持し、後続storage操作またはfinishでevent IDの重複排除を行って一度だけmergeする。service worker終了をまたぐメモリ状態のdurabilityは保証しない。
   - scrollは開始時の既存要素をseedし、動的に追加された未知要素は初回位置だけをseedして、その一回の方向イベントは生成しない。
 - Reason:
@@ -468,9 +469,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Status: Accepted
 - Date: 2026-10-01
 - Decision:
-  - clickの対象がbutton、link、menuitemのいずれかで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキストを候補にする。
+  - clickの対象がbutton、link、menuitem、またはinputのbutton／submit／reset／imageで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキスト、input button／submit／resetのHTML `value`属性、input imageの`alt`属性を候補にする。inputのvalueはこのcaption境界に限って扱い、テキスト入力の現在値は読まない。
   - 候補は空白・制御文字を正規化し、40 Unicode code pointを上限とする。メールアドレス、URL、電話番号、郵便番号、token、password、カード情報などの高信頼な機密候補は固定semantic値へ戻す。
-  - selectの選択値、inputのvalue、placeholder、入力欄の値、対象要素外の本文は取得しない。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
+  - selectの選択値、テキスト入力の現在値、placeholder、対象要素外の本文は取得しない。inputのvalueはbutton／submit／resetのcaption候補としてだけ扱う。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
   - 安全な候補はローカルeventとguest下書きの生成文にだけ反映し、既存のサーバー側capture APIのgeneric target契約、入力値非保存、外部AI API初期OFFを変更しない。
 - Reason:
   - 「参照」のような操作名を手順へ反映し、利用者が記録結果を修正しやすくする一方、表示値・入力値・機密情報を無制限に下書きへ持ち込まないため。

@@ -11,14 +11,20 @@
     const id = element.id;
     const associatedLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : undefined;
     const tagName = element.tagName.toLowerCase();
+    const type = String(element.getAttribute("type") || "").toLowerCase();
     const role = element.getAttribute("role");
-    const isNamedControl = tagName === "button" || tagName === "a" || ["button", "link", "menuitem"].includes(role);
+    const isCaptionedInput = tagName === "input" && ["button", "submit", "reset", "image"].includes(type);
+    const isNamedControl = tagName === "button" || tagName === "a" || isCaptionedInput || ["button", "link", "menuitem"].includes(role);
     const hasNestedValueControl = isNamedControl && element.querySelector("input,textarea,select,[contenteditable]:not([contenteditable=\"false\"])");
     const visibleText = isNamedControl && !hasNestedValueControl
       ? Array.from(element.innerText || "").slice(0, 80).join("")
       : undefined;
     return {
       type: element.getAttribute("type"),
+      controlCaption: tagName === "input" && ["button", "submit", "reset"].includes(type)
+        ? element.getAttribute("value")
+        : undefined,
+      imageAlt: tagName === "input" && type === "image" ? element.getAttribute("alt") : undefined,
       name: element.getAttribute("name"),
       id,
       autocomplete: element.getAttribute("autocomplete"),

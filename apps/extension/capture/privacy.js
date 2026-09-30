@@ -48,7 +48,9 @@ export function safeLabel(input) {
 function isNamedControl(target) {
   const tagName = String(target?.tagName ?? "").toLowerCase();
   const role = String(target?.role ?? "").toLowerCase();
-  return tagName === "button" || tagName === "a" || role === "button" || role === "link" || role === "menuitem";
+  const type = String(target?.type ?? "").toLowerCase();
+  return tagName === "button" || tagName === "a" || role === "button" || role === "link" || role === "menuitem"
+    || (tagName === "input" && ["button", "submit", "reset", "image"].includes(type));
 }
 
 function normalizeControlName(value) {
@@ -62,7 +64,7 @@ function normalizeControlName(value) {
 /** Returns a short, non-value-bearing control name for a local click step. */
 export function safeControlName(target) {
   if (!isNamedControl(target) || isSensitiveInput(target) || isValueBearingTarget(target)) return null;
-  const candidates = [target?.ariaLabel, target?.associatedLabel, target?.title, target?.visibleText];
+  const candidates = [target?.ariaLabel, target?.associatedLabel, target?.title, target?.visibleText, target?.controlCaption, target?.imageAlt];
   for (const candidate of candidates) {
     const normalized = normalizeControlName(candidate);
     if (normalized) return normalized;

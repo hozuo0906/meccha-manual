@@ -92,7 +92,11 @@ test("click labels use only short control names and fall back for values or sens
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "012-3456-7890" }), "ボタン");
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "a".repeat(41) }), "ボタン");
   assert.equal(safeControlName({ tagName: "select", ariaLabel: "参照" }), null);
-  assert.equal(safeTargetLabel({ tagName: "input", type: "button", ariaLabel: "参照", value: "参照" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "button", ariaLabel: "参照", controlCaption: "参照" }), "参照");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "submit", controlCaption: "送信" }), "送信");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "image", imageAlt: "画像で検索" }), "画像で検索");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "button", controlCaption: "user@example.com" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "text", controlCaption: "利用者が入力した値" }), "入力欄");
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "任意の個人情報" }), "任意の個人情報");
   assert.equal(safeTargetLabel({ tagName: "input", type: "text", ariaLabel: "利用者が入力した値" }), "入力欄");
   const normalized = normalizeCaptureEvent({ kind: "click", at: 1, eventId: "click:1", target: {

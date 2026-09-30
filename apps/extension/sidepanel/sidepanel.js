@@ -42,6 +42,7 @@ function instructionFor(event) {
   if (event?.kind === "navigation") return "次のページへ移動する";
   const semanticLabel = SEMANTIC_LABELS.has(event?.label) ? event.label : "操作対象";
   if (event?.kind === "input") return `${semanticLabel}に入力する`;
+  if (event?.kind === "click" && event?.label && !SEMANTIC_LABELS.has(event.label)) return `【${event.label}】クリック`;
   return `${semanticLabel}を操作する`;
 }
 
