@@ -783,9 +783,9 @@ async function restoreHandoffAfterAccess(tabId, changeInfo) {
       } catch {
         return;
       }
-      await chrome.storage.local.remove(accessNavigationKey);
       await chrome.storage.local.set({ [readyKey]: { ...latest, restoreAttempts: Number(latest.restoreAttempts || 0) + 1 } });
       await chrome.tabs.update(tabId, { url: pendingUrl });
+      await chrome.storage.local.remove(accessNavigationKey);
     }).catch(() => undefined);
   }
 }

@@ -10,7 +10,7 @@ import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandof
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, handoffRecords = {}, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, tabsUpdateFails = false, handoffRecords = {}, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let session = { id: "capture-1", tabId: 1, windowId: 2, mode, phase: "recording", events: [], startedAt: 1 };
   let journal;
   let drained = false;
@@ -40,6 +40,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let recorderReleaseMissingAck = releaseMissingAck;
   let localStorageFailure = localFails;
   let localRemoveFailure = localRemoveFails;
+  let tabsUpdateFailure = tabsUpdateFails;
   let onRemoved;
   let onUpdated;
   let onMessage;
@@ -82,7 +83,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
       },
       scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
-      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, update: async (tabId, details) => { tabUpdates.push({ tabId, ...details }); return { id: tabId, ...details }; }, query: async () => windowExists ? [{ id: 2 }] : [] },
+      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, update: async (tabId, details) => { if (tabsUpdateFailure) throw new Error("tab update unavailable"); tabUpdates.push({ tabId, ...details }); return { id: tabId, ...details }; }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
   });
@@ -96,7 +97,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     journal: () => journal,
     injections, status: () => context.status(), restore: () => context.restore(), restart,
     setScreenshotFails: (value) => { screenshotFailure = value; }, setDraftPutFails: (value) => { draftPutFailure = value; }, setRestoreSucceeds: (value) => { restoreSuccess = value; }, setWindowExists: (value) => { windowExists = value; }, setLiveCleanupFails: (value) => { clearFails = value; }, setLiveReadFails: (value) => { liveStoreReadFailure = value; }, setLiveCountFails: (value) => { liveStoreCountFailure = value; }, setReleaseOutcome: (fails, missingAck = false, emptyResults = false) => { recorderReleaseFailure = fails; recorderReleaseMissingAck = missingAck; recorderReleaseEmptyResults = emptyResults; }, setRetainOutcome: (fails, missingAck = false, emptyResults = false, missingEvents = false, failureAfter = 0) => { recorderRetainFailure = fails; recorderRetainMissingAck = missingAck; recorderRetainEmptyResults = emptyResults; recorderRetainMissingEvents = missingEvents; recorderRetainFailureAfter = failureAfter; }, setInjectionFails: (value) => { injectionFailure = value; }, seedLiveImages: (entries) => { liveEntries = entries; }, liveImages: () => liveEntries,
-    setStorageFails: (sessionValue, localValue) => {
+    setTabsUpdateFails: (value) => { tabsUpdateFailure = value; }, setStorageFails: (sessionValue, localValue) => {
       sessionStorageFailure = sessionValue;
       localStorageFailure = localValue;
     }, setStorageRemoveFails: (sessionValue, localValue) => {
@@ -152,6 +153,43 @@ test("Access認証から戻ったhandoff対象タブへfragmentを復元する",
 
   await capture.accessReturn("https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=already-present");
   assert.equal(capture.tabUpdates().length, 1, "fragment付き遷移は再度書き換えない");
+});
+
+test("Access復帰のタブ更新失敗時は回復マーカーを残して再試行できる", async () => {
+  const handoffId = "E".repeat(43);
+  const launchId = "F".repeat(43);
+  const readyKey = handoffReadyStorageKey(handoffId, launchId);
+  const handoffKey = handoffStorageKey(handoffId);
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const metadata = {
+    handoffId,
+    draftId: "synthetic-draft-update-retry",
+    outputAction: "save",
+    extensionId: "c".repeat(32),
+    draftFingerprint: "d".repeat(64),
+    expiresAt
+  };
+  const ready = {
+    handoffId,
+    launchId,
+    tabId: 17,
+    expiresAt,
+    activationPolicy: "manual",
+    pageReadyAt: new Date().toISOString(),
+    activatedAt: new Date().toISOString()
+  };
+  const capture = await harness({ localFails: false, tabsUpdateFails: true, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await capture.accessReturn();
+  const markerKey = "meccha-manual:handoff-access-navigation:17";
+  assert.ok(capture.handoffStorage()[markerKey], "タブ更新に失敗した場合も次回復帰用マーカーを保持する");
+  assert.equal(capture.tabUpdates().length, 0);
+  assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 1, "再送回数はタブ更新試行時点で記録する");
+
+  capture.setTabsUpdateFails(false);
+  await capture.accessReturn();
+  assert.equal(capture.tabUpdates().length, 1, "保持したマーカーで次の復帰を再試行できる");
+  assert.equal(capture.handoffStorage()[markerKey], undefined, "タブ更新成功後に回復マーカーを消費する");
+  assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 2);
 });
 
 test("hashless return restores an activated tab and rejects invalid or completed handoffs", async () => {

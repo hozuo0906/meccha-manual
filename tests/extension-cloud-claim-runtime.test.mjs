@@ -57,7 +57,7 @@ class MemoryR2 {
   async delete(key) { this.objects.delete(key); }
 }
 
-const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql"];
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql"];
 
 async function createLocalWorkerFixture() {
   const database = new DatabaseSync(":memory:");
@@ -190,7 +190,7 @@ async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_O
       await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: ONBOARDING_JS });
       return;
     }
-    if (requestUrl.pathname.startsWith("/api/")) {
+    if (requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/manuals" || requestUrl.pathname.startsWith("/assets/cloud-manual.")) {
       const response = await cloudWorker.fetch(localWorkerRequest(route.request(), fixture.token), fixture.env, {});
       const body = Buffer.from(await response.arrayBuffer());
       await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers.entries()), body });
@@ -1228,9 +1228,18 @@ test("MV3 Access復帰から実WorkerのD1/R2保存と再閲覧まで完了す�
       const detailResponse = await fetch(detailUrl, { credentials: "same-origin" });
       const detail = await detailResponse.json();
       const assetResponse = await fetch(assetUrl, { credentials: "same-origin" });
-      return { detailStatus: detailResponse.status, title: detail?.draft?.title, instruction: detail?.steps?.[0]?.instruction, assetStatus: assetResponse.status, assetType: assetResponse.headers.get("content-type"), assetBytes: (await assetResponse.arrayBuffer()).byteLength };
+      const assetBody = [...new Uint8Array(await assetResponse.arrayBuffer())];
+      return { detailStatus: detailResponse.status, title: detail?.draft?.title, instruction: detail?.steps?.[0]?.instruction, assetStatus: assetResponse.status, assetType: assetResponse.headers.get("content-type"), assetBody };
     }, { detailUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}`, assetUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}/assets/${step.asset_id}` });
-    assert.deepEqual(reopened, { detailStatus: 200, title: draft.title, instruction: draft.steps[0].instruction, assetStatus: 200, assetType: "image/png", assetBytes: 87 }, "保存後の再読込でもD1/R2の内容を閲覧できる");
+    const storedImages = [...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png");
+    assert.equal(storedImages.length, 1);
+    assert.deepEqual(reopened, { detailStatus: 200, title: draft.title, instruction: draft.steps[0].instruction, assetStatus: 200, assetType: "image/png", assetBody: [...storedImages[0].body] }, "保存した画像の全byteと本文を再取得できる");
+    await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
+    await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
+    await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
+    await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
   } finally {
     await closeContext(context);
