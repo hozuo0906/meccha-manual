@@ -34,6 +34,10 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
+## 共有停止時の結果不明回復
+
+共有停止の4xxはAPIが返した案内を表示し、5xx・通信失敗は結果不明として画面に同じ共有リンクを保持する。利用者は画面を閉じず、同じ`shareLinkId`で停止を再試行できる。
+
 ## Cクラウド保存の追跡
 
 FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`の認証後準備表示とsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。拡張editorに画像がない手順は最後の画面で補完せず、再記録を案内する。各操作と画像IDを収集するcapture側の実装は別担当の契約で同期する。
