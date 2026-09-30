@@ -106,7 +106,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       browserCdp.on("Target.receivedMessageFromTarget", receive);
       browserCdp.send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id, method, params }) }).catch(reject);
     });
-    await evaluateNative("document.readyState === 'complete'");
+    await waitForNativeValue("document.readyState === 'complete'", (value) => value === true);
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "synthetic target tab should be discoverable");
@@ -120,7 +120,8 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
     await clickNative("#start");
-    await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
+    const started = await waitForNativeValue("({ finishHidden: document.querySelector('#finish')?.hidden, status: document.querySelector('#status')?.textContent })", (value) => value?.finishHidden === false);
+    assert.equal(started?.finishHidden, false, `recording should start in the native sidepanel: ${JSON.stringify(started)}`);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
     assert.match(await target.content(), /id=["']do["']/, "synthetic target should retain its action button");
     const makeFixtureStateDistinct = async (step) => target.evaluate((currentStep) => {
