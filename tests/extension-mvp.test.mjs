@@ -176,6 +176,30 @@ test("click caption privacy checks reject Unicode mailboxes and domestic phone f
   }
 });
 
+test("click caption privacy checks compact layout whitespace for email detection", () => {
+  for (const ariaLabel of ["alice@\nlocalhost", "alice@\u2028localhost", "alice@ localhost"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
+});
+
+test("click caption privacy checks Unicode decimal digits beyond NFKC", () => {
+  for (const ariaLabel of [
+    "٠٩٠-١٢٣٤-٥٦٧٨",
+    "۰۹۰-۱۲۳۴-۵۶۷۸",
+    "١٢٣-٤٥٦٧",
+    "۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks enforce the returned caption boundary after format-character removal", () => {
+  const caption = safeTargetLabel({ tagName: "button", ariaLabel: "保存" + "\u200b".repeat(100) });
+  assert.equal(caption, "保存");
+  assert.ok(Array.from(caption).length <= 40);
+});
+
 test("click labels keep ordinary punctuated captions while rejecting valid international hostnames", () => {
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "詳細." }), "詳細.");
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "次へ..." }), "次へ...");
