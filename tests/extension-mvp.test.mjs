@@ -183,6 +183,65 @@ test("click caption privacy checks compact layout whitespace for email detection
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
 });
 
+test("click caption privacy checks email boundaries across controls, marks, and mailbox scripts", () => {
+  const controls = {
+    c0: String.fromCharCode(0x0a),
+    c1: String.fromCharCode(0x80),
+    cf: "\u200b",
+    mark: "\u034f",
+  };
+  const mailboxCases = [
+    ["ASCII local before @", "alice{gap}@localhost"],
+    ["ASCII domain after @", "alice@{gap}localhost"],
+    ["Japanese local before @", "利用者{gap}@社内"],
+    ["Japanese domain after @", "利用者@{gap}社内"],
+  ];
+  for (const [name, template] of mailboxCases) {
+    for (const [controlName, gap] of Object.entries(controls)) {
+      const value = template.replace("{gap}", gap);
+      assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: value }), "ボタン", `${name} ${controlName}`);
+    }
+  }
+
+  const mailboxBodies = [
+    ["ASCII", "alice", "localhost"],
+    ["Japanese", "利用者", "社内"],
+  ];
+  const insertionCases = [
+    ["local start", (local, domain, gap) => `${gap}${local}@${domain}`],
+    ["local middle", (local, domain, gap) => `${local.slice(0, 2)}${gap}${local.slice(2)}@${domain}`],
+    ["local end", (local, domain, gap) => `${local}${gap}@${domain}`],
+    ["domain start", (local, domain, gap) => `${local}@${gap}${domain}`],
+    ["domain middle", (local, domain, gap) => `${local}@${domain.slice(0, 2)}${gap}${domain.slice(2)}`],
+    ["domain end", (local, domain, gap) => `${local}@${domain}${gap}`],
+  ];
+  for (const [scriptName, local, domain] of mailboxBodies) {
+    for (const [positionName, build] of insertionCases) {
+      for (const [controlName, gap] of Object.entries({ lf: "\n", space: " ", ...controls })) {
+        const value = build(local, domain, gap);
+        assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: value }), "ボタン", `${scriptName} ${positionName} ${controlName}`);
+      }
+    }
+  }
+
+  for (const [controlName, gap] of Object.entries(controls)) {
+    const ariaLabel = `保存${gap} @ 次へ`;
+    const expected = ariaLabel.replace(/[\p{Cc}]/gu, " ").replace(/\s+/gu, " ").trim().replace(/\p{Cf}/gu, "");
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), expected, `${controlName} ordinary layout`);
+  }
+
+  for (const ariaLabel of [
+    `alice${controls.c1}@localhost`,
+    `alice${controls.cf}@localhost`,
+    `alice${controls.mark}@localhost`,
+    `alice@${controls.c1}localhost`,
+    `alice@${controls.cf}localhost`,
+    `alice@${controls.mark}localhost`,
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", JSON.stringify(ariaLabel));
+  }
+});
+
 test("click caption privacy checks combining-mark mailboxes and all Unicode Cc controls", () => {
   for (const ariaLabel of [
     "उपयोगकर्ता@\nआंतरिक",

@@ -5,11 +5,7 @@ const CONTROL_NAME_MAX_LENGTH = 40;
 // Keep the match deliberately email-shaped so an `@` in an ordinary caption is
 // not enough to make it sensitive.
 const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]{0,61}[\p{L}\p{N}\p{M}])?/u;
-const CONTROL_NAME_EMAIL_LAYOUT = /[A-Za-z0-9][A-Za-z0-9._%+-]*@\s*[A-Za-z0-9]/u;
-// Unicode mailbox characters may be separated from the domain by a line
-// break. Keep the left side adjacent to `@` so ordinary prose such as
-// `保存 @ 次へ` remains a valid caption.
-const CONTROL_NAME_UNICODE_EMAIL_LAYOUT = /[\p{L}\p{N}][\p{L}\p{N}\p{M}._%+-]*@\s*[\p{L}\p{N}]/u;
+const CONTROL_NAME_EMAIL_MAILBOX_CHAR = /[\p{L}\p{N}\p{M}]/u;
 const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
 const CONTROL_NAME_INTERNATIONAL_HOST_LABEL = /^(?=.{1,63}$)[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?$/u;
@@ -113,21 +109,37 @@ function normalizeControlName(value) {
   // cannot hide a value. Combining marks stay in the email view to preserve
   // Unicode mailbox detection; the value view removes them for phone/secret
   // detection (including U+034F COMBINING GRAPHEME JOINER).
-  const emailSource = raw.replace(/\p{Cc}/gu, " ").replace(/\p{Cf}/gu, "");
+  // ECMAScript `\s` Cc controls (TAB/LF/VT/FF/CR) are layout whitespace;
+  // non-`\s` Cc controls such as C1 are removed from this email source.
+  const emailSource = raw.replace(/\p{Cc}/gu, (character) => /\s/u.test(character) ? " " : "").replace(/\p{Cf}/gu, "");
   const emailValue = emailSource.normalize("NFKC");
   // Keep Cc whitespace semantics for email layout, but remove combining marks
   // from the address candidate so a mark cannot hide the first domain letter.
-  const emailCandidate = emailValue.replace(/\p{M}/gu, "").replace(/@\s+/gu, "@");
+  const emailLayoutValue = emailValue.replace(/\p{M}/gu, "");
+  const emailCandidate = emailLayoutValue.replace(/@\s+/gu, "@");
   const privacySource = raw.replace(/[\p{Cc}\p{Cf}\p{M}]/gu, "");
   const privacyValue = normalizePrivacyDigits(privacySource.normalize("NFKC"));
   if (privacyValue === null) return null;
-  const hasEmail = CONTROL_NAME_EMAIL.test(emailCandidate)
-    || ((CONTROL_NAME_EMAIL_LAYOUT.test(emailValue) || CONTROL_NAME_UNICODE_EMAIL_LAYOUT.test(emailValue))
-      && CONTROL_NAME_EMAIL.test(emailCandidate));
+  const hasEmail = CONTROL_NAME_EMAIL.test(emailCandidate) || hasEmailLayout(emailLayoutValue);
   if (Array.from(caption).length > CONTROL_NAME_MAX_LENGTH) return null;
   if (hasEmail || looksLikeUrl(privacyValue) || CONTROL_NAME_PHONE.test(privacyValue) || CONTROL_NAME_POSTAL.test(privacyValue)) return null;
   if (SENSITIVE_NAME.test(privacyValue) || CONTROL_NAME_SENSITIVE.test(privacyValue) || SECRET_LIKE_LABEL.test(privacyValue)) return null;
   return caption;
+}
+
+function hasEmailLayout(value) {
+  const atIndex = value.indexOf("@");
+  if (atIndex < 0) return false;
+  const before = value.slice(0, atIndex);
+  const after = value.slice(atIndex + 1);
+  const beforeLayout = /\s$/u.test(before);
+  const afterLayout = /^\s/u.test(after);
+  // Both sides spaced around @ are ordinary prose (for example,
+  // `保存 @ 次へ`). A single layout gap is sensitive only when the other
+  // side starts or ends with a mailbox character.
+  if (beforeLayout === afterLayout) return false;
+  const adjacent = beforeLayout ? Array.from(after)[0] : Array.from(before).at(-1);
+  return Boolean(adjacent && CONTROL_NAME_EMAIL_MAILBOX_CHAR.test(adjacent));
 }
 
 function normalizePrivacyDigits(value) {
