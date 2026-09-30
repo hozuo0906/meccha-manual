@@ -5,7 +5,7 @@ const CONTROL_NAME_MAX_LENGTH = 40;
 // Keep the match deliberately email-shaped so an `@` in an ordinary caption is
 // not enough to make it sensitive.
 const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]{0,61}[\p{L}\p{N}\p{M}])?/u;
-const CONTROL_NAME_EMAIL_LAYOUT = /[A-Za-z0-9][A-Za-z0-9._%+-]*\s*@\s*[A-Za-z0-9]/u;
+const CONTROL_NAME_EMAIL_LAYOUT = /[A-Za-z0-9][A-Za-z0-9._%+-]*@\s*[A-Za-z0-9]/u;
 // Unicode mailbox characters may be separated from the domain by a line
 // break. Keep the left side adjacent to `@` so ordinary prose such as
 // `保存 @ 次へ` remains a valid caption.
@@ -105,16 +105,23 @@ function normalizeControlName(value) {
   // but can split every detector below. Remove them from both the privacy view
   // and the returned caption so the storage boundary covers actual output.
   const caption = normalized.replace(/\p{Cf}/gu, "");
-  // Keep source-control spacing in the returned caption, but remove every
-  // Unicode Cc code point from the privacy view. A C1 control between letters
-  // must not turn `to\u0080ken` into a non-sensitive caption.
-  const privacySource = raw.replace(/\p{Cc}/gu, "").replace(/\p{Cf}/gu, "");
+  // Keep source-control spacing in the returned caption, but derive separate
+  // privacy views for the different detectors. Cc controls are whitespace for
+  // email layout (so `保存\n@\n次へ` remains an ordinary caption), while the
+  // value view removes them so a C1 control cannot split `to\u0080ken` or a phone
+  // number. Format characters are removed from both views so invisible marks
+  // cannot hide a value. Combining marks stay in the email view to preserve
+  // Unicode mailbox detection; the value view removes them for phone/secret
+  // detection (including U+034F COMBINING GRAPHEME JOINER).
+  const emailSource = raw.replace(/\p{Cc}/gu, " ").replace(/\p{Cf}/gu, "");
+  const emailValue = emailSource.normalize("NFKC");
+  const emailCandidate = emailValue.replace(/@\s+/gu, "@");
+  const privacySource = raw.replace(/[\p{Cc}\p{Cf}\p{M}]/gu, "");
   const privacyValue = normalizePrivacyDigits(privacySource.normalize("NFKC"));
   if (privacyValue === null) return null;
-  const compactPrivacyValue = privacyValue.replace(/\s+/gu, "");
-  const hasEmail = CONTROL_NAME_EMAIL.test(privacyValue)
-    || ((CONTROL_NAME_EMAIL_LAYOUT.test(privacyValue) || CONTROL_NAME_UNICODE_EMAIL_LAYOUT.test(privacyValue))
-      && CONTROL_NAME_EMAIL.test(compactPrivacyValue));
+  const hasEmail = CONTROL_NAME_EMAIL.test(emailCandidate)
+    || ((CONTROL_NAME_EMAIL_LAYOUT.test(emailValue) || CONTROL_NAME_UNICODE_EMAIL_LAYOUT.test(emailValue))
+      && CONTROL_NAME_EMAIL.test(emailCandidate));
   if (Array.from(caption).length > CONTROL_NAME_MAX_LENGTH) return null;
   if (hasEmail || looksLikeUrl(privacyValue) || CONTROL_NAME_PHONE.test(privacyValue) || CONTROL_NAME_POSTAL.test(privacyValue)) return null;
   if (SENSITIVE_NAME.test(privacyValue) || CONTROL_NAME_SENSITIVE.test(privacyValue) || SECRET_LIKE_LABEL.test(privacyValue)) return null;

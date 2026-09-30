@@ -187,10 +187,15 @@ test("click caption privacy checks combining-mark mailboxes and all Unicode Cc c
   for (const ariaLabel of [
     "उपयोगकर्ता@\nआंतरिक",
     "to\u0080ken",
-    "090-12\u008034-5678"
+    "090-12\u008034-5678",
+    "090-12\u034F34-5678",
+    "to\u034Fken abc123"
   ]) {
     assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
   }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存\u000A@\u000A次へ" }), "保存 @ 次へ");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "参照\u034F" }), "参照\u034F");
 });
 
 test("click caption privacy checks Unicode decimal digits beyond NFKC", () => {
