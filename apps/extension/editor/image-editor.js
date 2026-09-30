@@ -64,6 +64,8 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   let drag = null;
   let generation = 0;
   let restoreFocus = null;
+  let loadingFocusTarget = null;
+  let focusMovedDuringLoad = false;
   let working = { annotations: [], masks: [] };
 
   function setStatus(message) { if (!disposed && status) status.textContent = message; }
@@ -223,30 +225,35 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   canvas.addEventListener("pointerdown", handlePointerDown, { signal }); canvas.addEventListener("pointermove", handlePointerMove, { signal }); canvas.addEventListener("pointerup", handlePointerUp, { signal }); canvas.addEventListener("pointercancel", handlePointerCancel, { signal });
   dialog.addEventListener("keydown", handleKeydown, { signal }); saveButton?.addEventListener("click", save, { signal }); cancelButtons.forEach((button) => button.addEventListener("click", cancel, { signal }));
   dialog.querySelector("form")?.addEventListener("submit", (event) => event.preventDefault(), { signal });
+  dialog.addEventListener("focusin", (event) => {
+    if (state === "loading" && loadingFocusTarget && event.target !== loadingFocusTarget) focusMovedDuringLoad = true;
+  }, { signal });
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); if (state !== "saving") cancel(); }, { signal });
 
   return {
     async open() {
-      restoreFocus = document.activeElement; const currentGeneration = ++generation; state = "loading"; image = null; selected = null; drag = null;
+      restoreFocus = document.activeElement; const currentGeneration = ++generation; state = "loading"; image = null; selected = null; drag = null; focusMovedDuringLoad = false;
       dialog.showModal();
-      // Keep the dialog's scroll position stable on narrow screens. The
-      // selection tool is useful immediately and is a real focus target even
-      // while the image is still loading; preventScroll avoids jumping the
-      // work area away from the image on mobile.
-      const initialFocus = dialog.querySelector('[data-editor-tool="select"]') || dialog.querySelector("[data-editor-cancel]");
-      initialFocus?.focus?.({ preventScroll: true });
       canvas.width = 1; canvas.height = 1; canvas.getContext("2d")?.clearRect(0, 0, 1, 1); selection.replaceChildren(); if (textInput) textInput.value = ""; if (fontSizeInput) fontSizeInput.value = "24";
+      setControlsDisabled(true);
+      // Loading disables the editing tools, so keep focus on an enabled
+      // cancel action. Once decoding finishes, focus can move to the tool
+      // without stealing a control the user reached while waiting.
+      loadingFocusTarget = dialog.querySelector("[data-editor-cancel]");
+      loadingFocusTarget?.focus?.({ preventScroll: true });
       try {
         const cloned = cloneAnnotations(screenshot.annotations === undefined ? [] : screenshot.annotations);
         if (cloned === null) throw new TypeError("invalid annotations");
-        working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setControlsDisabled(true); setStatus("画像を準備しています。");
+        working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setStatus("画像を準備しています。");
         const loaded = new Image(); loaded.src = screenshot.dataUrl; if (typeof loaded.decode === "function") await loaded.decode(); if (disposed || currentGeneration !== generation) return false;
         image = loaded;
         // Validate source data before the first draw; invalid data must not reveal the raw image.
         drawScreenshot(canvas.getContext("2d"), image, { annotations: previewAnnotations(working.annotations), masks: working.masks });
-        state = "editing"; setControlsDisabled(false); selectTool("select"); refreshSelection(); redraw(); setStatus("画像を編集できます。"); return true;
+        state = "editing"; setControlsDisabled(false); selectTool("select"); refreshSelection(); redraw();
+        if (!focusMovedDuringLoad && document.activeElement === loadingFocusTarget) dialog.querySelector('[data-editor-tool="select"]')?.focus?.({ preventScroll: true });
+        loadingFocusTarget = null; setStatus("画像を編集できます。"); return true;
       } catch {
-        if (disposed || currentGeneration !== generation) return false; image = null; state = "error"; setControlsDisabled(true); canvas.width = 1; canvas.height = 1; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
+        if (disposed || currentGeneration !== generation) return false; image = null; state = "error"; setControlsDisabled(true); canvas.width = 1; canvas.height = 1; if (!dialog.contains(document.activeElement) || document.activeElement === document.body) loadingFocusTarget?.focus?.({ preventScroll: true }); loadingFocusTarget = null; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
       }
     },
     dispose() { disposed = true; state = "closed"; generation += 1; controller.abort(); if (dialog.open) dialog.close(); }
