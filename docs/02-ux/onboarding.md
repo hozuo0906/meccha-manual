@@ -216,6 +216,8 @@ output gateは、編集内容を確認してから保存先の準備画面へ進
 
 Access認証後の復帰はURL監視に依存せず、通常は同一originのWeb画面が`handoff.access-return` external messageを送る。初回AccessでWeb側JSが一度も実行されない場合だけ、stagingの`/onboarding/continue`に限定したcontent scriptがpayloadなしの内部通知を送り、拡張機能がsenderのtab IDに束縛された未確認handoffを照合する。拡張機能は固定origin・top-level frame・tab ID、handoff ID、launch ID、拡張ID、operation identity、action、draft fingerprint、元の期限、既存ready recordを照合した場合だけ、同じfragmentを最大3回まで再付与する。期限切れでも`finalize-pending`／`completion-pending`の結果回収identityがある場合はGET専用の回収だけを許可し、通常の期限切れhandoffの書き込みは拒否する。別tab、同tabの別navigation、通常のfragment除去、取消済み、完了済み、metadata不一致は復帰として扱わず、認証情報・本文・画像はメッセージや復帰URLへ含めない。Web画面へextension IDやhandoff capabilityをquery／fragmentで追加露出しない。
 
+通常Web経路の送信は、hashlessページを表示しただけでは行わない。同じtabの保存済みhandoffを表示した利用者が「保存を再開する」または「保存状況を確認する」を押した場合だけ送信し、通常navigationの自動復帰は0回とする。初回AccessでWeb側JSが実行されない場合のpayloadなしcontent script経路は自動復帰を維持する。
+
 認証後のWeb画面は同一originの`POST /api/onboarding/bootstrap`へ`operationId`だけを送る。成功表示は保存先の準備完了に限り、手順書が保存・claim・共有されたとは表示しない。401、403、429、503、応答消失ではlocal原本を保持し、metadataがTTL内である限り同じ`operationId`で再試行できる。TTL経過後は再試行せず、拡張機能で新しいhandoffを発行する。
 
 このスライスではguest本文のclaim、画像upload、元のsave/share/PDFの再開、Webから拡張機能への完了通知を実装完了と扱わない。これらはC以降の受入条件である。
