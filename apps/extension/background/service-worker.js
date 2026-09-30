@@ -876,15 +876,13 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  const accessLogin = Number.isInteger(tabId) && isAccessLoginNavigation(changeInfo?.url);
-  const accessNavigation = accessLogin
+  const accessNavigation = Number.isInteger(tabId) && isAccessLoginNavigation(changeInfo?.url)
     ? rememberAccessNavigation(tabId)
-    : accessNavigationWrites.get(tabId) || Promise.resolve();
-  if (accessLogin) accessNavigationWrites.set(tabId, accessNavigation);
+    : Promise.resolve();
   if (Number.isInteger(tabId) && !isAccessLoginNavigation(changeInfo?.url)) {
     try {
       const url = new URL(changeInfo?.url || "");
-      if (url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && url.hash) accessNavigation.then(() => chrome.storage.local.remove(accessNavigationStorageKey(tabId))).catch(() => undefined);
+      if (url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && url.hash) chrome.storage.local.remove(accessNavigationStorageKey(tabId)).catch(() => undefined);
     } catch {}
   }
   const handoffRestore = accessNavigation.then(() => restoreHandoffAfterAccess(tabId, changeInfo)).catch(() => undefined);
