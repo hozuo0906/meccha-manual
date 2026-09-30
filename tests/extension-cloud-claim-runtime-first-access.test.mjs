@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer as createHttpsServer } from "node:https";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { chromium } from "@playwright/test";
 import { exportJWK, SignJWT } from "jose";
@@ -21,6 +23,8 @@ const ACCESS_ISSUER = "https://access.example.invalid";
 const ACCESS_AUDIENCE = "meccha-manual-staging";
 const ACCESS_JWKS_URL = `${ACCESS_ISSUER}/.well-known/jwks.json`;
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+const require = createRequire(import.meta.url);
+const playwrightUtils = require(join(dirname(require.resolve("playwright-core")), "lib", "coreBundle.js")).utils;
 
 class LocalStatement {
   constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
@@ -173,11 +177,21 @@ async function createRealStagingPage(context, url = STAGING_URL, { bootstrapEnab
   return page;
 }
 
-async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_ORIGIN}/onboarding/continue`, { redirectInitialAccess = false } = {}) {
+async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_ORIGIN}/onboarding/continue`, { redirectInitialAccess = false, networkServer = null } = {}) {
   const page = await context.newPage();
   let redirectPending = redirectInitialAccess;
   await page.route("**/*", async (route) => {
     const requestUrl = new URL(route.request().url());
+    if (networkServer) {
+      if (requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/manuals" || requestUrl.pathname.startsWith("/assets/cloud-manual.")) {
+        const response = await cloudWorker.fetch(localWorkerRequest(route.request(), fixture.token), fixture.env, {});
+        const body = Buffer.from(await response.arrayBuffer());
+        await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers.entries()), body });
+        return;
+      }
+      await route.continue();
+      return;
+    }
     if (requestUrl.origin === ACCESS_AUTH_ORIGIN) {
       await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" });
       return;
@@ -204,8 +218,61 @@ async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_O
     }
     await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
   });
-  await page.goto(url, { waitUntil: "commit" });
+  if (!networkServer) {
+    try {
+      await page.goto(url, { waitUntil: "commit" });
+    } catch (error) {
+      if (!redirectInitialAccess || !["ERR_ABORTED", "Timeout 30000ms"].some((marker) => String(error?.message || error).includes(marker))) throw error;
+      assert.match(page.url(), new RegExp(`${ACCESS_AUTH_ORIGIN.replaceAll(".", "\\.")}/cdn-cgi/access/login`));
+    }
+  }
   return page;
+}
+
+async function createLocalWorkerHttpsServer({ redirectInitialAccess = false } = {}) {
+  const { cert, key } = playwrightUtils.generateSelfSignedCertificate();
+  let redirectPending = redirectInitialAccess;
+  const requests = [];
+  const server = createHttpsServer({ cert, key }, (request, response) => {
+    const requestUrl = new URL(request.url || "/", `https://${request.headers.host || "localhost"}`);
+    requests.push({ host: requestUrl.hostname, pathname: requestUrl.pathname });
+    if (requestUrl.hostname === ACCESS_AUTH_ORIGIN.replace("https://", "")) {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><title>synthetic Access login</title>");
+      return;
+    }
+    if (requestUrl.hostname !== STAGING_ORIGIN.replace("https://", "")) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    if (requestUrl.pathname === "/onboarding/continue" && redirectPending) {
+      redirectPending = false;
+      response.writeHead(302, { Location: ACCESS_AUTH_URL });
+      response.end();
+      return;
+    }
+    if (requestUrl.pathname === "/onboarding/continue") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(renderOnboardingContinuePage({ bootstrapEnabled: true }));
+      return;
+    }
+    if (requestUrl.pathname === "/assets/onboarding.js") {
+      response.writeHead(200, { "content-type": "application/javascript; charset=utf-8" });
+      response.end(ONBOARDING_JS);
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    response.end("");
+  });
+  await new Promise((resolveServer, rejectServer) => {
+    server.once("error", rejectServer);
+    server.listen(0, "127.0.0.1", () => resolveServer());
+  });
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.ok(Number.isInteger(address.port));
+  return { server, port: address.port, requests };
 }
 
 async function sendExternal(page, extensionId, message) {
@@ -224,14 +291,14 @@ async function sendExternal(page, extensionId, message) {
   }, { extensionId, message });
 }
 
-async function openExtensionContext(userDataDir) {
+async function openExtensionContext(userDataDir, extraArgs = []) {
   let context;
   try {
     context = await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium",
       headless: true,
       ignoreHTTPSErrors: true,
-      args: [`--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`]
+      args: [`--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`, ...extraArgs]
     });
     const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker", { timeout: 15_000 });
     const extensionId = new URL(worker.url()).hostname;
@@ -1175,6 +1242,7 @@ test("MV3 bound external Access return restores the same activated handoff", { t
 test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   const fixture = await createLocalWorkerFixture();
+  const networkServer = await createLocalWorkerHttpsServer({ redirectInitialAccess: true });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => String(url) === ACCESS_JWKS_URL
     ? Response.json({ keys: [fixture.publicJwk] })
@@ -1183,13 +1251,15 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
   try {
     let worker;
     let extensionId;
-    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const hostResolverRules = `--host-resolver-rules=MAP meccha-manual-staging.meccha-iiyatsu.com 127.0.0.1:${networkServer.port},MAP meccha-manual-access-login.example.test 127.0.0.1:${networkServer.port}`;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir, [hostResolverRules]));
     const handoffId = "L".repeat(43);
     const launchId = "M".repeat(43);
     const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
-    const page = await createLocalWorkerStagingPage(context, fixture, hashlessUrl, { redirectInitialAccess: true });
+    const page = await createLocalWorkerStagingPage(context, fixture, hashlessUrl, { networkServer });
     await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
     assert.match(page.url(), new RegExp(`${ACCESS_AUTH_ORIGIN.replaceAll(".", "\\.")}/cdn-cgi/access/login`));
+    assert.equal(networkServer.requests.some(({ pathname }) => pathname === "/assets/onboarding.js"), false, "the initial native Access redirect must happen before onboarding JS is requested");
     const tabId = await tabIdForPage(worker, page);
     assert.equal(Number.isInteger(tabId), true);
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -1247,6 +1317,7 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
   } finally {
     await closeContext(context);
+    await new Promise((resolveServer) => networkServer.server.close(() => resolveServer()));
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
     globalThis.fetch = originalFetch;
     fixture.database.close();
