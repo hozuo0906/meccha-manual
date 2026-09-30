@@ -457,3 +457,12 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 実装境界: screenshot maskはvisibility/displayを変更せずopacityだけを適用し、closed shadow内はnested open shadow、top-layerのplain text、動的追加を含めて走査・検証する。closed shadowを検査できない場合はfail closed。復元時はmaskが変更したinline styleだけを戻す。入力値は保存・ログ出力しない。
 - 検証: `npm run extension:test` は114/114 PASS。実Chromeの `tests/extension-mask-browser.test.mjs` は4/4 PASS（同一dialogのmask前後・復元pixel、closed shadow、focus/selection、CDP IME確定前後）。実Chromeの `tests/extension-sidepanel-browser.test.mjs` は3/3 PASS（native MV3、画像1→2保存待ち、a→b連続入力、ab、focus維持、blur/change/submit/Enterなし、step数2）。合成fixtureと固定値のみを使い、実ユーザー内容・動画内容は記録していない。
 - 検証境界と残作業: 親の `npm ci` は成功。親が確認した `npm run check` のWindows改行差分と既存audit警告は今回の変更原因ではない。stage、commit、push、PR反映、Issue #70同期、最新SHAのCI/Codex Review確認は親のrelease gateで実施する。
+
+## [Issue #265](https://github.com/hozuo0906/meccha-manual/issues/265) / [PR #269](https://github.com/hozuo0906/meccha-manual/pull/269) 全画面日本語UI改善 checkpoint（2026-09-30T17:07:48+09:00）
+
+- 対象: Issue #265、PR #269 draft、branch `codex/ui-japanese-rewrite`。確認時のHEADは `3d2e2693120cacaad6cae5d562a1b61a33c45509`、`origin/codex/ui-japanese-rewrite` も同一SHAであることを実取得した。機能CIは成功しているが、Codex Review・品質ゲート・merge・配布は未完了で、親PMが最終release gateを確認中である。
+- 実装範囲の結論: 全画面の表示文言を自然な日本語へ揃え、端末・ワークスペース・共有の意味を混同しない表現へ整理した。利用者が作成する手順本文などのユーザー文章は対象外とし、画像の映り込みに関する注意、縦編集の導線、画像編集の既存操作を維持した。関連する要件・UX・品質文書とUIテストの期待値も同じPR範囲で同期している。
+- 検証: `3d2e269` では担当実行のeditor 11/11通過を担当報告として記録する。親が取得した最新CIはDocs CI run `36687031639`（job `109795148531`、npm ci／diff／project checks成功）とExtensionPrivacy run `36687031537`（job `109795147163`、mask／editor／sidebar／verify-recorded-workflow成功）である。ReviewGateは未レビューのため失敗扱いであり、CI成功だけで完了とはしない。親の実Chrome受入では9画面をrefreshして横はみ出しなしを確認した。
+- 記録境界: 秘密値・個人情報・実ユーザー文章や画像は記録していない。stage／productionへの反映、配布、merge、PR／Issueへの追記は親PMのrelease gate範囲であり、このcheckpointでは実行しない。
+
+次の1マイルストーンは、PR #269の最終SHAから作成する限定配布版の受入確認である。ReviewGate、PR状態、配布結果を実取得できるまで、今回の日本語UI改善を完了扱いにしない。
