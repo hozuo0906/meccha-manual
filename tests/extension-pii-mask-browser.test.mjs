@@ -534,11 +534,9 @@ test("class-only mutations over many PII-free nodes remain valid", async () => {
 });
 
 test("composed visibility traversal fails closed after 4096 inspected nodes", async () => {
-  const server = createServer((request, response) => {
+  const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    const count = request.url === "/exhaust" ? 4097 : 4096;
-    const children = Array.from({ length: count }, () => "<span></span>").join("");
-    response.end(`<!doctype html><style>body{margin:0;padding:24px}</style><section id="dashboard">${children}</section>`);
+    response.end("<!doctype html><main id=dashboard></main>");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
@@ -549,25 +547,49 @@ test("composed visibility traversal fails closed after 4096 inspected nodes", as
     const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
     const page = await context.newPage();
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    await page.goto(`${baseUrl}/within`);
+    await page.goto(`${baseUrl}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
-    const withinLimit = await inject(installSensitiveMasks);
-    assert.equal(withinLimit.applied, true);
-    assert.equal(withinLimit.privacyMaskedCount, 0);
-    await page.evaluate(() => document.getElementById("dashboard").classList.add("within-limit"));
-    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
-    assert.equal(await inject(verifySensitiveMasks, [withinLimit.token]), true);
-    await inject(removeSensitiveMasks);
-
-    await page.goto(`${baseUrl}/exhaust`);
-    const exhausted = await inject(installSensitiveMasks);
-    assert.equal(exhausted.applied, true);
-    assert.equal(exhausted.privacyMaskedCount, 0);
-    await page.evaluate(() => document.getElementById("dashboard").classList.add("over-budget"));
-    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
-    assert.equal(await inject(verifySensitiveMasks, [exhausted.token]), false, "4097th inspected node must fail closed");
-    await inject(removeSensitiveMasks);
+    for (const [nested, target, expected] of [[false, 4096, true], [false, 4097, false], [true, 4096, true], [true, 4097, false]]) {
+      await page.goto(`${baseUrl}/`);
+      const actual = await page.evaluate(({ nested: useNested, target: targetCount }) => {
+        const countNodes = () => {
+          let count = 0;
+          const stack = [document];
+          while (stack.length) {
+            const current = stack.pop();
+            count += 1;
+            for (const child of current.childNodes || []) stack.push(child);
+            if (current.nodeType === 1 && current.shadowRoot) stack.push(current.shadowRoot);
+          }
+          return count;
+        };
+        let parent = document.getElementById("dashboard");
+        if (useNested) {
+          const host = document.createElement("budget-host");
+          parent.append(host);
+          parent = host.attachShadow({ mode: "open" });
+        }
+        let remaining = targetCount - countNodes();
+        if (useNested) {
+          const nestedDepth = Math.min(256, remaining);
+          for (let index = 0; index < nestedDepth; index += 1) {
+            const node = document.createElement("div");
+            parent.append(node);
+            parent = node;
+          }
+          remaining -= nestedDepth;
+        }
+        while (remaining-- > 0) parent.append(document.createElement("span"));
+        return countNodes();
+      }, { nested, target });
+      assert.equal(actual, target, `${nested ? "nested" : "flat"} fixture must contain the exact visited-node budget`);
+      const bounded = await inject(installSensitiveMasks);
+      assert.equal(bounded.applied, true);
+      assert.equal(bounded.privacyMaskedCount, 0);
+      assert.equal(await inject(verifySensitiveMasks, [bounded.token]), expected, `${nested ? "nested" : "flat"} ${target}th inspected node must ${expected ? "remain valid" : "fail closed"}`);
+      await inject(removeSensitiveMasks);
+    }
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
@@ -583,7 +605,7 @@ test("PII overlay ownership, arbitrary attributes, and candidate scan budgets st
         body{margin:0;font:16px Arial,sans-serif}
         .meccha-manual-pii-overlay{color:transparent!important}
         [data-state="open"]{display:block}
-      </style><div id="fake-ancestor" class="meccha-manual-pii-overlay"><span id="fake-inherited">ancestor@example.com</span></div><span id="fake-direct" class="meccha-manual-pii-overlay">direct@example.com</span><span id="real">real@example.com</span>`);
+      </style><div id="fake-ancestor" class="meccha-manual-pii-overlay"><span id="fake-inherited">ancestor@example.com</span></div><span id="fake-direct" class="meccha-manual-pii-overlay">direct@example.com</span><span id="real">real@example.com</span><section><div>name</div><dd id="bad-semantic">Jane Doe</dd></section>`);
       return;
     }
     if (url.pathname === "/clean") {
@@ -594,18 +616,12 @@ test("PII overlay ownership, arbitrary attributes, and candidate scan budgets st
       response.end("<!doctype html><style>[data-state=closed]{display:none}[data-state=open]{display:block}</style><div id=hidden data-state=closed><span>hidden@example.com</span></div>");
       return;
     }
-    const count = Number(url.searchParams.get("count") || 0);
     if (url.pathname === "/budget") {
-      response.end(`<!doctype html><style>body{margin:0}span{display:block}</style><section>${Array.from({ length: count }, (_, index) => `<span>node-${index}</span>`).join("")}</section>`);
+      response.end("<!doctype html><main id=dashboard></main>");
       return;
     }
     if (url.pathname === "/nested-budget") {
-      response.end(`<!doctype html><style>body{margin:0}span{display:block}</style><aggregate-host></aggregate-host><script>
-        const outer = document.querySelector("aggregate-host").attachShadow({mode:"open"});
-        outer.innerHTML = "<nested-host></nested-host>";
-        const nested = outer.querySelector("nested-host").attachShadow({mode:"open"});
-        nested.innerHTML = ${JSON.stringify(Array.from({ length: count }, (_, index) => `<span>node-${index}</span>`).join(""))};
-      </script>`);
+      response.end("<!doctype html><main id=dashboard></main>");
       return;
     }
     response.end("<!doctype html><p>unknown</p>");
@@ -625,6 +641,7 @@ test("PII overlay ownership, arbitrary attributes, and candidate scan budgets st
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
     assert.equal(mask.privacyMaskedCount, 3, "class-matching page elements are still candidates");
+    assert.equal(await page.locator("#bad-semantic").evaluate((node) => node.classList.contains("meccha-manual-pii-overlay")), false, "semantic masking requires an adjacent dt/dd or th/td pair");
     await inject(() => {
       const state = globalThis.__mecchaManualScreenshotMasks;
       for (const item of state?.privacyOverlays || []) item.overlay.setAttribute("data-state", "extension-owned");
@@ -666,11 +683,46 @@ test("PII overlay ownership, arbitrary attributes, and candidate scan budgets st
     assert.equal(await inject(verifySensitiveMasks, [clean.token]), true, "unrelated arbitrary attributes remain valid");
     await inject(removeSensitiveMasks);
 
-    for (const [path, count, expected] of [["budget", 4096, true], ["budget", 4097, false], ["nested-budget", 4094, true], ["nested-budget", 4095, false]]) {
-      await page.goto(`${baseUrl}/${path}?count=${count}`);
+    for (const [path, target, expected] of [["budget", 4096, true], ["budget", 4097, false], ["nested-budget", 4096, true], ["nested-budget", 4097, false]]) {
+      await page.goto(`${baseUrl}/${path}`);
+      const actual = await page.evaluate(({ nested, target: targetCount }) => {
+        const countNodes = () => {
+          let count = 0;
+          const stack = [document];
+          while (stack.length) {
+            const current = stack.pop();
+            count += 1;
+            for (const child of current.childNodes || []) stack.push(child);
+            if (current.nodeType === 1 && current.shadowRoot) stack.push(current.shadowRoot);
+          }
+          return count;
+        };
+        let parent = document.getElementById("dashboard");
+        if (nested) {
+          const host = document.createElement("aggregate-host");
+          parent.append(host);
+          const outer = host.attachShadow({ mode: "open" });
+          const nestedHost = document.createElement("nested-host");
+          outer.append(nestedHost);
+          parent = nestedHost.attachShadow({ mode: "open" });
+        }
+        let remaining = targetCount - countNodes();
+        if (nested) {
+          const nestedDepth = Math.min(256, remaining);
+          for (let index = 0; index < nestedDepth; index += 1) {
+            const node = document.createElement("div");
+            parent.append(node);
+            parent = node;
+          }
+          remaining -= nestedDepth;
+        }
+        while (remaining-- > 0) parent.append(document.createElement("span"));
+        return countNodes();
+      }, { nested: path === "nested-budget", target });
+      assert.equal(actual, target, `${path} fixture must contain the exact visited-node budget`);
       const bounded = await inject(installSensitiveMasks);
       assert.equal(bounded.applied, true);
-      assert.equal(await inject(verifySensitiveMasks, [bounded.token]), expected, `${path} count=${count} must use one aggregate traversal budget`);
+      assert.equal(await inject(verifySensitiveMasks, [bounded.token]), expected, `${path} target=${target} must use one aggregate traversal budget`);
       await inject(removeSensitiveMasks);
     }
   } finally {
