@@ -157,6 +157,7 @@ function renderStatus(state = {}, imageEntries = []) {
   startSection.hidden = active || waitingForRestore;
   liveSection.hidden = !active;
   finish.hidden = !canFinish;
+  finish.disabled = false;
   pause.hidden = state.phase !== "recording";
   resume.hidden = !["paused", "reinjection_failed"].includes(state.phase) || Boolean(state.captureLimitReached);
   cancel.hidden = !active && !waitingForRestore;
@@ -183,6 +184,25 @@ function renderStatus(state = {}, imageEntries = []) {
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
   else if (active) status.textContent = "このタブだけを記録しています。入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があります。";
   else if (!state.hasDrafts) status.textContent = "";
+}
+
+function finishFailureMessage(state, statusAvailable, draftsState) {
+  const unknownMessage = !draftsState?.available
+    ? "記録終了の結果を確認できませんでした。下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。"
+    : draftsState.count === 0
+      ? "記録終了の結果を確認できませんでした。下書きが見つかりませんでした。対象タブの状態を確認してから、もう一度お試しください。"
+      : "記録終了の結果を確認できませんでした。今回の記録が保存されたか確認できません。下書き一覧を確認してください。";
+  if (!statusAvailable) return unknownMessage;
+  if (state?.restorePending || state?.phase === "starting" || state?.phase === "restore_pending") {
+    return "画面を元に戻せませんでした。復元情報は残っています。先に復元してください。";
+  }
+  if (state?.phase === "finish_failed") {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+  }
+  if (["recording", "paused", "reinjection_failed"].includes(state?.phase)) {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブの状態を確認して、もう一度終了してください。";
+  }
+  return unknownMessage;
 }
 
 let refreshInFlight = null;
@@ -235,6 +255,38 @@ async function refresh(forceDraftPoll = false) {
   }
 }
 
+async function refreshDraftsOnly() {
+  try {
+    const nextDrafts = await draftStore.list();
+    lastDraftPollAt = Date.now();
+    localDrafts = nextDrafts;
+    lastDraftKey = draftRenderKey(nextDrafts);
+    renderDrafts(localDrafts);
+    return { available: true, count: nextDrafts.length };
+  } catch {
+    return { available: false, count: 0 };
+  }
+}
+
+async function showFinishFailureOutcome() {
+  let current = {};
+  let statusAvailable = true;
+  try {
+    current = await send({ type: "capture:status" });
+    if (!current || typeof current !== "object" || Array.isArray(current)) throw new Error("INVALID_CAPTURE_STATUS");
+  } catch {
+    statusAvailable = false;
+  }
+  const draftsState = await refreshDraftsOnly();
+  statusOverride = finishFailureMessage(current, statusAvailable, draftsState);
+  if (statusAvailable) renderStatus({ ...current, hasDrafts: localDrafts.length > 0 }, liveImages);
+  else {
+    finish.hidden = true;
+    finish.disabled = true;
+  }
+  status.textContent = statusOverride;
+}
+
 async function withError(action, fallback) {
   try { await action(); }
   catch { statusOverride = fallback; await refresh().catch(() => undefined); }
@@ -248,37 +300,43 @@ start.addEventListener("click", () => withError(async () => {
   await refresh();
 }, "記録を開始できませんでした。対象ページを開いて、もう一度お試しください。"));
 
-finish.addEventListener("click", () => withError(async () => {
-  const result = await send({ type: "capture:finish" });
-  let editorOpenError = result?.draftId ? null : new Error("下書きIDがありません");
-  if (!editorOpenError) {
+finish.addEventListener("click", async () => {
+  try {
+    const result = await send({ type: "capture:finish" });
+    if (!result?.draftId) {
+      await showFinishFailureOutcome();
+      return;
+    }
+    let editorOpenError = null;
     try {
       await openDraftEditor(result.draftId);
     } catch (error) {
       editorOpenError = error;
     }
+    let refreshError = null;
+    try {
+      await refresh(true);
+    } catch (error) {
+      refreshError = error;
+    }
+    statusOverride = "";
+    if (result.restorePending) {
+      statusOverride = "記録は保存済みです。画面をもう一度復元してから続けてください。";
+      restore.hidden = false;
+      status.textContent = statusOverride;
+    } else if (editorOpenError) {
+      statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+      status.textContent = statusOverride;
+    } else {
+      status.textContent = result.missingImageCount
+        ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
+        : "記録できました。画像付きの手順を保存しました。";
+      if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
+    }
+  } catch {
+    await showFinishFailureOutcome();
   }
-  let refreshError = null;
-  try {
-    await refresh(true);
-  } catch (error) {
-    refreshError = error;
-  }
-  statusOverride = "";
-  if (result?.restorePending) {
-    statusOverride = "記録は保存済みです。画面をもう一度復元してから続けてください。";
-    restore.hidden = false;
-    status.textContent = statusOverride;
-  } else if (editorOpenError) {
-    statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
-    status.textContent = statusOverride;
-  } else {
-    status.textContent = result?.missingImageCount
-      ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
-      : "記録できました。画像付きの手順を保存しました。";
-    if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
-  }
-}, "記録を終了できませんでした。記録内容はこの端末に保持しています。"));
+});
 
 pause.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:pause" });

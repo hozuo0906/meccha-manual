@@ -18,7 +18,7 @@ async function send(message) {
 }
 
 function renderCaptureState(state = {}) {
-  const active = ["recording", "finish_failed", "reinjection_failed"].includes(state.phase);
+  const active = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
   if (state.mode) mode.value = state.mode;
   start.hidden = active || state.restorePending;
   mode.disabled = active || state.restorePending;
@@ -42,6 +42,39 @@ function renderCaptureState(state = {}) {
   }
 }
 
+function finishFailureMessage(state, statusAvailable, draftsState) {
+  const unknownMessage = !draftsState?.available
+    ? "記録終了の結果を確認できませんでした。下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。"
+    : draftsState.count === 0
+      ? "記録終了の結果を確認できませんでした。下書きが見つかりませんでした。対象タブの状態を確認してから、もう一度お試しください。"
+      : "記録終了の結果を確認できませんでした。今回の記録が保存されたか確認できません。下書き一覧を確認してください。";
+  if (!statusAvailable) return unknownMessage;
+  if (state?.restorePending || state?.phase === "starting" || state?.phase === "restore_pending") {
+    return "画面を元に戻せませんでした。復元情報は残っています。先に復元してください。";
+  }
+  if (state?.phase === "finish_failed") {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+  }
+  if (["recording", "paused", "reinjection_failed"].includes(state?.phase)) {
+    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブの状態を確認して、もう一度終了してください。";
+  }
+  return unknownMessage;
+}
+
+async function showFinishFailureOutcome() {
+  let current = {};
+  let statusAvailable = true;
+  try {
+    current = await send({ type: "capture:status" });
+    if (!current || typeof current !== "object" || Array.isArray(current)) throw new Error("INVALID_CAPTURE_STATUS");
+  } catch {
+    statusAvailable = false;
+  }
+  const draftsState = await refreshDrafts();
+  renderCaptureState(current);
+  status.textContent = finishFailureMessage(current, statusAvailable, draftsState);
+}
+
 async function refreshDrafts() {
   try {
     const drafts = (await draftStore.list()).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
@@ -53,8 +86,10 @@ async function refreshDrafts() {
       recentDraft.append(option);
     }
     draftSection.hidden = drafts.length === 0;
+    return { available: true, count: drafts.length };
   } catch {
     draftSection.hidden = true;
+    return { available: false, count: 0 };
   }
 }
 
@@ -79,22 +114,20 @@ finish.addEventListener("click", async () => {
   try {
     result = await send({ type: "capture:finish" });
   } catch {
-    const current = await send({ type: "capture:status" }).catch(() => ({}));
-    renderCaptureState(current);
-    status.textContent = "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    await showFinishFailureOutcome();
     return;
   }
 
   const { draftId, restorePending } = result || {};
-  let editorOpenError = null;
   if (typeof draftId !== "string" || !draftId) {
-    editorOpenError = new Error("下書きIDがありません");
-  } else {
-    try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${draftId}`) });
-    } catch (error) {
-      editorOpenError = error;
-    }
+    await showFinishFailureOutcome();
+    return;
+  }
+  let editorOpenError = null;
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${draftId}`) });
+  } catch (error) {
+    editorOpenError = error;
   }
   await refreshDrafts();
   renderCaptureState({ restorePending: Boolean(restorePending) });

@@ -434,6 +434,7 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
       globalThis.__statusPhase = "recording";
       globalThis.__restorePending = false;
       globalThis.__finishResult = { draftId: "restore-pending-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
+      globalThis.__finishError = false;
       globalThis.__tabsCreateCalls = [];
       globalThis.chrome = {
         runtime: {
@@ -444,6 +445,7 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
               return { ok: true, value: { phase: globalThis.__statusPhase, restorePending: globalThis.__restorePending, events: [], stepImageRefs: [] } };
             }
             if (message?.type === "capture:finish") {
+              if (globalThis.__finishError) return { ok: false, error: "FINISH_RESPONSE_LOST" };
               const result = globalThis.__finishResult;
               globalThis.__statusPhase = result.restorePending ? "finish_failed" : "idle";
               globalThis.__restorePending = Boolean(result.restorePending);
@@ -473,6 +475,18 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
 
     await page.evaluate(() => {
       globalThis.__refreshMode = "ok";
+      globalThis.__finishError = true;
+      globalThis.__statusPhase = "idle";
+      globalThis.__restorePending = false;
+    });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /記録終了の結果を確認できませんでした/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "idle after a lost finish response must not offer an unverified retry");
+    assert.doesNotMatch(await page.locator("#status").textContent(), /保存済み/);
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__finishError = false;
       globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
     });
     await page.locator("#finish").click();

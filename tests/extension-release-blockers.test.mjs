@@ -61,13 +61,12 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
   const source = (await readFile(new URL("../apps/extension/popup/popup.js", import.meta.url), "utf8"))
     .replace(/^import .*;\r?\n/m, "");
 
-  async function createPopup({ finishResponse, statusResponse = {}, createTab }) {
+  async function createPopup({ finishResponse, statusResponse = {}, statusError = false, drafts = [{ id: "saved-draft", title: "保存済みの下書き" }], draftsError = false, createTab }) {
     const elements = new Map();
     let finishCalls = 0;
     let statusCalls = 0;
     let closed = 0;
     let tabCreateCalls = 0;
-    const drafts = [{ id: "saved-draft", title: "保存済みの下書き" }];
     const getElement = (id) => {
       if (!elements.has(id)) {
         elements.set(id, {
@@ -99,6 +98,7 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
           }
           if (message.type === "capture:status") {
             statusCalls += 1;
+            if (statusError) throw new Error("STATUS_UNAVAILABLE");
             return { ok: true, value: statusResponse };
           }
           return { ok: true, value: null };
@@ -115,7 +115,7 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
     vm.runInNewContext(source, {
       document,
       chrome,
-      draftStore: { list: async () => drafts },
+      draftStore: { list: async () => { if (draftsError) throw new Error("DRAFTS_UNAVAILABLE"); return drafts; } },
       window: { close: () => { closed += 1; } }
     });
     await new Promise((resolve) => setImmediate(resolve));
@@ -129,7 +129,34 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
   await failedFinish.elements.get("#finish").listeners.click();
   assert.equal(failedFinish.finishCalls, 1);
   assert.equal(failedFinish.statusCalls, 2, "initial status and failed finish status are both read");
-  assert.match(failedFinish.elements.get("#status").textContent, /終了できませんでした/);
+  assert.match(failedFinish.elements.get("#status").textContent, /先に復元してください/);
+
+  const activeAfterLostResponse = await createPopup({
+    finishResponse: { error: "response lost" },
+    statusResponse: { phase: "recording", restorePending: false }
+  });
+  await activeAfterLostResponse.elements.get("#finish").listeners.click();
+  assert.match(activeAfterLostResponse.elements.get("#status").textContent, /記録内容はこの端末に保持しています/);
+  assert.match(activeAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
+
+  const idleAfterLostResponse = await createPopup({
+    finishResponse: { error: "response lost" },
+    statusResponse: { phase: null, restorePending: false },
+    drafts: []
+  });
+  await idleAfterLostResponse.elements.get("#finish").listeners.click();
+  assert.equal(idleAfterLostResponse.elements.get("#finish").hidden, true, "idle status must not expose a second finish operation");
+  assert.match(idleAfterLostResponse.elements.get("#status").textContent, /記録終了の結果を確認できませんでした/);
+  assert.match(idleAfterLostResponse.elements.get("#status").textContent, /下書きが見つかりませんでした/);
+  assert.doesNotMatch(idleAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
+
+  const statusUnavailable = await createPopup({
+    finishResponse: { error: "response lost" },
+    statusError: true,
+    draftsError: true
+  });
+  await statusUnavailable.elements.get("#finish").listeners.click();
+  assert.match(statusUnavailable.elements.get("#status").textContent, /下書き一覧を表示できませんでした/);
 
   const editorOpenFailed = await createPopup({
     finishResponse: { value: { draftId: "saved-draft", restorePending: false } },
