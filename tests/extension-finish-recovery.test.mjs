@@ -6,10 +6,11 @@ import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js"
 import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
 import { normalizeCaptureEvent } from "../apps/extension/capture/privacy.js";
 import { VIEWPORTS } from "../apps/extension/responsive/viewports.js";
+import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../apps/extension/editor/handoff.js";
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, handoffRecords = {}, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let session = { id: "capture-1", tabId: 1, windowId: 2, mode, phase: "recording", events: [], startedAt: 1 };
   let journal;
   let drained = false;
@@ -42,10 +43,14 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let onRemoved;
   let onUpdated;
   let onMessage;
+  let handoffStorage = { ...handoffRecords };
+  const tabUpdates = [];
   const injections = [];
   let context;
   const createContext = () => ({
-    crypto, Date, Promise, VIEWPORTS, CLOUD_CLAIM_MAX_ASSETS: 100, mergeCaptureEvents, nextRecoveryJournal, normalizeCaptureEvent,
+    crypto, Date, Promise, URL, VIEWPORTS, CLOUD_CLAIM_MAX_ASSETS: 100, mergeCaptureEvents, nextRecoveryJournal, normalizeCaptureEvent,
+    STAGING_ONBOARDING_ORIGIN: "https://meccha-manual-staging.meccha-iiyatsu.com", buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock,
+    navigator: { locks: { request: async (_name, callback) => callback({ name: "handoff" }) } },
     installSensitiveMasks() {}, removeSensitiveMasks() {}, verifySensitiveMasks() {},
     captureWithMaskBoundary: async () => { if (screenshotFailure) throw new Error("mask failed"); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; },
     applyResponsiveViewport: async () => { viewportApplied = true; },
@@ -64,11 +69,19 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     chrome: {
       storage: {
         session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
-        local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
+        local: { get: async (key) => {
+          if (key === null) return { captureRecoveryJournal: journal, ...handoffStorage };
+          if (typeof key === "string" && Object.prototype.hasOwnProperty.call(handoffStorage, key)) return { [key]: handoffStorage[key] };
+          return { captureRecoveryJournal: journal };
+        }, set: async (value) => {
+          if (localStorageFailure) throw new Error("local storage unavailable");
+          if (Object.prototype.hasOwnProperty.call(value, "captureRecoveryJournal")) journal = value.captureRecoveryJournal;
+          handoffStorage = { ...handoffStorage, ...value };
+        }, remove: async (keys) => { if (localRemoveFailure) throw new Error("local remove unavailable"); for (const key of Array.isArray(keys) ? keys : [keys]) delete handoffStorage[key]; journal = null; } }
       },
       scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
-      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
+      tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, update: async (tabId, details) => { tabUpdates.push({ tabId, ...details }); return { id: tabId, ...details }; }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
   });
@@ -90,9 +103,46 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
       localRemoveFailure = localValue;
     }, dropSession: () => { session = null; }, viewportApplied: () => viewportApplied,
     navigate: async () => { onUpdated(1, { status: "complete" }); await context.settle(); },
+    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => { onUpdated(17, { url, status: "loading" }); await new Promise((resolve) => setTimeout(resolve, 0)); await context.settle(); },
+    tabUpdates: () => tabUpdates,
+    handoffStorage: () => handoffStorage,
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
     close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); } };
 }
+
+test("Access認証から戻ったhandoff対象タブへfragmentを復元する", async () => {
+  const handoffId = "A".repeat(43);
+  const launchId = "B".repeat(43);
+  const readyKey = handoffReadyStorageKey(handoffId, launchId);
+  const handoffKey = handoffStorageKey(handoffId);
+  const metadata = {
+    handoffId,
+    draftId: "synthetic-draft",
+    outputAction: "save",
+    extensionId: "a".repeat(32),
+    draftFingerprint: "b".repeat(64),
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  };
+  const ready = {
+    handoffId,
+    launchId,
+    tabId: 17,
+    expiresAt: metadata.expiresAt,
+    activationPolicy: "manual",
+    pageReadyAt: null,
+    activatedAt: null
+  };
+  const capture = await harness({ localFails: false, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await capture.accessReturn();
+  const updates = capture.tabUpdates();
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].tabId, 17);
+  assert.match(updates[0].url, /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=A{43}&extensionId=a{32}&launchId=B{43}$/);
+  assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 1);
+
+  await capture.accessReturn("https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=already-present");
+  assert.equal(capture.tabUpdates().length, 1, "fragment付き遷移は再度書き換えない");
+});
 
 test("local journal failure does not discard the first drained batch when session storage works", async () => {
   const capture = await harness();
