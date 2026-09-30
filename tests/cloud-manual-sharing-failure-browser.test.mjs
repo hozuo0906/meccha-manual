@@ -139,10 +139,11 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     const transportRequest = page.waitForRequest((request) => request.url() === shareEndpoint && request.method() === "DELETE");
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
-    await transportRequest;
+    const actualTransportRequest = await transportRequest;
     await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
-    const transportFailedShareLinkId = revokeBodies.at(-1)?.body.shareLinkId;
+    const transportFailedShareLinkId = actualTransportRequest.postDataJSON()?.shareLinkId;
+    assert.equal(transportFailedShareLinkId, shares.get("manual-2")?.shareLinkId);
     await page.unroute(shareEndpoint);
 
     revokeFailureStatus = 503;
@@ -153,6 +154,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     const failedShareLinkId = revokeBodies.at(-1)?.body.shareLinkId;
+    assert.equal(failedShareLinkId, transportFailedShareLinkId);
     const retryResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links` && response.request().method() === "DELETE" && response.status() === 200);
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
