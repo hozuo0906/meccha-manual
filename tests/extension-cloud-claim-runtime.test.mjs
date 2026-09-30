@@ -1,19 +1,92 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { chromium } from "@playwright/test";
+import { exportJWK, SignJWT } from "jose";
 import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 import { ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
+import cloudWorker from "../apps/worker/src/index.ts";
 
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const STAGING_URL = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=1`;
 const ACCESS_AUTH_ORIGIN = "https://meccha-manual-access-login.example.test";
 const ACCESS_AUTH_URL = `${ACCESS_AUTH_ORIGIN}/cdn-cgi/access/login?runtime-test=1`;
 const WRONG_ORIGIN_URL = "https://evil.example.test/onboarding/continue?runtime-test=1";
+const ACCESS_ISSUER = "https://access.example.invalid";
+const ACCESS_AUDIENCE = "meccha-manual-staging";
+const ACCESS_JWKS_URL = `${ACCESS_ISSUER}/.well-known/jwks.json`;
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+
+class LocalStatement {
+  constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
+  bind(...values) { return new LocalStatement(this.database, this.sql, values); }
+  async run() { const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
+  async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
+}
+
+class LocalD1 {
+  constructor(database) { this.database = database; this.tail = Promise.resolve(); }
+  prepare(sql) { return new LocalStatement(this.database, sql); }
+  batch(statements) {
+    const task = this.tail.then(async () => {
+      this.database.exec("BEGIN IMMEDIATE");
+      try { const results = []; for (const statement of statements) results.push(await statement.run()); this.database.exec("COMMIT"); return results; }
+      catch (error) { this.database.exec("ROLLBACK"); throw error; }
+    });
+    this.tail = task.catch(() => undefined);
+    return task;
+  }
+}
+
+class MemoryR2 {
+  constructor() { this.objects = new Map(); }
+  async put(key, body, options = {}) {
+    if (options.onlyIf?.etagDoesNotMatch === "*" && this.objects.has(key)) return null;
+    const bytes = body instanceof Uint8Array ? body.slice() : new Uint8Array(await new Response(body).arrayBuffer());
+    this.objects.set(key, { body: bytes, size: bytes.byteLength, httpMetadata: { ...(options.httpMetadata ?? {}) }, customMetadata: { ...(options.customMetadata ?? {}) } });
+    return { etag: `local-${this.objects.size}` };
+  }
+  async head(key) { const object = this.objects.get(key); return object ? { size: object.size, httpMetadata: { ...object.httpMetadata }, customMetadata: { ...object.customMetadata } } : null; }
+  async get(key) { const object = this.objects.get(key); return object ? { body: new Response(object.body).body, size: object.size, httpMetadata: { ...object.httpMetadata }, customMetadata: { ...object.customMetadata } } : null; }
+  async delete(key) { this.objects.delete(key); }
+}
+
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql"];
+
+async function createLocalWorkerFixture() {
+  const database = new DatabaseSync(":memory:");
+  for (const name of localWorkerMigrations) database.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const publicJwk = { ...await exportJWK(publicKey), kid: "extension-runtime-local", alg: "RS256", use: "sig" };
+  const token = await new SignJWT({ type: "app", sub: "extension-runtime-local-user" })
+    .setProtectedHeader({ alg: "RS256", kid: publicJwk.kid }).setIssuer(ACCESS_ISSUER).setAudience(ACCESS_AUDIENCE)
+    .setIssuedAt().setExpirationTime("5m").sign(privateKey);
+  const env = {
+    APP_ENV: "staging", APP_BASE_URL: STAGING_ORIGIN, ACCESS_ISSUER, ACCESS_AUDIENCE, ACCESS_JWKS_URL,
+    DB: new LocalD1(database), MANUAL_ASSETS: new MemoryR2(), ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }
+  };
+  return { database, env, token, publicJwk };
+}
+
+function localWorkerRequest(request, token) {
+  const headers = new Headers(request.headers());
+  headers.set("Cf-Access-Jwt-Assertion", token);
+  headers.set("Cf-Connecting-IP", "198.51.100.10");
+  // Playwright's intercepted fetch body is delivered without a transport
+  // Content-Length. The product request already carries the signed byte
+  // length, so the local edge adapter restores the header Cloudflare adds.
+  if (!headers.has("content-length") && headers.has("x-asset-byte-length")) headers.set("content-length", headers.get("x-asset-byte-length"));
+  const body = ["GET", "HEAD"].includes(request.method()) ? undefined : request.postDataBuffer() ?? undefined;
+  const input = new Request(request.url(), { method: request.method(), headers, body });
+  Object.defineProperty(input, "cf", { value: { colo: "NRT", asn: 64500 }, configurable: true });
+  return input;
+}
 
 function externalPageHtml(extensionId = null) {
   const readyScript = extensionId ? `<script defer>
@@ -92,6 +165,35 @@ async function createRealStagingPage(context, url = STAGING_URL, { bootstrapEnab
     }
     if (requestUrl.pathname.startsWith("/api/onboarding/claims/")) {
       await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "claimed", manualId: "runtime-manual-1" }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
+  });
+  await page.goto(url, { waitUntil: "commit" });
+  return page;
+}
+
+async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_ORIGIN}/onboarding/continue`) {
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.origin === ACCESS_AUTH_ORIGIN) {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" });
+      return;
+    }
+    if (requestUrl.origin !== STAGING_ORIGIN) { await route.abort(); return; }
+    if (requestUrl.pathname === "/onboarding/continue") {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: renderOnboardingContinuePage({ bootstrapEnabled: true }) });
+      return;
+    }
+    if (requestUrl.pathname === "/assets/onboarding.js") {
+      await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: ONBOARDING_JS });
+      return;
+    }
+    if (requestUrl.pathname.startsWith("/api/")) {
+      const response = await cloudWorker.fetch(localWorkerRequest(route.request(), fixture.token), fixture.env, {});
+      const body = Buffer.from(await response.arrayBuffer());
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers.entries()), body });
       return;
     }
     await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
@@ -229,17 +331,19 @@ async function sendExternalFromFrame(frame, extensionId, message) {
 }
 
 async function tabIdForPage(worker, page) {
-  const pageUrl = page.url();
-  return worker.evaluate((url) => new Promise((resolve, reject) => {
-    chrome.tabs.query({}, (tabs) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      resolve(tabs.find((tab) => tab.url === url)?.id ?? null);
-    });
-  }), pageUrl);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const pageUrl = page.url();
+    const tabId = await worker.evaluate((url) => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) { reject(new Error(error.message)); return; }
+        resolve(tabs.find((tab) => tab.url === url)?.id ?? null);
+      });
+    }), pageUrl);
+    if (Number.isInteger(tabId)) return tabId;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
 }
 
 async function failStorageSetOnCall(worker, failureCall = 1) {
@@ -1058,6 +1162,81 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
   } finally {
     await closeContext(context);
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
+test("MV3 Access復帰から実WorkerのD1/R2保存と再閲覧まで完了する", { timeout: 90_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  const fixture = await createLocalWorkerFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => String(url) === ACCESS_JWKS_URL
+    ? Response.json({ keys: [fixture.publicJwk] })
+    : originalFetch(url, options);
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const handoffId = "L".repeat(43);
+    const launchId = "M".repeat(43);
+    const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
+    const page = await createLocalWorkerStagingPage(context, fixture, hashlessUrl);
+    await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
+    await page.waitForFunction(() => location.hash === "");
+    const tabId = await tabIdForPage(worker, page);
+    assert.equal(Number.isInteger(tabId), true);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const draft = {
+      id: "runtime-local-worker-draft",
+      title: "実Worker保存確認",
+      description: "実ブラウザ経由で保存して再閲覧するfixture",
+      updatedAt: "2026-09-30T00:00:00.000Z",
+      steps: [{ id: "runtime-local-worker-step", order: 1, instruction: "設定を確認する", screenshotId: "runtime-local-worker-asset" }],
+      screenshots: [{ id: "runtime-local-worker-asset", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [] }]
+    };
+    await putDraft(worker, draft);
+    await setMetadata(worker, handoffStorageKey(handoffId), {
+      handoffId, draftId: draft.id, outputAction: "save", extensionId,
+      draftUpdatedAt: draft.updatedAt, draftFingerprint: await fingerprintDraft(draft), expiresAt
+    });
+    await setMetadata(worker, handoffReadyStorageKey(handoffId, launchId), {
+      handoffId, launchId, tabId, expiresAt, activationPolicy: "manual",
+      pageReadyAt: new Date().toISOString(), activatedAt: new Date().toISOString()
+    });
+
+    await page.goto(`${hashlessUrl}#handoff=${handoffId}&extensionId=${extensionId}&launchId=${launchId}&action=save`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => location.hash === "");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined);
+    await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
+    assert.equal(await tabIdForPage(worker, page), tabId);
+    await page.goto(hashlessUrl, { waitUntil: "commit" });
+    const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    for (let attempt = 0; attempt < 40 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1);
+    await page.waitForSelector("#bootstrap", { state: "visible" });
+    await page.locator("#bootstrap").click();
+    for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    const completed = await readMetadata(worker, handoffStorageKey(handoffId));
+    assert.equal(completed.status, "completed", `実Workerへの保存が完了する: ${JSON.stringify({ completed, status: await page.locator("#status").textContent().catch(() => ""), databaseClaims: fixture.database.prepare("SELECT status, manual_id FROM claim_intents").all() })}`);
+    assert.equal(await getDraft(worker, draft.id), null, "保存完了後はローカル下書きを消費する");
+
+    const workspaceId = fixture.database.prepare("SELECT id FROM workspaces WHERE workspace_kind = 'personal'").get()?.id;
+    const manual = fixture.database.prepare("SELECT id, title FROM manuals ORDER BY created_at DESC LIMIT 1").get();
+    const step = fixture.database.prepare("SELECT asset_id, instruction FROM manual_steps WHERE revision_id = (SELECT current_draft_revision_id FROM manuals WHERE id = ?)").get(manual.id);
+    assert.ok(workspaceId && manual?.id && step?.asset_id, "D1に手順書と画像参照が作成される");
+    const reopened = await page.evaluate(async ({ detailUrl, assetUrl }) => {
+      const detailResponse = await fetch(detailUrl, { credentials: "same-origin" });
+      const detail = await detailResponse.json();
+      const assetResponse = await fetch(assetUrl, { credentials: "same-origin" });
+      return { detailStatus: detailResponse.status, title: detail?.draft?.title, instruction: detail?.steps?.[0]?.instruction, assetStatus: assetResponse.status, assetType: assetResponse.headers.get("content-type"), assetBytes: (await assetResponse.arrayBuffer()).byteLength };
+    }, { detailUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}`, assetUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}/assets/${step.asset_id}` });
+    assert.deepEqual(reopened, { detailStatus: 200, title: draft.title, instruction: draft.steps[0].instruction, assetStatus: 200, assetType: "image/png", assetBytes: 87 }, "保存後の再読込でもD1/R2の内容を閲覧できる");
+    assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+    globalThis.fetch = originalFetch;
+    fixture.database.close();
   }
 });
 
