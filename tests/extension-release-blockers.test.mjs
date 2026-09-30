@@ -231,7 +231,7 @@ test("screenshot privacy disables transitions, verifies document identity, and r
 
   try {
     globalThis.HTMLElement = Object;
-    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => ({ mode: "closed" }) } };
+    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => ({ mode: "closed", querySelectorAll: () => [] }) } };
     globalThis.document = root;
     globalThis.getComputedStyle = (target) => ({
       visibility: target.style.getPropertyValue("visibility") || "visible",
@@ -244,14 +244,15 @@ test("screenshot privacy disables transitions, verifies document identity, and r
     assert.equal(typeof result.token, "string");
     assert.equal(style.getPropertyValue("transition"), "none");
     assert.equal(style.getPropertyValue("animation"), "none");
-    assert.equal(style.getPropertyValue("visibility"), "hidden");
+    // Opacity masks preserve focus; visibility:hidden would blur a live input.
+    assert.equal(style.getPropertyValue("visibility"), "visible");
     assert.equal(style.getPropertyValue("opacity"), "0");
     assert.equal(verifySensitiveMasks(result.token), true);
-    assert.equal(style.getPropertyValue("display"), "none");
-    // Opacity alone cannot suppress a closed-shadow top-layer descendant.
-    style.setProperty("display", "block");
+    assert.equal(style.getPropertyValue("display"), "");
+    // Closed-shadow descendants are masked individually so top-layer pixels remain hidden.
+    style.setProperty("opacity", "1");
     assert.equal(verifySensitiveMasks(result.token), false);
-    style.setProperty("display", "none");
+    style.setProperty("opacity", "0");
     assert.equal(verifySensitiveMasks("wrong-token"), false);
     removeSensitiveMasks();
     assert.equal(style.getPropertyValue("visibility"), "visible");
