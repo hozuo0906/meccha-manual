@@ -323,6 +323,86 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
   }
 });
 
+test("a pending image write preserves concurrent title, step text, order, add, and delete edits", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const originalDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d"); context.fillStyle = "#ffffff"; context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async (dataUrl) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "pending-image-concurrent-edits",
+        title: "元のタイトル",
+        description: "説明",
+        steps: [
+          { id: "step-1", order: 1, instruction: "元の手順1", screenshotId: "image-1" },
+          { id: "step-2", order: 2, instruction: "元の手順2" },
+          { id: "step-3", order: 3, instruction: "削除する手順" }
+        ],
+        screenshots: [{ id: "image-1", dataUrl, annotations: [], masks: [] }]
+      });
+    }, originalDataUrl);
+    await page.goto(`${baseUrl}/editor/editor.html#pending-image-concurrent-edits`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      globalThis.__originalDraftPut = draftStore.put;
+      globalThis.__pendingDraftPut = null;
+      globalThis.__draftPutCalls = 0;
+      draftStore.put = async (candidate) => {
+        globalThis.__draftPutCalls += 1;
+        if (globalThis.__draftPutCalls === 1) return new Promise((resolve) => { globalThis.__pendingDraftPut = { candidate, resolve }; });
+        return globalThis.__originalDraftPut(candidate);
+      };
+    });
+    const replacementDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d"); context.fillStyle = "#087f7a"; context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL("image/png");
+    });
+    await page.locator("#step-step-1 .image-upload-panel input[type=file]").setInputFiles({
+      name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64")
+    });
+    await page.waitForFunction(() => globalThis.__pendingDraftPut !== null && globalThis.__draftPutCalls === 1);
+
+    // These edits happen while the first IDB write is still unresolved. The
+    // controls deliberately use the real editor event handlers so the test
+    // covers the same queued persistence path as a user interaction.
+    await page.locator("#title").fill("同時編集後のタイトル");
+    await page.locator("#step-step-1 textarea").fill("同時編集後の説明");
+    await page.locator("#addStep").click();
+    await page.locator("#step-step-2 button").filter({ hasText: "上へ" }).click();
+    await page.locator("#step-step-3 button").filter({ hasText: "削除" }).click();
+    await page.evaluate(() => globalThis.__pendingDraftPut.resolve());
+    await page.waitForFunction(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const value = await draftStore.get("pending-image-concurrent-edits");
+      return value?.title === "同時編集後のタイトル" && value.steps.length === 3 && value.steps.every((step, index) => step.order === index + 1);
+    });
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("pending-image-concurrent-edits")));
+    assert.equal(stored.title, "同時編集後のタイトル");
+    assert.equal(stored.steps.find((step) => step.id === "step-1")?.instruction, "同時編集後の説明");
+    assert.equal(stored.steps.some((step) => step.id === "step-3"), false, "削除した手順を復活させない");
+    assert.equal(stored.steps.some((step) => step.instruction === "新しい手順"), true, "追加した手順を保持する");
+    assert.deepEqual(stored.steps.map((step) => step.id), ["step-2", "step-1", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
+    assert.notEqual(stored.screenshots[0].dataUrl, originalDataUrl, "画像の変更を保持する");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("image editor cancels stale decode generation", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));

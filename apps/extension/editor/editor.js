@@ -74,6 +74,87 @@ function enqueuePersist(operation) {
   return next;
 }
 
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function mergeChangedValue(base, candidate, current) {
+  if (sameValue(candidate, base)) return structuredClone(current);
+  if (sameValue(current, base)) return structuredClone(candidate);
+  if (Array.isArray(base) && Array.isArray(candidate) && Array.isArray(current)) {
+    return mergeChangedEntities(base, candidate, current);
+  }
+  if (base && candidate && current && typeof base === "object" && typeof candidate === "object" && typeof current === "object"
+    && !Array.isArray(base) && !Array.isArray(candidate) && !Array.isArray(current)) {
+    const merged = structuredClone(current);
+    const keys = new Set([...Object.keys(base), ...Object.keys(candidate)]);
+    for (const key of keys) {
+      if (!(key in candidate)) {
+        if (sameValue(current[key], base[key])) delete merged[key];
+        continue;
+      }
+      if (!(key in base)) {
+        if (!(key in current)) merged[key] = structuredClone(candidate[key]);
+        continue;
+      }
+      merged[key] = mergeChangedValue(base[key], candidate[key], current[key]);
+    }
+    return merged;
+  }
+  // When both sides changed the same scalar, the edit already visible to the
+  // user wins. The candidate is still applied to fields that the user did not
+  // touch while its write was pending.
+  return structuredClone(current);
+}
+
+function mergeChangedEntities(base = [], candidate = [], current = []) {
+  const hasIds = [...base, ...candidate, ...current].every((value) => value && typeof value === "object" && value.id);
+  if (!hasIds) return sameValue(current, base) ? structuredClone(candidate) : structuredClone(current);
+  const baseById = new Map(base.map((value) => [value.id, value]));
+  const candidateById = new Map(candidate.map((value) => [value.id, value]));
+  const currentById = new Map(current.map((value) => [value.id, value]));
+  const merged = current.map((value) => {
+    const next = candidateById.get(value.id);
+    const original = baseById.get(value.id);
+    return next && original ? mergeChangedValue(original, next, value) : structuredClone(value);
+  });
+  // A newly added candidate entity is valid only when the current draft still
+  // contains its relationship. The caller removes unreferenced screenshots;
+  // retain all other additions here so concurrent edits are never discarded.
+  for (const value of candidate) if (!baseById.has(value.id) && !currentById.has(value.id)) merged.push(structuredClone(value));
+  // Apply a candidate deletion only when the user has not changed that entity
+  // since the candidate snapshot. This preserves a concurrent step edit.
+  for (const value of base) if (!candidateById.has(value.id) && currentById.has(value.id) && sameValue(currentById.get(value.id), value)) {
+    const index = merged.findIndex((entry) => entry.id === value.id);
+    if (index >= 0) merged.splice(index, 1);
+  }
+  // Reordering is a meaningful current edit. Use the candidate's order only
+  // when the current order still matches the base order exactly.
+  if (sameValue(current.map((value) => value.id), base.map((value) => value.id))) {
+    const byId = new Map(merged.map((value) => [value.id, value]));
+    return candidate.map((value) => byId.get(value.id)).filter(Boolean);
+  }
+  return merged;
+}
+
+function mergePendingCandidate(base, candidate, current) {
+  const merged = structuredClone(current);
+  merged.title = title.value;
+  merged.description = description.value;
+  merged.steps = mergeChangedEntities(base.steps || [], candidate.steps || [], current.steps || []);
+  merged.screenshots = mergeChangedEntities(base.screenshots || [], candidate.screenshots || [], current.screenshots || []);
+  const candidateScreenshotIds = new Set((candidate.screenshots || []).map((value) => value.id));
+  const baseScreenshotIds = new Set((base.screenshots || []).map((value) => value.id));
+  const currentStepScreenshotIds = new Set(merged.steps.map((step) => step.screenshotId).filter(Boolean));
+  // Uploading to a step that was deleted or retargeted while IDB was pending
+  // must not leave a new unreferenced image behind.
+  merged.screenshots = merged.screenshots.filter((image) => baseScreenshotIds.has(image.id)
+    || !candidateScreenshotIds.has(image.id)
+    || currentStepScreenshotIds.has(image.id));
+  merged.updatedAt = new Date().toISOString();
+  return merged;
+}
+
 function persist(message = "この端末に保存しました。") {
   return enqueuePersist(async () => {
     draft.title = title.value;
@@ -103,16 +184,17 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
     setSaveState("保存中…", "saving");
     try {
       await draftStore.put(candidate);
-      // A write may stay pending while the user edits another field. Keep
-      // those newer local edits; the queued persist that follows will save
-      // them instead of this older candidate replacing them.
+      // A write may stay pending while the user edits another field. Merge
+      // only the candidate's changed fields into the current draft so image
+      // edits survive without replacing newer text, step, or ordering edits.
       const hasPendingEdits = JSON.stringify(draft) !== JSON.stringify(draftBeforePersist)
         || title.value !== candidate.title
         || description.value !== candidate.description;
-      if (!hasPendingEdits) Object.assign(draft, candidate);
+      const merged = hasPendingEdits ? mergePendingCandidate(draftBeforePersist, candidate, draft) : candidate;
+      Object.assign(draft, merged);
       status.textContent = message;
       setSaveState("端末に保存済み", "saved");
-      return { ok: true, candidate: hasPendingEdits ? structuredClone(draft) : candidate, hasPendingEdits };
+      return { ok: true, candidate: merged, hasPendingEdits };
     }
     catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
   });
@@ -240,7 +322,8 @@ async function normalizeUploadedImage(file) {
 
 function imageUploadError(error) {
   if (error?.message === "IMAGE_TYPE_UNSUPPORTED") return "PNG、JPEG、WebPの画像を選んでください。";
-  if (error?.message === "IMAGE_INPUT_TOO_LARGE" || error?.message === "IMAGE_OUTPUT_TOO_LARGE") return "画像が大きすぎます。10MB以下の画像を選んでください。";
+  if (error?.message === "IMAGE_INPUT_TOO_LARGE") return "画像が10MBを超えています。10MB以下の画像を選んでください。";
+  if (error?.message === "IMAGE_OUTPUT_TOO_LARGE") return "画像を変換した結果、10MBを超えました。解像度を下げるか、別の画像を選んでください。";
   if (error?.message === "IMAGE_PIXELS_TOO_LARGE") return "画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。";
   if (error?.message === "IMAGE_TOTAL_TOO_LARGE") return "画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。";
   if (error?.message === "IMAGE_COUNT_LIMIT") return "画像は100件まで追加できます。";

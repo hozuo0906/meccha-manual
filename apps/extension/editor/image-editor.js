@@ -229,13 +229,12 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     async open() {
       restoreFocus = document.activeElement; const currentGeneration = ++generation; state = "loading"; image = null; selected = null; drag = null;
       dialog.showModal();
-      // Put keyboard users at the first useful control on desktop. On a
-      // narrow viewport the form itself remains the stable focus anchor while
-      // the single scroll surface is being entered.
-      const initialFocus = window.matchMedia("(max-width: 760px)").matches
-        ? dialog.querySelector(".image-editor-form")
-        : dialog.querySelector("[data-editor-cancel]");
-      initialFocus?.focus?.();
+      // Keep the dialog's scroll position stable on narrow screens. The
+      // selection tool is useful immediately and is a real focus target even
+      // while the image is still loading; preventScroll avoids jumping the
+      // work area away from the image on mobile.
+      const initialFocus = dialog.querySelector('[data-editor-tool="select"]') || dialog.querySelector("[data-editor-cancel]");
+      initialFocus?.focus?.({ preventScroll: true });
       canvas.width = 1; canvas.height = 1; canvas.getContext("2d")?.clearRect(0, 0, 1, 1); selection.replaceChildren(); if (textInput) textInput.value = ""; if (fontSizeInput) fontSizeInput.value = "24";
       try {
         const cloned = cloneAnnotations(screenshot.annotations === undefined ? [] : screenshot.annotations);
