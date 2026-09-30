@@ -1137,11 +1137,7 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
     });
     const transparentPng = Buffer.from(transparentDataUrl.split(",")[1], "base64");
     await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
-    await page.waitForFunction(async () => {
-      const { draftStore } = await import("/storage/draft-store.js");
-      const current = await draftStore.get("shared-image-upload-fixture");
-      return current.steps[0].screenshotId !== "shared-image";
-    });
+    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
     const replaced = await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       const current = await draftStore.get("shared-image-upload-fixture");
