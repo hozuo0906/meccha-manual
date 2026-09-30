@@ -76,7 +76,9 @@ export function installSensitiveMasks() {
       if (!element || typeof element.getBoundingClientRect !== "function") return false;
       let current = element;
       while (current) {
-        if (current.closest?.(`.${privacyOverlayClass},script,style,noscript,template,[aria-hidden="true"]`)) return false;
+        // aria-hidden only affects assistive technology. A visually rendered
+        // value still has to be protected before capture.
+        if (current.closest?.(`.${privacyOverlayClass},script,style,noscript,template`)) return false;
         const computed = getComputedStyle(current);
         if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
         current = current.parentElement || current.getRootNode?.()?.host || null;
@@ -102,6 +104,7 @@ export function installSensitiveMasks() {
       const candidates = [];
       const pairedValues = new WeakSet();
       const candidateKeys = new Set();
+      const rangeCandidates = new Map();
       const textNodeIds = new WeakMap();
       let nextTextNodeId = 1;
       const textNodeId = (node) => {
@@ -110,6 +113,16 @@ export function installSensitiveMasks() {
       };
       const addCandidate = (candidate) => {
         if (candidates.length >= maxPrivacyOverlays || !candidate?.target || !intersectsViewport(candidate.rect)) return;
+        if (candidate.rangeKey) {
+          const existingIndex = rangeCandidates.get(candidate.rangeKey);
+          if (existingIndex !== undefined) {
+            const existing = candidates[existingIndex];
+            const priority = (kind) => kind === "address" ? 3 : kind === "phone" ? 2 : 1;
+            if (priority(candidate.kind) > priority(existing?.kind)) candidates[existingIndex] = candidate;
+            return;
+          }
+          rangeCandidates.set(candidate.rangeKey, candidates.length);
+        }
         const key = candidate.key || `${candidate.kind}:${candidate.target}`;
         if (candidateKeys.has(key)) return;
         candidateKeys.add(key);
@@ -163,7 +176,10 @@ export function installSensitiveMasks() {
               range.setStart(node, offset);
               range.setEnd(node, offset + matchedValue.length);
               const rect = rangeRect(range);
-              if (rect) addCandidate({ kind, target: parent, rect, range, key: `text:${kind}:${textNodeId(node)}:${offset}:${matchedValue.length}` });
+              if (rect) {
+                const rangeKey = `text:${textNodeId(node)}:${offset}:${matchedValue.length}`;
+                addCandidate({ kind, target: parent, rect, range, rangeKey, key: rangeKey });
+              }
             }
           }
         }
@@ -231,12 +247,21 @@ export function installSensitiveMasks() {
         style.setProperty("margin", "0", "important");
         style.setProperty("padding", "0", "important");
         style.setProperty("border", "0", "important");
+        style.setProperty("border-radius", "0", "important");
+        style.setProperty("box-shadow", "none", "important");
+        style.setProperty("background-image", "none", "important");
+        style.setProperty("background-clip", "border-box", "important");
+        style.setProperty("-webkit-background-clip", "border-box", "important");
         style.setProperty("background-color", overlayBackground(candidate.target), "important");
+        style.setProperty("background", overlayBackground(candidate.target), "important");
         style.setProperty("opacity", "1", "important");
         style.setProperty("filter", "none", "important");
         style.setProperty("mix-blend-mode", "normal", "important");
         style.setProperty("clip-path", "none", "important");
         style.setProperty("mask", "none", "important");
+        style.setProperty("-webkit-mask", "none", "important");
+        style.setProperty("text-shadow", "none", "important");
+        style.setProperty("transform", "none", "important");
         style.setProperty("color", computed.color || "rgb(0, 0, 0)", "important");
         style.setProperty("font-family", computed.fontFamily || "sans-serif", "important");
         style.setProperty("font-size", computed.fontSize || "16px", "important");
@@ -352,7 +377,7 @@ export function installSensitiveMasks() {
 
     scanRoot(document);
     const privacyMaskedCount = addPrivacyOverlays();
-    if (privacyOverlays.length && typeof MutationObserver === "function") {
+    if (typeof MutationObserver === "function") {
       const privacyRoots = [];
       const seenPrivacyRoots = new Set();
       const collectPrivacyRoots = (root) => {
@@ -369,7 +394,7 @@ export function installSensitiveMasks() {
         ? node.parentElement?.closest?.(`.${privacyOverlayClass}`)
         : node?.closest?.(`.${privacyOverlayClass}`);
       for (const root of privacyRoots) {
-        const target = root === document ? document.body : root;
+        const target = root === document ? (document.documentElement || document) : root;
         if (!target) continue;
         const privacyObserver = new MutationObserver((records) => {
           if (records.some((record) => {
@@ -383,7 +408,7 @@ export function installSensitiveMasks() {
         observers.push(privacyObserver);
       }
     }
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, document, privacyOverlayClass };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, document, privacyOverlayClass, collectPrivacyCandidates };
     return { applied: true, count: masks.length, privacyMaskedCount, token };
   } catch {
     for (const observer of observers) observer.disconnect();
@@ -423,6 +448,12 @@ export function verifySensitiveMasks(expectedToken) {
       return { left, top, width: right - left, height: bottom - top };
     };
     if (state.privacyMutation?.detected) return false;
+    if (typeof state.collectPrivacyCandidates === "function") {
+      const currentCandidates = state.collectPrivacyCandidates();
+      const overlays = state.privacyOverlays || [];
+      if (currentCandidates.length !== overlays.length) return false;
+      if (currentCandidates.some((candidate) => !overlays.some((item) => item.target === candidate.target && sameRect(item.protectedRect, candidate.rect)))) return false;
+    }
     for (const item of state.privacyOverlays || []) {
       if (!item?.overlay || !item.overlay.isConnected || item.overlay.className !== state.privacyOverlayClass || item.overlay.getAttribute("aria-hidden") !== "true") return false;
       if (!item.target || (item.target.isConnected !== undefined && !item.target.isConnected)) return false;
@@ -445,7 +476,8 @@ export function verifySensitiveMasks(expectedToken) {
       const overlayStyle = getComputedStyle(item.overlay);
       const background = String(overlayStyle.backgroundColor || "").toLowerCase();
       const rgba = background.match(/^rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)$/);
-      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
+      const webkitBackgroundClip = String(overlayStyle.webkitBackgroundClip || "").toLowerCase();
+      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || overlayStyle.maskImage !== "none" || overlayStyle.webkitMaskImage !== "none" || overlayStyle.backgroundImage !== "none" || String(overlayStyle.backgroundClip).toLowerCase() !== "border-box" || (webkitBackgroundClip && webkitBackgroundClip !== "border-box") || overlayStyle.borderRadius !== "0px" || overlayStyle.boxShadow !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
       const rect = item.overlay.getBoundingClientRect();
       const previousPointerEvents = item.overlay.style.getPropertyValue("pointer-events");
       const previousPointerPriority = item.overlay.style.getPropertyPriority("pointer-events");

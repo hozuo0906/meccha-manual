@@ -244,3 +244,104 @@ test("fractional overlay style and zero-opacity ancestors fail closed without ch
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a visible aria-hidden value is masked and overlay paint is a full opaque rectangle", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>
+      body { margin: 0; padding: 24px; font: 20px Arial, sans-serif; }
+      .meccha-manual-pii-overlay { background: linear-gradient(red, blue); background-clip: text; -webkit-background-clip: text; border-radius: 40px; box-shadow: 0 0 20px red; }
+    </style><span id="visible-hidden" aria-hidden="true">visible@example.com</span>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 1);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    const style = await page.locator(".meccha-manual-pii-overlay").evaluate((overlay) => {
+      const computed = getComputedStyle(overlay);
+      return { backgroundClip: computed.backgroundClip, borderRadius: computed.borderRadius, backgroundImage: computed.backgroundImage, boxShadow: computed.boxShadow };
+    });
+    assert.equal(style.backgroundClip, "border-box");
+    assert.equal(style.borderRadius, "0px");
+    assert.equal(style.backgroundImage, "none");
+    assert.equal(style.boxShadow, "none");
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator("#visible-hidden").textContent(), "visible@example.com");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("initially empty capture fails closed when a later open shadow root adds PII", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><open-pii-host></open-pii-host>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const root = document.querySelector("open-pii-host").attachShadow({ mode: "open" });
+      root.innerHTML = "<span>late@example.com</span>";
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator("open-pii-host").evaluate((host) => host.shadowRoot.textContent), "late@example.com");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("same text range chooses postal masking over the broader phone pattern", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><span id='postal'>060-0001</span>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 1);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").textContent(), "100-0000 東京都千代田区");
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator("#postal").textContent(), "060-0001");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
