@@ -29,14 +29,14 @@ function renderCaptureState(state = {}) {
 
   if (state.restorePending) {
     status.textContent = state.finishFailed
-      ? "記録内容はこの端末に保持しています。画面サイズを元に戻してから、もう一度終了してください。"
-      : "画面サイズを元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
+      ? "記録の終了結果を確認できません。画面サイズを元に戻して、もう一度終了してください。"
+      : "画面サイズの復元結果を確認できません。対象タブを確認して、もう一度復元してください。";
   } else if (state.phase === "reinjection_failed") {
-    status.textContent = "ページ移動後に記録を再開できませんでした。ここまでの記録は保持しています。対象タブで再開するか、ここまでの内容を終了して編集してください。";
+    status.textContent = "ページ移動後に記録を再開できません。対象タブで再開するか、ここまでの内容を終了してください。";
   } else if (state.phase === "finish_failed") {
-    status.textContent = "終了処理に失敗しましたが、記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    status.textContent = "終了処理の結果を確認できません。対象タブを開いて、もう一度終了してください。";
   } else if (state.recording) {
-    status.textContent = "このタブだけを記録しています。入力した値は保存しません。";
+    status.textContent = "このタブの操作を記録しています。入力欄の値は操作データとして保存しません。";
   } else {
     status.textContent = "";
   }
@@ -67,10 +67,10 @@ start.addEventListener("click", async () => {
     const current = await send({ type: "capture:status" }).catch(() => ({}));
     renderCaptureState(current);
     if (current.restorePending) {
-      status.textContent = `${status.textContent} (${error.message})`;
+      status.textContent = `${status.textContent} 対象タブを確認してから、もう一度終了してください。`;
       return;
     }
-    status.textContent = `記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。 (${error.message})`;
+    status.textContent = "操作を記録できませんでした。対象ページを開き、もう一度操作を記録してください。";
   }
 });
 
@@ -84,7 +84,7 @@ finish.addEventListener("click", async () => {
   } catch (error) {
     const current = await send({ type: "capture:status" }).catch(() => ({}));
     renderCaptureState(current);
-    status.textContent = `${status.textContent} (${error.message})`;
+    status.textContent = `${status.textContent} 対象タブを確認してから、もう一度操作してください。`;
   }
 });
 
@@ -94,7 +94,7 @@ resume.addEventListener("click", async () => {
     await send({ type: "capture:resume", tabId: tab.id });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
-    status.textContent = `記録を再開できませんでした。記録内容は保持しています。 (${error.message})`;
+    status.textContent = "記録を再開できません。対象タブを開いて、もう一度再開してください。";
   }
 });
 
@@ -103,7 +103,7 @@ cancel.addEventListener("click", async () => {
     const result = await send({ type: "capture:cancel" });
     renderCaptureState({ restorePending: result.restorePending });
   } catch {
-    status.textContent = "キャンセルを完了できませんでした。記録データと復元情報は残っています。もう一度お試しください。";
+    status.textContent = "キャンセルの結果を確認できません。対象タブを確認して、もう一度キャンセルしてください。";
   }
 });
 

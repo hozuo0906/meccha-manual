@@ -70,7 +70,7 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     const imageRef = refs.get(event.eventId);
     if (imageEntry?.status === "ready" && imageEntry.dataUrl) {
       const image = document.createElement("img");
-      setImage(image, imageEntry.dataUrl, "この手順のスクリーンショット");
+      setImage(image, imageEntry.dataUrl, "この手順の操作を記録した画面");
       item.append(text, image);
     } else {
       const imageState = document.createElement("span");
@@ -124,16 +124,16 @@ function renderDrafts(items = []) {
     const card = document.createElement("article");
     card.className = "draft-card";
     const image = document.createElement("img");
-    setImage(image, firstScreenshot(draft), "手順書のスクリーンショット");
+    setImage(image, firstScreenshot(draft), "手順書の操作を記録した画面");
     const content = document.createElement("div");
     const title = document.createElement("h3");
     title.textContent = draft.title || "無題の手順書";
     const detail = document.createElement("p");
-    detail.textContent = `${draft.steps?.length || 0}手順・端末に保存済み`;
+    detail.textContent = `${draft.steps?.length || 0}手順・この端末に保存`;
     const open = document.createElement("button");
     open.type = "button";
     open.dataset.draftId = draft.id;
-    open.textContent = "手順書を開く";
+    open.textContent = "手順書を編集する";
     open.addEventListener("click", () => openDraftEditor(draft.id));
     content.append(title, detail, open);
     card.append(image, content);
@@ -174,14 +174,14 @@ function renderStatus(state = {}, imageEntries = []) {
     renderLiveSteps(state.events || [], imageEntries, state.stepImageRefs || []);
   }
   if (statusOverride) status.textContent = statusOverride;
-  else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
+  else if (waitingForRestore) status.textContent = state.finishFailed ? "記録の終了結果を確認できません。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せません。対象タブを確認して、もう一度復元してください。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に再開できません。対象タブで再開するか、ここまでの内容を終了してください。";
   else if (state.phase === "cancel_failed") status.textContent = "キャンセルが完了していません。もう一度キャンセルしてください。";
-  else if (state.phase === "finish_failed") status.textContent = "終了処理に失敗しました。記録内容はこの端末に保持しています。";
+  else if (state.phase === "finish_failed") status.textContent = "記録の終了結果を確認できません。対象タブを開いて、もう一度終了してください。";
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
-  else if (active) status.textContent = "このタブだけを記録しています。入力した値は保存しません。";
+  else if (active) status.textContent = "このタブの操作を記録しています。入力欄の値は操作データとして保存しません。";
   else if (!state.hasDrafts) status.textContent = "";
 }
 
@@ -237,7 +237,7 @@ async function refresh(forceDraftPoll = false) {
 
 async function withError(action, fallback) {
   try { await action(); }
-  catch (error) { statusOverride = `${fallback}（${error.message}）`; await refresh().catch(() => undefined); }
+  catch { statusOverride = fallback; await refresh().catch(() => undefined); }
 }
 
 start.addEventListener("click", () => withError(async () => {
@@ -246,7 +246,7 @@ start.addEventListener("click", () => withError(async () => {
   statusOverride = "";
   status.textContent = "記録を開始しました。対象タブで操作してください。";
   await refresh();
-}, "記録を開始できませんでした。対象ページを開いて、もう一度お試しください。"));
+}, "操作を記録できませんでした。対象ページを開き、もう一度操作を記録してください。"));
 
 finish.addEventListener("click", () => withError(async () => {
   const result = await send({ type: "capture:finish" });
@@ -266,45 +266,45 @@ finish.addEventListener("click", () => withError(async () => {
   }
   statusOverride = "";
   if (result?.restorePending) {
-    statusOverride = "記録は保存済みです。画面をもう一度復元してから続けてください。";
+    statusOverride = "記録はこの端末に保存済みです。画面を復元してから続けてください。";
     restore.hidden = false;
     status.textContent = statusOverride;
   } else if (editorOpenError) {
-    statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+    statusOverride = "記録はこの端末に保存しましたが、編集画面を開けませんでした。下書き一覧から手順書を編集してください。";
     status.textContent = statusOverride;
   } else {
     status.textContent = result?.missingImageCount
-      ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
-      : "記録できました。画像付きの手順を保存しました。";
-    if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
+      ? `操作を記録しました。${result.imageCount || 0}件の画像をこの端末に保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
+      : "操作を記録し、画像付きの手順書をこの端末に保存しました。";
+    if (refreshError) status.textContent = "操作を記録し、編集画面を開きました。下書き一覧は次回表示時に確認してください。";
   }
-}, "記録を終了できませんでした。記録内容はこの端末に保持しています。"));
+}, "記録を終了できませんでした。結果を確認できません。対象タブを開いて、もう一度終了してください。"));
 
 pause.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:pause" });
   statusOverride = "";
   await refresh();
-}, "一時停止できませんでした。記録内容は保持しています。"));
+}, "一時停止できませんでした。結果を確認できません。対象タブを確認して、もう一度操作してください。"));
 
 resume.addEventListener("click", () => withError(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await send({ type: "capture:resume", tabId: tab?.id });
   statusOverride = "";
   await refresh();
-}, "記録を再開できませんでした。記録内容は保持しています。"));
+}, "記録を再開できませんでした。結果を確認できません。対象タブを確認して、もう一度操作してください。"));
 
 cancel.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:cancel" });
   await refresh();
   statusOverride = "";
-  status.textContent = "記録をキャンセルしました。保存済みの下書きは残っています。";
-}, "キャンセルを完了できませんでした。記録データと復元情報は残っています。"));
+  status.textContent = "記録をキャンセルしました。この端末に保存した下書きは残っています。";
+}, "キャンセルの結果を確認できません。対象タブを確認して、もう一度キャンセルしてください。"));
 
 restore.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:restore" });
   statusOverride = "";
   await refresh();
-}, "画面を復元できませんでした。復元情報は残っています。"));
+}, "画面を復元できません。対象タブを確認して、もう一度復元してください。"));
 
 let refreshTimer;
 let lastStatusKey = "";
@@ -315,7 +315,7 @@ let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
 async function startPolling() {
-  await refresh().catch(() => { status.textContent = "状態を読み込めませんでした。もう一度お試しください。"; });
+  await refresh().catch(() => { status.textContent = "状態を読み込めませんでした。対象タブを確認して、もう一度お試しください。"; });
   const poll = async () => {
     await refresh().catch(() => undefined);
     clearTimeout(refreshTimer);

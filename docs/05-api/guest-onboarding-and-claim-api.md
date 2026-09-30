@@ -21,7 +21,7 @@ Access JWT、Access cookie、OTP等のcredentialをChrome拡張へ渡さない�
 output gateで拡張は次を行う。
 
 1. 256 bit相当の推測困難な `handoffId` を生成する。
-2. 同じextension originのdraft IDを名前にするWeb Locks APIの排他lockを取得し、lock保持中に既存handoffの照合、`handoffId` metadataの生成・保存、登録画面タブの作成までを行う。lockを利用できない場合は新しいhandoff URLを作らず停止する。
+2. 同じextension originのdraft IDを名前にするWeb Locks APIの排他lockを取得し、lock保持中に既存handoffの照合、`handoffId` metadataの生成・保存、保存先準備画面タブの作成までを行う。lockを利用できない場合は新しいhandoff URLを作らず停止する。
 3. `handoffId`、local draft ID、選択済みoutput action、有効期限、`updatedAt`を除くdraft内容のSHA-256 fingerprintを拡張ローカルへ保存する。
 4. owner限定staging配布版では、`https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=<handoffId>` を通常タブで開く。配布版のconfigとhandoff判定はこのoriginとの完全一致だけを許可し、production・preview・localhost等は拒否する。
 
@@ -56,7 +56,7 @@ extensionはsender origin、handoffId、完了対象local draftを再検証し�
 
 ### handoff準備完了通知
 
-拡張機能は登録画面をinactive tabで開く。fragmentには必須の`handoff`、`extensionId`、`launchId`を置き、選択した`action`（share時）と、結果回収時だけ必要な`operationId`、`claimIntentId`、`draftFingerprint`を追加する。本文、画像、credential、共有tokenはfragmentへ入れない。ページの準備が完了したら、Web pageは`handoff.page-ready`を送信する。拡張側はsender originと`/onboarding/continue`、top-level frame、sender tab ID、launchId、output action、保存済みdraft fingerprintの存在・64桁hex形式、TTL、自動activate期限を検証し、backgroundはpageReadyAtだけをready recordへ記録する。現activeなeditorがrun／launch／tab／期限を再検証し、同じWeb Lock内で一度だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合と、claim本体で行うrequest fingerprint検証は別の境界として扱う。launch／tab／準備状態はlaunchごとのready recordへclaim metadataとは別に保存し、claimのoperationやintentを上書きしない。ready recordの検証と更新はhandoff単位のWeb Lockで直列化し、自動activateは8秒以内の一度だけに限定する。古いlaunchId、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用なしで拒否する。Accessログイン画面などでpage-readyを受信できない場合、拡張機能はtimeout後に自動activateを許可せず、利用者の明示操作で対象tabを表示する。cancelまたは準備失敗時は、自分が作成した未遷移のblank tab（URLとpending URLが既知のblank）のみ閉じ、利用者が別ページへ移動したtab、URL不明のtab、準備済みまたは既存回収のtabは保持する。page-ready messageには本文、画像、credential、共有tokenを含めず、拡張機能はそれらをログへ記録しない。
+拡張機能は保存先準備画面をinactive tabで開く。fragmentには必須の`handoff`、`extensionId`、`launchId`を置き、選択した`action`（share時）と、結果回収時だけ必要な`operationId`、`claimIntentId`、`draftFingerprint`を追加する。本文、画像、credential、共有tokenはfragmentへ入れない。ページの準備が完了したら、Web pageは`handoff.page-ready`を送信する。拡張側はsender originと`/onboarding/continue`、top-level frame、sender tab ID、launchId、output action、保存済みdraft fingerprintの存在・64桁hex形式、TTL、自動activate期限を検証し、backgroundはpageReadyAtだけをready recordへ記録する。現activeなeditorがrun／launch／tab／期限を再検証し、同じWeb Lock内で一度だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合と、claim本体で行うrequest fingerprint検証は別の境界として扱う。launch／tab／準備状態はlaunchごとのready recordへclaim metadataとは別に保存し、claimのoperationやintentを上書きしない。ready recordの検証と更新はhandoff単位のWeb Lockで直列化し、自動activateは8秒以内の一度だけに限定する。古いlaunchId、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用なしで拒否する。Accessログイン画面などでpage-readyを受信できない場合、拡張機能はtimeout後に自動activateを許可せず、利用者の明示操作で対象tabを表示する。cancelまたは準備失敗時は、自分が作成した未遷移のblank tab（URLとpending URLが既知のblank）のみ閉じ、利用者が別ページへ移動したtab、URL不明のtab、準備済みまたは既存回収のtabは保持する。page-ready messageには本文、画像、credential、共有tokenを含めず、拡張機能はそれらをログへ記録しない。
 
 ## 1. Self-service bootstrap
 

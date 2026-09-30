@@ -13,6 +13,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
   const shares = new Map();
   const postBodies = [];
   let failureStatus = null;
+  let revokeFailureStatus = null;
   let delayedManualId = null;
   let releaseDelayedPost = null;
   let delayedPostReadyResolve;
@@ -45,7 +46,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
         const share = { shareLinkId: `share-${manualId}`, expiresAt: parsed.expiresAt, revokedAt: null, permission: "read_only", viewerPath: "/s/" };
         shares.set(manualId, share); json(200, { ...share, reused: false }); return;
       }
-      if (request.method === "DELETE") { const parsed = JSON.parse(body); shares.delete(manualId); json(200, { revoked: true, shareLinkId: parsed.shareLinkId }); return; }
+      if (request.method === "DELETE") { const parsed = JSON.parse(body); if (revokeFailureStatus) { const status = revokeFailureStatus; revokeFailureStatus = null; json(status, { message: `停止拒否 ${status}` }); return; } shares.delete(manualId); json(200, { revoked: true, shareLinkId: parsed.shareLinkId }); return; }
     }
     response.writeHead(404).end();
   });
@@ -110,6 +111,27 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     assert.equal((await delayedResponse).status(), 200);
     assert.match(await page.locator("#cloud-detail h2").textContent(), /Manual Two/);
     assert.equal(await page.locator("[data-share-passcode]").isVisible(), true);
+
+    delayedManualId = null;
+    await fillShareForm();
+    await page.getByText(/共有リンクを作成しました。/).waitFor();
+    const shareLink = await page.locator("input.share-link-value").inputValue();
+    for (const status of [400, 403]) {
+      revokeFailureStatus = status;
+      const responsePromise = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links` && response.request().method() === "DELETE" && response.status() === status);
+      await page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: "共有リンクを停止する" }).click();
+      assert.equal((await responsePromise).status(), status);
+      await page.getByText(`停止拒否 ${status}`, { exact: true }).waitFor();
+      assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
+    }
+    revokeFailureStatus = 503;
+    const unknownResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links` && response.request().method() === "DELETE" && response.status() === 503);
+    await page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "共有リンクを停止する" }).click();
+    assert.equal((await unknownResponse).status(), 503);
+    await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
+    assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
   } finally {
     await context?.close();
     server.closeAllConnections?.();

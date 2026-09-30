@@ -351,9 +351,9 @@ export const ONBOARDING_JS = `(() => {
   }
   function showClaimSuccess(context, manualId) {
     const isShare = context?.outputAction === "share";
-    message("手順書を保存しました。保存した手順書を開きます。", "success");
+    message("手順書をワークスペースに保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
-    if (isShare) message("共有用の保存が完了しました。共有設定を開いて発行を確認してください。", "success");
+    if (isShare) message("手順書をワークスペースに保存しました。共有設定で内容と期限を確認し、共有リンクを作成してください。", "success");
     setButton(isShare ? "共有設定を開く" : "保存した手順書を開く");
     button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);
@@ -398,7 +398,7 @@ export const ONBOARDING_JS = `(() => {
   async function claimDraft(context, bootstrapPayload) {
     const extensionId = extensionIdFor(context);
     if (!extensionId) {
-      message("この登録画面は古い拡張機能から開かれました。保存するには拡張機能を0.1.3へ更新して、編集画面からもう一度進んでください。", "error");
+      message("この画面は古い拡張機能から開かれました。保存するには最新の拡張機能で編集画面からもう一度進んでください。", "error");
       setButton("拡張機能からやり直す", true);
       return false;
     }
@@ -483,20 +483,20 @@ export const ONBOARDING_JS = `(() => {
       context = await recoverExtensionContext(context);
       context = await beginExtensionContext(context);
     } catch (error) {
-      message(error?.message || "保存準備を開始できませんでした。元の手順書は保持されています。", "error");
+      message(error?.message || "保存先の準備を開始できませんでした。元の手順書はこの端末に残っています。", "error");
       setButton("同じ操作で再試行");
       return;
     }
     const id = context?.state === "recovery-probe" ? null : context?.operationId || operationId();
     if (!id) {
       if (context?.state === "recovery-probe") { message("同じ保存操作の結果を確認できませんでした。元の手順書を保持したまま、もう一度確認してください。", "error"); setButton("結果をもう一度確認", false); return; }
-      message("登録を続けるための識別情報が確認できません。拡張機能の編集画面からもう一度進んでください。", "error"); setButton("登録を続ける", true); return;
+      message("保存を続けるための識別情報を確認できません。拡張機能の編集画面からもう一度進んでください。", "error"); setButton("保存を続ける", true); return;
     }
     context = currentOperation();
     const existing = metadataForContext(context);
     if (existing?.claimStatus === "finalize-pending" || existing?.claimStatus === "completion-pending" || existing?.claimStatus === "completed" || existing?.claimStatus === "expired") {
       setButton("確認中…", true); message("同じ保存操作の結果を確認しています。元の手順書はこの端末に残っています。");
-      try { await claimDraft(context, { workspaceId: existing.workspaceId || "" }); } catch (error) { message(error?.message || "保存結果を確認できませんでした。元の下書きは保持しています。", "error"); setButton(existing.claimStatus === "expired" ? "期限切れ（原本保持）" : "同じ操作で再試行", existing.claimStatus === "expired"); }
+      try { await claimDraft(context, { workspaceId: existing.workspaceId || "" }); } catch (error) { message(error?.message || "保存結果を確認できません。元の下書きはこの端末に残っています。", "error"); setButton(existing.claimStatus === "expired" ? "期限切れ（原本保持）" : "結果をもう一度確認", existing.claimStatus === "expired"); }
       return;
     }
     setButton("準備中…", true); message("認証済みのWebアプリから保存先を準備しています。準備完了後に手順書を送信します。");
@@ -507,27 +507,28 @@ export const ONBOARDING_JS = `(() => {
         message("保存先を準備しました。手順書を安全に保存しています。");
         const readyContext = currentOperation();
         if (!extensionIdFor(readyContext)) { message("保存先の準備が完了しました。手順書本文はまだ保存されていません。元の下書きは拡張機能に残っています。", "success"); setButton("同じ操作を確認する"); return; }
-        try { await claimDraft(readyContext, payload); } catch (error) { message(error?.message || "手順書の保存に失敗しました。元の下書きは拡張機能に残っています。", "error"); setButton("同じ操作で再試行"); }
+        try { await claimDraft(readyContext, payload); } catch (error) { message(error?.message || "保存結果を確認できません。元の下書きは拡張機能に残っています。『同じ操作で再試行』を押してください。", "error"); setButton("同じ操作で再試行"); }
         return;
       }
-      if (response.status === 401) message("認証が確認できません。メールで認証してから、もう一度お試しください。", "error");
+      if (response.status === 401) message("ログイン状態または接続を確認できません。表示された画面を確認して、もう一度操作してください。", "error");
       else if (response.status === 403) message("このアカウントでは保存先を準備できません。", "error");
-      else if (response.status === 429) message("試行回数の上限に達しました。少し時間をおいて、同じ操作でお試しください。", "error");
-      else message("保存先の準備に失敗しました。元の下書きは拡張機能に残っています。同じ操作で再試行できます。", "error");
-    } catch { message("応答を確認できませんでした。元の下書きは拡張機能に残っています。同じ操作で再試行してください。", "error"); }
+      else if (response.status === 429) message("試行回数が多いため、しばらく待ってから同じ操作をしてください。", "error");
+      else if (response.status === 503) message("保存先は現在利用できません。元の下書きは拡張機能に残っています。", "error");
+      else message("保存先の準備結果を確認できません。元の下書きは拡張機能に残っています。『同じ操作で再試行』を押してください。", "error");
+    } catch { message("保存先の準備結果を確認できません。元の下書きは拡張機能に残っています。『同じ操作で再試行』を押してください。", "error"); }
     setButton("同じ操作で再試行");
   }
-  if (!configured) { message("登録画面は現在準備中です。元の手順書は拡張機能のこの端末に残っています。"); setButton("登録画面は準備中", true); }
-  else if (!getHandoff()) { message("登録を続けるための識別情報が確認できません。拡張機能の編集画面から進んでください。", "error"); setButton("登録を続ける", true); }
-  else { message("メールで認証済みの場合は、保存先の準備を開始できます。準備完了後に手順書を送信します。認証情報は拡張機能へ渡しません。"); button.addEventListener("click", bootstrap); }
+  if (!configured) { message("保存先は現在利用できません。元の手順書は拡張機能のこの端末に残っています。"); setButton("保存先は利用できません", true); }
+  else if (!getHandoff()) { message("保存を続けるための識別情報を確認できません。拡張機能の編集画面から進んでください。", "error"); setButton("保存を続ける", true); }
+  else { message("ログインと接続を確認できたら、保存先の準備を開始します。準備完了後に手順書を送信します。認証情報は拡張機能へ渡しません。"); button.addEventListener("click", bootstrap); }
   if (configured && validLaunchId(fragmentLaunchId)) {
     signalPageReady(currentOperation()).then((ready) => {
-      if (!ready) message("登録画面の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");
+      if (!ready) message("保存先の準備を確認できませんでした。ログインと接続を確認して、元の画面からもう一度操作してください。", "error");
     });
   }
 })();`;
 
 export function renderOnboardingContinuePage({ bootstrapEnabled = false, assetVersion = "" } = {}) {
   const version = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : "";
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>登録を続ける | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><div class="brand"><img src="/assets/meccha-manual-logo-mark.png" width="48" height="48" alt="めっちゃマニュアル"><span>めっちゃマニュアル</span></div><p class="eyebrow">保存・共有</p><h1>手順書の保存先を準備します</h1><div class="prep"><img src="/assets/meccha-manual-mascot-me-clear-eyes.png" width="112" height="112" alt="保存先の準備を手伝うめっちゃマニュアルのキャラクター"><p>ログインを確認してから、保存へ進みます。</p></div><p>メールでログインしたあと、手順書の保存先を準備します。ログインと保存先の準備が完了するまで、手順書本文と画像は送信しません。</p><p class="notice" id="status" role="status" aria-live="polite">ログイン済みの場合に、保存先の準備を開始できます。</p><button id="bootstrap" type="button">保存先を準備する</button><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>保存先を準備する | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><div class="brand"><img src="/assets/meccha-manual-logo-mark.png" width="48" height="48" alt="めっちゃマニュアル"><span>めっちゃマニュアル</span></div><p class="eyebrow">保存・共有</p><h1>手順書の保存先を準備します</h1><div class="prep"><img src="/assets/meccha-manual-mascot-me-clear-eyes.png" width="112" height="112" alt="保存先の準備を手伝うめっちゃマニュアルのキャラクター"><p>ログインと接続を確認してから、保存先を準備します。</p></div><p>ログインしたあと、手順書の保存先を準備します。ログインと保存先の準備が完了するまで、手順書本文と画像は送信しません。</p><p class="notice" id="status" role="status" aria-live="polite">ログイン済みの場合に、保存先の準備を開始できます。</p><button id="bootstrap" type="button">保存先を準備する</button><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
 }

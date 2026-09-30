@@ -264,7 +264,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     await page.locator("[data-editor-text]").fill("保存再試行");
     await page.locator("[data-editor-font-size]").fill("10");
     await page.locator("[data-editor-save]").click();
-    await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
+    await page.getByText("画像を保存できませんでした。編集内容を保持しています。もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
     await page.evaluate(async () => {
@@ -409,7 +409,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     });
     await page.locator("#save").click();
     assert.equal(await page.locator("#startRegistration").isDisabled(), true);
-    assert.match(await page.locator("#gateStatus").textContent(), /準備中/);
+    assert.match(await page.locator("#gateStatus").textContent(), /保存先は現在利用できません/);
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 0, "pending CTA must not persist unused handoffs");
   } finally {
@@ -476,7 +476,7 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
       globalThis.__finishResult = { draftId: "normal-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
     });
     await page.locator("#finish").click();
-    await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
+    await page.waitForFunction(() => /画像付きの手順書をこの端末に保存しました/.test(document.querySelector("#status")?.textContent || ""));
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");
   } finally {
     await context?.close();
@@ -811,7 +811,7 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
-    await page.waitForFunction(() => /登録画面へ進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /保存先を表示できませんでした/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
   } finally {

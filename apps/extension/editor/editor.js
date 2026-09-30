@@ -24,7 +24,7 @@ const gateStatus = document.querySelector("#gateStatus");
 const saveState = document.querySelector("#saveState");
 const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
-const pendingRegistrationMessage = "登録画面は現在準備中です。元の手順書はこの端末に残っています。";
+const pendingRegistrationMessage = "保存先は現在利用できません。元の手順書はこの端末に残っています。";
 const HANDOFF_READY_TIMEOUT_MS = 8_000;
 let outputInFlight = false;
 let pendingHandoffTabId = null;
@@ -107,7 +107,7 @@ async function drawPreview(canvas, screenshot) {
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
     const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
     canvas.dataset.previewRendered = "true";
-    canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");
+    canvas.setAttribute("aria-label", "操作を記録した画面（注釈とマスクを反映）");
   } catch {
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
     previewObserver.unobserve(canvas);
@@ -118,7 +118,7 @@ async function drawPreview(canvas, screenshot) {
 
 function renderScreenshot(step) {
   const screenshot = screenshotFor(step);
-  if (!screenshot) return document.createTextNode("この手順の画像はありません。");
+  if (!screenshot) return document.createTextNode("この手順には画像がありません。");
   const area = document.createElement("div"); area.className = "screenshot-area";
   const preview = document.createElement("div"); preview.className = "screenshot-preview";
   preview.style.aspectRatio = "16 / 9";
@@ -193,8 +193,8 @@ function updateRegistrationAvailability() {
 }
 
 document.querySelector("#save").addEventListener("click", async () => {
-  if (!await persist("この端末に保存しました。登録画面へ進むか、編集に戻れます。")) {
-    gateStatus.textContent = "保存に失敗したため、登録画面へ進めません。編集内容を確認して再試行してください。";
+  if (!await persist("この端末に保存しました。保存先を準備するか、編集に戻れます。")) {
+    gateStatus.textContent = "この端末への保存に失敗したため、保存先を準備できません。編集内容を確認して、もう一度保存してください。";
     return;
   }
   gateStatus.textContent = "";
@@ -412,7 +412,7 @@ async function startOutput(outputAction) {
           pendingHandoffTabId = null;
           if (activateHandoff) activateHandoff.hidden = true;
           if (handoffProgress) handoffProgress.hidden = true;
-          gateStatus.textContent = "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。";
+          gateStatus.textContent = "保存先の準備ができました。ログインが必要な場合は、表示された画面で続けてください。";
           outputGate.close();
           return;
         }
@@ -424,7 +424,7 @@ async function startOutput(outputAction) {
       pendingHandoffTabId = opened.tabId;
       if (activateHandoff) activateHandoff.hidden = false;
       if (handoffProgress) handoffProgress.hidden = true;
-      gateStatus.textContent = "登録画面の準備を確認できませんでした。ログインや接続が必要な場合があります。『ログイン・接続を確認する』を押すと画面を表示できます。手順書はこの端末に残っています。";
+      gateStatus.textContent = "保存先の準備を確認できませんでした。ログインや接続が必要な場合があります。『ログインと接続を確認する』を押すと画面を表示できます。手順書はこの端末に残っています。";
       return;
     });
   } catch (error) {
@@ -432,8 +432,8 @@ async function startOutput(outputAction) {
     if (isActiveHandoffRun(run)) {
       if (handoffProgress) handoffProgress.hidden = true;
       gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
-        ? "登録準備を保存できませんでした。元の手順書はこの端末に残っています。"
-        : "登録画面を開けませんでした。元の手順書はこの端末に残っています。";
+        ? "保存先へ進むための情報を保存できませんでした。もう一度準備してください。"
+        : "保存先を開けませんでした。もう一度準備してください。";
       activeHandoffAttempt = null;
     }
   } finally {
@@ -463,7 +463,7 @@ activateHandoff?.addEventListener("click", async () => {
       activeHandoffAttempt = null;
       pendingHandoffTabId = null;
       activateHandoff.hidden = true;
-      gateStatus.textContent = "登録画面を表示できませんでした。『登録画面へ進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
+      gateStatus.textContent = "保存先を表示できませんでした。『ワークスペースに保存する』を押して準備し直してください。";
     }
   } finally {
     if ((activeHandoffAttempt === attempt || activeHandoffAttempt === null) && attempt.tabState !== "activating") activateHandoff.disabled = false;

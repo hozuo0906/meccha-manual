@@ -604,7 +604,7 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   const state = await installManualFixture(page, "editor", { empty: true });
   await openManualScreen(page);
 
-  await expect(page.getByText("手順書はまだありません。" )).toBeVisible();
+  await expect(page.getByText("ワークスペースに保存された手順書はありません。" )).toBeVisible();
   await page.locator("#manual-create-title").fill("入会受付手順");
   await page.locator("#manual-create-description").fill("受付担当者向け");
   await page.getByRole("button", { name: "手順書を作成" }).click();
@@ -900,7 +900,7 @@ test("閲覧プレビューは空の手順を表示し、開閉でmutationを発
   await page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" }).click();
   const preview = page.locator("dialog.manual-reading-preview");
   await expect(preview).toBeVisible();
-  await expect(preview.getByText("手順はまだありません。")).toBeVisible();
+  await expect(preview.getByText("この手順書には手順がありません。")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(preview).toHaveCount(0);
   await expect(page.getByRole("button", { name: "保存済み内容を閲覧プレビュー" })).toBeFocused();
