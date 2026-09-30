@@ -118,4 +118,3 @@ li button { min-height: 44px; padding: 9px 11px; border-radius: 10px; }
   .editor-header, .layout > nav, .layout > section, .image-editor-dialog { border: 1px solid #527477; }
   button, input, textarea { border: 1px solid currentColor; }
 }
-

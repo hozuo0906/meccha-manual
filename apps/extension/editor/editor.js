@@ -566,4 +566,3 @@ outputGate.addEventListener("close", () => {
   cancelHandoffRun(attempt);
 });
 render();
-

@@ -1093,4 +1093,3 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
-
