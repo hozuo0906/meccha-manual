@@ -51,6 +51,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     crypto, Date, Promise, URL, VIEWPORTS, CLOUD_CLAIM_MAX_ASSETS: 100, mergeCaptureEvents, nextRecoveryJournal, normalizeCaptureEvent,
     STAGING_ONBOARDING_ORIGIN: "https://meccha-manual-staging.meccha-iiyatsu.com", buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock,
     navigator: { locks: { request: async (_name, callback) => callback({ name: "handoff" }) } },
+    withHandoffReadyLock: (handoffId, callback) => withHandoffReadyLock(handoffId, callback, { locks: { request: async (_name, lockCallback) => lockCallback({ name: "handoff" }) } }),
     installSensitiveMasks() {}, removeSensitiveMasks() {}, verifySensitiveMasks() {},
     captureWithMaskBoundary: async () => { if (screenshotFailure) throw new Error("mask failed"); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; },
     applyResponsiveViewport: async () => { viewportApplied = true; },
