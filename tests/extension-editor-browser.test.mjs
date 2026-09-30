@@ -47,56 +47,319 @@ function serveExtension({ onboardingConfig = null } = {}) {
   return server;
 }
 
-test("editor creates, reloads, and deletes a mask through a real Chrome mouse gesture", { timeout: 20_000 }, async () => {
+async function seedImageEditorDraft(page, baseUrl, id) {
+  await page.goto(baseUrl + "/seed.html");
+  await page.evaluate(async (draftId) => {
+    const screenshots = [];
+    const steps = [];
+    for (let index = 1; index <= 22; index += 1) {
+      const imageCanvas = document.createElement("canvas");
+      imageCanvas.width = 960;
+      imageCanvas.height = 540;
+      const context = imageCanvas.getContext("2d");
+      context.fillStyle = index % 2 ? "#eef8fa" : "#eff8f1";
+      context.fillRect(0, 0, imageCanvas.width, imageCanvas.height);
+      context.fillStyle = "#173d46";
+      context.font = "bold 30px system-ui";
+      context.fillText("画像編集テスト " + index, 70, 90);
+      context.font = "18px system-ui";
+      context.fillText("手順画像の位置と保存値を確認します", 70, 130);
+      const dataUrl = index % 2 ? imageCanvas.toDataURL("image/jpeg", 0.75) : imageCanvas.toDataURL("image/png");
+      screenshots.push({ id: "image-" + index, dataUrl, masks: [{ id: "original-mask-" + index, x: .72, y: .12, width: .1, height: .08 }] });
+      steps.push({ id: "step-" + index, order: index, instruction: "手順 " + index, screenshotId: "image-" + index });
+    }
+    const { draftStore } = await import("/storage/draft-store.js");
+    await draftStore.put({
+      id: draftId,
+      title: "画像編集の回帰確認",
+      description: "JPEGとPNGの手順画像",
+      steps,
+      screenshots
+    });
+  }, id);
+  await page.goto(baseUrl + "/editor/editor.html#" + id);
+}
+
+function canvasPoint(box, x, y) {
+  return { x: box.x + box.width * x, y: box.y + box.height * y };
+}
+
+async function dragCanvas(page, canvas, fromX, fromY, toX, toY) {
+  const box = await canvas.boundingBox();
+  assert.ok(box);
+  const start = canvasPoint(box, fromX, fromY);
+  const end = canvasPoint(box, toX, toY);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
+}
+
+async function openImageEditor(page, stepId = "step-1") {
+  await page.locator("#step-" + stepId + " .image-edit-button").click();
+  await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+}
+
+async function readScreenshot(page, draftId, screenshotId = "image-1") {
+  return page.evaluate(async ({ draftId: currentDraftId, screenshotId: currentScreenshotId }) => {
+    const { draftStore } = await import("/storage/draft-store.js");
+    return (await draftStore.get(currentDraftId)).screenshots.find((item) => item.id === currentScreenshotId);
+  }, { draftId, screenshotId });
+}
+
+test("editor navigation and image edits persist exact annotation and mask coordinates", { timeout: 45_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
-  const port = server.address().port;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const baseUrl = "http://127.0.0.1:" + server.address().port;
   const channel = process.platform === "win32" ? "chrome" : "chromium";
   let context;
+  const draftId = "editor-image-workspace-regression";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+
+    await page.locator('#steps button[aria-controls="step-step-17"]').click();
+    await page.waitForFunction(() => {
+      const article = document.querySelector("#step-step-17");
+      return article && article.getBoundingClientRect().top >= 0 && article.getBoundingClientRect().top < innerHeight;
+    });
+    const step17Box = await page.locator("#step-step-17").boundingBox();
+    const step18Box = await page.locator("#step-step-18").boundingBox();
+    assert.ok(step17Box && step18Box && step18Box.y > step17Box.y, "目次17番は説明と画像を画面内へ移動する");
+    await page.locator("#step-step-17 textarea").fill("手順17の説明を保持");
+    assert.equal(await page.locator("#step-step-17 textarea").inputValue(), "手順17の説明を保持");
+    await page.locator('#steps button[aria-controls="step-step-1"]').click();
+    await page.locator("#step-step-1").scrollIntoViewIfNeeded();
+    assert.equal(await page.locator(".step-article").count(), 22);
+
+    await openImageEditor(page);
+    const canvas = page.locator("#imageEditorCanvas");
+    await page.locator('[data-editor-tool="text"]').click();
+    await dragCanvas(page, canvas, .05, .05, .05, .05);
+    await page.locator("[data-editor-text]").fill("保存する文字");
+    await page.locator("[data-editor-font-size]").fill("32");
+    await page.locator("[data-editor-font-size]").press("Enter");
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "文字サイズ入力中のEnterでdialogを閉じない");
+
+    await page.locator('[data-editor-tool="rectangle"]').click();
+    await dragCanvas(page, canvas, .1, .35, .3, .5);
+    await page.locator('[data-editor-tool="ellipse"]').click();
+    await dragCanvas(page, canvas, .45, .35, .65, .5);
+    await page.locator('[data-editor-tool="arrow"]').click();
+    await dragCanvas(page, canvas, .4, .8, .15, .65);
+    await page.locator('[data-editor-tool="mask"]').click();
+    await dragCanvas(page, canvas, .35, .15, .5, .25);
+    assert.equal(await page.locator("[data-editor-selection] > div").count(), 6);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+
+    const firstSaved = await readScreenshot(page, draftId);
+    assert.deepEqual(firstSaved.annotations.map((item) => item.type).sort(), ["arrow", "ellipse", "rectangle", "text"]);
+    const firstText = firstSaved.annotations.find((item) => item.type === "text");
+    assert.equal(firstText.text, "保存する文字");
+    assert.equal(firstText.fontSize, 32);
+    const firstArrow = firstSaved.annotations.find((item) => item.type === "arrow");
+    assert.ok(firstArrow.x1 > firstArrow.x2, "逆向き矢印の向きを保存する");
+    assert.equal(firstSaved.masks.length, 2);
+    assert.deepEqual(firstSaved.masks.find((item) => item.id === "original-mask-1"), { id: "original-mask-1", x: .72, y: .12, width: .1, height: .08 }, "既存maskを元の座標で保持する");
+
+    await openImageEditor(page);
+    const selectRow = async (index) => {
+      const row = page.locator("[data-editor-selection] > div").nth(index);
+      await row.scrollIntoViewIfNeeded();
+      await row.locator("button").first().click();
+    };
+    const beforeTransforms = structuredClone(await readScreenshot(page, draftId));
+    await page.locator('[data-editor-tool="select"]').click();
+    await selectRow(1);
+    await dragCanvas(page, canvas, .2, .42, .25, .47);
+    await selectRow(2);
+    const ellipseBefore = beforeTransforms.annotations.find((item) => item.type === "ellipse");
+    await dragCanvas(page, canvas, ellipseBefore.x + ellipseBefore.width - .01, ellipseBefore.y + ellipseBefore.height - .01, ellipseBefore.x + ellipseBefore.width + .1, ellipseBefore.y + ellipseBefore.height + .1);
+    await selectRow(3);
+    const arrowBefore = beforeTransforms.annotations.find((item) => item.type === "arrow");
+    const arrowBounds = { x: Math.min(arrowBefore.x1, arrowBefore.x2), y: Math.min(arrowBefore.y1, arrowBefore.y2), width: Math.abs(arrowBefore.x2 - arrowBefore.x1), height: Math.abs(arrowBefore.y2 - arrowBefore.y1) };
+    await dragCanvas(page, canvas, arrowBounds.x + arrowBounds.width - .01, arrowBounds.y + arrowBounds.height - .01, arrowBounds.x + arrowBounds.width + .1, arrowBounds.y + arrowBounds.height + .1);
+    await selectRow(4);
+    const maskBefore = beforeTransforms.masks.find((item) => item.id !== "original-mask-1");
+    await dragCanvas(page, canvas, maskBefore.x + maskBefore.width / 2, maskBefore.y + maskBefore.height / 2, maskBefore.x + maskBefore.width / 2 + .06, maskBefore.y + maskBefore.height / 2 + .06);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+
+    const moved = await readScreenshot(page, draftId);
+    const newMaskAfterMove = moved.masks.find((item) => item.id !== "original-mask-1");
+    assert.ok(newMaskAfterMove.x !== maskBefore.x || newMaskAfterMove.y !== maskBefore.y, "new mask move must change coordinates before deletion");
+    await openImageEditor(page);
+    await selectRow(5);
+    const maskBeforeResize = moved.masks.find((item) => item.id !== "original-mask-1");
+    await dragCanvas(page, canvas, maskBeforeResize.x + maskBeforeResize.width - .01, maskBeforeResize.y + maskBeforeResize.height - .01, maskBeforeResize.x + maskBeforeResize.width + .05, maskBeforeResize.y + maskBeforeResize.height + .05);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    const resized = await readScreenshot(page, draftId);
+    const newMaskAfterResize = resized.masks.find((item) => item.id !== "original-mask-1");
+    assert.ok(newMaskAfterResize.width > maskBeforeResize.width && newMaskAfterResize.height > maskBeforeResize.height, "new mask resize must persist width and height");
+    await openImageEditor(page);
+    await page.locator("[data-editor-selection] > div").nth(4).locator("[data-editor-delete]").click();
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+
+    const transformed = await readScreenshot(page, draftId);
+    const beforeRectangle = beforeTransforms.annotations.find((item) => item.type === "rectangle");
+    const afterRectangle = transformed.annotations.find((item) => item.type === "rectangle");
+    assert.ok(afterRectangle.x !== beforeRectangle.x || afterRectangle.y !== beforeRectangle.y, "四角の移動座標を保存する");
+    const beforeEllipse = beforeTransforms.annotations.find((item) => item.type === "ellipse");
+    const afterEllipse = transformed.annotations.find((item) => item.type === "ellipse");
+    assert.ok(afterEllipse.width > beforeEllipse.width && afterEllipse.height > beforeEllipse.height, "丸のresize寸法を保存する");
+    const afterArrow = transformed.annotations.find((item) => item.type === "arrow");
+    assert.ok(afterArrow.x1 > afterArrow.x2 && afterArrow.x1 !== arrowBefore.x1 && afterArrow.x2 === arrowBefore.x2, "逆向き矢印のresizeで向きを維持する");
+    assert.equal(transformed.masks.length, 1, "既存mask削除を保存する");
+
+    await page.reload();
+    await openImageEditor(page);
+    assert.equal(await page.locator("[data-editor-selection] > div").count(), 5, "保存後reloadでも注釈を再編集できる");
+    await page.locator("[data-editor-cancel]").first().click();
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("image editor cancel, empty text, and save retry preserve draft values", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = "http://127.0.0.1:" + server.address().port;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "editor-image-cancel-retry";
   try {
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
-    page.setDefaultTimeout(3_000);
-    await page.goto(`${baseUrl}/seed.html`);
-    await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 640;
-      canvas.height = 360;
-      canvas.getContext("2d").fillRect(0, 0, canvas.width, canvas.height);
+    page.setDefaultTimeout(4_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+    await openImageEditor(page);
+    await page.locator('[data-editor-tool="text"]').click();
+    await dragCanvas(page, page.locator("#imageEditorCanvas"), .08, .08, .08, .08);
+    const textField = page.locator("[data-editor-text]");
+    await textField.fill("");
+    await textField.fill("再入力した文字");
+    await page.locator("[data-editor-font-size]").fill("32");
+    const baseline = await readScreenshot(page, draftId);
+    await page.keyboard.press("Escape");
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    assert.deepEqual(await readScreenshot(page, draftId), baseline, "cancel/EscでIDBを変更しない");
+
+    await openImageEditor(page);
+    const originalPut = await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
-      await draftStore.put({
-        id: "editor-browser-fixture",
-        title: "合成テスト",
-        description: "ブラウザ回帰テスト",
-        steps: [{ id: "one", order: 1, instruction: "最初の手順", screenshotId: "image" }],
-        screenshots: [{ id: "image", dataUrl: canvas.toDataURL(), masks: [] }]
-      });
+      globalThis.__originalPut = draftStore.put;
+      draftStore.put = async () => { throw new Error("synthetic failure"); };
+      return true;
     });
+    assert.equal(originalPut, true);
+    await page.locator("[data-editor-tool=\"text\"]").click();
+    await dragCanvas(page, page.locator("#imageEditorCanvas"), .12, .12, .12, .12);
+    await page.locator("[data-editor-text]").fill("保存再試行");
+    await page.locator("[data-editor-font-size]").fill("10");
+    await page.locator("[data-editor-save]").click();
+    await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
+    assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
+    assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      draftStore.put = globalThis.__originalPut;
+    });
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    const retried = await readScreenshot(page, draftId);
+    assert.equal(retried.annotations.find((item) => item.type === "text")?.text, "保存再試行");
+    assert.equal(retried.annotations.find((item) => item.type === "text")?.fontSize, 10);
 
-    await page.goto(`${baseUrl}/editor/editor.html#editor-browser-fixture`);
-    const image = page.locator(".screenshot-preview img");
-    await image.evaluate((element) => element.decode());
-    const preview = page.locator(".screenshot-preview");
-    await preview.scrollIntoViewIfNeeded();
-    const box = await preview.boundingBox();
-    assert.ok(box, "screenshot preview should be visible");
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.75);
-    await page.mouse.up();
-    await page.locator(".mask").waitFor({ state: "attached", timeout: 3_000 });
-    assert.equal(await page.locator(".mask").count(), 1);
-
+    await openImageEditor(page);
+    const savingRow = page.locator("[data-editor-selection] > div").first();
+    await savingRow.scrollIntoViewIfNeeded();
+    const savingButton = savingRow.locator("button").first();
+    await savingButton.focus();
+    await savingButton.press("Enter");
+    await page.locator("[data-editor-text]").fill("保存中も保持");
+    await page.locator("[data-editor-font-size]").fill("32");
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      globalThis.__pendingPut = null;
+      globalThis.__putCalls = 0;
+      draftStore.put = async (candidate) => {
+        globalThis.__putCalls += 1;
+        return new Promise((resolve) => { globalThis.__pendingPut = { candidate, resolve }; });
+      };
+    });
+    await page.locator("[data-editor-save]").click();
+    await page.waitForFunction(() => globalThis.__pendingPut !== null && globalThis.__putCalls === 1);
+    const editorControls = page.locator("[data-editor-tool], [data-editor-text], [data-editor-font-size], [data-editor-selection] button, [data-editor-save]");
+    assert.ok(await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)), "保存中は編集入力・一覧・保存をdisabledにする");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "保存中のEscapeでdialogを閉じない");
+    await page.evaluate(async () => {
+      const pending = globalThis.__pendingPut;
+      await globalThis.__originalPut(pending.candidate);
+      pending.resolve();
+    });
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
     await page.reload();
-    await page.locator(".screenshot-preview img").evaluate((element) => element.decode());
-    assert.equal(await page.locator(".mask").count(), 1, "mask should persist after reload");
+    await openImageEditor(page);
+    const reloadedRow = page.locator("[data-editor-selection] > div").first();
+    await reloadedRow.scrollIntoViewIfNeeded();
+    const reloadedButton = reloadedRow.locator("button").first();
+    await reloadedButton.focus();
+    await reloadedButton.press("Enter");
+    assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存中も保持");
+    assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "32");
+    await page.locator("[data-editor-cancel]").first().click();
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
 
-    await page.getByRole("button", { name: "マスクを削除" }).click();
-    await page.locator(".mask").waitFor({ state: "detached" });
-    await page.reload();
-    await page.locator(".screenshot-preview img").evaluate((element) => element.decode());
-    assert.equal(await page.locator(".mask").count(), 0, "deleted mask should stay deleted after reload");
+test("image editor cancels stale decode generation", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = "http://127.0.0.1:" + server.address().port;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "editor-image-late-decode";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+    await page.evaluate(() => {
+      globalThis.__decodeQueue = [];
+      globalThis.__originalDecode = Image.prototype.decode;
+      Image.prototype.decode = () => new Promise((resolve, reject) => globalThis.__decodeQueue.push({ resolve, reject }));
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      for (const pending of globalThis.__decodeQueue) pending.reject(new Error("discard preview decode"));
+      globalThis.__decodeQueue = [];
+    });
+    await page.evaluate(() => { globalThis.__firstDecodeStart = globalThis.__decodeQueue.length; });
+    await openImageEditor(page);
+    await page.waitForFunction(() => globalThis.__decodeQueue.length > globalThis.__firstDecodeStart);
+    await page.evaluate(() => { globalThis.__firstEditorDecode = globalThis.__decodeQueue.length - 1; });
+    await page.locator("[data-editor-cancel]").first().click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    await page.evaluate(() => { globalThis.__secondDecodeStart = globalThis.__decodeQueue.length; });
+    await openImageEditor(page);
+    await page.waitForFunction(() => globalThis.__decodeQueue.length > globalThis.__secondDecodeStart);
+    await page.evaluate(() => { globalThis.__secondEditorDecode = globalThis.__decodeQueue.length - 1; globalThis.__decodeQueue[globalThis.__firstEditorDecode].reject(new Error("stale decode")); });
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), true);
+    await page.evaluate(() => globalThis.__decodeQueue[globalThis.__secondEditorDecode].resolve());
+    await page.waitForFunction(() => document.querySelector("[data-editor-save]")?.disabled === false);
+    await page.locator("[data-editor-cancel]").first().click();
+    await page.evaluate(() => { Image.prototype.decode = globalThis.__originalDecode; });
   } finally {
     await context?.close();
     server.closeAllConnections?.();

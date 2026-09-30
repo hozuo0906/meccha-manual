@@ -1,4 +1,5 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
+import { normalizeAnnotations } from "./image-annotations.js";
 
 const HANDOFF_BYTES = 32;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
@@ -12,7 +13,19 @@ function validOutputAction(value) {
   return OUTPUT_ACTIONS.has(value);
 }
 
-export function canonicalDraftJson(draft) {
+function canonicalScreenshot(screenshot) {
+  if (screenshot && Object.prototype.hasOwnProperty.call(screenshot, "annotations") && !Array.isArray(screenshot.annotations)) throw new TypeError("invalid annotations");
+  const annotations = Array.isArray(screenshot?.annotations) && screenshot.annotations.length > 0 ? normalizeAnnotations(screenshot.annotations) : [];
+  if (annotations === null) throw new TypeError("invalid annotations");
+  return {
+    id: screenshot?.id ?? null,
+    dataUrl: screenshot?.dataUrl ?? "",
+    masks: Array.isArray(screenshot?.masks) ? screenshot.masks.map((mask) => ({ x: mask?.x ?? null, y: mask?.y ?? null, width: mask?.width ?? null, height: mask?.height ?? null })) : [],
+    ...(annotations.length > 0 ? { annotations } : {})
+  };
+}
+
+function canonicalDraftJsonInternal(draft) {
   if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
   return JSON.stringify({
     id: draft.id ?? null,
@@ -25,12 +38,13 @@ export function canonicalDraftJson(draft) {
       instruction: step?.instruction ?? "",
       screenshotId: step?.screenshotId ?? null
     })) : [],
-    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map((screenshot) => ({
-      id: screenshot?.id ?? null,
-      dataUrl: screenshot?.dataUrl ?? "",
-      masks: Array.isArray(screenshot?.masks) ? screenshot.masks.map((mask) => ({ x: mask?.x ?? null, y: mask?.y ?? null, width: mask?.width ?? null, height: mask?.height ?? null })) : []
-    })) : []
+    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map(canonicalScreenshot) : []
   });
+}
+
+export function canonicalDraftJson(draft) {
+  if (!draft || typeof draft !== "object") throw new TypeError("draft is required");
+  return canonicalDraftJsonInternal(draft);
 }
 
 function canonicalDraftContentJson(draft) {
@@ -45,7 +59,7 @@ export async function fingerprintDraft(draft) {
 }
 
 export async function legacyFingerprintDraft(draft) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftJson(draft)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalDraftJsonInternal(draft)));
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
 }
 

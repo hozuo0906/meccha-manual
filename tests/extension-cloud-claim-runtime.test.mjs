@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -297,6 +297,28 @@ async function decodeSelectedPixels(page, base64) {
   }, base64);
 }
 
+async function decodePixelRegion(page, base64, x, y, width, height) {
+  return page.evaluate(async ({ encoded, x, y, width, height }) => {
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(bitmap, 0, 0);
+      return Array.from(context.getImageData(x, y, width, height).data).reduce((pixels, value, index) => {
+        const pixel = Math.floor(index / 4);
+        if (index % 4 === 0) pixels.push([value, 0, 0, 0]);
+        else pixels[pixel][index % 4] = value;
+        return pixels;
+      }, []);
+    } finally {
+      bitmap.close();
+    }
+  }, { encoded: base64, x, y, width, height });
+}
+
 test("MV3 cloud claim survives worker restart and TTL recovery while preserving masks/CAS/chunk boundaries", { timeout: 90_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   let context;
@@ -313,7 +335,26 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
       description: "合成データのみ",
       updatedAt,
       steps: [{ id: "step-1", order: 1, instruction: "合成操作", screenshotId: "asset-1" }],
-      screenshots: [{ id: "asset-1", dataUrl, masks: [{ x: 0.25, y: 0.25, width: 0.25, height: 0.25 }] }]
+      screenshots: [
+        {
+          id: "asset-1",
+          dataUrl,
+          masks: [{ x: 0.25, y: 0.25, width: 0.25, height: 0.25 }],
+          annotations: [
+            { id: "annotation-rectangle", type: "rectangle", x: 0.05, y: 0.05, width: 0.15, height: 0.15, color: "#dc2626", strokeWidth: 4 },
+            { id: "annotation-text", type: "text", x: 0.5, y: 0.5, width: 0.2, height: 0.2, text: "A", color: "#087f7a", strokeWidth: 2, fontSize: 24 }
+          ]
+        },
+        {
+          id: "asset-2",
+          dataUrl,
+          masks: [{ x: 0.7, y: 0.7, width: 0.2, height: 0.2 }],
+          annotations: [
+            { id: "annotation-ellipse", type: "ellipse", x: 0.5, y: 0.05, width: 0.25, height: 0.25, color: "#2563eb", strokeWidth: 4 },
+            { id: "annotation-arrow", type: "arrow", x1: 0.1, y1: 0.85, x2: 0.4, y2: 0.6, color: "#dc2626", strokeWidth: 4 }
+          ]
+        }
+      ]
     };
     const draftFingerprint = await fingerprintDraft(draft);
     const handoffId = "A".repeat(43);
@@ -355,7 +396,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.equal((await readMetadata(worker, storageKey)).draftUpdatedAt, updatedAt, "prepare must retain the handoff timestamp while allowing unchanged content");
 
     const started = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
-    assert.equal(started.ok, true);
+    assert.equal(started.ok, true, JSON.stringify(started));
     assert.equal(started.contentType, "image/png");
     assert.ok(started.totalChunks >= 2, "synthetic noisy PNG must exercise chunking");
     assert.match(started.sha256, /^[a-f0-9]{64}$/);
@@ -385,6 +426,47 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.deepEqual(pixels.pixels[1], [17, 24, 39, 255], "mask begins at floor(x * width), floor(y * height)");
     assert.deepEqual(pixels.pixels[2], [5, 6, 240, 255], "mask ends before ceil((x + width) * imageWidth)");
     assert.deepEqual(pixels.pixels[3], [7, 8, 240, 255], "mask end boundary is exclusive");
+    const sourceEncoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const sourceRectanglePixels = await decodePixelRegion(page, sourceEncoded, 12, 12, 80, 80);
+    const rectanglePixels = await decodePixelRegion(page, encoded, 12, 12, 80, 80);
+    assert.ok(rectanglePixels.some(([red, green, blue]) => red === 220 && green === 38 && blue === 38), "cloud asset must contain the rectangle annotation pixels");
+    assert.ok(rectanglePixels.some((pixel, index) => pixel.join(",") !== sourceRectanglePixels[index].join(",")), "rectangle pixels must differ from the source region");
+    const sourceTextPixels = await decodePixelRegion(page, sourceEncoded, 192, 192, 80, 70);
+    const textPixels = await decodePixelRegion(page, encoded, 192, 192, 80, 70);
+    assert.ok(textPixels.some(([red, green, blue]) => green > red * 1.5 && green > blue * 1.2), "cloud asset must contain the text annotation pixels");
+    assert.ok(textPixels.some((pixel, index) => pixel.join(",") !== sourceTextPixels[index].join(",")), "text pixels must differ from the source region");
+
+    const secondStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 1 });
+    assert.equal(secondStarted.ok, true);
+    const secondChunks = [];
+    for (let sequence = 0; sequence < secondStarted.totalChunks; sequence += 1) {
+      const result = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId, action: "save", assetSlot: 1, sequence });
+      assert.equal(result.ok, true);
+      secondChunks.push(result.chunk);
+    }
+    const secondEncoded = Buffer.concat(secondChunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
+    const sourceEllipsePixels = await decodePixelRegion(page, sourceEncoded, 180, 0, 130, 130);
+    const ellipsePixels = await decodePixelRegion(page, secondEncoded, 180, 0, 130, 130);
+    assert.ok(ellipsePixels.some(([red, green, blue]) => blue > 180 && red < 100 && green < 150), "cloud asset must contain the ellipse annotation pixels");
+    assert.ok(ellipsePixels.some((pixel, index) => pixel.join(",") !== sourceEllipsePixels[index].join(",")), "ellipse pixels must differ from the source region");
+    const sourceArrowPixels = await decodePixelRegion(page, sourceEncoded, 24, 210, 160, 130);
+    const arrowPixels = await decodePixelRegion(page, secondEncoded, 24, 210, 160, 130);
+    assert.ok(arrowPixels.some(([red, green, blue]) => red === 220 && green === 38 && blue === 38), "cloud asset must contain the arrow annotation pixels");
+    assert.ok(arrowPixels.some((pixel, index) => pixel.join(",") !== sourceArrowPixels[index].join(",")), "arrow pixels must differ from the source region");
+    const artifactPath = resolve(".artifacts/editor-image-workspace/annotated-export-draft.json");
+    await mkdir(resolve(".artifacts/editor-image-workspace"), { recursive: true });
+    await writeFile(artifactPath, JSON.stringify({
+      title: draft.title,
+      description: draft.description,
+      steps: [
+        { id: "step-1", order: 1, instruction: "注釈付き画像1", screenshotId: "asset-1" },
+        { id: "step-2", order: 2, instruction: "注釈付き画像2", screenshotId: "asset-2" }
+      ],
+      screenshots: [
+        { id: "asset-1", dataUrl: `data:image/png;base64,${encoded}`, masks: [] },
+        { id: "asset-2", dataUrl: `data:image/png;base64,${secondEncoded}`, masks: [] }
+      ]
+    }, null, 2), "utf8");
 
     const parallelStarts = await Promise.all(Array.from({ length: 220 }, () => sendExternal(page, extensionId, {
       schema: "meccha-manual/cloud-claim-v1",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { cleanDraft, handleExternalCloudClaimMessage, safeMessage } from "../apps/extension/background/cloud-claim.js";
-import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, legacyFingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
 
 const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: "A".repeat(43), action: "save" };
 
@@ -80,6 +80,22 @@ test("fresh handoff is reused only for the same draft content and does not add r
   assert.equal(await findRecoverableHandoff("draft-1", "b".repeat(64), storage), null);
 });
 
+test("annotation canonical shape is compatible for legacy drafts and fails closed for invalid values", async () => {
+  const draft = { id: "annotated", title: "手順書", description: "説明", updatedAt: "2026-09-23T00:00:00.000Z", steps: [], screenshots: [{ id: "image", dataUrl: "data:image/png;base64,AA==", masks: [] }] };
+  const empty = { ...draft, screenshots: [{ ...draft.screenshots[0], annotations: [] }] };
+  assert.equal(canonicalDraftJson(empty), canonicalDraftJson(draft));
+  assert.equal(await legacyFingerprintDraft(empty), await legacyFingerprintDraft(draft));
+  assert.equal(await legacyFingerprintDraft(empty), "8e4ab419c999c3986fa7b18fb253731cc068ec5d66592e5044c4e1a7c821f59e");
+  assert.equal(await fingerprintDraft(empty), "36baaa2d9bee4191d06d656e82fd844840a43a6b12e5549a348fc1905edc45ff");
+  assert.notEqual(await fingerprintDraft(empty), await legacyFingerprintDraft(empty));
+  const annotated = { ...draft, screenshots: [{ ...draft.screenshots[0], annotations: [{ id: "a1", type: "rectangle", x: .1, y: .1, width: .2, height: .2, color: "#dc2626", strokeWidth: 3 }] }] };
+  assert.match(canonicalDraftJson(annotated), /"annotations":/);
+  assert.notEqual(await fingerprintDraft(annotated), await fingerprintDraft(draft));
+  assert.notEqual(await legacyFingerprintDraft(annotated), await legacyFingerprintDraft(draft));
+  assert.equal(cleanDraft({ ...annotated, screenshots: [{ ...annotated.screenshots[0], annotations: [{ id: "bad", type: "rectangle", x: "bad", y: .1, width: .2, height: .2 }] }] }), null);
+  assert.throws(() => canonicalDraftJson({ ...draft, screenshots: [{ ...draft.screenshots[0], annotations: "bad" }] }));
+});
+
 test("share output keeps an explicit action through handoff recovery", async () => {
   const fingerprint = "a".repeat(64);
   const share = createHandoffMetadata("draft-share", "share", Date.now(), "b".repeat(32), "2026-09-23T00:00:00.000Z", fingerprint);
@@ -143,8 +159,8 @@ test("completed handoff is not selected for a changed draft", async () => {
   assert.equal(await findRecoverableHandoff("draft-1", "a".repeat(64), storage), null);
 });
 
-test("D extension distribution is pinned to staging and version 0.1.5", async () => {
+test("D extension distribution is pinned to staging and version 0.1.6", async () => {
   const manifest = JSON.parse(await readFile("apps/extension/manifest.json", "utf8"));
-  assert.equal(manifest.version, "0.1.5");
+  assert.equal(manifest.version, "0.1.6");
   assert.deepEqual(manifest.externally_connectable.matches, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
 });

@@ -334,3 +334,7 @@ Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し�
 ### `GET /api/onboarding/claims/{claimIntentId}?operationId={operationId}`
 
 finalize応答が失われた場合は、同じclaim intentの結果を照会する。request bodyは持たず、Access actor、workspace、claim intent、operationIdを照合する。`completed`なら同じ`manualId`を返し、未完了なら`pending`、期限切れなら`expired`を返す。別operationIdは409で拒否し、workspace・actorの境界はfail closedとする。期限後のWeb reload／service worker restartでも、拡張機能のdurable recovery identityと同一claim intent・operation・draft fingerprintを照合できる場合だけ回収する。
+
+## ローカル画像注釈の境界（Issue #264）
+
+画像注釈は拡張機能のlocal draftにだけ保持する。`page-ready`、claim metadata、handoff messageには注釈本文や元画像を含めず、claim assetとして共通rendererで注釈と既存黒マスクを焼き込んだPNGだけを送信する。旧draftの注釈未指定・空状態は従来のcanonical fingerprint形状を維持する。

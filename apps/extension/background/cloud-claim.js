@@ -1,6 +1,8 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 import { canonicalDraftJson, fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
+import { normalizeAnnotations } from "../editor/image-annotations.js";
+import { drawScreenshot } from "../editor/image-renderer.js";
 
 export const CLOUD_CLAIM_SCHEMA = "meccha-manual/cloud-claim-v1";
 export const CLOUD_CLAIM_CHUNK_BYTES = 192 * 1024;
@@ -112,6 +114,8 @@ export function cleanDraft(draft) {
       x: Number(mask?.x), y: Number(mask?.y), width: Number(mask?.width), height: Number(mask?.height)
     }));
     if (masks.some((mask) => [mask.x, mask.y, mask.width, mask.height].some((value) => !Number.isFinite(value) || value < 0 || value > 1) || !mask.width || !mask.height || mask.x + mask.width > 1 || mask.y + mask.height > 1)) return null;
+    const annotations = normalizeAnnotations(screenshot.annotations);
+    if (annotations === null) return null;
     return { id: screenshot.id, masks };
   });
   const screenshotIds = new Set();
@@ -147,19 +151,9 @@ async function maskAndEncode(screenshot) {
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
     const context = canvas.getContext("2d", { alpha: false, willReadFrequently: false });
     if (!context) throw new Error("MASK_RENDER_UNAVAILABLE");
-    context.drawImage(bitmap, 0, 0);
-    context.fillStyle = "#111827";
-    for (const mask of screenshot.masks || []) {
-      const values = [mask.x, mask.y, mask.width, mask.height].map(Number);
-      if (values.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) throw new TypeError("invalid mask");
-      const [x, y, width, height] = values;
-      if (!width || !height || x + width > 1 || y + height > 1) throw new TypeError("invalid mask");
-      const left = Math.floor(x * bitmap.width);
-      const top = Math.floor(y * bitmap.height);
-      const right = Math.ceil((x + width) * bitmap.width);
-      const bottom = Math.ceil((y + height) * bitmap.height);
-      context.fillRect(left, top, right - left, bottom - top);
-    }
+    const annotations = normalizeAnnotations(screenshot.annotations);
+    if (annotations === null) throw new TypeError("invalid annotations");
+    drawScreenshot(context, bitmap, { annotations, masks: screenshot.masks || [] });
     const blob = await canvas.convertToBlob({ type: "image/png" });
     if (blob.size > CLOUD_CLAIM_MAX_ASSET_BYTES) throw new RangeError("screenshot is too large");
     return new Uint8Array(await blob.arrayBuffer());

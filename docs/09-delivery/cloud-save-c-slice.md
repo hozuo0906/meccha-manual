@@ -81,3 +81,7 @@ D1 migration `0005`の適用、D Worker deploy、Access `/s/*`公開、PR #259�
 7. 共有停止を明示的に実行し、停止後に共有先の本文・画像取得が拒否されることを確認する。停止前後のtoken、passcode、Access credential、workspace ID、実画像、個人情報は文書、ログ、スクリーンショットへ記録しない。
 
 実stagingのURL、発行リンク、配布候補の最終SHA、CI、Chrome受入結果は、確認時点のIssue #262、Issue #70、該当PRのlive stateへ親PMが記録する。isolated Chromiumやmock APIの成功、0.1.5候補のversion表示だけでは、staging保存・共有発行・共有停止の完了証跡にならない。
+
+### 0.1.6 配布候補（Issue #264）
+
+同じ読込フォルダを上書き更新し、拡張機能を削除しない。`chrome://extensions`で該当カードを再読み込みし、0.1.6を確認する。通常の合成Webページで20手順以上を記録し、本文を連続表示して17番を目次から選択する。画像編集で文字・四角・丸・矢印・黒マスクを追加、保存・再表示し、保存先と明示した共有先で同じ焼き込み画像を確認する。Chrome限定URLは記録対象にせず、手順確認URLは`https://meccha-manual-staging.meccha-iiyatsu.com/manuals`と区別する。8秒後に準備確認が必要な場合は自動切替せず明示ログインボタンを使う。0.1.5以前へ戻した注釈付きdraftは保存共有せず、0.1.6以降で扱う。ZIPの確定パスは統合SHA確定後に記録する。

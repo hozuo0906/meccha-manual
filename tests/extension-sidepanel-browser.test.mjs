@@ -166,20 +166,33 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.equal(await editorPage.locator("#steps li").count(), 2, "editor should show both recorded steps");
     const stepButtons = editorPage.locator("#steps li button");
     const imageSources = [];
+    const imagePixels = [];
     for (const index of [0, 1]) {
       const stepButton = stepButtons.nth(index);
-      const instruction = await stepButton.textContent();
+      const instruction = (await stepButton.textContent()).replace(/^\s*\d+\.\s*/, "");
+      const articleId = await stepButton.getAttribute("aria-controls");
+      assert.ok(articleId, "TOC button should identify its step article");
       await stepButton.click();
-      const detailInstruction = editorPage.locator("#detail textarea");
+      const article = editorPage.locator(`[id="${articleId}"]`);
+      await article.scrollIntoViewIfNeeded();
+      const detailInstruction = article.locator("textarea");
       await detailInstruction.waitFor();
       assert.equal(await detailInstruction.inputValue(), instruction, "editor detail should match the selected step text");
-      const image = editorPage.locator(".screenshot-preview img");
+      const image = article.locator('canvas[data-preview-rendered="true"]');
       await image.waitFor();
-      await image.evaluate((element) => element.decode());
-      assert.ok(await image.evaluate((element) => element.naturalWidth > 0), "selected step image should be decoded");
-      imageSources.push(await image.getAttribute("src"));
+      const imageState = await image.evaluate((element) => ({
+        width: element.width,
+        height: element.height,
+        dataUrl: element.toDataURL(),
+        pixelHash: Array.from(element.getContext("2d").getImageData(0, 0, element.width, element.height).data)
+          .reduce((hash, value) => (hash * 31 + value) >>> 0, 7)
+      }));
+      assert.ok(imageState.width > 0 && imageState.height > 0, "selected step canvas should have rendered dimensions");
+      imageSources.push(imageState.dataUrl);
+      imagePixels.push(imageState.pixelHash);
     }
     assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
+    assert.notEqual(imagePixels[0], imagePixels[1], "each selected step canvas should contain different pixels");
     if (process.env.MECCHA_SIDEPANEL_DRAFT) {
       const draftSnapshot = await waitForNativeValue(`new Promise((resolve) => {
         const request = indexedDB.open("meccha-manual-guest", 1);

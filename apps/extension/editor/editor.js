@@ -1,4 +1,6 @@
-import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "./draft-model.js";
+import { addStep, deleteStep, moveStep, updateStepInstruction } from "./draft-model.js";
+import { createImageEditor } from "./image-editor.js";
+import { drawScreenshot } from "./image-renderer.js";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
@@ -29,6 +31,25 @@ let pendingHandoffTabId = null;
 let activeHandoffAttempt = null;
 let handoffRunGeneration = 0;
 let selectedStepId = draft.steps[0]?.id;
+const previewGenerations = new WeakMap();
+function invalidatePreview(canvas) {
+  previewGenerations.set(canvas, (previewGenerations.get(canvas) || 0) + 1);
+  canvas.width = 1;
+  canvas.height = 1;
+  canvas.dataset.previewRendered = "false";
+}
+const previewObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    const canvas = entry.target;
+    const screenshot = canvas.__screenshot;
+    if (!screenshot) return;
+    if (entry.isIntersecting) drawPreview(canvas, screenshot);
+    else invalidatePreview(canvas);
+  });
+}, { rootMargin: "900px 0px" });
+let activeImageEditor = null;
+let stepObserver = null;
+let persistQueue = Promise.resolve();
 
 title.value = draft.title;
 description.value = draft.description;
@@ -39,118 +60,121 @@ function setSaveState(label, state = "saved") {
   saveState.dataset.state = state;
 }
 
-async function persist(message = "この端末に保存しました。") {
-  draft.title = title.value;
-  draft.description = description.value;
-  draft.updatedAt = new Date().toISOString();
-  setSaveState("保存中…", "saving");
-  try {
-    await draftStore.put(draft);
-    status.textContent = message;
-    setSaveState("保存済み", "saved");
-    return true;
-  } catch {
-    status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
-    setSaveState("保存できません", "error");
-    return false;
-  }
+function enqueuePersist(operation) {
+  const next = persistQueue.then(operation, operation);
+  persistQueue = next.catch(() => undefined);
+  return next;
 }
 
-function selectedStep() {
-  return draft.steps.find((step) => step.id === selectedStepId) || draft.steps[0];
+function persist(message = "この端末に保存しました。") {
+  return enqueuePersist(async () => {
+    draft.title = title.value;
+    draft.description = description.value;
+    draft.updatedAt = new Date().toISOString();
+    setSaveState("保存中…", "saving");
+    try {
+      await draftStore.put(draft);
+      status.textContent = message;
+      setSaveState("保存済み", "saved");
+      return true;
+    } catch {
+      status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認してもう一度お試しください。";
+      setSaveState("保存できません", "error");
+      return false;
+    }
+  });
+}
+
+function persistCandidate(candidate, message = "この端末に保存しました。") {
+  return enqueuePersist(async () => {
+    candidate = typeof candidate === "function" ? candidate() : candidate;
+    candidate.title = title.value;
+    candidate.description = description.value;
+    candidate.updatedAt = new Date().toISOString();
+    setSaveState("保存中…", "saving");
+    try { await draftStore.put(candidate); status.textContent = message; setSaveState("保存済み", "saved"); return { ok: true, candidate }; }
+    catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認してもう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
+  });
+}
+
+function screenshotFor(step) { return draft.screenshots.find((item) => item.id === step?.screenshotId); }
+
+async function drawPreview(canvas, screenshot) {
+  const generation = (previewGenerations.get(canvas) || 0) + 1;
+  previewGenerations.set(canvas, generation);
+  try {
+    const image = new Image(); image.src = screenshot.dataUrl; await image.decode();
+    if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
+    const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
+    canvas.dataset.previewRendered = "true";
+    canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");
+  } catch {
+    if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
+    previewObserver.unobserve(canvas);
+    canvas.__screenshot = null;
+    canvas.replaceWith(Object.assign(document.createElement("p"), { textContent: "画像を読み込めませんでした。" }));
+  }
 }
 
 function renderScreenshot(step) {
-  const screenshot = draft.screenshots.find((item) => item.id === step?.screenshotId);
+  const screenshot = screenshotFor(step);
   if (!screenshot) return document.createTextNode("この手順の画像はありません。");
-  const area = document.createElement("div");
-  area.className = "screenshot-area";
-  const preview = document.createElement("div");
-  preview.className = "screenshot-preview";
-  const image = document.createElement("img");
-  image.src = screenshot.dataUrl;
-  image.alt = "記録した画面";
-  image.draggable = false;
-  preview.append(image);
-  for (const mask of screenshot.masks || []) {
-    const overlay = document.createElement("span");
-    overlay.className = "mask";
-    overlay.style.cssText = `left:${mask.x * 100}%;top:${mask.y * 100}%;width:${mask.width * 100}%;height:${mask.height * 100}%`;
-    preview.append(overlay);
-  }
-  area.append(preview);
-
-  const hint = document.createElement("p");
-  hint.textContent = "機密情報を隠すには、画像上をドラッグしてマスクを作成します。保存・共有時にもマスクが引き継がれます。";
-  area.append(hint);
-  let start;
-  const normalizedPoint = (event, rect) => ({ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) });
-  preview.addEventListener("pointerdown", (event) => { const rect = preview.getBoundingClientRect(); start = normalizedPoint(event, rect); preview.setPointerCapture(event.pointerId); });
-  preview.addEventListener("pointerup", async (event) => {
-    if (!start) return;
-    const rect = preview.getBoundingClientRect();
-    const end = normalizedPoint(event, rect);
-    const region = { x: Math.max(0, Math.min(start.x, end.x)), y: Math.max(0, Math.min(start.y, end.y)), width: Math.min(1, Math.abs(end.x - start.x)), height: Math.min(1, Math.abs(end.y - start.y)) };
-    start = undefined;
-    if (region.width < 0.01 || region.height < 0.01) return;
-    addMask(draft, screenshot.id, region);
-    await persist("マスクを追加して、この端末に保存しました。");
-    render();
+  const area = document.createElement("div"); area.className = "screenshot-area";
+  const preview = document.createElement("div"); preview.className = "screenshot-preview";
+  preview.style.aspectRatio = "16 / 9";
+  const canvas = document.createElement("canvas"); canvas.className = "screenshot-canvas"; canvas.tabIndex = 0; preview.append(canvas); area.append(preview);
+  const edit = document.createElement("button"); edit.type = "button"; edit.className = "image-edit-button"; edit.textContent = "✎ 画像を編集"; edit.setAttribute("aria-label", "画像を編集"); edit.dataset.editorTrigger = screenshot.id;
+  edit.addEventListener("click", async () => {
+    activeImageEditor?.dispose();
+    activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === screenshot.id); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === screenshot.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(screenshot.id)}"]`); } });
+    await activeImageEditor.open();
   });
-  preview.addEventListener("pointercancel", () => { start = undefined; });
-
-  const list = document.createElement("ul");
-  list.className = "mask-list";
-  for (const [index, mask] of (screenshot.masks || []).entries()) {
-    const item = document.createElement("li");
-    item.textContent = `マスク ${index + 1} `;
-    const remove = document.createElement("button");
-    remove.textContent = "マスクを削除";
-    remove.addEventListener("click", async () => { removeMask(draft, screenshot.id, mask.id); await persist(); render(); });
-    item.append(remove);
-    list.append(item);
-  }
-  area.append(list);
+  area.append(edit);
+  const note = document.createElement("p"); note.className = "image-editor-note"; note.textContent = "鉛筆ボタンから画像に文字や図形を追加できます。黒塗りは保存・共有する画像にも反映されます。"; area.append(note);
+  canvas.__screenshot = screenshot;
+  previewObserver.observe(canvas);
   return area;
 }
 
+function renderStepArticle(step) {
+  const article = detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"]`);
+  if (!article) return render();
+  const previousCanvas = article.querySelector(".screenshot-canvas");
+  if (previousCanvas) { invalidatePreview(previousCanvas); previewObserver.unobserve(previousCanvas); previousCanvas.__screenshot = null; }
+  article.querySelector(".screenshot-area")?.replaceWith(renderScreenshot(step));
+}
+
 function render() {
+  detail.querySelectorAll(".screenshot-canvas").forEach((canvas) => invalidatePreview(canvas));
+  previewObserver.disconnect();
+  stepObserver?.disconnect();
   steps.replaceChildren();
   detail.replaceChildren();
-  const current = selectedStep();
-  selectedStepId = current?.id;
+  const current = draft.steps.find((step) => step.id === selectedStepId) || draft.steps[0]; selectedStepId = current?.id;
   for (const step of draft.steps) {
     const item = document.createElement("li");
-    const select = document.createElement("button");
-    select.textContent = step.instruction;
-    select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
-    select.addEventListener("click", () => { selectedStepId = step.id; render(); });
+    const select = document.createElement("button"); select.textContent = `${step.order}. ${step.instruction || "（説明なし）"}`; select.setAttribute("aria-controls", `step-${step.id}`); select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
+    select.addEventListener("click", () => { selectedStepId = step.id; document.getElementById(`step-${step.id}`)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); });
     item.append(select);
     steps.append(item);
   }
   if (!current) { detail.textContent = "記録された手順はありません。手順を追加して編集できます。"; return; }
-  const label = document.createElement("label");
-  label.textContent = "手順の説明";
-  const instruction = document.createElement("textarea");
-  instruction.value = current.instruction;
-  instruction.maxLength = 500;
-  instruction.addEventListener("input", async () => { updateStepInstruction(draft, current.id, instruction.value); await persist(); renderListOnly(); });
-  label.append(instruction);
-  detail.append(label);
-  const controls = document.createElement("div");
-  controls.className = "step-controls";
-  for (const [text, action, disabled] of [["上へ", "up", current.order === 1], ["下へ", "down", current.order === draft.steps.length]]) {
-    const button = document.createElement("button"); button.textContent = text; button.disabled = disabled;
-    button.addEventListener("click", async () => { moveStep(draft, current.id, action); await persist(); render(); }); controls.append(button);
+  for (const step of draft.steps) {
+    const article = document.createElement("article"); article.className = "step-article"; article.id = `step-${step.id}`; article.dataset.stepId = step.id;
+    const heading = document.createElement("h3"); heading.textContent = `手順 ${step.order}`; article.append(heading);
+    const label = document.createElement("label"); label.textContent = "手順の説明"; const instruction = document.createElement("textarea"); instruction.value = step.instruction; instruction.maxLength = 500; instruction.addEventListener("input", async () => { updateStepInstruction(draft, step.id, instruction.value); await persist(); renderListOnly(); }); label.append(instruction); article.append(label);
+    const controls = document.createElement("div"); controls.className = "step-controls";
+    for (const [text, action, disabled] of [["上へ", "up", step.order === 1], ["下へ", "down", step.order === draft.steps.length]]) { const button = document.createElement("button"); button.textContent = text; button.disabled = disabled; button.addEventListener("click", async () => { moveStep(draft, step.id, action); selectedStepId = step.id; await persist(); render(); }); controls.append(button); }
+    const remove = document.createElement("button"); remove.textContent = "削除"; remove.className = "danger"; remove.addEventListener("click", async () => { deleteStep(draft, step.id); selectedStepId = draft.steps[0]?.id; await persist(); render(); }); controls.append(remove); article.append(controls, renderScreenshot(step)); detail.append(article);
   }
-  const remove = document.createElement("button"); remove.textContent = "削除"; remove.className = "danger";
-  remove.addEventListener("click", async () => { deleteStep(draft, current.id); selectedStepId = draft.steps[0]?.id; await persist(); render(); }); controls.append(remove);
-  detail.append(controls, renderScreenshot(current));
+  const setCurrent = (id) => steps.querySelectorAll("button[aria-controls]").forEach((button) => button.setAttribute("aria-current", button.getAttribute("aria-controls") === id ? "step" : "false"));
+  stepObserver = new IntersectionObserver((entries) => entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio).slice(0, 1).forEach((entry) => setCurrent(entry.target.id)), { rootMargin: "-20% 0px -60%" });
+  detail.querySelectorAll(".step-article").forEach((article) => stepObserver.observe(article));
 }
 
 function renderListOnly() {
   const labels = steps.querySelectorAll("button");
-  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = step.instruction; });
+  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction || "（説明なし）"}`; });
 }
 
 addStepButton.addEventListener("click", async () => {
