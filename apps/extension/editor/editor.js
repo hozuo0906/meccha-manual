@@ -240,21 +240,18 @@ async function readImageHeaderDimensions(file) {
   const bytes = new Uint8Array(await file.slice(0, Math.min(file.size, MAX_IMAGE_BYTES)).arrayBuffer());
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length >= 24 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) {
-    return { width: view.getUint32(16), height: view.getUint32(20) };
-  }
-  if (bytes.length >= 10 && ["GIF89a", "GIF87a"].includes(String.fromCharCode(...bytes.slice(0, 6)))) {
-    return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+    return { format: "image/png", width: view.getUint32(16), height: view.getUint32(20) };
   }
   if (bytes.length >= 30 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {
     const chunk = String.fromCharCode(...bytes.slice(12, 16));
-    if (chunk === "VP8X" && bytes.length >= 30) return { width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
+    if (chunk === "VP8X" && bytes.length >= 30) return { format: "image/webp", width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
     if (chunk === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
       const width = 1 + ((bytes[21] | (bytes[22] << 8)) & 0x3fff);
       const height = 1 + (((bytes[22] >> 6) | (bytes[23] << 2) | (bytes[24] << 10)) & 0x3fff);
-      return { width, height };
+      return { format: "image/webp", width, height };
     }
     if (chunk === "VP8 " && bytes.length >= 30) {
-      for (let offset = 20; offset + 9 < bytes.length; offset += 1) if (bytes[offset] === 0x9d && bytes[offset + 1] === 0x01 && bytes[offset + 2] === 0x2a) return { width: view.getUint16(offset + 3, true) & 0x3fff, height: view.getUint16(offset + 5, true) & 0x3fff };
+      for (let offset = 20; offset + 9 < bytes.length; offset += 1) if (bytes[offset] === 0x9d && bytes[offset + 1] === 0x01 && bytes[offset + 2] === 0x2a) return { format: "image/webp", width: view.getUint16(offset + 3, true) & 0x3fff, height: view.getUint16(offset + 5, true) & 0x3fff };
     }
   }
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
@@ -271,8 +268,9 @@ async function readImageHeaderDimensions(file) {
       const length = view.getUint16(offset);
       if (length < 2 || offset + length > bytes.length) break;
       if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-        if (length < 8) break;
-        return { width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
+        const componentCount = bytes[offset + 7];
+        if (!componentCount || length < 8 + componentCount * 3) break;
+        return { format: "image/jpeg", width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
       }
       offset += length;
     }
@@ -292,6 +290,7 @@ async function normalizeUploadedImage(file) {
   // The decoder must never be the first place we learn the dimensions. A malformed
   // or unsupported header is rejected before a potentially huge bitmap is allocated.
   if (!headerDimensions) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
+  if (headerDimensions.format !== file.type) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
   assertImageDimensions(headerDimensions.width, headerDimensions.height);
   const bitmap = await createImageBitmap(file);
   try {

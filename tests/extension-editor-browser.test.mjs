@@ -1262,10 +1262,7 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
     const decoratedJpeg = Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xff, 0x01, 0xff]), jpegBytes.subarray(2)]);
     const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
     await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
-    await page.waitForFunction(async () => {
-      const draft = await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture");
-      return draft?.screenshots?.length === 1 && draft.screenshots[0].dataUrl.startsWith("data:image/");
-    });
+    await page.locator("#step-jpeg-step .screenshot-canvas").waitFor();
     const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
     const storedImage = await page.evaluate(async (dataUrl) => {
       const image = new Image(); image.src = dataUrl; await image.decode();
@@ -1285,12 +1282,48 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
 
     const assertMalformed = async (bytes, name) => {
       await input.setInputFiles({ name, mimeType: "image/jpeg", buffer: bytes });
-      await page.getByText("画像の大きさを確認できませんでした。別の画像を選んでください。", { exact: true }).waitFor();
+      await page.locator("#step-jpeg-step .image-upload-message[data-state=error]").waitFor();
       const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
       assert.equal(afterReject.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, `${name}は保存済み画像を変更しない`);
     };
     await assertMalformed(Buffer.from([0xff, 0xd8, 0xff]), "truncated.jpeg");
     await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x00]), "truncated-segment.jpeg");
+
+    const findJpegSofLengthOffset = (bytes) => {
+      let offset = 2;
+      while (offset + 3 < bytes.length) {
+        if (bytes[offset] !== 0xff) { offset += 1; continue; }
+        while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+        if (offset >= bytes.length) return -1;
+        const marker = bytes[offset++];
+        if (marker === 0x00 || marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+        if (marker === 0xd9 || marker === 0xda || offset + 2 > bytes.length) return -1;
+        const length = bytes.readUInt16BE(offset);
+        if (length < 2 || offset + length > bytes.length) return -1;
+        if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) return offset;
+        offset += length;
+      }
+      return -1;
+    };
+    const sofLengthOffset = findJpegSofLengthOffset(decoratedJpeg);
+    assert.ok(sofLengthOffset > 0, "fixture JPEGにSOFセグメントがある");
+    const shortSof = Buffer.from(decoratedJpeg);
+    shortSof.writeUInt16BE(10, sofLengthOffset);
+    await assertMalformed(shortSof, "short-sof.jpeg");
+    const invalidSofComponents = Buffer.from(decoratedJpeg);
+    invalidSofComponents[sofLengthOffset + 7] = 255;
+    await assertMalformed(invalidSofComponents, "invalid-sof-components.jpeg");
+
+    await input.setInputFiles({ name: "jpeg-as-png.png", mimeType: "image/png", buffer: jpegBytes });
+    await page.locator("#step-jpeg-step .image-upload-message[data-state=error]").waitFor();
+    const wrongMimeDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(wrongMimeDraft.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "MIMEとJPEGヘッダーが一致しない入力は保存済み画像を変更しない");
+    const gifHeader = Buffer.from("GIF89a", "ascii");
+    const fakeGif = Buffer.concat([gifHeader, Buffer.from([1, 0, 1, 0, 0, 0, 0, 0, 0, 0])]);
+    await input.setInputFiles({ name: "gif-as-png.png", mimeType: "image/png", buffer: fakeGif });
+    await page.locator("#step-jpeg-step .image-upload-message[data-state=error]").waitFor();
+    const gifDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(gifDraft.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "GIFヘッダーをPNGとして偽装した入力は保存済み画像を変更しない");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
