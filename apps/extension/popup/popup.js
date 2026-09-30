@@ -32,7 +32,7 @@ function renderCaptureState(state = {}) {
       ? "記録内容はこの端末に保持しています。画面サイズを元に戻してから、もう一度終了してください。"
       : "画面サイズを元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
   } else if (state.phase === "reinjection_failed") {
-    status.textContent = "ページ移動後に記録を再開できませんでした。ここまでの記録は保持しています。対象タブで再開するか、ここまでの内容を終了して編集してください。";
+    status.textContent = "ページ移動後に記録を再開できませんでした。ここまでの記録は保持しています。対象タブで再開するか、ここまでの操作で記録を終了して、手順書を編集してください。";
   } else if (state.phase === "finish_failed") {
     status.textContent = "終了処理に失敗しましたが、記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
   } else if (state.recording) {

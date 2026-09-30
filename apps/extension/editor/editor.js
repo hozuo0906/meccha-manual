@@ -172,6 +172,10 @@ function render() {
   detail.querySelectorAll(".step-article").forEach((article) => stepObserver.observe(article));
 }
 
+function notifyEditorReady() {
+  chrome.runtime?.sendMessage({ type: "editor:ready", draftId: id, ready: true }, () => void chrome.runtime.lastError);
+}
+
 function renderListOnly() {
   const labels = steps.querySelectorAll("button");
   draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction || "（説明なし）"}`; });
@@ -488,3 +492,4 @@ outputGate.addEventListener("close", () => {
   cancelHandoffRun(attempt);
 });
 render();
+notifyEditorReady();

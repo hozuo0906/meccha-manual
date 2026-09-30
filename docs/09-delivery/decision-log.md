@@ -494,3 +494,13 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。
 - Boundary:
   - 候補は高信頼なDOM文字列に限定し、OCR、画像内文字、cross-origin iframe、外部AI、新しい権限は対象外。元DOM、入力値、候補文字列はログ・event・handoff metadataへ保存しない。
+### DEC-086: 記録中サイドパネルの現在地表示と終了後の復旧境界
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #273
+- Decision: 記録中は現在の手順番号、操作内容、画像の記録状態を常に表示し、新しい手順が追加されたときは最新位置へ追従する。利用者が過去の手順を閲覧している場合はその位置を保ち、「最新の手順を見る」から明示的に追従へ戻す。記録終了に成功して編集画面を開けた場合だけサイドパネルを閉じる。編集画面を開けない、復元が必要、終了結果が不明、またはブラウザが閉鎖APIを提供しない場合は、記録確認と再試行のためサイドパネルを残す。
+- Reason: 記録中の最新操作と画像保存の成否をスクロールせずに判断できるようにし、過去の手順を確認している利用者の閲覧位置を奪わないため。終了後の表示障害を保存成功や終了完了と混同させず、復旧導線を残すため。
+- Boundary: 手順画像の取得・保存処理、local draftの構造、Cloudflare Access／D1／R2、production反映、サイドパネルを提供しないChromeバージョンのUI変更は対象外とする。閉鎖API非対応時は利用者へ不自然な成功表示をせず、表示中の記録確認を優先する。
+- Evidence: `apps/extension/sidepanel/sidepanel.js`、`apps/extension/sidepanel/sidepanel.css`、`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`tests/extension-sidepanel-browser.test.mjs`、`docs/05-api/api-contracts.md`。
+- 2026-10-01 review補足: `tabs.create`の成功だけでは編集画面の表示完了とみなさず、editorの`draftStore.get`と初回render後に送る`editor:ready`をtrusted extension originのeditor pathと同じ`draftId`で照合する。取得・render失敗またはreadyタイムアウトでは保存済みlocal draftと記録確認のためサイドパネルを残す。現在地表示のsticky範囲は`liveSection`だけに限定せず、保存済み下書き一覧を含むshell全体とし、終了・一時停止・再開で変わる固定フッター高さはResizeObserverから追従処理へ渡す。

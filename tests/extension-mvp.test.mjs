@@ -318,6 +318,15 @@ test("editor exposes a locally persisted add-step control", async () => {
   assert.match(html, /id="addStep"/);
 });
 
+test("editor acknowledges readiness only after the initial draft render", async () => {
+  const editor = await readFile(new URL("../apps/extension/editor/editor.js", import.meta.url), "utf8");
+  const renderIndex = editor.indexOf("render();\nnotifyEditorReady();");
+  assert.ok(renderIndex >= 0, "editor must render before acknowledging readiness");
+  assert.match(editor, /type: "editor:ready", draftId: id, ready: true/);
+  assert.match(editor, /chrome\.runtime\?\.sendMessage/);
+  assert.match(editor, /service-worker\.js|editor:ready/);
+});
+
 test("recorder drains deferred actions, container scroll and generic SPA navigation", async () => {
   const source = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
   for (const event of ["click", "input", "change", "scroll", "pagehide", "popstate", "hashchange"]) assert.equal(source.includes(`removeEventListener("${event}"`), true);

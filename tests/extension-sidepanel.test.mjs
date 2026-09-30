@@ -17,6 +17,11 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(source, /capture:pause/);
   assert.match(source, /capture:finish/);
   assert.match(source, /capture:close-panel/);
+  assert.match(source, /EDITOR_READY_TIMEOUT_MS/);
+  assert.match(source, /waitForEditorReady/);
+  assert.match(source, /isEditorReadySender/);
+  assert.match(source, /openDraftEditor\(result\.draftId, \{ waitForReady: true \}\)/);
+  assert.match(source, /keepLiveTailVisibleAfterResize\(\)/);
   assert.match(source, /liveLatest/);
   assert.match(source, /scrollLiveLatest/);
   assert.match(source, /window\.scrollTo\(\{ top: targetScrollY, behavior: scrollBehavior \}\)/);
@@ -33,6 +38,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(worker, /chrome\.sidePanel\.open/);
   assert.match(worker, /chrome\.sidePanel\.close/);
   assert.match(worker, /CLOUD_CLAIM_MAX_ASSETS/);
+  assert.match(worker, /message\?\.type === "editor:ready"/);
   assert.doesNotMatch(worker, /typeof importedCaptureLiveStore/);
   assert.match(worker, /captureLimitReached: session\?\.captureLimitReached/);
   assert.match(source, /captureLiveStore\.list/);
@@ -41,6 +47,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(html, /id="liveCurrentStatus"/);
   assert.match(html, /id="liveLatest"/);
   assert.ok(html.indexOf('id="liveProgress"') < html.indexOf('id="liveSection"'), "live progress must precede the scrollable recording section");
+  assert.match(html, /id="draftSection"/);
   assert.match(html, /id="finish"/);
   assert.match(html, /id="pause"/);
   assert.match(css, /prefers-reduced-motion/);
