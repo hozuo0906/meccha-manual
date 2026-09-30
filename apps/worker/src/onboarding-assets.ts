@@ -223,7 +223,23 @@ export const ONBOARDING_JS = `(() => {
     } catch {
       return false;
     }
-    return reply?.ok === true && ["manual", "ready"].includes(reply.status);
+    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status)) return false;
+    const saved = readSaved();
+    const matching = saved.ok ? saved.state?.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId) : null;
+    if (!matching || !validDraftFingerprint(reply.draftFingerprint) || !validCreatedAt(reply.expiresAt) || !validExtensionId(reply.extensionId)) return false;
+    Object.assign(matching, { launchId: fragmentLaunchId, extensionId: reply.extensionId, draftFingerprint: reply.draftFingerprint, expiresAt: reply.expiresAt });
+    if (!persistState(saved.state)) return false;
+    Object.assign(context, matching);
+    return true;
+  }
+  async function signalAccessReturn(context) {
+    if (!configured || hasFragment || !context || !validHandoff(context.handoffId) || !validLaunchId(context.launchId) || !validExtensionId(context.extensionId) || !validOperationId(context.operationId) || !validDraftFingerprint(context.draftFingerprint) || !validCreatedAt(context.expiresAt) || !globalThis.chrome?.runtime?.sendMessage) return false;
+    try {
+      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
+      return reply?.ok === true && ["restored", "recovery"].includes(reply.status);
+    } catch {
+      return false;
+    }
   }
   function markRecoveryProbe(context) { if (!context) return null; context.state = "recovery-probe"; capturedContext = context; return context; }
   async function beginExtensionContext(context) {
@@ -517,9 +533,31 @@ export const ONBOARDING_JS = `(() => {
     } catch { message("応答を確認できませんでした。元の下書きは拡張機能に残っています。同じ操作で再試行してください。", "error"); }
     setButton("同じ操作で再試行");
   }
+  async function resumeAccessReturn() {
+    const context = currentOperation();
+    if (!context || hasFragment) return bootstrap();
+    setButton("復帰を確認中…", true);
+    message(context.state === "recovery" || context.state === "recovery-probe" ? "保存状況を確認しています。元の下書きはこの端末に残っています。" : "保存を再開する準備をしています。元の下書きはこの端末に残っています。");
+    const restored = await signalAccessReturn(context);
+    if (restored) return;
+    if (currentOperation()?.state === "recovery-probe") message("保存状況を確認できませんでした。元の下書きを保持したまま、もう一度お試しください。", "error");
+    else message("保存を再開できませんでした。元の下書きを保持したまま、もう一度お試しください。", "error");
+    setButton(context.state === "recovery" || context.state === "recovery-probe" ? "保存状況を確認する" : "保存を再開する", false);
+  }
   if (!configured) { message("保存先の準備画面は現在利用できません。元の手順書はこの端末に残っています。"); setButton("保存先は準備中", true); }
-  else if (!getHandoff()) { message("保存を続けるための情報を確認できません。拡張機能の編集画面から進んでください。", "error"); setButton("保存を続ける", true); }
-  else { message("ログイン済みの場合は、保存先の準備を開始できます。準備完了後に手順書を送信します。"); button.addEventListener("click", bootstrap); }
+  else if (!getHandoff()) { message("保存を続けるための情報を確認できません。拡張機能の編集画面から、もう一度進んでください。", "error"); setButton("保存を続ける", true); }
+  else {
+    const context = currentOperation();
+    const recovery = !hasFragment && (context?.state === "recovery" || context?.state === "recovery-probe");
+    if (!hasFragment) {
+      message(recovery ? "保存状況を確認するには、ボタンを押してください。元の下書きはこの端末に残っています。" : "保存を再開するには、ボタンを押してください。元の下書きはこの端末に残っています。");
+      setButton(recovery ? "保存状況を確認する" : "保存を再開する");
+      button.addEventListener("click", resumeAccessReturn);
+    } else {
+      message("ログイン済みの場合は、保存先の準備を開始できます。準備完了後に手順書を保存します。");
+      button.addEventListener("click", bootstrap);
+    }
+  }
   if (configured && validLaunchId(fragmentLaunchId)) {
     signalPageReady(currentOperation()).then((ready) => {
       if (!ready) message("保存先の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");

@@ -947,6 +947,168 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
   }
 });
 
+test("MV3 bound external Access return restores the same activated handoff", { timeout: 60_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const handoffId = "V".repeat(43);
+    const launchId = "W".repeat(43);
+    const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
+    const page = await createRealStagingPage(context, hashlessUrl, { bootstrapEnabled: true });
+    await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
+    await page.waitForFunction(() => location.hash === "");
+    await page.route(`${ACCESS_AUTH_ORIGIN}/**`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" }));
+    const tabId = await tabIdForPage(worker, page);
+    assert.equal(Number.isInteger(tabId), true);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const draft = {
+      id: "runtime-access-restore-draft",
+      title: "Access復帰確認",
+      description: "実MV3復元経路の保存確認",
+      updatedAt: "2026-09-30T00:00:00.000Z",
+      steps: [{ id: "runtime-access-step", order: 1, instruction: "保存する", screenshotId: "runtime-access-asset" }],
+      screenshots: [{ id: "runtime-access-asset", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [] }]
+    };
+    const draftFingerprint = await fingerprintDraft(draft);
+    await putDraft(worker, draft);
+    await setMetadata(worker, handoffStorageKey(handoffId), {
+      handoffId,
+      draftId: draft.id,
+      outputAction: "save",
+      extensionId,
+      draftUpdatedAt: draft.updatedAt,
+      draftFingerprint,
+      expiresAt
+    });
+    await setMetadata(worker, handoffReadyStorageKey(handoffId, launchId), {
+      handoffId,
+      launchId,
+      tabId,
+      expiresAt,
+      activationPolicy: "manual",
+      pageReadyAt: new Date().toISOString(),
+      activatedAt: new Date().toISOString()
+    });
+    await page.goto(`${hashlessUrl}#handoff=${handoffId}&extensionId=${extensionId}&launchId=${launchId}&action=save`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => location.hash === "");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "a normal handoff page must not trigger Access recovery");
+    await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
+    assert.match(page.url(), new RegExp(`${ACCESS_AUTH_ORIGIN.replaceAll(".", "\\.")}/cdn-cgi/access/login`));
+    assert.equal(await tabIdForPage(worker, page), tabId, "the Access login remains in the bound tab");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "the Access login URL alone must not restore the handoff");
+    await page.goto(hashlessUrl, { waitUntil: "commit" });
+    const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, undefined, "an ordinary hashless navigation must not restore without an explicit recovery intent");
+    await page.locator("#bootstrap").click();
+    for (let attempt = 0; attempt < 30 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1, "a hashless return after Access must restore once");
+    const tabState = await worker.evaluate((url) => new Promise((resolve) => chrome.tabs.query({}, (tabs) => resolve(tabs.find((tab) => tab.url === url) || null))), page.url());
+    assert.equal(tabState?.active, true, "Access recovery must keep the already active tab in front");
+    await page.waitForSelector("#bootstrap", { state: "visible" });
+    await page.locator("#bootstrap").click();
+    for (let attempt = 0; attempt < 40 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const completed = await readMetadata(worker, handoffStorageKey(handoffId));
+    assert.equal(completed.status, "completed", "the real onboarding page must complete the restored handoff");
+    assert.equal(completed.completedManualId, "runtime-manual-1");
+    assert.equal(await getDraft(worker, draft.id), null, "completed workflow must clear the unchanged local draft");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const savedContext = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"));
+    assert.equal(savedContext?.entries?.find((entry) => entry.handoffId === "V".repeat(43))?.claimStatus, "completed", "reopening the page must retain the completed claim context");
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
+
+test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧まで完了する", { timeout: 90_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  const fixture = await createLocalWorkerFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => String(url) === ACCESS_JWKS_URL
+    ? Response.json({ keys: [fixture.publicJwk] })
+    : originalFetch(url, options);
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const handoffId = "L".repeat(43);
+    const launchId = "M".repeat(43);
+    const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
+    const page = await createLocalWorkerStagingPage(context, fixture, hashlessUrl);
+    await page.goto(`${hashlessUrl}#fixture`, { waitUntil: "commit" });
+    await page.waitForFunction(() => location.hash === "");
+    const tabId = await tabIdForPage(worker, page);
+    assert.equal(Number.isInteger(tabId), true);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const draft = {
+      id: "runtime-local-worker-draft",
+      title: "実Worker保存確認",
+      description: "実ブラウザ経由で保存して再閲覧するfixture",
+      updatedAt: "2026-09-30T00:00:00.000Z",
+      steps: [{ id: "runtime-local-worker-step", order: 1, instruction: "設定を確認する", screenshotId: "runtime-local-worker-asset" }],
+      screenshots: [{ id: "runtime-local-worker-asset", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [] }]
+    };
+    await putDraft(worker, draft);
+    await setMetadata(worker, handoffStorageKey(handoffId), {
+      handoffId, draftId: draft.id, outputAction: "save", extensionId,
+      draftUpdatedAt: draft.updatedAt, draftFingerprint: await fingerprintDraft(draft), expiresAt
+    });
+    await setMetadata(worker, handoffReadyStorageKey(handoffId, launchId), {
+      handoffId, launchId, tabId, expiresAt, activationPolicy: "manual",
+      pageReadyAt: new Date().toISOString(), activatedAt: new Date().toISOString()
+    });
+
+    await page.goto(`${hashlessUrl}#handoff=${handoffId}&extensionId=${extensionId}&launchId=${launchId}&action=save`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => location.hash === "");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined);
+    await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
+    assert.equal(await tabIdForPage(worker, page), tabId);
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "the Access login URL alone must not restore the handoff");
+    await page.goto(hashlessUrl, { waitUntil: "commit" });
+    const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    for (let attempt = 0; attempt < 40 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1);
+    await page.waitForSelector("#bootstrap", { state: "visible" });
+    await page.locator("#bootstrap").click();
+    for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    const completed = await readMetadata(worker, handoffStorageKey(handoffId));
+    assert.equal(completed.status, "completed", `実Workerへの保存が完了する: ${JSON.stringify({ completed, status: await page.locator("#status").textContent().catch(() => ""), databaseClaims: fixture.database.prepare("SELECT status, manual_id FROM claim_intents").all() })}`);
+    assert.equal(await getDraft(worker, draft.id), null, "保存完了後はローカル下書きを消費する");
+
+    const workspaceId = fixture.database.prepare("SELECT id FROM workspaces WHERE workspace_kind = 'personal'").get()?.id;
+    const manual = fixture.database.prepare("SELECT id, title FROM manuals ORDER BY created_at DESC LIMIT 1").get();
+    const step = fixture.database.prepare("SELECT asset_id, instruction FROM manual_steps WHERE revision_id = (SELECT current_draft_revision_id FROM manuals WHERE id = ?)").get(manual.id);
+    assert.ok(workspaceId && manual?.id && step?.asset_id, "D1に手順書と画像参照が作成される");
+    const reopened = await page.evaluate(async ({ detailUrl, assetUrl }) => {
+      const detailResponse = await fetch(detailUrl, { credentials: "same-origin" });
+      const detail = await detailResponse.json();
+      const assetResponse = await fetch(assetUrl, { credentials: "same-origin" });
+      const assetBody = [...new Uint8Array(await assetResponse.arrayBuffer())];
+      return { detailStatus: detailResponse.status, title: detail?.draft?.title, instruction: detail?.steps?.[0]?.instruction, assetStatus: assetResponse.status, assetType: assetResponse.headers.get("content-type"), assetBody };
+    }, { detailUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}`, assetUrl: `/api/workspaces/${workspaceId}/manuals/${manual.id}/assets/${step.asset_id}` });
+    const storedImages = [...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png");
+    assert.equal(storedImages.length, 1);
+    assert.deepEqual(reopened, { detailStatus: 200, title: draft.title, instruction: draft.steps[0].instruction, assetStatus: 200, assetType: "image/png", assetBody: [...storedImages[0].body] }, "保存した画像の全byteと本文を再取得できる");
+    await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
+    await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
+    await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
+    await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
+    assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+    globalThis.fetch = originalFetch;
+    fixture.database.close();
+  }
+});
+
 test("MV3 expired in-flight transfer releases capacity exactly once", { timeout: 120_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   let context;

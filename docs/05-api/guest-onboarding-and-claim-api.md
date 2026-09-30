@@ -321,6 +321,13 @@ Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoff
 
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
+ ### C Access認証後のhandoff復帰境界
+
+DEC-090により、通常Web経路の`handoff.access-return`はhashlessページ表示や通常navigationだけでは送信しない。同じtabの`sessionStorage` handoffを表示した利用者が「保存を再開する」または「保存状況を確認する」を押した場合だけ、下記のsender・handoff・ready・identity・TTL検証を実行してfragment再付与を要求する。初回AccessでWeb側JSが実行されない場合のDEC-092 payloadなしcontent script経路は自動復帰を維持する。
+
+AccessのURLを拡張機能の`tabs.onUpdated`から判定しない。通常は認証後に同一originの`/onboarding/continue`へ戻ったWeb画面が、fragmentを失った状態で`handoff.access-return` external messageを1回送る。初回AccessでWeb側JSが実行されない場合だけ、固定staging originの同path content scriptがpayloadなしの内部`handoff.access-return`を1回送る。拡張機能はsenderの固定origin・`/onboarding/continue`・top-level frame・tab IDと、通常経路では通知のhandoff ID等、初回経路では同じtabに紐づく`pageReadyAt`未確認ready recordおよびlocal metadataから得たhandoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAtを照合する。期限内の通常handoff、または期限を過ぎても`finalize-pending`／`completion-pending`の結果回収identityを持つhandoffだけに、同じfragmentを最大3回まで再付与する。復帰通知の有効期限はmetadataのexpiresAtを延長しない。通常のfragment除去、別tab・同tabの別navigation、期限切れの通常handoff、取消済み、完了済み、metadata不一致は復帰の根拠にしない。初回経路のhost permissionは固定staging originだけに限定し、`tabs`／`all_urls`／Access origin権限は持たない。
+
+復帰印は復帰処理で消費し、fragmentへ本文・画像・認証情報・共有tokenを追加しない。復帰に失敗した場合はlocal原本を保持したまま再試行可能な状態を表示し、保存成功やclaim完了を推測しない。
 owner限定staging配布版はstaging B登録UIへ接続する。production originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
 ### B handoff fragment と operation の期限境界
 
