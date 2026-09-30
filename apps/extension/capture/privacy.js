@@ -120,26 +120,28 @@ function normalizeControlName(value) {
   const privacySource = raw.replace(/[\p{Cc}\p{Cf}\p{M}]/gu, "");
   const privacyValue = normalizePrivacyDigits(privacySource.normalize("NFKC"));
   if (privacyValue === null) return null;
-  const hasEmail = CONTROL_NAME_EMAIL.test(emailCandidate) || hasEmailLayout(emailLayoutValue);
   if (Array.from(caption).length > CONTROL_NAME_MAX_LENGTH) return null;
+  const hasEmail = CONTROL_NAME_EMAIL.test(emailCandidate) || hasEmailLayout(emailLayoutValue);
   if (hasEmail || looksLikeUrl(privacyValue) || CONTROL_NAME_PHONE.test(privacyValue) || CONTROL_NAME_POSTAL.test(privacyValue)) return null;
   if (SENSITIVE_NAME.test(privacyValue) || CONTROL_NAME_SENSITIVE.test(privacyValue) || SECRET_LIKE_LABEL.test(privacyValue)) return null;
   return caption;
 }
 
 function hasEmailLayout(value) {
-  const atIndex = value.indexOf("@");
-  if (atIndex < 0) return false;
-  const before = value.slice(0, atIndex);
-  const after = value.slice(atIndex + 1);
-  const beforeLayout = /\s$/u.test(before);
-  const afterLayout = /^\s/u.test(after);
-  // Both sides spaced around @ are ordinary prose (for example,
-  // `保存 @ 次へ`). A single layout gap is sensitive only when the other
-  // side starts or ends with a mailbox character.
-  if (beforeLayout === afterLayout) return false;
-  const adjacent = beforeLayout ? Array.from(after)[0] : Array.from(before).at(-1);
-  return Boolean(adjacent && CONTROL_NAME_EMAIL_MAILBOX_CHAR.test(adjacent));
+  for (let atIndex = value.indexOf("@"); atIndex >= 0; atIndex = value.indexOf("@", atIndex + 1)) {
+    const before = value.slice(0, atIndex);
+    const after = value.slice(atIndex + 1);
+    const beforeLayout = /\s$/u.test(before);
+    const afterLayout = /^\s/u.test(after);
+    // Both sides spaced around @ are ordinary prose (for example,
+    // `保存 @ 次へ`). A single layout gap is sensitive only when the other
+    // side starts or ends with a mailbox character. Continue to later @
+    // candidates so ordinary prose cannot hide a separated address.
+    if (beforeLayout === afterLayout) continue;
+    const adjacent = beforeLayout ? Array.from(after)[0] : Array.from(before).at(-1);
+    if (adjacent && CONTROL_NAME_EMAIL_MAILBOX_CHAR.test(adjacent)) return true;
+  }
+  return false;
 }
 
 function normalizePrivacyDigits(value) {

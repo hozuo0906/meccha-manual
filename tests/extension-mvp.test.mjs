@@ -183,6 +183,29 @@ test("click caption privacy checks compact layout whitespace for email detection
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
 });
 
+test("click caption privacy checks every at-sign layout candidate", () => {
+  const newline = String.fromCharCode(0x0a);
+  const ordinaryCaption = "保存 @ 次へ / 進む @ 戻る";
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: `view @ next alice${newline}@localhost` }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: `alice${newline}@localhost view @ next` }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: ordinaryCaption }), ordinaryCaption);
+});
+
+test("click caption privacy checks composed controls around later email candidates and keeps the length bound", () => {
+  const c1 = String.fromCharCode(0x80);
+  const cf = "\u200b";
+  const mark = "\u034f";
+  for (const ariaLabel of [
+    `view @ next alice${c1}${cf}${mark} @localhost`,
+    `alice@ ${c1}${cf}${mark}localhost view @ next`,
+    `view @ next alice ${c1}${cf}${mark}@localhost`,
+    `alice@${c1}${cf}${mark} localhost view @ next`,
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", JSON.stringify(ariaLabel));
+  }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: `${"x".repeat(41)} @ next` }), "ボタン");
+});
+
 test("click caption privacy checks email boundaries across controls, marks, and mailbox scripts", () => {
   const controls = {
     c0: String.fromCharCode(0x0a),
