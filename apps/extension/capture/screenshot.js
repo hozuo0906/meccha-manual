@@ -122,11 +122,13 @@ export function installSensitiveMasks() {
       { kind: "phone", pattern: /(?:^|[^\d])((?:0\d{1,4})[-ー−‐– ]?(?:\d{1,4})[-ー−‐– ]?\d{3,4})(?!\d)/g },
       { kind: "address", pattern: /(?:^|[^\d])(〒?\d{3}[-ー−‐– ]?\d{4})(?!\d)/g }
     ];
+    let privacyCandidateOverflow = false;
     const collectPrivacyCandidates = () => {
       const candidates = [];
       const pairedValues = new WeakSet();
       const candidateKeys = new Set();
       const rangeCandidates = new Map();
+      let candidateOverflow = false;
       const textNodeIds = new WeakMap();
       let nextTextNodeId = 1;
       const textNodeId = (node) => {
@@ -134,7 +136,7 @@ export function installSensitiveMasks() {
         return textNodeIds.get(node);
       };
       const addCandidate = (candidate) => {
-        if (candidates.length >= maxPrivacyOverlays || !candidate?.target || !intersectsViewport(candidate.rect)) return;
+        if (!candidate?.target || !intersectsViewport(candidate.rect)) return;
         if (candidate.rangeKey) {
           const existingIndex = rangeCandidates.get(candidate.rangeKey);
           if (existingIndex !== undefined) {
@@ -147,6 +149,10 @@ export function installSensitiveMasks() {
         }
         const key = candidate.key || `${candidate.kind}:${candidate.target}`;
         if (candidateKeys.has(key)) return;
+        if (candidates.length >= maxPrivacyOverlays) {
+          candidateOverflow = true;
+          return;
+        }
         candidateKeys.add(key);
         candidates.push(candidate);
       };
@@ -166,7 +172,7 @@ export function installSensitiveMasks() {
       for (const root of roots) {
         for (const selectorText of pairSelectors) {
           for (const valueElement of root.querySelectorAll?.(selectorText) || []) {
-            if (candidates.length >= maxPrivacyOverlays) return candidates;
+            if (candidateOverflow) break;
             const labelElement = valueElement.previousElementSibling;
             const kind = semanticKind(labelElement?.textContent);
             if (!kind || !isVisibleTextElement(valueElement)) continue;
@@ -176,12 +182,14 @@ export function installSensitiveMasks() {
             pairedValues.add(valueElement);
             addCandidate({ kind, target: valueElement, rect, key: `pair:${kind}:${candidates.length}` });
           }
+          if (candidateOverflow) break;
         }
+        if (candidateOverflow) break;
         if (typeof document.createTreeWalker !== "function") continue;
         const showText = globalThis.NodeFilter?.SHOW_TEXT ?? 4;
         const walker = root.createTreeWalker?.(root, showText) || document.createTreeWalker(root, showText);
         let node;
-        while (candidates.length < maxPrivacyOverlays && (node = walker.nextNode?.())) {
+        while (!candidateOverflow && (node = walker.nextNode?.())) {
           const parent = node.parentElement;
           const pairedAncestor = parent?.closest?.("dd,td");
           if (!parent || pairedValues.has(parent) || (pairedAncestor && pairedValues.has(pairedAncestor)) || !isVisibleTextElement(parent)) continue;
@@ -190,7 +198,7 @@ export function installSensitiveMasks() {
           for (const { kind, pattern } of textPatterns) {
             pattern.lastIndex = 0;
             let match;
-            while ((match = pattern.exec(value)) && candidates.length < maxPrivacyOverlays) {
+            while ((match = pattern.exec(value)) && !candidateOverflow) {
               const matchedValue = match[1] || match[0];
               const offset = match.index + (match[0].length - matchedValue.length);
               const range = root.createRange?.() || document.createRange?.();
@@ -205,7 +213,9 @@ export function installSensitiveMasks() {
             }
           }
         }
+        if (candidateOverflow) break;
       }
+      privacyCandidateOverflow = candidateOverflow;
       return candidates;
     };
     const colorIsOpaque = (color) => {
@@ -411,6 +421,20 @@ export function installSensitiveMasks() {
       }
       return false;
     };
+    const isProtectedAncestorMutationNode = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return false;
+      for (const target of protectedTargets) {
+        for (const candidate of [target, target?.previousElementSibling]) {
+          let current = candidate;
+          while (current) {
+            if (current === element) return true;
+            current = current.parentElement || current.getRootNode?.()?.host || null;
+          }
+        }
+      }
+      return false;
+    };
     const containsPiiText = (value) => {
       const text = String(value ?? "");
       return textPatterns.some(({ pattern }) => {
@@ -427,6 +451,57 @@ export function installSensitiveMasks() {
         if (semanticKind(label?.textContent) && normalizeText(valueElement?.textContent)) return true;
       }
       return false;
+    };
+    // Attribute changes on a host or an ancestor can expose text that is only
+    // reachable through one or more open/privileged shadow roots. Keep this
+    // evidence scan finite; exhausting the budget fails closed without
+    // retaining or reporting the inspected value.
+    const containsComposedCandidate = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return false;
+      let inspected = 0;
+      let matched = false;
+      let budgetExceeded = false;
+      const visitRoot = (root) => {
+        if (!root?.childNodes || matched || budgetExceeded) return;
+        for (const child of root.childNodes) {
+          if (matched || budgetExceeded) return;
+          inspected += 1;
+          if (inspected > maxPrivacyOverlays) {
+            budgetExceeded = true;
+            return;
+          }
+          if (child.nodeType === 3) {
+            if (containsPiiText(child.nodeValue)) matched = true;
+            continue;
+          }
+          if (child.nodeType !== 1) continue;
+          visitElement(child);
+        }
+      };
+      const visitElement = (current) => {
+        if (!current || matched || budgetExceeded) return;
+        const tagName = String(current.tagName || "").toUpperCase();
+        if (["DD", "TD"].includes(tagName)) {
+          const label = current.previousElementSibling;
+          if (semanticKind(label?.textContent) && normalizeText(current.textContent)) {
+            matched = true;
+            return;
+          }
+        }
+        visitRoot(current);
+        if (matched || budgetExceeded) return;
+        let shadow;
+        try {
+          shadow = shadowRootOf(current);
+        } catch {
+          budgetExceeded = true;
+          return;
+        }
+        if (shadow?.childNodes) visitRoot(shadow);
+      };
+      visitElement(element);
+      return matched || budgetExceeded;
     };
     const isSemanticMutationNode = (node) => {
       const element = node?.nodeType === 3 ? node.parentElement : node;
@@ -453,7 +528,14 @@ export function installSensitiveMasks() {
           || containsPiiText(record.oldValue)
           || containsPiiText(record.target?.nodeValue);
       }
-      if (record.type === "attributes") return isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target);
+      if (record.type === "attributes") {
+        return isProtectedMutationNode(record.target)
+          || isProtectedAncestorMutationNode(record.target)
+          || isSemanticMutationNode(record.target)
+          || containsPiiText(record.target?.textContent)
+          || containsSemanticCandidate(record.target)
+          || containsComposedCandidate(record.target);
+      }
       if (record.type !== "childList") return false;
       if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
       for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
@@ -501,7 +583,7 @@ export function installSensitiveMasks() {
     const flushPrivacyMutations = () => {
       for (const observer of privacyObservers) processPrivacyMutations(observer.takeRecords?.() || []);
     };
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates, get privacyCandidateOverflow() { return privacyCandidateOverflow; } };
     return { applied: true, count: masks.length, privacyMaskedCount, token };
   } catch {
     for (const observer of observers) observer.disconnect();
@@ -553,6 +635,7 @@ export function verifySensitiveMasks(expectedToken) {
     if (typeof state.collectPrivacyCandidates === "function") {
       const currentCandidates = state.collectPrivacyCandidates();
       const overlays = state.privacyOverlays || [];
+      if (state.privacyCandidateOverflow) return false;
       if (currentCandidates.length !== overlays.length) return false;
       if (currentCandidates.some((candidate) => !overlays.some((item) => item.target === candidate.target && sameRect(item.protectedRect, candidate.rect)))) return false;
     }
