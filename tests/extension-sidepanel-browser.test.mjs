@@ -84,7 +84,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
         (value) => Array.isArray(value) && value.length === expectedCount && value.every((image) => image.complete && image.width > 0)
       );
       assert.equal(imageState.length, expectedCount, `${expectedCount} captured events should have image cards`);
-      if (expectedCount === 2) assert.notEqual(imageState[0].src, imageState[1].src, "each operation should retain its own screenshot");
+      if (expectedCount > 1) assert.equal(new Set(imageState.map((image) => image.src)).size, expectedCount, "each operation should retain a distinct screenshot");
     };
     const clickNative = async (selector) => {
       const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
@@ -122,6 +122,22 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
     assert.match(await target.content(), /id=["']do["']/, "synthetic target should retain its action button");
+    const makeFixtureStateDistinct = async (step) => target.evaluate((currentStep) => {
+      const state = document.querySelector("#state");
+      const notice = document.querySelector("#notice");
+      const button = document.querySelector("#do");
+      if (!state || !notice || !button) return false;
+      const colors = ["#216b84", "#6a4c93", "#b45f06", "#21714d"];
+      const color = colors[(currentStep - 1) % colors.length];
+      state.textContent = `記録状態 ${currentStep}`;
+      state.style.background = color;
+      state.style.color = "#ffffff";
+      notice.textContent = `操作の確認 ${currentStep}：画面が更新されました。`;
+      button.textContent = `確認する（${currentStep}）`;
+      document.body.dataset.recordingStep = String(currentStep);
+      return true;
+    }, step);
+    assert.equal(await makeFixtureStateDistinct(1), true, "first synthetic state should be visible before capture");
     await target.locator("#do").click();
     const stateAfterFirstClick = await target.locator("#state").textContent();
     await waitForNativeValue(
@@ -129,6 +145,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
     await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(await makeFixtureStateDistinct(2), true, "second synthetic state should be visible before capture");
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
     assert.notEqual(stateAfterFirstClick, stateAfterSecondClick, "synthetic workflow should visibly change between events");
@@ -153,6 +170,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     assert.equal(browsingProgress.top, 0, "browsing an earlier step should be possible before the next event");
     assert.equal(browsingProgress.latestHidden, false, "browsing an earlier step should expose the latest-step control");
+    assert.equal(await makeFixtureStateDistinct(4), true, "fourth synthetic state should be visible before capture");
     await target.locator("#do").click();
     await expectNativeImages(4);
     const retainedBrowsingPosition = await waitForNativeValue(
@@ -166,6 +184,12 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       (value) => value === true
     );
     assert.equal(returnedToLatest, true, "the latest-step control should restore tail following");
+    const viewportLayout = await waitForNativeValue(
+      "(() => { const image = document.querySelector('.step-card:last-child img'); const footer = document.querySelector('.controls'); const imageRect = image?.getBoundingClientRect(); const footerRect = footer?.getBoundingClientRect(); return { viewport: { width: window.innerWidth, height: window.innerHeight }, image: imageRect && { top: imageRect.top, bottom: imageRect.bottom, height: imageRect.height }, footer: footerRect && { top: footerRect.top, bottom: footerRect.bottom, height: footerRect.height }, complete: image?.complete, naturalWidth: image?.naturalWidth }; })()",
+      (value) => value?.image?.complete && value.image.naturalWidth > 0 && value.footer?.height > 0
+    );
+    assert.ok(viewportLayout.image.bottom <= viewportLayout.footer.top + 1, `latest screenshot must remain above the fixed controls: ${JSON.stringify(viewportLayout)}`);
+    assert.ok(viewportLayout.image.top < viewportLayout.footer.top, `latest screenshot must be visible in the viewport: ${JSON.stringify(viewportLayout)}`);
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");
