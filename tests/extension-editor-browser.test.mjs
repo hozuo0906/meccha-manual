@@ -409,7 +409,7 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
     });
     await page.locator("#save").click();
     assert.equal(await page.locator("#startRegistration").isDisabled(), true);
-    assert.match(await page.locator("#gateStatus").textContent(), /準備中/);
+    assert.match(await page.locator("#gateStatus").textContent(), /保存先を準備できません/);
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.evaluate(() => globalThis.__handoffStorageWrites), 0, "pending CTA must not persist unused handoffs");
   } finally {
@@ -811,7 +811,7 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
-    await page.waitForFunction(() => /登録画面へ進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /保存の準備に進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
   } finally {

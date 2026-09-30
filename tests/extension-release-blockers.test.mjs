@@ -53,7 +53,8 @@ test("start failure immediately exposes retained window recovery controls", asyn
   assert.equal(elements.get("#restore").hidden, false);
   assert.equal(elements.get("#start").hidden, true);
   assert.equal(elements.get("#mode").disabled, true);
-  assert.match(elements.get("#status").textContent, /resize failed/);
+  assert.doesNotMatch(elements.get("#status").textContent, /resize failed/);
+  assert.match(elements.get("#status").textContent, /もう一度復元してください/);
 });
 
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {

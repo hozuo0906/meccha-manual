@@ -56,7 +56,7 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
     });
     await page.reload();
     assert.equal(await page.locator("#bootstrap").isDisabled(), true);
-    assert.match(await page.locator("#status").textContent(), /識別情報が確認できません/);
+    assert.match(await page.locator("#status").textContent(), /保存を続けるための情報を確認できません/);
   } finally {
     await context?.close();
     server.closeAllConnections?.();
@@ -93,8 +93,8 @@ test("onboarding rejects an expired canonical begin identity before bootstrap", 
     });
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
-    await page.getByRole("button", { name: "登録を続ける" }).waitFor();
-    assert.match(await page.locator("#status").textContent(), /識別情報が確認できません/);
+    await page.getByRole("button", { name: "保存を続ける" }).waitFor();
+    assert.match(await page.locator("#status").textContent(), /保存を続けるための情報を確認できません/);
     assert.equal(bootstrapCalls, 0);
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].state), "expired");
   } finally {

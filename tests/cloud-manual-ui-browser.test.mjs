@@ -141,7 +141,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByText("手順書を表示しています。").waitFor();
     assert.equal(patches.length, 2);
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
-    assert.equal(await page.getByRole("img", { name: "手順 1の操作を記録" }).count(), 1);
+    assert.equal(await page.getByRole("img", { name: "手順 1の画像" }).count(), 1);
     assert.equal(await page.getByRole("button", { name: "保存中に変更したタイトル" }).count(), 1);
     await page.getByLabel("タイトル", { exact: true }).fill("503でも保持");
     detailFailure = true;
@@ -168,7 +168,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "最新の内容を読み込む" }).click();
     await page.getByText("認証または権限を確認できません。画面を更新してください。").waitFor();
-    assert.equal(await page.getByText("左の一覧から手順書を選んでください。").count(), 1);
+    assert.equal(await page.getByText("一覧から手順書を選んでください。").count(), 1);
     assert.deepEqual(await page.evaluate(() => window.__cloudManualPolicyViolations || []), []);
     assert.deepEqual(consoleErrors, []);
   } finally {

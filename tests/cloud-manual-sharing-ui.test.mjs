@@ -24,7 +24,7 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     if (url.pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}/share-links`) {
       if (request.method === "GET") { json(200, { share }); return; }
       let body = ""; for await (const chunk of request) body += chunk;
-      if (request.method === "POST") { createBody = JSON.parse(body); createBodies.push(createBody); if (failPostOnce) { failPostOnce = false; json(503, { message: "発行結果を確認できません" }); return; } share = { shareLinkId: "share-1", expiresAt: createBody.expiresAt, revokedAt: null, permission: "read_only", viewerPath: "/s/" }; json(200, { ...share, reused: false }); return; }
+      if (request.method === "POST") { createBody = JSON.parse(body); createBodies.push(createBody); if (failPostOnce) { failPostOnce = false; json(503, { message: "作成結果を確認できません" }); return; } share = { shareLinkId: "share-1", expiresAt: createBody.expiresAt, revokedAt: null, permission: "read_only", viewerPath: "/s/" }; json(200, { ...share, reused: false }); return; }
       if (request.method === "DELETE") { revokeBody = JSON.parse(body); share = null; json(200, { revoked: true, shareLinkId: revokeBody.shareLinkId }); return; }
     }
     response.writeHead(404).end();
@@ -40,11 +40,11 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     await page.goto(`${baseUrl}/manuals`);
     await page.getByRole("button", { name: "共有テスト" }).click();
     await page.getByLabel("パスコード（12〜128文字）").fill("十分に長い共有用コードです");
-    await page.getByRole("button", { name: "共有リンクを発行" }).click();
-    await page.getByText("共有内容と期限を確認してから発行してください。").waitFor();
+    await page.getByRole("button", { name: "共有リンクを作成" }).click();
+    await page.getByText("共有内容と期限を確認してから作成してください。").waitFor();
     assert.equal(createBodies.length, 0);
-    await page.getByLabel("発行時点の内容と期限を確認しました").check();
-    await page.getByRole("button", { name: "共有リンクを発行" }).click();
+    await page.getByLabel("作成時点の内容と期限を確認しました").check();
+    await page.getByRole("button", { name: "共有リンクを作成" }).click();
     const shareLink = page.locator("input.share-link-value");
     await shareLink.waitFor();
     assert.equal(createBody.confirmed, true);
@@ -53,19 +53,19 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     assert.match(await shareLink.inputValue(), /\/s\/#token=[A-Za-z0-9_-]{43}/);
     await page.reload();
     await page.getByRole("button", { name: "共有テスト" }).click();
-    await page.getByText("共有リンクは再読み込み後に復元できません").waitFor();
+    await page.getByText("共有リンクを再表示できません。新しく作成するには、先に現在の共有を停止してください。").waitFor();
     await page.once("dialog", (dialog) => dialog.accept());
     const revokeResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/${manualId}/share-links` && response.request().method() === "DELETE" && response.status() === 200);
-    await page.getByRole("button", { name: "共有を停止して再発行" }).click();
-    await page.getByRole("button", { name: "共有リンクを発行" }).waitFor();
+    await page.getByRole("button", { name: "共有を停止" }).click();
+    await page.getByRole("button", { name: "共有リンクを作成" }).waitFor();
     assert.equal((await revokeResponse).status(), 200);
     assert.deepEqual(revokeBody, { shareLinkId: "share-1" });
     failPostOnce = true;
     await page.getByLabel("パスコード（12〜128文字）").fill("十分に長い共有用コードです");
-    await page.getByLabel("発行時点の内容と期限を確認しました").check();
-    await page.getByRole("button", { name: "共有リンクを発行" }).click();
-    await page.getByText("共有リンクの発行結果を確認できません").waitFor();
-    await page.getByRole("button", { name: "共有リンクを発行" }).click();
+    await page.getByLabel("作成時点の内容と期限を確認しました").check();
+    await page.getByRole("button", { name: "共有リンクを作成" }).click();
+    await page.getByText("共有リンクの作成結果を確認できません").waitFor();
+    await page.getByRole("button", { name: "共有リンクを作成" }).click();
     await page.locator("input.share-link-value").waitFor();
     assert.equal(createBodies.length, 3);
     assert.equal(createBodies[1].operationId, createBodies[2].operationId);

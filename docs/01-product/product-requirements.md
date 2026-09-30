@@ -34,7 +34,7 @@ Status: Accepted
 | FR-009 | MVP | 認証後のスクリーンショットを安全に保存できる | 認証後のclaim時にprivate R2 bucketへ保存され、業務assetのreadは毎回Access/D1または有効な共有grantとD1状態を再検証するWorker proxy経由で閲覧する。ゲスト状態ではスクリーンショットをR2へ送らない |
 | FR-010 | MVP | 入力値を保存しない | password、カード番号、トークン、個人番号、Cookie、Authorization、password manager由来情報がローカルguest data、DB、Storage、ログのいずれにも保存されない |
 | FR-011 | MVP | 操作記録から下書きを生成できる | Chrome拡張の記録終了後、アカウント未作成でもローカルで編集できる下書きが生成される |
-| FR-012 | MVP | 共有リンクを作成できる | 認証・guest claim完了後だけ発行できる。デフォルトOFF、期限、パスコード、権限範囲、無効化を持ち、ADR-0008の安全境界を維持する |
+| FR-012 | MVP | 共有リンクを作成できる | 認証・guest claim完了後だけ作成できる。デフォルトOFF、期限、パスコード、権限範囲、無効化を持ち、ADR-0008の安全境界を維持する |
 | FR-013 | MVP | 未ログイン閲覧ができる | 公開許可された有効な共有リンクのみ閲覧できる |
 | FR-014 | MVP | PDF出力ができる | 日本語、画像、ぼかし、リンクが維持される。ゲストがPDF出力を選んだ場合は認証・bootstrap・claim後に同じPDF出力を自動再開し、claim成功確認前はlocal原本を削除しない |
 | FR-015 | DEFERRED | Guide Me風の再生ができる | 対象不一致時は停止し、勝手に進まない |

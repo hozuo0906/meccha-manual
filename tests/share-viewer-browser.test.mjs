@@ -88,7 +88,7 @@ test("share viewer presents readable multi-image steps on desktop and mobile", {
     assert.equal(await page.locator("#share-content .share-step").count(), 3);
     assert.equal(await page.getByRole("heading", { name: /手順 1：/ }).count(), 1);
     assert.equal(await page.getByRole("heading", { name: /手順 2：/ }).count(), 1);
-    assert.equal(await page.getByText("この手順には操作を記録した画像がありません。", { exact: true }).count(), 1);
+    assert.equal(await page.getByText("この手順には画像がありません。", { exact: true }).count(), 1);
     assert.equal(await page.locator("img[src='/s/assets/brand/logo.png']").count(), 1);
     assert.equal(await page.locator("img[src='/s/assets/brand/mascot.png']").count(), 1);
     await page.screenshot({ path: ".artifacts/experience-repair/share-viewer-desktop.png", fullPage: true });
@@ -194,7 +194,7 @@ test("share viewer keeps a failed image visible with a retry action when the gra
     assert.equal(state.assetGrants.length, 1);
     assert.equal(state.assetGrants[0] === SHARE_GRANT, true);
     assert.equal(await page.locator(".share-image-error:visible").count(), 1);
-    assert.equal(await page.getByRole("button", { name: "画像を再読み込み" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "画像をもう一度読み込む" }).count(), 1);
     assert.equal(await page.locator("#share-content img").count(), 1);
     assert.equal(await page.locator("#share-content img").isHidden(), true);
   } finally {

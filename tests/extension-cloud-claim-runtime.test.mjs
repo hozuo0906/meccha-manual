@@ -737,9 +737,9 @@ test("two MV3 editor tabs converge on one fresh handoff and operation", { timeou
     await Promise.all(editors.map((page) => page.locator("#save").click()));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").waitFor({ state: "visible" })));
     await Promise.all(editors.map((page) => page.locator("#startRegistration").click()));
-    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", null, { timeout: 30_000 })));
+    await Promise.all(editors.map((page) => page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent === "保存先の準備画面を表示しました。ログインが必要な場合は、表示された画面で続けてください。", null, { timeout: 30_000 })));
     const gateStatuses = await Promise.all(editors.map((page) => page.locator("#gateStatus").textContent()));
-    assert.deepEqual(gateStatuses, ["登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。", "登録画面の準備ができました。ログインが必要な場合は、表示された画面で続けてください。"]);
+    assert.deepEqual(gateStatuses, ["保存先の準備画面を表示しました。ログインが必要な場合は、表示された画面で続けてください。", "保存先の準備画面を表示しました。ログインが必要な場合は、表示された画面で続けてください。"]);
     const allMetadata = await worker.evaluate(() => new Promise((resolve, reject) => chrome.storage.local.get(null, (result) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(result))));
     const handoffs = Object.values(allMetadata).filter((value) => value?.draftId === "runtime-editor-canonical-draft");
     assert.equal(handoffs.length, 1, "same draft editors must persist one metadata record");

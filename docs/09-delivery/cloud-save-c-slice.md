@@ -11,8 +11,8 @@ Status: Proposed
 この手順は、親PMが用意したmanifest `0.1.2`の配布候補ZIPを、既存のowner限定stagingへ導入して確認するための利用者向け手順である。ZIPを展開し、Chromeの拡張機能管理画面でデベロッパーモードを有効にして「パッケージ化されていない拡張機能を読み込む」から展開フォルダを選ぶ。拡張機能管理画面の操作は利用者本人が行う。自動ブラウザ操作で管理画面を開く手順にはしない。
 
 1. 拡張機能のポップアップで「操作を記録」から表示モードを選び、「記録開始」を押す。記録を終えたら「記録を終了して編集」を押す。
-2. 編集画面で必要なタイトル・説明・各手順を確認し、「保存して続ける」を押す。「この手順書を登録する」で「登録画面へ進む」を選ぶ。元のlocal draftは保存成功の確認まで保持する。
-3. Webの「登録を続ける」画面で、既存ownerのメール認証を使ってstaging Access認証を完了し、「保存先を準備する」を押す。本文や認証情報を拡張機能から先に送る操作ではない。
+2. 編集画面で必要なタイトル・説明・各手順を確認し、「保存して続ける」を押す。「保存の準備に進む」を選ぶ。元のlocal draftは保存成功の確認まで保持する。
+3. Webの「保存先を準備する」画面で、既存ownerのログインを使ってstaging Access認証を完了し、「保存先を準備する」を押す。本文やログイン情報を拡張機能から先に送る操作ではない。
 4. 「手順書を保存しました。保存した手順書を開きます。」の表示後、「保存した手順書を開く」を押す。「保存した手順書」画面の「手順書一覧」で対象を選び、本文・画像を再表示する。
 5. 一覧から対象を開き、タイトル・説明と全手順のタイトル・説明を編集する。必要に応じて「手順を追加」「上へ」「下へ」「この手順を削除」を使い、「変更を保存」を押す。再表示するときは「最新の内容を読み込む」を使い、保存後の一覧と全手順を確認する。
 
@@ -58,29 +58,29 @@ frontendは`apps/extension`、`apps/worker/src/cloud-manual-assets.ts`、cloud m
 
 ## D共有対応のowner限定staging配布版（manifest `0.1.3`）
 
-この節はCの0.1.2手順を履歴として保持したまま、D共有linkを含む0.1.3候補の更新手順を追加する。0.1.3の利用前に、親PMがIssue #70とPR #259のlive stateでD1 migration `0005`、D Worker、staging Access、private R2、対象CI／reviewを照合する。未確認の状態では実stagingの共有発行や`/s/`公開を完了扱いにしない。
+この節はCの0.1.2手順を履歴として保持したまま、D共有linkを含む0.1.3候補の更新手順を追加する。0.1.3の利用前に、親PMがIssue #70とPR #259のlive stateでD1 migration `0005`、D Worker、staging Access、private R2、対象CI／reviewを照合する。未確認の状態では実stagingの共有リンク作成や`/s/`公開を完了扱いにしない。
 
 1. 親PMが用意した0.1.3配布候補のmanifest versionとstaging originを確認する。既存の拡張機能をChromeの管理画面から削除せず、同じ展開フォルダのファイルを差し替えてから拡張機能の「再読み込み」を行う。local storageと未保存draftを保持するため、別フォルダを新規登録したり、アンインストールして入れ直したりしない。
-2. Cの保存済み手順書をowner限定stagingで開き、共有設定からowner/admin/editorだけが操作できることを確認する。明示確認、期限、12〜128 code pointのpasscodeを設定して共有を発行する。検証時のtokenとpasscodeはMarkdown、ログ、スクリーンショットへ記録しない。
+2. Cの保存済み手順書をowner限定stagingで開き、共有設定からowner/admin/editorだけが操作できることを確認する。内容と期限を確認し、12〜128 code pointのpasscodeを設定して共有リンクを作成する。検証時のtokenとpasscodeはMarkdown、ログ、スクリーンショットへ記録しない。
 3. 共有viewerを`/s/`から開き、passcode後にpublished snapshotのタイトル、説明、step、承認済み画像が表示されること、編集・保存・停止などのwrite controlが表示されないことを確認する。後続のdraft編集で共有snapshotが変わらないことを確認する。
-4. 共有link停止、発行者membership停止、grantまたはassetの期限・失効後に、本文とassetの新しいrequestが拒否されることを確認する。R2のpublic bucketやsigned read URLを使わず、Worker proxyのresponseだけを確認する。既に受信したbytesの回収は証明しない。
+4. 共有link停止、作成者membership停止、grantまたはassetの期限・失効後に、本文とassetの新しいrequestが拒否されることを確認する。R2のpublic bucketやsigned read URLを使わず、Worker proxyのresponseだけを確認する。既に受信したbytesの回収は証明しない。
 5. 実Chrome導入、remote migration、Worker deploy、Access `/s/*`公開、実R2確認の結果は、対象SHAと実行時点をIssue #70またはPR #259へ記録する。token、passcode、Access credential、実workspace ID、実画像、PIIは記録しない。isolated Chromiumのmock API browser testはUI回帰の証拠であり、staging通し確認の代替にはしない。
 
-D1 migration `0005`の適用、D Worker deploy、Access `/s/*`公開、PR #259の最新CI／review／merge、C owner本人の実Chrome拡張E2Eは、この文書の追記だけでは確認済みにならない。確認日時と対象SHAをlive stateから再取得できない場合は、共有発行・migration・deploy・公開など影響操作を保留し、「未確認」と報告する。
+D1 migration `0005`の適用、D Worker deploy、Access `/s/*`公開、PR #259の最新CI／review／merge、C owner本人の実Chrome拡張E2Eは、この文書の追記だけでは確認済みにならない。確認日時と対象SHAをlive stateから再取得できない場合は、共有リンク作成・migration・deploy・公開など影響操作を保留し、「未確認」と報告する。
 
 ## C/D共有対応のowner限定staging配布候補（manifest `0.1.5`）
 
-この節は、0.1.3または0.1.4を導入済みの同じ展開フォルダを更新して、共有準備と通常遷移時の離脱警告制御を含む0.1.5候補を実Chromeで受入確認する手順である。配布候補ZIPの正確なパスは、親PMが最終SHAから生成するまで未確定とする。0.1.5候補、CI、staging反映、deploy、共有発行の成功は、この節の追加だけでは確定しない。
+この節は、0.1.3または0.1.4を導入済みの同じ展開フォルダを更新して、共有準備と通常遷移時の離脱警告制御を含む0.1.5候補を実Chromeで受入確認する手順である。配布候補ZIPの正確なパスは、親PMが最終SHAから生成するまで未確定とする。0.1.5候補、CI、staging反映、deploy、共有リンク作成の成功は、この節の追加だけでは確定しない。
 
 1. 親PMから受け取った0.1.5候補ZIPを展開し、Chromeの `chrome://extensions` で既存の拡張機能を削除せず、現在読み込んでいる同じ展開フォルダのファイルを更新する。「再読み込み」を押して該当カードのversionが `0.1.5` になったことを確認する。別フォルダの登録、アンインストール、入れ直しは行わず、local storageと未保存draftを保持する。
 2. 手順を記録する画面は、親PMが指定する個人情報を含まない合成ページの通常Web URLを開き、拡張機能アイコンからnativeサイドバーを起動する。保存後の確認URLは `https://meccha-manual-staging.meccha-iiyatsu.com/manuals` とし、記録する通常Webページと混同しない。Chrome限定URLは記録対象にせず、操作を記録できないことを確認する。
 3. nativeサイドバーから記録を開始し、画面上で操作を急がず、2つの操作を順に行う。各操作で画像が1枚ずつ取得され、合計2枚の画像が手順へ対応して表示されることを確認する。通常リンクとフォーム遷移では不要な離脱警告が出ず、送信失敗時の再試行警告とサイト自身のbeforeunload警告は表示されることを確認する。素早い連続操作では画像を取得できない旨の表示になり、未取得画像を成功扱いにしないことを確認する。
 4. 記録を終了して編集へ進み、画像2枚と手順内容を確認する。古い未保存画像が復元されないことを確認し、必要な操作は再記録する。8秒を過ぎても準備が完了しない場合は自動で対象tabへ切り替えず、必要な場合だけ表示される「ログイン・接続を確認する」手動ボタンでログイン先へ進む。
 5. 「保存して続ける」からstaging保存を実行し、保存成功と保存した手順書の本文・画像を確認する。元のlocal draftは保存成功の確認まで保持する。
-6. 共有設定は利用者が明示的に発行操作を行う。発行後は生成された発行リンクから共有先を開き、共有先で本文・手順・画像2枚を確認する。裸の `/s/` URLを直接開く手順や、発行前の共有公開を成功扱いにしない。
-7. 共有停止を明示的に実行し、停止後に共有先の本文・画像取得が拒否されることを確認する。停止前後のtoken、passcode、Access credential、workspace ID、実画像、個人情報は文書、ログ、スクリーンショットへ記録しない。
+6. 共有設定は利用者が共有リンクを作成する操作を行う。作成後は生成された共有リンクから共有先を開き、共有先で本文・手順・画像2枚を確認する。裸の `/s/` URLを直接開く手順や、作成前の共有公開を成功扱いにしない。
+7. 共有停止を実行し、停止後に共有先の本文・画像取得が拒否されることを確認する。停止前後のtoken、passcode、Access credential、workspace ID、実画像、個人情報は文書、ログ、スクリーンショットへ記録しない。
 
-実stagingのURL、発行リンク、配布候補の最終SHA、CI、Chrome受入結果は、確認時点のIssue #262、Issue #70、該当PRのlive stateへ親PMが記録する。isolated Chromiumやmock APIの成功、0.1.5候補のversion表示だけでは、staging保存・共有発行・共有停止の完了証跡にならない。
+実stagingのURL、共有リンク、配布候補の最終SHA、CI、Chrome受入結果は、確認時点のIssue #262、Issue #70、該当PRのlive stateへ親PMが記録する。isolated Chromiumやmock APIの成功、0.1.5候補のversion表示だけでは、staging保存・共有リンク作成・共有停止の完了証跡にならない。
 
 ### 0.1.6 配布候補（Issue #264）
 

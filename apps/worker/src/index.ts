@@ -350,7 +350,7 @@ function apiProfile(profile: ProfileRecord | null): unknown {
 
 async function bootstrapOnboarding(request: Request, env: Env): Promise<Response> {
   if (!isConfiguredOnboardingOrigin(new URL(request.url).origin, env)) {
-    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "登録画面の準備が完了していません。時間をおいて、もう一度お試しください。");
+    throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存先の準備が完了していません。時間をおいて、もう一度お試しください。");
   }
   let actor;
   try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }

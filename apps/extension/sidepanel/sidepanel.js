@@ -76,8 +76,8 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
       const imageState = document.createElement("span");
       imageState.className = "image-state";
       imageState.textContent = imageRef?.status === "failed" || imageRef?.status === "unavailable"
-        ? "画像を記録できませんでした"
-        : "画像を取得中";
+        ? "画像を記録できませんでした。記録を続けるか、終了して手順書を確認してください。"
+        : "画像を読み込んでいます…";
       item.append(text, imageState);
     }
     liveSteps.append(item);
@@ -175,13 +175,13 @@ function renderStatus(state = {}, imageEntries = []) {
   }
   if (statusOverride) status.textContent = statusOverride;
   else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
-  else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に再開できません。対象タブで再開するか、ここまでの内容を終了してください。";
+  else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に記録を再開できません。対象タブで再開するか、記録を終了して編集してください。";
   else if (state.phase === "cancel_failed") status.textContent = "キャンセルが完了していません。もう一度キャンセルしてください。";
-  else if (state.phase === "finish_failed") status.textContent = "終了処理に失敗しました。記録内容はこの端末に保持しています。";
+  else if (state.phase === "finish_failed") status.textContent = "記録を終了できませんでした。記録内容はこの端末に保持しています。もう一度終了してください。";
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
-  else if (active) status.textContent = "このタブだけを記録しています。入力した値は保存しません。";
+  else if (active) status.textContent = "このタブだけを記録しています。入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があります。";
   else if (!state.hasDrafts) status.textContent = "";
 }
 
@@ -237,7 +237,7 @@ async function refresh(forceDraftPoll = false) {
 
 async function withError(action, fallback) {
   try { await action(); }
-  catch (error) { statusOverride = `${fallback}（${error.message}）`; await refresh().catch(() => undefined); }
+  catch { statusOverride = fallback; await refresh().catch(() => undefined); }
 }
 
 start.addEventListener("click", () => withError(async () => {

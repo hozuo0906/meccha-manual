@@ -152,9 +152,9 @@ test("editor gate keeps save failure from opening registration", async () => {
   const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/editor/editor.css", import.meta.url), "utf8");
   assert.match(source, /if \(!await persist\(/);
-  assert.match(source, /保存に失敗したため、登録画面へ進めません/);
+  assert.match(source, /保存に失敗したため、保存先へ進めません/);
   assert.match(source, /setSaveState\("保存中…", "saving"\)/);
-  assert.match(source, /setSaveState\("保存済み", "saved"\)/);
+  assert.match(source, /setSaveState\("端末に保存済み", "saved"\)/);
   assert.match(html, /meccha-manual-logo-mark\.png/);
   assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
   assert.match(css, /prefers-reduced-motion/);
