@@ -140,14 +140,50 @@ function assertImageCapacity(candidate, nextDataUrl, replacedId = null) {
   if (total > MAX_IMAGE_TOTAL_BYTES) throw new RangeError("IMAGE_TOTAL_TOO_LARGE");
 }
 
+async function readImageHeaderDimensions(file) {
+  const bytes = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length >= 24 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) {
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (bytes.length >= 10 && ["GIF89a", "GIF87a"].includes(String.fromCharCode(...bytes.slice(0, 6)))) {
+    return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+  }
+  if (bytes.length >= 30 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {
+    const chunk = String.fromCharCode(...bytes.slice(12, 16));
+    if (chunk === "VP8X" && bytes.length >= 30) return { width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
+    if (chunk === "VP8 " && bytes.length >= 30) {
+      for (let offset = 20; offset + 9 < bytes.length; offset += 1) if (bytes[offset] === 0x9d && bytes[offset + 1] === 0x01 && bytes[offset + 2] === 0x2a) return { width: view.getUint16(offset + 3, true) & 0x3fff, height: view.getUint16(offset + 5, true) & 0x3fff };
+    }
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 8 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      const marker = bytes[offset + 1]; offset += 2;
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      const length = view.getUint16(offset); if (length < 2 || offset + length > bytes.length) break;
+      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) return { width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
+      offset += length;
+    }
+  }
+  return null;
+}
+
+function assertImageDimensions(width, height) {
+  if (!width || !height || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION || width * height > MAX_IMAGE_PIXELS) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");
+}
+
 async function normalizeUploadedImage(file) {
   if (!(file instanceof File) || !ACCEPTED_IMAGE_TYPES.has(file.type)) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
   if (file.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_INPUT_TOO_LARGE");
   if (typeof createImageBitmap !== "function") throw new Error("IMAGE_DECODE_UNAVAILABLE");
+  const headerDimensions = await readImageHeaderDimensions(file);
+  if (headerDimensions) assertImageDimensions(headerDimensions.width, headerDimensions.height);
   const bitmap = await createImageBitmap(file);
   try {
     if (!bitmap.width || !bitmap.height) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
-    if (bitmap.width > MAX_IMAGE_DIMENSION || bitmap.height > MAX_IMAGE_DIMENSION || bitmap.width * bitmap.height > MAX_IMAGE_PIXELS) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");
+    assertImageDimensions(bitmap.width, bitmap.height);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
