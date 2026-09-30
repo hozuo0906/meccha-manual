@@ -472,9 +472,11 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Status: Accepted
 - Date: 2026-10-01
 - Decision:
+  - 表示用captionは表示可能な原形を保持し、機密判定は用途別のprivacy viewで行う。メール判定用sourceでは、ECMAScriptの`\s`に含まれる`Cc`（TAB／LF／VT／FF／CR）を空白へ写像し、それ以外の`Cc`（C1 controlを含む）は除去する。`Cf`は除去し、メール候補の値照合ではUnicode combining mark（`U+034F`を含む）だけを除去する。電話番号・secret判定では`Cc`、`Cf`、Unicode combining markを除いた安全viewを使い、emailのUnicode字形は表示用captionへ反映する前に変更しない。
+  - `Cc`除去の記述は電話番号・secret・URL等の値判定用privacy viewとメール判定用sourceの非layout controlを指す。メールlayout判定では`\s`相当の空白を保持し、`@`の両側が空白の通常caption（`保存 @ 次へ`）は保持する。一方、片側だけlayout空白で反対側がUnicode `L`／`N`／`M`のmailbox文字なら、改行・空白で分断されたメール候補として拒否する。
   - clickの対象がbutton、link、menuitem、またはinputのbutton／submit／reset／imageで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキスト、input button／submit／resetのHTML `value`属性、input imageの`alt`属性を候補にする。inputのvalueはこのcaption境界に限って扱い、テキスト入力の現在値は読まない。
   - 候補は空白・制御文字を正規化し、40 Unicode code pointを上限とする。メールアドレス、URL、電話番号、郵便番号、token、password、カード情報などの高信頼な機密候補は固定semantic値へ戻す。
-  - privacy viewのUnicode decimal digitは固定のzero一覧を持たず、Unicode `Nd`カテゴリの連続runを最大64 code pointだけ後方探索して10進値へ写像する。Unicode data上の隣接した数学用数字を含む10桁単位のrunを対象とし、boundを超える未知のrunはfail closedで固定semantic値へ戻す。メールのlayout補助判定とdomain組成はUnicode `L`／`N`／`M`カテゴリを扱い、`@`直前隣接と改行・空白後のdomainを検査するが、`保存 @ 次へ`のような両側空白の通常captionは保持する。privacy viewからはUnicode `Cc`を除去し、C1 controlを挿入したsecretや電話番号の検出を分断させない。
+  - privacy viewのUnicode decimal digitは固定のzero一覧を持たず、Unicode `Nd`カテゴリの連続runを最大64 code pointだけ後方探索して10進値へ写像する。Unicode data上の隣接した数学用数字を含む10桁単位のrunを対象とし、boundを超える未知のrunはfail closedで固定semantic値へ戻す。メールのlayout補助判定とdomain組成はUnicode `L`／`N`／`M`カテゴリを扱い、`@`直前隣接と改行・空白後のdomainを検査する。メール候補の照合では`M`を除いてもlayout空白を保持し、`@`後の空白だけを値照合で詰める。privacy viewからはUnicode `Cc`を除去してC1 controlを挿入したsecretや電話番号の検出を分断させない。
   - selectの選択値、テキスト入力の現在値、placeholder、対象要素外の本文は取得しない。inputのvalueはbutton／submit／resetのcaption候補としてだけ扱う。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
   - 安全な候補はローカルeventとguest下書きの生成文にだけ反映し、既存のサーバー側capture APIのgeneric target契約、入力値非保存、外部AI API初期OFFを変更しない。
 - Reason:
