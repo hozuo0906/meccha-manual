@@ -152,6 +152,11 @@ async function readImageHeaderDimensions(file) {
   if (bytes.length >= 30 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {
     const chunk = String.fromCharCode(...bytes.slice(12, 16));
     if (chunk === "VP8X" && bytes.length >= 30) return { width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
+    if (chunk === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
+      const width = 1 + ((bytes[21] | (bytes[22] << 8)) & 0x3fff);
+      const height = 1 + (((bytes[22] >> 6) | (bytes[23] << 2) | (bytes[24] << 10)) & 0x3fff);
+      return { width, height };
+    }
     if (chunk === "VP8 " && bytes.length >= 30) {
       for (let offset = 20; offset + 9 < bytes.length; offset += 1) if (bytes[offset] === 0x9d && bytes[offset + 1] === 0x01 && bytes[offset + 2] === 0x2a) return { width: view.getUint16(offset + 3, true) & 0x3fff, height: view.getUint16(offset + 5, true) & 0x3fff };
     }
@@ -179,7 +184,10 @@ async function normalizeUploadedImage(file) {
   if (file.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_INPUT_TOO_LARGE");
   if (typeof createImageBitmap !== "function") throw new Error("IMAGE_DECODE_UNAVAILABLE");
   const headerDimensions = await readImageHeaderDimensions(file);
-  if (headerDimensions) assertImageDimensions(headerDimensions.width, headerDimensions.height);
+  // The decoder must never be the first place we learn the dimensions. A malformed
+  // or unsupported header is rejected before a potentially huge bitmap is allocated.
+  if (!headerDimensions) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
+  assertImageDimensions(headerDimensions.width, headerDimensions.height);
   const bitmap = await createImageBitmap(file);
   try {
     if (!bitmap.width || !bitmap.height) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
@@ -192,7 +200,19 @@ async function normalizeUploadedImage(file) {
     context.drawImage(bitmap, 0, 0);
     // Re-encode to remove the original file metadata before it enters the draft.
     let blob = await canvasToBlob(canvas, "image/png");
-    if (blob.size > MAX_IMAGE_BYTES) blob = await canvasToBlob(canvas, "image/jpeg", .88);
+    if (blob.size > MAX_IMAGE_BYTES) {
+      // JPEG has no alpha channel. Flatten only for this size fallback so a
+      // transparent PNG does not become a black rectangle.
+      const flattened = document.createElement("canvas");
+      flattened.width = bitmap.width;
+      flattened.height = bitmap.height;
+      const flattenedContext = flattened.getContext("2d");
+      if (!flattenedContext) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
+      flattenedContext.fillStyle = "#ffffff";
+      flattenedContext.fillRect(0, 0, bitmap.width, bitmap.height);
+      flattenedContext.drawImage(canvas, 0, 0);
+      blob = await canvasToBlob(flattened, "image/jpeg", .88);
+    }
     if (blob.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE");
     return { dataUrl: await blobToDataUrl(blob), width: bitmap.width, height: bitmap.height };
   } finally {

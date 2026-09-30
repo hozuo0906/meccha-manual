@@ -1126,9 +1126,22 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
     await page.goto(`${baseUrl}/editor/editor.html#shared-image-upload-fixture`);
     const input = page.locator("#step-shared-step-1 .image-upload-panel input[type=file]");
     assert.equal(await input.getAttribute("tabindex"), "-1", "ファイル選択用の補助入力をTab順から外す");
-    const transparentPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    const transparentDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2; canvas.height = 2;
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, 2, 2);
+      context.fillStyle = "rgba(8, 127, 122, .5)";
+      context.fillRect(1, 1, 1, 1);
+      return canvas.toDataURL("image/png");
+    });
+    const transparentPng = Buffer.from(transparentDataUrl.split(",")[1], "base64");
     await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
-    await page.waitForFunction(() => document.querySelector("#step-shared-step-1 .screenshot-canvas"));
+    await page.waitForFunction(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const current = await draftStore.get("shared-image-upload-fixture");
+      return current.steps[0].screenshotId !== "shared-image";
+    });
     const replaced = await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       const current = await draftStore.get("shared-image-upload-fixture");
@@ -1144,13 +1157,81 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
 
     await page.evaluate(() => {
       globalThis.__originalCreateImageBitmap = globalThis.createImageBitmap;
-      globalThis.createImageBitmap = async () => ({ width: 12_001, height: 1, close() {} });
+      globalThis.__decodeCalled = false;
+      globalThis.createImageBitmap = async () => {
+        globalThis.__decodeCalled = true;
+        return { width: 12_001, height: 1, close() {} };
+      };
     });
     const secondInput = page.locator("#step-shared-step-2 .image-upload-panel input[type=file]");
-    await secondInput.setInputFiles({ name: "too-wide.png", mimeType: "image/png", buffer: transparentPng });
+    const oversizedPng = Buffer.from(transparentPng);
+    oversizedPng.writeUInt32BE(12_001, 16);
+    await secondInput.setInputFiles({ name: "too-wide.png", mimeType: "image/png", buffer: oversizedPng });
     await page.getByText("画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => globalThis.__decodeCalled), false, "画像の寸法を確認できないままデコードしない");
     const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("shared-image-upload-fixture")));
     assert.equal(afterReject.steps[1].screenshotId, "shared-image", "解像度超過時は下書きを変更しない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("image upload enforces draft image count and total capacity", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const tinyPng = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ tinyPng }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "image-limit-fixture",
+        title: "画像上限の確認",
+        description: "",
+        steps: [
+          { id: "limit-step-1", order: 1, instruction: "一つ目", screenshotId: "image-0" },
+          { id: "limit-step-2", order: 2, instruction: "二つ目", screenshotId: "image-0" }
+        ],
+        screenshots: Array.from({ length: 100 }, (_, index) => ({ id: `image-${index}`, dataUrl: tinyPng, annotations: [], masks: [] }))
+      });
+    }, { tinyPng });
+    await page.goto(`${baseUrl}/editor/editor.html#image-limit-fixture`);
+    const countInput = page.locator("#step-limit-step-1 .image-upload-panel input[type=file]");
+    const upload = Buffer.from(tinyPng.split(",")[1], "base64");
+    await countInput.setInputFiles({ name: "count-limit.png", mimeType: "image/png", buffer: upload });
+    await page.getByText("画像は100件まで追加できます。", { exact: true }).waitFor();
+    const countDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("image-limit-fixture")));
+    assert.equal(countDraft.screenshots.length, 100, "画像件数超過時は下書きを変更しない");
+
+    await page.evaluate(async ({ tinyPng }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "image-total-fixture", title: "画像合計サイズの確認", description: "", steps: [{ id: "total-step", order: 1, instruction: "一つ目", screenshotId: "total-image" }], screenshots: [{ id: "total-image", dataUrl: tinyPng, annotations: [], masks: [] }] });
+    }, { tinyPng });
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.goto(`${baseUrl}/editor/editor.html#image-total-fixture`);
+    await page.evaluate(() => {
+      globalThis.__originalReadAsDataURL = FileReader.prototype.readAsDataURL;
+      FileReader.prototype.readAsDataURL = function () {
+        Object.defineProperty(this, "result", { configurable: true, value: `data:image/png;base64,${"A".repeat(140_000_000)}` });
+        queueMicrotask(() => this.onload?.());
+      };
+    });
+    const totalInput = page.locator("#step-total-step .image-upload-panel input[type=file]");
+    await totalInput.setInputFiles({ name: "total-limit.png", mimeType: "image/png", buffer: upload });
+    await page.getByText("画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。", { exact: true }).waitFor();
+    const totalDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("image-total-fixture")));
+    assert.equal(totalDraft.screenshots[0].id, "total-image", "合計サイズ超過時は元画像を保持する");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
