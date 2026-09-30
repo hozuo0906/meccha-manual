@@ -4,7 +4,7 @@ Status: Accepted
 
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
-| DEC-078 | 2026-10-01 | Access認証後に同一originのhandoff遷移へ戻る際、fragmentが失われた場合は、拡張機能が対象tab・未完了handoff・保存済みmetadata・TTLを再検証して同じfragmentだけを最大3回まで再付与する。本文、画像、credential、共有tokenは再付与URLへ追加しない | Access認証によるredirectでfragmentが引き継がれず、登録画面がhandoffを復元できない保存不能を解消しつつ、handoffの対象・期限・データ境界を維持するため |
+| DEC-085 | 2026-10-01 | Access認証後のhandoff復帰はURL監視に依存せず、同一originのWeb画面からの`handoff.access-return` external messageを、senderのtop-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordで再検証する。通常handoffは元の期限内、`finalize-pending`／`completion-pending`はGET専用の結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。本文、画像、credential、共有token、Access URL観測権限は追加しない | Access redirectでfragmentが失われても、最小権限のまま認証後のWeb画面から対象tabを証明できるため。通常の期限切れ書き込みと別tab・通常fragment除去・完了済みhandoffの誤復帰を拒否する |
 | DEC-075 | 2026-09-20 | B登録UIのhandoff metadataは同一タブの`sessionStorage`にhandoffごとの履歴として保持し、`handoffId`ごとに一意な`operationId`を再利用する。metadataは作成から15分で、期限切れtombstoneの保存に成功した場合に限り`expired`へ遷移し、期限切れの同じIDを再開・再送せず、拡張機能で新しいhandoffを発行してやり直す | A-B-Aのタブ内遷移で別handoffの操作を混同せず、期限切れ・結果不明の再送で新しいoperationを発行しない。本文・画像・下書きはsessionStorageへ移さず、正式origin／Accessが未準備の場合は登録操作を無効化して準備中を表示する。tombstoneの保存に失敗した現在ページはfail closedとし、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先を再検証する。 |
 | DEC-076 | 2026-09-20 | B owner pilotのruntimeは既存legacy `wrangler.jsonc`から分離した`wrangler.onboarding.jsonc`を使い、`apps/worker/src/index.ts`、環境別の完全一致`APP_ENV`／`APP_BASE_URL`、staging専用D1、10回／60秒のrate-limit bindingを固定する。productionのD1 ID、Access audience、rate-limit namespaceが未確定の間はplaceholderでfail closedにする | legacy Supabase／Discord runtimeへ影響させず、stagingの限定検証だけを可能にする。host反映やwildcardによるWeb UI有効化を拒否し、production資源作成・migration・deployやCの実装をこの準備で承認しない。 |
 | DEC-077 | 2026-09-21 | owner限定staging配布版のChrome拡張は、`https://meccha-manual-staging.meccha-iiyatsu.com`だけを登録UI handoff先として固定し、production、preview、localhost、userinfo、port、path、query付きoriginを拒否する。configとhandoffは同じ固定値を参照し、配布版のmanifest versionは`0.1.1`とする | staging B登録UIへ接続できる reviewable な配布導線を用意しつつ、production公開や任意originへの接続を防ぐ。本文・画像・credentialは拡張から送信せず、Cの保存・claimは有効化しない。 |
@@ -464,11 +464,11 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Reason: 停止要求がサーバーへ到達したか、停止後の応答だけが失われたかを画面から判定できない場合に、リンクを失って再発行したり、利用者が停止済みリンクを使い続けたりする誤操作を防ぐため。
 - Boundary: APIの権限判定、D1の停止処理、匿名viewerのgrant再検証、production反映、deploy、共有リンク公開は変更しない。
 
-### DEC-085: Access復帰印を使ったhandoff再付与の境界
+### DEC-085: Access復帰通知を使ったhandoff再付与の境界
 
 - Status: Accepted
 - Date: 2026-10-01
 - Issue: #272 / PR #274
-- Decision: 拡張機能は同じtabにある未完了handoffを確認できたときだけ、`/cdn-cgi/access/login`への遷移をhandoff ID、launch ID、元のexpiresAt、tab ID、観測時刻とともに15分間の復帰印としてlocal領域へ保持する。同じtabが同一originの`/onboarding/continue`へfragmentなしで戻った場合に限り、印と現在のmetadataを再照合して同じfragmentを一度だけ再付与する。復帰印の15分は元のexpiresAtを延長しない。通常のhandoffページがfragmentを`history.replaceState`で除去する経路、別tab、期限切れ、取消済み、完了済み、metadata不一致は復帰として扱わない。復帰印は再付与時に消費し、本文・画像・認証情報・共有tokenは保存せずURLにも含めない。
-- Reason: Web画面がfragmentを読み取り後に除去する通常経路と、Access認証後にfragmentが失われた復帰経路を区別しないと、通常の初回表示を最大3回再読み込みし、保存画面を不安定にするため。復帰の識別を対象tab、Access login path、TTL、未完了handoffの再検証へ限定して、同じ保存identityを一度だけ再開する。
+- Decision: Access認証後に同一originのWeb画面が`handoff.access-return` external messageを送る。拡張機能はsenderの固定origin・`/onboarding/continue`・top-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordを照合し、通常handoffは元の期限内、`finalize-pending`／`completion-pending`は結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。復帰後のGET専用照会と同じmanualIdの完了通知だけを期限後に許可し、通常の期限切れwriteは拒否する。本文・画像・認証情報・共有tokenをメッセージやURLに含めず、`tabs`／host permissionを追加しない。
+- Reason: `tabs.onUpdated.changeInfo.url`は最小権限のMV3 workerが常に参照できる契約ではなく、合成テストのfabricated URLを実Chromeの根拠にできないため。Web画面からの明示通知に、sender、tab、launch、identity、action、fingerprint、期限を束ねて、通常の初回fragment除去とAccess復帰を区別しながら保存identityを再開する。
 - Boundary: Access policy、認証credential、Worker／D1／R2、claim API、production設定、共有公開は変更しない。実ブラウザ回帰は、通常fragment除去0回、Access経由1回、active tab維持、claim完了、local draft削除、再読込後の完了状態を実MV3で確認する。

@@ -349,6 +349,16 @@ test("navigation reinjection proceeds even when navigation event persistence fai
   assert.match(updated, /failureCategory: "recorder_reinjection_failed"/);
 });
 
+test("Access handoff recovery uses the bound external return signal", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /handoff\.access-return/);
+  assert.match(source, /validHandoffAccessReturnSender/);
+  assert.match(source, /sender\?\.frameId === 0/);
+  assert.match(source, /ready\.tabId !== sender\.tab\.id/);
+  assert.doesNotMatch(source, /changeInfo\?\.url/);
+  assert.doesNotMatch(source, /HANDOFF_ACCESS_NAVIGATION_KEY_PREFIX/);
+});
+
 test("PC mode restoration is a no-op so user window changes are not undone", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   const start = source.indexOf("async function attemptRestore(session)");

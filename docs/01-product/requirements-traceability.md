@@ -123,7 +123,7 @@ FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複f
 ### C handoff準備完了の受入境界
 
 FR-001、FR-002、FR-022の登録／共有handoffでは、拡張機能がinactive tabを作成してからWebページの`handoff.page-ready`を受け、自動activate期限内に固定origin・`/onboarding/continue`・tab ID・launch ID・保存済みdraft fingerprintの存在・64桁hex形式・TTLを検証してpageReadyAtだけを記録し、現activeなeditorがrun／launch／tab／期限を再検証した場合だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合とclaim本体のrequest fingerprint検証は別境界として追跡する。古い通知、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用0で拒否し、Accessログイン等でreadyを受信できない場合はtimeout後に自動activateせず利用者の明示操作で画面を表示する。ready観測後にauto期限を超えた場合は同じ準備済みtabでmanual継続し、回帰で確認する。実装は`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、回帰は`tests/onboarding-ui.test.mjs`と`tests/extension-editor-browser.test.mjs`で追跡する。
-Access認証後の復帰は、対象tabで`/cdn-cgi/access/login`を観測した15分以内の復帰だけを同じtabのhandoff再付与対象とし、通常の同一origin fragment除去、別tab、期限切れ、取消済み、完了済み、metadata不一致を復帰成功として扱わない。復帰印は一度の再付与で消費する。実ブラウザ回帰は`tests/extension-cloud-claim-runtime.test.mjs`の実MV3で、通常除去0回・Access経由1回・claim完了・local原本削除・再読込後の完了状態を確認する。
+Access認証後の復帰は、同一originのWeb画面から`handoff.access-return`を受けた場合だけ、senderのtop-level frame・tab ID、handoff ID、launch ID、拡張ID、operation identity、action、draft fingerprint、元の期限、ready recordを再照合して同じtabへfragmentを再付与する。通常の同一origin fragment除去、別tab、期限切れの通常handoff、取消済み、完了済み、metadata不一致を復帰成功として扱わず、`finalize-pending`／`completion-pending`はGET専用の結果回収だけを許可する。再付与は最大3回で、通常の書き込み権限やAccess URLの監視権限を追加しない。実ブラウザ回帰は`tests/extension-cloud-claim-runtime.test.mjs`の実MV3で、外部復帰通知1回、sender/tab/frame境界、期限切れ結果回収、claim完了、local原本削除、再読込後の完了状態を確認する。
 
 ### Issue #264 editor image workspace
 

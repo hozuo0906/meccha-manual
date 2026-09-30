@@ -44,6 +44,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let onRemoved;
   let onUpdated;
   let onMessage;
+  let onMessageExternal;
   let handoffStorage = { ...handoffRecords };
   const tabUpdates = [];
   const injections = [];
@@ -73,6 +74,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
         session: { get: async () => ({ activeCaptureSession: session }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
         local: { get: async (key) => {
           if (key === null) return { captureRecoveryJournal: journal, ...handoffStorage };
+          if (Array.isArray(key)) return Object.fromEntries(key.filter((item) => Object.prototype.hasOwnProperty.call(handoffStorage, item)).map((item) => [item, handoffStorage[item]]));
           if (typeof key === "string" && Object.prototype.hasOwnProperty.call(handoffStorage, key)) return { [key]: handoffStorage[key] };
           return { captureRecoveryJournal: journal };
         }, set: async (value) => {
@@ -82,7 +84,7 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
         }, remove: async (keys) => { if (localRemoveFailure) throw new Error("local remove unavailable"); for (const key of Array.isArray(keys) ? keys : [keys]) delete handoffStorage[key]; journal = null; } }
       },
       scripting: { executeScript: async (options) => { if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
-      runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
+      runtime: { onMessage: { addListener(callback) { onMessage = callback; } }, onMessageExternal: { addListener(callback) { onMessageExternal = callback; } } },
       tabs: { onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, update: async (tabId, details) => { if (tabsUpdateFailure) throw new Error("tab update unavailable"); tabUpdates.push({ tabId, ...details }); return { id: tabId, ...details }; }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
@@ -105,14 +107,23 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
       localRemoveFailure = localValue;
     }, dropSession: () => { session = null; }, viewportApplied: () => viewportApplied,
     navigate: async () => { await onUpdated(1, { status: "complete" }); await context.settle(); },
-    accessReturn: async (url = "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue") => {
-      // Chrome does not await the promise returned by tabs.onUpdated listeners. Dispatch the
-      // Access login and return notifications before flushing either listener so the test keeps
-      // the producer's ordering contract under Node versions with different microtask timing.
-      const accessLogin = onUpdated(17, { url: "https://access.example.invalid/cdn-cgi/access/login", status: "loading" });
-      const accessReturn = onUpdated(17, { url, status: "loading" });
-      await Promise.all([accessLogin, accessReturn]);
+    accessReturn: async (messageOverrides = {}, senderOverrides = {}) => {
+      const readyEntry = Object.values(handoffStorage).find((value) => value?.tabId === 17 && value?.handoffId && value?.launchId);
+      const metadata = readyEntry ? handoffStorage[handoffStorageKey(readyEntry.handoffId)] : null;
+      const response = await new Promise((resolve) => onMessageExternal({
+        schema: "meccha-manual/cloud-claim-v1",
+        type: "handoff.access-return",
+        handoffId: readyEntry?.handoffId,
+        launchId: readyEntry?.launchId,
+        extensionId: metadata?.extensionId,
+        operationId: metadata?.operationId || "O".repeat(43),
+        action: metadata?.outputAction,
+        draftFingerprint: metadata?.draftFingerprint,
+        expiresAt: metadata?.expiresAt,
+        ...messageOverrides
+      }, { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue", frameId: 0, tab: { id: 17 }, ...senderOverrides }, resolve));
       await context.settle();
+      return response;
     },
     tabUpdates: () => tabUpdates,
     handoffStorage: () => handoffStorage,
@@ -151,7 +162,6 @@ test("Access認証から戻ったhandoff対象タブへfragmentを復元する",
   assert.match(updates[0].url, /^https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue#handoff=A{43}&extensionId=a{32}&launchId=B{43}$/);
   assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 1);
 
-  await capture.accessReturn("https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue#handoff=already-present");
   assert.equal(capture.tabUpdates().length, 1, "fragment付き遷移は再度書き換えない");
 });
 
@@ -180,15 +190,12 @@ test("Access復帰のタブ更新失敗時は回復マーカーを残して再�
   };
   const capture = await harness({ localFails: false, tabsUpdateFails: true, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
   await capture.accessReturn();
-  const markerKey = "meccha-manual:handoff-access-navigation:17";
-  assert.ok(capture.handoffStorage()[markerKey], "タブ更新に失敗した場合も次回復帰用マーカーを保持する");
   assert.equal(capture.tabUpdates().length, 0);
   assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 1, "再送回数はタブ更新試行時点で記録する");
 
   capture.setTabsUpdateFails(false);
   await capture.accessReturn();
   assert.equal(capture.tabUpdates().length, 1, "保持したマーカーで次の復帰を再試行できる");
-  assert.equal(capture.handoffStorage()[markerKey], undefined, "タブ更新成功後に回復マーカーを消費する");
   assert.equal(capture.handoffStorage()[readyKey].restoreAttempts, 2);
 });
 
@@ -232,6 +239,34 @@ test("hashless return restores an activated tab and rejects invalid or completed
   } });
   await malformedExpiry.accessReturn();
   assert.equal(malformedExpiry.tabUpdates().length, 0, "invalid metadata expiry must fail closed");
+
+  const expiredAt = new Date(Date.now() - 1).toISOString();
+  const expiredPending = await harness({ localFails: false, handoffRecords: {
+    [handoffKey]: { ...metadata, expiresAt: expiredAt, status: "finalize-pending", operationId: "O".repeat(43), claimIntentId: "01234567-89ab-4cde-8fab-0123456789ab" },
+    [readyKey]: { ...ready, expiresAt: expiredAt }
+  } });
+  await expiredPending.accessReturn();
+  assert.equal(expiredPending.tabUpdates().length, 1, "期限切れでもfinalize-pendingは結果回収用に復帰できる");
+  assert.match(expiredPending.tabUpdates()[0].url, /operationId=O{43}/);
+
+  const expiredOrdinary = await harness({ localFails: false, handoffRecords: {
+    [handoffKey]: { ...metadata, expiresAt: expiredAt },
+    [readyKey]: { ...ready, expiresAt: expiredAt }
+  } });
+  await expiredOrdinary.accessReturn();
+  assert.equal(expiredOrdinary.tabUpdates().length, 0, "期限切れの通常handoffは復帰させない");
+
+  const wrongFrame = await harness({ localFails: false, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await wrongFrame.accessReturn({}, { frameId: 1 });
+  assert.equal(wrongFrame.tabUpdates().length, 0, "subframeからの復帰通知は拒否する");
+
+  const wrongTab = await harness({ localFails: false, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await wrongTab.accessReturn({}, { tab: { id: 18 } });
+  assert.equal(wrongTab.tabUpdates().length, 0, "別tabからの復帰通知は拒否する");
+
+  const wrongOrigin = await harness({ localFails: false, handoffRecords: { [handoffKey]: metadata, [readyKey]: ready } });
+  await wrongOrigin.accessReturn({}, { url: "https://example.invalid/onboarding/continue" });
+  assert.equal(wrongOrigin.tabUpdates().length, 0, "別originからの復帰通知は拒否する");
 
   const mismatchedExpiry = await harness({ localFails: false, handoffRecords: {
     [handoffKey]: { ...metadata, expiresAt: new Date(Date.now() + 120_000).toISOString() },

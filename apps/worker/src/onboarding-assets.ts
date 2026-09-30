@@ -56,6 +56,7 @@ export const ONBOARDING_JS = `(() => {
     for (const entry of value.entries) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry) || !validHandoff(entry.handoffId) || !validOperationId(entry.operationId) || !validCreatedAt(entry.createdAt) || (entry.state !== "active" && entry.state !== "expired" && entry.state !== "recovery" && entry.state !== "recovery-probe") || handoffs.has(entry.handoffId) || operations.has(entry.operationId)) return { ok: false, state: null, needsWrite: false };
       if (entry.extensionId !== undefined && !validExtensionId(entry.extensionId)) return { ok: false, state: null, needsWrite: false };
+      if (entry.launchId !== undefined && !validLaunchId(entry.launchId)) return { ok: false, state: null, needsWrite: false };
       handoffs.add(entry.handoffId);
       operations.add(entry.operationId);
     }
@@ -97,7 +98,7 @@ export const ONBOARDING_JS = `(() => {
       try {
         const now = Date.now();
         const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -137,7 +138,7 @@ export const ONBOARDING_JS = `(() => {
     try {
       const now = Date.now();
       const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -223,7 +224,24 @@ export const ONBOARDING_JS = `(() => {
     } catch {
       return false;
     }
-    return reply?.ok === true && ["manual", "ready"].includes(reply.status);
+    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status)) return false;
+    const saved = readSaved();
+    const matching = saved.ok ? saved.state?.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId) : null;
+    if (!matching || !validDraftFingerprint(reply.draftFingerprint) || !validCreatedAt(reply.expiresAt) || !validExtensionId(reply.extensionId)) return false;
+    Object.assign(matching, { launchId: fragmentLaunchId, extensionId: reply.extensionId, draftFingerprint: reply.draftFingerprint, expiresAt: reply.expiresAt });
+    if (!persistState(saved.state)) return false;
+    Object.assign(context, matching);
+    return true;
+  }
+  async function signalAccessReturn(context) {
+    const navigationType = globalThis.performance?.getEntriesByType?.("navigation")?.[0]?.type;
+    if (!configured || hasFragment || (navigationType && navigationType !== "navigate") || !context || !validHandoff(context.handoffId) || !validLaunchId(context.launchId) || !validExtensionId(context.extensionId) || !validOperationId(context.operationId) || !validDraftFingerprint(context.draftFingerprint) || !validCreatedAt(context.expiresAt) || !globalThis.chrome?.runtime?.sendMessage) return false;
+    try {
+      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
+      return reply?.ok === true && ["restored", "recovery"].includes(reply.status);
+    } catch {
+      return false;
+    }
   }
   function markRecoveryProbe(context) { if (!context) return null; context.state = "recovery-probe"; capturedContext = context; return context; }
   async function beginExtensionContext(context) {
@@ -523,6 +541,11 @@ export const ONBOARDING_JS = `(() => {
   if (configured && validLaunchId(fragmentLaunchId)) {
     signalPageReady(currentOperation()).then((ready) => {
       if (!ready) message("保存先の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");
+    });
+  }
+  if (configured && !hasFragment) {
+    signalAccessReturn(currentOperation()).then((restored) => {
+      if (!restored && currentOperation()?.state === "recovery-probe") message("復帰結果を確認できませんでした。元の下書きを保持したまま、もう一度確認してください。", "error");
     });
   }
 })();`;

@@ -999,7 +999,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     await setMetadata(worker, readyKey, readyMetadata);
     const readyMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId, launchId, action: "save" };
 
-    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" });
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready", extensionId: handoffMetadata.extensionId, draftFingerprint: handoffMetadata.draftFingerprint, expiresAt: handoffMetadata.expiresAt });
     const firstReady = await readMetadata(worker, readyKey);
     assert.equal(Number.isFinite(Date.parse(firstReady.pageReadyAt)), true);
     assert.equal(firstReady.activatedAt, null, "background ready notification must not activate the sender tab");
@@ -1013,7 +1013,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     assert.equal(activeTabIdsAfterReady.includes(foregroundTabId), true, "the unrelated foreground tab must remain active");
     assert.equal(activeTabIdsAfterReady.includes(tabId), false, "background ready must not foreground the sender tab");
     assert.deepEqual(await readMetadata(worker, handoffKey), handoffMetadata, "ready must not overwrite operation or claim identity");
-    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" }, "duplicate ready is idempotent");
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready", extensionId: handoffMetadata.extensionId, draftFingerprint: handoffMetadata.draftFingerprint, expiresAt: handoffMetadata.expiresAt }, "duplicate ready is idempotent");
     assert.deepEqual(await readMetadata(worker, readyKey), firstReady, "duplicate ready must preserve the first timestamps");
 
     assert.deepEqual(await sendExternal(page, extensionId, {
@@ -1065,7 +1065,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const timedOutLaunchId = "U".repeat(43);
     await installAttempt(timedOutHandoffId, timedOutLaunchId, "auto", new Date(Date.now() - 1).toISOString(), "P".repeat(43));
     const timedOutReady = { ...readyMessage, handoffId: timedOutHandoffId, launchId: timedOutLaunchId };
-    assert.deepEqual(await sendExternal(page, extensionId, timedOutReady), { ok: true, status: "manual" }, "a ready after the activation deadline must require manual activation");
+    assert.equal((await sendExternal(page, extensionId, timedOutReady)).status, "manual", "a ready after the activation deadline must require manual activation");
     const timedOutStored = await readMetadata(worker, handoffReadyStorageKey(timedOutHandoffId, timedOutLaunchId));
     assert.equal(timedOutStored.pageReadyAt, null);
     assert.equal(timedOutStored.activatedAt, null);
@@ -1074,7 +1074,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const manualLaunchId = "N".repeat(43);
     await installAttempt(manualHandoffId, manualLaunchId, "manual", new Date(Date.now() + 8_000).toISOString(), "Q".repeat(43));
     const manualReady = { ...readyMessage, handoffId: manualHandoffId, launchId: manualLaunchId };
-    assert.deepEqual(await sendExternal(page, extensionId, manualReady), { ok: true, status: "manual" }, "manual policy must never auto activate on a late ready");
+    assert.equal((await sendExternal(page, extensionId, manualReady)).status, "manual", "manual policy must never auto activate on a late ready");
     const manualStored = await readMetadata(worker, handoffReadyStorageKey(manualHandoffId, manualLaunchId));
     assert.equal(manualStored.pageReadyAt, null);
     assert.equal(manualStored.activatedAt, null);
@@ -1092,7 +1092,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
   }
 });
 
-test("MV3 Access hashless return restores the same activated handoff", { timeout: 60_000 }, async () => {
+test("MV3 bound external Access return restores the same activated handoff", { timeout: 60_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   let context;
   try {
@@ -1142,7 +1142,8 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
     assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "a normal handoff page must not trigger Access recovery");
     await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
     assert.match(page.url(), new RegExp(`${ACCESS_AUTH_ORIGIN.replaceAll(".", "\\.")}/cdn-cgi/access/login`));
-    assert.equal(await tabIdForPage(worker, page), tabId, "the MV3 worker must observe the Access login tab without broad tabs permission");
+    assert.equal(await tabIdForPage(worker, page), tabId, "the Access login remains in the bound tab");
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "the Access login URL alone must not restore the handoff");
     await page.goto(hashlessUrl, { waitUntil: "commit" });
     const readyKey = handoffReadyStorageKey(handoffId, launchId);
     for (let attempt = 0; attempt < 30 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1165,7 +1166,7 @@ test("MV3 Access hashless return restores the same activated handoff", { timeout
   }
 });
 
-test("MV3 Access復帰から実WorkerのD1/R2保存と再閲覧まで完了する", { timeout: 90_000 }, async () => {
+test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧まで完了する", { timeout: 90_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
   const fixture = await createLocalWorkerFixture();
   const originalFetch = globalThis.fetch;
@@ -1209,6 +1210,7 @@ test("MV3 Access復帰から実WorkerのD1/R2保存と再閲覧まで完了す�
     assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined);
     await page.goto(ACCESS_AUTH_URL, { waitUntil: "commit" });
     assert.equal(await tabIdForPage(worker, page), tabId);
+    assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "the Access login URL alone must not restore the handoff");
     await page.goto(hashlessUrl, { waitUntil: "commit" });
     const readyKey = handoffReadyStorageKey(handoffId, launchId);
     for (let attempt = 0; attempt < 40 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));

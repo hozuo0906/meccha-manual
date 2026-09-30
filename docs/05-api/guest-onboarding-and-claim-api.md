@@ -321,7 +321,7 @@ Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`�
 
 ### C Access認証後のhandoff復帰境界
 
-拡張機能は対象tabに紐づく未完了handoffがある場合だけ、`/cdn-cgi/access/login`への遷移を観測したtab ID、handoff ID、launch ID、元のexpiresAtと時刻を一時的な復帰印として保持する。対象tabが15分以内に同一originの`/onboarding/continue`へfragmentなしで戻った場合に限り、印に保存したhandoff ID、launch ID、expiresAtと、現在の未完了・期限内metadataを再検証して同じfragmentを一度だけ再付与する。復帰印の15分はmetadataのexpiresAtを延長しない。通常のhandoffページがfragmentを読み取った後に行う同一originの`history.replaceState`によるfragment除去、別tab、期限切れ、取消済み、完了済み、metadata不一致は復帰の根拠にしない。
+AccessのURLを拡張機能の`tabs.onUpdated`から判定しない。認証後に同一originの`/onboarding/continue`へ戻ったWeb画面が、fragmentを失った状態で`handoff.access-return` external messageを1回送る。メッセージはsenderの固定origin・`/onboarding/continue`・top-level frame・tab IDと、handoff ID、launch ID、拡張ID、operation identity、action、draft fingerprint、元のexpiresAtを含む。拡張機能は同じtabに紐づくready recordとlocal metadataをWeb Lock内で再照合し、期限内の通常handoff、または期限を過ぎても`finalize-pending`／`completion-pending`の結果回収identityを持つhandoffだけに、同じfragmentを最大3回まで再付与する。復帰通知の有効期限はmetadataのexpiresAtを延長しない。通常のfragment除去、別tab、期限切れの通常handoff、取消済み、完了済み、metadata不一致は復帰の根拠にしない。
 
 復帰印は復帰処理で消費し、fragmentへ本文・画像・認証情報・共有tokenを追加しない。復帰に失敗した場合はlocal原本を保持したまま再試行可能な状態を表示し、保存成功やclaim完了を推測しない。
 

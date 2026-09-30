@@ -76,6 +76,8 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /sessionStorage/);
   assert.match(ONBOARDING_JS, /HANDOFF_TTL_MS/);
   assert.match(ONBOARDING_JS, /handoff\.page-ready/);
+  assert.match(ONBOARDING_JS, /handoff\.access-return/);
+  assert.match(ONBOARDING_JS, /getEntriesByType.*navigation/);
   assert.match(ONBOARDING_JS, /launchId/);
   assert.doesNotMatch(ONBOARDING_JS, /accessToken|authorization|cookie|password/);
   assert.match(ONBOARDING_JS, /handoff\.asset\.chunk/);
