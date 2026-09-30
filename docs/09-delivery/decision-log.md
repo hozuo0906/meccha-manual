@@ -478,3 +478,19 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 「参照」のような操作名を手順へ反映し、利用者が記録結果を修正しやすくする一方、表示値・入力値・機密情報を無制限に下書きへ持ち込まないため。
 - Boundary:
   - 一般的な氏名・住所の完全自動判定やスクリーンショット内の静的文字列置換は本決定の対象外とし、画像の自動ダミー置換は別の小さな作業単位で高信頼DOM候補だけを扱う。
+  - 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
+
+### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #277
+- Decision:
+  - 初期候補が0件でもMutationObserverを登録し、paint後のcapture前とcapture後の両境界でopen shadow rootを含む候補集合を再走査する。初期snapshotにないshadow rootの出現、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更は、最終候補が空でもfail closedにする。時計や無関係なclass変更など、保護候補に関係しないDOM変更は無効化しない。
+  - `aria-hidden`は視覚的な非表示とは扱わず、表示中の候補を保護する。祖先`opacity: 0`など実際に描画されない候補は対象外とする。
+  - overlayは背景画像、`background-clip: text`、legacy `clip`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。clip解除後のpixelをcapture前後の両境界で確認できない場合は画像を保存しない。
+  - 同一テキスト範囲が電話番号と郵便番号の形式に一致した場合は候補を重ねず、郵便番号として1回だけ置換する。
+- Reason:
+  - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。
+- Boundary:
+  - 候補は高信頼なDOM文字列に限定し、OCR、画像内文字、cross-origin iframe、外部AI、新しい権限は対象外。元DOM、入力値、候補文字列はログ・event・handoff metadataへ保存しない。
