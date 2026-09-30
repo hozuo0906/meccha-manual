@@ -512,13 +512,41 @@ export function installSensitiveMasks() {
         return pattern.test(text);
       });
     };
+    const semanticPairKind = (labelElement, valueElement, labelText = labelElement?.textContent) => {
+      const labelTag = String(labelElement?.tagName || "").toUpperCase();
+      const valueTag = String(valueElement?.tagName || "").toUpperCase();
+      const strictPair = (labelTag === "DT" && valueTag === "DD") || (labelTag === "TH" && valueTag === "TD");
+      if (!strictPair || !normalizeText(valueElement?.textContent)) return null;
+      return semanticKind(labelText);
+    };
+    const semanticMutationKind = (node, labelTexts = [], sibling = null) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return null;
+      let pairElement = element;
+      while (pairElement && !["DD", "TD", "DT", "TH"].includes(String(pairElement.tagName || "").toUpperCase())) {
+        pairElement = pairElement.parentElement;
+      }
+      if (!pairElement) return null;
+      const tagName = String(pairElement.tagName || "").toUpperCase();
+      if (["DD", "TD"].includes(tagName)) {
+        return semanticPairKind(pairElement.previousElementSibling || sibling, pairElement);
+      }
+      if (!["DT", "TH"].includes(tagName)) return null;
+      const valueCandidates = [pairElement.nextElementSibling, sibling].filter(Boolean);
+      const labelCandidates = [pairElement.textContent, ...labelTexts];
+      return valueCandidates.map((valueElement) => labelCandidates
+        .map((labelText) => semanticPairKind(pairElement, valueElement, labelText))
+        .find(Boolean)).find(Boolean) || null;
+    };
     const containsSemanticCandidate = (node) => {
       if (!node) return false;
       const element = node.nodeType === 3 ? node.parentElement : node;
       if (!element) return false;
       for (const valueElement of [element, ...element.querySelectorAll?.("dd,td") || []]) {
-        const label = valueElement?.previousElementSibling;
-        if (semanticKind(label?.textContent) && normalizeText(valueElement?.textContent)) return true;
+        if (semanticPairKind(valueElement?.previousElementSibling, valueElement)) return true;
+      }
+      for (const labelElement of [element, ...element.querySelectorAll?.("dt,th") || []]) {
+        if (semanticMutationKind(labelElement)) return true;
       }
       return false;
     };
@@ -573,11 +601,7 @@ export function installSensitiveMasks() {
       visitElement(element);
       return matched || budgetExceeded;
     };
-    const isSemanticMutationNode = (node) => {
-      const element = node?.nodeType === 3 ? node.parentElement : node;
-      if (!element || !["DD", "TD"].includes(String(element.tagName || "").toUpperCase())) return false;
-      return Boolean(semanticKind(element.previousElementSibling?.textContent));
-    };
+    const isSemanticMutationNode = (node, labelTexts = [], sibling = null) => Boolean(semanticMutationKind(node, labelTexts, sibling));
     const hasUnseenShadowRoot = (node) => {
       const elements = node?.nodeType === 1 ? [node, ...node.querySelectorAll?.("*") || []] : [];
       for (const element of elements) {
@@ -594,7 +618,7 @@ export function installSensitiveMasks() {
     const privacyMutationAffectsBoundary = (record) => {
       if (record.type === "characterData") {
         return isProtectedMutationNode(record.target?.parentElement)
-          || isSemanticMutationNode(record.target)
+          || isSemanticMutationNode(record.target, [record.oldValue])
           || containsPiiText(record.oldValue)
           || containsPiiText(record.target?.nodeValue);
       }
@@ -607,9 +631,15 @@ export function installSensitiveMasks() {
           || containsComposedCandidate(record.target);
       }
       if (record.type !== "childList") return false;
-      if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
+      const historyTexts = [...record.addedNodes || [], ...record.removedNodes || []]
+        .map((node) => node?.textContent ?? node?.nodeValue ?? "");
+      if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target, historyTexts)) return true;
       for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
-        if (isProtectedMutationNode(node) || containsPiiText(node.textContent) || containsSemanticCandidate(node) || hasUnseenShadowRoot(node)) return true;
+        if (isProtectedMutationNode(node)
+          || isSemanticMutationNode(node, [node.textContent], record.nextSibling || record.previousSibling)
+          || containsPiiText(node.textContent)
+          || containsSemanticCandidate(node)
+          || hasUnseenShadowRoot(node)) return true;
       }
       return false;
     };

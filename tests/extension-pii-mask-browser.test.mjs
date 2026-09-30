@@ -494,6 +494,116 @@ test("same text range chooses postal masking over the broader phone pattern", as
   }
 });
 
+test("transient semantic label changes fail closed for strict dt/dd and th/td pairs", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial,sans-serif}dt,th{font-weight:700}dd,td{padding-left:16px}</style>
+      <dl><dt id="name-label">表示名</dt><dd id="name-value">佐藤花子</dd></dl>
+      <dl><dt id="nested-name-label"><span>表示名</span></dt><dd id="nested-name-value">佐藤花子</dd></dl>
+      <table><tbody><tr><th id="address-label">項目</th><td id="address-value">東京都千代田区1-2-3</td></tr></tbody></table>
+      <table><tbody><tr><th id="nested-address-label"><span>項目</span></th><td id="nested-address-value">東京都千代田区1-2-3</td></tr></tbody></table>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    const baseUrl = `http://127.0.0.1:${server.address().port}/`;
+    await page.goto(baseUrl);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    for (const mutation of ["direct-character", "nested-character", "direct-child-list", "nested-child-list"]) {
+      await page.goto(baseUrl);
+      const mask = await inject(installSensitiveMasks);
+      assert.equal(mask.applied, true);
+      assert.equal(mask.privacyMaskedCount, 0);
+      assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+      await page.evaluate((kind) => {
+        const replaceText = (element, value) => element.replaceChildren(document.createTextNode(value));
+        if (kind === "direct-character") {
+          const node = document.getElementById("name-label").firstChild;
+          node.nodeValue = "name";
+          node.nodeValue = "display";
+        } else if (kind === "nested-character") {
+          const node = document.querySelector("#nested-name-label span").firstChild;
+          node.nodeValue = "name";
+          node.nodeValue = "display";
+        } else if (kind === "direct-child-list") {
+          const label = document.getElementById("address-label");
+          replaceText(label, "address");
+          replaceText(label, "item");
+        } else {
+          const label = document.querySelector("#nested-address-label span");
+          replaceText(label, "address");
+          replaceText(label, "item");
+        }
+      }, mutation);
+      await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+      let captureCalls = 0;
+      await assert.rejects(() => captureWithMaskBoundary({
+        applyMasks: () => inject(installSensitiveMasks),
+        waitForPaint: () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))),
+        capture: async () => { captureCalls += 1; return "data:image/png;base64,AA"; },
+        verifyMasks: (token) => inject(verifySensitiveMasks, [token]),
+        removeMasks: () => inject(removeSensitiveMasks)
+      }), /SCREENSHOT_MASK_INVALIDATED/, `${mutation} semantic PII must invalidate the capture`);
+      assert.equal(captureCalls, 0, `${mutation} semantic PII must be rejected before the capture callback`);
+    }
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("partially visible top-layer dialog fails closed when it covers the overlay paint", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>
+      html,body{margin:0;width:100vw;height:100vh;overflow:hidden}
+      dialog{position:fixed!important;left:calc(100vw - 20px);top:40px;margin:0;width:260px;height:80px;padding:10px;font:20px Arial,sans-serif}
+    </style><dialog id="partial-dialog"><p id="dialog-email">visible@example.com</p></dialog><script>document.getElementById("partial-dialog").showModal()</script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 1);
+    const paintEvidence = await page.locator("#dialog-email").evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const viewportWidth = innerWidth;
+      const x = (Math.max(0, rect.left) + Math.min(viewportWidth, rect.right)) / 2;
+      const top = document.elementFromPoint(x, rect.top + rect.height / 2);
+      return { partiallyVisible: rect.left < viewportWidth && rect.right > viewportWidth, topLayerHit: top?.closest("dialog")?.id === "partial-dialog" };
+    });
+    assert.equal(paintEvidence.partiallyVisible, true);
+    assert.equal(paintEvidence.topLayerHit, true, "the real painted top-layer dialog must cover the overlay hit-test point");
+    let captureCalls = 0;
+    await assert.rejects(() => captureWithMaskBoundary({
+      applyMasks: () => inject(installSensitiveMasks),
+      waitForPaint: () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))),
+      capture: async () => { captureCalls += 1; return "data:image/png;base64,AA"; },
+      verifyMasks: (token) => inject(verifySensitiveMasks, [token]),
+      removeMasks: () => inject(removeSensitiveMasks)
+    }), /SCREENSHOT_MASK_INVALIDATED/);
+    assert.equal(captureCalls, 0, "a null or non-overlay hit at the visible viewport intersection must fail closed before capture");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("class-only mutations over many PII-free nodes remain valid", async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
