@@ -137,7 +137,7 @@ function base64ToBytes(dataUrl) {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
   if (!match) throw new TypeError("unsupported screenshot");
   const binary = atob(match[2]);
-  if (binary.length > CLOUD_CLAIM_MAX_ASSET_BYTES * 2) throw new RangeError("screenshot is too large");
+  if (binary.length > CLOUD_CLAIM_MAX_ASSET_BYTES * 2) throw new Error("ASSET_TOO_LARGE");
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return { bytes, type: match[1] };
@@ -171,12 +171,12 @@ async function maskAndEncode(screenshot) {
     drawScreenshot(context, bitmap, { annotations, masks: screenshot.masks || [] });
     const png = await canvas.convertToBlob({ type: "image/png" });
     if (png.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await png.arrayBuffer()), contentType: "image/png" };
-    if (hasTransparency) throw new RangeError("screenshot is too large");
+    if (hasTransparency) throw new Error("ASSET_TOO_LARGE");
     for (const quality of [0.92, 0.8, 0.65, 0.5, 0.35]) {
       const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality });
       if (jpeg.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await jpeg.arrayBuffer()), contentType: "image/jpeg" };
     }
-    throw new RangeError("screenshot is too large");
+    throw new Error("ASSET_TOO_LARGE");
   } finally {
     bitmap.close?.();
   }
