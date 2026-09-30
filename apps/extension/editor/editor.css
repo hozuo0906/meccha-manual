@@ -54,7 +54,7 @@ ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; } li::mar
 .section-heading { margin-bottom: 14px; }
 .section-heading h2 { font-size: 1.15rem; }
 .section-hint { max-width: 30ch; margin: 4px 0 0; font-size: .82rem; text-align: left; }
-#addStep { min-height: 40px; padding: 7px 12px; font-size: .9rem; }
+#addStep { min-width: 96px; min-height: 40px; padding: 7px 12px; font-size: .9rem; white-space: nowrap; }
 li button { min-height: 44px; padding: 9px 11px; border-radius: 10px; }
 .step-article { gap: 10px; padding: 16px 0 26px; }
 .step-article h3 { font-size: 1.1rem; }
