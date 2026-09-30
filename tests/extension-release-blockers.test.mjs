@@ -188,6 +188,39 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
   assert.equal(restorePending.elements.get("#finish").hidden, true);
   assert.equal(restorePending.elements.get("#restore").hidden, false, "restore guidance remains after a successful finish");
   assert.match(restorePending.elements.get("#status").textContent, /もう一度復元してください/);
+
+  for (const restoreNeeded of [false, true]) {
+    for (const listAvailable of [false, true]) {
+      for (const tabOpened of [false, true]) {
+        const outcome = await createPopup({
+          finishResponse: { value: { draftId: "saved-draft", restorePending: restoreNeeded } },
+          draftsError: !listAvailable,
+          createTab: async (_details, call) => { if (!tabOpened && call === 1) throw new Error("tabs unavailable"); }
+        });
+        await outcome.elements.get("#finish").listeners.click();
+        assert.equal(outcome.finishCalls, 1, "a confirmed save must not retry finish");
+        assert.equal(outcome.elements.get("#finish").hidden, true, "a confirmed save must hide finish retry");
+        assert.equal(outcome.elements.get("#restore").hidden, !restoreNeeded, "restore guidance takes priority after save");
+        if (restoreNeeded) {
+          assert.match(outcome.elements.get("#status").textContent, /もう一度復元してください/);
+        } else if (!tabOpened && listAvailable) {
+          assert.match(outcome.elements.get("#status").textContent, /下書き一覧から開いてください/);
+        } else if (!tabOpened) {
+          assert.match(outcome.elements.get("#status").textContent, /編集画面と下書き一覧を表示できませんでした/);
+          assert.doesNotMatch(outcome.elements.get("#status").textContent, /下書き一覧から開いてください/);
+        }
+      }
+    }
+  }
+
+  const emptyDraftList = await createPopup({
+    finishResponse: { value: { draftId: "saved-draft", restorePending: false } },
+    drafts: [],
+    createTab: async (_details, call) => { if (call === 1) throw new Error("tabs unavailable"); }
+  });
+  await emptyDraftList.elements.get("#finish").listeners.click();
+  assert.match(emptyDraftList.elements.get("#status").textContent, /もう一度この画面を開いて確認してください/);
+  assert.doesNotMatch(emptyDraftList.elements.get("#status").textContent, /下書き一覧から開いてください/);
 });
 
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {

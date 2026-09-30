@@ -430,11 +430,22 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     context = await chromium.launchPersistentContext("", { channel, headless: true });
     const page = await context.newPage();
     await page.addInitScript(() => {
+      globalThis.__draftListMode = "ok";
+      const originalGetAll = IDBObjectStore.prototype.getAll;
+      IDBObjectStore.prototype.getAll = function (...args) {
+        if (globalThis.__draftListMode === "fail" && this.name === "drafts") {
+          const request = {};
+          queueMicrotask(() => request.onerror?.());
+          return request;
+        }
+        return originalGetAll.apply(this, args);
+      };
       globalThis.__refreshMode = "ok";
       globalThis.__statusPhase = "recording";
       globalThis.__restorePending = false;
       globalThis.__finishResult = { draftId: "restore-pending-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
       globalThis.__finishError = false;
+      globalThis.__tabsCreateMode = "ok";
       globalThis.__tabsCreateCalls = [];
       globalThis.chrome = {
         runtime: {
@@ -459,7 +470,11 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
           }
         },
         tabs: {
-          create: async (details) => { globalThis.__tabsCreateCalls.push(details); return { id: globalThis.__tabsCreateCalls.length }; }
+          create: async (details) => {
+            globalThis.__tabsCreateCalls.push(details);
+            if (globalThis.__tabsCreateMode === "fail") throw new Error("TABS_UNAVAILABLE");
+            return { id: globalThis.__tabsCreateCalls.length };
+          }
         }
       };
     });
@@ -471,16 +486,12 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false);
     assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 1, "finish success should open the editor once");
 
-    await page.evaluate(() => { globalThis.__refreshMode = "fail"; });
-    await page.locator("#finish").click();
-    await page.waitForFunction(() => /保存済み/.test(document.querySelector("#status")?.textContent || ""));
-    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false, "restore remains available when status refresh fails");
-    assert.equal(await page.evaluate(() => globalThis.__tabsCreateCalls.length), 2, "refresh failure must not turn a successful finish into a finish failure");
-
     await page.evaluate(() => {
       globalThis.__refreshMode = "ok";
       globalThis.__finishError = true;
+      globalThis.__statusPhase = "recording";
     });
+    await page.locator("#finish").waitFor({ state: "visible" });
     await page.locator("#finish").click();
     await page.waitForFunction(() => /記録終了の結果を確認できませんでした/.test(document.querySelector("#status")?.textContent || ""));
     assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "idle after a lost finish response must not offer an unverified retry");
@@ -496,6 +507,34 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
     await page.locator("#finish").click();
     await page.waitForFunction(() => /画像付きの手順を保存しました/.test(document.querySelector("#status")?.textContent || ""));
     assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), true, "normal finish should not show restore guidance");
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__tabsCreateMode = "ok";
+      globalThis.__draftListMode = "ok";
+      globalThis.__statusPhase = "recording";
+      globalThis.__finishResult = { draftId: "refresh-failure-sidepanel-fixture", restorePending: true, imageCount: 2, missingImageCount: 0 };
+    });
+    await page.locator("#finish").waitFor({ state: "visible" });
+    await page.evaluate(() => { globalThis.__refreshMode = "fail"; });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /保存済み/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#restore").evaluate((element) => element.hidden), false, "restore remains available when status refresh fails");
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "saved finish must hide stale recording controls after refresh failure");
+
+    await page.evaluate(() => {
+      globalThis.__refreshMode = "ok";
+      globalThis.__tabsCreateMode = "fail";
+      globalThis.__draftListMode = "ok";
+      globalThis.__statusPhase = "recording";
+      globalThis.__finishResult = { draftId: "double-failure-sidepanel-fixture", restorePending: false, imageCount: 2, missingImageCount: 0 };
+    });
+    await page.locator("#finish").waitFor({ state: "visible" });
+    await page.evaluate(() => { globalThis.__draftListMode = "fail"; });
+    await page.locator("#finish").click();
+    await page.waitForFunction(() => /もう一度この画面を開いて確認してください/.test(document.querySelector("#status")?.textContent || ""));
+    assert.equal(await page.locator("#finish").evaluate((element) => element.hidden), true, "saved finish must hide stale recording controls after list failure");
+    assert.doesNotMatch(await page.locator("#status").textContent(), /下書き一覧から開いてください/);
   } finally {
     await context?.close();
     server.closeAllConnections?.();

@@ -61,6 +61,14 @@ function finishFailureMessage(state, statusAvailable, draftsState) {
   return unknownMessage;
 }
 
+function savedDraftOpenMessage(draftsState) {
+  return draftsState?.available && draftsState.count > 0
+    ? "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。"
+    : draftsState?.available
+      ? "記録は保存しましたが、編集画面を開けませんでした。もう一度この画面を開いて確認してください。"
+      : "記録は保存しましたが、編集画面と下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。";
+}
+
 async function showFinishFailureOutcome() {
   let current = {};
   let statusAvailable = true;
@@ -130,12 +138,12 @@ finish.addEventListener("click", async () => {
   } catch (error) {
     editorOpenError = error;
   }
-  await refreshDrafts();
+  const draftsState = await refreshDrafts();
   renderCaptureState({ restorePending: Boolean(restorePending) });
   if (restorePending) {
     return;
   } else if (editorOpenError) {
-    status.textContent = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+    status.textContent = savedDraftOpenMessage(draftsState);
   } else {
     window.close();
   }

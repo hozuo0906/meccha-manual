@@ -205,6 +205,14 @@ function finishFailureMessage(state, statusAvailable, draftsState) {
   return unknownMessage;
 }
 
+function savedDraftOpenMessage(draftsState) {
+  return draftsState?.available && draftsState.count > 0
+    ? "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。"
+    : draftsState?.available
+      ? "記録は保存しましたが、編集画面を開けませんでした。もう一度この画面を開いて確認してください。"
+      : "記録は保存しましたが、編集画面と下書き一覧を表示できませんでした。もう一度この画面を開いて確認してください。";
+}
+
 let refreshInFlight = null;
 async function refresh(forceDraftPoll = false) {
   if (refreshInFlight) {
@@ -319,13 +327,24 @@ finish.addEventListener("click", async () => {
     } catch (error) {
       refreshError = error;
     }
+    const draftsState = refreshError
+      ? await refreshDraftsOnly()
+      : { available: true, count: localDrafts.length };
+    renderStatus({
+      phase: result.restorePending ? "restore_pending" : null,
+      restorePending: Boolean(result.restorePending),
+      hasDrafts: localDrafts.length > 0,
+      events: [],
+      stepImageRefs: [],
+      sessionId: null
+    }, []);
     statusOverride = "";
     if (result.restorePending) {
       statusOverride = "記録は保存済みです。画面をもう一度復元してから続けてください。";
       restore.hidden = false;
       status.textContent = statusOverride;
     } else if (editorOpenError) {
-      statusOverride = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+      statusOverride = savedDraftOpenMessage(draftsState);
       status.textContent = statusOverride;
     } else {
       status.textContent = result.missingImageCount
