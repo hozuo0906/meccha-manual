@@ -194,7 +194,7 @@ test("share viewer keeps a failed image visible with a retry action when the gra
     assert.equal(state.assetGrants.length, 1);
     assert.equal(state.assetGrants[0] === SHARE_GRANT, true);
     assert.equal(await page.locator(".share-image-error:visible").count(), 1);
-    assert.equal(await page.getByRole("button", { name: "画像を再読み込み" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "画像をもう一度表示" }).count(), 1);
     assert.equal(await page.locator("#share-content img").count(), 1);
     assert.equal(await page.locator("#share-content img").isHidden(), true);
   } finally {

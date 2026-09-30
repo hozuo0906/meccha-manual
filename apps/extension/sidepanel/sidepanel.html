@@ -12,7 +12,7 @@
       <img class="brand-mark" src="../assets/meccha-manual-logo-mark.png" alt="めっちゃマニュアル">
       <div>
         <p class="eyebrow">操作を記録</p>
-        <h1>手順書をつくる</h1>
+        <h1>手順書を作る</h1>
       </div>
     </header>
 
@@ -34,14 +34,14 @@
         <option value="tabletPortrait">タブレット（縦）</option>
         <option value="tabletLandscape">タブレット（横）</option>
       </select>
-      <button id="start" class="primary" type="button">記録開始</button>
-      <p class="privacy-note">入力した文字やパスワードは保存しません。</p>
+      <button id="start" class="primary" type="button">操作を記録する</button>
+      <p class="privacy-note">入力欄の値は操作データとして保存しません。画像では入力欄などを自動で隠します。画面に表示された個人情報は保存前に確認してください。</p>
     </section>
 
     <section id="liveSection" class="live-section" hidden aria-labelledby="liveTitle">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">ライブプレビュー</p>
+          <p class="eyebrow">記録中の手順</p>
           <h2 id="liveTitle">記録中の手順</h2>
         </div>
         <span id="liveCount" class="count-badge">0</span>
@@ -53,7 +53,7 @@
     <section id="draftSection" class="draft-section" hidden aria-labelledby="draftTitle">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">この端末に保存済み</p>
+          <p class="eyebrow">この端末に保存した手順書</p>
           <h2 id="draftTitle">最近の手順書</h2>
         </div>
         <span id="draftCount" class="count-badge">0</span>
@@ -64,7 +64,7 @@
     <section id="emptyState" class="empty-state" aria-live="polite">
       <img src="../assets/meccha-manual-mascot-me-clear-eyes.png" alt="めっちゃマニュアルのキャラクター">
       <h2>準備できています</h2>
-      <p>記録開始を押して、いつもの操作をはじめましょう。</p>
+      <p>「操作を記録する」を押して、いつもの操作をはじめましょう。</p>
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite"></p>

@@ -66,7 +66,7 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(html, /data-bootstrap-enabled="false"/);
   assert.match(html, /meccha-manual-logo-mark\.png/);
   assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
-  assert.match(html, /ログインを確認してから、保存へ進みます/);
+  assert.match(html, /ログインと接続を確認してから、保存先を準備します/);
   assert.doesNotMatch(html, /cloudflareaccess\.com|\/cdn-cgi\/access/);
   assert.match(html, /assets\/onboarding\.css/);
   assert.match(html, /assets\/onboarding\.js/);
@@ -152,7 +152,7 @@ test("editor gate keeps save failure from opening registration", async () => {
   const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/editor/editor.css", import.meta.url), "utf8");
   assert.match(source, /if \(!await persist\(/);
-  assert.match(source, /保存に失敗したため、登録画面へ進めません/);
+  assert.match(source, /この端末への保存に失敗したため、保存先を準備できません/);
   assert.match(source, /setSaveState\("保存中…", "saving"\)/);
   assert.match(source, /setSaveState\("保存済み", "saved"\)/);
   assert.match(html, /meccha-manual-logo-mark\.png/);

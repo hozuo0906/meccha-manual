@@ -604,7 +604,7 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   const state = await installManualFixture(page, "editor", { empty: true });
   await openManualScreen(page);
 
-  await expect(page.getByText("手順書はまだありません。" )).toBeVisible();
+  await expect(page.getByText("ワークスペースに保存された手順書はありません。" )).toBeVisible();
   await page.locator("#manual-create-title").fill("入会受付手順");
   await page.locator("#manual-create-description").fill("受付担当者向け");
   await page.getByRole("button", { name: "手順書を作成" }).click();

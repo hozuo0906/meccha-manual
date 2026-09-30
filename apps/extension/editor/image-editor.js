@@ -129,7 +129,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (drag?.operation === "new-mask" && transient && transient.width > 0 && transient.height > 0) masks.push(transient);
     const context = canvas.getContext("2d");
     try { drawScreenshot(context, image, { annotations, masks }); renderSelection(context); }
-    catch { canvas.width = 1; canvas.height = 1; setStatus("画像の注釈データを読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); }
+    catch { canvas.width = 1; canvas.height = 1; setStatus("画像の編集内容を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); }
   }
 
   function selectTool(next) {
@@ -214,7 +214,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
       const annotations = cloneAnnotations(previewAnnotations(working.annotations)); if (annotations === null) throw new TypeError("invalid annotations");
       const masks = copyMasks(working.masks); const focusTarget = await onSave({ annotations, masks }); if (focusTarget === false) throw new Error("save failed");
       state = "closed"; dialog.close("save"); (focusTarget || restoreFocus)?.focus?.();
-    } catch { state = "editing"; setControlsDisabled(false); refreshSelection(); setStatus("保存できませんでした。編集内容を保持したまま、もう一度保存してください。"); }
+    } catch { state = "editing"; setControlsDisabled(false); refreshSelection(); setStatus("画像を保存できませんでした。編集内容を保持しています。もう一度保存してください。"); }
   }
   function cancel() { if (disposed || state === "saving") return; generation += 1; drag = null; state = "closed"; onCancel?.(); dialog.close("cancel"); restoreFocus?.focus?.(); }
 
@@ -240,7 +240,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
         drawScreenshot(canvas.getContext("2d"), image, { annotations: previewAnnotations(working.annotations), masks: working.masks });
         state = "editing"; setControlsDisabled(false); selectTool("select"); refreshSelection(); redraw(); setStatus("画像を編集できます。"); return true;
       } catch {
-        if (disposed || currentGeneration !== generation) return false; image = null; state = "error"; setControlsDisabled(true); canvas.width = 1; canvas.height = 1; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
+        if (disposed || currentGeneration !== generation) return false; image = null; state = "error"; setControlsDisabled(true); canvas.width = 1; canvas.height = 1; setStatus("画像を表示できませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
       }
     },
     dispose() { disposed = true; state = "closed"; generation += 1; controller.abort(); if (dialog.open) dialog.close(); }

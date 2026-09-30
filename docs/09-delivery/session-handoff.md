@@ -447,8 +447,14 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 対象branchは `codex/editor-image-workspace`、baseは `b125a0e5014ff7eed1a584c1b8a7de95763544ea`。ローカル統合検証時点では未commit・未pushでPR未作成だった。この時点の作業状態を成果物の最終状態とは扱わず、CI・最新Codex Review・remote保存状態はIssue #70とPRの記録で確定する。
 - 全手順article、sticky目次・scrollspy、native画像編集dialog、local注釈と既存maskの共有asset焼き込み境界はADR-0036／DEC-081へ反映済み。
 - ローカル統合検証はextension 114/114（`final-extension-test.log`）、annotation/cloud 17/17、MV3 runtime 4/4（`final-cloud-runtime.log`）、editor browser 11/11（`final-editor-browser.log`）、encoding 334、sensitive 369、docs 132をPASSした。目次17番のJPEG、1366x768、文字サイズ入力でEnterしてもdialogが閉じないことを実Chrome合成で確認した。強化browserはUTF-8で復旧し、後半の既存8テストはGit HEADと完全一致することを確認した。保存中の入力抑止、Escape維持、元putによる保存、reload後の文字とfont32保持を第2テスト追記後のfocused 1/1で確認した。
-- Issue #265の全画面日本語リライトは次のマイルストーンであり、まだ実装していない。
+- Issue #265の全画面日本語リライトは次のマイルストーンとして実装中。拡張機能の記録・編集・保存先準備、ワークスペース一覧・詳細、共有設定・共有ビューアの案内と既存表示テストを対象にし、manifest version、API意味、DB、認可、capture／privacy境界は変更しない。
 - remote本人受入、CI・最新Codex Review・remote保存状態の最終確認は未確認であり、Issue #70とPRの記録で確定する。
+
+### 2026-09-30 Issue #265 全画面案内（実装中）
+
+- 対象branchは `codex/japanese-product-copy`、実装開始時のHEADは `0bef2479a333a443a466fa31fa0cd671b5107daf`。stage／commit／pushは未実施で、親PMが最終検証と外部反映を担当する。
+- PR #268のfocus修正はmainへmerge済みで、manifest `0.1.6`は未配布。Issue #265では画面文言と関連する既存表示テスト・契約文書だけを同期する。
+- 保存成功・未保存・結果不明を区別し、「この端末に保存」「ワークスペースに保存」「共有リンクを作成する」を使い分ける。ユーザー入力本文・title・instruction・記録内容、capture／screenshot／mask／privacy文書は変更しない。
 
 ## Issue #267 記録中入力のフォーカス回帰（2026-09-30）
 

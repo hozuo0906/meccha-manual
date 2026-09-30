@@ -34,6 +34,10 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
+## Issue #265 全画面案内の文言
+
+拡張機能の記録・編集・保存先準備、ワークスペースの一覧・詳細、共有設定・共有ビューアの案内は、短いですます調で操作と結果を先に示す。「手順書」「操作を記録」「この端末に保存」「ワークスペースに保存」「共有リンクを作成する」を画面間で揃える。保存成功・未保存・結果不明を区別し、利用できない保存先を成功や再試行可能と表示しない。入力値は操作データとして保存せず、画像に表示された任意文章・人名等の個人情報を保存しない保証はしない。ユーザーが入力したtitle・instruction・記録内容は変更しない。
+
 ## Cクラウド保存の追跡
 
 FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`の認証後準備表示とsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。拡張editorに画像がない手順は最後の画面で補完せず、再記録を案内する。各操作と画像IDを収集するcapture側の実装は別担当の契約で同期する。
