@@ -159,6 +159,23 @@ test("click labels reject email-shaped captions on single-label domains", () => 
   }
 });
 
+test("click caption privacy checks remove invisible format characters before detection", () => {
+  for (const ariaLabel of [
+    "alice@lo\u200bcalhost",
+    "to\u200bken",
+    "03(1234)5678",
+    "03(12\u200b34)5678"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks reject Unicode mailboxes and domestic phone formatting", () => {
+  for (const ariaLabel of ["山田@localhost", "利用者@社内", "03(1234)5678", "+81 (3) 1234-5678"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
 test("click labels keep ordinary punctuated captions while rejecting valid international hostnames", () => {
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "詳細." }), "詳細.");
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "次へ..." }), "次へ...");

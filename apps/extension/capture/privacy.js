@@ -4,13 +4,13 @@ const CONTROL_NAME_MAX_LENGTH = 40;
 // The domain may be a single intranet label (for example, `alice@localhost`).
 // Keep the match deliberately email-shaped so an `@` in an ordinary caption is
 // not enough to make it sensitive.
-const CONTROL_NAME_EMAIL = /[A-Z0-9.!#$%&'*+\/?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?/iu;
+const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?/u;
 const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
 const CONTROL_NAME_INTERNATIONAL_HOST_LABEL = /^(?=.{1,63}$)[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?$/u;
 const CONTROL_NAME_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?(?:[/?#]|$)/u;
 const CONTROL_NAME_IPV6 = /^\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u;
-const CONTROL_NAME_PHONE = /(?:\+|00)[\s().-]*\d(?:[\s().-]*\d){7,14}|(?:\+?81[- ]?|0)\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}/u;
+const CONTROL_NAME_PHONE = /(?:\+|00)[\s().-]*\d(?:[\s().-]*\d){7,14}|(?:\+?81[\s().-]*|0)\d(?:[\s().-]*\d){8,10}/u;
 const CONTROL_NAME_POSTAL = /(?:〒?\d{3}[- ]?\d{4})/;
 const CONTROL_NAME_SENSITIVE = /(?:password|passcode|token|secret|authorization|cookie|カード|クレジット|cvv|cvc|暗証|認証コード|ワンタイム|個人番号|マイナンバー)/i;
 const SECRET_LIKE_LABEL = /(?:eyJ[A-Za-z0-9_-]{10,}\.|\b(?:\d[ -]?){13,19}\b|\b[A-Fa-f0-9]{24,}\b|\b[A-Za-z0-9_-]{32,}\b)/;
@@ -92,7 +92,10 @@ function normalizeControlName(value) {
   // NFKC makes full-width digits and compatibility forms visible to the same
   // privacy vocabulary as their ASCII forms. Return the original short caption
   // after the checks so the user-facing operation name stays readable.
-  const privacyValue = normalized.normalize("NFKC");
+  // Format characters such as zero-width space are invisible in a caption
+  // but can split every detector below. Normalize a separate privacy view;
+  // the returned value remains the short display caption for readability.
+  const privacyValue = normalized.replace(/\p{Cf}/gu, "").normalize("NFKC");
   if (Array.from(privacyValue).length > CONTROL_NAME_MAX_LENGTH) return null;
   if (CONTROL_NAME_EMAIL.test(privacyValue) || looksLikeUrl(privacyValue) || CONTROL_NAME_PHONE.test(privacyValue) || CONTROL_NAME_POSTAL.test(privacyValue)) return null;
   if (SENSITIVE_NAME.test(privacyValue) || CONTROL_NAME_SENSITIVE.test(privacyValue) || SECRET_LIKE_LABEL.test(privacyValue)) return null;
