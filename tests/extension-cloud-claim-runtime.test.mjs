@@ -1151,9 +1151,15 @@ test("MV3 bound external Access return restores the same activated handoff", { t
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 30 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1, "a hashless return after Access must restore once");
-    const tabState = await worker.evaluate((url) => new Promise((resolve) => chrome.tabs.query({}, (tabs) => resolve(tabs.find((tab) => tab.url === url) || null))), page.url());
+    const tabState = await worker.evaluate((expectedTabId) => new Promise((resolve, reject) => chrome.tabs.query({}, (tabs) => {
+      const error = chrome.runtime.lastError;
+      if (error) { reject(new Error(error.message)); return; }
+      resolve(tabs.find((tab) => tab.id === expectedTabId) || null);
+    })), tabId);
     assert.equal(tabState?.active, true, "Access recovery must keep the already active tab in front");
+    await page.waitForFunction(() => location.hash === "");
     await page.waitForSelector("#bootstrap", { state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === false);
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 40 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));

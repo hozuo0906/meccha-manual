@@ -31,6 +31,8 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.doesNotMatch(source, /window\.scrollBy\(\{ top: overlap/);
   assert.match(source, /captureLimitReached/);
   assert.match(source, /captureLimitReached: state\.captureLimitReached/);
+  assert.match(source, /const semanticLabel = SEMANTIC_LABELS\.has\(event\?\.label\) \? event\.label : "操作対象"/);
+  assert.match(source, /event\?\.kind === "click" && event\.label && \(event\.labelSource === "caption" \|\| !SEMANTIC_LABELS\.has\(event\.label\)\).*【\$\{event\.label\}】クリック/);
   assert.match(source, /cancel_failed/);
   assert.match(source, /100/);
   assert.match(source, /200/);

@@ -60,8 +60,9 @@ async function send(message) {
 function instructionFor(event) {
   if (event?.kind === "scroll") return `画面を${({ up: "上", down: "下", left: "左", right: "右" })[event.direction] || "指定方向"}へスクロールする`;
   if (event?.kind === "navigation") return "次のページへ移動する";
-  const semanticLabel = event?.labelSource === "caption" || !SEMANTIC_LABELS.has(event?.label) ? (event?.label || "操作対象") : event.label;
+  const semanticLabel = SEMANTIC_LABELS.has(event?.label) ? event.label : "操作対象";
   if (event?.kind === "input") return `${semanticLabel}に入力する`;
+  if (event?.kind === "click" && event.label && (event.labelSource === "caption" || !SEMANTIC_LABELS.has(event.label))) return `【${event.label}】クリック`;
   return `${semanticLabel}を操作する`;
 }
 

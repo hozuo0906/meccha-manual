@@ -1263,11 +1263,10 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
     const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
     await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
     await page.getByText("画像を追加して、この端末に保存しました。", { exact: true }).waitFor();
-    await page.waitForFunction(async () => {
-      const draft = await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture");
-      return Boolean(draft?.screenshots?.length === 1 && typeof draft.screenshots[0]?.dataUrl === "string" && draft.screenshots[0].dataUrl.startsWith("data:image/"));
-    });
     const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(stored?.screenshots?.length, 1, "保存完了表示後にIDBへ画像が保存される");
+    assert.equal(typeof stored.screenshots[0]?.dataUrl, "string");
+    assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true);
     const storedImage = await page.evaluate(async (dataUrl) => {
       const image = new Image(); image.src = dataUrl; await image.decode();
       return { width: image.naturalWidth, height: image.naturalHeight, dataUrl: image.src };
@@ -1295,8 +1294,12 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
     await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0a, 0x08, 0x00, 0x01, 0x00, 0x01, 0x03]), "short-sof.jpeg");
     await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00]), "mismatched-sof-components.jpeg");
     await assertMalformed(Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0c, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00]), "long-sof-components.jpeg");
+    await input.setInputFiles({ name: "jpeg-as-png.png", mimeType: "image/png", buffer: jpegBytes });
+    await page.locator("#step-jpeg-step .image-upload-message[data-state=error]").waitFor();
+    const wrongMimeDraft = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
+    assert.equal(wrongMimeDraft.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "MIMEとJPEGヘッダーが一致しない入力は保存済み画像を変更しない");
     await input.setInputFiles({ name: "renamed.gif", mimeType: "image/png", buffer: Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00\x00", "binary") });
-    await page.getByText("PNG、JPEG、WebPの画像を選んでください。", { exact: true }).waitFor();
+    await page.locator("#step-jpeg-step .image-upload-message[data-state=error]").waitFor();
     const afterGifReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
     assert.equal(afterGifReject.screenshots[0].dataUrl, stored.screenshots[0].dataUrl, "MIME typeを偽装したGIFは保存済み画像を変更しない");
   } finally {

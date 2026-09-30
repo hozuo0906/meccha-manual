@@ -525,3 +525,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Boundary: 手順画像の取得・保存処理、local draftの構造、Cloudflare Access／D1／R2、production反映、サイドパネルを提供しないChromeバージョンのUI変更は対象外とする。閉鎖API非対応時は利用者へ不自然な成功表示をせず、表示中の記録確認を優先する。
 - Evidence: `apps/extension/sidepanel/sidepanel.js`、`apps/extension/sidepanel/sidepanel.css`、`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`tests/extension-sidepanel-browser.test.mjs`、`docs/05-api/api-contracts.md`。
 - 2026-10-01 review補足: `tabs.create`の成功だけでは編集画面の表示完了とみなさず、editorの`draftStore.get`と初回render後に送る`editor:ready`をtrusted extension originのeditor pathと同じ`draftId`で照合する。取得・render失敗またはreadyタイムアウトでは保存済みlocal draftと記録確認のためサイドパネルを残す。現在地表示のsticky範囲は`liveSection`だけに限定せず、保存済み下書き一覧を含むshell全体とし、終了・一時停止・再開で変わる固定フッター高さはResizeObserverから追従処理へ渡す。
+
+### DEC-087: 手順編集の画像追加と編集画面の操作配置
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272
+- Decision: 手動追加した手順には、PNG、JPEG、WebP（1画像10MiB以下）の画像を選択して追加できる。追加前に形式とヘッダーの寸法を確認し、寸法を確認できないファイルはdecode前に拒否する。canvasへ再エンコードし、PNG・WebPでは透明度を保持する。PNGが上限を超える場合だけ白背景へ平坦化してJPEGへ再エンコードし、元ファイル名、EXIF、その他のファイルメタデータは下書きへ保存しない。画像の追加・差し替えに失敗した場合は既存の手順・画像・選択状態を保持し、再試行できる案内を表示する。
+- Decision: 画像は縦横12,000px以下かつ4,000万画素以内、下書き全体で100件・合計100MiB以内に制限する。共有されている画像を差し替える場合は対象手順だけに新しい画像を割り当てる。画像の確認・保存中は処理中であることを表示し、制限超過や保存失敗は元の画像を残して再試行できる状態にする。
+- Decision: 保存・共有の準備画面では、自動処理で隠せない情報が残る可能性を案内し、利用者が画像を確認して必要な箇所を黒塗りできる導線を表示する。個人情報の自動検出・置換そのものは別の決定で扱う。
+- Decision: 編集画面はタイトル、説明、保存状態を上部にまとめ、手順一覧と内容を分ける。画像は元の縦横比を保って表示し、画像編集のツールと保存・キャンセルを固定した役割の領域へ配置する。注釈の保存形式、画像のclaim、handoff metadata、外部AI APIの契約は変更しない。
+- Reason: 手順を追加した直後に利用者が任意の画像を迷わず添付でき、既存画像の機密情報をファイルメタデータごと持ち込まず、画像編集時も現在地と確定操作を見失わないようにするため。
+- Boundary: 画像内の個人情報の自動検出・置換、記録中のスクロール、保存handoff、Worker、DB、Access、production反映はこの決定の対象外とする。

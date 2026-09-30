@@ -122,12 +122,15 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
     assert.match(await target.content(), /id=["']do["']/, "synthetic target should retain its action button");
+    await target.locator("#do").evaluate((element) => element.setAttribute("aria-label", "参照"));
     await target.locator("#do").click();
     const stateAfterFirstClick = await target.locator("#state").textContent();
     await waitForNativeValue(
       "[...document.querySelectorAll('.step-card img')].map((image) => ({ complete: image.complete, width: image.naturalWidth }))",
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
+    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】クリック"));
+    assert.match(captionProgress, /【参照】クリック/);
     await new Promise((resolve) => setTimeout(resolve, 700));
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
