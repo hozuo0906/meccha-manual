@@ -73,7 +73,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     card.append(status, error, retry, image); parent.append(card);
     image.src = imageUrl;
   }
-  function markChanged() { dirty = true; editVersion += 1; if (saveState) { saveState.textContent = "未保存の変更があります。保存するまで共有されません。"; saveState.dataset.state = "dirty"; } }
+  function markChanged() { dirty = true; editVersion += 1; if (saveState) { saveState.textContent = "未保存の変更があります。変更を反映するには保存してください。"; saveState.dataset.state = "dirty"; } }
   function codePointLength(value) { return Array.from(String(value || "")).length; }
   function syncManualListTitle(manualId, title) {
     const manual = manuals.find((item) => item.id === manualId);

@@ -587,9 +587,14 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
       globalThis.__finishError = false;
       globalThis.__tabsCreateMode = "ok";
       globalThis.__tabsCreateCalls = [];
+      globalThis.__editorReadyListeners = [];
       globalThis.chrome = {
         runtime: {
           getURL: (path) => `chrome-extension://test/${path}`,
+          onMessage: {
+            addListener: (listener) => globalThis.__editorReadyListeners.push(listener),
+            removeListener: (listener) => { globalThis.__editorReadyListeners = globalThis.__editorReadyListeners.filter((candidate) => candidate !== listener); }
+          },
           sendMessage: async (message) => {
             if (message?.type === "capture:status") {
               if (globalThis.__refreshMode === "fail") throw new Error("STATUS_UNAVAILABLE");
@@ -613,7 +618,13 @@ test("sidepanel keeps restore-pending finish guidance when refresh succeeds or f
           create: async (details) => {
             globalThis.__tabsCreateCalls.push(details);
             if (globalThis.__tabsCreateMode === "fail") throw new Error("TABS_UNAVAILABLE");
-            return { id: globalThis.__tabsCreateCalls.length };
+            const id = globalThis.__tabsCreateCalls.length;
+            queueMicrotask(() => {
+              const draftId = decodeURIComponent(new URL(details.url).hash.slice(1));
+              const sender = { tab: { id }, url: details.url };
+              for (const listener of [...globalThis.__editorReadyListeners]) listener({ type: "editor:ready", draftId, ready: true }, sender);
+            });
+            return { id };
           }
         }
       };
