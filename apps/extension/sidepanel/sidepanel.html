@@ -47,6 +47,14 @@
         <span id="liveCount" class="count-badge">0</span>
       </div>
       <p id="liveDescription" class="live-description">操作すると、ここに手順が追加されます。</p>
+      <div class="live-progress" aria-live="polite">
+        <div>
+          <span class="live-progress-label">現在の手順</span>
+          <strong id="liveCurrentStep">まだありません</strong>
+        </div>
+        <span id="liveCurrentStatus" class="live-current-status">操作を待っています</span>
+        <button id="liveLatest" class="live-latest" type="button" hidden>最新の手順を見る</button>
+      </div>
       <ol id="liveSteps" class="step-list"></ol>
     </section>
 

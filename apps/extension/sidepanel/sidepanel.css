@@ -33,18 +33,30 @@ button.primary { margin-top: 12px; background: #167c77; }
 button.success { background: #26835c; }
 button.quiet { width: 100%; color: #40505a; border: 1px solid #b5c6cb; background: rgba(255,255,255,.9); }
 .privacy-note, .live-description, .status { margin: 10px 0 0; color: #5c6b70; font-size: .78rem; }
+.live-progress { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; margin: 12px 0 10px; padding: 10px 12px; border: 1px solid #b9dfd4; border-radius: 14px; background: rgba(247, 253, 250, .96); box-shadow: 0 5px 14px rgba(37, 76, 73, .1); backdrop-filter: blur(12px); }
+.live-progress-label { display: block; color: #5c6b70; font-size: .7rem; font-weight: 800; letter-spacing: .04em; }
+.live-progress strong { display: block; min-width: 0; overflow: hidden; color: #145f50; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.live-current-status { align-self: end; color: #5c6b70; font-size: .72rem; font-weight: 700; text-align: right; white-space: nowrap; }
+.live-current-status[data-state="ready"] { color: #18715d; }
+.live-current-status[data-state="failed"] { color: #a53c2b; }
+.live-latest { grid-column: 1 / -1; justify-self: start; min-height: 34px; margin-top: 4px; padding: 4px 10px; color: #16634e; border: 1px solid #9cc8bd; background: #effaf5; font-size: .75rem; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .section-heading h2 { margin-bottom: 0; }
 .live-description { margin-top: 0; }
 .step-list, .draft-list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
 .step-card, .draft-card { display: grid; gap: 10px; padding: 10px; border: 1px solid #d9e8e4; border-radius: 14px; background: #fff; box-shadow: 0 4px 14px rgba(37, 76, 73, .06); }
+.step-card { scroll-margin-bottom: 132px; }
 .step-card { grid-template-columns: 1fr; }
 .step-card img { width: 100%; max-height: 200px; border-radius: 9px; object-fit: contain; background: #edf8f5; }
 .image-state { display: block; padding: 18px 10px; border-radius: 9px; color: #68777a; background: #f1f8f7; font-size: .78rem; text-align: center; }
 .draft-card img { width: 64px; height: 54px; border-radius: 9px; object-fit: cover; background: #edf8f5; }
 .step-number { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 5px; border-radius: 50%; background: #dff1ea; color: #19634f; font-size: .78rem; font-weight: 800; }
-.step-text { align-self: center; min-width: 0; }
+.step-text { display: grid; align-content: center; gap: 4px; min-width: 0; }
 .step-text p { display: inline; margin: 0; font-size: .88rem; font-weight: 700; overflow-wrap: anywhere; }
+.step-card.is-current { border-color: #75b9a6; box-shadow: 0 5px 16px rgba(37, 116, 92, .14); }
+.step-image-status { color: #68777a; font-size: .7rem; font-weight: 700; }
+.step-image-status[data-state="ready"] { color: #18715d; }
+.step-image-status[data-state="failed"] { color: #a53c2b; }
 .draft-card { grid-template-columns: 64px 1fr; }
 .draft-card h3 { margin: 0 0 3px; font-size: .9rem; }
 .draft-card p { margin: 0; color: #5c6b70; font-size: .75rem; }

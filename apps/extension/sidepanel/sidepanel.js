@@ -16,6 +16,9 @@ const liveSection = document.querySelector("#liveSection");
 const liveSteps = document.querySelector("#liveSteps");
 const liveCount = document.querySelector("#liveCount");
 const liveDescription = document.querySelector("#liveDescription");
+const liveCurrentStep = document.querySelector("#liveCurrentStep");
+const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
+const liveLatest = document.querySelector("#liveLatest");
 const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
@@ -50,7 +53,29 @@ function setImage(image, source, alt) {
   image.alt = alt;
 }
 
+function imageStatusFor(event, imageEntries, imageRefs) {
+  const imageEntry = imageEntries.find((entry) => entry?.eventId === event?.eventId);
+  const imageRef = imageRefs.find((entry) => entry?.eventId === event?.eventId);
+  if (imageEntry?.status === "ready" && imageEntry.dataUrl) return "保存済み";
+  if (["failed", "unavailable"].includes(imageRef?.status)) return "記録できませんでした";
+  return "記録中…";
+}
+
+function updateLiveLatestVisibility() {
+  liveLatest.hidden = followLiveTail || !liveSteps.children.length;
+}
+
+function scrollLiveLatest({ behavior = "smooth" } = {}) {
+  const latest = liveSteps.lastElementChild;
+  if (!latest) return;
+  followLiveTail = true;
+  updateLiveLatestVisibility();
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  latest.scrollIntoView({ behavior: reducedMotion ? "auto" : behavior, block: "end" });
+}
+
 function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
+  const previousCount = liveSteps.children.length;
   liveSteps.replaceChildren();
   liveCount.textContent = String(events.length);
   const images = new Map(imageEntries.map((entry) => [entry.eventId, entry]));
@@ -58,6 +83,11 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
   for (const [index, event] of events.entries()) {
     const item = document.createElement("li");
     item.className = "step-card";
+    item.dataset.eventId = event.eventId || "";
+    if (index === events.length - 1) {
+      item.classList.add("is-current");
+      item.setAttribute("aria-current", "step");
+    }
     const text = document.createElement("div");
     text.className = "step-text";
     const number = document.createElement("span");
@@ -66,6 +96,12 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     const instruction = document.createElement("p");
     instruction.textContent = instructionFor(event);
     text.append(number, instruction);
+    const imageStatus = document.createElement("span");
+    imageStatus.className = "step-image-status";
+    const imageStatusText = imageStatusFor(event, imageEntries, imageRefs);
+    imageStatus.textContent = imageStatusText === "保存済み" ? "✓ スクリーンショット保存済み" : `スクリーンショット：${imageStatusText}`;
+    imageStatus.dataset.state = imageStatusText === "保存済み" ? "ready" : imageStatusText === "記録できませんでした" ? "failed" : "pending";
+    text.append(imageStatus);
     const imageEntry = images.get(event.eventId);
     const imageRef = refs.get(event.eventId);
     if (imageEntry?.status === "ready" && imageEntry.dataUrl) {
@@ -83,6 +119,15 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     liveSteps.append(item);
   }
   liveDescription.textContent = events.length ? "操作を続けると、手順がここへ追加されます。" : "操作すると、ここに手順が追加されます。";
+  const current = events.at(-1);
+  liveCurrentStep.textContent = current ? `手順 ${events.length}：${instructionFor(current)}` : "まだありません";
+  const currentStatus = current ? imageStatusFor(current, imageEntries, imageRefs) : "操作を待っています";
+  liveCurrentStatus.textContent = current ? `スクリーンショット：${currentStatus}` : currentStatus;
+  liveCurrentStatus.dataset.state = currentStatus === "保存済み" ? "ready" : currentStatus === "記録できませんでした" ? "failed" : "pending";
+  updateLiveLatestVisibility();
+  if (events.length > previousCount && followLiveTail) {
+    requestAnimationFrame(() => scrollLiveLatest());
+  }
 }
 
 function firstScreenshot(draft) {
@@ -97,6 +142,12 @@ function editorUrl(draftId) {
 async function openDraftEditor(draftId) {
   if (typeof draftId !== "string" || !draftId) throw new Error("下書きIDがありません");
   return chrome.tabs.create({ url: editorUrl(draftId) });
+}
+
+async function closeSidePanel() {
+  const currentWindow = await chrome.windows.getCurrent();
+  const response = await send({ type: "capture:close-panel", windowId: currentWindow?.id });
+  return response?.closed === true;
 }
 
 function draftRenderKey(items = []) {
@@ -321,6 +372,7 @@ finish.addEventListener("click", async () => {
     } catch (error) {
       editorOpenError = error;
     }
+    if (!editorOpenError && !result.restorePending) await closeSidePanel().catch(() => false);
     let refreshError = null;
     try {
       await refresh(true);
@@ -391,6 +443,26 @@ let lastLiveKey = "";
 let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
+let followLiveTail = true;
+let userScrollIntent = false;
+
+function updateLiveTailPosition(event) {
+  if (!userScrollIntent || (event && event.isTrusted === false)) return;
+  const root = document.scrollingElement || document.documentElement;
+  const distanceFromTail = root.scrollHeight - (root.scrollTop + window.innerHeight);
+  if (distanceFromTail <= 120) followLiveTail = true;
+  else if (!liveSection.hidden) followLiveTail = false;
+  updateLiveLatestVisibility();
+}
+
+liveLatest.addEventListener("click", () => scrollLiveLatest());
+for (const type of ["wheel", "touchstart", "keydown"]) {
+  window.addEventListener(type, (event) => {
+    if (type !== "keydown" || ["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) userScrollIntent = true;
+  }, { passive: type !== "keydown" });
+}
+window.addEventListener("scroll", updateLiveTailPosition, { passive: true });
+
 async function startPolling() {
   await refresh().catch(() => { status.textContent = "状態を読み込めませんでした。もう一度お試しください。"; });
   const poll = async () => {

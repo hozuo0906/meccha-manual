@@ -133,6 +133,13 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const stateAfterSecondClick = await target.locator("#state").textContent();
     assert.notEqual(stateAfterFirstClick, stateAfterSecondClick, "synthetic workflow should visibly change between events");
     await expectNativeImages();
+    const liveProgress = await waitForNativeValue(
+      "({ step: document.querySelector('#liveCurrentStep')?.textContent, status: document.querySelector('#liveCurrentStatus')?.textContent, latestHidden: document.querySelector('#liveLatest')?.hidden })",
+      (value) => value?.step?.startsWith("手順 2") && value?.status?.includes("保存済み") && value.latestHidden === true
+    );
+    assert.match(liveProgress.step, /^手順 2/);
+    assert.match(liveProgress.status, /保存済み/);
+    assert.equal(liveProgress.latestHidden, true, "recording should follow the newest step while the panel is at the tail");
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");
@@ -160,6 +167,18 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assert.ok(editorPage, "successful finish should open the saved draft editor");
+    const sidePanelClosed = await worker.evaluate(async () => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const contexts = chrome.runtime.getContexts
+          ? await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+          : [];
+        if (contexts.length === 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    });
+    assert.equal(sidePanelClosed, true, "successful finish should close the recording side panel after opening the editor");
     await editorPage.waitForSelector("#title");
     await editorPage.waitForFunction(() => document.querySelector("#title")?.value === "新しい手順書");
     assert.equal(await editorPage.locator("#title").inputValue(), "新しい手順書");
@@ -211,11 +230,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
-    const screenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
-    assert.ok(screenshot, "native sidepanel screenshot should be captured");
-    const screenshotData = screenshot?.data?.value || screenshot?.data || screenshot?.result?.data || screenshot?.result?.result?.data;
-    assert.equal(typeof screenshotData, "string", "native finished screenshot should contain base64 data");
-    await writeFile(screenshotPath, Buffer.from(screenshotData, "base64"));
+    await editorPage.screenshot({ path: screenshotPath });
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);

@@ -676,6 +676,16 @@ async function captureStatus() {
   };
 }
 
+async function closeCaptureSidePanel(windowId) {
+  if (!Number.isInteger(windowId) || !chrome.sidePanel?.close) return { closed: false };
+  try {
+    await chrome.sidePanel.close({ windowId });
+    return { closed: true };
+  } catch {
+    return { closed: false };
+  }
+}
+
 if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
   chrome.action.onClicked.addListener((tab) => {
     if (!tab?.windowId) return;
@@ -753,6 +763,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "capture:cancel" && fromExtensionPage) return serializeSessionOperation(() => cancelCapture());
     if (message?.type === "capture:restore" && fromExtensionPage) return serializeSessionOperation(() => retryRestore());
     if (message?.type === "capture:resume" && fromExtensionPage) return serializeSessionOperation(() => resumeCapture(message.tabId));
+    if (message?.type === "capture:close-panel" && fromExtensionPage) return closeCaptureSidePanel(message.windowId);
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
       const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
