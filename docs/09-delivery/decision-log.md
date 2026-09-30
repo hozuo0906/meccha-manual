@@ -453,3 +453,12 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Issue: #265 / PR #269
 - Decision: `capture:finish`が`draftId`を返した保存成功後は、popup／sidepanelで終了操作の再試行を表示しない。`restorePending`があれば復元案内を優先し、編集画面を開けず下書き一覧に保存済み項目が確認できる場合だけ一覧から開く導線を表示する。一覧が空または取得できない二重障害では、存在しない下書きを案内せず、同じ画面を開き直して確認する復旧案内を表示する。sidepanelは一覧更新が失敗しても保存成功後の記録中操作を残さない。
 - Evidence: `apps/extension/popup/popup.js`、`apps/extension/sidepanel/sidepanel.js`、`tests/extension-release-blockers.test.mjs`、`docs/05-api/api-contracts.md`。
+
+### DEC-083: 共有停止の結果不明保持と同一リンク再試行
+
+- Status: Accepted
+- Date: 2026-09-30
+- Issue: #271
+- Decision: 共有停止の4xxはAPIの案内を表示する。5xx、通信切断は結果不明として共有リンクと`shareLinkId`を画面に保持し、画面を閉じずに同じリンクの停止を再試行する。結果不明を新しい共有リンク作成や別の識別子の停止で解消しない。
+- Reason: 停止要求がサーバーへ到達したか、停止後の応答だけが失われたかを画面から判定できない場合に、リンクを失って再発行したり、利用者が停止済みリンクを使い続けたりする誤操作を防ぐため。
+- Boundary: APIの権限判定、D1の停止処理、匿名viewerのgrant再検証、production反映、deploy、共有リンク公開は変更しない。

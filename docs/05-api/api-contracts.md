@@ -103,7 +103,9 @@ flagをtrueからfalseへ戻した場合は新規処理の拒否だけで終え�
 
 Status: Accepted
 
-管理APIはAccess認証済みのowner/admin/editorだけに公開する。POST/DELETEは同一originのJSON bodyで明示確認・期限・passcode・期待draft revision・content version・operation IDを受け取る。POSTの期限は必須で、UIが7日後などの明示ISO値を送る。`POST /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は、現在のdraftをCAS照合してimmutable published snapshotとread-only linkを同一D1 batchで作成する。active linkがある場合は拒否し、`DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` はbodyの`shareLinkId`を対象に停止する。Access認証済みのGETは再読み込み後の停止操作に必要なlink metadataだけを返す。
+管理APIはAccess認証済みのowner/admin/editorだけに公開する。POSTは同一originのJSON bodyで明示確認・期限・passcode・期待draft revision・content version・operation IDを受け取り、DELETEはbodyの`shareLinkId`を受け取る。POSTの期限は必須で、UIが7日後などの明示ISO値を送る。`POST /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は、現在のdraftをCAS照合してimmutable published snapshotとread-only linkを同一D1 batchで作成する。active linkがある場合は拒否し、`DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` は指定linkを停止する。Access認証済みのGETは再読み込み後の停止操作に必要なlink metadataだけを返す。
+
+共有停止の4xxはAPIが返した案内を利用者へ表示し、5xx・通信切断は停止結果不明として扱う。結果不明時に同じlinkを画面に保持し、利用者が同じ`shareLinkId`で停止を再試行できることをUI契約とする。
 
 匿名viewerは `/s/` と次のAPIだけを使う。生tokenはURL query/pathへ置かず、viewer fragmentから `X-Share-Token` headerへ移す。未知の `/s/*` は404、認証失敗・期限切れ・誤passcode・失効済みは同じ拒否結果にする。
 

@@ -126,6 +126,25 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       await page.getByText(`停止拒否 ${status}`, { exact: true }).waitFor();
       assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     }
+    const shareEndpoint = `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links`;
+    let abortRevoke = true;
+    await page.route(shareEndpoint, async (route) => {
+      if (abortRevoke && route.request().method() === "DELETE") {
+        abortRevoke = false;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+    const transportRequest = page.waitForRequest((request) => request.url() === shareEndpoint && request.method() === "DELETE");
+    await page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "共有を停止" }).click();
+    await transportRequest;
+    await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
+    assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
+    const transportFailedShareLinkId = revokeBodies.at(-1)?.body.shareLinkId;
+    await page.unroute(shareEndpoint);
+
     revokeFailureStatus = 503;
     const unknownResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links` && response.request().method() === "DELETE" && response.status() === 503);
     await page.once("dialog", (dialog) => dialog.accept());
@@ -140,6 +159,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     assert.equal((await retryResponse).status(), 200);
     await page.getByText("共有リンクを停止しました。必要なら新しいリンクを作成してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("input.share-link-value").count(), 0);
+    assert.equal(failedShareLinkId, transportFailedShareLinkId);
     assert.equal(revokeBodies.at(-1)?.body.shareLinkId, failedShareLinkId);
   } finally {
     await context?.close();
