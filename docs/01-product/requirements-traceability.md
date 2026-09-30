@@ -64,7 +64,7 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
-スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。初期候補が0件の場合もcapture直前までMutationObserverと候補再走査を維持し、祖先`opacity: 0`の値は候補にせず、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
 
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 

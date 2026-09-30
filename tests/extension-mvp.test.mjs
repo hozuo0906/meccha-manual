@@ -117,7 +117,7 @@ test("mask verification failure discards image and still removes masks", async (
     verifyMasks: async () => { order.push("verify"); return false; },
     removeMasks: async () => { order.push("remove"); }
   }), /SCREENSHOT_MASK_INVALIDATED/);
-  assert.deepEqual(order, ["mask", "capture", "verify", "remove"]);
+  assert.deepEqual(order, ["mask", "verify", "remove"]);
 });
 
 test("masking failure cannot fall back to an unmasked screenshot", async () => {

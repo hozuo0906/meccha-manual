@@ -485,9 +485,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Date: 2026-10-01
 - Issue: #272 / PR #277
 - Decision:
-  - 初期候補が0件でもMutationObserverを登録し、capture直前にopen shadow rootを含む候補集合を再走査する。後から表示された候補を既存overlayと対応づけられない場合はfail closedにする。
+  - 初期候補が0件でもMutationObserverを登録し、paint後のcapture前とcapture後の両境界でopen shadow rootを含む候補集合を再走査する。初期snapshotにないshadow rootの出現、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更は、最終候補が空でもfail closedにする。時計や無関係なclass変更など、保護候補に関係しないDOM変更は無効化しない。
   - `aria-hidden`は視覚的な非表示とは扱わず、表示中の候補を保護する。祖先`opacity: 0`など実際に描画されない候補は対象外とする。
-  - overlayは背景画像、`background-clip: text`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。
+  - overlayは背景画像、`background-clip: text`、legacy `clip`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。clip解除後のpixelをcapture前後の両境界で確認できない場合は画像を保存しない。
   - 同一テキスト範囲が電話番号と郵便番号の形式に一致した場合は候補を重ねず、郵便番号として1回だけ置換する。
 - Reason:
   - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。

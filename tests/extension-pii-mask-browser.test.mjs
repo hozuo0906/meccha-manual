@@ -250,7 +250,7 @@ test("a visible aria-hidden value is masked and overlay paint is a full opaque r
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.end(`<!doctype html><style>
       body { margin: 0; padding: 24px; font: 20px Arial, sans-serif; }
-      .meccha-manual-pii-overlay { background: linear-gradient(red, blue); background-clip: text; -webkit-background-clip: text; border-radius: 40px; box-shadow: 0 0 20px red; }
+      .meccha-manual-pii-overlay { background: linear-gradient(red, blue); background-clip: text; -webkit-background-clip: text; clip: rect(0px, 11px, 11px, 0px); border-radius: 40px; box-shadow: 0 0 20px red; }
     </style><span id="visible-hidden" aria-hidden="true">visible@example.com</span>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -270,9 +270,10 @@ test("a visible aria-hidden value is masked and overlay paint is a full opaque r
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     const style = await page.locator(".meccha-manual-pii-overlay").evaluate((overlay) => {
       const computed = getComputedStyle(overlay);
-      return { backgroundClip: computed.backgroundClip, borderRadius: computed.borderRadius, backgroundImage: computed.backgroundImage, boxShadow: computed.boxShadow };
+      return { backgroundClip: computed.backgroundClip, clip: computed.clip, borderRadius: computed.borderRadius, backgroundImage: computed.backgroundImage, boxShadow: computed.boxShadow };
     });
     assert.equal(style.backgroundClip, "border-box");
+    assert.equal(style.clip, "auto");
     assert.equal(style.borderRadius, "0px");
     assert.equal(style.backgroundImage, "none");
     assert.equal(style.boxShadow, "none");
@@ -306,11 +307,58 @@ test("initially empty capture fails closed when a later open shadow root adds PI
     await page.evaluate(() => {
       const root = document.querySelector("open-pii-host").attachShadow({ mode: "open" });
       root.innerHTML = "<span>late@example.com</span>";
+      root.textContent = "";
     });
     await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
     await inject(removeSensitiveMasks);
-    assert.equal(await page.locator("open-pii-host").evaluate((host) => host.shadowRoot.textContent), "late@example.com");
+    assert.equal(await page.locator("open-pii-host").evaluate((host) => host.shadowRoot.textContent), "");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("unrelated dashboard mutations remain valid but transient PII is rejected", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><main id='dashboard'><span id='clock'>10:20</span><p>稼働中</p></main>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const dashboard = document.getElementById("dashboard");
+      dashboard.classList.toggle("updated");
+      document.getElementById("clock").textContent = "10:21";
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.evaluate(() => {
+      const transient = document.createElement("span");
+      transient.textContent = "transient@example.com";
+      document.body.append(transient);
+      transient.remove();
+      const pair = document.createElement("dl");
+      pair.innerHTML = "<dt>氏名</dt><dd>佐藤花子</dd>";
+      document.body.append(pair);
+      pair.querySelector("dd").textContent = "";
+      pair.remove();
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));

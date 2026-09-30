@@ -5,6 +5,7 @@ export async function captureWithMaskBoundary({ applyMasks, waitForPaint = async
     const result = await applyMasks();
     if (!result?.applied || (verifyMasks && !result?.token)) throw new Error("SCREENSHOT_MASK_FAILED");
     await waitForPaint();
+    if (verifyMasks && !(await verifyMasks(result.token))) throw new Error("SCREENSHOT_MASK_INVALIDATED");
     const image = await capture();
     if (typeof image !== "string" || !image.startsWith("data:image/")) throw new Error("SCREENSHOT_CAPTURE_FAILED");
     if (verifyMasks && !(await verifyMasks(result.token))) throw new Error("SCREENSHOT_MASK_INVALIDATED");
@@ -58,6 +59,27 @@ export function installSensitiveMasks() {
     const observedRoots = new WeakMap();
     const backdropRoots = new WeakSet();
     const privacyMutation = { detected: false };
+    const collectPrivacyRootSnapshot = () => {
+      const roots = [];
+      const seen = new Set();
+      const visit = (root) => {
+        if (!root?.querySelectorAll || seen.has(root)) return;
+        seen.add(root);
+        roots.push(root);
+        for (const host of root.querySelectorAll("*")) {
+          let shadow;
+          try {
+            shadow = shadowRootOf(host);
+          } catch {
+            privacyMutation.detected = true;
+            continue;
+          }
+          if (shadow?.querySelectorAll) visit(shadow);
+        }
+      };
+      visit(document);
+      return roots;
+    };
 
     const normalizeText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
     const semanticKind = (value) => {
@@ -257,6 +279,7 @@ export function installSensitiveMasks() {
         style.setProperty("opacity", "1", "important");
         style.setProperty("filter", "none", "important");
         style.setProperty("mix-blend-mode", "normal", "important");
+        style.setProperty("clip", "auto", "important");
         style.setProperty("clip-path", "none", "important");
         style.setProperty("mask", "none", "important");
         style.setProperty("-webkit-mask", "none", "important");
@@ -377,6 +400,82 @@ export function installSensitiveMasks() {
 
     scanRoot(document);
     const privacyMaskedCount = addPrivacyOverlays();
+    const privacyRootSnapshot = collectPrivacyRootSnapshot();
+    const privacyRootSet = new Set(privacyRootSnapshot);
+    const protectedTargets = new Set(privacyOverlays.map(({ target }) => target));
+    const isProtectedMutationNode = (node) => {
+      if (!node) return false;
+      for (const target of protectedTargets) {
+        const label = target?.previousElementSibling;
+        if (node === target || node === label || node === target?.parentElement || target?.contains?.(node)) return true;
+      }
+      return false;
+    };
+    const containsPiiText = (value) => {
+      const text = String(value ?? "");
+      return textPatterns.some(({ pattern }) => {
+        pattern.lastIndex = 0;
+        return pattern.test(text);
+      });
+    };
+    const containsSemanticCandidate = (node) => {
+      if (!node) return false;
+      const element = node.nodeType === 3 ? node.parentElement : node;
+      if (!element) return false;
+      for (const valueElement of [element, ...element.querySelectorAll?.("dd,td") || []]) {
+        const label = valueElement?.previousElementSibling;
+        if (semanticKind(label?.textContent) && normalizeText(valueElement?.textContent)) return true;
+      }
+      return false;
+    };
+    const isSemanticMutationNode = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element || !["DD", "TD"].includes(String(element.tagName || "").toUpperCase())) return false;
+      return Boolean(semanticKind(element.previousElementSibling?.textContent));
+    };
+    const hasUnseenShadowRoot = (node) => {
+      const elements = node?.nodeType === 1 ? [node, ...node.querySelectorAll?.("*") || []] : [];
+      for (const element of elements) {
+        let shadow;
+        try {
+          shadow = shadowRootOf(element);
+        } catch {
+          return true;
+        }
+        if (shadow && !privacyRootSet.has(shadow)) return true;
+      }
+      return false;
+    };
+    const privacyMutationAffectsBoundary = (record) => {
+      if (record.type === "characterData") {
+        return isProtectedMutationNode(record.target?.parentElement)
+          || isSemanticMutationNode(record.target)
+          || containsPiiText(record.oldValue)
+          || containsPiiText(record.target?.nodeValue);
+      }
+      if (record.type === "attributes") return isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target);
+      if (record.type !== "childList") return false;
+      if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
+      for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
+        if (isProtectedMutationNode(node) || containsPiiText(node.textContent) || containsSemanticCandidate(node) || hasUnseenShadowRoot(node)) return true;
+      }
+      return false;
+    };
+    const privacyObservers = [];
+    const isOverlayNode = (node) => node?.nodeType === 3
+      ? node.parentElement?.closest?.(`.${privacyOverlayClass}`)
+      : node?.closest?.(`.${privacyOverlayClass}`);
+    const processPrivacyMutations = (records) => {
+      for (const record of records || []) {
+        const isOverlayRecord = record.target?.closest?.(`.${privacyOverlayClass}`)
+          || ([...record.addedNodes || [], ...record.removedNodes || []].length > 0
+            && [...record.addedNodes || [], ...record.removedNodes || []].every(isOverlayNode));
+        if (!isOverlayRecord && privacyMutationAffectsBoundary(record)) {
+          privacyMutation.detected = true;
+          return;
+        }
+      }
+    };
     if (typeof MutationObserver === "function") {
       const privacyRoots = [];
       const seenPrivacyRoots = new Set();
@@ -390,25 +489,19 @@ export function installSensitiveMasks() {
         }
       };
       collectPrivacyRoots(document);
-      const isOverlayNode = (node) => node?.nodeType === 3
-        ? node.parentElement?.closest?.(`.${privacyOverlayClass}`)
-        : node?.closest?.(`.${privacyOverlayClass}`);
       for (const root of privacyRoots) {
         const target = root === document ? (document.documentElement || document) : root;
         if (!target) continue;
-        const privacyObserver = new MutationObserver((records) => {
-          if (records.some((record) => {
-            if (record.target?.closest?.(`.${privacyOverlayClass}`)) return false;
-            if (record.removedNodes?.length) return true;
-            if (record.type === "attributes") return true;
-            return ![...record.addedNodes || []].every(isOverlayNode);
-          })) privacyMutation.detected = true;
-        });
-        privacyObserver.observe(target, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style", "class", "hidden", "aria-hidden"] });
+        const privacyObserver = new MutationObserver(processPrivacyMutations);
+        privacyObserver.observe(target, { subtree: true, childList: true, characterData: true, characterDataOldValue: true, attributes: true, attributeOldValue: true, attributeFilter: ["style", "class", "hidden", "aria-hidden"] });
         observers.push(privacyObserver);
+        privacyObservers.push(privacyObserver);
       }
     }
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, document, privacyOverlayClass, collectPrivacyCandidates };
+    const flushPrivacyMutations = () => {
+      for (const observer of privacyObservers) processPrivacyMutations(observer.takeRecords?.() || []);
+    };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates };
     return { applied: true, count: masks.length, privacyMaskedCount, token };
   } catch {
     for (const observer of observers) observer.disconnect();
@@ -427,12 +520,16 @@ export function verifySensitiveMasks(expectedToken) {
     if (state.document !== document) return false;
     const sameRect = (left, right) => ["left", "top", "width", "height"].every((key) => Number.isFinite(left?.[key]) && Number.isFinite(right?.[key]) && Math.abs(left[key] - right[key]) <= 1);
     const usableRect = (rect) => rect && [rect.left, rect.top, rect.width, rect.height].every((value) => Number.isFinite(value)) && rect.width > 0 && rect.height > 0;
+    const clipIsAuto = (value) => {
+      const clip = String(value || "").trim().toLowerCase();
+      return !clip || clip === "auto" || /^rect\(\s*auto\s*,\s*auto\s*,\s*auto\s*,\s*auto\s*\)$/.test(clip);
+    };
     const overlayBoundarySafe = (overlay) => {
       let current = overlay;
       while (current) {
         const computed = getComputedStyle(current);
         if (Number(computed.opacity) !== 1) return false;
-        if (computed.filter !== "none" || computed.mixBlendMode !== "normal" || computed.clipPath !== "none" || computed.mask !== "none" || computed.maskImage !== "none" || computed.webkitMaskImage !== "none") return false;
+        if (computed.filter !== "none" || computed.mixBlendMode !== "normal" || !clipIsAuto(computed.clip) || computed.clipPath !== "none" || computed.mask !== "none" || computed.maskImage !== "none" || computed.webkitMaskImage !== "none") return false;
         current = current.parentElement;
       }
       return true;
@@ -447,7 +544,12 @@ export function verifySensitiveMasks(expectedToken) {
       const bottom = Math.max(...rects.map((rect) => rect.bottom ?? rect.top + rect.height));
       return { left, top, width: right - left, height: bottom - top };
     };
+    state.flushPrivacyMutations?.();
     if (state.privacyMutation?.detected) return false;
+    if (Array.isArray(state.privacyRootSnapshot) && typeof state.collectPrivacyRootSnapshot === "function") {
+      const currentRoots = state.collectPrivacyRootSnapshot();
+      if (currentRoots.some((root) => !state.privacyRootSnapshot.includes(root))) return false;
+    }
     if (typeof state.collectPrivacyCandidates === "function") {
       const currentCandidates = state.collectPrivacyCandidates();
       const overlays = state.privacyOverlays || [];
@@ -477,7 +579,7 @@ export function verifySensitiveMasks(expectedToken) {
       const background = String(overlayStyle.backgroundColor || "").toLowerCase();
       const rgba = background.match(/^rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)$/);
       const webkitBackgroundClip = String(overlayStyle.webkitBackgroundClip || "").toLowerCase();
-      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || overlayStyle.maskImage !== "none" || overlayStyle.webkitMaskImage !== "none" || overlayStyle.backgroundImage !== "none" || String(overlayStyle.backgroundClip).toLowerCase() !== "border-box" || (webkitBackgroundClip && webkitBackgroundClip !== "border-box") || overlayStyle.borderRadius !== "0px" || overlayStyle.boxShadow !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
+      if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || !clipIsAuto(overlayStyle.clip) || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || overlayStyle.maskImage !== "none" || overlayStyle.webkitMaskImage !== "none" || overlayStyle.backgroundImage !== "none" || String(overlayStyle.backgroundClip).toLowerCase() !== "border-box" || (webkitBackgroundClip && webkitBackgroundClip !== "border-box") || overlayStyle.borderRadius !== "0px" || overlayStyle.boxShadow !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
       const rect = item.overlay.getBoundingClientRect();
       const previousPointerEvents = item.overlay.style.getPropertyValue("pointer-events");
       const previousPointerPriority = item.overlay.style.getPropertyPriority("pointer-events");
