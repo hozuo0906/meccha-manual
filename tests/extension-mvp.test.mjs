@@ -18,7 +18,12 @@ test("manifest uses required minimal MV3 permissions", async () => {
   assert.equal(manifest.permissions.includes("storage"), true);
   assert.equal(manifest.permissions.includes("debugger"), false);
   assert.equal(manifest.permissions.includes("tabs"), false);
-  assert.equal("host_permissions" in manifest, false);
+  assert.deepEqual(manifest.host_permissions, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
+  assert.deepEqual(manifest.content_scripts, [{
+    matches: ["https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue"],
+    js: ["content/onboarding-access-return.js"],
+    run_at: "document_start"
+  }]);
 });
 
 test("original state and bounds form a serializable suspension-safe snapshot", () => {

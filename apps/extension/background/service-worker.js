@@ -711,7 +711,52 @@ function validHandoffAccessReturnSender(sender) {
   }
 }
 
+async function handleInitialHandoffAccessReturn(sender, locked = false) {
+  if (!validHandoffAccessReturnSender(sender)) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  const values = await chrome.storage.local.get(null);
+  const candidates = Object.entries(values || {}).filter(([key, ready]) => {
+    if (!key.startsWith(HANDOFF_READY_KEY_PREFIX) || !ready || typeof ready !== "object") return false;
+    if (ready.tabId !== sender.tab.id || !["auto", "manual"].includes(ready.activationPolicy) || ready.pageReadyAt ||
+      !HANDOFF_PAGE_READY_PATTERN.test(ready.handoffId || "") || !HANDOFF_PAGE_READY_PATTERN.test(ready.launchId || "")) return false;
+    return Number(ready.restoreAttempts || 0) < 3;
+  });
+  if (candidates.length !== 1) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  const [readyKey, ready] = candidates[0];
+  if (!locked) return withHandoffReadyLock(ready.handoffId, () => handleInitialHandoffAccessReturn(sender, true));
+  const metadataKey = handoffStorageKey(ready.handoffId);
+  const metadata = values?.[metadataKey];
+  const readyExpiresAt = Date.parse(ready.expiresAt || "");
+  const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+  const pendingRecovery = metadata?.status === "finalize-pending" || metadata?.status === "completion-pending";
+  const validIdentity = !metadata?.operationId || /^[A-Za-z0-9_-]{16,128}$/.test(metadata.operationId);
+  const validMetadata = metadata?.handoffId === ready.handoffId && HANDOFF_EXTENSION_ID_PATTERN.test(metadata.extensionId || "") &&
+    HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
+    Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt &&
+    validIdentity && metadata.status !== "completed" &&
+    (pendingRecovery ? recoveryMetadataForHandoff(metadata) !== null : metadataExpiresAt > Date.now());
+  if (!validMetadata) {
+    return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  }
+  let pendingUrl;
+  try {
+    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, ready.launchId);
+  } catch {
+    return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  }
+  await chrome.storage.local.set({ [readyKey]: { ...ready, restoreAttempts: Number(ready.restoreAttempts || 0) + 1 } });
+  try {
+    await chrome.tabs.update(sender.tab.id, { url: pendingUrl });
+  } catch {
+    return { ok: false, error: "HANDOFF_ACCESS_RETURN_RETRYABLE" };
+  }
+  return { ok: true, status: pendingRecovery ? "recovery" : "restored" };
+}
+
 async function handleHandoffAccessReturn(message, sender) {
+  const initialMessage = message && typeof message === "object" && !Array.isArray(message) &&
+    message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
+    Object.keys(message).length === 2;
+  if (initialMessage) return handleInitialHandoffAccessReturn(sender);
   const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
     message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
@@ -806,6 +851,7 @@ async function handleHandoffPageReady(message, sender) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+    if (message?.schema === HANDOFF_PAGE_READY_SCHEMA && message?.type === "handoff.access-return") return handleHandoffAccessReturn(message, sender);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
     if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());

@@ -5,6 +5,7 @@ Status: Accepted
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
 | DEC-085 | 2026-10-01 | Access認証後のhandoff復帰はURL監視に依存せず、同一originのWeb画面からの`handoff.access-return` external messageを、senderのtop-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordで再検証する。通常handoffは元の期限内、`finalize-pending`／`completion-pending`はGET専用の結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。本文、画像、credential、共有token、Access URL観測権限は追加しない | Access redirectでfragmentが失われても、最小権限のまま認証後のWeb画面から対象tabを証明できるため。通常の期限切れ書き込みと別tab・通常fragment除去・完了済みhandoffの誤復帰を拒否する |
+| DEC-086 | 2026-10-01 | DEC-085の初回Access復帰に限り、固定staging originの`/onboarding/continue`へ完全一致するMV3 content scriptと同originだけのhost permissionを追加する。hashlessかつ初回`navigate`のcontent scriptは識別子を送らず、service workerがsenderのtab IDに束縛された`pageReadyAt`未確認のready recordを一意照合し、保存済みmetadataから同じfragmentを最大3回まで再付与する。DEC-085の「host permissionを追加しない」はこの初回経路の範囲で失効する | Accessが初回URLを302して`ONBOARDING_JS`を一度も実行させず、hashlessで同originへ戻す場合でも、Webへhandoff capabilityやextension IDをquery／fragmentで追加露出せず同じintentを回復するため。staging以外のorigin、Access URL、tabs permission、本文・画像・credential・tokenは追加しない |
 | DEC-075 | 2026-09-20 | B登録UIのhandoff metadataは同一タブの`sessionStorage`にhandoffごとの履歴として保持し、`handoffId`ごとに一意な`operationId`を再利用する。metadataは作成から15分で、期限切れtombstoneの保存に成功した場合に限り`expired`へ遷移し、期限切れの同じIDを再開・再送せず、拡張機能で新しいhandoffを発行してやり直す | A-B-Aのタブ内遷移で別handoffの操作を混同せず、期限切れ・結果不明の再送で新しいoperationを発行しない。本文・画像・下書きはsessionStorageへ移さず、正式origin／Accessが未準備の場合は登録操作を無効化して準備中を表示する。tombstoneの保存に失敗した現在ページはfail closedとし、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先を再検証する。 |
 | DEC-076 | 2026-09-20 | B owner pilotのruntimeは既存legacy `wrangler.jsonc`から分離した`wrangler.onboarding.jsonc`を使い、`apps/worker/src/index.ts`、環境別の完全一致`APP_ENV`／`APP_BASE_URL`、staging専用D1、10回／60秒のrate-limit bindingを固定する。productionのD1 ID、Access audience、rate-limit namespaceが未確定の間はplaceholderでfail closedにする | legacy Supabase／Discord runtimeへ影響させず、stagingの限定検証だけを可能にする。host反映やwildcardによるWeb UI有効化を拒否し、production資源作成・migration・deployやCの実装をこの準備で承認しない。 |
 | DEC-077 | 2026-09-21 | owner限定staging配布版のChrome拡張は、`https://meccha-manual-staging.meccha-iiyatsu.com`だけを登録UI handoff先として固定し、production、preview、localhost、userinfo、port、path、query付きoriginを拒否する。configとhandoffは同じ固定値を参照し、配布版のmanifest versionは`0.1.1`とする | staging B登録UIへ接続できる reviewable な配布導線を用意しつつ、production公開や任意originへの接続を防ぐ。本文・画像・credentialは拡張から送信せず、Cの保存・claimは有効化しない。 |
@@ -469,6 +470,15 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Status: Accepted
 - Date: 2026-10-01
 - Issue: #272 / PR #274
-- Decision: Access認証後に同一originのWeb画面が`handoff.access-return` external messageを送る。拡張機能はsenderの固定origin・`/onboarding/continue`・top-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordを照合し、通常handoffは元の期限内、`finalize-pending`／`completion-pending`は結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。復帰後のGET専用照会と同じmanualIdの完了通知だけを期限後に許可し、通常の期限切れwriteは拒否する。本文・画像・認証情報・共有tokenをメッセージやURLに含めず、`tabs`／host permissionを追加しない。
+- Decision: Access認証後に同一originのWeb画面が`handoff.access-return` external messageを送る。拡張機能はsenderの固定origin・`/onboarding/continue`・top-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordを照合し、通常handoffは元の期限内、`finalize-pending`／`completion-pending`は結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。初回AccessでこのWeb側JSが実行されない場合の補完経路はDEC-086で定める。復帰後のGET専用照会と同じmanualIdの完了通知だけを期限後に許可し、通常の期限切れwriteは拒否する。本文・画像・認証情報・共有tokenをメッセージやURLに含めず、`tabs` permissionを追加しない。
 - Reason: `tabs.onUpdated.changeInfo.url`は最小権限のMV3 workerが常に参照できる契約ではなく、合成テストのfabricated URLを実Chromeの根拠にできないため。Web画面からの明示通知に、sender、tab、launch、identity、action、fingerprint、期限を束ねて、通常の初回fragment除去とAccess復帰を区別しながら保存identityを再開する。
 - Boundary: Access policy、認証credential、Worker／D1／R2、claim API、production設定、共有公開は変更しない。実ブラウザ回帰は、通常fragment除去0回、Access経由1回、active tab維持、claim完了、local draft削除、再読込後の完了状態を実MV3で確認する。
+
+### DEC-086: 初回AccessでWeb JSが実行されないhandoff復帰
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #274
+- Decision: 初回Access URLが認証へ302されて`ONBOARDING_JS`を実行できない場合に限り、`https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue`へ完全一致するcontent scriptが、hashlessかつ初回`navigate`でpayloadなしの`handoff.access-return`を拡張機能へ内部送信する。service workerはsenderの固定origin・top-level frame・tab IDと、同じtabに束縛された`pageReadyAt`未確認のready recordが一意であること、handoff／launch／extension／action／draft fingerprint／期限／状態をlocal metadataから照合し、同じfragmentを最大3回まで再付与する。通常fragment除去、別tab・同tabの別navigation、期限切れ通常handoff、fingerprint不一致、完了済み、取消済みは拒否する。
+- Reason: Web側へextension IDやhandoff capabilityをquery／fragmentで再露出せず、Access認証ページや別originを読まずに、extensionが作成したbound tabと保存済みintentだけで初回復帰を証明するため。
+- Boundary: host permissionはstagingの固定originだけで、`tabs`／`all_urls`／Access origin権限、Access policy、認証credential、Worker／D1／R2、claim API、production設定は変更しない。content scriptは本文・画像・credential・tokenを送らず、通常のfragment付与後は既存`handoff.page-ready`と既存external returnを使う。

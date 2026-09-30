@@ -4,6 +4,14 @@
   "version": "0.1.6",
   "description": "いま開いているタブの操作を記録し、手順書をローカルで作成します。",
   "permissions": ["activeTab", "scripting", "storage", "windows", "sidePanel"],
+  "host_permissions": ["https://meccha-manual-staging.meccha-iiyatsu.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue"],
+      "js": ["content/onboarding-access-return.js"],
+      "run_at": "document_start"
+    }
+  ],
   "externally_connectable": {
     "matches": ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]
   },

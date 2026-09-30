@@ -359,6 +359,27 @@ test("Access handoff recovery uses the bound external return signal", async () =
   assert.doesNotMatch(source, /HANDOFF_ACCESS_NAVIGATION_KEY_PREFIX/);
 });
 
+test("first Access recovery is limited to the bound staging onboarding page", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../apps/extension/manifest.json", import.meta.url), "utf8"));
+  const contentScript = await readFile(new URL("../apps/extension/content/onboarding-access-return.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.deepEqual(manifest.host_permissions, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
+  assert.deepEqual(manifest.content_scripts, [{
+    matches: ["https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue"],
+    js: ["content/onboarding-access-return.js"],
+    run_at: "document_start"
+  }]);
+  assert.match(contentScript, /location\.hash/);
+  assert.match(contentScript, /navigationType && navigationType !== "navigate"/);
+  assert.match(contentScript, /type: "handoff\.access-return"/);
+  assert.match(source, /handleInitialHandoffAccessReturn/);
+  assert.match(source, /onMessage\.addListener[\s\S]*handoff\.access-return/);
+  assert.match(source, /ready\.tabId !== sender\.tab\.id/);
+  assert.match(source, /ready\.pageReadyAt/);
+  assert.match(source, /restoreAttempts/);
+  assert.doesNotMatch(JSON.stringify(manifest), /access-login|all_urls|<all_urls>/);
+});
+
 test("PC mode restoration is a no-op so user window changes are not undone", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   const start = source.indexOf("async function attemptRestore(session)");
