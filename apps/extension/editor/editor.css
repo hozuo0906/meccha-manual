@@ -164,3 +164,34 @@ li button { min-height: 44px; padding: 9px 11px; border-radius: 10px; }
 @media (prefers-reduced-transparency: reduce) {
   .image-editor-form > header { background: #fff; }
 }
+
+/* Calm final pass: one visual hierarchy, touch-sized actions, and a stable
+   narrow layout. Keep the image and primary save action visually dominant. */
+body { background: #f3f8f8; }
+.editor-header, .layout > nav, .layout > section { background: #fff; box-shadow: 0 6px 20px rgba(32,33,36,.06); }
+.editor-header { border-color: #dcebea; }
+.layout > nav, .layout > section { border-color: #e0eceb; }
+.save-state { background: #edf6f2; color: #21634a; }
+.secondary { border: 1px solid #c8d9d8; background: #f3f8f8; color: #28565a; }
+.secondary:hover { background: #e6f1f0; color: #174447; }
+.image-editor-dialog { box-shadow: 0 24px 64px rgba(32,33,36,.22); }
+.image-editor-form > header { border-bottom-color: #dcebea; }
+.image-editor-canvas-wrap { background: #f4f9f9; }
+.image-editor-tools { background: #fff; }
+.tool-grid button { background: #f3f8f8; color: #24484b; }
+.tool-grid button[aria-pressed="true"] { background: #0b7773; color: #fff; }
+.image-editor-actions { border-top-color: #dcebea; }
+#addStep, .step-controls button, .image-edit-button, .image-upload-panel button,
+.image-editor-dialog button, .image-editor-dialog input, .image-editor-dialog textarea { min-height: 44px; }
+.screenshot-preview { background: #f7fbfb; box-shadow: 0 6px 18px rgba(32,33,36,.08); }
+
+@media (max-width: 760px) {
+  .editor-header { padding: 16px; }
+  #addStep, .step-controls button, .image-edit-button, .image-upload-panel button { min-height: 44px; }
+  .image-editor-form { overflow-y: auto; overflow-x: hidden; }
+  .image-editor-workspace { overflow: visible; }
+  .image-editor-canvas-wrap { overflow: hidden; }
+  #imageEditorCanvas { width: 100%; height: auto; max-height: 44vh; object-fit: contain; }
+  .image-editor-tools { overflow: visible; }
+  .image-editor-actions { position: sticky; bottom: 0; }
+}

@@ -40,8 +40,10 @@ let selectedStepId = draft.steps[0]?.id;
 const previewGenerations = new WeakMap();
 function invalidatePreview(canvas) {
   previewGenerations.set(canvas, (previewGenerations.get(canvas) || 0) + 1);
-  canvas.width = 1;
-  canvas.height = 1;
+  // Keep the intrinsic ratio while an off-screen image is decoding. Resetting
+  // the canvas to 1x1 makes a portrait preview briefly collapse and compete
+  // with the CSS aspect-ratio during scrolling.
+  canvas.style.visibility = "hidden";
   canvas.dataset.previewRendered = "false";
 }
 const previewObserver = new IntersectionObserver((entries) => {
@@ -93,6 +95,7 @@ function persist(message = "この端末に保存しました。") {
 
 function persistCandidate(candidate, message = "この端末に保存しました。") {
   return enqueuePersist(async () => {
+    const draftBeforePersist = structuredClone(draft);
     candidate = typeof candidate === "function" ? candidate() : candidate;
     candidate.title = title.value;
     candidate.description = description.value;
@@ -100,10 +103,16 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
     setSaveState("保存中…", "saving");
     try {
       await draftStore.put(candidate);
-      Object.assign(draft, candidate);
+      // A write may stay pending while the user edits another field. Keep
+      // those newer local edits; the queued persist that follows will save
+      // them instead of this older candidate replacing them.
+      const hasPendingEdits = JSON.stringify(draft) !== JSON.stringify(draftBeforePersist)
+        || title.value !== candidate.title
+        || description.value !== candidate.description;
+      if (!hasPendingEdits) Object.assign(draft, candidate);
       status.textContent = message;
       setSaveState("端末に保存済み", "saved");
-      return { ok: true, candidate };
+      return { ok: true, candidate: hasPendingEdits ? structuredClone(draft) : candidate, hasPendingEdits };
     }
     catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
   });
@@ -141,7 +150,10 @@ function assertImageCapacity(candidate, nextDataUrl, replacedId = null) {
 }
 
 async function readImageHeaderDimensions(file) {
-  const bytes = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
+  // JPEG metadata may legally place SOF after a large APP segment. The input
+  // is already capped at 10 MiB, so scan the bounded file instead of rejecting
+  // a valid image merely because its header exceeds the old 64 KiB probe.
+  const bytes = new Uint8Array(await file.slice(0, Math.min(file.size, MAX_IMAGE_BYTES)).arrayBuffer());
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length >= 24 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) {
     return { width: view.getUint32(16), height: view.getUint32(20) };
@@ -198,11 +210,17 @@ async function normalizeUploadedImage(file) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
     context.drawImage(bitmap, 0, 0);
+    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    let hasTransparency = false;
+    for (let offset = 3; offset < pixels.length; offset += 4) {
+      if (pixels[offset] < 255) { hasTransparency = true; break; }
+    }
     // Re-encode to remove the original file metadata before it enters the draft.
     let blob = await canvasToBlob(canvas, "image/png");
     if (blob.size > MAX_IMAGE_BYTES) {
-      // JPEG has no alpha channel. Flatten only for this size fallback so a
-      // transparent PNG does not become a black rectangle.
+      // JPEG has no alpha channel. Keep transparent input lossless and report
+      // the size limit instead of silently turning hidden areas opaque.
+      if (hasTransparency) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE");
       const flattened = document.createElement("canvas");
       flattened.width = bitmap.width;
       flattened.height = bitmap.height;
@@ -239,6 +257,7 @@ async function drawPreview(canvas, screenshot) {
     const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
     const preview = canvas.closest(".screenshot-preview");
     if (preview && image.naturalWidth && image.naturalHeight) preview.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
+    canvas.style.visibility = "visible";
     canvas.dataset.previewRendered = "true";
     canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");
   } catch {
@@ -295,7 +314,7 @@ function renderScreenshot(step) {
       fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success"; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
     } catch (error) {
       uploadMessage.textContent = imageUploadError(error); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
-    } finally { uploadButton.disabled = false; }
+    } finally { fileInput.value = ""; uploadButton.disabled = false; }
   });
   uploadPanel.append(uploadTitle, uploadHint, uploadButton, fileInput, uploadMessage); area.append(uploadPanel);
   return area;
