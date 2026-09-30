@@ -1,0 +1,227 @@
+[
+  {
+    "viewport": {
+      "width": 1366,
+      "height": 900
+    },
+    "launchAttempts": 1,
+    "firstLaunchError": null,
+    "pass": true,
+    "defects": [],
+    "metrics": {
+      "initial": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": "editor-heading",
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1366,
+          "height": 900
+        }
+      },
+      "stepsAfterAdd": 2,
+      "modal": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1366,
+          "height": 900
+        }
+      },
+      "saved": {
+        "annotations": 2,
+        "masks": 1,
+        "text": "確認文字"
+      },
+      "cancelPreserved": true,
+      "reloadHeadingFocus": "editor-heading",
+      "reloadPreserved": {
+        "annotations": 2,
+        "masks": 1
+      },
+      "final": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1366,
+          "height": 900
+        }
+      }
+    }
+  },
+  {
+    "viewport": {
+      "width": 1024,
+      "height": 768
+    },
+    "launchAttempts": 1,
+    "firstLaunchError": null,
+    "pass": true,
+    "defects": [],
+    "metrics": {
+      "initial": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": "editor-heading",
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1024,
+          "height": 768
+        }
+      },
+      "stepsAfterAdd": 2,
+      "modal": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1024,
+          "height": 768
+        }
+      },
+      "saved": {
+        "annotations": 2,
+        "masks": 1,
+        "text": "確認文字"
+      },
+      "cancelPreserved": true,
+      "reloadHeadingFocus": "editor-heading",
+      "reloadPreserved": {
+        "annotations": 2,
+        "masks": 1
+      },
+      "final": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 1024,
+          "height": 768
+        }
+      }
+    }
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "launchAttempts": 1,
+    "firstLaunchError": null,
+    "pass": true,
+    "defects": [],
+    "metrics": {
+      "initial": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": "editor-heading",
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      "stepsAfterAdd": 2,
+      "modal": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      "saved": {
+        "annotations": 2,
+        "masks": 1,
+        "text": "確認文字"
+      },
+      "cancelPreserved": true,
+      "reloadHeadingFocus": "editor-heading",
+      "reloadPreserved": {
+        "annotations": 2,
+        "masks": 1
+      },
+      "final": {
+        "h1Count": 1,
+        "heading": "手順書を編集",
+        "headingId": "editor-heading",
+        "headingTabIndex": "-1",
+        "activeId": null,
+        "activeRole": null,
+        "controlsUnder44": [],
+        "minControlHeight": 44,
+        "horizontalOverflow": false,
+        "modalOverflowX": false,
+        "modalOverflowY": false,
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      }
+    }
+  }
+]

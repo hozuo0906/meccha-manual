@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-09-30T20:32:44.083Z",
+  "timezone": "Asia/Tokyo",
+  "sourceSha": "bc75b1366f733d90697b87b859807c06a6a59964",
+  "browser": "Chrome channel (Playwright)",
+  "syntheticDataOnly": true,
+  "viewports": [
+    {
+      "width": 1366,
+      "height": 900
+    },
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ]
+}

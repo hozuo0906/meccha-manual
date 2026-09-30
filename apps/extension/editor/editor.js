@@ -493,3 +493,4 @@ outputGate.addEventListener("close", () => {
 });
 render();
 notifyEditorReady();
+document.getElementById("editor-heading")?.focus({ preventScroll: true });

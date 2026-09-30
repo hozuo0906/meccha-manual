@@ -119,6 +119,8 @@ test("editor navigation and image edits persist exact annotation and mask coordi
     const page = await context.newPage();
     page.setDefaultTimeout(4_000);
     await seedImageEditorDraft(page, baseUrl, draftId);
+    assert.equal(await page.locator("h1#editor-heading").textContent(), "手順書を編集");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "editor-heading", "編集画面の初期フォーカスはページ見出しから開始する");
 
     await page.locator('#steps button[aria-controls="step-step-17"]').click();
     await page.waitForFunction(() => {
