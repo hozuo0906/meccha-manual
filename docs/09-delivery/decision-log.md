@@ -485,6 +485,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 一般的な氏名・住所の完全自動判定やスクリーンショット内の静的文字列置換は本決定の対象外とし、画像の自動ダミー置換は別の小さな作業単位で高信頼DOM候補だけを扱う。
   - 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
 
+- 2026-10-01 review補足: caption内に複数の`@`がある場合も各候補を順に検査し、先行する通常文の`@`で後続の改行・空白分断メール候補を隠さない。既存の40 code point上限と固定semantic fallbackを維持する。
+- 2026-10-01 review補足: 固定semantic fallbackと、同じ文字列を持つ実caption（例: `メニュー`、`入力欄`）を下流で混同しないよう、拡張機能内のclick eventだけ任意の`labelSource: "caption"`を付与する。既存eventの未指定値はsemantic fallbackとして扱い、capture APIの汎用`対象`契約は変更しない。
+
 ### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
 
 - Status: Accepted

@@ -107,8 +107,14 @@ test("click labels use only short control names and fall back for values or sens
   const normalized = normalizeCaptureEvent({ kind: "click", at: 1, eventId: "click:1", target: {
     tagName: "button", ariaLabel: "参照", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
   } });
-  assert.deepEqual(normalized, { kind: "click", at: 1, label: "参照", eventId: "click:1" });
+  assert.deepEqual(normalized, { kind: "click", at: 1, label: "参照", labelSource: "caption", eventId: "click:1" });
   assert.equal(JSON.stringify(normalized).includes("問い合わせ本文"), false);
+  assert.deepEqual(normalizeCaptureEvent({ kind: "click", at: 2, target: { role: "menuitem" } }), { kind: "click", at: 2, label: "メニュー" });
+  assert.deepEqual(normalizeCaptureEvent({ kind: "click", at: 3, target: { tagName: "button", ariaLabel: "メニュー" } }), { kind: "click", at: 3, label: "メニュー", labelSource: "caption" });
+  assert.deepEqual(normalizeCaptureEvent({ kind: "click", at: 4, target: { tagName: "button", ariaLabel: "入力欄" } }), { kind: "click", at: 4, label: "入力欄", labelSource: "caption" });
+  const journal = nextRecoveryJournal(null, { sessionId: "caption-provenance", events: [normalized] });
+  assert.deepEqual(journal.events[0], normalized, "recovery journal must retain validated caption provenance");
+  assert.deepEqual(normalizeCaptureEvent({ kind: "click", at: 5, label: "user@example.com", labelSource: "caption" }), { kind: "click", at: 5, label: "操作対象" }, "untrusted caption provenance must be revalidated");
 });
 
 test("click labels reject URL-shaped captions without a fixed TLD allowlist", () => {
@@ -298,10 +304,11 @@ test("all caption sources reject the existing sensitive-name vocabulary", () => 
   }
 });
 
-test("persisted instructions use a closed semantic-label map", async () => {
+test("persisted instructions distinguish caption provenance from semantic fallback", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
-  assert.match(source, /const semanticLabel = \{[\s\S]*?\}\[event\.label\] \|\| "操作対象"/);
-  assert.doesNotMatch(source, /semanticLabels/);
+  assert.match(source, /const semanticLabels = new Set\(/);
+  assert.match(source, /semanticLabels\.has\(event\.label\)/);
+  assert.match(source, /event\.labelSource === "caption"/);
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {

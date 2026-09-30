@@ -1216,8 +1216,13 @@ test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧�
     assert.equal((await readMetadata(worker, handoffReadyStorageKey(handoffId, launchId))).restoreAttempts, undefined, "the Access login URL alone must not restore the handoff");
     await page.goto(hashlessUrl, { waitUntil: "commit" });
     const readyKey = handoffReadyStorageKey(handoffId, launchId);
+    await page.waitForSelector("#bootstrap", { state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === false);
+    assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, undefined, "hashless return must wait for explicit recovery click");
+    await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 40 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal((await readMetadata(worker, readyKey)).restoreAttempts, 1);
+    await page.waitForFunction(() => location.hash === "");
     await page.waitForSelector("#bootstrap", { state: "visible" });
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));

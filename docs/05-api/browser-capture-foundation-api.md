@@ -23,6 +23,7 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 - 共通: `sequence`、`type`、実在するUTC日時を表すISO 8601 `occurredAt`。sub-millisecond精度はmillisecondへ切り詰めて正規化
 - click: 表示中の秘密値由来でないことを証明できないため、`targetText`は常に`対象`へ置換
+- 拡張機能のlocal click eventでは、安全な短いcaptionを採用した場合だけ`labelSource: "caption"`を付加する。未指定値は従来のsemantic fallbackであり、この補助fieldはguest capture APIへ送信しない。
 - input completion: 入力値由来でないことを証明できないため、`targetText`は常に`入力欄`へ置換
 - navigation: pathを含むURLに秘密値が埋め込まれ得るため、URLは保存しない
 - scroll: `up`または`down`のsummaryだけ

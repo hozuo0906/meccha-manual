@@ -21,6 +21,7 @@ const SECRET_LIKE_LABEL = /(?:eyJ[A-Za-z0-9_-]{10,}\.|\b(?:\d[ -]?){13,19}\b|\b[
 // can miss a later Unicode block (for example Adlam digits).
 const DECIMAL_DIGIT = /\p{Nd}/u;
 const DECIMAL_DIGIT_RUN_LOOKBACK = 64;
+const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
 
 export function isSensitiveInput(input) {
   const type = String(input?.type ?? "").toLowerCase();
@@ -201,7 +202,12 @@ export function normalizeCaptureEvent(event) {
     return { kind: "input", at, label: safeLabel(event.target), ...identity };
   }
   if (event.kind === "click") {
-    return { kind: "click", at, label: safeTargetLabel(event.target), ...identity };
+    const normalizedExistingLabel = !event.target ? normalizeControlName(event.label) : null;
+    const label = event.target ? safeTargetLabel(event.target) : normalizedExistingLabel || "操作対象";
+    const labelSource = event.target
+      ? (safeControlName(event.target) ? "caption" : undefined)
+      : (normalizedExistingLabel && !SEMANTIC_LABELS.has(normalizedExistingLabel) ? "caption" : event.labelSource === "caption" && normalizedExistingLabel ? "caption" : undefined);
+    return { kind: "click", at, label, ...(labelSource ? { labelSource } : {}), ...identity };
   }
   if (event.kind === "scroll") {
     return { kind: "scroll", at, direction: ["up", "down", "left", "right"].includes(event.direction) ? event.direction : "down", ...identity };
