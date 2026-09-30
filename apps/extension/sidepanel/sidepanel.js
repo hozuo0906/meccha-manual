@@ -82,8 +82,16 @@ function scrollLiveLatest({ behavior = "smooth" } = {}) {
   programmaticFollowPending = true;
   updateLiveLatestVisibility();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  latest.scrollIntoView({ behavior: reducedMotion ? "auto" : behavior, block: "end" });
-  if (isLiveTailVisible()) programmaticFollowPending = false;
+  const scrollBehavior = reducedMotion ? "auto" : behavior;
+  latest.scrollIntoView({ behavior: scrollBehavior, block: "end" });
+  const align = () => {
+    const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
+    const overlap = latest.getBoundingClientRect().bottom - footerTop;
+    if (overlap > 0) window.scrollBy({ top: overlap + 8, behavior: scrollBehavior });
+    if (isLiveTailVisible()) programmaticFollowPending = false;
+  };
+  align();
+  requestAnimationFrame(align);
 }
 
 function isLiveTailVisible() {
@@ -236,6 +244,11 @@ function renderDrafts(items = []) {
 }
 
 function renderStatus(state = {}, imageEntries = []) {
+  if (state.sessionId !== liveSessionId) {
+    liveSessionId = state.sessionId || null;
+    followLiveTail = true;
+    programmaticFollowPending = false;
+  }
   const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase);
   const canFinish = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
   const waitingForRestore = Boolean(state.restorePending || state.phase === "starting");
@@ -484,10 +497,12 @@ let lastLiveKey = "";
 let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
+let liveSessionId = null;
 let followLiveTail = true;
 let programmaticFollowPending = false;
 
 function updateLiveTailPosition(event) {
+  if (event?.isTrusted) programmaticFollowPending = false;
   if (programmaticFollowPending) {
     if (!isLiveTailVisible()) return;
     programmaticFollowPending = false;

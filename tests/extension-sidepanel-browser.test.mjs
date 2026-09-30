@@ -143,6 +143,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       return true;
     }, step);
     assert.equal(await makeFixtureStateDistinct(1), true, "first synthetic state should be visible before capture");
+    await target.bringToFront();
     await target.locator("#do").click();
     const stateAfterFirstClick = await target.locator("#state").textContent();
     await waitForNativeValue(
@@ -151,6 +152,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     await new Promise((resolve) => setTimeout(resolve, 700));
     assert.equal(await makeFixtureStateDistinct(2), true, "second synthetic state should be visible before capture");
+    await target.bringToFront();
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
     assert.notEqual(stateAfterFirstClick, stateAfterSecondClick, "synthetic workflow should visibly change between events");
@@ -162,6 +164,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.match(liveProgress.step, /^手順 2/);
     assert.match(liveProgress.status, /保存済み/);
     assert.equal(liveProgress.latestHidden, true, "recording should follow the newest step while the panel is at the tail");
+    await target.bringToFront();
     await target.locator("#do").click();
     await expectNativeImages(3);
     await waitForNativeValue(
@@ -176,6 +179,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.equal(browsingProgress.top, 0, "browsing an earlier step should be possible before the next event");
     assert.equal(browsingProgress.latestHidden, false, "browsing an earlier step should expose the latest-step control");
     assert.equal(await makeFixtureStateDistinct(4), true, "fourth synthetic state should be visible before capture");
+    await target.bringToFront();
     await target.locator("#do").click();
     await expectNativeImages(4);
     const retainedBrowsingPosition = await waitForNativeValue(
