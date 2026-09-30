@@ -11,7 +11,7 @@
 ## Decision
 
 - 注釈は拡張機能のlocal draftだけに保存し、正規化座標、有限値、許可色、最大100件、文字500文字の境界を検証する。
-- 既存`screenshot.masks`形式を維持し、プレビューとclaim assetは同じCanvas描画順（元画像、注釈、黒マスク）を使う。共有へは焼き込み済みPNGだけを送る。
+- 既存`screenshot.masks`形式を維持し、プレビューとclaim assetは同じCanvas描画順（元画像、注釈、黒マスク）を使う。共有へは焼き込み済みPNGを優先して送る。PNGが1画像上限を超え、元画像に透明度がない場合だけJPEGへ再エンコードし、透明なPNG／WebPは平坦化しない。
 - claim message、handoff metadata、Cloudflareの本文へ注釈本文・元画像を含めない。旧draftで注釈が未指定または空の場合はcanonical JSONとfingerprintの形を変えない。
 - 本文は全手順を安定したarticleとして保持し、目次はscrollspyと明示選択を提供する。編集はnative dialogで行い、取消、Escape、保存失敗、reduced motion、キーボード操作を維持する。
 

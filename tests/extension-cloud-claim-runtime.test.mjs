@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -248,12 +249,12 @@ async function restoreDraftDeleteTransaction(worker) {
   });
 }
 
-async function createNoisePng(page, width = 384, height = 384) {
-  return page.evaluate(({ width, height }) => {
+async function createNoisePng(page, width = 384, height = 384, alpha = 255) {
+  return page.evaluate(({ width, height, alpha }) => {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: false });
+    const context = canvas.getContext("2d", { alpha: alpha !== 255 });
     const image = context.createImageData(width, height);
     let state = 0x9e3779b9;
     for (let index = 0; index < image.data.length; index += 4) {
@@ -263,7 +264,7 @@ async function createNoisePng(page, width = 384, height = 384) {
       image.data[index] = state & 0xff;
       image.data[index + 1] = (state >>> 8) & 0xff;
       image.data[index + 2] = (state >>> 16) & 0xff;
-      image.data[index + 3] = 255;
+      image.data[index + 3] = alpha;
     }
     // Values on both sides of the normalized mask are fixed for exact boundary assertions.
     for (const [x, y, red, green, blue] of [[95, 96, 240, 1, 2], [96, 95, 3, 240, 4], [192, 96, 5, 6, 240], [96, 192, 7, 8, 240]]) {
@@ -274,13 +275,13 @@ async function createNoisePng(page, width = 384, height = 384) {
     }
     context.putImageData(image, 0, 0);
     return { dataUrl: canvas.toDataURL("image/png"), width, height };
-  }, { width, height });
+  }, { width, height, alpha });
 }
 
-async function decodeSelectedPixels(page, base64) {
-  return page.evaluate(async (encoded) => {
+async function decodeSelectedPixels(page, base64, contentType = "image/png", points = [[95, 96], [96, 96], [192, 96], [96, 192]]) {
+  return page.evaluate(async ({ encoded, contentType, points }) => {
     const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: contentType }));
     try {
       const canvas = document.createElement("canvas");
       canvas.width = bitmap.width;
@@ -289,12 +290,12 @@ async function decodeSelectedPixels(page, base64) {
       context.drawImage(bitmap, 0, 0);
       return {
         size: [bitmap.width, bitmap.height],
-        pixels: [[95, 96], [96, 96], [192, 96], [96, 192]].map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data))
+        pixels: points.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data))
       };
     } finally {
       bitmap.close();
     }
-  }, base64);
+  }, { encoded: base64, contentType, points });
 }
 
 async function decodePixelRegion(page, base64, x, y, width, height) {
@@ -318,6 +319,114 @@ async function decodePixelRegion(page, base64, x, y, width, height) {
     }
   }, { encoded: base64, x, y, width, height });
 }
+
+test("MV3 claim keeps transparent assets as PNG and falls back to bounded JPEG only for opaque assets", { timeout: 120_000 }, async () => {
+  const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
+  let context;
+  try {
+    let worker;
+    let extensionId;
+    ({ context, worker, extensionId } = await openExtensionContext(userDataDir));
+    const page = await createStagingPage(context);
+
+    const opaqueData = await createNoisePng(page, 2100, 2100, 255);
+    const opaqueDraft = {
+      id: "runtime-opaque-fallback-draft",
+      title: "opaque fallback",
+      description: "合成データのみ",
+      updatedAt: "2026-09-30T00:00:00.000Z",
+      steps: [],
+      screenshots: [{ id: "opaque", dataUrl: opaqueData.dataUrl, masks: [{ x: 0.25, y: 0.25, width: 0.25, height: 0.25 }] }]
+    };
+    const opaqueHandoffId = "J".repeat(43);
+    await putDraft(worker, opaqueDraft);
+    await setMetadata(worker, handoffStorageKey(opaqueHandoffId), {
+      handoffId: opaqueHandoffId,
+      draftId: opaqueDraft.id,
+      outputAction: "save",
+      extensionId,
+      createdAt: opaqueDraft.updatedAt,
+      draftUpdatedAt: opaqueDraft.updatedAt,
+      draftFingerprint: await fingerprintDraft(opaqueDraft),
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    });
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: opaqueHandoffId, action: "save" })).ok, true);
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: opaqueHandoffId, action: "save" })).ok, true);
+    const opaqueStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId: opaqueHandoffId, action: "save", assetSlot: 0 });
+    assert.equal(opaqueStarted.ok, true, JSON.stringify(opaqueStarted));
+    assert.equal(opaqueStarted.contentType, "image/jpeg");
+    assert.ok(opaqueStarted.byteLength <= 10 * 1024 * 1024);
+    const opaqueChunks = [];
+    for (let sequence = 0; sequence < opaqueStarted.totalChunks; sequence += 1) {
+      const chunk = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId: opaqueHandoffId, action: "save", assetSlot: 0, sequence });
+      assert.equal(chunk.ok, true);
+      opaqueChunks.push(Buffer.from(chunk.chunk, "base64"));
+    }
+    const opaqueBytes = Buffer.concat(opaqueChunks);
+    assert.equal(opaqueBytes.byteLength, opaqueStarted.byteLength);
+    assert.equal(createHash("sha256").update(opaqueBytes).digest("hex"), opaqueStarted.sha256);
+    const opaqueDecoded = await decodeSelectedPixels(page, opaqueBytes.toString("base64"), opaqueStarted.contentType);
+    assert.deepEqual(opaqueDecoded.size, [opaqueData.width, opaqueData.height]);
+
+    const retainedData = await createNoisePng(page, 64, 64, 128);
+    const retainedDraft = {
+      ...opaqueDraft,
+      id: "runtime-transparent-retained-draft",
+      screenshots: [{ id: "retained", dataUrl: retainedData.dataUrl, masks: [{ x: 0, y: 0, width: 0.5, height: 0.5 }] }]
+    };
+    const retainedHandoffId = "L".repeat(43);
+    await putDraft(worker, retainedDraft);
+    await setMetadata(worker, handoffStorageKey(retainedHandoffId), {
+      handoffId: retainedHandoffId,
+      draftId: retainedDraft.id,
+      outputAction: "save",
+      extensionId,
+      createdAt: retainedDraft.updatedAt,
+      draftUpdatedAt: retainedDraft.updatedAt,
+      draftFingerprint: await fingerprintDraft(retainedDraft),
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    });
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: retainedHandoffId, action: "save" })).ok, true);
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: retainedHandoffId, action: "save" })).ok, true);
+    const retainedStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId: retainedHandoffId, action: "save", assetSlot: 0 });
+    assert.equal(retainedStarted.contentType, "image/png");
+    const retainedChunks = [];
+    for (let sequence = 0; sequence < retainedStarted.totalChunks; sequence += 1) {
+      const chunk = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.chunk", handoffId: retainedHandoffId, action: "save", assetSlot: 0, sequence });
+      assert.equal(chunk.ok, true);
+      retainedChunks.push(Buffer.from(chunk.chunk, "base64"));
+    }
+    const retainedDecoded = await decodeSelectedPixels(page, Buffer.concat(retainedChunks).toString("base64"), retainedStarted.contentType, [[1, 1], [60, 60]]);
+    assert.equal(retainedDecoded.pixels[0][3], 255, "the mask must remain opaque");
+    assert.equal(retainedDecoded.pixels[1][3], 128, "transparent source alpha must be retained");
+
+    const transparentData = await createNoisePng(page, 2100, 2100, 128);
+    const transparentDraft = {
+      ...opaqueDraft,
+      id: "runtime-transparent-overflow-draft",
+      screenshots: [{ id: "transparent", dataUrl: transparentData.dataUrl, masks: [] }]
+    };
+    const transparentHandoffId = "K".repeat(43);
+    await putDraft(worker, transparentDraft);
+    await setMetadata(worker, handoffStorageKey(transparentHandoffId), {
+      handoffId: transparentHandoffId,
+      draftId: transparentDraft.id,
+      outputAction: "save",
+      extensionId,
+      createdAt: transparentDraft.updatedAt,
+      draftUpdatedAt: transparentDraft.updatedAt,
+      draftFingerprint: await fingerprintDraft(transparentDraft),
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    });
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: transparentHandoffId, action: "save" })).ok, true);
+    assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: transparentHandoffId, action: "save" })).ok, true);
+    const transparentStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId: transparentHandoffId, action: "save", assetSlot: 0 });
+    assert.deepEqual(transparentStarted, { ok: false, error: "ASSET_TOO_LARGE" });
+  } finally {
+    await closeContext(context);
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
 
 test("MV3 cloud claim survives worker restart and TTL recovery while preserving masks/CAS/chunk boundaries", { timeout: 90_000 }, async () => {
   const userDataDir = assertRuntimeProfilePath(await mkdtemp(join(tmpdir(), "meccha-manual-extension-runtime-")));
