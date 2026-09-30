@@ -75,16 +75,35 @@ start.addEventListener("click", async () => {
 });
 
 finish.addEventListener("click", async () => {
+  let result;
   try {
-    const { draftId, restorePending } = await send({ type: "capture:finish" });
-    await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${draftId}`) });
-    await refreshDrafts();
-    if (restorePending) renderCaptureState({ restorePending: true });
-    else window.close();
-  } catch (error) {
+    result = await send({ type: "capture:finish" });
+  } catch {
     const current = await send({ type: "capture:status" }).catch(() => ({}));
     renderCaptureState(current);
     status.textContent = "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    return;
+  }
+
+  const { draftId, restorePending } = result || {};
+  let editorOpenError = null;
+  if (typeof draftId !== "string" || !draftId) {
+    editorOpenError = new Error("下書きIDがありません");
+  } else {
+    try {
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${draftId}`) });
+    } catch (error) {
+      editorOpenError = error;
+    }
+  }
+  await refreshDrafts();
+  renderCaptureState({ restorePending: Boolean(restorePending) });
+  if (restorePending) {
+    return;
+  } else if (editorOpenError) {
+    status.textContent = "記録は保存しましたが、編集画面を開けませんでした。下書き一覧から開いてください。";
+  } else {
+    window.close();
   }
 });
 

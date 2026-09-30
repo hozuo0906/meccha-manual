@@ -57,6 +57,106 @@ test("start failure immediately exposes retained window recovery controls", asyn
   assert.match(elements.get("#status").textContent, /もう一度復元してください/);
 });
 
+test("finish keeps a saved draft when opening the editor tab fails", async () => {
+  const source = (await readFile(new URL("../apps/extension/popup/popup.js", import.meta.url), "utf8"))
+    .replace(/^import .*;\r?\n/m, "");
+
+  async function createPopup({ finishResponse, statusResponse = {}, createTab }) {
+    const elements = new Map();
+    let finishCalls = 0;
+    let statusCalls = 0;
+    let closed = 0;
+    let tabCreateCalls = 0;
+    const drafts = [{ id: "saved-draft", title: "保存済みの下書き" }];
+    const getElement = (id) => {
+      if (!elements.has(id)) {
+        elements.set(id, {
+          hidden: false,
+          disabled: false,
+          value: "",
+          textContent: "",
+          listeners: {},
+          options: [],
+          addEventListener(type, handler) { this.listeners[type] = handler; },
+          replaceChildren() { this.options = []; this.value = ""; },
+          append(option) { this.options.push(option); if (!this.value) this.value = option.value; }
+        });
+      }
+      return elements.get(id);
+    };
+    const document = {
+      querySelector: getElement,
+      createElement: () => ({ value: "", textContent: "" })
+    };
+    const chrome = {
+      runtime: {
+        getURL: (path) => `chrome-extension://test/${path}`,
+        sendMessage: async (message) => {
+          if (message.type === "capture:finish") {
+            finishCalls += 1;
+            if (finishResponse.error) return { ok: false, error: finishResponse.error };
+            return { ok: true, value: finishResponse.value };
+          }
+          if (message.type === "capture:status") {
+            statusCalls += 1;
+            return { ok: true, value: statusResponse };
+          }
+          return { ok: true, value: null };
+        }
+      },
+      tabs: {
+        create: async (details) => {
+          tabCreateCalls += 1;
+          if (createTab) await createTab(details, tabCreateCalls);
+          return { id: tabCreateCalls };
+        }
+      }
+    };
+    vm.runInNewContext(source, {
+      document,
+      chrome,
+      draftStore: { list: async () => drafts },
+      window: { close: () => { closed += 1; } }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    return { elements, get finishCalls() { return finishCalls; }, get statusCalls() { return statusCalls; }, get closed() { return closed; }, get tabCreateCalls() { return tabCreateCalls; } };
+  }
+
+  const failedFinish = await createPopup({
+    finishResponse: { error: "finish failed" },
+    statusResponse: { phase: "finish_failed", restorePending: true }
+  });
+  await failedFinish.elements.get("#finish").listeners.click();
+  assert.equal(failedFinish.finishCalls, 1);
+  assert.equal(failedFinish.statusCalls, 2, "initial status and failed finish status are both read");
+  assert.match(failedFinish.elements.get("#status").textContent, /終了できませんでした/);
+
+  const editorOpenFailed = await createPopup({
+    finishResponse: { value: { draftId: "saved-draft", restorePending: false } },
+    createTab: async (_details, call) => { if (call === 1) throw new Error("tabs unavailable"); }
+  });
+  await editorOpenFailed.elements.get("#finish").listeners.click();
+  assert.equal(editorOpenFailed.finishCalls, 1, "opening a saved draft must not require finishing again");
+  assert.equal(editorOpenFailed.tabCreateCalls, 1);
+  assert.equal(editorOpenFailed.closed, 0);
+  assert.equal(editorOpenFailed.elements.get("#finish").hidden, true, "saved finish must leave the recording controls idle");
+  assert.equal(editorOpenFailed.elements.get("#recentDraft").value, "saved-draft");
+  assert.match(editorOpenFailed.elements.get("#status").textContent, /保存しましたが、編集画面を開けませんでした/);
+  assert.match(editorOpenFailed.elements.get("#status").textContent, /下書き一覧から開いてください/);
+  await editorOpenFailed.elements.get("#openDraft").listeners.click();
+  assert.equal(editorOpenFailed.finishCalls, 1);
+  assert.equal(editorOpenFailed.tabCreateCalls, 2, "saved draft CTA should open the editor directly");
+
+  const restorePending = await createPopup({
+    finishResponse: { value: { draftId: "saved-draft", restorePending: true } }
+  });
+  await restorePending.elements.get("#finish").listeners.click();
+  assert.equal(restorePending.finishCalls, 1);
+  assert.equal(restorePending.elements.get("#finish").hidden, true);
+  assert.equal(restorePending.elements.get("#restore").hidden, false, "restore guidance remains after a successful finish");
+  assert.match(restorePending.elements.get("#status").textContent, /もう一度復元してください/);
+});
+
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {
   const source = await readFile(new URL("../apps/extension/content/history-bridge.js", import.meta.url), "utf8");
   const calls = [];
