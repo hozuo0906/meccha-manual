@@ -99,6 +99,12 @@ export function installSensitiveMasks() {
       const candidates = [];
       const pairedValues = new WeakSet();
       const candidateKeys = new Set();
+      const textNodeIds = new WeakMap();
+      let nextTextNodeId = 1;
+      const textNodeId = (node) => {
+        if (!textNodeIds.has(node)) textNodeIds.set(node, nextTextNodeId++);
+        return textNodeIds.get(node);
+      };
       const addCandidate = (candidate) => {
         if (candidates.length >= maxPrivacyOverlays || !candidate?.target || !intersectsViewport(candidate.rect)) return;
         const key = candidate.key || `${candidate.kind}:${candidate.target}`;
@@ -140,7 +146,7 @@ export function installSensitiveMasks() {
             range.setStart(node, offset);
             range.setEnd(node, offset + matchedValue.length);
             const rect = rangeRect(range);
-            if (rect) addCandidate({ kind, target: parent, rect, key: `text:${kind}:${node.data}:${offset}` });
+            if (rect) addCandidate({ kind, target: parent, rect, range, key: `text:${kind}:${textNodeId(node)}:${offset}:${matchedValue.length}` });
           }
         }
       }
@@ -172,6 +178,7 @@ export function installSensitiveMasks() {
     };
     const addPrivacyOverlays = () => {
       if (!document.body || typeof document.createElement !== "function") return 0;
+      const overlayHost = document.documentElement || document.body;
       for (const candidate of collectPrivacyCandidates()) {
         const overlay = document.createElement("span");
         const rect = candidate.rect;
@@ -205,13 +212,23 @@ export function installSensitiveMasks() {
         style.setProperty("line-height", computed.lineHeight || "normal", "important");
         style.setProperty("letter-spacing", computed.letterSpacing || "normal", "important");
         style.setProperty("text-align", computed.textAlign || "left", "important");
-        document.body.append(overlay);
+        // Keep the overlay outside body so a transformed/filtered/contained body
+        // cannot establish a different fixed-position containing block.
+        overlayHost.append(overlay);
         const overlayRect = overlay.getBoundingClientRect?.();
         if (!isConnected(overlay) || !usableRect(overlayRect)) {
           overlay.remove?.();
           throw new Error("SCREENSHOT_PII_OVERLAY_FAILED");
         }
-        privacyOverlays.push({ overlay, target: candidate.target, targetRect: rectValues(candidate.target.getBoundingClientRect()), overlayRect: rectValues(overlayRect), textFingerprint: textFingerprint(candidate.target.textContent) });
+        privacyOverlays.push({
+          overlay,
+          target: candidate.target,
+          range: candidate.range || null,
+          targetRect: rectValues(candidate.target.getBoundingClientRect()),
+          protectedRect: rectValues(rect),
+          overlayRect: rectValues(overlayRect),
+          textFingerprint: textFingerprint(candidate.target.textContent)
+        });
       }
       return privacyOverlays.length;
     };
@@ -331,12 +348,28 @@ export function verifySensitiveMasks(expectedToken) {
   try {
     if (state.document !== document) return false;
     const sameRect = (left, right) => ["left", "top", "width", "height"].every((key) => Number.isFinite(left?.[key]) && Number.isFinite(right?.[key]) && Math.abs(left[key] - right[key]) <= 1);
+    const usableRect = (rect) => rect && [rect.left, rect.top, rect.width, rect.height].every((value) => Number.isFinite(value)) && rect.width > 0 && rect.height > 0;
+    const rangeRect = (range) => {
+      if (typeof range?.getClientRects !== "function") return null;
+      const rects = [...range.getClientRects()].filter(usableRect);
+      if (!rects.length) return null;
+      const left = Math.min(...rects.map((rect) => rect.left));
+      const top = Math.min(...rects.map((rect) => rect.top));
+      const right = Math.max(...rects.map((rect) => rect.right ?? rect.left + rect.width));
+      const bottom = Math.max(...rects.map((rect) => rect.bottom ?? rect.top + rect.height));
+      return { left, top, width: right - left, height: bottom - top };
+    };
     if (state.privacyMutation?.detected) return false;
     for (const item of state.privacyOverlays || []) {
       if (!item?.overlay || !item.overlay.isConnected || item.overlay.className !== state.privacyOverlayClass || item.overlay.getAttribute("aria-hidden") !== "true") return false;
       if (!item.target || (item.target.isConnected !== undefined && !item.target.isConnected)) return false;
       if (!sameRect(item.targetRect, item.target.getBoundingClientRect())) return false;
-      if (!sameRect(item.overlayRect, item.overlay.getBoundingClientRect())) return false;
+      const protectedRect = item.range ? rangeRect(item.range) : item.target.getBoundingClientRect();
+      if (!sameRect(item.protectedRect, protectedRect)) return false;
+      // Compare the rendered overlay with the protected text range itself. A
+      // parent element's rect is insufficient when a body transform moves a
+      // fixed-position overlay away from the PII glyphs.
+      if (!sameRect(item.overlayRect, item.overlay.getBoundingClientRect()) || !sameRect(item.overlay.getBoundingClientRect(), protectedRect)) return false;
       if (item.textFingerprint !== (() => {
         let hash = 2166136261;
         const text = String(item.target.textContent ?? "");

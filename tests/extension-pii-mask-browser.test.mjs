@@ -86,3 +86,80 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("repeated PII text nodes are all replaced and transformed body geometry fails closed", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>
+      html { background: #f4fbfc; }
+      body { margin: 0; transform: translate(18px, 14px); filter: saturate(1); contain: paint; color: #102a43; font: 20px Arial, sans-serif; }
+      main { width: 620px; margin: 24px; background: #fff; padding: 18px; }
+      .copy { display: block; margin: 14px 0; }
+    </style><main>
+      <span class="copy" id="email-one">repeat@example.com</span>
+      <span class="copy" id="email-two">repeat@example.com</span>
+    </main>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const before = await page.screenshot({ type: "png" });
+    const beforeRects = await page.evaluate(() => ["email-one", "email-two"].map((id) => {
+      const rect = document.getElementById(id).getBoundingClientRect();
+      return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    }));
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 2);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    assert.deepEqual(await page.evaluate(() => [
+      document.getElementById("email-one").textContent,
+      document.getElementById("email-two").textContent
+    ]), ["repeat@example.com", "repeat@example.com"]);
+    const after = await page.screenshot({ type: "png" });
+    const changedByRect = await page.evaluate(async ({ beforeBase64, afterBase64, rects }) => {
+      const decode = async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0);
+        return { width: canvas.width, height: canvas.height, pixels: context.getImageData(0, 0, canvas.width, canvas.height).data };
+      };
+      const [before, after] = await Promise.all([decode(beforeBase64), decode(afterBase64)]);
+      return rects.map((rect) => {
+        let changed = 0;
+        const left = Math.max(0, Math.floor(rect.left));
+        const top = Math.max(0, Math.floor(rect.top));
+        const right = Math.min(before.width, Math.ceil(rect.left + rect.width));
+        const bottom = Math.min(before.height, Math.ceil(rect.top + rect.height));
+        for (let y = top; y < bottom; y += 1) for (let x = left; x < right; x += 1) {
+          const index = (y * before.width + x) * 4;
+          if (Math.abs(before.pixels[index] - after.pixels[index]) + Math.abs(before.pixels[index + 1] - after.pixels[index + 1]) + Math.abs(before.pixels[index + 2] - after.pixels[index + 2]) > 18) changed += 1;
+        }
+        return changed;
+      });
+    }, { beforeBase64: before.toString("base64"), afterBase64: after.toString("base64"), rects: beforeRects });
+    assert.ok(changedByRect.every((changed) => changed > 10), `expected both repeated PII ranges to change pixels, got ${changedByRect.join(",")}`);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
+    assert.deepEqual(await page.evaluate(() => [
+      document.getElementById("email-one").textContent,
+      document.getElementById("email-two").textContent
+    ]), ["repeat@example.com", "repeat@example.com"]);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
