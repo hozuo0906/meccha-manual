@@ -492,6 +492,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Issue: #272 / PR #277
 - Decision:
   - 初期候補が0件でもMutationObserverを登録し、paint後のcapture前とcapture後の両境界でopen shadow rootを含む候補集合を再走査する。初期snapshotにないshadow rootの出現、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更は、最終候補が空でもfail closedにする。時計や無関係なclass変更など、保護候補に関係しないDOM変更は無効化しない。
+  - composed treeの属性変更に伴う候補存在確認は最大4096 DOM nodeを別予算として走査し、走査が上限を超えた場合は候補の有無を確定せずfail closedにする。候補overlayの生成上限64件とは独立させ、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許可する。65件目の候補、または4096 nodeを超える走査は画像を保存しない。
   - `aria-hidden`は視覚的な非表示とは扱わず、表示中の候補を保護する。祖先`opacity: 0`など実際に描画されない候補は対象外とする。
   - overlayは背景画像、`background-clip: text`、legacy `clip`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。clip解除後のpixelをcapture前後の両境界で確認できない場合は画像を保存しない。
   - 同一テキスト範囲が電話番号と郵便番号の形式に一致した場合は候補を重ねず、郵便番号として1回だけ置換する。

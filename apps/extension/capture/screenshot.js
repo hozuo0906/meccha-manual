@@ -34,6 +34,9 @@ export function installSensitiveMasks() {
     email: "manual@example.invalid"
   });
   const maxPrivacyOverlays = 64;
+  // Keep candidate count and composed-tree evidence traversal bounded separately:
+  // unrelated DOM depth must not consume the overlay budget.
+  const maxPrivacyTraversalNodes = 4096;
   const restoreMask = (mask) => {
     for (const item of mask.previous) {
       if (item.value) mask.element.style.setProperty(item.property, item.value, item.priority);
@@ -441,6 +444,57 @@ export function installSensitiveMasks() {
         if (semanticKind(label?.textContent) && normalizeText(valueElement?.textContent)) return true;
       }
       return false;
+    };
+    // Attribute changes on a host or an ancestor can expose text that is only
+    // reachable through one or more open/privileged shadow roots. Keep this
+    // evidence scan finite; exhausting the budget fails closed without
+    // retaining or reporting the inspected value.
+    const containsComposedCandidate = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return false;
+      let inspected = 0;
+      let matched = false;
+      let budgetExceeded = false;
+      const visitRoot = (root) => {
+        if (!root?.childNodes || matched || budgetExceeded) return;
+        for (const child of root.childNodes) {
+          if (matched || budgetExceeded) return;
+          inspected += 1;
+          if (inspected > maxPrivacyTraversalNodes) {
+            budgetExceeded = true;
+            return;
+          }
+          if (child.nodeType === 3) {
+            if (containsPiiText(child.nodeValue)) matched = true;
+            continue;
+          }
+          if (child.nodeType !== 1) continue;
+          visitElement(child);
+        }
+      };
+      const visitElement = (current) => {
+        if (!current || matched || budgetExceeded) return;
+        const tagName = String(current.tagName || "").toUpperCase();
+        if (["DD", "TD"].includes(tagName)) {
+          const label = current.previousElementSibling;
+          if (semanticKind(label?.textContent) && normalizeText(current.textContent)) {
+            matched = true;
+            return;
+          }
+        }
+        visitRoot(current);
+        if (matched || budgetExceeded) return;
+        let shadow;
+        try {
+          shadow = shadowRootOf(current);
+        } catch {
+          budgetExceeded = true;
+          return;
+        }
+        if (shadow?.childNodes) visitRoot(shadow);
+      };
+      visitElement(element);
+      return matched || budgetExceeded;
     };
     const isSemanticMutationNode = (node) => {
       const element = node?.nodeType === 3 ? node.parentElement : node;

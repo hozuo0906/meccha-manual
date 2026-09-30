@@ -64,7 +64,7 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
-スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。候補overlayは1回につき64件まで、候補確認のcomposed-tree走査は4096 DOM nodeまでとし、65件目の候補または走査上限超過はfail closedにする。overlay件数と走査node数の予算を分離し、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許容する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
 
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
@@ -75,7 +75,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
-- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。
+- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。PII overlay境界は`tests/extension-pii-mask-browser.test.mjs`で、64件超のPII候補拒否、64件超のPII候補なしclass変更の許可、4096 node走査上限の成功／超過拒否、一時PII変更の拒否を実ブラウザで検証する。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 - 通常の`capture:event`送信中は離脱警告を出さず、送信失敗が判明して保存成功を確認できないeventとretain中の未保存batchだけをbeforeunload保護対象とする。再送成功まで失敗保護を保持し、送信世代を照合して遅着ACKによる新しいeventの消去を防ぐ。
  - 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。現在地表示は保存済み下書き一覧まで含むサイドパネル全体で固定し、終了時はeditorが下書き取得と初回renderを完了した`editor:ready`を確認できた場合だけサイドパネルを閉じる。結果不明・復元待ち・editorの下書き取得／render失敗・readyタイムアウトでは復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。

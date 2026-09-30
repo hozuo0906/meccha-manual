@@ -399,6 +399,72 @@ test("unrelated dashboard mutations remain valid but transient PII is rejected",
   }
 });
 
+test("visibility mutations inspect bounded composed PII candidates and refuse the 65th candidate", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (request.url === "/composed") {
+      response.end(`<!doctype html><style>body{margin:0;font:16px Arial,sans-serif}#ancestor{display:none}</style><div id="ancestor"><span id="light">light@example.com</span><composed-host id="host"></composed-host></div><script>
+        const host = document.getElementById("host");
+        const outer = host.attachShadow({ mode: "open" });
+        outer.innerHTML = "<section><nested-host></nested-host><dl><dt>メール</dt><dd id=semantic>shadow-semantic@example.com</dd></dl></section>";
+        const nested = outer.querySelector("nested-host").attachShadow({ mode: "open" });
+        nested.innerHTML = "<span>nested@example.com</span>";
+      </script>`);
+      return;
+    }
+    const count = request.url === "/sixty-five" ? 65 : 64;
+    response.end(`<!doctype html><style>body{margin:0;font:10px Arial,sans-serif}span{position:fixed;left:0;top:0;width:160px;height:10px}</style>${Array.from({ length: count }, (_, index) => `<span>${index}@example.com</span>`).join("")}`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    await page.goto(`${baseUrl}/composed`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    for (const mutation of ["host-style", "ancestor-style", "ancestor-class", "ancestor-hidden", "ancestor-opacity"]) {
+      await page.goto(`${baseUrl}/composed`);
+      const mask = await inject(installSensitiveMasks);
+      assert.equal(mask.applied, true);
+      assert.equal(mask.privacyMaskedCount, 0);
+      await page.evaluate((kind) => {
+        const host = document.getElementById("host");
+        const ancestor = document.getElementById("ancestor");
+        if (kind === "host-style") { host.style.display = "block"; host.style.display = "none"; }
+        if (kind === "ancestor-style") { ancestor.style.display = "block"; ancestor.style.display = "none"; }
+        if (kind === "ancestor-class") { ancestor.classList.add("visibility-changed"); ancestor.classList.remove("visibility-changed"); }
+        if (kind === "ancestor-hidden") { ancestor.hidden = false; ancestor.hidden = true; }
+        if (kind === "ancestor-opacity") { ancestor.style.opacity = "1"; ancestor.style.opacity = "0"; }
+      }, mutation);
+      await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+      assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, `${mutation} must reject composed candidates`);
+      await inject(removeSensitiveMasks);
+    }
+
+    await page.goto(`${baseUrl}/sixty-four`);
+    const withinLimit = await inject(installSensitiveMasks);
+    assert.equal(withinLimit.applied, true);
+    assert.equal(withinLimit.privacyMaskedCount, 64);
+    assert.equal(await inject(verifySensitiveMasks, [withinLimit.token]), true);
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/sixty-five`);
+    const overLimit = await inject(installSensitiveMasks);
+    assert.equal(overLimit.applied, true);
+    assert.equal(overLimit.privacyMaskedCount, 64);
+    assert.equal(await inject(verifySensitiveMasks, [overLimit.token]), false, "the 65th PII candidate must fail closed");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("same text range chooses postal masking over the broader phone pattern", async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -422,6 +488,86 @@ test("same text range chooses postal masking over the broader phone pattern", as
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     await inject(removeSensitiveMasks);
     assert.equal(await page.locator("#postal").textContent(), "060-0001");
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("class-only mutations over many PII-free nodes remain valid", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    const children = Array.from({ length: 70 }, (_, index) => `<span data-index="${index}">status-${index}</span>`).join("");
+    response.end(`<!doctype html><style>body{margin:0;padding:24px;font:16px Arial,sans-serif}</style><section id="dashboard">${children}</section>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.evaluate(() => document.getElementById("dashboard").classList.add("refreshed"));
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.evaluate(() => {
+      const transient = document.createElement("span");
+      transient.textContent = "transient@example.com";
+      document.body.append(transient);
+      transient.remove();
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "transient PII must fail closed");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("composed visibility traversal fails closed after 4096 inspected nodes", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    const count = request.url === "/exhaust" ? 4097 : 4096;
+    const children = Array.from({ length: count }, () => "<span></span>").join("");
+    response.end(`<!doctype html><style>body{margin:0;padding:24px}</style><section id="dashboard">${children}</section>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    await page.goto(`${baseUrl}/within`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const withinLimit = await inject(installSensitiveMasks);
+    assert.equal(withinLimit.applied, true);
+    assert.equal(withinLimit.privacyMaskedCount, 0);
+    await page.evaluate(() => document.getElementById("dashboard").classList.add("within-limit"));
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [withinLimit.token]), true);
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/exhaust`);
+    const exhausted = await inject(installSensitiveMasks);
+    assert.equal(exhausted.applied, true);
+    assert.equal(exhausted.privacyMaskedCount, 0);
+    await page.evaluate(() => document.getElementById("dashboard").classList.add("over-budget"));
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [exhausted.token]), false, "4097th inspected node must fail closed");
+    await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));

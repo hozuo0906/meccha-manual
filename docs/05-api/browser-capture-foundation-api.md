@@ -29,6 +29,12 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 未知field、入力値、password、カード番号、token、Cookie、Authorization、座標の生値は出力eventへ複製しない。機密候補を含むtarget labelは`入力欄`へ置換する。
 
+## スクリーンショット個人情報境界
+
+スクリーンショット直前のDOM個人情報候補は、表示viewportと交差する高信頼な候補だけを固定ダミーoverlayへ置換する。1回のcaptureで生成するoverlayは最大64件とし、65件目の候補を検出した場合は画像を保存せずfail closedにする。候補の有無を確認するcomposed-tree走査は最大4096 DOM nodeまでの別予算とし、上限を超えて走査が完了しない場合も画像を保存しない。これにより、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許容しつつ、候補数超過と走査不完了を成功扱いにしない。
+
+paint後のcapture前およびcapture後に候補集合、overlayの接続・幾何・不透明性、document identityを検証する。追加・除去・文字列・属性変更で個人情報が一時的に出現した場合、変更後に値が消えていても検証を失敗させる。元DOM、候補文字列、入力値はevent、ログ、handoff metadata、D1/R2へ保存しない。対象外の文字は利用者が編集画面で手動黒塗りする。
+
 ## 決定的draft生成
 
 正規化eventは外部AI APIを使わず、日本語のmanual step候補へ変換する。
