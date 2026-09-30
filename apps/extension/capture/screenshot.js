@@ -522,15 +522,20 @@ export function installSensitiveMasks() {
     const semanticMutationKind = (node, labelTexts = [], sibling = null) => {
       const element = node?.nodeType === 3 ? node.parentElement : node;
       if (!element) return null;
-      const tagName = String(element.tagName || "").toUpperCase();
+      let pairElement = element;
+      while (pairElement && !["DD", "TD", "DT", "TH"].includes(String(pairElement.tagName || "").toUpperCase())) {
+        pairElement = pairElement.parentElement;
+      }
+      if (!pairElement) return null;
+      const tagName = String(pairElement.tagName || "").toUpperCase();
       if (["DD", "TD"].includes(tagName)) {
-        return semanticPairKind(element.previousElementSibling || sibling, element);
+        return semanticPairKind(pairElement.previousElementSibling || sibling, pairElement);
       }
       if (!["DT", "TH"].includes(tagName)) return null;
-      const valueCandidates = [element.nextElementSibling, sibling].filter(Boolean);
-      const labelCandidates = [element.textContent, ...labelTexts];
+      const valueCandidates = [pairElement.nextElementSibling, sibling].filter(Boolean);
+      const labelCandidates = [pairElement.textContent, ...labelTexts];
       return valueCandidates.map((valueElement) => labelCandidates
-        .map((labelText) => semanticPairKind(element, valueElement, labelText))
+        .map((labelText) => semanticPairKind(pairElement, valueElement, labelText))
         .find(Boolean)).find(Boolean) || null;
     };
     const containsSemanticCandidate = (node) => {
@@ -626,7 +631,9 @@ export function installSensitiveMasks() {
           || containsComposedCandidate(record.target);
       }
       if (record.type !== "childList") return false;
-      if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
+      const historyTexts = [...record.addedNodes || [], ...record.removedNodes || []]
+        .map((node) => node?.textContent ?? node?.nodeValue ?? "");
+      if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target, historyTexts)) return true;
       for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
         if (isProtectedMutationNode(node)
           || isSemanticMutationNode(node, [node.textContent], record.nextSibling || record.previousSibling)
