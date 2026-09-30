@@ -1093,3 +1093,67 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
+
+test("image upload keeps transparency, isolates shared replacements, and rejects oversized decoded images", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const originalDataUrl = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2; canvas.height = 2;
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ originalDataUrl }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: "shared-image-upload-fixture",
+        title: "画像差し替えの確認",
+        description: "",
+        steps: [
+          { id: "shared-step-1", order: 1, instruction: "一つ目", screenshotId: "shared-image" },
+          { id: "shared-step-2", order: 2, instruction: "二つ目", screenshotId: "shared-image" }
+        ],
+        screenshots: [{ id: "shared-image", dataUrl: originalDataUrl, annotations: [], masks: [] }]
+      });
+    }, { originalDataUrl });
+    await page.goto(`${baseUrl}/editor/editor.html#shared-image-upload-fixture`);
+    const input = page.locator("#step-shared-step-1 .image-upload-panel input[type=file]");
+    assert.equal(await input.getAttribute("tabindex"), "-1", "ファイル選択用の補助入力をTab順から外す");
+    const transparentPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
+    await page.waitForFunction(() => document.querySelector("#step-shared-step-1 .screenshot-canvas"));
+    const replaced = await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const current = await draftStore.get("shared-image-upload-fixture");
+      const image = new Image(); image.src = current.screenshots.find((item) => item.id === current.steps[0].screenshotId).dataUrl; await image.decode();
+      const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d"); context.drawImage(image, 0, 0);
+      return { current, alpha: context.getImageData(0, 0, 1, 1).data[3] };
+    });
+    assert.notEqual(replaced.current.steps[0].screenshotId, "shared-image", "共有画像の差し替えは対象手順専用の画像に分ける");
+    assert.equal(replaced.current.steps[1].screenshotId, "shared-image", "別手順の画像参照を保持する");
+    assert.equal(replaced.current.screenshots.find((item) => item.id === "shared-image").dataUrl, originalDataUrl, "共有元画像を変更しない");
+    assert.equal(replaced.alpha, 0, "透明PNGの透明度を保持する");
+
+    await page.evaluate(() => {
+      globalThis.__originalCreateImageBitmap = globalThis.createImageBitmap;
+      globalThis.createImageBitmap = async () => ({ width: 12_001, height: 1, close() {} });
+    });
+    const secondInput = page.locator("#step-shared-step-2 .image-upload-panel input[type=file]");
+    await secondInput.setInputFiles({ name: "too-wide.png", mimeType: "image/png", buffer: transparentPng });
+    await page.getByText("画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。", { exact: true }).waitFor();
+    const afterReject = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("shared-image-upload-fixture")));
+    assert.equal(afterReject.steps[1].screenshotId, "shared-image", "解像度超過時は下書きを変更しない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});

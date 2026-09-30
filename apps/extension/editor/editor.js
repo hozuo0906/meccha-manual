@@ -28,6 +28,9 @@ const pendingRegistrationMessage = "保存先を準備できません。時間�
 const HANDOFF_READY_TIMEOUT_MS = 8_000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_COUNT = 100;
+const MAX_IMAGE_TOTAL_BYTES = 100 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 40_000_000;
+const MAX_IMAGE_DIMENSION = 12_000;
 const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 let outputInFlight = false;
 let pendingHandoffTabId = null;
@@ -95,7 +98,13 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
     candidate.description = description.value;
     candidate.updatedAt = new Date().toISOString();
     setSaveState("保存中…", "saving");
-    try { await draftStore.put(candidate); status.textContent = message; setSaveState("端末に保存済み", "saved"); return { ok: true, candidate }; }
+    try {
+      await draftStore.put(candidate);
+      Object.assign(draft, candidate);
+      status.textContent = message;
+      setSaveState("端末に保存済み", "saved");
+      return { ok: true, candidate };
+    }
     catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
   });
 }
@@ -115,6 +124,22 @@ function blobToDataUrl(blob) {
   });
 }
 
+function dataUrlBytes(dataUrl) {
+  if (typeof dataUrl !== "string") return 0;
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return 0;
+  const encoded = dataUrl.slice(comma + 1).replace(/\s/g, "");
+  return Math.floor(encoded.length * 3 / 4) - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+}
+
+function assertImageCapacity(candidate, nextDataUrl, replacedId = null) {
+  const current = Array.isArray(candidate?.screenshots) ? candidate.screenshots : [];
+  const count = current.filter((item) => item?.id !== replacedId).length + 1;
+  if (count > MAX_IMAGE_COUNT) throw new RangeError("IMAGE_COUNT_LIMIT");
+  const total = current.reduce((sum, item) => sum + (item?.id === replacedId ? 0 : dataUrlBytes(item?.dataUrl)), 0) + dataUrlBytes(nextDataUrl);
+  if (total > MAX_IMAGE_TOTAL_BYTES) throw new RangeError("IMAGE_TOTAL_TOO_LARGE");
+}
+
 async function normalizeUploadedImage(file) {
   if (!(file instanceof File) || !ACCEPTED_IMAGE_TYPES.has(file.type)) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
   if (file.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_INPUT_TOO_LARGE");
@@ -122,10 +147,11 @@ async function normalizeUploadedImage(file) {
   const bitmap = await createImageBitmap(file);
   try {
     if (!bitmap.width || !bitmap.height) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
+    if (bitmap.width > MAX_IMAGE_DIMENSION || bitmap.height > MAX_IMAGE_DIMENSION || bitmap.width * bitmap.height > MAX_IMAGE_PIXELS) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
-    const context = canvas.getContext("2d", { alpha: false });
+    const context = canvas.getContext("2d");
     if (!context) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
     context.drawImage(bitmap, 0, 0);
     // Re-encode to remove the original file metadata before it enters the draft.
@@ -141,6 +167,9 @@ async function normalizeUploadedImage(file) {
 function imageUploadError(error) {
   if (error?.message === "IMAGE_TYPE_UNSUPPORTED") return "PNG、JPEG、WebPの画像を選んでください。";
   if (error?.message === "IMAGE_INPUT_TOO_LARGE" || error?.message === "IMAGE_OUTPUT_TOO_LARGE") return "画像が大きすぎます。10MB以下の画像を選んでください。";
+  if (error?.message === "IMAGE_PIXELS_TOO_LARGE") return "画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。";
+  if (error?.message === "IMAGE_TOTAL_TOO_LARGE") return "画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。";
+  if (error?.message === "IMAGE_COUNT_LIMIT") return "画像は100件まで追加できます。";
   if (error?.message === "IMAGE_DIMENSIONS_INVALID") return "画像の大きさを確認できませんでした。別の画像を選んでください。";
   return "画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。";
 }
@@ -187,27 +216,29 @@ function renderScreenshot(step) {
   const uploadTitle = document.createElement("strong"); uploadTitle.textContent = screenshot ? "画像を差し替える" : "この手順に画像を追加";
   const uploadHint = document.createElement("span"); uploadHint.textContent = "PNG、JPEG、WebP（10MB以下）";
   const uploadButton = document.createElement("button"); uploadButton.type = "button"; uploadButton.textContent = screenshot ? "画像を選び直す" : "画像を選ぶ";
-  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = [...ACCEPTED_IMAGE_TYPES].join(","); fileInput.setAttribute("aria-label", `${step.order}番の手順に画像を追加`);
-  const uploadMessage = document.createElement("p"); uploadMessage.className = "image-upload-message"; uploadMessage.hidden = true; uploadMessage.setAttribute("role", "alert");
+  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = [...ACCEPTED_IMAGE_TYPES].join(","); fileInput.tabIndex = -1; fileInput.setAttribute("aria-hidden", "true");
+  const uploadMessage = document.createElement("p"); uploadMessage.className = "image-upload-message"; uploadMessage.hidden = true; uploadMessage.setAttribute("role", "status"); uploadMessage.setAttribute("aria-live", "polite");
   uploadButton.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0]; if (!file) return;
-    uploadButton.disabled = true; uploadMessage.hidden = true; uploadMessage.textContent = "画像を確認しています…";
+    uploadButton.disabled = true; uploadMessage.hidden = false; uploadMessage.dataset.state = "pending"; uploadMessage.textContent = "画像を確認して保存しています…";
     try {
-      if (!screenshot && draft.screenshots.length >= MAX_IMAGE_COUNT) throw new RangeError("IMAGE_COUNT_LIMIT");
       const normalized = await normalizeUploadedImage(file);
       const result = await persistCandidate(() => {
         const candidate = structuredClone(draft);
         const candidateStep = candidate.steps.find((item) => item.id === step.id);
         const target = candidateStep?.screenshotId ? candidate.screenshots.find((item) => item.id === candidateStep.screenshotId) : null;
-        if (target) { target.dataUrl = normalized.dataUrl; target.annotations = []; target.masks = []; }
+        const sharedByOtherStep = target && candidate.steps.some((candidateItem) => candidateItem.id !== candidateStep?.id && candidateItem.screenshotId === target.id);
+        const replacementId = target && !sharedByOtherStep ? target.id : null;
+        assertImageCapacity(candidate, normalized.dataUrl, replacementId);
+        if (target && !sharedByOtherStep) { target.dataUrl = normalized.dataUrl; target.annotations = []; target.masks = []; }
         else { const screenshotId = crypto.randomUUID(); candidate.screenshots.push({ id: screenshotId, dataUrl: normalized.dataUrl, annotations: [], masks: [] }); candidateStep.screenshotId = screenshotId; }
         return candidate;
       }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
       if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
-      Object.assign(draft, result.candidate); fileInput.value = ""; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
+      fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success"; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
     } catch (error) {
-      uploadMessage.textContent = error?.message === "IMAGE_COUNT_LIMIT" ? "画像は100件まで追加できます。" : imageUploadError(error); uploadMessage.hidden = false;
+      uploadMessage.textContent = imageUploadError(error); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
     } finally { uploadButton.disabled = false; }
   });
   uploadPanel.append(uploadTitle, uploadHint, uploadButton, fileInput, uploadMessage); area.append(uploadPanel);

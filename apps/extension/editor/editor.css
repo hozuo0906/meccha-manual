@@ -118,3 +118,48 @@ li button { min-height: 44px; padding: 9px 11px; border-radius: 10px; }
   .editor-header, .layout > nav, .layout > section, .image-editor-dialog { border: 1px solid #527477; }
   button, input, textarea { border: 1px solid currentColor; }
 }
+
+/* Final editor layout: one clear work surface, predictable controls, and touch-sized targets. */
+.image-upload-panel { position: relative; }
+.image-upload-panel input[type="file"] { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.image-upload-panel button, .image-edit-button, .step-controls button { min-height: 44px; }
+.image-upload-message { min-height: 1.4em; }
+.image-upload-message[data-state="pending"] { color: var(--teal-dark); }
+.image-upload-message[data-state="error"] { padding: 8px 10px; border-radius: 9px; background: #fff1ee; }
+.image-editor-dialog { width: min(1160px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border-radius: 20px; }
+.image-editor-form { max-height: calc(100vh - 32px); }
+.image-editor-form > header { min-height: 76px; padding: 16px 22px; background: rgba(255,255,255,.97); }
+.image-editor-form > header h2 { font-size: clamp(1.05rem, 2vw, 1.35rem); }
+.image-editor-workspace { grid-template-columns: minmax(0, 1fr) 320px; min-height: min(68vh, 620px); max-height: min(68vh, 620px); overflow: auto; }
+.image-editor-canvas-wrap { padding: 34px 24px 24px; overflow: hidden; background: #edf7f7; }
+.canvas-caption { top: 12px; left: 20px; font-size: .8rem; }
+.image-editor-tools { gap: 16px; padding: 20px; overflow: visible; background: #fff; }
+.image-editor-tools > [data-editor-status] { min-height: 42px; display: flex; align-items: center; padding: 9px 11px; border: 1px solid #cbe6e3; border-radius: 10px; background: #f0faf9; }
+.tool-group, .property-group, .selection-group { gap: 8px; }
+.tool-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tool-grid button { min-height: 44px; padding: 8px 6px; font-size: .86rem; }
+.property-group textarea { min-height: 88px; }
+.property-group input { min-height: 44px; }
+.image-editor-tools [data-editor-selection] { max-height: 170px; gap: 8px; padding-right: 2px; }
+.image-editor-tools [data-editor-selection] > div { gap: 8px; }
+.image-editor-tools [data-editor-selection] button { min-height: 44px; padding: 8px 10px; font-size: .84rem; }
+.image-editor-tools [data-editor-selection] > div button:last-child { min-height: 44px; padding: 8px 10px; font-size: .8rem; }
+.editor-help { padding-top: 2px; font-size: .86rem; line-height: 1.6; }
+.image-editor-actions { min-height: 76px; padding: 14px 22px; }
+.image-editor-actions button { min-width: 104px; min-height: 44px; }
+
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; }
+  .image-editor-dialog { width: min(calc(100vw - 16px), 760px); max-height: calc(100vh - 16px); }
+  .image-editor-form { max-height: calc(100vh - 16px); overflow: auto; }
+  .image-editor-workspace { display: grid; grid-template-columns: 1fr; min-height: 0; max-height: none; overflow: visible; }
+  .image-editor-canvas-wrap { min-height: 220px; padding: 32px 12px 16px; }
+  #imageEditorCanvas { max-width: 100%; max-height: 44vh; }
+  .image-editor-tools { border-top: 1px solid #dbe7e8; border-left: 0; overflow: visible; padding: 16px; }
+  .image-editor-actions { position: sticky; bottom: 0; z-index: 1; }
+  .image-editor-actions button { flex: 1; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .image-editor-form > header { background: #fff; }
+}
