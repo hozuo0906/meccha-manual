@@ -755,3 +755,4 @@ outputGate.addEventListener("close", () => {
   cancelHandoffRun(attempt);
 });
 render();
+document.getElementById("editor-heading")?.focus({ preventScroll: true });
