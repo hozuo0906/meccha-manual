@@ -26,6 +26,9 @@ const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "保存先を準備できません。時間をおいてもう一度お試しください。手順書はこの端末に残っています。";
 const HANDOFF_READY_TIMEOUT_MS = 8_000;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_COUNT = 100;
+const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 let outputInFlight = false;
 let pendingHandoffTabId = null;
 let activeHandoffAttempt = null;
@@ -99,6 +102,49 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
 
 function screenshotFor(step) { return draft.screenshots.find((item) => item.id === step?.screenshotId); }
 
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("IMAGE_ENCODE_FAILED")), type, quality));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("IMAGE_READ_FAILED"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function normalizeUploadedImage(file) {
+  if (!(file instanceof File) || !ACCEPTED_IMAGE_TYPES.has(file.type)) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
+  if (file.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_INPUT_TOO_LARGE");
+  if (typeof createImageBitmap !== "function") throw new Error("IMAGE_DECODE_UNAVAILABLE");
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (!bitmap.width || !bitmap.height) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
+    context.drawImage(bitmap, 0, 0);
+    // Re-encode to remove the original file metadata before it enters the draft.
+    let blob = await canvasToBlob(canvas, "image/png");
+    if (blob.size > MAX_IMAGE_BYTES) blob = await canvasToBlob(canvas, "image/jpeg", .88);
+    if (blob.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE");
+    return { dataUrl: await blobToDataUrl(blob), width: bitmap.width, height: bitmap.height };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+function imageUploadError(error) {
+  if (error?.message === "IMAGE_TYPE_UNSUPPORTED") return "PNG、JPEG、WebPの画像を選んでください。";
+  if (error?.message === "IMAGE_INPUT_TOO_LARGE" || error?.message === "IMAGE_OUTPUT_TOO_LARGE") return "画像が大きすぎます。10MB以下の画像を選んでください。";
+  if (error?.message === "IMAGE_DIMENSIONS_INVALID") return "画像の大きさを確認できませんでした。別の画像を選んでください。";
+  return "画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。";
+}
+
 async function drawPreview(canvas, screenshot) {
   const generation = (previewGenerations.get(canvas) || 0) + 1;
   previewGenerations.set(canvas, generation);
@@ -106,6 +152,8 @@ async function drawPreview(canvas, screenshot) {
     const image = new Image(); image.src = screenshot.dataUrl; await image.decode();
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
     const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
+    const preview = canvas.closest(".screenshot-preview");
+    if (preview && image.naturalWidth && image.naturalHeight) preview.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
     canvas.dataset.previewRendered = "true";
     canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");
   } catch {
@@ -118,21 +166,51 @@ async function drawPreview(canvas, screenshot) {
 
 function renderScreenshot(step) {
   const screenshot = screenshotFor(step);
-  if (!screenshot) return document.createTextNode("この手順の画像はありません。");
   const area = document.createElement("div"); area.className = "screenshot-area";
-  const preview = document.createElement("div"); preview.className = "screenshot-preview";
-  preview.style.aspectRatio = "16 / 9";
-  const canvas = document.createElement("canvas"); canvas.className = "screenshot-canvas"; canvas.tabIndex = 0; preview.append(canvas); area.append(preview);
-  const edit = document.createElement("button"); edit.type = "button"; edit.className = "image-edit-button"; edit.textContent = "✎ 画像を編集"; edit.setAttribute("aria-label", "画像を編集"); edit.dataset.editorTrigger = screenshot.id;
-  edit.addEventListener("click", async () => {
-    activeImageEditor?.dispose();
-    activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === screenshot.id); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === screenshot.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(screenshot.id)}"]`); } });
-    await activeImageEditor.open();
+  if (screenshot) {
+    const preview = document.createElement("div"); preview.className = "screenshot-preview";
+    const canvas = document.createElement("canvas"); canvas.className = "screenshot-canvas"; canvas.tabIndex = 0; preview.append(canvas); area.append(preview);
+    const actionRow = document.createElement("div"); actionRow.className = "image-action-row";
+    const edit = document.createElement("button"); edit.type = "button"; edit.className = "image-edit-button"; edit.textContent = "画像を編集"; edit.setAttribute("aria-label", "画像を編集"); edit.dataset.editorTrigger = screenshot.id;
+    edit.addEventListener("click", async () => {
+      activeImageEditor?.dispose();
+      activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === screenshot.id); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === screenshot.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(screenshot.id)}"]`); } });
+      await activeImageEditor.open();
+    });
+    actionRow.append(edit);
+    area.append(actionRow);
+    const note = document.createElement("p"); note.className = "image-editor-note"; note.textContent = "画像を編集すると、文字・図形・黒塗りを追加できます。"; area.append(note);
+    canvas.__screenshot = screenshot;
+    previewObserver.observe(canvas);
+  }
+  const uploadPanel = document.createElement("div"); uploadPanel.className = screenshot ? "image-upload-panel image-replace" : "image-upload-panel";
+  const uploadTitle = document.createElement("strong"); uploadTitle.textContent = screenshot ? "画像を差し替える" : "この手順に画像を追加";
+  const uploadHint = document.createElement("span"); uploadHint.textContent = "PNG、JPEG、WebP（10MB以下）";
+  const uploadButton = document.createElement("button"); uploadButton.type = "button"; uploadButton.textContent = screenshot ? "画像を選び直す" : "画像を選ぶ";
+  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = [...ACCEPTED_IMAGE_TYPES].join(","); fileInput.setAttribute("aria-label", `${step.order}番の手順に画像を追加`);
+  const uploadMessage = document.createElement("p"); uploadMessage.className = "image-upload-message"; uploadMessage.hidden = true; uploadMessage.setAttribute("role", "alert");
+  uploadButton.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0]; if (!file) return;
+    uploadButton.disabled = true; uploadMessage.hidden = true; uploadMessage.textContent = "画像を確認しています…";
+    try {
+      if (!screenshot && draft.screenshots.length >= MAX_IMAGE_COUNT) throw new RangeError("IMAGE_COUNT_LIMIT");
+      const normalized = await normalizeUploadedImage(file);
+      const result = await persistCandidate(() => {
+        const candidate = structuredClone(draft);
+        const candidateStep = candidate.steps.find((item) => item.id === step.id);
+        const target = candidateStep?.screenshotId ? candidate.screenshots.find((item) => item.id === candidateStep.screenshotId) : null;
+        if (target) { target.dataUrl = normalized.dataUrl; target.annotations = []; target.masks = []; }
+        else { const screenshotId = crypto.randomUUID(); candidate.screenshots.push({ id: screenshotId, dataUrl: normalized.dataUrl, annotations: [], masks: [] }); candidateStep.screenshotId = screenshotId; }
+        return candidate;
+      }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
+      if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
+      Object.assign(draft, result.candidate); fileInput.value = ""; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
+    } catch (error) {
+      uploadMessage.textContent = error?.message === "IMAGE_COUNT_LIMIT" ? "画像は100件まで追加できます。" : imageUploadError(error); uploadMessage.hidden = false;
+    } finally { uploadButton.disabled = false; }
   });
-  area.append(edit);
-  const note = document.createElement("p"); note.className = "image-editor-note"; note.textContent = "鉛筆ボタンから画像に文字や図形を追加できます。黒塗りは保存・共有する画像にも反映されます。"; area.append(note);
-  canvas.__screenshot = screenshot;
-  previewObserver.observe(canvas);
+  uploadPanel.append(uploadTitle, uploadHint, uploadButton, fileInput, uploadMessage); area.append(uploadPanel);
   return area;
 }
 
@@ -488,3 +566,4 @@ outputGate.addEventListener("close", () => {
   cancelHandoffRun(attempt);
 });
 render();
+

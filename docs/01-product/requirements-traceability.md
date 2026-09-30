@@ -126,4 +126,5 @@ FR-001、FR-002、FR-022の登録／共有handoffでは、拡張機能がinactiv
 
 ### Issue #264 editor image workspace
 
-全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。
+全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。手動追加した手順へのPNG/JPEG/WebP画像添付、10MiB上限、decode・再エンコード、失敗時の既存draft保持も合成fixtureで回帰する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。
+

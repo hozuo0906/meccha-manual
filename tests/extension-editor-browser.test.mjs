@@ -1056,3 +1056,41 @@ test("cancel prevents late editor activation when cancellation persistence fails
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 });
+
+test("a manually added step accepts a sanitized image and opens the editor", { timeout: 20_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(4_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id: "manual-upload-fixture", title: "合成画像の確認", description: "", steps: [{ id: "manual-step", order: 1, instruction: "手動で追加した手順" }], screenshots: [] });
+    });
+    await page.goto(`${baseUrl}/editor/editor.html#manual-upload-fixture`);
+    const input = page.locator(".image-upload-panel input[type=file]");
+    assert.equal(await input.count(), 1, "画像がない手順には画像追加欄を表示する");
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    await input.setInputFiles({ name: "synthetic-with-metadata.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => Boolean(document.querySelector(".screenshot-canvas")));
+    const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("manual-upload-fixture")));
+    assert.equal(stored.screenshots.length, 1);
+    assert.equal(stored.steps[0].screenshotId, stored.screenshots[0].id);
+    assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true, "画像は再エンコードしたdata URLとして保存する");
+    await page.locator("#step-manual-step .image-edit-button").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+    assert.equal(await page.locator("[data-editor-tool]").count(), 6);
+    await page.locator("[data-editor-cancel]").first().click();
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
