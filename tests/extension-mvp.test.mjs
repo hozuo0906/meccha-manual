@@ -143,6 +143,28 @@ test("click labels reject decorated schemes, IP addresses, and international pho
   }
 });
 
+test("click labels reject compatibility-normalized phone, postal, and card values", () => {
+  for (const ariaLabel of [
+    "０９０－１２３４－５６７８",
+    "１２３－４５６７",
+    "４１１１ １１１１ １１１１ １１１１"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click labels reject email-shaped captions on single-label domains", () => {
+  for (const ariaLabel of ["alice@localhost", "user@intranet", "参照：alice@localhost"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click labels keep ordinary punctuated captions while rejecting valid international hostnames", () => {
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "詳細." }), "詳細.");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "次へ..." }), "次へ...");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "例え.テスト" }), "ボタン");
+});
+
 test("all caption sources reject the existing sensitive-name vocabulary", () => {
   for (const field of ["visibleText", "title", "controlCaption", "imageAlt"]) {
     for (const caption of ["PIN 1234", "auth 1234", "Use card ending 1234", "credit 1234"]) {
