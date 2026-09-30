@@ -116,12 +116,23 @@ test("click labels reject URL-shaped captions without a fixed TLD allowlist", ()
     "127.0.0.1:8080/health",
     "[::1]:443/health",
     "https://例え.テスト/ページ",
-    "tenant.example.\ndev"
+    "tenant.example.\ndev",
+    "Open (tenant.example.dev)",
+    "参照：https://tenant.example.dev/path",
+    "参照（portal.example.io）"
   ];
   for (const ariaLabel of urlCaptions) {
     assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
   }
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "参照" }), "参照");
+});
+
+test("all caption sources reject the existing sensitive-name vocabulary", () => {
+  for (const field of ["visibleText", "title", "controlCaption", "imageAlt"]) {
+    for (const caption of ["PIN 1234", "auth 1234", "Use card ending 1234", "credit 1234"]) {
+      assert.equal(safeTargetLabel({ tagName: "button", [field]: caption }), "ボタン", `${field}: ${caption}`);
+    }
+  }
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {

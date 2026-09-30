@@ -60,6 +60,9 @@ function looksLikeUrl(value) {
   // Remove whitespace only for URL detection so a line break cannot hide a URL.
   const compact = value.replace(/\s+/gu, "");
   if (!compact) return false;
+  // A caption may decorate a URL with Japanese text or punctuation.
+  if (/[A-Za-z][A-Za-z0-9+.-]*:\/\/|\/\/|www\./iu.test(compact)) return true;
+  if (/(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?/u.test(compact)) return true;
   if (CONTROL_NAME_SCHEME.test(compact) || compact.startsWith("//")) return true;
   if (CONTROL_NAME_IPV4.test(compact) || CONTROL_NAME_IPV6.test(compact)) return true;
 
@@ -78,7 +81,7 @@ function normalizeControlName(value) {
   const normalized = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/gu, " ").trim();
   if (!normalized || Array.from(normalized).length > CONTROL_NAME_MAX_LENGTH) return null;
   if (CONTROL_NAME_EMAIL.test(normalized) || looksLikeUrl(normalized) || CONTROL_NAME_PHONE.test(normalized) || CONTROL_NAME_POSTAL.test(normalized)) return null;
-  if (CONTROL_NAME_SENSITIVE.test(normalized) || SECRET_LIKE_LABEL.test(normalized)) return null;
+  if (SENSITIVE_NAME.test(normalized) || CONTROL_NAME_SENSITIVE.test(normalized) || SECRET_LIKE_LABEL.test(normalized)) return null;
   return normalized;
 }
 
