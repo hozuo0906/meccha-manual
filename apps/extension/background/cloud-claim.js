@@ -137,7 +137,7 @@ function base64ToBytes(dataUrl) {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
   if (!match) throw new TypeError("unsupported screenshot");
   const binary = atob(match[2]);
-  if (binary.length > CLOUD_CLAIM_MAX_ASSET_BYTES * 2) throw new RangeError("screenshot is too large");
+  if (binary.length > CLOUD_CLAIM_MAX_ASSET_BYTES * 2) throw new Error("ASSET_TOO_LARGE");
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return { bytes, type: match[1] };
@@ -149,14 +149,34 @@ async function maskAndEncode(screenshot) {
   const bitmap = await createImageBitmap(new Blob([original], { type: originalType }));
   try {
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const context = canvas.getContext("2d", { alpha: false, willReadFrequently: false });
+    const context = canvas.getContext("2d", { alpha: true, willReadFrequently: originalType !== "image/jpeg" });
     if (!context) throw new Error("MASK_RENDER_UNAVAILABLE");
     const annotations = normalizeAnnotations(screenshot.annotations);
     if (annotations === null) throw new TypeError("invalid annotations");
+    // PNG and WebP may contain transparent pixels. Inspect the source before
+    // drawing annotations/masks so an oversized transparent asset cannot be
+    // silently flattened through the JPEG fallback.
+    context.clearRect(0, 0, bitmap.width, bitmap.height);
+    context.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
+    let hasTransparency = false;
+    if (originalType !== "image/jpeg") {
+      const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] !== 255) {
+          hasTransparency = true;
+          break;
+        }
+      }
+    }
     drawScreenshot(context, bitmap, { annotations, masks: screenshot.masks || [] });
-    const blob = await canvas.convertToBlob({ type: "image/png" });
-    if (blob.size > CLOUD_CLAIM_MAX_ASSET_BYTES) throw new RangeError("screenshot is too large");
-    return new Uint8Array(await blob.arrayBuffer());
+    const png = await canvas.convertToBlob({ type: "image/png" });
+    if (png.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await png.arrayBuffer()), contentType: "image/png" };
+    if (hasTransparency) throw new Error("ASSET_TOO_LARGE");
+    for (const quality of [0.92, 0.8, 0.65, 0.5, 0.35]) {
+      const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality });
+      if (jpeg.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await jpeg.arrayBuffer()), contentType: "image/jpeg" };
+    }
+    throw new Error("ASSET_TOO_LARGE");
   } finally {
     bitmap.close?.();
   }
@@ -281,7 +301,8 @@ async function startAsset(message, sender) {
     if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
     const screenshot = snapshot.screenshots?.[message.assetSlot];
     if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
-    const bytes = await maskAndEncode(screenshot);
+    const encoded = await maskAndEncode(screenshot);
+    const { bytes, contentType } = encoded;
     const totalBytes = bytes.byteLength;
     if (totalBytes > CLOUD_CLAIM_MAX_ASSET_BYTES) return reject("ASSET_TOO_LARGE");
     const digest = await sha256(bytes);
@@ -292,9 +313,9 @@ async function startAsset(message, sender) {
     reservedBytes = Math.max(0, totalBytes - existingBytes);
     transferBytesReserved += reservedBytes;
     if (existing) removeTransfer(transferKey, existing);
-    transfers.set(transferKey, { bytes, digest, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
+    transfers.set(transferKey, { bytes, digest, contentType, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
     transferBytesTotal += totalBytes;
-    return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType: "image/png", byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
+    return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType, byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
   } finally {
     transferBytesReserved = Math.max(0, transferBytesReserved - reservedBytes);
     release();
