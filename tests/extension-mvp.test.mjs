@@ -183,6 +183,16 @@ test("click caption privacy checks compact layout whitespace for email detection
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
 });
 
+test("click caption privacy checks combining-mark mailboxes and all Unicode Cc controls", () => {
+  for (const ariaLabel of [
+    "उपयोगकर्ता@\nआंतरिक",
+    "to\u0080ken",
+    "090-12\u008034-5678"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
 test("click caption privacy checks Unicode decimal digits beyond NFKC", () => {
   const adlamPhone = String.fromCodePoint(...[0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8].map((digit) => 0x1e950 + digit));
   for (const ariaLabel of [

@@ -4,15 +4,15 @@ const CONTROL_NAME_MAX_LENGTH = 40;
 // The domain may be a single intranet label (for example, `alice@localhost`).
 // Keep the match deliberately email-shaped so an `@` in an ordinary caption is
 // not enough to make it sensitive.
-const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?/u;
+const CONTROL_NAME_EMAIL = /[^\s@<>()\[\]\\,;:"]+@[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]{0,61}[\p{L}\p{N}\p{M}])?/u;
 const CONTROL_NAME_EMAIL_LAYOUT = /[A-Za-z0-9][A-Za-z0-9._%+-]*\s*@\s*[A-Za-z0-9]/u;
 // Unicode mailbox characters may be separated from the domain by a line
 // break. Keep the left side adjacent to `@` so ordinary prose such as
 // `保存 @ 次へ` remains a valid caption.
-const CONTROL_NAME_UNICODE_EMAIL_LAYOUT = /[\p{L}\p{N}][\p{L}\p{N}._%+-]*@\s*[\p{L}\p{N}]/u;
+const CONTROL_NAME_UNICODE_EMAIL_LAYOUT = /[\p{L}\p{N}][\p{L}\p{N}\p{M}._%+-]*@\s*[\p{L}\p{N}]/u;
 const CONTROL_NAME_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const CONTROL_NAME_HOST_LABEL = /^(?=.{1,63}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/u;
-const CONTROL_NAME_INTERNATIONAL_HOST_LABEL = /^(?=.{1,63}$)[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?$/u;
+const CONTROL_NAME_INTERNATIONAL_HOST_LABEL = /^(?=.{1,63}$)[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?$/u;
 const CONTROL_NAME_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?(?:[/?#]|$)/u;
 const CONTROL_NAME_IPV6 = /^\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u;
 const CONTROL_NAME_PHONE = /(?:\+|00)[\s().-]*\d(?:[\s().-]*\d){7,14}|(?:\+?81[\s().-]*|0)\d(?:[\s().-]*\d){8,10}/u;
@@ -79,10 +79,10 @@ function looksLikeUrl(value) {
   if (/[A-Za-z][A-Za-z0-9+.-]*:\/\/|\/\/|www\./iu.test(compact)) return true;
   // Schemes and authorities may be embedded after a caption or punctuation.
   if (/(?:^|[^\p{L}\p{N}])[A-Za-z][A-Za-z0-9+.-]*:/u.test(compact)) return true;
-  if (/(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?/u.test(compact)) return true;
+  if (/(?:[\p{L}\p{N}\p{M}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?\.)+[\p{L}\p{N}\p{M}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?/u.test(compact)) return true;
   if (CONTROL_NAME_SCHEME.test(compact) || compact.startsWith("//")) return true;
-  if (/(?:^|[^\p{L}\p{N}])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
-  if (/(?:^|[^\p{L}\p{N}])\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
+  if (/(?:^|[^\p{L}\p{N}\p{M}])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
+  if (/(?:^|[^\p{L}\p{N}\p{M}])\[[0-9A-Fa-f:.]+\](?::\d{1,5})?(?:[/?#]|$)/u.test(compact)) return true;
   if (CONTROL_NAME_IPV4.test(compact) || CONTROL_NAME_IPV6.test(compact)) return true;
 
   const authority = compact.match(/^([^/?#\\]+)(?:[/?#]|$)/u)?.[1];
@@ -98,13 +98,18 @@ function looksLikeUrl(value) {
 }
 
 function normalizeControlName(value) {
-  const normalized = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/gu, " ").trim();
+  const raw = String(value ?? "");
+  const normalized = raw.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim();
   if (!normalized) return null;
   // Format characters such as zero-width space are invisible in a caption
   // but can split every detector below. Remove them from both the privacy view
   // and the returned caption so the storage boundary covers actual output.
   const caption = normalized.replace(/\p{Cf}/gu, "");
-  const privacyValue = normalizePrivacyDigits(caption.normalize("NFKC"));
+  // Keep source-control spacing in the returned caption, but remove every
+  // Unicode Cc code point from the privacy view. A C1 control between letters
+  // must not turn `to\u0080ken` into a non-sensitive caption.
+  const privacySource = raw.replace(/\p{Cc}/gu, "").replace(/\p{Cf}/gu, "");
+  const privacyValue = normalizePrivacyDigits(privacySource.normalize("NFKC"));
   if (privacyValue === null) return null;
   const compactPrivacyValue = privacyValue.replace(/\s+/gu, "");
   const hasEmail = CONTROL_NAME_EMAIL.test(privacyValue)
