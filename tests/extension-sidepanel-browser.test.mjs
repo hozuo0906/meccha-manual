@@ -40,10 +40,15 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     } catch (error) {
       throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    const sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
-      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-      : []);
+    let sidePanelContexts = [];
+    const sidePanelContextDeadline = Date.now() + 15_000;
+    do {
+      sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
+        ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+        : []);
+      if (sidePanelContexts.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } while (Date.now() < sidePanelContextDeadline);
     assert.ok(sidePanelContexts.length > 0, "action should create a SIDE_PANEL extension context");
     const panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
       .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
@@ -215,17 +220,20 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assert.ok(editorPage, "successful finish should open the saved draft editor");
-    const sidePanelClosed = await worker.evaluate(async () => {
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline) {
-        const contexts = chrome.runtime.getContexts
-          ? await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-          : [];
-        if (contexts.length === 0) return true;
-        await new Promise((resolve) => setTimeout(resolve, 100));
+    let sidePanelClosed = false;
+    const closeDeadline = Date.now() + 5_000;
+    while (Date.now() < closeDeadline) {
+      const sidePanelContextsAfterFinish = await worker.evaluate(async () => chrome.runtime.getContexts
+        ? await chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+        : []);
+      const sidePanelTargetAfterFinish = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+        .some((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      if (sidePanelContextsAfterFinish.length === 0 && !sidePanelTargetAfterFinish) {
+        sidePanelClosed = true;
+        break;
       }
-      return false;
-    });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     assert.equal(sidePanelClosed, true, "successful finish should close the recording side panel after opening the editor");
     await editorPage.waitForSelector("#title");
     await editorPage.waitForFunction(() => document.querySelector("#title")?.value === "新しい手順書");

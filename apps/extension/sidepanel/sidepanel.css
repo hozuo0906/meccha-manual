@@ -14,7 +14,7 @@ button { border: 0; cursor: pointer; font-weight: 700; transition: transform 120
 button:active { transform: scale(.98); }
 button:focus-visible, select:focus-visible { outline: 3px solid #175cd3; outline-offset: 2px; }
 
-.shell { padding: 14px 12px 136px; }
+.shell { padding: 14px 12px calc(var(--controls-height, 136px) + 16px); }
 .brand-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; }
 .brand-mark { width: 42px; height: 42px; object-fit: contain; border-radius: 12px; background: #fff; }
 .eyebrow { margin: 0; color: #18715d; font-size: .72rem; font-weight: 800; letter-spacing: .07em; }
@@ -45,7 +45,7 @@ button.quiet { width: 100%; color: #40505a; border: 1px solid #b5c6cb; backgroun
 .live-description { margin-top: 0; }
 .step-list, .draft-list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
 .step-card, .draft-card { display: grid; gap: 10px; padding: 10px; border: 1px solid #d9e8e4; border-radius: 14px; background: #fff; box-shadow: 0 4px 14px rgba(37, 76, 73, .06); }
-.step-card { scroll-margin-bottom: 132px; }
+.step-card { scroll-margin-bottom: calc(var(--controls-height, 136px) + 16px); }
 .step-card { grid-template-columns: 1fr; }
 .step-card img { width: 100%; height: clamp(112px, 38vw, 180px); border-radius: 9px; object-fit: contain; background: #edf8f5; }
 .image-state { display: block; padding: 18px 10px; border-radius: 9px; color: #68777a; background: #f1f8f7; font-size: .78rem; text-align: center; }

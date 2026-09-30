@@ -23,8 +23,18 @@ const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
 const emptyState = document.querySelector("#emptyState");
+const controls = document.querySelector(".controls");
 const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
 const DRAFT_POLL_INTERVAL_MS = 3_000;
+
+function syncControlsSpace() {
+  if (!controls) return;
+  document.documentElement.style.setProperty("--controls-height", `${Math.ceil(controls.getBoundingClientRect().height)}px`);
+}
+
+syncControlsSpace();
+if (typeof ResizeObserver === "function" && controls) new ResizeObserver(syncControlsSpace).observe(controls);
+window.addEventListener("resize", syncControlsSpace, { passive: true });
 
 const MODE_LABELS = {
   pc: "PC",
@@ -69,10 +79,20 @@ function scrollLiveLatest({ behavior = "smooth" } = {}) {
   const latest = liveSteps.lastElementChild;
   if (!latest) return;
   followLiveTail = true;
-  ignoreScrollEventsUntil = performance.now() + 1_000;
+  programmaticFollowPending = true;
   updateLiveLatestVisibility();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   latest.scrollIntoView({ behavior: reducedMotion ? "auto" : behavior, block: "end" });
+  if (isLiveTailVisible()) programmaticFollowPending = false;
+}
+
+function isLiveTailVisible() {
+  const latest = liveSteps.lastElementChild;
+  if (!latest) return true;
+  const rect = latest.getBoundingClientRect();
+  const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
+  const viewportBottom = Math.min(window.innerHeight, footerTop);
+  return rect.bottom <= viewportBottom && rect.top < viewportBottom;
 }
 
 function captureLiveScrollAnchor() {
@@ -385,12 +405,13 @@ finish.addEventListener("click", async () => {
       return;
     }
     let editorOpenError = null;
+    let sidePanelClosed = false;
     try {
       await openDraftEditor(result.draftId);
     } catch (error) {
       editorOpenError = error;
     }
-    if (!editorOpenError && !result.restorePending) await closeSidePanel().catch(() => false);
+    if (!editorOpenError && !result.restorePending) sidePanelClosed = await closeSidePanel().catch(() => false);
     let refreshError = null;
     try {
       await refresh(true);
@@ -420,7 +441,9 @@ finish.addEventListener("click", async () => {
       status.textContent = result.missingImageCount
         ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
         : "記録できました。画像付きの手順を保存しました。";
+      if (!sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
       if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
+      if (refreshError && !sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
     }
   } catch {
     await showFinishFailureOutcome();
@@ -462,19 +485,28 @@ let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
 let followLiveTail = true;
-let ignoreScrollEventsUntil = 0;
+let programmaticFollowPending = false;
 
 function updateLiveTailPosition(event) {
-  if (performance.now() < ignoreScrollEventsUntil) return;
-  const root = document.scrollingElement || document.documentElement;
-  const distanceFromTail = root.scrollHeight - (root.scrollTop + window.innerHeight);
-  if (distanceFromTail <= 120) followLiveTail = true;
-  else if (!liveSection.hidden) followLiveTail = false;
+  if (programmaticFollowPending) {
+    if (!isLiveTailVisible()) return;
+    programmaticFollowPending = false;
+  }
+  if (!liveSection.hidden) followLiveTail = isLiveTailVisible();
   updateLiveLatestVisibility();
 }
 
 liveLatest.addEventListener("click", () => scrollLiveLatest());
 window.addEventListener("scroll", updateLiveTailPosition, { passive: true });
+window.addEventListener("scrollend", () => {
+  if (programmaticFollowPending && isLiveTailVisible()) programmaticFollowPending = false;
+}, { passive: true });
+for (const eventName of ["wheel", "touchstart", "keydown"]) {
+  window.addEventListener(eventName, () => {
+    programmaticFollowPending = false;
+    updateLiveTailPosition();
+  }, { passive: eventName !== "keydown" });
+}
 
 async function startPolling() {
   await refresh().catch(() => { status.textContent = "状態を読み込めませんでした。もう一度お試しください。"; });
