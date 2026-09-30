@@ -4,7 +4,7 @@ import test from "node:test";
 import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js";
 import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
 import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
-import { isSensitiveInput, normalizeCaptureEvent, safeTargetLabel } from "../apps/extension/capture/privacy.js";
+import { isSensitiveInput, normalizeCaptureEvent, safeControlName, safeTargetLabel } from "../apps/extension/capture/privacy.js";
 import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
 import { VIEWPORTS, targetOuterBounds } from "../apps/extension/responsive/viewports.js";
@@ -82,19 +82,155 @@ test("associated labels participate in sensitive classification", () => {
   }
 });
 
-test("click labels use fixed semantic labels and never dynamic metadata", () => {
-  assert.equal(safeTargetLabel({ tagName: "button", textContent: "秘密を含むページ本文" }), "ボタン");
-  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存" }), "ボタン");
-  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 SECRET_VALUE" }), "保護された入力欄");
-  assert.equal(safeTargetLabel({ role: "link", ariaLabel: "顧客名 12345" }), "リンク");
-  assert.equal(safeTargetLabel({ role: "menuitem", associatedLabel: "利用者の入力" }), "メニュー");
-  assert.equal(safeTargetLabel({ ariaLabel: "任意の個人情報" }), "操作対象");
+test("click labels use only short control names and fall back for values or sensitive candidates", () => {
+  assert.equal(safeTargetLabel({ tagName: "button", visibleText: "参照" }), "参照");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存" }), "保存");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 SECRET_VALUE" }), "ボタン");
+  assert.equal(safeTargetLabel({ role: "link", ariaLabel: "顧客名 12345" }), "顧客名 12345");
+  assert.equal(safeTargetLabel({ role: "menuitem", associatedLabel: "利用者の入力" }), "利用者の入力");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "user@example.com" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "012-3456-7890" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "a".repeat(41) }), "ボタン");
+  assert.equal(safeControlName({ tagName: "select", ariaLabel: "参照" }), null);
+  assert.equal(safeTargetLabel({ tagName: "input", type: "button", ariaLabel: "参照", controlCaption: "参照" }), "参照");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "submit", controlCaption: "送信" }), "送信");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "image", imageAlt: "画像で検索" }), "画像で検索");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "button", controlCaption: "user@example.com" }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "input", type: "text", controlCaption: "利用者が入力した値" }), "入力欄");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "任意の個人情報" }), "任意の個人情報");
   assert.equal(safeTargetLabel({ tagName: "input", type: "text", ariaLabel: "利用者が入力した値" }), "入力欄");
   const normalized = normalizeCaptureEvent({ kind: "click", at: 1, eventId: "click:1", target: {
-    tagName: "button", ariaLabel: "利用者の氏名", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
+    tagName: "button", ariaLabel: "参照", associatedLabel: "問い合わせ本文", placeholder: "秘密の入力値"
   } });
-  assert.deepEqual(normalized, { kind: "click", at: 1, label: "ボタン", eventId: "click:1" });
+  assert.deepEqual(normalized, { kind: "click", at: 1, label: "参照", eventId: "click:1" });
   assert.equal(JSON.stringify(normalized).includes("問い合わせ本文"), false);
+});
+
+test("click labels reject URL-shaped captions without a fixed TLD allowlist", () => {
+  const urlCaptions = [
+    "tenant.example.dev",
+    "portal.example.io/path?query=1#fragment",
+    "customer.example.co.uk:443",
+    "https://tenant.example.dev/path",
+    "ftp://portal.example.io/resource",
+    "127.0.0.1:8080/health",
+    "[::1]:443/health",
+    "https://例え.テスト/ページ",
+    "tenant.example.\ndev",
+    "Open (tenant.example.dev)",
+    "参照：https://tenant.example.dev/path",
+    "参照（portal.example.io）"
+  ];
+  for (const ariaLabel of urlCaptions) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "参照" }), "参照");
+});
+
+test("click labels reject decorated schemes, IP addresses, and international phone numbers", () => {
+  for (const ariaLabel of [
+    "参照：about:blank",
+    "参照：mailto:alice@localhost",
+    "参照：tel:+81-3-0000-0000",
+    "参照：data:text/plain,hello",
+    "参照：[2001:db8::1]:443/admin",
+    "参照：127.0.0.1:8080/health",
+    "+33 1 42 68 53 00",
+    "+1 (202) 555-0182",
+    "00 44 20 7946 0958"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click labels reject compatibility-normalized phone, postal, and card values", () => {
+  for (const ariaLabel of [
+    "０９０－１２３４－５６７８",
+    "１２３－４５６７",
+    "４１１１ １１１１ １１１１ １１１１"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click labels reject email-shaped captions on single-label domains", () => {
+  for (const ariaLabel of ["alice@localhost", "user@intranet", "参照：alice@localhost"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks remove invisible format characters before detection", () => {
+  for (const ariaLabel of [
+    "alice@lo\u200bcalhost",
+    "to\u200bken",
+    "03(1234)5678",
+    "03(12\u200b34)5678"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks reject Unicode mailboxes and domestic phone formatting", () => {
+  for (const ariaLabel of ["山田@localhost", "利用者@社内", "03(1234)5678", "+81 (3) 1234-5678"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks compact layout whitespace for email detection", () => {
+  for (const ariaLabel of ["alice@\nlocalhost", "alice@\u2028localhost", "alice@ localhost", "利用者@\n社内", "利用者@\u2028社内"]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
+});
+
+test("click caption privacy checks combining-mark mailboxes and all Unicode Cc controls", () => {
+  for (const ariaLabel of [
+    "उपयोगकर्ता@\nआंतरिक",
+    "to\u0080ken",
+    "090-12\u008034-5678"
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks Unicode decimal digits beyond NFKC", () => {
+  const adlamPhone = String.fromCodePoint(...[0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8].map((digit) => 0x1e950 + digit));
+  for (const ariaLabel of [
+    "٠٩٠-١٢٣٤-٥٦٧٨",
+    "۰۹۰-۱۲۳۴-۵۶۷۸",
+    "١٢٣-٤٥٦٧",
+    "۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱",
+    adlamPhone
+  ]) {
+    assert.equal(safeTargetLabel({ tagName: "button", ariaLabel }), "ボタン", ariaLabel);
+  }
+});
+
+test("click caption privacy checks enforce the returned caption boundary after format-character removal", () => {
+  const caption = safeTargetLabel({ tagName: "button", ariaLabel: "保存" + "\u200b".repeat(100) });
+  assert.equal(caption, "保存");
+  assert.ok(Array.from(caption).length <= 40);
+});
+
+test("click labels keep ordinary punctuated captions while rejecting valid international hostnames", () => {
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "詳細." }), "詳細.");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "次へ..." }), "次へ...");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "例え.テスト" }), "ボタン");
+});
+
+test("all caption sources reject the existing sensitive-name vocabulary", () => {
+  for (const field of ["visibleText", "title", "controlCaption", "imageAlt"]) {
+    for (const caption of ["PIN 1234", "auth 1234", "Use card ending 1234", "credit 1234"]) {
+      assert.equal(safeTargetLabel({ tagName: "button", [field]: caption }), "ボタン", `${field}: ${caption}`);
+    }
+  }
+});
+
+test("persisted instructions use a closed semantic-label set", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /const semanticLabels = new Set\(/);
+  assert.match(source, /semanticLabels\.has\(event\.label\)/);
+  assert.doesNotMatch(source, /semanticLabels\[event\.label\]/);
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
@@ -192,6 +328,9 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.match(source, /target\.scrollLeft/);
   assert.match(source, /deltaX/);
   assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
+  assert.match(source, /hasNestedValueControl/);
+  assert.match(source, /element\.querySelector\("input,textarea,select/);
+  assert.match(source, /element\.innerText/);
   assert.match(source, /return pendingEvents\.sort/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
   assert.doesNotMatch(source, /element\.textContent/);

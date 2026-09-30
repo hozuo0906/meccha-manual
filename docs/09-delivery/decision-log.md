@@ -300,8 +300,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 - Status: Accepted
 - Date: 2026-09-20
+- 関係: click labelを固定semantic値へ戻す境界のうち、安全な短い操作名をguest下書きへ反映する範囲だけDEC-084で部分的にSuperseded。入力値・秘密値を保存しない境界は継続する。
 - Decision:
-  - click eventのlabelは固定semantic値へ正規化し、ページ上の`aria-label`、関連label、placeholder、本文をlocal event／draftへ保存しない。
+  - click eventのlabelは固定semantic値へ正規化する。ただしDEC-084で定める安全な短い操作名の候補だけは、その決定で定める範囲に限りlocal event／draftの生成文へ反映する。placeholder、本文、入力欄の現在値は保存しない。
   - navigationのsession storageとrecovery journalが同時に失敗した場合は、同一session IDに限定した一時fallbackへ保持し、後続storage操作またはfinishでevent IDの重複排除を行って一度だけmergeする。service worker終了をまたぐメモリ状態のdurabilityは保証しない。
   - scrollは開始時の既存要素をseedし、動的に追加された未知要素は初回位置だけをseedして、その一回の方向イベントは生成しない。
 - Reason:
@@ -462,3 +463,18 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision: 共有停止の4xxはAPIの案内を表示する。5xx、通信切断は結果不明として共有リンクと`shareLinkId`を画面に保持し、画面を閉じずに同じリンクの停止を再試行する。結果不明を新しい共有リンク作成や別の識別子の停止で解消しない。
 - Reason: 停止要求がサーバーへ到達したか、停止後の応答だけが失われたかを画面から判定できない場合に、リンクを失って再発行したり、利用者が停止済みリンクを使い続けたりする誤操作を防ぐため。
 - Boundary: APIの権限判定、D1の停止処理、匿名viewerのgrant再検証、production反映、deploy、共有リンク公開は変更しない。
+
+### DEC-084: Chrome拡張の短い操作名を限定的に下書きへ反映する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Decision:
+  - clickの対象がbutton、link、menuitem、またはinputのbutton／submit／reset／imageで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキスト、input button／submit／resetのHTML `value`属性、input imageの`alt`属性を候補にする。inputのvalueはこのcaption境界に限って扱い、テキスト入力の現在値は読まない。
+  - 候補は空白・制御文字を正規化し、40 Unicode code pointを上限とする。メールアドレス、URL、電話番号、郵便番号、token、password、カード情報などの高信頼な機密候補は固定semantic値へ戻す。
+  - privacy viewのUnicode decimal digitは固定のzero一覧を持たず、Unicode `Nd`カテゴリの連続runを最大64 code pointだけ後方探索して10進値へ写像する。Unicode data上の隣接した数学用数字を含む10桁単位のrunを対象とし、boundを超える未知のrunはfail closedで固定semantic値へ戻す。メールのlayout補助判定とdomain組成はUnicode `L`／`N`／`M`カテゴリを扱い、`@`直前隣接と改行・空白後のdomainを検査するが、`保存 @ 次へ`のような両側空白の通常captionは保持する。privacy viewからはUnicode `Cc`を除去し、C1 controlを挿入したsecretや電話番号の検出を分断させない。
+  - selectの選択値、テキスト入力の現在値、placeholder、対象要素外の本文は取得しない。inputのvalueはbutton／submit／resetのcaption候補としてだけ扱う。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
+  - 安全な候補はローカルeventとguest下書きの生成文にだけ反映し、既存のサーバー側capture APIのgeneric target契約、入力値非保存、外部AI API初期OFFを変更しない。
+- Reason:
+  - 「参照」のような操作名を手順へ反映し、利用者が記録結果を修正しやすくする一方、表示値・入力値・機密情報を無制限に下書きへ持ち込まないため。
+- Boundary:
+  - 一般的な氏名・住所の完全自動判定やスクリーンショット内の静的文字列置換は本決定の対象外とし、画像の自動ダミー置換は別の小さな作業単位で高信頼DOM候補だけを扱う。
