@@ -512,13 +512,36 @@ export function installSensitiveMasks() {
         return pattern.test(text);
       });
     };
+    const semanticPairKind = (labelElement, valueElement, labelText = labelElement?.textContent) => {
+      const labelTag = String(labelElement?.tagName || "").toUpperCase();
+      const valueTag = String(valueElement?.tagName || "").toUpperCase();
+      const strictPair = (labelTag === "DT" && valueTag === "DD") || (labelTag === "TH" && valueTag === "TD");
+      if (!strictPair || !normalizeText(valueElement?.textContent)) return null;
+      return semanticKind(labelText);
+    };
+    const semanticMutationKind = (node, labelTexts = [], sibling = null) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return null;
+      const tagName = String(element.tagName || "").toUpperCase();
+      if (["DD", "TD"].includes(tagName)) {
+        return semanticPairKind(element.previousElementSibling || sibling, element);
+      }
+      if (!["DT", "TH"].includes(tagName)) return null;
+      const valueCandidates = [element.nextElementSibling, sibling].filter(Boolean);
+      const labelCandidates = [element.textContent, ...labelTexts];
+      return valueCandidates.map((valueElement) => labelCandidates
+        .map((labelText) => semanticPairKind(element, valueElement, labelText))
+        .find(Boolean)).find(Boolean) || null;
+    };
     const containsSemanticCandidate = (node) => {
       if (!node) return false;
       const element = node.nodeType === 3 ? node.parentElement : node;
       if (!element) return false;
       for (const valueElement of [element, ...element.querySelectorAll?.("dd,td") || []]) {
-        const label = valueElement?.previousElementSibling;
-        if (semanticKind(label?.textContent) && normalizeText(valueElement?.textContent)) return true;
+        if (semanticPairKind(valueElement?.previousElementSibling, valueElement)) return true;
+      }
+      for (const labelElement of [element, ...element.querySelectorAll?.("dt,th") || []]) {
+        if (semanticMutationKind(labelElement)) return true;
       }
       return false;
     };
@@ -573,11 +596,7 @@ export function installSensitiveMasks() {
       visitElement(element);
       return matched || budgetExceeded;
     };
-    const isSemanticMutationNode = (node) => {
-      const element = node?.nodeType === 3 ? node.parentElement : node;
-      if (!element || !["DD", "TD"].includes(String(element.tagName || "").toUpperCase())) return false;
-      return Boolean(semanticKind(element.previousElementSibling?.textContent));
-    };
+    const isSemanticMutationNode = (node, labelTexts = [], sibling = null) => Boolean(semanticMutationKind(node, labelTexts, sibling));
     const hasUnseenShadowRoot = (node) => {
       const elements = node?.nodeType === 1 ? [node, ...node.querySelectorAll?.("*") || []] : [];
       for (const element of elements) {
@@ -594,7 +613,7 @@ export function installSensitiveMasks() {
     const privacyMutationAffectsBoundary = (record) => {
       if (record.type === "characterData") {
         return isProtectedMutationNode(record.target?.parentElement)
-          || isSemanticMutationNode(record.target)
+          || isSemanticMutationNode(record.target, [record.oldValue])
           || containsPiiText(record.oldValue)
           || containsPiiText(record.target?.nodeValue);
       }
@@ -609,7 +628,11 @@ export function installSensitiveMasks() {
       if (record.type !== "childList") return false;
       if (isProtectedMutationNode(record.target) || isSemanticMutationNode(record.target)) return true;
       for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
-        if (isProtectedMutationNode(node) || containsPiiText(node.textContent) || containsSemanticCandidate(node) || hasUnseenShadowRoot(node)) return true;
+        if (isProtectedMutationNode(node)
+          || isSemanticMutationNode(node, [node.textContent], record.nextSibling || record.previousSibling)
+          || containsPiiText(node.textContent)
+          || containsSemanticCandidate(node)
+          || hasUnseenShadowRoot(node)) return true;
       }
       return false;
     };
@@ -733,17 +756,25 @@ export function verifySensitiveMasks(expectedToken) {
       const webkitBackgroundClip = String(overlayStyle.webkitBackgroundClip || "").toLowerCase();
       if (overlayStyle.display === "none" || overlayStyle.visibility === "hidden" || Number(overlayStyle.opacity) !== 1 || overlayStyle.filter !== "none" || overlayStyle.mixBlendMode !== "normal" || !clipIsAuto(overlayStyle.clip) || overlayStyle.clipPath !== "none" || overlayStyle.mask !== "none" || overlayStyle.maskImage !== "none" || overlayStyle.webkitMaskImage !== "none" || overlayStyle.backgroundImage !== "none" || String(overlayStyle.backgroundClip).toLowerCase() !== "border-box" || (webkitBackgroundClip && webkitBackgroundClip !== "border-box") || overlayStyle.borderRadius !== "0px" || overlayStyle.boxShadow !== "none" || background === "transparent" || !rgba || (rgba[1] !== undefined && Number(rgba[1]) < 1) || !overlayBoundarySafe(item.overlay)) return false;
       const rect = item.overlay.getBoundingClientRect();
+      const viewportWidth = Number(globalThis.innerWidth || document.documentElement?.clientWidth || 0);
+      const viewportHeight = Number(globalThis.innerHeight || document.documentElement?.clientHeight || 0);
+      const visibleLeft = Math.max(0, rect.left);
+      const visibleTop = Math.max(0, rect.top);
+      const visibleRight = Math.min(viewportWidth, rect.left + rect.width);
+      const visibleBottom = Math.min(viewportHeight, rect.top + rect.height);
+      if (![viewportWidth, viewportHeight, visibleLeft, visibleTop, visibleRight, visibleBottom].every(Number.isFinite)
+        || visibleRight <= visibleLeft || visibleBottom <= visibleTop) return false;
       const previousPointerEvents = item.overlay.style.getPropertyValue("pointer-events");
       const previousPointerPriority = item.overlay.style.getPropertyPriority("pointer-events");
       let topElement;
       try {
         item.overlay.style.setProperty("pointer-events", "auto", "important");
-        topElement = document.elementFromPoint?.(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        topElement = document.elementFromPoint?.((visibleLeft + visibleRight) / 2, (visibleTop + visibleBottom) / 2);
       } finally {
         if (previousPointerEvents) item.overlay.style.setProperty("pointer-events", previousPointerEvents, previousPointerPriority);
         else item.overlay.style.removeProperty("pointer-events");
       }
-      if (topElement && topElement !== item.overlay && !item.overlay.contains?.(topElement)) return false;
+      if (!topElement || (topElement !== item.overlay && !item.overlay.contains?.(topElement))) return false;
     }
     if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") return false;
     for (const { root, style } of state.backdropMasks || []) {
