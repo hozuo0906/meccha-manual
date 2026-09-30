@@ -432,7 +432,7 @@ async function startOutput(outputAction) {
     if (isActiveHandoffRun(run)) {
       if (handoffProgress) handoffProgress.hidden = true;
       gateStatus.textContent = ["HANDOFF_STORAGE_UNAVAILABLE", "HANDOFF_LOCK_UNAVAILABLE"].includes(error?.message)
-        ? "保存先の準備を保存できませんでした。元の手順書はこの端末に残っています。"
+        ? "保存の準備ができませんでした。編集画面からもう一度お試しください。手順書はこの端末に残っています。"
         : "保存先を開けませんでした。元の手順書はこの端末に残っています。";
       activeHandoffAttempt = null;
     }
