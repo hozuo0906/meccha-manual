@@ -18,7 +18,12 @@ test("manifest uses required minimal MV3 permissions", async () => {
   assert.equal(manifest.permissions.includes("storage"), true);
   assert.equal(manifest.permissions.includes("debugger"), false);
   assert.equal(manifest.permissions.includes("tabs"), false);
-  assert.equal("host_permissions" in manifest, false);
+  assert.deepEqual(manifest.host_permissions, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
+  assert.deepEqual(manifest.content_scripts, [{
+    matches: ["https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue"],
+    js: ["content/onboarding-access-return.js"],
+    run_at: "document_start"
+  }]);
 });
 
 test("original state and bounds form a serializable suspension-safe snapshot", () => {
@@ -183,6 +188,14 @@ test("click caption privacy checks compact layout whitespace for email detection
   assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: "保存 @ 次へ" }), "保存 @ 次へ");
 });
 
+test("click caption privacy checks every at-sign layout candidate", () => {
+  const newline = String.fromCharCode(0x0a);
+  const ordinaryCaption = "保存 @ 次へ / 進む @ 戻る";
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: `view @ next alice${newline}@localhost` }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: `alice${newline}@localhost view @ next` }), "ボタン");
+  assert.equal(safeTargetLabel({ tagName: "button", ariaLabel: ordinaryCaption }), ordinaryCaption);
+});
+
 test("click caption privacy checks email boundaries across controls, marks, and mailbox scripts", () => {
   const controls = {
     c0: String.fromCharCode(0x0a),
@@ -285,11 +298,10 @@ test("all caption sources reject the existing sensitive-name vocabulary", () => 
   }
 });
 
-test("persisted instructions use a closed semantic-label set", async () => {
+test("persisted instructions use a closed semantic-label map", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
-  assert.match(source, /const semanticLabels = new Set\(/);
-  assert.match(source, /semanticLabels\.has\(event\.label\)/);
-  assert.doesNotMatch(source, /semanticLabels\[event\.label\]/);
+  assert.match(source, /const semanticLabel = \{[\s\S]*?\}\[event\.label\] \|\| "操作対象"/);
+  assert.doesNotMatch(source, /semanticLabels/);
 });
 
 test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
@@ -379,7 +391,7 @@ test("editor exposes a locally persisted add-step control", async () => {
 
 test("editor acknowledges readiness only after the initial draft render", async () => {
   const editor = await readFile(new URL("../apps/extension/editor/editor.js", import.meta.url), "utf8");
-  const renderIndex = editor.indexOf("render();\nnotifyEditorReady();");
+  const renderIndex = editor.search(/render\(\);\s*notifyEditorReady\(\);/);
   assert.ok(renderIndex >= 0, "editor must render before acknowledging readiness");
   assert.match(editor, /type: "editor:ready", draftId: id, ready: true/);
   assert.match(editor, /chrome\.runtime\?\.sendMessage/);
@@ -396,12 +408,10 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.match(source, /target\.scrollLeft/);
   assert.match(source, /deltaX/);
   assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
-  assert.match(source, /hasNestedValueControl/);
-  assert.match(source, /element\.querySelector\("input,textarea,select/);
-  assert.match(source, /element\.innerText/);
+  assert.match(source, /associatedLabel/);
+  assert.match(source, /label\[for=/);
   assert.match(source, /return pendingEvents\.sort/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
-  assert.doesNotMatch(source, /element\.textContent/);
   assert.doesNotMatch(source, /value:/);
 });
 

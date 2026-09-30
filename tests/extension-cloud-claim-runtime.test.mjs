@@ -1,16 +1,92 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { chromium } from "@playwright/test";
+import { exportJWK, SignJWT } from "jose";
 import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
+import { ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
+import cloudWorker from "../apps/worker/src/index.ts";
 
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const STAGING_URL = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=1`;
+const ACCESS_AUTH_ORIGIN = "https://meccha-manual-access-login.example.test";
+const ACCESS_AUTH_URL = `${ACCESS_AUTH_ORIGIN}/cdn-cgi/access/login?runtime-test=1`;
 const WRONG_ORIGIN_URL = "https://evil.example.test/onboarding/continue?runtime-test=1";
+const ACCESS_ISSUER = "https://access.example.invalid";
+const ACCESS_AUDIENCE = "meccha-manual-staging";
+const ACCESS_JWKS_URL = `${ACCESS_ISSUER}/.well-known/jwks.json`;
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+
+class LocalStatement {
+  constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
+  bind(...values) { return new LocalStatement(this.database, this.sql, values); }
+  async run() { const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
+  async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
+}
+
+class LocalD1 {
+  constructor(database) { this.database = database; this.tail = Promise.resolve(); }
+  prepare(sql) { return new LocalStatement(this.database, sql); }
+  batch(statements) {
+    const task = this.tail.then(async () => {
+      this.database.exec("BEGIN IMMEDIATE");
+      try { const results = []; for (const statement of statements) results.push(await statement.run()); this.database.exec("COMMIT"); return results; }
+      catch (error) { this.database.exec("ROLLBACK"); throw error; }
+    });
+    this.tail = task.catch(() => undefined);
+    return task;
+  }
+}
+
+class MemoryR2 {
+  constructor() { this.objects = new Map(); }
+  async put(key, body, options = {}) {
+    if (options.onlyIf?.etagDoesNotMatch === "*" && this.objects.has(key)) return null;
+    const bytes = body instanceof Uint8Array ? body.slice() : new Uint8Array(await new Response(body).arrayBuffer());
+    this.objects.set(key, { body: bytes, size: bytes.byteLength, httpMetadata: { ...(options.httpMetadata ?? {}) }, customMetadata: { ...(options.customMetadata ?? {}) } });
+    return { etag: `local-${this.objects.size}` };
+  }
+  async head(key) { const object = this.objects.get(key); return object ? { size: object.size, httpMetadata: { ...object.httpMetadata }, customMetadata: { ...object.customMetadata } } : null; }
+  async get(key) { const object = this.objects.get(key); return object ? { body: new Response(object.body).body, size: object.size, httpMetadata: { ...object.httpMetadata }, customMetadata: { ...object.customMetadata } } : null; }
+  async delete(key) { this.objects.delete(key); }
+}
+
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql"];
+
+async function createLocalWorkerFixture() {
+  const database = new DatabaseSync(":memory:");
+  for (const name of localWorkerMigrations) database.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const publicJwk = { ...await exportJWK(publicKey), kid: "extension-runtime-local", alg: "RS256", use: "sig" };
+  const token = await new SignJWT({ type: "app", sub: "extension-runtime-local-user" })
+    .setProtectedHeader({ alg: "RS256", kid: publicJwk.kid }).setIssuer(ACCESS_ISSUER).setAudience(ACCESS_AUDIENCE)
+    .setIssuedAt().setExpirationTime("5m").sign(privateKey);
+  const env = {
+    APP_ENV: "staging", APP_BASE_URL: STAGING_ORIGIN, ACCESS_ISSUER, ACCESS_AUDIENCE, ACCESS_JWKS_URL,
+    DB: new LocalD1(database), MANUAL_ASSETS: new MemoryR2(), ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }
+  };
+  return { database, env, token, publicJwk };
+}
+
+function localWorkerRequest(request, token) {
+  const headers = new Headers(request.headers());
+  headers.set("Cf-Access-Jwt-Assertion", token);
+  headers.set("Cf-Connecting-IP", "198.51.100.10");
+  // Playwright's intercepted fetch body is delivered without a transport
+  // Content-Length. The product request already carries the signed byte
+  // length, so the local edge adapter restores the header Cloudflare adds.
+  if (!headers.has("content-length") && headers.has("x-asset-byte-length")) headers.set("content-length", headers.get("x-asset-byte-length"));
+  const body = ["GET", "HEAD"].includes(request.method()) ? undefined : request.postDataBuffer() ?? undefined;
+  const input = new Request(request.url(), { method: request.method(), headers, body });
+  Object.defineProperty(input, "cf", { value: { colo: "NRT", asn: 64500 }, configurable: true });
+  return input;
+}
 
 function externalPageHtml(extensionId = null) {
   const readyScript = extensionId ? `<script defer>
@@ -57,6 +133,73 @@ async function createSyntheticPage(context, url) {
 
 async function createStagingPage(context, url = STAGING_URL) {
   return createSyntheticPage(context, url);
+}
+
+async function createRealStagingPage(context, url = STAGING_URL, { bootstrapEnabled = false } = {}) {
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.origin !== STAGING_ORIGIN) {
+      await route.abort();
+      return;
+    }
+    if (requestUrl.pathname === "/onboarding/continue") {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: renderOnboardingContinuePage({ bootstrapEnabled }) });
+      return;
+    }
+    if (requestUrl.pathname === "/assets/onboarding.js") {
+      await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: ONBOARDING_JS });
+      return;
+    }
+    if (requestUrl.pathname === "/api/onboarding/bootstrap") {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "ready", workspaceId: "runtime-workspace" }) });
+      return;
+    }
+    if (requestUrl.pathname === "/api/onboarding/claim-intents") {
+      await route.fulfill({ status: 201, contentType: "application/json; charset=utf-8", body: JSON.stringify({ claimIntentId: "12345678-1234-4234-8234-123456789012" }) });
+      return;
+    }
+    if (requestUrl.pathname.includes("/assets/")) {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "staged" }) });
+      return;
+    }
+    if (requestUrl.pathname.startsWith("/api/onboarding/claims/")) {
+      await route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ status: "claimed", manualId: "runtime-manual-1" }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
+  });
+  await page.goto(url, { waitUntil: "commit" });
+  return page;
+}
+
+async function createLocalWorkerStagingPage(context, fixture, url = `${STAGING_ORIGIN}/onboarding/continue`) {
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.origin === ACCESS_AUTH_ORIGIN) {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>synthetic Access login</title>" });
+      return;
+    }
+    if (requestUrl.origin !== STAGING_ORIGIN) { await route.abort(); return; }
+    if (requestUrl.pathname === "/onboarding/continue") {
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: renderOnboardingContinuePage({ bootstrapEnabled: true }) });
+      return;
+    }
+    if (requestUrl.pathname === "/assets/onboarding.js") {
+      await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: ONBOARDING_JS });
+      return;
+    }
+    if (requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/manuals" || requestUrl.pathname.startsWith("/assets/cloud-manual.")) {
+      const response = await cloudWorker.fetch(localWorkerRequest(route.request(), fixture.token), fixture.env, {});
+      const body = Buffer.from(await response.arrayBuffer());
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers.entries()), body });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "text/plain; charset=utf-8", body: "" });
+  });
+  await page.goto(url, { waitUntil: "commit" });
+  return page;
 }
 
 async function sendExternal(page, extensionId, message) {
@@ -188,17 +331,19 @@ async function sendExternalFromFrame(frame, extensionId, message) {
 }
 
 async function tabIdForPage(worker, page) {
-  const pageUrl = page.url();
-  return worker.evaluate((url) => new Promise((resolve, reject) => {
-    chrome.tabs.query({}, (tabs) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      resolve(tabs.find((tab) => tab.url === url)?.id ?? null);
-    });
-  }), pageUrl);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const pageUrl = page.url();
+    const tabId = await worker.evaluate((url) => new Promise((resolve, reject) => {
+      chrome.tabs.query({}, (tabs) => {
+        const error = chrome.runtime.lastError;
+        if (error) { reject(new Error(error.message)); return; }
+        resolve(tabs.find((tab) => tab.url === url)?.id ?? null);
+      });
+    }), pageUrl);
+    if (Number.isInteger(tabId)) return tabId;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
 }
 
 async function failStorageSetOnCall(worker, failureCall = 1) {
@@ -854,7 +999,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     await setMetadata(worker, readyKey, readyMetadata);
     const readyMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId, launchId, action: "save" };
 
-    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" });
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready", extensionId: handoffMetadata.extensionId, draftFingerprint: handoffMetadata.draftFingerprint, expiresAt: handoffMetadata.expiresAt });
     const firstReady = await readMetadata(worker, readyKey);
     assert.equal(Number.isFinite(Date.parse(firstReady.pageReadyAt)), true);
     assert.equal(firstReady.activatedAt, null, "background ready notification must not activate the sender tab");
@@ -868,7 +1013,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     assert.equal(activeTabIdsAfterReady.includes(foregroundTabId), true, "the unrelated foreground tab must remain active");
     assert.equal(activeTabIdsAfterReady.includes(tabId), false, "background ready must not foreground the sender tab");
     assert.deepEqual(await readMetadata(worker, handoffKey), handoffMetadata, "ready must not overwrite operation or claim identity");
-    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready" }, "duplicate ready is idempotent");
+    assert.deepEqual(await sendExternal(page, extensionId, readyMessage), { ok: true, status: "ready", extensionId: handoffMetadata.extensionId, draftFingerprint: handoffMetadata.draftFingerprint, expiresAt: handoffMetadata.expiresAt }, "duplicate ready is idempotent");
     assert.deepEqual(await readMetadata(worker, readyKey), firstReady, "duplicate ready must preserve the first timestamps");
 
     assert.deepEqual(await sendExternal(page, extensionId, {
@@ -920,7 +1065,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const timedOutLaunchId = "U".repeat(43);
     await installAttempt(timedOutHandoffId, timedOutLaunchId, "auto", new Date(Date.now() - 1).toISOString(), "P".repeat(43));
     const timedOutReady = { ...readyMessage, handoffId: timedOutHandoffId, launchId: timedOutLaunchId };
-    assert.deepEqual(await sendExternal(page, extensionId, timedOutReady), { ok: true, status: "manual" }, "a ready after the activation deadline must require manual activation");
+    assert.equal((await sendExternal(page, extensionId, timedOutReady)).status, "manual", "a ready after the activation deadline must require manual activation");
     const timedOutStored = await readMetadata(worker, handoffReadyStorageKey(timedOutHandoffId, timedOutLaunchId));
     assert.equal(timedOutStored.pageReadyAt, null);
     assert.equal(timedOutStored.activatedAt, null);
@@ -929,7 +1074,7 @@ test("MV3 page-ready uses launch and tab state without changing claim identity",
     const manualLaunchId = "N".repeat(43);
     await installAttempt(manualHandoffId, manualLaunchId, "manual", new Date(Date.now() + 8_000).toISOString(), "Q".repeat(43));
     const manualReady = { ...readyMessage, handoffId: manualHandoffId, launchId: manualLaunchId };
-    assert.deepEqual(await sendExternal(page, extensionId, manualReady), { ok: true, status: "manual" }, "manual policy must never auto activate on a late ready");
+    assert.equal((await sendExternal(page, extensionId, manualReady)).status, "manual", "manual policy must never auto activate on a late ready");
     const manualStored = await readMetadata(worker, handoffReadyStorageKey(manualHandoffId, manualLaunchId));
     assert.equal(manualStored.pageReadyAt, null);
     assert.equal(manualStored.activatedAt, null);

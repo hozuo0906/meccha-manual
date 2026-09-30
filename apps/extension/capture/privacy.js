@@ -128,18 +128,19 @@ function normalizeControlName(value) {
 }
 
 function hasEmailLayout(value) {
-  const atIndex = value.indexOf("@");
-  if (atIndex < 0) return false;
-  const before = value.slice(0, atIndex);
-  const after = value.slice(atIndex + 1);
-  const beforeLayout = /\s$/u.test(before);
-  const afterLayout = /^\s/u.test(after);
-  // Both sides spaced around @ are ordinary prose (for example,
-  // `保存 @ 次へ`). A single layout gap is sensitive only when the other
-  // side starts or ends with a mailbox character.
-  if (beforeLayout === afterLayout) return false;
-  const adjacent = beforeLayout ? Array.from(after)[0] : Array.from(before).at(-1);
-  return Boolean(adjacent && CONTROL_NAME_EMAIL_MAILBOX_CHAR.test(adjacent));
+  for (let atIndex = value.indexOf("@"); atIndex >= 0; atIndex = value.indexOf("@", atIndex + 1)) {
+    const before = value.slice(0, atIndex);
+    const after = value.slice(atIndex + 1);
+    const beforeLayout = /\s$/u.test(before);
+    const afterLayout = /^\s/u.test(after);
+    // Both sides spaced around @ are ordinary prose (for example,
+    // `保存 @ 次へ`). Continue to later candidates so ordinary prose cannot
+    // hide a separated address.
+    if (beforeLayout === afterLayout) continue;
+    const adjacent = beforeLayout ? Array.from(after)[0] : Array.from(before).at(-1);
+    if (adjacent && CONTROL_NAME_EMAIL_MAILBOX_CHAR.test(adjacent)) return true;
+  }
+  return false;
 }
 
 function normalizePrivacyDigits(value) {

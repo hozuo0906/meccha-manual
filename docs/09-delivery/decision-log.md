@@ -485,6 +485,18 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - 一般的な氏名・住所の完全自動判定やスクリーンショット内の静的文字列置換は本決定の対象外とし、画像の自動ダミー置換は別の小さな作業単位で高信頼DOM候補だけを扱う。
   - 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
 
+### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272
+- Decision:
+  - 既存の入力欄・canvas・iframe・shadow配下のopacity maskを維持し、追加の自動置換はメールアドレス・電話番号・郵便番号の明確な形式と、`氏名／名前／住所／電話／メール`の意味ラベルに対応する`dt/dd`・`th/td`の表示値に限定する。表示viewportと交差する候補overlayは1回のcaptureにつき64件までとし、既存の画像100件・手順200件のcapture上限とは別に、生成するoverlay数を固定する。
+  - capture直前にviewport上の同じ位置へ固定ダミー値を描画する一時overlayを追加し、元DOMの文字列・入力値・イベント・ページ状態は変更しない。overlayの接続、対象要素とoverlayの幾何、document identityをcapture後に検証し、検証失敗や復元失敗は画像保存を成功扱いにしない。
+  - open shadow root内の通常テキストも64件の候補上限で走査し、closed shadow rootは既存のhost全体maskで保護する。祖先`opacity: 0`、不透明描画を確認できない半透明・filter・blend・clip・maskは候補外またはfail closedとする。OCR、画像内文字、複雑なレイアウト、cross-origin iframe、外部AI、新しい権限は対象外とする。
+- Reason: 実在の業務画面に含まれる代表的な連絡先や氏名を元ページの操作を壊さずcapture pixel上だけで置き換え、未検出を自動保護済みと誤認させないため。
+- Boundary: 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
+
 ### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
 
 - Status: Accepted
