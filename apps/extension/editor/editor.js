@@ -40,9 +40,11 @@ let selectedStepId = draft.steps[0]?.id;
 const previewGenerations = new WeakMap();
 function invalidatePreview(canvas) {
   previewGenerations.set(canvas, (previewGenerations.get(canvas) || 0) + 1);
-  // Keep the intrinsic ratio while an off-screen image is decoding. Resetting
-  // the canvas to 1x1 makes a portrait preview briefly collapse and compete
-  // with the CSS aspect-ratio during scrolling.
+  // Keep the wrapper's reserved ratio while releasing the backing store for
+  // previews that are far from the viewport. The image is decoded and drawn
+  // again when the observer brings this canvas back near the viewport.
+  canvas.width = 1;
+  canvas.height = 1;
   canvas.style.visibility = "hidden";
   canvas.dataset.previewRendered = "false";
 }
@@ -338,8 +340,6 @@ async function drawPreview(canvas, screenshot) {
     const image = new Image(); image.src = screenshot.dataUrl; await image.decode();
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
     const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
-    const preview = canvas.closest(".screenshot-preview");
-    if (preview && image.naturalWidth && image.naturalHeight) preview.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
     canvas.style.visibility = "visible";
     canvas.dataset.previewRendered = "true";
     canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");

@@ -107,6 +107,64 @@ async function readScreenshot(page, draftId, screenshotId = "image-1") {
   }, { draftId, screenshotId });
 }
 
+test("nearby previews render portrait images without moving the reserved frame and release distant buffers", { timeout: 35_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = "http://127.0.0.1:" + server.address().port;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "editor-preview-buffer-regression";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(6_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+    const portraitDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 240; canvas.height = 1200;
+      const context = canvas.getContext("2d"); context.fillStyle = "#eaf8fb"; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#087f7a"; context.fillRect(42, 120, 156, 960);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(async ({ draftId: currentDraftId, portrait }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get(currentDraftId);
+      draft.screenshots.find((screenshot) => screenshot.id === "image-1").dataUrl = portrait;
+      await draftStore.put(draft);
+    }, { draftId, portrait: portraitDataUrl });
+    await page.reload();
+
+    const preview = page.locator("#step-step-1 .screenshot-preview");
+    const canvas = page.locator("#step-step-1 .screenshot-canvas");
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
+    });
+    const firstFrame = await preview.boundingBox();
+    assert.ok(firstFrame && Math.abs(firstFrame.width / firstFrame.height - 16 / 9) < .03, "画像の縦横比にかかわらずプレビュー枠を固定する");
+    assert.equal(await canvas.evaluate((element) => element.style.aspectRatio), "", "canvasへ画像ごとの比率を設定しない");
+
+    await page.locator("#step-step-22").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 1 && target?.height === 1 && target?.dataset.previewRendered === "false";
+    });
+    const reservedFrame = await preview.boundingBox();
+    assert.ok(reservedFrame && Math.abs(reservedFrame.width / reservedFrame.height - 16 / 9) < .03, "遠い画像のpixel bufferを解放しても枠を維持する");
+
+    await page.locator("#step-step-1").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const target = document.querySelector("#step-step-1 .screenshot-canvas");
+      return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
+    });
+    const restoredFrame = await preview.boundingBox();
+    assert.ok(restoredFrame && Math.abs(restoredFrame.width / restoredFrame.height - 16 / 9) < .03, "再表示時も目次の移動先を変えない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("editor navigation and image edits persist exact annotation and mask coordinates", { timeout: 45_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
