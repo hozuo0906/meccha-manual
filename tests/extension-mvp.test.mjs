@@ -131,6 +131,8 @@ test("click labels reject decorated schemes, IP addresses, and international pho
   for (const ariaLabel of [
     "参照：about:blank",
     "参照：mailto:alice@localhost",
+    "参照：tel:+81-3-0000-0000",
+    "参照：data:text/plain,hello",
     "参照：[2001:db8::1]:443/admin",
     "参照：127.0.0.1:8080/health",
     "+33 1 42 68 53 00",
