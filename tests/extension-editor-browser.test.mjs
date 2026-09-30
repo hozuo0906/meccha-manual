@@ -701,7 +701,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
       chrome.storage.local.set = async () => { throw new Error("HANDOFF_STORAGE_UNAVAILABLE"); };
     });
     await page.locator("#startRegistration").click();
-    await page.waitForFunction(() => /保存できませんでした/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /^保存の準備ができませんでした。編集画面からもう一度お試しください。/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.evaluate(() => globalThis.__tabsUpdateCalls.length), 0, "handoff storage failure must not navigate to a registration URL");
     await page.evaluate(() => {
       chrome.storage.local.set = async (values) => { globalThis.__handoffStorageWrites += 1; Object.assign(globalThis.__handoffStorage, values); };
