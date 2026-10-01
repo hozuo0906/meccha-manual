@@ -173,8 +173,9 @@ test("native recording uses only bounded safe captions for real click controls",
     for (const caption of ["参照", "保存", "タイトル操作", "入力参照", "送信", "リセット", "画像検索"]) {
       assert.match(joined, new RegExp(`【${caption}】クリック`), `safe caption should be retained: ${caption}`);
     }
-    assert.ok((joined.match(/【ボタン】クリック/g) || []).length >= 4, "nested/editable and unsafe controls should use the button fallback");
-    assert.match(joined, /保護された入力欄/, "password clicks should use the protected-input semantic label");
+    assert.ok((joined.match(/ボタンを操作する/g) || []).length >= 5, "nested/editable and unsafe controls should use the button fallback");
+    assert.match(joined, /保護された入力欄を操作する/, "password clicks should use the protected-input semantic label");
+    assert.match(joined, /入力欄を操作する/, "value-bearing clicks should use the input semantic label");
     assert.doesNotMatch(joined, /パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
   } finally {
     await context?.close();
