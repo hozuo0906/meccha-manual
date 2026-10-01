@@ -288,6 +288,7 @@ test("bounded split recovery keeps complete suffixes, precedence, and boundary f
         overlays: [...document.querySelectorAll(".meccha-manual-pii-overlay")].map((element) => ({ text: element.textContent, width: element.getBoundingClientRect().width })),
         completeRange: (() => {
           const root = document.querySelector("#complete-email");
+          if (!root) return null;
           const range = document.createRange();
           range.setStart(root.firstElementChild.firstChild, 0);
           range.setEnd(root.lastElementChild.firstChild, root.lastElementChild.firstChild.nodeValue.length);
@@ -367,7 +368,7 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
     await page.goto(`${baseUrl}/boundary`);
     const boundary = await inject(installSensitiveMasks);
     assert.equal(boundary.applied, true);
-    assert.equal(boundary.privacyMaskedCount, 0);
+    assert.equal(boundary.privacyMaskedCount, 1, "the visible phone prefix remains an independent single-node candidate");
     assert.equal(await inject(verifySensitiveMasks, [boundary.token]), false, "block, br, and hidden split boundaries fail closed");
     await inject(removeSensitiveMasks);
 
