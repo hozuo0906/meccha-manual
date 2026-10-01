@@ -1051,6 +1051,105 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "mixed-character-prefix";
+      prefix.textContent = "safe";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("mixed-character-prefix").firstChild.nodeValue = "123"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "mixed-character-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("mixed-character-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("mixed-character-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "characterData to childList numeric fragments must remain invalid after removal");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "mixed-child-prefix";
+      prefix.textContent = "0";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "mixed-child-suffix";
+      suffix.textContent = "safe";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("mixed-child-suffix").firstChild.nodeValue = "90-1234-5678"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("mixed-child-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("mixed-child-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "childList to characterData phone fragments must remain invalid after removal");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "initial-numeric-prefix";
+      prefix.textContent = "123";
+      document.getElementById("stream").append(prefix);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "initial-numeric-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("initial-numeric-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("initial-numeric-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "an existing visible numeric prefix must join a later adjacent suffix");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "long-phone-prefix";
+      prefix.textContent = "09012";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "long-phone-suffix";
+      suffix.textContent = "345678";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("long-phone-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("long-phone-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "long phone fragments must remain invalid after removal");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
       document.querySelector("#char-a").firstChild.nodeValue = "123";
     });
     await page.waitForTimeout(25);
