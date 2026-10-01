@@ -301,7 +301,7 @@ test("bounded split recovery keeps complete suffixes, precedence, and boundary f
 
     const complete = await run("/complete");
     assert.equal(complete.mask.privacyMaskedCount, 2);
-    assert.deepEqual(complete.state.overlays.map(({ text }) => text).sort(), ["100-0000", "manual@example.invalid"]);
+    assert.deepEqual(complete.state.overlays.map(({ text }) => text).sort(), ["100-0000 東京都千代田区", "manual@example.invalid"]);
     const completeEmailOverlay = complete.state.overlays.find(({ text }) => text === "manual@example.invalid");
     assert.equal(complete.state.completeRange.text, "alice@example.com");
     assert.ok(Math.abs(completeEmailOverlay.width - complete.state.completeRange.width) < 1, "complete adjacent email suffix is protected");
