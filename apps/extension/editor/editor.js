@@ -373,6 +373,7 @@ function renderScreenshot(step) {
       const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
       const editor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const currentScreenshot = screenshotFor(step); if (!currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false; const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id); if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE"); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === editorBitmap.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(editorBitmap.id)}"]`); } });
       editor.screenshotId = editorBitmap.id;
+      editor.stepId = step.id;
       activeImageEditor = editor;
       await activeImageEditor.open();
     });
@@ -407,11 +408,11 @@ function renderScreenshot(step) {
         return candidate;
       }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
       if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
-      const shouldRestoreFocus = document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
+      const targetEditor = activeImageEditor?.stepId === step.id;
+      const shouldRestoreFocus = targetEditor || document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
       fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success";
       const currentStep = draft.steps.find((item) => item.id === step.id) || step;
-      const replacedBitmap = Boolean(screenshot && currentStep.screenshotId === screenshot.id);
-      if (replacedBitmap && activeImageEditor?.screenshotId === screenshot.id) { activeImageEditor.dispose(); activeImageEditor = null; }
+      if (targetEditor) { activeImageEditor.dispose(); activeImageEditor = null; }
       renderStepArticle(currentStep);
       if (shouldRestoreFocus && currentStep.screenshotId) focusTarget = detail.querySelector(`[data-step-id="${CSS.escape(currentStep.id)}"] [data-editor-trigger="${CSS.escape(currentStep.screenshotId)}"]`);
     } catch (error) {
