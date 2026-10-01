@@ -275,7 +275,51 @@ export function installSensitiveMasks() {
       const containsCompletePii = (value) => completePiiPatterns.some(({ pattern }) => pattern.test(String(value ?? "")));
       const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
       const uncertainBudgetContinuation = (value) => uncertainBoundary(value)
-        || /^[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
+        || /^[A-Z0-9._%+-]{16,}$/i.test(String(value ?? ""));
+      const renderedTextBoundarySafeThroughHidden = (previous, next, root) => {
+        if (!previous || !next || previous.getRootNode?.() !== root || next.getRootNode?.() !== root) return false;
+        const previousParent = previous.parentElement;
+        const nextParent = next.parentElement;
+        if (!previousParent || !nextParent || !isVisibleTextElement(nextParent)) return false;
+        const boundaryElementSafe = (element) => {
+          if (!element || !element.matches?.("script,style,noscript,template,br")) {
+            if (isVisibleTextElement(element)) return inlineDisplay(element);
+            const computed = element && getComputedStyle(element);
+            return Boolean(computed && (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0));
+          }
+          return false;
+        };
+        let current = previous;
+        while (current && current !== root) {
+          if (current.nextSibling) {
+            if (current.nodeType === 1 && !boundaryElementSafe(current)) return false;
+            current = current.nextSibling;
+            break;
+          }
+          if (current.nodeType === 1 && !boundaryElementSafe(current)) return false;
+          current = current.parentNode;
+        }
+        while (current && current !== next) {
+          if (current.nodeType === 1 && !boundaryElementSafe(current)) return false;
+          current = nextNodeInRoot(current, root);
+        }
+        return current === next;
+      };
+      const visibleContinuationAfterHidden = (textNodes, hiddenIndex, entries, root) => {
+        const previous = entries[entries.length - 1]?.node;
+        if (!previous) return false;
+        const joined = entries.map((entry) => entry.value).join("");
+        let inspected = 0;
+        for (let index = hiddenIndex + 1; index < textNodes.length && inspected < 4; index += 1) {
+          const node = textNodes[index];
+          if (!node?.parentElement) return false;
+          if (!isVisibleTextElement(node.parentElement)) continue;
+          if (!renderedTextBoundarySafeThroughHidden(previous, node, root)) return false;
+          const continuation = `${joined}${String(node.nodeValue ?? "")}`;
+          return containsCompletePii(continuation) || partialPatternAtBoundary(continuation);
+        }
+        return false;
+      };
       const isPairedTextNode = (node, pairedValues) => {
         let current = node?.parentElement;
         while (current) {
@@ -300,7 +344,9 @@ export function installSensitiveMasks() {
               // A hidden node can later reveal text that was split from a
               // visible PII prefix. PII-free help/menu boundaries remain
               // recordable; hidden contents are never joined or inspected.
-              if (entries.length && uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              const boundaryValue = entries.map((entry) => entry.value).join("");
+              if (entries.length && (uncertainBoundary(boundaryValue)
+                || visibleContinuationAfterHidden(textNodes, index, entries, record.root))) privacyCandidateRangeOverflow = true;
               break;
             }
             if (entries.length > 0 && !renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) {
