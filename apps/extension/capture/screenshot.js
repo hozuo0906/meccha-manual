@@ -262,6 +262,36 @@ export function installSensitiveMasks() {
         }
         return current === next;
       };
+      const joinRenderedText = (entries) => {
+        const characters = [];
+        const mapping = [];
+        let pendingWhitespace = null;
+        const emitWhitespace = () => {
+          if (!pendingWhitespace) return;
+          characters.push(" ");
+          mapping.push(pendingWhitespace);
+          pendingWhitespace = null;
+        };
+        for (const entry of entries) {
+          const value = String(entry.value ?? "");
+          const whiteSpace = String(getComputedStyle(entry.node.parentElement || entry.node).whiteSpace || "normal").toLowerCase();
+          const collapsesWhitespace = whiteSpace === "normal" || whiteSpace === "nowrap";
+          for (let index = 0; index < value.length; index += 1) {
+            const character = value[index];
+            if (collapsesWhitespace && /\s/u.test(character)) {
+              if (!pendingWhitespace) pendingWhitespace = { entry, start: index, end: index + 1 };
+              else if (pendingWhitespace.entry === entry) pendingWhitespace.end = index + 1;
+              else pendingWhitespace.end = index + 1;
+              continue;
+            }
+            emitWhitespace();
+            characters.push(character);
+            mapping.push({ entry, start: index, end: index + 1 });
+          }
+        }
+        emitWhitespace();
+        return { text: characters.join(""), mapping };
+      };
       const createTextRange = (root, startNode, startOffset, endNode, endOffset) => {
         if (textRangeCount >= maxPrivacyTextRanges) {
           privacyCandidateRangeOverflow = true;
@@ -389,7 +419,8 @@ export function installSensitiveMasks() {
             characterCount += value.length;
           }
           if (!entries.length || !characterCount) continue;
-          const joined = entries.map((entry) => entry.value).join("");
+          const rendered = joinRenderedText(entries);
+          const joined = rendered.text;
           for (const { kind, pattern } of textPatterns) {
             pattern.lastIndex = 0;
             let match;
@@ -405,21 +436,24 @@ export function installSensitiveMasks() {
                 ? !previousComplete && /[A-Z0-9._%+-]/i.test(previousCharacter)
                 : !previousComplete && /\d/.test(previousCharacter));
               if (startsInsideToken) continue;
-              const startEntry = entries.find((entry) => matchStart >= entry.start && matchStart < entry.end);
-              const endEntry = entries.find((entry) => matchEnd > entry.start && matchEnd <= entry.end);
-              if (!startEntry || !endEntry) {
+              const startPoint = rendered.mapping[matchStart];
+              const endPoint = rendered.mapping[matchEnd - 1];
+              if (!startPoint || !endPoint) {
                 privacyCandidateRangeOverflow = true;
                 continue;
               }
-              const rangeKey = `text:${textNodeId(startEntry.node)}:${matchStart - startEntry.start}:${textNodeId(endEntry.node)}:${matchEnd - endEntry.start}`;
+              const startEntry = startPoint.entry;
+              const endEntry = endPoint.entry;
+              const rangeKey = `text:${textNodeId(startEntry.node)}:${startPoint.start}:${textNodeId(endEntry.node)}:${endPoint.end}`;
               const previousKind = seenRangeKinds.get(rangeKey);
               if (previousKind !== undefined && candidatePriority(kind) <= candidatePriority(previousKind)) continue;
-              const range = createTextRange(record.root, startEntry.node, matchStart - startEntry.start, endEntry.node, matchEnd - endEntry.start);
+              const range = createTextRange(record.root, startEntry.node, startPoint.start, endEntry.node, endPoint.end);
               if (!range) continue;
               const rect = rangeRect(range);
               if (rect) {
                 seenRangeKinds.set(rangeKey, kind);
-                addCandidate({ kind, target: startEntry.node.parentElement, rect, range, rangeKey, key: rangeKey, textNodes: entries.filter((entry) => entry.end > matchStart && entry.start < matchEnd).map((entry) => entry.node) });
+                const matchedEntries = entries.filter((entry) => rendered.mapping.slice(matchStart, matchEnd).some((point) => point.entry === entry));
+                addCandidate({ kind, target: startEntry.node.parentElement, rect, range, rangeKey, key: rangeKey, textNodes: matchedEntries.map((entry) => entry.node) });
               }
             }
           }
