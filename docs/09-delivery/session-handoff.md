@@ -9,7 +9,7 @@ Status: Accepted
 確認時点: 2026-10-01（Asia/Tokyo）／source修正commit `fa7d1ee31cd6a44a8dcea5de75711de7e9d7386f`、source branch remote head `dd19e89e2145f28dd3cf6d73773ba758d2d6a4c9`（docs同期後）、PR #278 head `f9c49bb7de9da1a6716478abe5e19f4c97e2b6db`（source回収前snapshot）
 
 - `fa7`の画像差し替え競合修正は、遅延bitmap decodeと同一screenshot IDを使う実ブラウザ回帰を含め、追加ケースおよび既存editor browser 18/18で確認済み。差し替え成功時は旧画像editorを閉じ、bitmap identityが異なる旧dialog保存を拒否する。
-- 親のintegration `f9c49bb7de9da1a6716478abe5e19f4c97e2b6db` はsource回収前snapshotとして凍結中。回収後の親local source collection `ad2c5093963e1da1412f25ae367b34053a7f4be0` は未pushであり、最終統合SHA、最新CI／Codex Review、対象UXの実確認、限定配布は未完了。owner本人による実SSO確認も未確認である。
+- 親のintegration `f9c49bb7de9da1a6716478abe5e19f4c97e2b6db` はsource回収前snapshotである。現在のintegration head、CI／Codex Review、対象UXの実確認、限定配布状態はIssue #70とPR #278から再取得する。owner本人による実SSO確認も未確認である。
 - 次の1マイルストーンは、最新integration headで全品質ゲート（CI・Review・対象UX・限定配布境界）を確認し、Issue #70とPR #278のlive stateを同期することである。
 
 ## Issue #262 / manifest 0.1.5 離脱警告回帰（作業中）
