@@ -408,7 +408,7 @@ function renderScreenshot(step) {
         return candidate;
       }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
       if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
-      const targetEditor = activeImageEditor?.stepId === step.id;
+      const targetEditor = activeImageEditor?.stepId === step.id && document.querySelector("#imageEditorDialog")?.open === true;
       const shouldRestoreFocus = targetEditor || document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
       fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success";
       const currentStep = draft.steps.find((item) => item.id === step.id) || step;
