@@ -517,6 +517,8 @@ test("image replacement invalidates an open editor before its stale save can reu
     await page.waitForFunction(() => globalThis.__uploadBitmapStarted && typeof globalThis.__releaseUploadBitmap === "function");
     await page.evaluate(() => globalThis.__releaseUploadBitmap());
     await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), false, "差し替え対象Aの旧editorだけを閉じる");
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), "shared-id", "対象Aの新画像編集ボタンへフォーカスを戻す");
 
     const replaced = await readScreenshot(page, draftId, "shared-id");
     assert.notEqual(replaced.dataUrl, oldDataUrl, "置換後は旧bitmapのdata URLを保持しない");
@@ -625,24 +627,22 @@ test("replacement closes only the target image editor and preserves another edit
         const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height);
         return canvas.toDataURL("image/png");
       };
-      return { imageA: makeImage("#173d46"), replacementA: makeImage("#087f7a"), imageB: makeImage("#dc2626") };
+      const sharedImage = makeImage("#173d46");
+      return { imageA: sharedImage, replacementA: makeImage("#087f7a") };
     });
-    await page.evaluate(async ({ draftId: currentDraftId, imageA: currentImageA, imageB: currentImageB }) => {
+    await page.evaluate(async ({ draftId: currentDraftId, imageA: currentImageA }) => {
       const { draftStore } = await import("/storage/draft-store.js");
       await draftStore.put({
         id: currentDraftId,
         title: "target editor identity",
         description: "",
         steps: [
-          { id: "editor-a-step", order: 1, instruction: "差し替え対象", screenshotId: "image-a" },
-          { id: "editor-b-step", order: 2, instruction: "編集中の別画像", screenshotId: "image-b" }
+          { id: "editor-a-step", order: 1, instruction: "差し替え対象", screenshotId: "shared-image" },
+          { id: "editor-b-step", order: 2, instruction: "編集中の別画像", screenshotId: "shared-image" }
         ],
-        screenshots: [
-          { id: "image-a", dataUrl: currentImageA, annotations: [], masks: [] },
-          { id: "image-b", dataUrl: currentImageB, annotations: [], masks: [] }
-        ]
+        screenshots: [{ id: "shared-image", dataUrl: currentImageA, annotations: [], masks: [] }]
       });
-    }, { draftId, imageA, imageB });
+    }, { draftId, imageA });
     await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
     await page.evaluate(() => {
       const originalCreateImageBitmap = globalThis.createImageBitmap;
@@ -685,8 +685,12 @@ test("replacement closes only the target image editor and preserves another edit
     });
     await page.locator("[data-editor-save]").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
-    const stored = await readScreenshot(page, draftId, "image-b");
+    const stored = await readScreenshot(page, draftId, "shared-image");
     assert.equal(stored.annotations.find((item) => item.type === "text")?.text, "別画像の編集を保持", "別画像の注釈を保存できる");
+    const afterSharedReplacement = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("image-editor-target-identity")));
+    assert.notEqual(afterSharedReplacement.steps[0].screenshotId, "shared-image", "差し替え対象stepは新画像IDへ切り替える");
+    assert.equal(afterSharedReplacement.steps[1].screenshotId, "shared-image", "共有元の別stepは旧画像IDを保持する");
+    assert.deepEqual(afterSharedReplacement.screenshots.find((item) => item.id === afterSharedReplacement.steps[0].screenshotId)?.annotations, [], "新しいA画像へBの注釈を混入させない");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
