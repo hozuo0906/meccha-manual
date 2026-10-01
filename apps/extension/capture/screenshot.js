@@ -712,23 +712,39 @@ export function installSensitiveMasks() {
       });
     };
     const mutationPartialPattern = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(String(value ?? ""));
-    const mutationVisibleText = (node) => {
-      if (node?.nodeType === 3) return String(node.nodeValue ?? "");
-      if (node?.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return "";
-      let text = "";
-      for (const child of node.childNodes || []) text += mutationVisibleText(child);
-      return text;
+    const collectMutationVisibleText = (node, state) => {
+      if (!node || state.nodeOverflow) return;
+      state.inspectedNodes += 1;
+      if (state.inspectedNodes > maxPrivacyAdjacentTextNodes) {
+        state.nodeOverflow = true;
+        return;
+      }
+      if (node.nodeType === 3) {
+        const value = String(node.nodeValue ?? "");
+        if (containsPiiText(value)) state.completeMatch = true;
+        state.characterCount += value.length;
+        if (state.characterCount > maxPrivacyAdjacentTextCharacters) state.characterOverflow = true;
+        state.text = `${state.text}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+        return;
+      }
+      if (node.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return;
+      for (const child of node.childNodes || []) collectMutationVisibleText(child, state);
     };
     const mutationTargetMayBeVisible = (target) => {
       let element = target?.nodeType === 3 ? target.parentElement : target;
       if (!element) return true;
-      if (element.isConnected) return isVisibleTextElement(element);
       while (element) {
         if (element.hidden || element.matches?.("[hidden],script,style,noscript,template")) return false;
-        element = element.parentElement;
+        if (element.isConnected) {
+          const computed = getComputedStyle(element);
+          if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
+        }
+        element = element.parentElement || element.getRootNode?.()?.host || null;
       }
       return true;
     };
+    const mutationBoundaryMarker = (value) => mutationPartialPattern(value)
+      || /[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
     const containsSplitPiiMutation = (records) => {
       let pending = "";
       for (const record of records || []) {
@@ -736,15 +752,21 @@ export function installSensitiveMasks() {
         // the bounded added/removed text evidence itself so a transient split
         // PII remains fail closed after both child nodes are removed.
         if (record.type !== "childList" || !mutationTargetMayBeVisible(record.target)) continue;
-        let recordText = "";
+        const state = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false, completeMatch: false };
         for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
-          recordText += mutationVisibleText(node);
-          if (recordText.length >= maxPrivacyAdjacentTextCharacters) break;
+          collectMutationVisibleText(node, state);
+          if (state.nodeOverflow) break;
         }
-        if (!recordText) continue;
-        const joined = `${pending}${recordText}`;
+        if (state.completeMatch) return true;
+        if (!state.text) continue;
+        const joined = `${pending}${state.text}`;
         if (containsPiiText(joined)) return true;
-        pending = mutationPartialPattern(joined) ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
+        const hasBoundaryMarker = mutationBoundaryMarker(joined);
+        if ((state.nodeOverflow || state.characterOverflow) && !hasBoundaryMarker) {
+          pending = "";
+          continue;
+        }
+        pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
       }
       return false;
     };
