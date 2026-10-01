@@ -9,6 +9,46 @@ import { chromium } from "@playwright/test";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 
+const waitForExtensionValue = async (read, predicate, message) => {
+  const deadline = Date.now() + 15_000;
+  let value;
+  do {
+    value = await read();
+    if (predicate(value)) return value;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  } while (Date.now() < deadline);
+  throw new Error(`${message}: ${JSON.stringify(value)}`);
+};
+
+const waitForTabTarget = (browserCdp, url) => waitForExtensionValue(
+  async () => (await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] })).targetInfos
+    .find((info) => info.url === url),
+  (value) => Boolean(value),
+  "synthetic tab target was not discoverable"
+);
+
+const waitForActionListener = (worker) => waitForExtensionValue(
+  () => worker.evaluate(() => chrome.action?.onClicked?.hasListeners?.() === true),
+  (value) => value === true,
+  "action listener was not registered"
+);
+
+const waitForSidePanelTarget = async (worker, browserCdp, extensionId) => {
+  await waitForExtensionValue(
+    () => worker.evaluate(async () => chrome.runtime.getContexts
+      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+      : []),
+    (value) => Array.isArray(value) && value.length > 0,
+    "action did not create a SIDE_PANEL extension context"
+  );
+  return waitForExtensionValue(
+    async () => (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+      .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`),
+    (value) => Boolean(value),
+    "native sidepanel page target was not discoverable"
+  );
+};
+
 test("real MV3 action opens sidepanel and records separate step images", { timeout: 60_000 }, async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -31,23 +71,10 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const target = await context.newPage();
     await target.goto(baseUrl);
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "synthetic tab target should be discoverable");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    try {
-      await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    } catch (error) {
-      throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    const sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
-      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-      : []);
-    assert.ok(sidePanelContexts.length > 0, "action should create a SIDE_PANEL extension context");
-    const panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-      .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
+    await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression, awaitPromise = false) => new Promise((resolve, reject) => {
@@ -276,20 +303,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     const target = await context.newPage();
     await target.goto(baseUrl);
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "navigation fixture tab should be discoverable");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
     await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    let panelTarget;
-    const panelDeadline = Date.now() + 15_000;
-    while (!panelTarget && Date.now() < panelDeadline) {
-      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression) => new Promise((resolve, reject) => {
@@ -422,21 +439,11 @@ test("recording a focused input keeps typing available while its screenshot is c
     const target = await context.newPage();
     await target.goto(baseUrl);
     await target.bringToFront();
-    await new Promise((resolve) => setTimeout(resolve, 300));
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "input fixture tab should be discoverable");
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
     await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    let panelTarget;
-    const panelDeadline = Date.now() + 15_000;
-    while (!panelTarget && Date.now() < panelDeadline) {
-      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression) => new Promise((resolve, reject) => {
