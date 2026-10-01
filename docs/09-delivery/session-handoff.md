@@ -2,6 +2,16 @@
 
 Status: Accepted
 
+## Issue #272 / PR #278 現時点snapshot
+
+Status: Accepted
+
+確認時点: 2026-10-01（Asia/Tokyo）／PR #278 remote head `fa7d1ee31cd6a44a8dcea5de75711de7e9d7386f`
+
+- `fa7`の画像差し替え競合修正は、遅延bitmap decodeと同一screenshot IDを使う実ブラウザ回帰を含め、追加ケースおよび既存editor browser 18/18で確認済み。差し替え成功時は旧画像editorを閉じ、bitmap identityが異なる旧dialog保存を拒否する。
+- 親のintegration `f9c49bb7de9da1a6716478abe5e19f4c97e2b6db` は凍結中。最終統合SHA、最新CI／Codex Review、対象UXの実確認、限定配布は未完了。owner本人による実SSO確認も未確認である。
+- 次の1マイルストーンは、最新integration headで全品質ゲート（CI・Review・対象UX・限定配布境界）を確認し、Issue #70とPR #278のlive stateを同期することである。
+
 ## Issue #262 / manifest 0.1.5 離脱警告回帰（作業中）
 
 Status: Accepted
