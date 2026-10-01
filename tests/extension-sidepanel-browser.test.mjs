@@ -165,8 +165,6 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
-    const draftImageCount = await waitForNativeValue("document.querySelectorAll('.draft-card img').length", (value) => value > 0);
-    assert.ok(draftImageCount > 0, "saved draft should retain its step image");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
     let editorPage;
     const editorDeadline = Date.now() + 10_000;
@@ -175,6 +173,17 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assert.ok(editorPage, "successful finish should open the saved draft editor");
+    const sidePanelTargetClosed = async () => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const targetsAfterFinish = await browserCdp.send("Target.getTargets", { filter: [{}] });
+        const targetStillOpen = targetsAfterFinish.targetInfos.some((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+        if (!targetStillOpen) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    assert.equal(await sidePanelTargetClosed(), true, "successful finish should close the native recording sidepanel after editor ready");
     await editorPage.waitForSelector("#title");
     await editorPage.waitForFunction(() => document.querySelector("#title")?.value === "新しい手順書");
     assert.equal(await editorPage.locator("#title").inputValue(), "新しい手順書");
@@ -209,7 +218,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
     assert.notEqual(imagePixels[0], imagePixels[1], "each selected step canvas should contain different pixels");
     if (process.env.MECCHA_SIDEPANEL_DRAFT) {
-      const draftSnapshot = await waitForNativeValue(`new Promise((resolve) => {
+      const draftSnapshot = await editorPage.evaluate(async () => new Promise((resolve) => {
         const request = indexedDB.open("meccha-manual-guest", 1);
         request.onerror = () => resolve(null);
         request.onsuccess = () => {
@@ -218,7 +227,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
           getAll.onsuccess = () => resolve(JSON.stringify(getAll.result.find((draft) => draft.steps?.length >= 2) || null));
           getAll.onerror = () => resolve(null);
         };
-      })`, (value) => typeof value === "string" && value !== "null", true);
+      }));
       assert.ok(draftSnapshot, "actual draftStore record should be exported");
       const draftPath = resolve(process.env.MECCHA_SIDEPANEL_DRAFT);
       await mkdir(resolve(draftPath, ".."), { recursive: true });
@@ -226,11 +235,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
-    const screenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
-    assert.ok(screenshot, "native sidepanel screenshot should be captured");
-    const screenshotData = screenshot?.data?.value || screenshot?.data || screenshot?.result?.data || screenshot?.result?.result?.data;
-    assert.equal(typeof screenshotData, "string", "native finished screenshot should contain base64 data");
-    await writeFile(screenshotPath, Buffer.from(screenshotData, "base64"));
+    await editorPage.screenshot({ path: screenshotPath });
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
