@@ -1338,6 +1338,53 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      for (let index = 0; index < 129; index += 1) {
+        const prose = document.createElement("span");
+        prose.textContent = "ordinary prose";
+        stream.append(prose);
+        stream.append(document.createTextNode(" "));
+      }
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const update = document.createElement("span");
+      update.textContent = "ordinary update";
+      document.getElementById("stream").append(update);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "ordinary whitespace separators must not consume the numeric snapshot budget");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const prefix = document.createElement("span");
+      prefix.id = "static-budget-prefix";
+      prefix.textContent = "safe";
+      stream.append(prefix);
+      for (let index = 0; index < 130; index += 1) {
+        const separator = document.createElement("span");
+        separator.textContent = "-";
+        stream.append(separator);
+      }
+      const suffix = document.createElement("span");
+      suffix.id = "static-budget-suffix";
+      suffix.textContent = "safe";
+      stream.append(suffix);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.getElementById("static-budget-prefix").firstChild.nodeValue = "123"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("static-budget-suffix").firstChild.nodeValue = "4567"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "static numeric separator budget overflow must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
