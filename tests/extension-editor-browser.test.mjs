@@ -609,6 +609,125 @@ test("image upload keeps old content on failure and restores focus for add and r
   }
 });
 
+test("shared replacement closes the target step editor while retaining the shared source for another step", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  const draftId = "shared-target-editor-replacement";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const { oldDataUrl, replacementDataUrl } = await page.evaluate(() => {
+      const makeImage = (color) => {
+        const canvas = document.createElement("canvas"); canvas.width = 4; canvas.height = 3;
+        const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/png");
+      };
+      return { oldDataUrl: makeImage("#173d46"), replacementDataUrl: makeImage("#087f7a") };
+    });
+    const oldAnnotations = [{ id: "shared-old-annotation", type: "text", x: .1, y: .1, width: .3, height: .1, color: "#087f7a", strokeWidth: 3, text: "共有元の注釈", fontSize: 24 }];
+    const oldMasks = [{ id: "shared-old-mask", x: .6, y: .2, width: .2, height: .2 }];
+    await page.evaluate(async ({ draftId: currentDraftId, oldDataUrl: currentOldDataUrl, oldAnnotations: currentAnnotations, oldMasks: currentMasks }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: currentDraftId,
+        title: "shared target editor replacement",
+        description: "",
+        steps: [
+          { id: "shared-a-step", order: 1, instruction: "A差し替え", screenshotId: "shared-image" },
+          { id: "shared-b-step", order: 2, instruction: "B共有元", screenshotId: "shared-image" }
+        ],
+        screenshots: [{ id: "shared-image", dataUrl: currentOldDataUrl, annotations: currentAnnotations, masks: currentMasks }]
+      });
+    }, { draftId, oldDataUrl, oldAnnotations, oldMasks });
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await openImageEditor(page, "shared-a-step");
+    await page.locator("[data-editor-save]:not([disabled])").waitFor();
+    await page.evaluate(() => {
+      const originalCreateImageBitmap = globalThis.createImageBitmap;
+      globalThis.__sharedTargetUploadStarted = false;
+      globalThis.__releaseSharedTargetUpload = null;
+      globalThis.createImageBitmap = async (...args) => {
+        const bitmap = await originalCreateImageBitmap(...args);
+        globalThis.__sharedTargetUploadStarted = true;
+        await new Promise((resolve) => { globalThis.__releaseSharedTargetUpload = resolve; });
+        return bitmap;
+      };
+    });
+    const input = page.locator("#step-shared-a-step .image-upload-panel input[type=file]");
+    await input.setInputFiles({ name: "shared-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
+    await page.waitForFunction(() => globalThis.__sharedTargetUploadStarted && typeof globalThis.__releaseSharedTargetUpload === "function");
+    await page.evaluate(() => globalThis.__releaseSharedTargetUpload());
+    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    const after = await page.evaluate(async (currentDraftId) => (await (await import("/storage/draft-store.js")).draftStore.get(currentDraftId)), draftId);
+    const newAId = after.steps.find((step) => step.id === "shared-a-step")?.screenshotId;
+    const oldB = after.screenshots.find((item) => item.id === "shared-image");
+    const newA = after.screenshots.find((item) => item.id === newAId);
+    assert.notEqual(newAId, "shared-image", "Aだけ新しい画像IDへ切り替える");
+    assert.equal(after.steps.find((step) => step.id === "shared-b-step")?.screenshotId, "shared-image", "Bは共有元画像を保持する");
+    assert.deepEqual(oldB.annotations, oldAnnotations, "Bの共有元注釈を保持する");
+    assert.deepEqual(oldB.masks, oldMasks, "Bの共有元マスクを保持する");
+    assert.deepEqual(newA.annotations, [], "Aの新画像へ旧注釈を混入させない");
+    assert.deepEqual(newA.masks, [], "Aの新画像へ旧マスクを混入させない");
+    assert.equal(await page.locator("#imageEditorDialog").isVisible(), false, "Aの旧dialogだけを閉じる");
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), newAId, "Aの新画像編集ボタンへfocusを戻す");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
+test("replacement does not steal focus from another control after an editor was closed", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  const draftId = "closed-editor-focus-guard";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    await seedImageEditorDraft(page, baseUrl, draftId);
+    await openImageEditor(page);
+    await page.locator("[data-editor-save]:not([disabled])").waitFor();
+    await page.locator("[data-editor-cancel]").first().click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    const replacementDataUrl = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 4; canvas.height = 3;
+      const context = canvas.getContext("2d"); context.fillStyle = "#087f7a"; context.fillRect(0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate(() => {
+      const originalCreateImageBitmap = globalThis.createImageBitmap;
+      globalThis.__closedEditorUploadStarted = false;
+      globalThis.__releaseClosedEditorUpload = null;
+      globalThis.createImageBitmap = async (...args) => {
+        const bitmap = await originalCreateImageBitmap(...args);
+        globalThis.__closedEditorUploadStarted = true;
+        await new Promise((resolve) => { globalThis.__releaseClosedEditorUpload = resolve; });
+        return bitmap;
+      };
+    });
+    await page.locator("#title").focus();
+    const input = page.locator("#step-step-1 .image-upload-panel input[type=file]");
+    await input.setInputFiles({ name: "closed-editor-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
+    await page.waitForFunction(() => globalThis.__closedEditorUploadStarted && typeof globalThis.__releaseClosedEditorUpload === "function");
+    await page.evaluate(() => globalThis.__releaseClosedEditorUpload());
+    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "title", "閉じたeditorの参照だけでは別controlのfocusを奪わない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("replacement closes only the target image editor and preserves another editor through save retry", { timeout: 30_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
