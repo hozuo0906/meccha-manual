@@ -16,6 +16,8 @@ test("native recording uses only bounded safe captions for real click controls",
       <main class="grid">
         <button id="reference">参照</button>
         <button id="nested-save"><span>保存</span></button>
+        <button id="opacity-child"><span style="opacity:0">不可視顧客名</span></button>
+        <div style="opacity:0"><button id="opacity-ancestor">不可視顧客名</button></div>
         <button id="title-only" title="タイトル操作"></button>
         <input id="input-button" type="button" value="入力参照">
         <input id="input-submit" type="submit" value="送信">
@@ -152,7 +154,7 @@ test("native recording uses only bounded safe captions for real click controls",
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
 
-    const selectors = ["#reference", "#nested-save span", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
+    const selectors = ["#reference", "#nested-save span", "#opacity-child", "#opacity-ancestor", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
     for (const [index, selector] of selectors.entries()) {
       await target.locator(selector).click({ force: true });
       await waitForNativeValue("document.querySelectorAll('.step-card').length", (value) => value >= index + 1);
@@ -176,7 +178,7 @@ test("native recording uses only bounded safe captions for real click controls",
     assert.ok((joined.match(/ボタンを操作する/g) || []).length >= 5, "nested/editable and unsafe controls should use the button fallback");
     assert.match(joined, /保護された入力欄を操作する/, "password clicks should use the protected-input semantic label");
     assert.match(joined, /入力欄を操作する/, "value-bearing clicks should use the input semantic label");
-    assert.doesNotMatch(joined, /パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
+    assert.doesNotMatch(joined, /不可視顧客名|パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
   } finally {
     await context?.close();
     if (canRemoveUserDataDir) await rm(resolvedUserDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
