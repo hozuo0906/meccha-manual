@@ -74,10 +74,18 @@ async function startViewerServer({ assetStatus = 200, assetStatuses = null, reso
   return { baseUrl: `http://127.0.0.1:${server.address().port}`, server, state };
 }
 
+async function restoreNativeFocus(page) {
+  // Playwright initializes every main page with focus emulation enabled
+  // (playwright-core coreBundle.js). Disable only this test override so real
+  // native tab visibility transitions can exercise the reader's access gate.
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+  return page;
+}
 async function launchPage() {
   const channel = process.platform === "win32" ? "chrome" : "chromium";
   const context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1280, height: 900 } });
-  return { context, page: await context.newPage() };
+  return { context, page: await restoreNativeFocus(await context.newPage()) };
 }
 
 test("share viewer presents readable multi-image steps on desktop and mobile", { timeout: 30_000 }, async () => {
@@ -312,8 +320,8 @@ for (const width of [1366, 1024, 390]) {
       assert.equal(new URL(page.url()).hash, '');
       assert.equal(await page.locator('#share-passcode').inputValue(), '');
 
-      const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
-      await page.waitForFunction(() => document.visibilityState === 'hidden' && document.querySelector('#share-content').hidden, undefined, { polling: 50 });
+      const other = await restoreNativeFocus(await context.newPage()); await other.goto(baseUrl + '/other'); await other.bringToFront();
+      await page.waitForFunction(() => document.visibilityState === 'hidden' && document.querySelector('#share-content').hidden, undefined, { polling: 50, timeout: 5000 });
       const before = state.contentGrants.length; state.contentDelayMs = 250;
       await page.bringToFront();
       await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'validating');
@@ -366,8 +374,8 @@ test('reader refuses cached content after tab-return revocation or offline reval
   try {
     const launched = await launchPage(); context = launched.context; const page = launched.page;
     await openReader(page, baseUrl); await chooseStep(page, 17);
-    const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
-    await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50 });
+    const other = await restoreNativeFocus(await context.newPage()); await other.goto(baseUrl + '/other'); await other.bringToFront();
+    await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50, timeout: 5000 });
     await context.setOffline(true); await page.bringToFront();
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'interrupted');
     assert.equal(await page.locator('.share-step').count(), 0);
@@ -376,7 +384,7 @@ test('reader refuses cached content after tab-return revocation or offline reval
     await context.setOffline(false); await page.locator('.reader-access-retry').click();
     await page.locator('#share-content').waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.querySelector('.reader-current')?.textContent === '17 / 20');
-    await other.bringToFront(); await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50 });
+    await other.bringToFront(); await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50, timeout: 5000 });
     state.contentStatus = 401; await page.bringToFront();
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'unavailable');
     assert.equal(await page.locator('.share-step').count(), 0);

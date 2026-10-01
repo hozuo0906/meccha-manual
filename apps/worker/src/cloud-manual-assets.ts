@@ -229,7 +229,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const canEdit = data.permissions?.canEdit !== false;
     const form = make("section", "", "manual-editor");
     const toolbar = make("header", "", "manual-toolbar");
-    const back = make("button", "手順書一覧", "secondary manual-back"); back.type = "button";
+    const back = make("button", "手順書一覧", "secondary manual-back"); back.type = "button"; back.setAttribute("aria-label", "手順書一覧");
     back.addEventListener("click", () => { const panel = root.querySelector(".manual-library"); panel.hidden = !panel.hidden; back.setAttribute("aria-expanded", String(!panel.hidden)); if (!panel.hidden) panel.querySelector("button")?.focus(); });
     back.setAttribute("aria-expanded", "false");
     const title = document.createElement("input"); title.className = "manual-title"; title.dataset.codePointMax = "64"; title.value = editorState.title; title.disabled = !canEdit; title.setAttribute("aria-label", "タイトル");

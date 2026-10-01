@@ -86,7 +86,7 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
       assert.equal(storage.get(handoffStorageKey(pending.handoffId)).status, "expired");
       assert.equal(drafts.get(original.id).cloudRef, undefined);
       assert.equal(await findRecoverableHandoff(original.id, await fingerprintDraft(current), local, requestedAction), null);
-      assert.equal(button.textContent, "編集画面からもう一度保存");
+      assert.equal(button.textContent, "この保存操作は期限切れです");
       assert.match(status.textContent, /もう一度保存・共有できます/);
       assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
       const requestCount = requests.length;
@@ -101,7 +101,7 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
         assert.equal(button.disabled, true);
         assert.equal(button.listeners.has("click"), false);
         assert.equal(requests.length, requestCount, "revisit and stripped-URL refresh never restart a terminal operation");
-        assert.equal(button.textContent, "編集画面からもう一度保存");
+        assert.equal(button.textContent, "この保存操作は期限切れです");
         assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
       }
     } else if (serverStatus === "completed" || (serverStatus === "pending" && !changed)) {

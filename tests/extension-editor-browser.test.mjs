@@ -391,6 +391,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     assert.ok(await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)), "保存中は編集入力・一覧・保存をdisabledにする");
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "保存中のEscapeでdialogを閉じない");
+    assert.match(await page.locator("#status").textContent(), /保存しています/);
     await captureEditorEvidence(page, "image-save-pending", { operation: "delayed-IDB-write-and-Escape", writeCalls: await page.evaluate(() => globalThis.__putCalls), controlsDisabled: await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)) });
     await page.evaluate(async () => {
       const pending = globalThis.__pendingPut;
@@ -1910,6 +1911,7 @@ test("20-step image-first editor keeps selection, undo, image color and responsi
       await dragCanvas(page, page.locator("#imageEditorCanvas"), .2, .2, .45, .4);
       await page.locator("[data-editor-color]").evaluate((node) => { node.value = "#df4a36"; node.dispatchEvent(new Event("input", { bubbles: true })); });
       await mkdir(".artifacts/unified-editor", { recursive: true });
+      if(width>768){const footer=await page.locator(".image-editor-actions").boundingBox(),statusBar=await page.locator("#status").boundingBox();assert.ok(footer.y+footer.height<=statusBar.y+1,"Apply/Cancel remains above the status bar");}
       await page.screenshot({ path: `.artifacts/unified-editor/inline-tools-${width}.png` });
       await page.locator("[data-editor-save]").click();
       await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });

@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { handleExternalCloudClaimMessage } from "../apps/extension/background/cloud-claim.js";
 import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 
+const onboardingBrandAssets = new Map(await Promise.all(["meccha-manual-logo-mark.png", "meccha-manual-mascot-me-clear-eyes.png"].map(async name => ["/assets/" + name, await readFile(new URL("../apps/worker/brand-assets/assets/" + name, import.meta.url))])));
+function serveOnboardingBrand(path, response) { const bytes = onboardingBrandAssets.get(path); if (!bytes) return false; response.setHeader("content-type", "image/png"); response.end(bytes); return true; }
+
 // No handoff URLs, tokens, operation IDs or payload bodies are written to evidence.
 async function captureOnboardingEvidence(page, name, observations) {
   const directory = ".artifacts/uiux-20261001/screens";
   await mkdir(directory, { recursive: true });
+  await page.waitForFunction(() => [...document.querySelectorAll(".brand img,.prep img")].every(image => image.complete && image.naturalWidth > 0));
   await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
   await writeFile(`${directory}/${name}.json`, JSON.stringify({
     candidateCommit: process.env.GITHUB_SHA || null,
@@ -27,6 +31,7 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -88,6 +93,7 @@ test("onboarding rejects an expired canonical begin identity before bootstrap", 
   let bootstrapCalls = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -128,6 +134,7 @@ test("onboarding rejects malformed or empty fragments even when a fresh saved ha
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -171,6 +178,7 @@ test("onboarding revalidates hash-only handoff navigation before bootstrap", { t
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -231,6 +239,7 @@ test("onboarding does not mint or retry an expired operation after a failed requ
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -341,6 +350,7 @@ test("onboarding retains per-handoff history across A-B-A and tombstones expired
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -414,6 +424,7 @@ test("onboarding migrates a valid legacy record and fails closed on uncertain st
   const calls = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -480,6 +491,7 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
   let completed = false;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -535,6 +547,7 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
   let finalizeSeen = false;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -585,6 +598,7 @@ test("onboarding recovers a completed handoff from extension durable identity wi
   let bootstrapCalls = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -625,6 +639,7 @@ test("onboarding stops when recovery identity cannot be persisted", { timeout: 2
   let bootstrapCalls = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -677,6 +692,7 @@ test("onboarding keeps an expired pending finalize read-only without prepare or 
   let finalizeCalls = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -742,6 +758,7 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
   const requests = []; const messages = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
+    if (serveOnboardingBrand(url.pathname, response)) return;
     response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
     if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
@@ -770,7 +787,7 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     const page = await context.newPage();page.setDefaultTimeout(5000);
     await page.goto(url);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
-    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
+    await page.getByRole("button", { name: "この保存操作は期限切れです", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
     assert.equal(storage.get(handoffStorageKey(metadata.handoffId)).status, "expired");
     assert.equal(await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction), null);
     assert.deepEqual(requests.map(([method]) => method), ["GET"]);
@@ -780,10 +797,10 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "expired");
     await captureOnboardingEvidence(page, `onboarding-terminal-${requestedAction}`, { operation: "expired-claim-recovery", requestedAction, requestMethods: requests.map(([method]) => method), terminalState: storage.get(handoffStorageKey(metadata.handoffId)).status, recoveryCleared: (await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction)) === null });
     await page.reload();
-    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
-    assert.equal(await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).isDisabled(), true);
+    await page.getByRole("button", { name: "この保存操作は期限切れです", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
+    assert.equal(await page.getByRole("button", { name: "この保存操作は期限切れです", exact: true }).isDisabled(), true);
     assert.equal(requests.length, 1, "stripped-URL refresh never begins bootstrap or re-finalizes a terminal operation");
-    await page.goto(url);await page.waitForFunction(()=>!location.hash&&document.querySelector("#bootstrap")?.textContent==="編集画面からもう一度保存");
+    await page.goto(url);await page.waitForFunction(()=>!location.hash&&document.querySelector("#bootstrap")?.textContent==="この保存操作は期限切れです");
     assert.equal(await page.locator("#bootstrap").isDisabled(),true);assert.equal(requests.length,1);
     await captureOnboardingEvidence(page, `onboarding-terminal-${requestedAction}-reopened`, { operation: "reload-and-reopen-terminal-handoff", requestedAction, requestCount: requests.length, onlyReadRequest: requests.every(([method]) => method === "GET") });
   } finally {

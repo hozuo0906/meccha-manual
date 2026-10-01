@@ -189,6 +189,8 @@ function setSaveState(label, state = "saved") {
   if (!saveState) return;
   saveState.textContent = label;
   saveState.dataset.state = state;
+  if (state === "saving") status.textContent = "変更をこの端末に保存しています…";
+  else if (state === "saved" && status.textContent === "変更をこの端末に保存しています…") status.textContent = "この端末への保存が完了しました。";
 }
 
 function enqueuePersist(operation) {
@@ -996,7 +998,8 @@ activateHandoff?.addEventListener("click", async () => {
       activeHandoffAttempt = null;
       pendingHandoffTabId = null;
       activateHandoff.hidden = true;
-      gateStatus.textContent = "保存先を表示できませんでした。『保存の準備に進む』を押して準備し直してください。元の手順書はこの端末に残っています。";
+      const retryLabel = outputIntent === "share" ? startShare.textContent : startRegistration.textContent;
+      gateStatus.textContent = `保存先を表示できませんでした。「${retryLabel}」を押して準備し直してください。元の手順書はこの端末に残っています。`;
     }
   } finally {
     if ((activeHandoffAttempt === attempt || activeHandoffAttempt === null) && attempt.tabState !== "activating") activateHandoff.disabled = false;
