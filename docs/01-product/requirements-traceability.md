@@ -70,6 +70,8 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する際に、各履歴系列を混ぜず、有限値内のASCII local-part直後の`@`またはleading `@`直後のASCII domainを含む明らかなemail partial markerは区切り文字・後続文字に関係なく出現時点で拒否する。孤立した日本語文中の`@`は記録可能とする。128 nodeまたは1024文字の有限予算へ到達して候補を確定できない場合は、通常の長文DOM検出とは別にcaptureをfail closedとする。
 
+numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保持し、同じrendered parentで実際に隣接する可視nodeだけを連結する。childList全体の128 node・1024文字予算を超えた未知のmutationはfail closedとし、oldValueと変更後valueの系列は混ぜない。removeSensitiveMasksで履歴を解放する。
+
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
 - MVP capture runtimeはChrome拡張のみ。
