@@ -25,7 +25,7 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
       <dt>住所</dt><dd id="address">東京都千代田区1-2-3</dd>
       <dt>電話</dt><dd id="phone">03-1234-5678</dd>
       <dt>メール</dt><dd id="email">customer@example.com</dd>
-    </dl>`);
+    </dl><div contenteditable style="position:absolute;top:2000px">画面外の合成編集領域</div>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));

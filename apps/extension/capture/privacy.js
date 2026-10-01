@@ -171,7 +171,7 @@ function normalizePrivacyDigits(value) {
 
 /** Returns a short, non-value-bearing control name for a local click step. */
 export function safeControlName(target) {
-  if (!isNamedControl(target) || isSensitiveInput(target) || isValueBearingTarget(target)) return null;
+  if (!isNamedControl(target) || target?.privateValueContext === true || isSensitiveInput(target) || isValueBearingTarget(target)) return null;
   const candidates = [target?.ariaLabel, target?.associatedLabel, target?.title, target?.visibleText, target?.controlCaption, target?.imageAlt];
   for (const candidate of candidates) {
     const normalized = normalizeControlName(candidate);

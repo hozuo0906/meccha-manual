@@ -589,6 +589,7 @@ export function installSensitiveMasks(options = {}) {
         for (const valueElement of record.elements) {
           if (candidateOverflow) break;
           if (valueElement.matches?.(fieldSelector) && isVisibleTextElement(valueElement)) {
+            if (!intersectsViewport(valueElement.getBoundingClientRect())) continue;
             const kind = fieldKind(valueElement);
             pairedValues.add(valueElement);
             if (kind) {

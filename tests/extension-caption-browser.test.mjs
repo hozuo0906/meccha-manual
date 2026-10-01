@@ -16,6 +16,7 @@ test("native recording uses only bounded safe captions for real click controls",
     response.end(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>caption fixture</title><style>body{font-family:system-ui,sans-serif;padding:24px}button,input,textarea{display:block;margin:12px 0;padding:8px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}</style></head><body>
       <main class="grid">
         <button id="reference">参照</button>
+        <dl><dt>氏名</dt><dd><button id="personal-name">氏名カナリア佐藤花子</button></dd><dt>会社</dt><dd><button id="personal-company">所属カナリア組織</button></dd><dt>organization</dt><dd><button id="personal-organization">OrganizationCanary</button></dd></dl>
         <button id="nested-save"><span>保存</span></button>
         <button id="opacity-child"><span style="opacity:0">不可視顧客名</span></button>
         <div style="opacity:0"><button id="opacity-ancestor">不可視顧客名</button></div>
@@ -165,7 +166,7 @@ test("native recording uses only bounded safe captions for real click controls",
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
 
-    const selectors = ["#reference", "#nested-save span", "#opacity-child", "#opacity-ancestor", "#content-hidden-child", "#label-content-hidden", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#label-save", "#label-hidden-child", "#label-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
+    const selectors = ["#reference", "#personal-name", "#personal-company", "#personal-organization", "#nested-save span", "#opacity-child", "#opacity-ancestor", "#content-hidden-child", "#label-content-hidden", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#label-save", "#label-hidden-child", "#label-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
     for (const [index, selector] of selectors.entries()) {
       await target.locator(selector).click({ force: true });
       await waitForNativeValue("document.querySelectorAll('.step-card').length", (value) => value >= index + 1);
@@ -192,7 +193,7 @@ test("native recording uses only bounded safe captions for real click controls",
     assert.ok((joined.match(/ボタンを操作する/g) || []).length >= 5, "nested/editable and unsafe controls should use the button fallback");
     assert.match(joined, /保護された入力欄を操作する/, "password clicks should use the protected-input semantic label");
     assert.match(joined, /入力欄を操作する/, "value-bearing clicks should use the input semantic label");
-    assert.doesNotMatch(joined, /非表示個人名カナリア|不可視保存ラベル|不可視顧客名|パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
+    assert.doesNotMatch(joined, /OrganizationCanary|所属カナリア組織|氏名カナリア佐藤花子|非表示個人名カナリア|不可視保存ラベル|不可視顧客名|パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
   } finally {
     await context?.close();
     if (canRemoveUserDataDir) await rm(resolvedUserDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
@@ -257,4 +258,23 @@ test("click target lease refuses detached, moved, scrolled and older targets", a
   assert.equal(fixture.validate("click-target", "event-1"), null);
   world.top = {};
   assert.equal(fixture.capture(target, "event-2"), undefined);
+});
+
+
+test("PII-value context cannot become a click caption", () => {
+  const normalized = normalizeCaptureEvent({kind:"click",target:{tagName:"button",visibleText:"氏名カナリア佐藤花子",ariaLabel:"氏名カナリア佐藤花子",privateValueContext:true}});
+  assert.equal(normalized.label,"ボタン");
+  assert.doesNotMatch(JSON.stringify(normalized),/氏名カナリア佐藤花子/);
+});
+
+
+test("private caption traversal budget fails closed", async () => {
+  const source = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
+  const start=source.indexOf("  const privateValueContext = ");
+  const end=source.indexOf("  const describe = ",start);
+  const inspect=new Function(source.slice(start,end)+"return privateValueContext;")();
+  let node=null;
+  for(let index=0;index<70;index++)node={tagName:"DIV",parentElement:node};
+  assert.equal(inspect(node),true);
+  assert.equal(inspect({tagName:"BUTTON",parentElement:null}),false);
 });

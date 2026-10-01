@@ -84,6 +84,23 @@
     return text;
   };
 
+  const privateValueContext = (element) => {
+    const privateLabel = /password|passcode|token|secret|cc-|card|credit|cvv|cvc|pin|パスワード|秘密|カード|暗証|個人番号|マイナンバー|認証コード|メール|e-?mail|mail|電子.?メール|電話|tel|phone|携帯|mobile|住所|address|所在地|会社|企業|店舗|施設|organization|company|生年月日|誕生日|birth|bday|社員番号|従業員番号|employee.?id|staff.?id|顧客番号|会員番号|customer.?id|member.?id|氏名|名前|担当者|姓名|(?:^|[\s_-])(?:given-|family-|full-)?name(?:$|[\s_-])/i;
+    let current = element;
+    for (let depth = 0; current && depth < 64; depth += 1) {
+      const tag = String(current.tagName || "").toUpperCase();
+      const label = current.previousElementSibling;
+      if (((tag === "DD" && label?.tagName === "DT") || (tag === "TD" && label?.tagName === "TH")) && privateLabel.test(String(label.textContent || "").slice(0, 200))) return true;
+      if (tag === "TD" && Number.isInteger(current.cellIndex)) {
+        const table = current.closest?.("table");
+        const heading = table?.querySelector?.("thead tr")?.children?.[current.cellIndex];
+        if (heading && privateLabel.test(String(heading.textContent || "").slice(0, 200))) return true;
+      }
+      current = current.parentElement || current.getRootNode?.()?.host || null;
+    }
+    return Boolean(current);
+  };
+
   const describe = (element) => {
     if (!(element instanceof Element)) return {};
     const id = element.id;
@@ -108,8 +125,10 @@
       ? boundedVisibleText(element)
       : null;
     const visibleText = visibleTextResult?.truncated ? undefined : visibleTextResult?.text;
-    const captionSourcesAllowed = !hasEditableBoundary;
+    const privateContext = privateValueContext(element);
+    const captionSourcesAllowed = !hasEditableBoundary && !privateContext;
     return {
+      privateValueContext: privateContext,
       type: element.getAttribute("type"),
       controlCaption: captionSourcesAllowed && tagName === "input" && ["button", "submit", "reset"].includes(type)
         ? boundedAttribute(element.getAttribute("value"))
