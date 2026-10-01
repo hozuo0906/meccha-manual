@@ -72,3 +72,10 @@ button.quiet { width: 100%; color: #40505a; border: 1px solid #b5c6cb; backgroun
 @media (prefers-reduced-transparency: reduce) {
   .controls { background: #f8fdfc; backdrop-filter: none; }
 }
+
+.live-image-summary { font-size: .875rem; line-height: 1.5; color: #40505a; overflow-wrap: anywhere; }
+.step-image-status { display: block; margin-top: 6px; font-size: .875rem; line-height: 1.5; }
+.step-image-status[data-state="ready"] { color: #16634e; }
+.step-image-status[data-state="failed"], .step-image-status[data-state="unavailable"], .step-image-status[data-state="display_failed"], .live-current-status[data-state="unavailable"], .live-current-status[data-state="display_failed"] { color: #a53c2b; }
+.step-image-status[data-state="protected"], .live-current-status[data-state="protected"] { color: #805200; }
+.image-state, .live-current-status, .privacy-note, .live-description, .status { font-size: .875rem; }

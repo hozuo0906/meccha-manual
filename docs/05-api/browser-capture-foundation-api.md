@@ -54,3 +54,11 @@ Access modeでは移行前Supabase認証へfallbackせず、WorkerのAccess境�
 ### Access mode authorization ordering (2026-09-08)
 
 Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateより前にAccess JWT、D1 identity、same-origin、workspace roleを確認する。Access/D1で認証・認可済みのowner/admin/editorだけが`503 BROWSER_EGRESS_NOT_VERIFIED`へ到達し、未認証やviewerは認証・認可エラーで終了する。legacy Supabase sessionへfallbackしない。
+
+## Chrome拡張の画像結果の保持（2026-10-01）
+
+DEC-090に従い、ローカルstepにimageState {status, reason, attempts, version}を持つ。statusはqueued/capturing/ready/unavailable/failed/protected/none。ready/protectedのみscreenshotIdを持ち得る。noneは利用者が「説明のみ」を選んだ状態であり、取得失敗から自動変換しない。
+
+reasonはscreen_changed/navigation_changed/tab_not_visible/tab_unavailable/mask_failed/mask_invalidated/paint_timeout/paint_unavailable/capture_failed/privacy_budget_exceeded/storage_failed/capture_interrupted/capture_not_requested等の固定コードに限定し、下位例外・ページ本文・URLを含めない。privacyReviewはreplacementCount/protectedRegionCount/reviewRequired/reasonCodesと、架空値だけのreplacements（id/kind/text/x/y/width/height、正規化矩形、最大64件）を返す。元の値・DOM・mapping hashを返さない。idは同一document内の架空aliasを識別し、navigation後の異なる対象を同一人物へ結び付けない。
+
+撮影の予約・実行はevent世代とbounded scene leaseを照合する。撮影中のnavigationや新しい操作の画像を古い手順に結び付けない。終了処理は予約された撮影を確定してから全手順をdraftへ写し、失敗状態も保存する。画像上限には画像を持つ結果だけを数え、失敗metadataのために後続の撮影枠を失わせない。

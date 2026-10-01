@@ -36,7 +36,11 @@ function canonicalDraftJsonInternal(draft) {
       id: step?.id ?? null,
       order: step?.order ?? null,
       instruction: step?.instruction ?? "",
-      screenshotId: step?.screenshotId ?? null
+      screenshotId: step?.screenshotId ?? null,
+      ...(step?.imageState ? { imageState: {
+        status: step.imageState.status ?? null,
+        version: step.imageState.version ?? null
+      } } : {})
     })) : [],
     screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map(canonicalScreenshot) : []
   });

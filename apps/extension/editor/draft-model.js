@@ -14,7 +14,7 @@ export function addStep(draft, instruction = "新しい手順") {
   const step = {
     id: crypto.randomUUID(),
     order: draft.steps.length + 1,
-    instruction: String(instruction).slice(0, 500),
+    instruction: Array.from(String(instruction)).slice(0, 500).join(""),
     ...(screenshotId ? { screenshotId } : {})
   };
   draft.steps.push(step);
@@ -24,7 +24,7 @@ export function addStep(draft, instruction = "新しい手順") {
 
 export function updateStepInstruction(draft, stepId, instruction) {
   const step = draft.steps.find((candidate) => candidate.id === stepId);
-  if (step) step.instruction = String(instruction).slice(0, 500);
+  if (step) step.instruction = Array.from(String(instruction)).slice(0, 500).join("");
   return touch(draft);
 }
 

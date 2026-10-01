@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { stat, readFile } from "node:fs/promises";
+import { stat, readFile, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 
@@ -47,12 +47,12 @@ function serveExtension({ onboardingConfig = null } = {}) {
   return server;
 }
 
-async function seedImageEditorDraft(page, baseUrl, id) {
+async function seedImageEditorDraft(page, baseUrl, id, count = 22) {
   await page.goto(baseUrl + "/seed.html");
-  await page.evaluate(async (draftId) => {
+  await page.evaluate(async ({ draftId, count }) => {
     const screenshots = [];
     const steps = [];
-    for (let index = 1; index <= 22; index += 1) {
+    for (let index = 1; index <= count; index += 1) {
       const imageCanvas = document.createElement("canvas");
       imageCanvas.width = 960;
       imageCanvas.height = 540;
@@ -76,7 +76,7 @@ async function seedImageEditorDraft(page, baseUrl, id) {
       steps,
       screenshots
     });
-  }, id);
+  }, { draftId: id, count });
   await page.goto(baseUrl + "/editor/editor.html#" + id);
 }
 
@@ -85,6 +85,7 @@ function canvasPoint(box, x, y) {
 }
 
 async function dragCanvas(page, canvas, fromX, fromY, toX, toY) {
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   assert.ok(box);
   const start = canvasPoint(box, fromX, fromY);
@@ -95,9 +96,25 @@ async function dragCanvas(page, canvas, fromX, fromY, toX, toY) {
   await page.mouse.up();
 }
 
+async function selectStep(page, stepId) {
+  if (await page.locator(`#step-${stepId}`).count()) return;
+  if (!(await page.locator("#stepNavigation").isVisible())) await page.locator("#openNavigation").click();
+  await page.locator(`#steps button[data-step-id="${stepId}"]`).click();
+  await page.locator(`#step-${stepId}`).waitFor();
+}
+async function openStepMenu(page, stepId) {
+  await selectStep(page, stepId);
+  await page.locator(`#step-${stepId} .step-menu summary`).click();
+}
+async function openUploadPanel(page, stepId) {
+  await selectStep(page, stepId);
+  await page.locator(`#step-${stepId} .image-file-actions`).evaluate((node) => { node.open = true; });
+}
 async function openImageEditor(page, stepId = "step-1") {
+  await selectStep(page, stepId);
   await page.locator("#step-" + stepId + " .image-edit-button").click();
   await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+  await page.locator(".advanced-tools").evaluate((node) => { node.open = true; });
 }
 
 async function readScreenshot(page, draftId, screenshotId = "image-1") {
@@ -107,7 +124,7 @@ async function readScreenshot(page, draftId, screenshotId = "image-1") {
   }, { draftId, screenshotId });
 }
 
-test("nearby previews render portrait images without moving the reserved frame and release distant buffers", { timeout: 35_000 }, async () => {
+test("selected-only preview contains portrait images and releases the previous pixel buffer", { timeout: 35_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const baseUrl = "http://127.0.0.1:" + server.address().port;
@@ -143,15 +160,12 @@ test("nearby previews render portrait images without moving the reserved frame a
     assert.ok(firstFrame && Math.abs(firstFrame.width / firstFrame.height - 16 / 9) < .03, "画像の縦横比にかかわらずプレビュー枠を固定する");
     assert.equal(await canvas.evaluate((element) => element.style.aspectRatio), "", "canvasへ画像ごとの比率を設定しない");
 
-    await page.locator("#step-step-22").scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => {
-      const target = document.querySelector("#step-step-1 .screenshot-canvas");
-      return target?.width === 1 && target?.height === 1 && target?.dataset.previewRendered === "false";
-    });
-    const reservedFrame = await preview.boundingBox();
-    assert.ok(reservedFrame && Math.abs(reservedFrame.width / reservedFrame.height - 16 / 9) < .03, "遠い画像のpixel bufferを解放しても枠を維持する");
-
-    await page.locator("#step-step-1").scrollIntoViewIfNeeded();
+    await canvas.evaluate((element) => { globalThis.__previousPreview = element; });
+    await selectStep(page, "step-22");
+    assert.equal(await page.locator(".step-article").count(), 1, "画像は選択手順の1枚だけを描画する");
+    assert.equal(await page.evaluate(() => globalThis.__previousPreview.isConnected), false);
+    assert.equal(await page.evaluate(() => globalThis.__previousPreview.width), 1, "非選択画像のpixel bufferを解放する");
+    await selectStep(page, "step-1");
     await page.waitForFunction(() => {
       const target = document.querySelector("#step-step-1 .screenshot-canvas");
       return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
@@ -186,13 +200,13 @@ test("editor navigation and image edits persist exact annotation and mask coordi
       return article && article.getBoundingClientRect().top >= 0 && article.getBoundingClientRect().top < innerHeight;
     });
     const step17Box = await page.locator("#step-step-17").boundingBox();
-    const step18Box = await page.locator("#step-step-18").boundingBox();
-    assert.ok(step17Box && step18Box && step18Box.y > step17Box.y, "目次17番は説明と画像を画面内へ移動する");
+    assert.ok(step17Box && step17Box.y < 160, "手順17の画像を同じ作業領域で編集する");
+    assert.equal(await page.locator("#step-step-18").count(), 0, "長い本文へ全手順を並べない");
     await page.locator("#step-step-17 textarea").fill("手順17の説明を保持");
     assert.equal(await page.locator("#step-step-17 textarea").inputValue(), "手順17の説明を保持");
     await page.locator('#steps button[aria-controls="step-step-1"]').click();
     await page.locator("#step-step-1").scrollIntoViewIfNeeded();
-    assert.equal(await page.locator(".step-article").count(), 22);
+    assert.equal(await page.locator(".step-article").count(), 1);
 
     await openImageEditor(page);
     const canvas = page.locator("#imageEditorCanvas");
@@ -441,7 +455,9 @@ test("a pending image write preserves concurrent title, step text, order, add, a
     await page.locator("#title").fill("同時編集後のタイトル");
     await page.locator("#step-step-1 textarea").fill("同時編集後の説明");
     await page.locator("#addStep").click();
-    await page.locator("#step-step-2 button").filter({ hasText: "上へ" }).click();
+    await openStepMenu(page, "step-2");
+    await page.locator("#step-step-2 button").filter({ hasText: "前へ移動" }).click();
+    await openStepMenu(page, "step-3");
     await page.locator("#step-step-3 button").filter({ hasText: "削除" }).click();
     await page.evaluate(() => globalThis.__pendingDraftPut.resolve());
     await page.waitForFunction(async () => {
@@ -454,7 +470,7 @@ test("a pending image write preserves concurrent title, step text, order, add, a
     assert.equal(stored.steps.find((step) => step.id === "step-1")?.instruction, "同時編集後の説明");
     assert.equal(stored.steps.some((step) => step.id === "step-3"), false, "削除した手順を復活させない");
     assert.equal(stored.steps.some((step) => step.instruction === "新しい手順"), true, "追加した手順を保持する");
-    assert.deepEqual(stored.steps.map((step) => step.id), ["step-2", "step-1", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
+    assert.deepEqual(stored.steps.map((step) => step.id), ["step-1", "step-2", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
     assert.notEqual(stored.screenshots[0].dataUrl, originalDataUrl, "画像の変更を保持する");
   } finally {
     await context?.close();
@@ -516,7 +532,7 @@ test("image replacement invalidates an open editor before its stale save can reu
     await input.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__uploadBitmapStarted && typeof globalThis.__releaseUploadBitmap === "function");
     await page.evaluate(() => globalThis.__releaseUploadBitmap());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false, "差し替え対象Aの旧editorだけを閉じる");
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), "shared-id", "対象Aの新画像編集ボタンへフォーカスを戻す");
 
@@ -576,6 +592,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = async () => { throw new Error("synthetic upload failure"); };
     });
     const replaceInput = page.locator("#step-replace-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "replace-step");
     await page.locator("#step-replace-step .image-upload-panel button").focus();
     await replaceInput.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.getByText("画像を差し替えられませんでした。元の内容は変更されていません。もう一度お試しください。", { exact: true }).waitFor();
@@ -588,7 +605,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = globalThis.__focusContractOriginalPut;
     });
     await replaceInput.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), "replace-image", "差し替え成功後は新画像の編集ボタンへフォーカスを戻す");
 
     await page.evaluate(async () => {
@@ -596,6 +613,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = async () => { throw new Error("synthetic add failure"); };
     });
     const addInput = page.locator("#step-add-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "add-step");
     await page.locator("#step-add-step .image-upload-panel button").focus();
     await addInput.setInputFiles({ name: "addition.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.getByText("画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。", { exact: true }).waitFor();
@@ -662,7 +680,7 @@ test("shared replacement closes the target step editor while retaining the share
     await input.setInputFiles({ name: "shared-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__sharedTargetUploadStarted && typeof globalThis.__releaseSharedTargetUpload === "function");
     await page.evaluate(() => globalThis.__releaseSharedTargetUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const after = await page.evaluate(async (currentDraftId) => (await (await import("/storage/draft-store.js")).draftStore.get(currentDraftId)), draftId);
     const newAId = after.steps.find((step) => step.id === "shared-a-step")?.screenshotId;
     const oldB = after.screenshots.find((item) => item.id === "shared-image");
@@ -719,7 +737,7 @@ test("replacement does not steal focus from another control after an editor was 
     await input.setInputFiles({ name: "closed-editor-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__closedEditorUploadStarted && typeof globalThis.__releaseClosedEditorUpload === "function");
     await page.evaluate(() => globalThis.__releaseClosedEditorUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.id), "title", "閉じたeditorの参照だけでは別controlのfocusを奪わない");
   } finally {
     await context?.close();
@@ -775,6 +793,7 @@ test("replacement closes only the target image editor and preserves another edit
       };
     });
     const inputA = page.locator("#step-editor-a-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "editor-a-step");
     await page.locator("#step-editor-a-step .image-upload-panel button").focus();
     await inputA.setInputFiles({ name: "replacement-a.png", mimeType: "image/png", buffer: Buffer.from(replacementA.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__targetUploadStarted && typeof globalThis.__releaseTargetUpload === "function");
@@ -787,7 +806,7 @@ test("replacement closes only the target image editor and preserves another edit
     await page.locator("[data-editor-font-size]").fill("24");
 
     await page.evaluate(() => globalThis.__releaseTargetUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "別画像のeditorは対象画像の差し替え後も開いたままにする");
 
     await page.evaluate(async () => {
@@ -829,6 +848,7 @@ test("image editor cancels stale decode generation", { timeout: 20_000 }, async 
     const page = await context.newPage();
     page.setDefaultTimeout(4_000);
     await seedImageEditorDraft(page, baseUrl, draftId);
+    await page.waitForFunction(() => document.querySelector(".screenshot-canvas")?.dataset.previewRendered === "true");
     await page.evaluate(() => {
       globalThis.__decodeQueue = [];
       globalThis.__originalDecode = Image.prototype.decode;
@@ -894,8 +914,10 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
       draftStore.put = async () => { throw new Error("storage unavailable"); };
     });
     await page.locator("#save").click();
-    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false);
-    assert.match(await page.locator("#status").textContent(), /保存できませんでした/);
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+    await page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent.includes("端末に保存できない"));
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true);
+    await page.locator("#cancelOutput").click();
 
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
@@ -1258,6 +1280,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     await page.goto(`${baseUrl}/editor/editor.html#ready-output-gate-fixture`);
     await page.locator("#title").fill("編集を保持するタイトル");
     await page.locator("#save").click();
+    await page.locator("#startRegistration:not([disabled])").waitFor();
     assert.equal(await page.locator("#startRegistration").isDisabled(), false);
     await page.evaluate(() => {
       chrome.storage.local.set = async () => { throw new Error("HANDOFF_STORAGE_UNAVAILABLE"); };
@@ -1589,7 +1612,7 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true, "画像は再エンコードしたdata URLとして保存する");
     await page.locator("#step-manual-step .image-edit-button").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
-    assert.equal(await page.locator("[data-editor-tool]").count(), 6);
+    assert.equal(await page.locator("[data-editor-tool]").count(), 7);
     await page.locator("[data-editor-cancel]").first().click();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
   } finally {
@@ -1627,7 +1650,7 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
     const decoratedJpeg = Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xff, 0x01, 0xff]), jpegBytes.subarray(2)]);
     const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
     await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
-    await page.getByText("画像を追加して、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
     assert.equal(stored?.screenshots?.length, 1, "保存完了表示後にIDBへ画像が保存される");
     assert.equal(typeof stored.screenshots[0]?.dataUrl, "string");
@@ -1717,7 +1740,7 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
     });
     const transparentPng = Buffer.from(transparentDataUrl.split(",")[1], "base64");
     await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const replaced = await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       const current = await draftStore.get("shared-image-upload-fixture");
@@ -1739,6 +1762,7 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
         return { width: 12_001, height: 1, close() {} };
       };
     });
+    await selectStep(page, "shared-step-2");
     const secondInput = page.locator("#step-shared-step-2 .image-upload-panel input[type=file]");
     const oversizedPng = Buffer.from(transparentPng);
     oversizedPng.writeUInt32BE(12_001, 16);
@@ -1813,4 +1837,113 @@ test("image upload enforces draft image count and total capacity", { timeout: 20
     server.closeAllConnections?.();
     await new Promise((resolveServer) => server.close(resolveServer));
   }
+});
+
+test("20-step image-first editor keeps selection, undo, image color and responsive controls", { timeout: 60_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, reducedMotion: "reduce" });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    for (const width of [1366, 1024, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const draftId = `twenty-step-unified-${width}`;
+      await seedImageEditorDraft(page, baseUrl, draftId, 20);
+      assert.equal(await page.locator(".step-article").count(), 1);
+      const header = await page.locator(".editor-header").boundingBox();
+      const preview = await page.locator(".screenshot-preview").boundingBox();
+      const caption = await page.locator(".instruction-label textarea").boundingBox();
+      assert.ok(header.height >= 64 && header.height <= 72, "コンパクトな固定ヘッダー");
+      assert.ok(preview.y < 180 && preview.y + preview.height < 700, "画像が初期画面に収まる");
+      assert.ok(caption.y < 760, "画像の下に操作文が見える");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "横方向にはみ出さない");
+      if (width === 1024) assert.equal(await page.locator("#contextTools").isVisible(), false);
+      if (width === 390) assert.equal(await page.locator("#stepNavigation").isVisible(), false);
+      await selectStep(page, "step-17");
+      await page.locator("#step-step-17 textarea").fill("17番の説明を修正");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      await openStepMenu(page, "step-17");
+      await page.getByRole("button", { name: "前へ移動", exact: true }).click();
+      assert.match(await page.locator("#step-step-17 h3").textContent(), /16 \/ 20/);
+      await page.keyboard.press("Control+z");
+      assert.match(await page.locator("#step-step-17 h3").textContent(), /17 \/ 20/);
+      await openStepMenu(page, "step-17");
+      await page.locator(".step-controls .danger").click();
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-18");
+      await page.keyboard.press("Control+z");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      assert.equal(await page.locator("#step-step-17 textarea").inputValue(), "17番の説明を修正");
+      if (width === 390) await page.locator("#openNavigation").click();
+      await page.locator("#addStep").click();
+      const addedId = await page.locator(".step-article").getAttribute("data-step-id");
+      assert.notEqual(addedId, "step-17");
+      assert.match(await page.locator(".step-article h3").textContent(), /18 \/ 21/);
+      assert.equal(await page.locator(".instruction-label textarea").evaluate((node) => node === document.activeElement), true);
+      await page.keyboard.press("Control+z");
+      await selectStep(page, "step-17");
+      await openImageEditor(page, "step-17");
+      assert.equal(await page.locator("#imageEditorDialog").evaluate((node) => node.matches(":modal")), false, "別画面ではなく中央で画像を編集する");
+      await page.locator('[data-editor-tool="rectangle"]').click();
+      await dragCanvas(page, page.locator("#imageEditorCanvas"), .2, .2, .45, .4);
+      await page.locator("[data-editor-color]").evaluate((node) => { node.value = "#df4a36"; node.dispatchEvent(new Event("input", { bubbles: true })); });
+      await mkdir(".artifacts/unified-editor", { recursive: true });
+      await page.screenshot({ path: `.artifacts/unified-editor/inline-tools-${width}.png` });
+      await page.locator("[data-editor-save]").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+      assert.equal((await readScreenshot(page, draftId, "image-17")).annotations[0].color, "#df4a36");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      await page.screenshot({ path: `.artifacts/unified-editor/selected-step-${width}.png` });
+      await page.reload();
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17", "再読込でも選択IDを引き継ぐ");
+    }
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("output waits from file decode through IDB and blocks unreviewed or failed images", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await seedImageEditorDraft(page, baseUrl, "pending-file-output", 20);
+    await selectStep(page, "step-17");
+    await page.evaluate(() => {
+      const original = globalThis.createImageBitmap;
+      globalThis.__decodeStarted = false;
+      globalThis.createImageBitmap = async (...args) => { globalThis.__decodeStarted = true; await new Promise((resolve) => { globalThis.__releaseDecode = resolve; }); return original(...args); };
+    });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    await page.locator("#detail input[type=file]").setInputFiles({ name: "safe-synthetic.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => globalThis.__decodeStarted);
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "decode開始直後に共有が先行しない");
+    assert.match(await page.locator("#outputIssues").textContent(), /手順17/);
+    await page.locator("#cancelOutput").click();
+    assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+    await page.evaluate(() => globalThis.__releaseDecode());
+    await page.waitForFunction(() => document.querySelector("#step-step-17 .image-status")?.textContent.includes("確認が必要"));
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "手動画像は明示確認まで共有しない");
+    await page.locator("#outputIssues button").click();
+    await page.getByRole("button", { name: "画像に公開できない情報がないことを確認", exact: true }).click();
+    await page.locator("#share").click();
+    await page.locator("#startShare:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startShare").isDisabled(), false);
+    await page.locator("#cancelOutput").click();
+    await page.locator("#detail input[type=file]").setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken") });
+    await page.locator(".image-upload-message[data-state=error]").waitFor();
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "失敗した差し替えを黙って除外しない");
+    await page.locator("#outputIssues button").click();
+    await page.getByRole("button", { name: "元の画像を使う", exact: true }).click();
+    await page.locator("#share").click();
+    await page.locator("#startShare:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startShare").isDisabled(), false);
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
 });

@@ -138,3 +138,10 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 ### Issue #264 editor image workspace
 
 全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、画像差し替え成功時の対象dialogだけの破棄、別画像dialogの保持、bitmap identity不一致時の注釈・mask保存拒否、失敗時の旧内容保持と操作フォーカス復帰、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。
+
+## 2026-10-01 画像中心編集の追跡
+
+- DEC-090: 通常入力欄の架空値表示、content-visibility:hidden除外、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gate
+- 実装: apps/extension/capture/screenshot.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
+- 検査: tests/extension-pii-mask-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
+- 実画面受入: docs/02-ux/manual-editor-review-rubric.md。各独立評価者80点以上と安全条件の両方が必要。未実行は合格扱いにしない

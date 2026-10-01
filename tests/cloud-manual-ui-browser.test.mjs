@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
 test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 20_000 }, async () => {
@@ -116,9 +116,9 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByLabel("手順 1のタイトル").fill("更新した手順");
     await page.getByRole("button", { name: "手順を追加" }).click();
     await page.getByLabel("手順 2のタイトル").fill("追加手順");
-    await page.locator(".cloud-step").nth(1).getByRole("button", { name: "上へ" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "上へ" }).click();
     await page.locator(".cloud-step").nth(0).getByRole("button", { name: "下へ" }).click();
-    await page.locator(".cloud-step").nth(1).getByRole("button", { name: "この手順を削除" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "この手順を削除" }).click();
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
 
     delayPatch = true;
@@ -154,15 +154,17 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
       for (let index = 0; index < 199; index += 1) add.click();
     });
     const addStep = page.locator("[data-step-add]");
-    assert.equal(await page.locator(".cloud-step").count(), 200);
+    assert.equal(await page.locator(".manual-step-nav li").count(), 200);
+    assert.equal(await page.locator(".cloud-step").count(), 1);
     assert.equal(await addStep.isDisabled(), true);
     assert.equal(await addStep.textContent(), "手順は200件まで");
-    await page.locator(".cloud-step").nth(199).getByRole("button", { name: "この手順を削除" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "この手順を削除" }).click();
     assert.equal(await addStep.isDisabled(), false);
     assert.equal(await addStep.textContent(), "手順を追加");
     await addStep.click();
     assert.equal(await addStep.isDisabled(), true);
-    assert.equal(await page.locator(".cloud-step").count(), 200);
+    assert.equal(await page.locator(".manual-step-nav li").count(), 200);
+    assert.equal(await page.locator(".cloud-step").count(), 1);
 
     returnUnauthorized = true;
     page.once("dialog", (dialog) => dialog.accept());

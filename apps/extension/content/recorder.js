@@ -52,7 +52,7 @@
           break;
         }
         const style = getComputedStyle(current);
-        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
+        if (style.display === "none" || style.contentVisibility === "hidden" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
           visible = false;
           break;
         }
@@ -127,7 +127,7 @@
       tagName
     };
   };
-  const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...extra });
+  const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...(kind === "click" ? { clickTarget: clickTargetRect(target) } : {}), ...extra });
   const sendEvent = (event) => chrome.runtime.sendMessage({ type: "capture:event", event })
     .then((response) => Boolean(response?.ok && response?.value?.accepted !== false), () => false);
 
@@ -255,12 +255,28 @@
   };
 
   const flushBeforeAction = () => Promise.all([flushInput(), flushScroll()]);
+  let latestClick = null;
+  const clickTargetRect = (target) => {
+    if (globalThis.top !== globalThis || typeof target?.getBoundingClientRect !== "function") return undefined;
+    const rect = target.getBoundingClientRect();
+    const viewportWidth = Number(globalThis.innerWidth), viewportHeight = Number(globalThis.innerHeight);
+    const devicePixelRatio = Number(globalThis.devicePixelRatio || 1);
+    if (![rect.left, rect.top, rect.width, rect.height, viewportWidth, viewportHeight, devicePixelRatio].every(Number.isFinite)
+      || viewportWidth <= 0 || viewportHeight <= 0 || devicePixelRatio <= 0 || devicePixelRatio > 8) return undefined;
+    const x = Math.max(0, rect.left), y = Math.max(0, rect.top);
+    const width = Math.min(viewportWidth, rect.right) - x, height = Math.min(viewportHeight, rect.bottom) - y;
+    if (width <= 0 || height <= 0) return undefined;
+    const scrollX = Number(globalThis.scrollX || 0), scrollY = Number(globalThis.scrollY || 0);
+    if (![scrollX, scrollY].every(Number.isFinite)) return undefined;
+    return { x, y, width, height, viewportWidth, viewportHeight, devicePixelRatio, scrollX, scrollY, topFrame: true };
+  };
   const click = (event) => {
     const target = event.target instanceof Element
       ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=menuitem]") || event.target
       : event.target;
     void flushBeforeAction();
-    trackAndSend("click", target);
+    const recorded = trackAndSend("click", target);
+    latestClick = recorded.clickTarget ? { target, eventId: recorded.eventId, rect: recorded.clickTarget } : null;
   };
 
   let pendingNavigation;
@@ -320,6 +336,7 @@
     return uniqueEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
   };
   const removeRecordingListeners = ({ keepBeforeUnload = false } = {}) => {
+    latestClick = null;
     removeEventListener("click", click, true);
     removeEventListener("input", queueInput, true);
     removeEventListener("change", commitInput, true);
@@ -343,7 +360,13 @@
   addEventListener("hashchange", historyNavigation, true);
   addEventListener(HISTORY_EVENT, historyNavigation, true);
 
-  globalThis.__mecchaManualRecorder = (command = "drain") => {
+  globalThis.__mecchaManualRecorder = (command = "drain", eventId) => {
+    if (command === "click-target") {
+      if (!latestClick || latestClick.eventId !== eventId || !latestClick.target?.isConnected) return null;
+      const current = clickTargetRect(latestClick.target);
+      if (!current || Object.keys(latestClick.rect).some(key => current[key] !== latestClick.rect[key])) return null;
+      return current;
+    }
     if (command === "retain") {
       if (!retainedEvents.length) retainedEvents = collectPendingEvents().map(cloneEvent);
       removeRecordingListeners({ keepBeforeUnload: true });

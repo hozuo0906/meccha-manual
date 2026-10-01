@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
@@ -222,7 +222,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const imagePixels = [];
     for (const index of [0, 1]) {
       const stepButton = stepButtons.nth(index);
-      const instruction = (await stepButton.textContent()).replace(/^\s*\d+\.\s*/, "");
+      const instruction = await stepButton.locator(".step-name").textContent();
       const articleId = await stepButton.getAttribute("aria-controls");
       assert.ok(articleId, "TOC button should identify its step article");
       await stepButton.click();

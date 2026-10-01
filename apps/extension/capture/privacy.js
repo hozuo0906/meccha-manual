@@ -195,6 +195,21 @@ export function safeTargetLabel(target) {
   return "操作対象";
 }
 
+// Geometry is the only page-derived click context retained outside the
+// caption allowlist. Do not spread arbitrary target properties into storage.
+function normalizedClickTarget(value) {
+  if (!value || typeof value !== "object") return undefined;
+  const keys = ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "devicePixelRatio"];
+  if (!keys.every((key) => typeof value[key] === "number" && Number.isFinite(value[key]))) return undefined;
+  const { x, y, width, height, viewportWidth, viewportHeight, devicePixelRatio } = value;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || viewportWidth <= 0 || viewportHeight <= 0
+    || viewportWidth > 32768 || viewportHeight > 32768 || x + width > viewportWidth || y + height > viewportHeight
+    || devicePixelRatio <= 0 || devicePixelRatio > 8) return undefined;
+  const scrollX = value.scrollX, scrollY = value.scrollY;
+  if (value.topFrame !== true || ![scrollX, scrollY].every((offset) => typeof offset === "number" && Number.isFinite(offset) && Math.abs(offset) <= 10_000_000)) return undefined;
+  return { x, y, width, height, viewportWidth, viewportHeight, devicePixelRatio, scrollX, scrollY, topFrame: true };
+}
+
 export function normalizeCaptureEvent(event) {
   const at = Number.isFinite(event.at) ? event.at : Date.now();
   const identity = eventIdentity(event);
@@ -207,7 +222,8 @@ export function normalizeCaptureEvent(event) {
     const labelSource = event.target
       ? (safeControlName(event.target) ? "caption" : undefined)
       : (normalizedExistingLabel && !SEMANTIC_LABELS.has(normalizedExistingLabel) ? "caption" : event.labelSource === "caption" && normalizedExistingLabel ? "caption" : undefined);
-    return { kind: "click", at, label, ...(labelSource ? { labelSource } : {}), ...identity };
+    const clickTarget = normalizedClickTarget(event.clickTarget);
+    return { kind: "click", at, label, ...(labelSource ? { labelSource } : {}), ...(clickTarget ? { clickTarget } : {}), ...identity };
   }
   if (event.kind === "scroll") {
     return { kind: "scroll", at, direction: ["up", "down", "left", "right"].includes(event.direction) ? event.direction : "down", ...identity };

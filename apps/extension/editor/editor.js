@@ -1,6 +1,7 @@
 import { addStep, deleteStep, moveStep, updateStepInstruction } from "./draft-model.js";
 import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
+import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
@@ -26,17 +27,110 @@ const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "保存先を準備できません。時間をおいてもう一度お試しください。手順書はこの端末に残っています。";
 const HANDOFF_READY_TIMEOUT_MS = 8_000;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_IMAGE_COUNT = 100;
-const MAX_IMAGE_TOTAL_BYTES = 100 * 1024 * 1024;
-const MAX_IMAGE_PIXELS = 40_000_000;
-const MAX_IMAGE_DIMENSION = 12_000;
-const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 let outputInFlight = false;
 let pendingHandoffTabId = null;
 let activeHandoffAttempt = null;
 let handoffRunGeneration = 0;
-let selectedStepId = draft.steps[0]?.id;
+let selectedStepId = draft.editorState?.selectedStepId || draft.steps[0]?.id;
+let previewZoom = Math.max(1, Math.min(3, Number(draft.editorState?.zoom) || 1));
+const pendingImages = new Map();
+const displayFailures = new Set();
+const uploadFailures = new Map();
+const shownReplacements = new Set();
+const undoStack = [];
+const redoStack = [];
+let outputIntent = "save";
+let outputGateGeneration = 0;
+let outputPreflight = false;
+let historyGroup = null;
+let localWriteFailed = false;
+let panelTrigger = null;
+const workSurface = document.querySelector("#workSurface");
+const contextTools = document.querySelector("#contextTools");
+const imageDialog = document.querySelector("#imageEditorDialog");
+
+// History contains only the editable, already-captured draft. Capture events,
+// source URLs, DOM values and original/replacement correspondence never enter it.
+function snapshot() {
+  return structuredClone({ title: draft.title, description: draft.description,
+    steps: draft.steps.map(({ id, order, instruction, screenshotId, imageState, privacyReview }) => ({ id, order, instruction, ...(screenshotId ? { screenshotId } : {}), ...(imageState ? { imageState } : {}), ...(privacyReview ? { privacyReview } : {}) })),
+    screenshots: draft.screenshots.map(({ id, dataUrl, annotations, masks, privacyReview }) => ({ id, dataUrl, ...(annotations ? { annotations } : {}), masks: masks || [], ...(privacyReview ? { privacyReview } : {}) })), branding: draft.branding,
+    selectedStepId, zoom: previewZoom });
+}
+function remember(group = null) {
+  if (!group || historyGroup !== group) {
+    undoStack.push(snapshot());
+    if (undoStack.length > 40) undoStack.shift();
+  }
+  historyGroup = group;
+  redoStack.length = 0;
+  updateHistoryButtons();
+}
+function updateHistoryButtons() {
+  document.querySelector("#undo").disabled = !undoStack.length || pendingImages.size > 0;
+  document.querySelector("#redo").disabled = !redoStack.length || pendingImages.size > 0;
+}
+async function restoreHistory(source, destination) {
+  if (!source.length || pendingImages.size || imageDialog.open) return;
+  destination.push(snapshot());
+  const saved = source.pop();
+  Object.assign(draft, { title: saved.title, description: saved.description, steps: saved.steps, screenshots: saved.screenshots, branding: saved.branding });
+  selectedStepId = saved.selectedStepId; previewZoom = saved.zoom;
+  title.value = draft.title; description.value = draft.description;
+  historyGroup = null; displayFailures.clear(); uploadFailures.clear();
+  applyBranding(); render(); await persist("操作を取り消して、この端末に保存しました。");
+  detail.querySelector("textarea")?.focus({ preventScroll: true });
+}
+function imageStatus(step) {
+  if (pendingImages.has(step.id)) return "queued";
+  if (displayFailures.has(step.id) || uploadFailures.has(step.id)) return "failed";
+  if (step.imageState?.status === "none") return "none";
+  if (step.privacyReview?.reviewRequired || screenshotFor(step)?.privacyReview?.reviewRequired) return "protected";
+  return step.imageState?.status || (screenshotFor(step) ? "ready" : "unavailable");
+}
+function replacementRegions(step) {
+  const metadata = screenshotFor(step)?.privacyReview || step?.privacyReview;
+  return (Array.isArray(metadata?.replacements) ? metadata.replacements : []).slice(0, 64).filter((region) => region && typeof region.id === "string" && typeof region.text === "string" && Array.from(region.text).length <= 160 && [region.x, region.y, region.width, region.height].every((value) => typeof value === "number" && Number.isFinite(value)) && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0 && region.x + region.width <= 1 && region.y + region.height <= 1);
+}
+function imageLabel(step) {
+  const state = imageStatus(step);
+  if (["queued", "capturing"].includes(state)) return "画像を準備しています";
+  if (state === "none") return "説明のみの手順";
+  if (state === "protected") return "画像の確認が必要です";
+  if (state === "failed") return displayFailures.has(step.id) ? "保存済みの画像を読み込めませんでした" : "画像を準備できませんでした";
+  if (state === "unavailable" || !screenshotFor(step)) return "この操作の画像を取得できませんでした";
+  const review = screenshotFor(step)?.privacyReview || step.privacyReview;
+  return review?.replacementCount ? `架空データに置換済み ${review.replacementCount}か所` : "画像の準備ができました";
+}
+function unresolvedSteps() { return draft.steps.filter((step) => !["ready", "none"].includes(imageStatus(step)) || (imageStatus(step) === "ready" && !screenshotFor(step))); }
+function setImageState(step, state, reason = null) {
+  step.imageState = { status: state, reason, attempts: step.imageState?.attempts || 0, version: (step.imageState?.version || 0) + 1 };
+}
+function updateImageSummary() {
+  const unresolved = unresolvedSteps();
+  const pending = draft.steps.filter((step) => ["queued", "capturing"].includes(imageStatus(step))).length;
+  document.querySelector("#reviewCount").textContent = pending ? `画像を準備中 ${draft.steps.length - pending}/${draft.steps.length}` : unresolved.length ? `要確認 ${unresolved.length}件` : "";
+  document.querySelector("#stepCount").textContent = draft.steps.length;
+  updateHistoryButtons();
+  if (outputGate.open) renderOutputSummary();
+}
+function button(text, action, className = "secondary") {
+  const node = document.createElement("button"); node.type = "button"; node.textContent = text; node.className = className; node.addEventListener("click", action); return node;
+}
+function closePanels() {
+  document.querySelectorAll("[data-panel-open]").forEach((panel) => delete panel.dataset.panelOpen);
+  document.querySelector("#panelBackdrop").hidden = true;
+  document.querySelectorAll(".mobile-actions [aria-expanded]").forEach((node) => node.setAttribute("aria-expanded", "false"));
+  panelTrigger?.focus({ preventScroll: true }); panelTrigger = null;
+}
+function openPanel(name, trigger) {
+  closePanels(); panelTrigger = trigger;
+  const panel = name === "navigation" ? document.querySelector("#stepNavigation") : contextTools;
+  panel.dataset.panelOpen = "true"; trigger?.setAttribute("aria-expanded", "true");
+  document.querySelector("#panelBackdrop").hidden = false;
+  panel.querySelector("button")?.focus({ preventScroll: true });
+}
+
 const previewGenerations = new WeakMap();
 function invalidatePreview(canvas) {
   previewGenerations.set(canvas, (previewGenerations.get(canvas) || 0) + 1);
@@ -58,7 +152,7 @@ const previewObserver = new IntersectionObserver((entries) => {
   });
 }, { rootMargin: "900px 0px" });
 let activeImageEditor = null;
-let stepObserver = null;
+
 let persistQueue = Promise.resolve();
 
 title.value = draft.title;
@@ -161,16 +255,17 @@ function persist(message = "この端末に保存しました。") {
   return enqueuePersist(async () => {
     draft.title = title.value;
     draft.description = description.value;
+    draft.editorState = { selectedStepId, zoom: previewZoom };
     draft.updatedAt = new Date().toISOString();
-    setSaveState("保存中…", "saving");
+    setSaveState("端末に保存中…", "saving");
     try {
       await draftStore.put(draft);
       status.textContent = message;
-      setSaveState("端末に保存済み", "saved");
+      localWriteFailed = false; document.querySelector("#retrySave").hidden = true; setSaveState(pendingImages.size ? "画像を保存中…" : "端末に保存済み", pendingImages.size ? "saving" : "saved");
       return true;
     } catch {
       status.textContent = "下書きを保存できませんでした。記録内容は送信されていません。空き容量を確認するか、もう一度お試しください。";
-      setSaveState("保存できません", "error");
+      localWriteFailed = true; document.querySelector("#retrySave").hidden = false; setSaveState("端末に保存できません", "error");
       return false;
     }
   });
@@ -182,8 +277,9 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
     candidate = typeof candidate === "function" ? candidate() : candidate;
     candidate.title = title.value;
     candidate.description = description.value;
+    candidate.editorState = { selectedStepId, zoom: previewZoom };
     candidate.updatedAt = new Date().toISOString();
-    setSaveState("保存中…", "saving");
+    setSaveState("端末に保存中…", "saving");
     try {
       await draftStore.put(candidate);
       // A write may stay pending while the user edits another field. Merge
@@ -195,141 +291,18 @@ function persistCandidate(candidate, message = "この端末に保存しまし�
       const merged = hasPendingEdits ? mergePendingCandidate(draftBeforePersist, candidate, draft) : candidate;
       Object.assign(draft, merged);
       status.textContent = message;
-      setSaveState("端末に保存済み", "saved");
+      localWriteFailed = false; document.querySelector("#retrySave").hidden = true; setSaveState(pendingImages.size ? "画像を保存中…" : "端末に保存済み", pendingImages.size ? "saving" : "saved");
       return { ok: true, candidate: merged, hasPendingEdits };
     }
-    catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; setSaveState("保存できません", "error"); return { ok: false }; }
+    catch { status.textContent = "下書きを保存できませんでした。編集内容は保持されています。空き容量を確認するか、もう一度お試しください。"; localWriteFailed = true; document.querySelector("#retrySave").hidden = false; setSaveState("端末に保存できません", "error"); return { ok: false }; }
   });
 }
 
+function removeUnreferencedImages() {
+  const referenced = new Set(draft.steps.map((step) => step.screenshotId).filter(Boolean));
+  draft.screenshots = draft.screenshots.filter((image) => referenced.has(image.id));
+}
 function screenshotFor(step) { return draft.screenshots.find((item) => item.id === step?.screenshotId); }
-
-function canvasToBlob(canvas, type, quality) {
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("IMAGE_ENCODE_FAILED")), type, quality));
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("IMAGE_READ_FAILED"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-function dataUrlBytes(dataUrl) {
-  if (typeof dataUrl !== "string") return 0;
-  const comma = dataUrl.indexOf(",");
-  if (comma < 0) return 0;
-  const encoded = dataUrl.slice(comma + 1).replace(/\s/g, "");
-  return Math.floor(encoded.length * 3 / 4) - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
-}
-
-function assertImageCapacity(candidate, nextDataUrl, replacedId = null) {
-  const current = Array.isArray(candidate?.screenshots) ? candidate.screenshots : [];
-  const count = current.filter((item) => item?.id !== replacedId).length + 1;
-  if (count > MAX_IMAGE_COUNT) throw new RangeError("IMAGE_COUNT_LIMIT");
-  const total = current.reduce((sum, item) => sum + (item?.id === replacedId ? 0 : dataUrlBytes(item?.dataUrl)), 0) + dataUrlBytes(nextDataUrl);
-  if (total > MAX_IMAGE_TOTAL_BYTES) throw new RangeError("IMAGE_TOTAL_TOO_LARGE");
-}
-
-async function readImageHeaderDimensions(file) {
-  // JPEG metadata may legally place SOF after a large APP segment. The input
-  // is already capped at 10 MiB, so scan the bounded file instead of rejecting
-  // a valid image merely because its header exceeds the old 64 KiB probe.
-  const bytes = new Uint8Array(await file.slice(0, Math.min(file.size, MAX_IMAGE_BYTES)).arrayBuffer());
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length >= 24 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) {
-    return { format: "image/png", width: view.getUint32(16), height: view.getUint32(20) };
-  }
-  if (bytes.length >= 30 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {
-    const chunk = String.fromCharCode(...bytes.slice(12, 16));
-    if (chunk === "VP8X" && bytes.length >= 30) return { format: "image/webp", width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16) };
-    if (chunk === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
-      const width = 1 + ((bytes[21] | (bytes[22] << 8)) & 0x3fff);
-      const height = 1 + (((bytes[22] >> 6) | (bytes[23] << 2) | (bytes[24] << 10)) & 0x3fff);
-      return { format: "image/webp", width, height };
-    }
-    if (chunk === "VP8 " && bytes.length >= 30) {
-      for (let offset = 20; offset + 9 < bytes.length; offset += 1) if (bytes[offset] === 0x9d && bytes[offset + 1] === 0x01 && bytes[offset + 2] === 0x2a) return { format: "image/webp", width: view.getUint16(offset + 3, true) & 0x3fff, height: view.getUint16(offset + 5, true) & 0x3fff };
-    }
-  }
-  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
-    let offset = 2;
-    while (offset < bytes.length) {
-      if (bytes[offset] !== 0xff) { offset += 1; continue; }
-      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
-      if (offset >= bytes.length) break;
-      const marker = bytes[offset]; offset += 1;
-      if (marker === 0x00) break;
-      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
-      if (marker === 0xd9 || marker === 0xda) break;
-      if (offset + 2 > bytes.length) break;
-      const length = view.getUint16(offset);
-      if (length < 2 || offset + length > bytes.length) break;
-      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-        if (length < 11 || offset + 7 >= bytes.length) break;
-        const components = bytes[offset + 7];
-        if (!components || length !== 8 + components * 3 || offset + length > bytes.length) break;
-        return { format: "image/jpeg", width: view.getUint16(offset + 5), height: view.getUint16(offset + 3) };
-      }
-      offset += length;
-    }
-  }
-  return null;
-}
-
-function assertImageDimensions(width, height) {
-  if (!width || !height || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION || width * height > MAX_IMAGE_PIXELS) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");
-}
-
-async function normalizeUploadedImage(file) {
-  if (!(file instanceof File) || !ACCEPTED_IMAGE_TYPES.has(file.type)) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
-  if (file.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_INPUT_TOO_LARGE");
-  if (typeof createImageBitmap !== "function") throw new Error("IMAGE_DECODE_UNAVAILABLE");
-  const headerDimensions = await readImageHeaderDimensions(file);
-  // The decoder must never be the first place we learn the dimensions. A malformed
-  // or unsupported header is rejected before a potentially huge bitmap is allocated.
-  if (!headerDimensions) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
-  if (headerDimensions.format !== file.type) throw new TypeError("IMAGE_TYPE_UNSUPPORTED");
-  assertImageDimensions(headerDimensions.width, headerDimensions.height);
-  const bitmap = await createImageBitmap(file);
-  try {
-    if (!bitmap.width || !bitmap.height) throw new TypeError("IMAGE_DIMENSIONS_INVALID");
-    assertImageDimensions(bitmap.width, bitmap.height);
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
-    context.drawImage(bitmap, 0, 0);
-    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
-    let hasTransparency = false;
-    for (let offset = 3; offset < pixels.length; offset += 4) {
-      if (pixels[offset] < 255) { hasTransparency = true; break; }
-    }
-    // Re-encode to remove the original file metadata before it enters the draft.
-    let blob = await canvasToBlob(canvas, "image/png");
-    if (blob.size > MAX_IMAGE_BYTES) {
-      // JPEG has no alpha channel. Keep transparent input lossless and report
-      // the size limit instead of silently turning hidden areas opaque.
-      if (hasTransparency) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE");
-      const flattened = document.createElement("canvas");
-      flattened.width = bitmap.width;
-      flattened.height = bitmap.height;
-      const flattenedContext = flattened.getContext("2d");
-      if (!flattenedContext) throw new Error("IMAGE_CANVAS_UNAVAILABLE");
-      flattenedContext.fillStyle = "#ffffff";
-      flattenedContext.fillRect(0, 0, bitmap.width, bitmap.height);
-      flattenedContext.drawImage(canvas, 0, 0);
-      blob = await canvasToBlob(flattened, "image/jpeg", .88);
-    }
-    if (blob.size > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE");
-    return { dataUrl: await blobToDataUrl(blob), width: bitmap.width, height: bitmap.height };
-  } finally {
-    bitmap.close?.();
-  }
-}
 
 function imageUploadError(error, replacing = false) {
   if (error?.message === "IMAGE_TYPE_UNSUPPORTED") return "PNG、JPEG、WebPの画像を選んでください。";
@@ -338,6 +311,7 @@ function imageUploadError(error, replacing = false) {
   if (error?.message === "IMAGE_PIXELS_TOO_LARGE") return "画像の解像度が高すぎます。縦横12,000px以下、合計4,000万画素以内の画像を選んでください。";
   if (error?.message === "IMAGE_TOTAL_TOO_LARGE") return "画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。";
   if (error?.message === "IMAGE_COUNT_LIMIT") return "画像は100件まで追加できます。";
+  if (error?.message === "IMAGE_DECODE_TIMEOUT") return "画像の読み込みに時間がかかっています。別の画像を選ぶか、もう一度お試しください。";
   if (error?.message === "IMAGE_DIMENSIONS_INVALID") return "画像の大きさを確認できませんでした。別の画像を選んでください。";
   return replacing ? "画像を差し替えられませんでした。元の内容は変更されていません。もう一度お試しください。" : "画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。";
 }
@@ -349,152 +323,381 @@ async function drawPreview(canvas, screenshot) {
     const image = new Image(); image.src = screenshot.dataUrl; await image.decode();
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
     const context = canvas.getContext("2d"); drawScreenshot(context, image, screenshot);
-    canvas.style.visibility = "visible";
-    canvas.dataset.previewRendered = "true";
-    canvas.setAttribute("aria-label", "記録した画面（注釈とマスクを反映）");
+    const step = draft.steps.find((entry) => entry.id === canvas.dataset.stepId);
+    if (step && shownReplacements.has(step.id)) {
+      context.save(); context.strokeStyle = "#1768c4"; context.lineWidth = Math.max(2, image.width / 500); context.setLineDash([8, 5]);
+      for (const region of replacementRegions(step)) context.strokeRect(region.x * image.width, region.y * image.height, region.width * image.width, region.height * image.height);
+      context.restore();
+    }
+    canvas.style.visibility = "visible"; canvas.dataset.previewRendered = "true";
+    canvas.setAttribute("aria-label", "記録した画面。クリックして画像を調整");
   } catch {
     if (previewGenerations.get(canvas) !== generation || !canvas.isConnected) return;
-    previewObserver.unobserve(canvas);
-    canvas.__screenshot = null;
-    canvas.replaceWith(Object.assign(document.createElement("p"), { textContent: "画像を読み込めませんでした。" }));
+    const step = draft.steps.find((entry) => entry.id === canvas.dataset.stepId);
+    if (!step) return;
+    displayFailures.add(step.id); previewObserver.unobserve(canvas);
+    renderStepArticle(step); renderListOnly();
   }
+}
+
+async function openImageEditor(step, initialTool = "select") {
+  const screenshot = screenshotFor(step);
+  if (!screenshot || pendingImages.has(step.id) || displayFailures.has(step.id)) return;
+  closePanels(); activeImageEditor?.dispose();
+  const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
+  const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
+    inline: true, initialTool,
+    onSave: async (next) => {
+      const currentStep = draft.steps.find((entry) => entry.id === step.id);
+      const currentScreenshot = screenshotFor(currentStep);
+      if (!currentStep || !currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false;
+      const before = snapshot();
+      const result = await persistCandidate(() => {
+        const candidate = structuredClone(draft);
+        const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id);
+        if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE");
+        candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks;
+        if (next.dataUrl) { if (dataUrlBytes(next.dataUrl) > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE"); assertImageCapacity(candidate, next.dataUrl, candidateScreenshot.id); candidateScreenshot.dataUrl = next.dataUrl; if (next.privacyReview) { candidateScreenshot.privacyReview = next.privacyReview; candidate.steps.filter((entry) => entry.screenshotId === candidateScreenshot.id && entry.privacyReview).forEach((entry) => { entry.privacyReview = next.privacyReview; }); } }
+        return candidate;
+      }, "画像を更新して、この端末に保存しました。");
+      if (!result.ok) return false;
+      undoStack.push(before); redoStack.length = 0; historyGroup = null;
+      renderStepArticle(currentStep); updateContextTools(currentStep); updateHistoryButtons();
+      return detail.querySelector(".image-edit-button");
+    }, onClose: () => { workSurface.hidden = false; contextTools.hidden = false; }
+  });
+  editor.screenshotId = editorBitmap.id; editor.stepId = step.id; activeImageEditor = editor;
+  workSurface.hidden = true; contextTools.hidden = true;
+  await editor.open();
 }
 
 function renderScreenshot(step) {
   const screenshot = screenshotFor(step);
+  const state = imageStatus(step);
   const area = document.createElement("div"); area.className = "screenshot-area";
-  if (screenshot) {
+  const visibleImage = screenshot && !displayFailures.has(step.id) && state !== "none";
+  if (visibleImage) {
     const preview = document.createElement("div"); preview.className = "screenshot-preview";
-    const canvas = document.createElement("canvas"); canvas.className = "screenshot-canvas"; canvas.tabIndex = 0; preview.append(canvas); area.append(preview);
-    const actionRow = document.createElement("div"); actionRow.className = "image-action-row";
-    const edit = document.createElement("button"); edit.type = "button"; edit.className = "image-edit-button"; edit.textContent = "画像を編集"; edit.setAttribute("aria-label", "画像を編集"); edit.dataset.editorTrigger = screenshot.id;
-    edit.addEventListener("click", async () => {
-      activeImageEditor?.dispose();
-      const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
-      const editor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const currentScreenshot = screenshotFor(step); if (!currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false; const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id); if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE"); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === editorBitmap.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(editorBitmap.id)}"]`); } });
-      editor.screenshotId = editorBitmap.id;
-      editor.stepId = step.id;
-      activeImageEditor = editor;
-      await activeImageEditor.open();
-    });
-    actionRow.append(edit);
-    area.append(actionRow);
-    const note = document.createElement("p"); note.className = "image-editor-note"; note.textContent = "画像を編集すると、文字・図形・黒塗りを追加できます。"; area.append(note);
-    canvas.__screenshot = screenshot;
-    previewObserver.observe(canvas);
+    preview.dataset.zoomed = String(previewZoom > 1); preview.style.setProperty("--preview-zoom", `${previewZoom * 100}%`);
+    const canvas = document.createElement("canvas"); canvas.className = "screenshot-canvas"; canvas.tabIndex = 0; canvas.dataset.stepId = step.id;
+    canvas.addEventListener("click", () => openImageEditor(step));
+    canvas.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); openImageEditor(step); } });
+    preview.append(canvas); area.append(preview);
+    canvas.__screenshot = screenshot; previewObserver.observe(canvas);
+  } else {
+    const placeholder = document.createElement("div"); placeholder.className = "image-state-placeholder"; placeholder.dataset.state = state;
+    const heading = document.createElement("strong"); heading.textContent = imageLabel(step);
+    const explanation = document.createElement("p"); explanation.textContent = ["queued", "capturing"].includes(state) ? "説明の編集や、ほかの手順への移動を続けられます。" : state === "none" ? "この手順は、操作の説明だけで伝えます。" : "画像を追加するか、説明だけの手順に変更できます。";
+    placeholder.append(heading, explanation);
+    const recovery = document.createElement("div"); recovery.className = "image-state-actions";
+    if (!["queued", "capturing"].includes(state)) {
+      recovery.append(button("画像を追加", () => detail.querySelector("input[type=file]")?.click()));
+      if (state !== "none") recovery.append(button("説明だけの手順にする", () => makeTextOnly(step)));
+      if (displayFailures.has(step.id)) recovery.prepend(button("もう一度読み込む", () => { displayFailures.delete(step.id); renderStepArticle(step); renderListOnly(); }));
+    }
+    placeholder.append(recovery); area.append(placeholder);
   }
-  const uploadPanel = document.createElement("div"); uploadPanel.className = screenshot ? "image-upload-panel image-replace" : "image-upload-panel";
-  const uploadTitle = document.createElement("strong"); uploadTitle.textContent = screenshot ? "画像を差し替える" : "この手順に画像を追加";
-  const uploadHint = document.createElement("span"); uploadHint.textContent = "PNG、JPEG、WebP（10MB以下）";
-  const uploadButton = document.createElement("button"); uploadButton.type = "button"; uploadButton.textContent = screenshot ? "画像を選び直す" : "画像を選ぶ";
-  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = [...ACCEPTED_IMAGE_TYPES].join(","); fileInput.tabIndex = -1; fileInput.setAttribute("aria-hidden", "true");
-  const uploadMessage = document.createElement("p"); uploadMessage.className = "image-upload-message"; uploadMessage.hidden = true; uploadMessage.setAttribute("role", "status"); uploadMessage.setAttribute("aria-live", "polite");
-  uploadButton.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files?.[0]; if (!file) return;
-    uploadButton.disabled = true; uploadMessage.hidden = false; uploadMessage.dataset.state = "pending"; uploadMessage.textContent = "画像を確認して保存しています…";
-    let focusTarget = null;
-    try {
-      const normalized = await normalizeUploadedImage(file);
-      const result = await persistCandidate(() => {
-        const candidate = structuredClone(draft);
-        const candidateStep = candidate.steps.find((item) => item.id === step.id);
-        const target = candidateStep?.screenshotId ? candidate.screenshots.find((item) => item.id === candidateStep.screenshotId) : null;
-        const sharedByOtherStep = target && candidate.steps.some((candidateItem) => candidateItem.id !== candidateStep?.id && candidateItem.screenshotId === target.id);
-        const replacementId = target && !sharedByOtherStep ? target.id : null;
-        assertImageCapacity(candidate, normalized.dataUrl, replacementId);
-        if (target && !sharedByOtherStep) { target.dataUrl = normalized.dataUrl; target.annotations = []; target.masks = []; }
-        else { const screenshotId = crypto.randomUUID(); candidate.screenshots.push({ id: screenshotId, dataUrl: normalized.dataUrl, annotations: [], masks: [] }); candidateStep.screenshotId = screenshotId; }
-        return candidate;
-      }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
-      if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
-      const targetEditor = activeImageEditor?.stepId === step.id && document.querySelector("#imageEditorDialog")?.open === true;
-      const shouldRestoreFocus = targetEditor || document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
-      fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success";
-      const currentStep = draft.steps.find((item) => item.id === step.id) || step;
-      if (targetEditor) { activeImageEditor.dispose(); activeImageEditor = null; }
-      renderStepArticle(currentStep);
-      if (shouldRestoreFocus && currentStep.screenshotId) focusTarget = detail.querySelector(`[data-step-id="${CSS.escape(currentStep.id)}"] [data-editor-trigger="${CSS.escape(currentStep.screenshotId)}"]`);
-    } catch (error) {
-      const shouldRestoreFocus = document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
-      uploadMessage.textContent = imageUploadError(error, Boolean(screenshot)); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
-      if (shouldRestoreFocus) focusTarget = uploadButton;
-    } finally { fileInput.value = ""; uploadButton.disabled = false; focusTarget?.focus?.({ preventScroll: true }); }
-  });
-  uploadPanel.append(uploadTitle, uploadHint, uploadButton, fileInput, uploadMessage); area.append(uploadPanel);
+  const actionRow = document.createElement("div"); actionRow.className = "image-action-row";
+  const badge = document.createElement("span"); badge.className = "image-status"; badge.dataset.state = state === "protected" ? "review" : state; badge.textContent = imageLabel(step); actionRow.append(badge);
+  if (visibleImage) {
+    const edit = button("画像を編集", () => openImageEditor(step), "image-edit-button secondary"); edit.dataset.editorTrigger = screenshot.id; edit.disabled = pendingImages.has(step.id); actionRow.append(edit);
+    const zoom = document.createElement("div"); zoom.className = "zoom-controls";
+    const label = document.createElement("span"); label.textContent = `${Math.round(previewZoom * 100)}%`;
+    const updateZoom = (next) => { previewZoom = Math.max(1, Math.min(3, next)); draft.editorState = { selectedStepId, zoom: previewZoom }; const preview = area.querySelector(".screenshot-preview"); preview.dataset.zoomed = String(previewZoom > 1); preview.style.setProperty("--preview-zoom", `${previewZoom * 100}%`); label.textContent = `${Math.round(previewZoom * 100)}%`; persist(); };
+    const minus = button("−", () => updateZoom(previewZoom - .25)); minus.setAttribute("aria-label", "表示を縮小");
+    const plus = button("＋", () => updateZoom(previewZoom + .25)); plus.setAttribute("aria-label", "表示を拡大");
+    zoom.append(label, minus, plus, button("全体表示", () => updateZoom(1))); actionRow.append(zoom);
+  }
+  area.append(actionRow);
+  if (["protected", "failed"].includes(state) && visibleImage) {
+    const recovery = document.createElement("div"); recovery.className = "image-state-actions";
+    const privacy = screenshot.privacyReview || step.privacyReview;
+    // Unsupported protected surfaces need a replacement or an explicit text-only
+    // choice. A generic acknowledgement cannot turn those pixels into success.
+    if (privacy?.reasonCodes?.includes("manual_image_review") || uploadFailures.has(step.id)) recovery.append(button(uploadFailures.has(step.id) ? "元の画像を使う" : "画像に公開できない情報がないことを確認", () => confirmImage(step)));
+    recovery.append(button("安全な画像へ差し替える", () => detail.querySelector("input[type=file]")?.click()), button("説明だけの手順にする", () => makeTextOnly(step)));
+    area.append(recovery);
+  }
+  const uploadPanel = createUploadPanel(step, screenshot);
+  // The input remains in the selected article for accessible file selection;
+  // the replacement controls are progressively disclosed below the caption.
+  const uploadDetails = document.createElement("details"); uploadDetails.className = "advanced-actions image-file-actions";
+  const summary = document.createElement("summary"); summary.textContent = screenshot ? "画像を差し替える" : "画像を追加する";
+  uploadDetails.append(summary, uploadPanel); uploadDetails.open = uploadFailures.has(step.id); area.append(uploadDetails);
   return area;
 }
 
+function createUploadPanel(step, screenshot) {
+  const panel = document.createElement("div"); panel.className = screenshot ? "image-upload-panel image-replace" : "image-upload-panel";
+  const hint = document.createElement("span"); hint.textContent = screenshot ? "この画像の注釈と追加の保護設定は引き継がれません。適用後は取り消せます。PNG・JPEG・WebP、10MB以下。" : "PNG・JPEG・WebP、10MB以下。追加後に画像の内容を確認してください。";
+  const uploadButton = button(screenshot ? "画像を選び直す" : "画像を選ぶ", () => fileInput.click());
+  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = [...ACCEPTED_IMAGE_TYPES].join(","); fileInput.tabIndex = -1; fileInput.setAttribute("aria-hidden", "true");
+  const message = document.createElement("p"); message.className = "image-upload-message"; message.hidden = true; message.setAttribute("role", "status");
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0]; if (!file || pendingImages.has(step.id)) return;
+    const before = snapshot(); const priorState = structuredClone(step.imageState);
+    const version = (step.imageState?.version || 0) + 1;
+    step.imageState = { status: "queued", reason: null, attempts: (step.imageState?.attempts || 0) + 1, version };
+    uploadButton.disabled = true; message.hidden = false; message.dataset.state = "pending"; message.textContent = "画像を確認して端末に保存しています…";
+    let resolvePending;
+    const pending = new Promise((resolve) => { resolvePending = resolve; });
+    // Register before the first asynchronous file read, not just before IDB.
+    pendingImages.set(step.id, { promise: pending, version });
+    renderListOnly(); updateImageSummary();
+    const stillCurrent = () => draft.steps.find((entry) => entry.id === step.id)?.imageState?.version === version;
+    (async () => {
+      let timer; let succeeded = false; let shouldRestoreFocus = false;
+      try {
+        const normalized = await Promise.race([normalizeUploadedImage(file), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("IMAGE_DECODE_TIMEOUT")), 30_000); })]);
+        clearTimeout(timer);
+        if (!stillCurrent()) return;
+        const result = await persistCandidate(() => {
+          const candidate = structuredClone(draft); const targetStep = candidate.steps.find((item) => item.id === step.id);
+          if (!targetStep || targetStep.imageState?.version !== version) throw new Error("IMAGE_UPLOAD_STALE");
+          const target = candidate.screenshots.find((item) => item.id === targetStep.screenshotId);
+          const shared = target && candidate.steps.some((entry) => entry.id !== step.id && entry.screenshotId === target.id);
+          assertImageCapacity(candidate, normalized.dataUrl, target && !shared ? target.id : null);
+          const next = { id: target && !shared ? target.id : crypto.randomUUID(), dataUrl: normalized.dataUrl, annotations: [], masks: [], privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"] } };
+          if (target && !shared) candidate.screenshots[candidate.screenshots.indexOf(target)] = next; else candidate.screenshots.push(next);
+          targetStep.screenshotId = next.id; targetStep.imageState = { status: "protected", reason: null, attempts: targetStep.imageState.attempts, version }; targetStep.privacyReview = next.privacyReview;
+          return candidate;
+        }, "画像を端末に保存しました。公開できない情報が残っていないか確認してください。");
+        if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
+        succeeded = true;
+        shouldRestoreFocus = (activeImageEditor?.stepId === step.id && imageDialog.open) || [document.body, fileInput, uploadButton].includes(document.activeElement);
+        undoStack.push(before); redoStack.length = 0; historyGroup = null;
+        uploadFailures.delete(step.id); displayFailures.delete(step.id);
+        if (activeImageEditor?.stepId === step.id) { activeImageEditor.dispose(); activeImageEditor = null; workSurface.hidden = false; contextTools.hidden = false; }
+      } catch (error) {
+        if (!stillCurrent()) return;
+        shouldRestoreFocus = [document.body, fileInput, uploadButton].includes(document.activeElement);
+        const current = draft.steps.find((entry) => entry.id === step.id);
+        if (current) { current.imageState = { status: "failed", reason: null, attempts: current.imageState?.attempts || 1, version }; uploadFailures.set(step.id, { priorState, message: imageUploadError(error, Boolean(screenshot)) }); }
+        message.textContent = imageUploadError(error, Boolean(screenshot)); message.hidden = false; message.dataset.state = "error";
+        status.textContent = message.textContent;
+        await persist("画像を準備できませんでした。画像欄から再試行できます。");
+      } finally {
+        clearTimeout(timer);
+        if (pendingImages.get(step.id)?.version === version) pendingImages.delete(step.id);
+        resolvePending(); fileInput.value = ""; uploadButton.disabled = false;
+        const current = draft.steps.find((entry) => entry.id === step.id);
+        if (current && selectedStepId === step.id) { renderStepArticle(current); if (shouldRestoreFocus) detail.querySelector(succeeded ? ".image-edit-button" : ".image-upload-panel button")?.focus({ preventScroll: true }); }
+        renderListOnly(); updateImageSummary();
+        if (!localWriteFailed) setSaveState("端末に保存済み");
+      }
+    })();
+  });
+  const failure = uploadFailures.get(step.id);
+  if (failure) { message.hidden = false; message.dataset.state = "error"; message.textContent = failure.message; }
+  panel.append(hint, uploadButton, fileInput, message); return panel;
+}
+
+async function confirmImage(step) {
+  if (pendingImages.has(step.id)) return;
+  remember(); const screenshot = screenshotFor(step);
+  const failure = uploadFailures.get(step.id);
+  if (failure) { step.imageState = failure.priorState || { status: screenshot ? "ready" : "unavailable", reason: null, attempts: 0, version: 1 }; uploadFailures.delete(step.id); renderStepArticle(step); renderListOnly(); await persist(); return; }
+  uploadFailures.delete(step.id); displayFailures.delete(step.id);
+  if (screenshot?.privacyReview) screenshot.privacyReview.reviewRequired = false;
+  if (step.privacyReview) step.privacyReview.reviewRequired = false;
+  setImageState(step, "ready"); renderStepArticle(step); renderListOnly(); await persist();
+}
+async function makeTextOnly(step) {
+  if (pendingImages.has(step.id)) return;
+  remember(); delete step.screenshotId; delete step.privacyReview; setImageState(step, "none"); removeUnreferencedImages();
+  displayFailures.delete(step.id); uploadFailures.delete(step.id); renderStepArticle(step); renderListOnly(); await persist("説明だけの手順として、この端末に保存しました。");
+}
+function updateContextTools(step) {
+  const screenshot = screenshotFor(step); const canEdit = Boolean(screenshot) && !pendingImages.has(step.id) && !displayFailures.has(step.id) && imageStatus(step) !== "none";
+  document.querySelector("#adjustImage").disabled = !canEdit;
+  document.querySelector("#cropImage").disabled = !canEdit;
+  const review = screenshot?.privacyReview || step.privacyReview;
+  document.querySelector("#privacySummary").textContent = review?.replacementCount ? `${review.replacementCount}か所を架空値に置換` : "画像と説明の内容を確認してください";
+  const privacyDetail = document.querySelector("#privacyDetail");
+  privacyDetail.hidden = !shownReplacements.has(step.id);
+  privacyDetail.textContent = review?.reviewRequired ? "安全な置換を確認できない領域があります。安全な画像へ差し替えるか、説明だけの手順に変更してください。" : "置換済み画像だけを表示しています。元の個人情報の表示・復元はできません。手動追加した画像では自動置換を行っていません。";
+  const regions = replacementRegions(step);
+  if (regions.length) {
+    const list = document.createElement("ol"); list.className = "replacement-list";
+    const labels = { name: "氏名", person: "氏名", company: "所属", organization: "所属", address: "住所", email: "メール", phone: "電話", identifier: "番号", date: "日付", secret: "秘密情報" };
+    for (const region of regions) { const item = document.createElement("li"); item.textContent = `${labels[region.kind] || "置換"}：${region.text}`; list.append(item); }
+    privacyDetail.append(list);
+  } else if (review?.replacementCount) { const note = document.createElement("p"); note.textContent = "この画像には置換位置の情報がありません。画像全体で確認してください。"; privacyDetail.append(note); }
+  document.querySelector("#reviewPrivacy").textContent = shownReplacements.has(step.id) ? "置換箇所の表示を閉じる" : "置換箇所を確認";
+  document.querySelector("#reviewPrivacy").disabled = !screenshot;
+  const actions = document.querySelector("#contextImageActions"); actions.replaceChildren(button(screenshot ? "画像を差し替える" : "画像を追加する", () => { closePanels(); const details = detail.querySelector(".image-file-actions"); details.open = true; details.querySelector("button")?.focus(); }), button("説明だけの手順にする", () => makeTextOnly(step)));
+}
 function renderStepArticle(step) {
+  if (step.id !== selectedStepId) return;
   const article = detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"]`);
   if (!article) return render();
-  const previousCanvas = article.querySelector(".screenshot-canvas");
-  if (previousCanvas) { invalidatePreview(previousCanvas); previewObserver.unobserve(previousCanvas); previousCanvas.__screenshot = null; }
+  const oldCanvas = article.querySelector(".screenshot-canvas");
+  if (oldCanvas) { invalidatePreview(oldCanvas); previewObserver.unobserve(oldCanvas); oldCanvas.__screenshot = null; }
   article.querySelector(".screenshot-area")?.replaceWith(renderScreenshot(step));
+  updateContextTools(step); updateImageSummary();
 }
-
-function render() {
-  detail.querySelectorAll(".screenshot-canvas").forEach((canvas) => invalidatePreview(canvas));
-  previewObserver.disconnect();
-  stepObserver?.disconnect();
+function renderListOnly() {
+  const previous = document.activeElement?.closest("#steps button")?.dataset.stepId;
+  const scrollTop = steps.scrollTop;
   steps.replaceChildren();
-  detail.replaceChildren();
-  const current = draft.steps.find((step) => step.id === selectedStepId) || draft.steps[0]; selectedStepId = current?.id;
   for (const step of draft.steps) {
     const item = document.createElement("li");
-    const select = document.createElement("button"); select.textContent = `${step.order}. ${step.instruction || "（説明なし）"}`; select.setAttribute("aria-controls", `step-${step.id}`); select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
-    select.addEventListener("click", () => { selectedStepId = step.id; document.getElementById(`step-${step.id}`)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); });
-    item.append(select);
-    steps.append(item);
+    const select = button("", () => selectStep(step.id)); select.dataset.stepId = step.id;
+    select.setAttribute("aria-controls", `step-${step.id}`); select.setAttribute("aria-current", step.id === selectedStepId ? "step" : "false");
+    const number = document.createElement("span"); number.className = "step-number"; number.textContent = step.order;
+    const name = document.createElement("span"); name.className = "step-name"; name.textContent = step.instruction || "（説明なし）";
+    const state = document.createElement("span"); state.className = "step-image-status"; state.dataset.state = imageStatus(step) === "protected" ? "review" : imageStatus(step); state.textContent = imageLabel(step);
+    select.append(number, name, state); item.append(select); steps.append(item);
+    select.addEventListener("keydown", (event) => {
+      if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+      event.preventDefault();
+      if (event.altKey) { reorderStep(step, event.key === "ArrowUp" ? "up" : "down", true); return; }
+      const index = draft.steps.findIndex((entry) => entry.id === step.id) + (event.key === "ArrowUp" ? -1 : 1);
+      steps.querySelectorAll("button")[Math.max(0, Math.min(draft.steps.length - 1, index))]?.focus();
+    });
   }
-  if (!current) { detail.textContent = "記録された手順はありません。手順を追加して編集できます。"; return; }
-  for (const step of draft.steps) {
-    const article = document.createElement("article"); article.className = "step-article"; article.id = `step-${step.id}`; article.dataset.stepId = step.id;
-    const heading = document.createElement("h3"); heading.textContent = `手順 ${step.order}`; article.append(heading);
-    const label = document.createElement("label"); label.textContent = "手順の説明"; const instruction = document.createElement("textarea"); instruction.value = step.instruction; instruction.maxLength = 500; instruction.addEventListener("input", async () => { updateStepInstruction(draft, step.id, instruction.value); await persist(); renderListOnly(); }); label.append(instruction); article.append(label);
-    const controls = document.createElement("div"); controls.className = "step-controls";
-    for (const [text, action, disabled] of [["上へ", "up", step.order === 1], ["下へ", "down", step.order === draft.steps.length]]) { const button = document.createElement("button"); button.textContent = text; button.disabled = disabled; button.addEventListener("click", async () => { moveStep(draft, step.id, action); selectedStepId = step.id; await persist(); render(); }); controls.append(button); }
-    const remove = document.createElement("button"); remove.textContent = "削除"; remove.className = "danger"; remove.addEventListener("click", async () => { deleteStep(draft, step.id); selectedStepId = draft.steps[0]?.id; await persist(); render(); }); controls.append(remove); article.append(controls, renderScreenshot(step)); detail.append(article);
-  }
-  const setCurrent = (id) => steps.querySelectorAll("button[aria-controls]").forEach((button) => button.setAttribute("aria-current", button.getAttribute("aria-controls") === id ? "step" : "false"));
-  stepObserver = new IntersectionObserver((entries) => entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio).slice(0, 1).forEach((entry) => setCurrent(entry.target.id)), { rootMargin: "-20% 0px -60%" });
-  detail.querySelectorAll(".step-article").forEach((article) => stepObserver.observe(article));
+  steps.scrollTop = scrollTop;
+  if (previous) steps.querySelector(`[data-step-id="${CSS.escape(previous)}"]`)?.focus({ preventScroll: true });
+  updateImageSummary();
 }
-
-function notifyEditorReady() {
-  chrome.runtime?.sendMessage({ type: "editor:ready", draftId: id, ready: true }, () => void chrome.runtime.lastError);
+function selectStep(stepId) {
+  if (imageDialog.open) { status.textContent = "画像の変更を適用するか、閉じてから手順を移動してください。"; return; }
+  selectedStepId = stepId; historyGroup = null; closePanels(); render(); persist();
 }
-
-function renderListOnly() {
-  const labels = steps.querySelectorAll("button");
-  draft.steps.forEach((step, index) => { if (labels[index]) labels[index].textContent = `${step.order}. ${step.instruction || "（説明なし）"}`; });
+async function reorderStep(step, direction, focusList = false) {
+  remember(); moveStep(draft, step.id, direction); selectedStepId = step.id; render();
+  if (focusList) steps.querySelector(`[data-step-id="${CSS.escape(step.id)}"]`)?.focus({ preventScroll: true });
+  else detail.querySelector(".step-menu summary")?.focus({ preventScroll: true });
+  await persist("手順の順序を変更して、この端末に保存しました。");
 }
-
+function render() {
+  detail.querySelectorAll(".screenshot-canvas").forEach((canvas) => invalidatePreview(canvas)); previewObserver.disconnect(); detail.replaceChildren();
+  const step = draft.steps.find((entry) => entry.id === selectedStepId) || draft.steps[0]; selectedStepId = step?.id;
+  renderListOnly();
+  if (!step) { detail.textContent = "手順を追加して編集を始めましょう。"; contextTools.hidden = true; return; }
+  contextTools.hidden = imageDialog.open;
+  const article = document.createElement("article"); article.className = "step-article"; article.id = `step-${step.id}`; article.dataset.stepId = step.id;
+  const headingRow = document.createElement("div"); headingRow.className = "step-heading";
+  const heading = document.createElement("h3"); const count = document.createElement("span"); count.textContent = `手順 ${step.order} / ${draft.steps.length}`; heading.append(count, "操作を確認する");
+  const menu = document.createElement("details"); menu.className = "step-menu"; const summary = document.createElement("summary"); summary.textContent = "•••"; summary.setAttribute("aria-label", "手順の操作");
+  const controls = document.createElement("div"); controls.className = "step-controls";
+  for (const [text, direction, disabled] of [["前へ移動", "up", step.order === 1], ["後へ移動", "down", step.order === draft.steps.length]]) { const move = button(text, () => reorderStep(step, direction)); move.disabled = disabled; controls.append(move); }
+  controls.append(button("複製", async () => { remember(); const copied = structuredClone(step); copied.id = crypto.randomUUID(); draft.steps.splice(draft.steps.indexOf(step) + 1, 0, copied); draft.steps.forEach((entry,index) => { entry.order = index + 1; }); selectedStepId = copied.id; render(); detail.querySelector("textarea")?.focus(); await persist(); }));
+  controls.append(button("削除", async () => { remember(); const index = draft.steps.indexOf(step); deleteStep(draft, step.id); removeUnreferencedImages(); selectedStepId = draft.steps[index]?.id || draft.steps[index - 1]?.id; render(); detail.querySelector("textarea")?.focus(); await persist("手順を削除しました。取り消すことができます。"); }, "danger"));
+  menu.append(summary, controls); headingRow.append(heading, menu); article.append(headingRow, renderScreenshot(step));
+  const label = document.createElement("label"); label.className = "instruction-label"; label.textContent = "操作の説明";
+  const instruction = document.createElement("textarea"); instruction.value = step.instruction; instruction.setAttribute("aria-description", "500文字以内");
+  const updateInstruction = (event) => { if (event.isComposing) return; remember(`instruction:${step.id}`); instruction.value = Array.from(instruction.value).slice(0, 500).join(""); updateStepInstruction(draft, step.id, instruction.value); persist(); renderListOnly(); };
+  instruction.addEventListener("input", updateInstruction); instruction.addEventListener("compositionend", updateInstruction);
+  instruction.addEventListener("blur", () => { historyGroup = null; });
+  label.append(instruction); article.append(label); detail.append(article); updateContextTools(step); applyBranding();
+}
+function notifyEditorReady() { if (typeof chrome !== "undefined") chrome.runtime?.sendMessage?.({ type: "editor:ready", draftId: id, ready: true }, () => void globalThis.chrome?.runtime?.lastError); }
 addStepButton.addEventListener("click", async () => {
-  const step = addStep(draft);
-  selectedStepId = step.id;
-  await persist("手順を追加して、この端末に保存しました。");
-  render();
+  if (imageDialog.open) return;
+  remember(); const previous = selectedStepId; const step = addStep(draft);
+  const index = draft.steps.findIndex((entry) => entry.id === previous);
+  draft.steps.pop(); draft.steps.splice(index + 1, 0, step); draft.steps.forEach((entry, position) => { entry.order = position + 1; });
+  if (!step.screenshotId) setImageState(step, "none");
+  selectedStepId = step.id; closePanels(); render(); detail.querySelector("textarea")?.focus(); await persist("手順を追加して、この端末に保存しました。");
 });
-for (const field of [title, description]) field.addEventListener("input", () => persist());
+for (const field of [title, description]) {
+  field.addEventListener("input", () => { remember(field.id); draft[field.id] = field.value; persist(); });
+  field.addEventListener("blur", () => { historyGroup = null; });
+}
+document.querySelector("#undo").addEventListener("click", () => restoreHistory(undoStack, redoStack));
+document.querySelector("#redo").addEventListener("click", () => restoreHistory(redoStack, undoStack));
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !imageDialog.open) { event.preventDefault(); restoreHistory(event.shiftKey ? redoStack : undoStack, event.shiftKey ? undoStack : redoStack); }
+  if (event.key === "Escape" && panelTrigger) { event.preventDefault(); closePanels(); }
+});
+document.querySelector("#openNavigation").addEventListener("click", (event) => openPanel("navigation", event.currentTarget));
+document.querySelector("#openTools").addEventListener("click", (event) => openPanel("tools", event.currentTarget));
+document.querySelectorAll("[data-close-panel]").forEach((node) => node.addEventListener("click", closePanels));
+document.querySelector("#panelBackdrop").addEventListener("click", closePanels);
+document.querySelector("#adjustImage").addEventListener("click", () => openImageEditor(draft.steps.find((step) => step.id === selectedStepId)));
+document.querySelector("#cropImage").addEventListener("click", () => openImageEditor(draft.steps.find((step) => step.id === selectedStepId), "crop"));
+document.querySelector("#reviewPrivacy").addEventListener("click", () => { const step = draft.steps.find((entry) => entry.id === selectedStepId); if (!step) return; if (shownReplacements.has(step.id)) shownReplacements.delete(step.id); else shownReplacements.add(step.id); renderStepArticle(step); });
+document.querySelector("#retrySave").addEventListener("click", () => persist());
+window.addEventListener("beforeunload", (event) => { if (localWriteFailed || pendingImages.size) { event.preventDefault(); event.returnValue = ""; } });
+
+function renderOutputSummary() {
+  document.querySelector("#outputSummaryTitle").textContent = title.value || "無題の手順書";
+  const unresolved = unresolvedSteps(); const images = draft.steps.filter((step) => step.screenshotId && imageStatus(step) !== "none").length;
+  document.querySelector("#outputSummary").textContent = `${draft.steps.length}手順・画像${images}枚${unresolved.length ? `・要確認${unresolved.length}件` : "・画像準備完了"}`;
+  const issues = document.querySelector("#outputIssues"); issues.replaceChildren();
+  for (const step of unresolved) issues.append(button(`手順${step.order}：${imageLabel(step)}`, () => { outputGate.close(); selectStep(step.id); }, "secondary"));
+  updateRegistrationAvailability();
+}
+function textFieldsValid() {
+  title.setCustomValidity(!title.value.trim() ? "手順書のタイトルを入力してください。" : Array.from(title.value.trim()).length > 64 ? "タイトルは64文字以内で入力してください。" : "");
+  description.setCustomValidity(Array.from(description.value).length > 10000 ? "説明は10,000文字以内で入力してください。" : "");
+  return title.validity.valid && description.validity.valid;
+}
 function updateRegistrationAvailability() {
-  const origin = getOnboardingOrigin();
-  startRegistration.disabled = !origin;
-  if (startShare) startShare.disabled = !origin;
+  const origin = getOnboardingOrigin(); const blocked = outputPreflight || unresolvedSteps().length > 0 || pendingImages.size > 0 || !textFieldsValid();
+  startRegistration.disabled = !origin || blocked || outputInFlight;
+  if (startShare) startShare.disabled = !origin || blocked || outputInFlight;
   if (!origin) gateStatus.textContent = pendingRegistrationMessage;
   return origin;
 }
-
-document.querySelector("#save").addEventListener("click", async () => {
-  if (!await persist("この端末に保存しました。保存の準備に進むか、編集に戻れます。")) {
-    gateStatus.textContent = "保存に失敗したため、保存先へ進めません。編集内容を確認して、もう一度お試しください。";
-    return;
+async function verifyOutputImages(generation) {
+  // Check every referenced image, including non-selected steps. No output may
+  // silently omit an image just because its preview has not been opened yet.
+  for (const step of draft.steps) {
+    if (generation !== outputGateGeneration || !outputGate.open) return;
+    if (imageStatus(step) !== "ready") continue;
+    const screenshot = screenshotFor(step); if (!screenshot) continue;
+    let timeout;
+    try {
+      const image = new Image(); image.src = screenshot.dataUrl;
+      await Promise.race([image.decode(), new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("IMAGE_DECODE_TIMEOUT")), 8_000); })]);
+      if (generation !== outputGateGeneration || !outputGate.open) return;
+      assertImageDimensions(image.width, image.height);
+      const canvas = document.createElement("canvas"); drawScreenshot(canvas.getContext("2d"), image, screenshot); canvas.width = 1; canvas.height = 1;
+      displayFailures.delete(step.id);
+    } catch { if (generation === outputGateGeneration && screenshotFor(step)?.dataUrl === screenshot.dataUrl) displayFailures.add(step.id); }
+    finally { clearTimeout(timeout); }
   }
-  gateStatus.textContent = "";
-  if (typeof outputGate.showModal === "function") outputGate.showModal();
-  else outputGate.hidden = false;
-  updateRegistrationAvailability();
+}
+async function openOutput(action) {
+  if (!textFieldsValid()) { status.textContent = title.validationMessage || description.validationMessage; title.reportValidity(); description.reportValidity(); return; }
+  if (imageDialog.open) { status.textContent = "画像の変更を適用するか、閉じてから保存・共有してください。"; return; }
+  const generation = ++outputGateGeneration; outputIntent = action; closePanels();
+  document.querySelector("#outputGateTitle").textContent = action === "share" ? "共有する内容を確認" : "クラウドに保存する内容を確認";
+  startRegistration.hidden = action === "share"; startShare.hidden = action !== "share";
+  outputPreflight = true; gateStatus.textContent = "画像と端末の保存状態を確認しています…"; renderOutputSummary();
+  if (!outputGate.open) outputGate.showModal();
+  if (pendingImages.size) { gateStatus.textContent = "追加した画像を端末に保存しています。完了後、内容を確認できます。"; await Promise.all([...pendingImages.values()].map((entry) => entry.promise)); }
+  if (generation !== outputGateGeneration || !outputGate.open) return;
+  await verifyOutputImages(generation);
+  if (generation !== outputGateGeneration || !outputGate.open) return;
+  if (!await persist()) { outputPreflight = false; gateStatus.textContent = "端末に保存できないため、クラウドへ進めません。編集内容を確認して再試行してください。"; startRegistration.disabled = true; startShare.disabled = true; return; }
+  if (generation !== outputGateGeneration || !outputGate.open) return;
+  outputPreflight = false; gateStatus.textContent = unresolvedSteps().length ? "確認が必要な手順を選んで、画像の問題を解消してください。" : "端末の最新の内容を保存します。"; renderListOnly(); renderOutputSummary();
+}
+document.querySelector("#save").addEventListener("click", () => openOutput("save"));
+document.querySelector("#share").addEventListener("click", () => openOutput("share"));
+document.querySelector("#mobileShare").addEventListener("click", () => openOutput("share"));
+
+function applyBranding() {
+  const color = /^#[\da-f]{6}$/i.test(draft.branding?.themeColor || "") ? draft.branding.themeColor : "#087f7a";
+  document.querySelector("#brandColor").value = color;
+  // Keep navigation/text contrast fixed; the team color decorates the image frame.
+  detail.style.setProperty("--brand-color", color);
+  detail.querySelector(".screenshot-preview")?.style.setProperty("border-top", `4px solid ${color}`);
+  const mark = document.querySelector(".brand-mark");
+  mark.src = draft.branding?.logoDataUrl || "../assets/meccha-manual-logo-mark.png";
+  document.querySelector("#removeBrandLogo").hidden = !draft.branding?.logoDataUrl;
+}
+document.querySelector("#brandColor").addEventListener("input", async (event) => { remember("brandColor"); draft.branding = { ...draft.branding, themeColor: event.target.value }; applyBranding(); await persist(); });
+document.querySelector("#brandLogo").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0]; if (!file) return;
+  try { const image = await normalizeUploadedImage(file); remember(); draft.branding = { ...draft.branding, logoDataUrl: image.dataUrl }; applyBranding(); await persist(); }
+  catch { document.querySelector("#brandStatus").textContent = "ロゴを読み込めませんでした。10MB以下のPNG・JPEG・WebPを選んでください。"; }
+  finally { event.target.value = ""; }
 });
+document.querySelector("#removeBrandLogo").addEventListener("click", async () => { remember(); if (draft.branding) delete draft.branding.logoDataUrl; applyBranding(); await persist(); });
 
 function waitFor(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -670,7 +873,7 @@ async function activateReadyHandoff(run, ready) {
 
 async function startOutput(outputAction) {
   const origin = updateRegistrationAvailability();
-  if (!origin || outputInFlight || activeHandoffAttempt?.tabState === "activating") return;
+  if (!origin || outputPreflight || !textFieldsValid() || outputInFlight || pendingImages.size || unresolvedSteps().length || localWriteFailed || activeHandoffAttempt?.tabState === "activating") return;
   outputInFlight = true;
   const previousAttempt = activeHandoffAttempt;
   cancelHandoffRun(previousAttempt);
@@ -686,6 +889,8 @@ async function startOutput(outputAction) {
   gateStatus.textContent = "保存先の準備画面を開いています。ログインが必要な場合は、表示された画面で続けてください。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
+      if (!await persist()) throw new Error("LOCAL_SAVE_FAILED");
+      if (pendingImages.size || unresolvedSteps().length) throw new Error("IMAGE_REVIEW_REQUIRED");
       await pruneExpiredHandoffs();
       const extensionId = chrome.runtime?.id;
       const draftFingerprint = await fingerprintDraft(draft);
@@ -777,9 +982,15 @@ outputGate.addEventListener("cancel", (event) => {
   cancelHandoffRun(attempt);
 });
 outputGate.addEventListener("close", () => {
+  outputGateGeneration += 1; outputPreflight = false;
+  status.textContent = "ログイン・保存の準備を閉じました。下書きはこの端末に残っています。";
+  document.querySelector(outputIntent === "share" ? "#share" : "#save")?.focus({ preventScroll: true });
   const attempt = activeHandoffAttempt;
   cancelHandoffRun(attempt);
 });
+const interruptedImages = draft.steps.filter((step) => ["queued", "capturing"].includes(step.imageState?.status));
+for (const step of interruptedImages) setImageState(step, "unavailable", "capture_interrupted");
 render();
 notifyEditorReady();
+if (interruptedImages.length) persist("前回の画像準備が完了しませんでした。画像を追加するか、説明だけの手順に変更できます。");
 document.getElementById("editor-heading")?.focus({ preventScroll: true });

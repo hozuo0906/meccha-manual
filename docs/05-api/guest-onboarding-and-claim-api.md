@@ -347,3 +347,9 @@ finalize応答が失われた場合は、同じclaim intentの結果を照会す
 ## ローカル画像注釈の境界（Issue #264）
 
 画像注釈は拡張機能のlocal draftにだけ保持する。`page-ready`、claim metadata、handoff messageには注釈本文や元画像を含めず、claim assetとして共通rendererで注釈と既存黒マスクを焼き込んだPNGだけを送信する。旧draftの注釈未指定・空状態は従来のcanonical fingerprint形状を維持する。
+
+## 編集中画像のoutput境界（2026-10-01）
+
+DEC-090のimageStateを持つdraftでは、queued/capturing/failed/unavailable/protectedを含む状態のままoutputを開始しない。noneは明示的な説明のみ、readyは実際のscreenshot参照がある場合だけ許可する。画像追加はdecode前から端末への確定保存までpendingとして扱う。snapshot fingerprintはimageStateのstatus/versionを含め、表示倍率や選択手順などローカル表示状態は含めない。
+
+未確認画像を「画像なし」としてsilent dropしない。共有する版を確認し、画像や端末保存に失敗した場合は同じ下書きを保持して回復する。既存の同一origin、Access、workspace、hand-off TTL/nonce、chunk上限と冪等性の境界は維持する。

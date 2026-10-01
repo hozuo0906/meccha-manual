@@ -164,3 +164,29 @@ test("D extension distribution is pinned to staging and version 0.1.7", async ()
   assert.equal(manifest.version, "0.1.7");
   assert.deepEqual(manifest.externally_connectable.matches, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
 });
+
+
+test("known pending, failed and unreviewed images block output instead of being dropped", async () => {
+  const base = { id: "review", title: "確認", description: "", steps: [{ id: "s1", order: 1, instruction: "保存する" }], screenshots: [] };
+  for (const status of ["queued", "capturing", "unavailable", "failed", "protected", "unknown"]) {
+    assert.equal(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status, version: 1 } }] }), null, status);
+  }
+  assert.ok(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status: "none", version: 1 } }] }));
+  assert.equal(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status: "ready", version: 1 } }] }), null);
+  const ready = { ...base, steps: [{ ...base.steps[0], screenshotId: "image", imageState: { status: "ready", version: 1 } }], screenshots: [{ id: "image", dataUrl: "data:image/png;base64,AA==", masks: [] }] };
+  assert.ok(cleanDraft(ready));
+  assert.equal(cleanDraft({ ...ready, steps: [{ ...ready.steps[0], imageState: { status: "none", version: 1 } }] }), null);
+  assert.notEqual(await fingerprintDraft(ready), await fingerprintDraft({ ...ready, steps: [{ ...ready.steps[0], imageState: { status: "protected", version: 1 } }] }));
+  assert.equal(await fingerprintDraft({ ...ready, editorState: { selectedStepId: "s1", zoom: 200 } }), await fingerprintDraft(ready));
+});
+
+
+test("output prunes orphan screenshots but rejects referenced pending privacy review independently of image state", () => {
+  const image = { id: "image", dataUrl: "data:image/png;base64,AA==", masks: [] };
+  const step = { id: "s1", order: 1, instruction: "確認する", screenshotId: "image", imageState: { status: "ready", version: 1 } };
+  const draft = { title: "手順書", description: "", steps: [step], screenshots: [{ ...image, id: "orphan", privacyReview: { reviewRequired: true } }, image] };
+  assert.deepEqual(cleanDraft(draft).screenshots.map((item) => item.id), ["image"]);
+  assert.equal(cleanDraft({ ...draft, steps: [{ ...step, privacyReview: { reviewRequired: true } }] }), null);
+  assert.equal(cleanDraft({ ...draft, screenshots: [{ ...image, privacyReview: { reviewRequired: true } }] }), null);
+  assert.deepEqual(cleanDraft({ ...draft, steps: [{ id: "s1", order: 1, instruction: "説明のみ", imageState: { status: "none", version: 2 } }] }).screenshots, []);
+});

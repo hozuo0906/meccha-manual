@@ -35,7 +35,7 @@
         <option value="tabletLandscape">タブレット（横）</option>
       </select>
       <button id="start" class="primary" type="button">記録開始</button>
-      <p class="privacy-note">入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があるため、画像編集で黒塗りしてください。</p>
+      <p class="privacy-note">個人情報は種類に合う架空値へ置換します。保護した領域や置換できなかった画像は、記録後に確認できます。公開前に画像と操作文を確認してください。</p>
     </section>
 
     <div id="liveProgress" class="live-progress" aria-live="polite" hidden>
@@ -43,6 +43,7 @@
         <span class="live-progress-label">現在の手順</span>
         <strong id="liveCurrentStep">まだありません</strong>
       </div>
+      <span id="liveImageSummary" class="live-image-summary">画像 完了 0/0・準備中 0・取得できず 0・要確認 0・説明のみ 0</span>
       <span id="liveCurrentStatus" class="live-current-status">操作を待っています</span>
       <button id="liveLatest" class="live-latest" type="button" hidden>最新の手順を見る</button>
     </div>

@@ -13,11 +13,13 @@ import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandof
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
+const SCREENSHOT_TIMING_KEY = "captureScreenshotAt";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
 let lastStepScreenshotAt = 0;
 const captureEventGenerations = new Map();
+const captureEventIds = new Map();
 const MIN_STEP_SCREENSHOT_INTERVAL_MS = 500;
 const captureLiveStore = importedCaptureLiveStore;
 const MAX_CAPTURE_STEPS = 200;
@@ -265,7 +267,8 @@ async function startCapture(tabId, mode) {
     stepImageRefs: [],
     startedAt: Date.now()
   };
-  lastStepScreenshotAt = 0;
+  captureEventIds.delete(tabId);
+  captureEventGenerations.delete(tabId);
   await clearRecoveryJournal();
   await setSession(session);
   try {
@@ -281,64 +284,110 @@ async function startCapture(tabId, mode) {
   }
 }
 
-async function takeMaskedScreenshot(session) {
-  return captureWithMaskBoundary({
-    applyMasks: async () => (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: installSensitiveMasks }))[0]?.result,
+async function visibleCaptureTab(session) {
+  let tab;
+  try { tab = await chrome.tabs.get(session.tabId); }
+  catch { throw new Error("TARGET_TAB_UNAVAILABLE"); }
+  if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
+  return tab;
+}
+
+async function currentClickTarget(session, event) {
+  if (event?.kind !== "click" || event.clickTarget?.topFrame !== true) return null;
+  try {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: session.tabId },
+      func: (eventId) => globalThis.__mecchaManualRecorder?.("click-target", eventId), args: [event.eventId] });
+    const current = result?.result;
+    const keys = ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "devicePixelRatio", "scrollX", "scrollY", "topFrame"];
+    return current && keys.every((key) => current[key] === event.clickTarget[key]) ? current : null;
+  } catch { return null; }
+}
+
+async function clearCapturePrivacy(session) {
+  if (!Number.isInteger(session?.tabId)) return;
+  await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks, args: [{ endRecord: true }] }).catch(() => undefined);
+}
+
+async function takeMaskedScreenshot(session, assertCurrent = () => undefined, event) {
+  let clickTarget = null;
+  const result = await captureWithMaskBoundary({
+    includePrivacyMetadata: true,
+    applyMasks: async () => {
+      assertCurrent();
+      try { return (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: installSensitiveMasks, args: [{ recordId: session.id }] }))[0]?.result; }
+      catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
+    },
     waitForPaint: async () => {
-      const tab = await chrome.tabs.get(session.tabId);
-      if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
-      const [paintResult] = await chrome.scripting.executeScript({
-        target: { tabId: session.tabId },
-        func: () => new Promise((resolve, reject) => {
-          if (document.visibilityState === "hidden") {
-            reject(new Error("TARGET_TAB_NOT_VISIBLE"));
-            return;
-          }
-          let settled = false;
-          const fail = (error) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timeout);
-            reject(error);
-          };
-          const finish = () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timeout);
-            resolve(true);
-          };
-          const timeout = setTimeout(() => fail(new Error("SCREENSHOT_PAINT_TIMEOUT")), 1000);
-          if (typeof requestAnimationFrame !== "function") {
-            fail(new Error("SCREENSHOT_PAINT_UNAVAILABLE"));
-            return;
-          }
-          try {
-            requestAnimationFrame(() => {
-              try {
-                requestAnimationFrame(finish);
-              } catch (error) {
-                fail(error);
-              }
-            });
-          } catch (error) {
-            fail(error);
-          }
-        })
-      });
-      if (paintResult?.result !== true) throw new Error("SCREENSHOT_PAINT_UNAVAILABLE");
+      await visibleCaptureTab(session);
+      let paintResult;
+      try {
+        [paintResult] = await chrome.scripting.executeScript({
+          target: { tabId: session.tabId },
+          func: () => new Promise((resolve) => {
+            if (document.visibilityState === "hidden") {
+              resolve({ ready: false, reason: "TARGET_TAB_NOT_VISIBLE" });
+              return;
+            }
+            let settled = false;
+            const finish = (reason = null) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              resolve({ ready: !reason, reason });
+            };
+            const timeout = setTimeout(() => finish("SCREENSHOT_PAINT_TIMEOUT"), 1000);
+            if (typeof requestAnimationFrame !== "function") {
+              finish("SCREENSHOT_PAINT_UNAVAILABLE");
+              return;
+            }
+            try {
+              requestAnimationFrame(() => {
+                try { requestAnimationFrame(() => finish()); }
+                catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
+              });
+            } catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
+          })
+        });
+      } catch { throw new Error("SCREENSHOT_PAINT_UNAVAILABLE"); }
+      if (paintResult?.result?.ready !== true) {
+        const reason = paintResult?.result?.reason;
+        throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
+      }
     },
     capture: async () => {
-      const tab = await chrome.tabs.get(session.tabId);
-      if (!tab.active || tab.windowId !== session.windowId) throw new Error("TARGET_TAB_NOT_VISIBLE");
-      return chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 });
+      assertCurrent();
+      await visibleCaptureTab(session);
+      assertCurrent();
+      clickTarget = await currentClickTarget(session, event);
+      assertCurrent();
+      try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
+      catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+      assertCurrent();
+      lastStepScreenshotAt = Date.now();
+      try {
+        return await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 });
+      } finally {
+        // A completed-call timestamp also protects the quota across MV3 restarts.
+        // A pending marker forces a fresh interval when completion is unknown.
+        try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
+        catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+      }
     },
-    verifyMasks: async (token) => Boolean((await chrome.scripting.executeScript({
-      target: { tabId: session.tabId },
-      func: verifySensitiveMasks,
-      args: [token]
-    }))[0]?.result),
+    verifyMasks: async (token) => {
+      try { return Boolean((await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: verifySensitiveMasks, args: [token] }))[0]?.result); }
+      catch { throw new Error("SCREENSHOT_MASK_INVALIDATED"); }
+    },
     removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks }).catch(() => undefined); }
   });
+  if (clickTarget && await currentClickTarget(session, event)) {
+    const annotation = {
+      id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
+      y: clickTarget.y / clickTarget.viewportHeight, width: clickTarget.width / clickTarget.viewportWidth,
+      height: clickTarget.height / clickTarget.viewportHeight, color: "#dc2626", strokeWidth: 3
+    };
+    return { ...(typeof result === "string" ? { dataUrl: result } : result), annotations: [annotation] };
+  }
+  return result;
 }
 
 function instructionFor(event) {
@@ -350,7 +399,7 @@ function instructionFor(event) {
   }
   if (event.kind === "navigation") return "次のページへ移動する";
   if (event.kind === "input") return `${semanticLabel}に入力する`;
-  if (event.kind === "click" && event.label && (event.labelSource === "caption" || !semanticLabels.has(event.label))) return `【${event.label}】クリック`;
+  if (event.kind === "click" && event.label && (event.labelSource === "caption" || !semanticLabels.has(event.label))) return `【${event.label}】をクリック`;
   return `${semanticLabel}を操作する`;
 }
 
@@ -368,6 +417,7 @@ async function finishCapture() {
   let imageCount = 0;
   let missingImageCount = 0;
   let readyImageCountKnown = false;
+  let reviewImageCount = 0;
   let drainedPendingEvents;
   try {
     await prepareRetryViewport(session);
@@ -383,7 +433,7 @@ async function finishCapture() {
     await setSession(session);
     let liveImages;
     try {
-      liveImages = (await captureLiveStore.list(session.id)).filter((image) => image.status === "ready" && image.dataUrl);
+      liveImages = await captureLiveStore.list(session.id);
     } catch {
       throw new Error("CAPTURE_LIVE_READ_FAILED");
     }
@@ -391,16 +441,27 @@ async function finishCapture() {
     if (existingDraft?.id === session.id) {
       draftId = existingDraft.id;
       imageCount = existingDraft.screenshots.length;
-      missingImageCount = Math.max(0, session.events.length - imageCount);
+      missingImageCount = (existingDraft.steps || []).filter((step) => !step.screenshotId && !["none", "protected"].includes(step.imageState?.status)).length;
+      reviewImageCount = (existingDraft.steps || []).filter((step) => step.imageState?.status === "protected").length;
     } else {
-      const imageByEventId = new Map(liveImages.map((image) => [image.eventId, image]));
+      const stateByEventId = new Map(liveImages.map((image) => [image.eventId, image]));
+      const refsByEventId = new Map((session.stepImageRefs || []).map((ref) => [ref.eventId, ref]));
+      const imageByEventId = new Map(liveImages.filter((image) => {
+        const ref = refsByEventId.get(image.eventId);
+        return ["ready", "protected"].includes(image.status) && image.dataUrl && (!ref || (ref.version || 1) <= (image.version || 1));
+      }).map((image) => [image.eventId, image]));
       const screenshots = session.events
         .map((event) => imageByEventId.get(event.eventId))
         .filter(Boolean)
-        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [] }));
+        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [],
+          ...(image.privacyReview ? { privacyReview: image.privacyReview } : {}),
+          ...(image.annotations ? { annotations: image.annotations } : {})
+        }));
       if (!session.events.length) {
-        const dataUrl = await takeMaskedScreenshot(session);
-        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
+        await waitForScreenshotSlot(session);
+        const result = await takeMaskedScreenshot(session);
+        const dataUrl = typeof result === "string" ? result : result.dataUrl;
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [], ...(result.privacyReview ? { privacyReview: result.privacyReview } : {}) });
       }
       const draft = {
         id: session.id,
@@ -414,17 +475,20 @@ async function finishCapture() {
           order: index + 1,
           instruction: instructionFor(event),
           ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
-          ...event
+          ...event,
+          imageState: finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId))
         })),
         screenshots
       };
       imageCount = screenshots.length;
-      missingImageCount = Math.max(0, session.events.length - imageCount);
+      reviewImageCount = draft.steps.filter((step) => step.imageState.status === "protected").length;
+      missingImageCount = draft.steps.filter((step) => ["failed", "unavailable"].includes(step.imageState.status)).length;
       await draftStore.put(draft);
       draftId = draft.id;
     }
     await captureLiveStore.clear(session.id);
     await stopRecorder(session.tabId, "release");
+    await clearCapturePrivacy(session);
   } catch {
     const retryBase = readyImageCountKnown && drainedPendingEvents !== undefined ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
@@ -440,7 +504,7 @@ async function finishCapture() {
   const restored = await attemptRestore(session);
   if (restored) await setSession(null);
   await clearRecoveryJournal(session.id);
-  return { draftId, restorePending: !restored, imageCount, missingImageCount };
+  return { draftId, restorePending: !restored, imageCount, missingImageCount, reviewImageCount };
 }
 
 async function cancelCapture() {
@@ -449,6 +513,7 @@ async function cancelCapture() {
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
   if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
+  await clearCapturePrivacy(session);
   const shouldRestore = session.mode !== "pc"
     && await windowStillExists(session.windowId);
   const restored = shouldRestore ? await attemptRestore(cancelSession) : true;
@@ -507,15 +572,137 @@ async function pauseCapture() {
   return { paused: true };
 }
 
-function imageRefsWithStatus(session, eventId, status) {
+const IMAGE_STATES = new Set(["queued", "capturing", "ready", "unavailable", "failed", "protected", "none"]);
+const IMAGE_REASONS = new Set([
+  "screen_changed", "navigation_changed", "tab_not_visible", "tab_unavailable", "mask_failed", "mask_invalidated",
+  "paint_timeout", "paint_unavailable", "capture_failed", "privacy_budget_exceeded", "storage_failed",
+  "capture_interrupted", "capture_not_requested", "protected_region", "protection_too_broad",
+  "unsupported_canvas", "unsupported_iframe", "unsupported_closed_shadow", "unknown_field_semantics"
+]);
+
+function imageStateFor(value, fallbackStatus = "unavailable") {
+  const status = IMAGE_STATES.has(value?.status) ? value.status : fallbackStatus;
+  return {
+    status,
+    reason: IMAGE_REASONS.has(value?.reason) ? value.reason : ["ready", "none", "queued", "capturing"].includes(status) ? null : "capture_interrupted",
+    attempts: Number.isSafeInteger(value?.attempts) && value.attempts >= 0 ? value.attempts : 0,
+    version: Number.isSafeInteger(value?.version) && value.version > 0 ? value.version : 1
+  };
+}
+
+function finalStepImageState(stored, ref) {
+  const source = ref && (ref.version || 1) > (stored?.version || 1) ? ref : stored || ref;
+  const state = imageStateFor(source);
+  if (["queued", "capturing"].includes(state.status)) return { ...state, status: "unavailable", reason: "capture_interrupted" };
+  if (state.status === "ready" && !stored?.dataUrl) return { ...state, status: "failed", reason: "storage_failed" };
+  return state;
+}
+
+function imageRefsWithStatus(session, eventId, status, details = {}) {
+  const previous = (session.stepImageRefs || []).find((ref) => ref.eventId === eventId);
   const refs = (session.stepImageRefs || []).filter((ref) => ref.eventId !== eventId);
-  refs.push({ eventId, status });
+  refs.push({ eventId, ...imageStateFor({ ...previous, ...details, status }) });
   return { ...session, stepImageRefs: refs };
 }
 
-function nextCaptureEventGeneration(tabId) {
-  const next = (captureEventGenerations.get(tabId) || 0) + 1;
+function nextCaptureEventGeneration(tabId, eventId, reason = "screen_changed") {
+  const ids = captureEventIds.get(tabId) || new Set();
+  if (eventId && ids.has(eventId)) return captureEventGenerations.get(tabId);
+  if (eventId) {
+    ids.add(eventId);
+    if (ids.size > MAX_CAPTURE_STEPS) ids.delete(ids.values().next().value);
+    captureEventIds.set(tabId, ids);
+  }
+  const next = { generation: (captureEventGenerations.get(tabId)?.generation || 0) + 1, reason };
   captureEventGenerations.set(tabId, next);
+  return next;
+}
+
+function assertCaptureGeneration(tabId, generation) {
+  if (captureEventGenerations.get(tabId) !== generation) {
+    throw new Error(captureEventGenerations.get(tabId)?.reason === "navigation_changed" ? "CAPTURE_NAVIGATION_CHANGED" : "CAPTURE_SCREEN_CHANGED");
+  }
+}
+
+function captureFailureState(error) {
+  const reasons = {
+    CAPTURE_SCREEN_CHANGED: ["unavailable", "screen_changed"],
+    CAPTURE_NAVIGATION_CHANGED: ["unavailable", "navigation_changed"],
+    TARGET_TAB_NOT_VISIBLE: ["unavailable", "tab_not_visible"],
+    TARGET_TAB_UNAVAILABLE: ["unavailable", "tab_unavailable"],
+    SCREENSHOT_MASK_FAILED: ["failed", "mask_failed"],
+    SCREENSHOT_MASK_INVALIDATED: ["failed", "mask_invalidated"],
+    SCREENSHOT_PAINT_TIMEOUT: ["failed", "paint_timeout"],
+    SCREENSHOT_PAINT_UNAVAILABLE: ["failed", "paint_unavailable"],
+    SCREENSHOT_BUDGET_EXCEEDED: ["protected", "privacy_budget_exceeded"],
+    SCREENSHOT_STORAGE_FAILED: ["failed", "storage_failed"]
+  };
+  const [status, reason] = reasons[error?.code || error?.message] || ["failed", "capture_failed"];
+  return { status, reason };
+}
+
+// A queued image is only taken while the original visible scene is still known.
+// This short-lived lease stores no DOM text and never rewrites application data.
+function screenshotSceneLease(command, token) {
+  const key = "__mecchaManualScreenshotScene";
+  if (command === "begin") {
+    globalThis[key]?.dispose();
+    let changed = false;
+    const invalidate = () => { changed = true; };
+    const observer = new MutationObserver(invalidate);
+    observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    for (const name of ["scroll", "resize", "input", "click", "pagehide"]) globalThis.addEventListener(name, invalidate, true);
+    const state = { token, document, width: innerWidth, height: innerHeight, dispose: () => {
+      observer.disconnect();
+      for (const name of ["scroll", "resize", "input", "click", "pagehide"]) globalThis.removeEventListener(name, invalidate, true);
+      clearTimeout(state.timeout);
+      if (globalThis[key] === state) delete globalThis[key];
+    }, valid: () => !changed && observer.takeRecords().length === 0 && state.document === document && state.width === innerWidth && state.height === innerHeight };
+    state.timeout = setTimeout(state.dispose, 1500);
+    globalThis[key] = state;
+    return true;
+  }
+  const state = globalThis[key];
+  const valid = Boolean(state?.token === token && state.valid());
+  state?.dispose();
+  return valid;
+}
+
+async function waitForScreenshotSlot(session, assertCurrent = () => undefined) {
+  assertCurrent();
+  const timing = (await chrome.storage.session.get(SCREENSHOT_TIMING_KEY))[SCREENSHOT_TIMING_KEY];
+  if (timing?.pending) lastStepScreenshotAt = Date.now();
+  else if (Number.isFinite(timing?.completedAt) && timing.completedAt > lastStepScreenshotAt) lastStepScreenshotAt = timing.completedAt;
+  const remaining = Math.min(MIN_STEP_SCREENSHOT_INTERVAL_MS, Math.max(0, MIN_STEP_SCREENSHOT_INTERVAL_MS - (Date.now() - lastStepScreenshotAt)));
+  if (!lastStepScreenshotAt || !remaining) return;
+  const token = crypto.randomUUID();
+  let leaseStarted = false;
+  try {
+    const [lease] = await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: screenshotSceneLease, args: ["begin", token] });
+    leaseStarted = lease?.result === true;
+    if (!leaseStarted) throw new Error("CAPTURE_SCREEN_CHANGED");
+    await new Promise((resolve) => setTimeout(resolve, remaining));
+    assertCurrent();
+    const [verified] = await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: screenshotSceneLease, args: ["verify", token] });
+    leaseStarted = false;
+    if (verified?.result !== true) throw new Error("CAPTURE_SCREEN_CHANGED");
+  } finally {
+    if (leaseStarted) await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: screenshotSceneLease, args: ["dispose", token] }).catch(() => undefined);
+  }
+  assertCurrent();
+}
+
+async function persistStepImageState(session, eventId, state, image = {}) {
+  let next = imageRefsWithStatus(session, eventId, state.status, state);
+  const ref = next.stepImageRefs.find((entry) => entry.eventId === eventId);
+  try {
+    await captureLiveStore.put({ ...image, ...ref, sessionId: session.id });
+  } catch {
+    next = imageRefsWithStatus(next, eventId, "failed", { reason: "storage_failed" });
+    const failure = next.stepImageRefs.find((entry) => entry.eventId === eventId);
+    await captureLiveStore.put({ ...failure, sessionId: session.id }).catch(() => undefined);
+  }
+  await setSession(next);
   return next;
 }
 
@@ -556,7 +743,7 @@ function mergePendingEventsWithoutImages(session, events) {
     const normalized = merged.events.find((candidate) => candidate.eventId === event.eventId)
       || merged.events.find((candidate) => candidate.at === event.at);
     next = normalized
-      ? imageRefsWithStatus(merged, normalized.eventId || `event:${normalized.at}`, "unavailable")
+      ? imageRefsWithStatus(merged, normalized.eventId || `event:${normalized.at}`, "unavailable", { reason: "capture_not_requested" })
       : merged;
   }
   if (reachedStepLimit) next = { ...next, phase: "paused", paused: true, captureLimitReached: "steps" };
@@ -564,29 +751,33 @@ function mergePendingEventsWithoutImages(session, events) {
 }
 
 async function recordStepImage(session, eventId, eventGeneration = captureEventGenerations.get(session.tabId)) {
-  let pendingSession = imageRefsWithStatus(session, eventId, "capturing");
+  const previous = session.stepImageRefs?.find((ref) => ref.eventId === eventId);
+  const version = (previous?.version || 0) + 1;
+  let attempts = previous?.attempts || 0;
+  let pendingSession = imageRefsWithStatus(session, eventId, "queued", { reason: null, attempts, version });
   await setSession(pendingSession).catch(() => undefined);
+  const assertCurrent = () => assertCaptureGeneration(session.tabId, eventGeneration);
+  let state;
+  let image = {};
   try {
-    const elapsed = Date.now() - lastStepScreenshotAt;
-    if (lastStepScreenshotAt && elapsed < MIN_STEP_SCREENSHOT_INTERVAL_MS) {
-      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
-      await setSession(pendingSession);
-      return pendingSession;
-    }
-    lastStepScreenshotAt = Date.now();
-    const dataUrl = await takeMaskedScreenshot(session);
-    if (captureEventGenerations.get(session.tabId) !== eventGeneration) {
-      pendingSession = imageRefsWithStatus(pendingSession, eventId, "unavailable");
-      await setSession(pendingSession);
-      return pendingSession;
-    }
-    await captureLiveStore.put({ id: crypto.randomUUID(), dataUrl, status: "ready", eventId, sessionId: session.id });
-    pendingSession = imageRefsWithStatus(pendingSession, eventId, "ready");
-  } catch {
-    pendingSession = imageRefsWithStatus(pendingSession, eventId, "failed");
+    await waitForScreenshotSlot(session, assertCurrent);
+    assertCurrent();
+    attempts += 1;
+    pendingSession = imageRefsWithStatus(pendingSession, eventId, "capturing", { attempts });
+    await setSession(pendingSession).catch(() => undefined);
+    const result = await takeMaskedScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
+    assertCurrent();
+    const dataUrl = typeof result === "string" ? result : result.dataUrl;
+    const privacyReview = typeof result === "object" ? result.privacyReview : undefined;
+    const status = privacyReview?.reviewRequired ? "protected" : "ready";
+    const reason = status === "protected" ? privacyReview.reasonCodes?.find((code) => IMAGE_REASONS.has(code)) || "protected_region" : null;
+    state = { status, reason };
+    image = { id: crypto.randomUUID(), dataUrl, ...(privacyReview ? { privacyReview } : {}), ...(result.annotations ? { annotations: result.annotations } : {}) };
+  } catch (error) {
+    // A later screen is never used to silently retry an earlier operation.
+    state = captureFailureState(error);
   }
-  await setSession(pendingSession);
-  return pendingSession;
+  return persistStepImageState(pendingSession, eventId, { ...state, attempts, version }, image);
 }
 
 async function recordEventWithImage(session, event, eventGeneration = captureEventGenerations.get(session.tabId)) {
@@ -612,9 +803,7 @@ async function recordEventWithoutImage(session, event) {
   const normalized = next.events.find((candidate) => candidate.eventId === event.eventId)
     || next.events.find((candidate) => candidate.at === event.at);
   if (!normalized) return next;
-  const unavailable = imageRefsWithStatus(next, normalized.eventId || `event:${normalized.at}`, "unavailable");
-  await setSession(unavailable);
-  return unavailable;
+  return persistStepImageState(next, normalized.eventId || `event:${normalized.at}`, { status: "unavailable", reason: "capture_not_requested", attempts: 0, version: 1 });
 }
 
 async function resumeCapture(tabId) {
@@ -653,7 +842,6 @@ async function resumeCapture(tabId) {
 }
 
 async function captureStatus() {
-  await sessionOperation.catch(() => undefined);
   const session = await getSession();
   return {
     recording: session?.phase === "recording",
@@ -863,7 +1051,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "editor:ready" && fromExtensionPage) return { ready: message.ready === true };
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
-      const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
+      const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id, message.event?.eventId) : undefined;
       return serializeSessionOperation(async () => {
         const session = await getSession();
         if (session?.phase !== "recording" || sender.tab?.id !== session.tabId) return { accepted: false };
@@ -885,7 +1073,9 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading" || changeInfo.status === "complete" || changeInfo.url) nextCaptureEventGeneration(tabId, undefined, "navigation_changed");
   if (changeInfo.status !== "complete") return;
+  const eventGeneration = captureEventGenerations.get(tabId);
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.phase !== "recording" || session.tabId !== tabId) return;
@@ -910,7 +1100,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       await markCaptureLimit(session, "images");
       return;
     }
-    const eventGeneration = nextCaptureEventGeneration(tabId);
     const navigationEvent = { kind: "navigation", at: Date.now(), eventId: `navigation:${crypto.randomUUID()}` };
     const withNavigation = mergeCaptureEvents(session, [navigationEvent]);
     try {
@@ -950,6 +1139,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  nextCaptureEventGeneration(tabId, undefined, "navigation_changed");
+  captureEventIds.delete(tabId);
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;

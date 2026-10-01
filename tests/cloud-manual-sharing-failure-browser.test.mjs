@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
 test("cloud sharing keeps explicit failures, dirty edits, and stale delayed responses recoverable", { timeout: 20_000 }, async () => {
@@ -63,6 +63,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     const list = page.locator("#cloud-list button");
     await list.first().waitFor();
     await list.nth(0).click();
+    await page.getByRole("button", {name:"共有",exact:true}).click();
     await page.locator("[data-share-passcode]").waitFor();
     const passcode = "A secure passcode";
     const fillShareForm = async () => {
@@ -78,6 +79,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     const detailReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1` && response.request().method() === "GET" && response.status() === 200);
     const metadataReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "GET" && response.status() === 200);
     await page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", {name:"手順書一覧",exact:true}).click();
     await list.nth(0).click();
     assert.equal((await detailReloadResponse).status(), 200);
     assert.equal((await metadataReloadResponse).status(), 200);
@@ -91,7 +93,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       const response = await responsePromise;
       assert.equal(response.status(), status);
       assert.equal(postBodies.length, expectedPostCount);
-      await page.getByText(`拒否 ${status}`, { exact: true }).waitFor();
+      await page.locator("#cloud-message").filter({hasText:`拒否 ${status}`}).waitFor();
       assert.equal(postBodies.at(-1)?.body.confirmed, true);
       assert.equal(await page.locator("input.share-link-value").count(), 0);
     }
@@ -100,8 +102,11 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await fillShareForm();
     await delayedPostReady;
     assert.equal(typeof releaseDelayedPost, "function");
+    await page.getByRole("button", {name:"閉じる",exact:true}).click();
+    await page.getByRole("button", {name:"手順書一覧",exact:true}).click();
     await list.nth(1).click();
-    await page.locator("#cloud-detail h2").filter({ hasText: "Manual Two" }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".manual-title")?.value === "Manual Two");
+    await page.getByRole("button", {name:"共有",exact:true}).click();
     const postsBeforeBusyAttempt = postBodies.length;
     await fillShareForm();
     await page.locator("#cloud-message.warning").waitFor();
@@ -110,12 +115,12 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     releaseDelayedPost();
     releaseDelayedPost = null;
     assert.equal((await delayedResponse).status(), 200);
-    assert.match(await page.locator("#cloud-detail h2").textContent(), /Manual Two/);
+    assert.equal(await page.getByLabel("タイトル",{exact:true}).inputValue(), "Manual Two");
     assert.equal(await page.locator("[data-share-passcode]").isVisible(), true);
 
     delayedManualId = null;
     await fillShareForm();
-    await page.getByText(/共有リンクを作成しました。/).waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有リンクを作成しました。"}).waitFor();
     const shareLink = await page.locator("input.share-link-value").inputValue();
     for (const status of [400, 403]) {
       revokeFailureStatus = status;
@@ -123,7 +128,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       await page.once("dialog", (dialog) => dialog.accept());
       await page.getByRole("button", { name: "共有を停止" }).click();
       assert.equal((await responsePromise).status(), status);
-      await page.getByText(`停止拒否 ${status}`, { exact: true }).waitFor();
+      await page.locator("#cloud-message").filter({hasText:`停止拒否 ${status}`}).waitFor();
       assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     }
     const shareEndpoint = `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links`;
@@ -140,7 +145,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
     const actualTransportRequest = await transportRequest;
-    await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。"}).waitFor();
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     const transportFailedShareLinkId = actualTransportRequest.postDataJSON()?.shareLinkId;
     assert.equal(transportFailedShareLinkId, shares.get("manual-2")?.shareLinkId);
@@ -151,7 +156,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
     assert.equal((await unknownResponse).status(), 503);
-    await page.getByText("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", { exact: true }).waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。"}).waitFor();
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     const failedShareLinkId = revokeBodies.at(-1)?.body.shareLinkId;
     assert.equal(failedShareLinkId, transportFailedShareLinkId);
@@ -159,7 +164,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
     assert.equal((await retryResponse).status(), 200);
-    await page.getByText("共有リンクを停止しました。必要なら新しいリンクを作成してください。", { exact: true }).waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有リンクを停止しました。必要なら新しいリンクを作成してください。"}).waitFor();
     assert.equal(await page.locator("input.share-link-value").count(), 0);
     assert.equal(failedShareLinkId, transportFailedShareLinkId);
     assert.equal(revokeBodies.at(-1)?.body.shareLinkId, failedShareLinkId);

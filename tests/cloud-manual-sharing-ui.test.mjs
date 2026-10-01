@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
 test("cloud manual sharing requires confirmation, keeps token in memory, and stops after reload", { timeout: 20_000 }, async () => {
@@ -39,9 +39,10 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/manuals`);
     await page.getByRole("button", { name: "共有テスト" }).click();
+    await page.getByRole("button", { name: "共有", exact: true }).click();
     await page.getByLabel("パスコード（12〜128文字）").fill("十分に長い共有用コードです");
     await page.getByRole("button", { name: "共有リンクを作成" }).click();
-    await page.getByText("共有内容と期限を確認してから作成してください。").waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有内容と期限を確認してから作成してください。"}).waitFor();
     assert.equal(createBodies.length, 0);
     await page.getByLabel("共有する内容と有効期限を確認しました").check();
     await page.getByRole("button", { name: "共有リンクを作成" }).click();
@@ -53,6 +54,7 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     assert.match(await shareLink.inputValue(), /\/s\/#token=[A-Za-z0-9_-]{43}/);
     await page.reload();
     await page.getByRole("button", { name: "共有テスト" }).click();
+    await page.getByRole("button", { name: "共有", exact: true }).click();
     await page.getByText("共有リンクを再表示できません。新しく作成するには、先に現在の共有を停止してください。").waitFor();
     await page.once("dialog", (dialog) => dialog.accept());
     const revokeResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/${manualId}/share-links` && response.request().method() === "DELETE" && response.status() === 200);
@@ -64,7 +66,7 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     await page.getByLabel("パスコード（12〜128文字）").fill("十分に長い共有用コードです");
     await page.getByLabel("共有する内容と有効期限を確認しました").check();
     await page.getByRole("button", { name: "共有リンクを作成" }).click();
-    await page.getByText("共有リンクの作成結果を確認できません").waitFor();
+    await page.locator("#cloud-message").filter({hasText:"共有リンクの作成結果を確認できません"}).waitFor();
     await page.getByRole("button", { name: "共有リンクを作成" }).click();
     await page.locator("input.share-link-value").waitFor();
     assert.equal(createBodies.length, 3);

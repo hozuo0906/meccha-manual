@@ -93,6 +93,15 @@ function createOperationId() {
 
 function cleanStep(step) {
   if (!step || typeof step !== "object" || typeof step.id !== "string" || !step.id || !Number.isInteger(step.order) || step.order < 1 || typeof step.instruction !== "string" || Array.from(step.instruction).length > 500) return null;
+  if (step.privacyReview?.reviewRequired === true) return null;
+  // Image preparation/review is an output precondition, not optional metadata.
+  // Preserve legacy drafts, but never silently drop a known unfinished image.
+  if (step.imageState !== undefined) {
+    const state = step.imageState;
+    if (!state || typeof state !== "object" || !["ready", "none"].includes(state.status)) return null;
+    if (state.status === "ready" && typeof step.screenshotId !== "string") return null;
+    if (state.status === "none" && step.screenshotId !== undefined) return null;
+  }
   const clean = {
     id: step.id,
     order: step.order,
@@ -130,7 +139,9 @@ export function cleanDraft(draft) {
     if (step.screenshotId !== undefined && !screenshotIds.has(step.screenshotId)) return null;
   }
   if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000 || steps.some((step) => !step) || screenshots.some((screenshot) => !screenshot)) return null;
-  return { title, description, steps, screenshots };
+  const referenced = new Set(steps.map((step) => step.screenshotId).filter(Boolean));
+  if (draft.screenshots.some((screenshot) => referenced.has(screenshot.id) && screenshot.privacyReview?.reviewRequired === true)) return null;
+  return { title, description, steps, screenshots: screenshots.filter((screenshot) => referenced.has(screenshot.id)) };
 }
 
 function base64ToBytes(dataUrl) {
@@ -240,7 +251,9 @@ async function prepare(message, sender) {
   const draftFingerprint = metadata.draftFingerprint;
   const clean = cleanDraft(draft);
   if (!clean) return reject("DRAFT_INVALID");
-  const estimatedBytes = draft.screenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), 0);
+  const sourceById = new Map(draft.screenshots.map((screenshot) => [screenshot.id, screenshot]));
+  const referencedScreenshots = clean.screenshots.map((screenshot) => structuredClone(sourceById.get(screenshot.id)));
+  const estimatedBytes = referencedScreenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), 0);
   cleanupTransfers();
   if (estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
   const previous = snapshots.get(message.handoffId);
@@ -248,7 +261,7 @@ async function prepare(message, sender) {
   if (snapshotBytesTotal - previousBytes + estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
   if (previous) snapshotBytesTotal = Math.max(0, snapshotBytesTotal - previousBytes);
   const assets = clean.screenshots.map((screenshot, assetSlot) => ({ assetSlot, screenshotId: screenshot.id }));
-  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draftFingerprint, draft: clean, screenshots: draft.screenshots, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
+  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draftFingerprint, draft: clean, screenshots: referencedScreenshots, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
   snapshotBytesTotal += estimatedBytes;
   return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps }, assets, draftUpdatedAt: draft.updatedAt, draftFingerprint };
 }
