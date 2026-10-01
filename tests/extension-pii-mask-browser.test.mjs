@@ -1241,6 +1241,31 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const prefix = document.createElement("span");
+      prefix.id = "gap-overflow-prefix";
+      prefix.textContent = "123";
+      stream.append(prefix);
+      for (let index = 0; index < 130; index += 1) stream.append(document.createElement("span"));
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "gap-overflow-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("gap-overflow-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("gap-overflow-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "unknown rendered adjacency beyond the walk budget must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
