@@ -6,20 +6,116 @@
   let eventSequence = 0;
   const nextEventId = () => `${recorderId}:${++eventSequence}`;
 
+  const boundedVisibleText = (element, limit = 40) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    let length = 0;
+    let scanned = 0;
+    let visitedNodes = 0;
+    let truncated = false;
+    let pendingSpace = false;
+    const append = (character) => {
+      if (/\s/u.test(character)) {
+        pendingSpace = length > 0;
+        return;
+      }
+      if (pendingSpace && length < limit) {
+        parts.push(" ");
+        length += 1;
+      }
+      pendingSpace = false;
+      if (length >= limit) {
+        truncated = true;
+        return;
+      }
+      parts.push(character);
+      length += 1;
+    };
+    while (walker.nextNode()) {
+      visitedNodes += 1;
+      if (visitedNodes > 256) {
+        truncated = true;
+        break;
+      }
+      const textNode = walker.currentNode;
+      let current = textNode.parentElement;
+      let visible = true;
+      while (current) {
+        if (current.hidden || current.getAttribute("aria-hidden") === "true") {
+          visible = false;
+          break;
+        }
+        const style = getComputedStyle(current);
+        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+          visible = false;
+          break;
+        }
+        if (current === element) break;
+        current = current.parentElement;
+      }
+      if (!visible) continue;
+      for (const character of String(textNode.nodeValue || "")) {
+        scanned += 1;
+        if (scanned > 4096) {
+          truncated = true;
+          break;
+        }
+        append(character);
+        if (truncated) break;
+      }
+      if (truncated) break;
+    }
+    return { text: parts.join(""), truncated };
+  };
+
+  const boundedAttribute = (value, limit = 40) => {
+    if (value === null || value === undefined) return undefined;
+    const text = String(value);
+    let count = 0;
+    for (const _character of text) {
+      count += 1;
+      if (count > limit) return undefined;
+    }
+    return text;
+  };
+
   const describe = (element) => {
     if (!(element instanceof Element)) return {};
     const id = element.id;
     const associatedLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : undefined;
+    const tagName = element.tagName.toLowerCase();
+    const type = String(element.getAttribute("type") || "").toLowerCase();
+    const role = element.getAttribute("role");
+    const isCaptionedInput = tagName === "input" && ["button", "submit", "reset", "image"].includes(type);
+    const isNamedControl = tagName === "button" || tagName === "a" || isCaptionedInput || ["button", "link", "menuitem"].includes(String(role || "").toLowerCase());
+    const nestedValueControl = element.querySelector?.("input,textarea,select,[contenteditable]:not([contenteditable=\"false\"])");
+    const hasEditableBoundary = Boolean(
+      element.isContentEditable
+      || element.closest?.("[contenteditable]:not([contenteditable=\"false\"])")
+      || element.querySelector?.("[contenteditable]:not([contenteditable=\"false\"])")
+    );
+    const hasNestedValueControl = isNamedControl && (nestedValueControl || hasEditableBoundary);
+    const visibleTextResult = isNamedControl && !hasNestedValueControl && typeof document.createTreeWalker === "function"
+      ? boundedVisibleText(element)
+      : null;
+    const visibleText = visibleTextResult?.truncated ? undefined : visibleTextResult?.text;
+    const captionSourcesAllowed = !hasEditableBoundary;
     return {
       type: element.getAttribute("type"),
+      controlCaption: captionSourcesAllowed && tagName === "input" && ["button", "submit", "reset"].includes(type)
+        ? boundedAttribute(element.getAttribute("value"))
+        : undefined,
+      imageAlt: captionSourcesAllowed && tagName === "input" && type === "image" ? boundedAttribute(element.getAttribute("alt")) : undefined,
       name: element.getAttribute("name"),
       id,
       autocomplete: element.getAttribute("autocomplete"),
-      ariaLabel: element.getAttribute("aria-label"),
-      placeholder: element.getAttribute("placeholder"),
-      associatedLabel: associatedLabel?.trim(),
-      role: element.getAttribute("role"),
-      tagName: element.tagName.toLowerCase()
+      ariaLabel: captionSourcesAllowed ? element.getAttribute("aria-label") : undefined,
+      placeholder: captionSourcesAllowed ? element.getAttribute("placeholder") : undefined,
+      title: captionSourcesAllowed ? boundedAttribute(element.getAttribute("title")) : undefined,
+      associatedLabel: captionSourcesAllowed ? associatedLabel?.trim() : undefined,
+      visibleText: captionSourcesAllowed && isNamedControl ? visibleText?.trim() : undefined,
+      role,
+      tagName
     };
   };
   const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...extra });

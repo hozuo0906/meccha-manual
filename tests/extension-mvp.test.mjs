@@ -417,9 +417,23 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.match(source, /HISTORY_EVENT = "meccha-manual:history-navigation"/);
   assert.match(source, /associatedLabel/);
   assert.match(source, /label\[for=/);
+  assert.match(source, /hasNestedValueControl/);
+  assert.match(source, /element\.querySelector\?\.\("input,textarea,select/);
+  assert.match(source, /boundedVisibleText/);
+  assert.match(source, /visitedNodes/);
+  assert.match(source, /boundedAttribute/);
+  assert.match(source, /document\.createTreeWalker/);
+  assert.match(source, /visitedNodes > 256/);
+  assert.match(source, /ariaLabel: captionSourcesAllowed \? element\.getAttribute\("aria-label"\)/);
+  assert.match(source, /placeholder: captionSourcesAllowed \? element\.getAttribute\("placeholder"\)/);
+  assert.match(source, /hasEditableBoundary/);
+  assert.match(source, /controlCaption/);
+  assert.match(source, /imageAlt/);
+  assert.match(source, /title: captionSourcesAllowed \? boundedAttribute\(element\.getAttribute\("title"\)\)/);
   assert.match(source, /return pendingEvents\.sort/);
   assert.match(source, /\.closest\("button,a,input,select,textarea/);
   assert.doesNotMatch(source, /value:/);
+  assert.doesNotMatch(source, /Array\.from\(element\.innerText/);
 });
 
 test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
