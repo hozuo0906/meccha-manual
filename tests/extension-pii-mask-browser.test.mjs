@@ -286,7 +286,13 @@ test("bounded split recovery keeps complete suffixes, precedence, and boundary f
       const mask = await inject(installSensitiveMasks);
       const state = await page.evaluate(() => ({
         overlays: [...document.querySelectorAll(".meccha-manual-pii-overlay")].map((element) => ({ text: element.textContent, width: element.getBoundingClientRect().width })),
-        sourceWidths: [...document.querySelectorAll("#complete-email, #postal, #block, #br")].map((element) => element.getBoundingClientRect().width)
+        completeRange: (() => {
+          const root = document.querySelector("#complete-email");
+          const range = document.createRange();
+          range.setStart(root.firstElementChild.firstChild, 0);
+          range.setEnd(root.lastElementChild.firstChild, root.lastElementChild.firstChild.nodeValue.length);
+          return { text: range.toString(), width: range.getBoundingClientRect().width };
+        })()
       }));
       const verified = await inject(verifySensitiveMasks, [mask.token]);
       await inject(removeSensitiveMasks);
@@ -297,7 +303,8 @@ test("bounded split recovery keeps complete suffixes, precedence, and boundary f
     assert.equal(complete.mask.privacyMaskedCount, 2);
     assert.deepEqual(complete.state.overlays.map(({ text }) => text).sort(), ["100-0000", "manual@example.invalid"]);
     const completeEmailOverlay = complete.state.overlays.find(({ text }) => text === "manual@example.invalid");
-    assert.ok(Math.abs(completeEmailOverlay.width - complete.state.sourceWidths[0]) < 1, "complete adjacent email suffix is protected");
+    assert.equal(complete.state.completeRange.text, "alice@example.com");
+    assert.ok(Math.abs(completeEmailOverlay.width - complete.state.completeRange.width) < 1, "complete adjacent email suffix is protected");
     assert.equal(complete.verified, true);
 
     const block = await run("/block");
