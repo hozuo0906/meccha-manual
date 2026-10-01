@@ -17,8 +17,12 @@ Status: Accepted
 
 ## Consequences
 
+fragment再付与後に旧documentの`hashchange`が`history.replaceState`後へ遅着した場合は、`event.newURL`のfragmentと現在の`location.hash`が一致しないため再読込しない。現在のfragmentと一致するhash-only遷移は従来どおりCTAを無効化して再読込し、遷移先を再検証する。
+
 通常navigationでは復帰副作用が0回になり、明示クリック後だけ既存の検証済み復帰を試行する。初回Accessのnative 302でJSが未実行となる経路は、Web側の明示クリックを要求せずDEC-092のcontent scriptが回収する。
 
 ## Verification
+
+controlled regressionでは、fragment復帰後にhashを除去した同一documentへ遅着`HashChangeEvent`を送ってもdocument reloadとclaim副作用が発生せず、その後のbootstrapとD1/R2再取得が完了することを確認する。通常の新しいfragment遷移では従来の再読込と不正fragmentのfail closedを確認する。
 
 実MV3回帰で、初回Accessのnative 302／hashless return、通常hashless navigationの復帰0回、明示クリックによる同一handoff復帰、期限切れ結果回収、claim完了、local原本削除と再読込後状態を確認する。
