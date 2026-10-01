@@ -40,8 +40,8 @@ export function installSensitiveMasks() {
   // A rendered value may be split across inline elements (for example,
   // <span>alice@</span><span>example.com</span>). Keep this recovery finite
   // and never join text across a rendering boundary.
-  const maxPrivacyAdjacentTextNodes = 32;
-  const maxPrivacyAdjacentTextCharacters = 256;
+  const maxPrivacyAdjacentTextNodes = 128;
+  const maxPrivacyAdjacentTextCharacters = 1024;
   const maxPrivacyTextRanges = 256;
   const privacyOverlayElements = new WeakSet();
   const restoreMask = (mask) => {

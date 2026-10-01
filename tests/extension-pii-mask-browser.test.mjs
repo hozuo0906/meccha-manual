@@ -265,12 +265,12 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
       return;
     }
     if (path === "/budget") {
-      const nodes = [...Array(32)].map(() => "<span>x</span>").join("");
+      const nodes = [...Array(128)].map(() => "<span>x</span>").join("");
       response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>alice@</span>${nodes}<span>example.com</span></p>`);
       return;
     }
     if (path === "/char-budget") {
-      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>${"alice@" + "x".repeat(250)}</span><span>example.com</span></p>`);
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>${"alice@" + "x".repeat(1018)}</span><span>example.com</span></p>`);
       return;
     }
     response.end("<!doctype html><p>unknown</p>");
