@@ -168,6 +168,153 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
   }
 });
 
+test("PII split across adjacent rendered text nodes is replaced and restored", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>
+      body { margin: 0; padding: 24px; background: #f7fbfc; color: #102a43; font: 22px Arial, sans-serif; }
+      .value { display: block; width: 520px; margin: 12px 0; padding: 8px; background: #fff; }
+    </style>
+    <div class="value" id="split-email"><span>alice@</span><span>example.com</span></div>
+    <div class="value" id="split-phone"><span>03-1234-</span><span>5678</span></div>
+    <div class="value" id="split-postal"><span>123-</span><span>4567</span></div>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const before = await page.screenshot({ type: "png" });
+    const beforeRects = await page.evaluate(() => ["split-email", "split-phone", "split-postal"].map((id) => {
+      const rect = document.getElementById(id).getBoundingClientRect();
+      return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    }));
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyMaskedCount, 3);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    assert.deepEqual(await page.evaluate(() => [
+      document.querySelector("#split-email").textContent,
+      document.querySelector("#split-phone").textContent,
+      document.querySelector("#split-postal").textContent
+    ]), ["alice@example.com", "03-1234-5678", "123-4567"]);
+    const after = await page.screenshot({ type: "png" });
+    const changedByRect = await page.evaluate(async ({ beforeBase64, afterBase64, rects }) => {
+      const decode = async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0);
+        return { width: canvas.width, height: canvas.height, pixels: context.getImageData(0, 0, canvas.width, canvas.height).data };
+      };
+      const [beforePixels, afterPixels] = await Promise.all([decode(beforeBase64), decode(afterBase64)]);
+      return rects.map((rect) => {
+        let changed = 0;
+        const left = Math.max(0, Math.floor(rect.left));
+        const top = Math.max(0, Math.floor(rect.top));
+        const right = Math.min(beforePixels.width, Math.ceil(rect.left + rect.width));
+        const bottom = Math.min(beforePixels.height, Math.ceil(rect.top + rect.height));
+        for (let y = top; y < bottom; y += 1) for (let x = left; x < right; x += 1) {
+          const index = (y * beforePixels.width + x) * 4;
+          if (Math.abs(beforePixels.pixels[index] - afterPixels.pixels[index]) + Math.abs(beforePixels.pixels[index + 1] - afterPixels.pixels[index + 1]) + Math.abs(beforePixels.pixels[index + 2] - afterPixels.pixels[index + 2]) > 18) changed += 1;
+        }
+        return changed;
+      });
+    }, { beforeBase64: before.toString("base64"), afterBase64: after.toString("base64"), rects: beforeRects });
+    assert.ok(changedByRect.every((changed) => changed > 10), `expected split PII ranges to change pixels, got ${changedByRect.join(",")}`);
+    await inject(removeSensitiveMasks);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
+    assert.deepEqual(await page.evaluate(() => [
+      document.querySelector("#split-email").textContent,
+      document.querySelector("#split-phone").textContent,
+      document.querySelector("#split-postal").textContent
+    ]), ["alice@example.com", "03-1234-5678", "123-4567"]);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("split candidates respect rendering boundaries and finite recovery budgets", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    const path = new URL(request.url, "http://127.0.0.1").pathname;
+    if (path === "/boundary") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}.hidden{display:none}</style>
+        <div><span>alice@</span></div><div><span>example.com</span></div>
+        <p><span>03-1234-</span><br><span>5678</span></p>
+        <p><span>123-</span><span class="hidden">4567</span></p>`);
+      return;
+    }
+    if (path === "/mutation") {
+      response.end("<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>alice@</span><span id=tail>example.com</span></p>");
+      return;
+    }
+    if (path === "/long") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value>${"x".repeat(300)}alice@example.com</p>`);
+      return;
+    }
+    if (path === "/budget") {
+      const nodes = [...Array(32)].map(() => "<span>x</span>").join("");
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>alice@</span>${nodes}<span>example.com</span></p>`);
+      return;
+    }
+    response.end("<!doctype html><p>unknown</p>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const tabId = async () => (await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id));
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${await tabId()}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.goto(`${baseUrl}/boundary`);
+    const boundary = await inject(installSensitiveMasks);
+    assert.equal(boundary.applied, true);
+    assert.equal(boundary.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [boundary.token]), false, "block, br, and hidden split boundaries fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/mutation`);
+    const mutation = await inject(installSensitiveMasks);
+    assert.equal(mutation.privacyMaskedCount, 1);
+    assert.equal(await inject(verifySensitiveMasks, [mutation.token]), true);
+    await page.locator("#tail").evaluate((node) => { node.firstChild.nodeValue = "example.net"; });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [mutation.token]), false, "a protected adjacent node mutation invalidates the capture");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/long`);
+    const longNode = await inject(installSensitiveMasks);
+    assert.equal(longNode.privacyMaskedCount, 1, "a long single text node keeps the existing detector");
+    assert.equal(await inject(verifySensitiveMasks, [longNode.token]), true);
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/budget`);
+    const budget = await inject(installSensitiveMasks);
+    assert.equal(budget.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [budget.token]), false, "a candidate continuing beyond the adjacent node budget fails closed");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("open shadow text is replaced and later shadow mutations fail closed", async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
