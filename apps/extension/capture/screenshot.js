@@ -869,9 +869,9 @@ export function installSensitiveMasks() {
       streams.set(key, stream);
       return containsPiiText(stream.text);
     };
-    const clearMutationStream = (streams, key) => {
+    const clearMutationStream = (streams, key, node) => {
       const stream = streams.get(key);
-      if (stream) {
+      if (stream && stream.lastNode === node) {
         stream.text = "";
         stream.lastNode = null;
       }
@@ -914,13 +914,13 @@ export function installSensitiveMasks() {
             || inspectMutationValue(record.target?.nodeValue, currentCharacterState)) return true;
           const streamKey = mutationStreamKey(record.target);
           if (rememberMutationFragment(mutationEvidence.oldCharacterStreams, streamKey, record.oldValue, record.target)) return true;
-          if (!mutationNumericFragment(record.oldValue)) clearMutationStream(mutationEvidence.oldCharacterStreams, streamKey);
+          if (!mutationNumericFragment(record.oldValue)) clearMutationStream(mutationEvidence.oldCharacterStreams, streamKey, record.target);
           const currentValue = String(record.target?.nodeValue ?? "");
           const previousCurrentValue = mutationEvidence.seenCurrentCharacterValues.get(record.target);
           if (previousCurrentValue !== currentValue) {
             mutationEvidence.seenCurrentCharacterValues.set(record.target, currentValue);
             if (rememberMutationFragment(mutationEvidence.currentCharacterStreams, streamKey, currentValue, record.target)) return true;
-            if (!mutationNumericFragment(currentValue)) clearMutationStream(mutationEvidence.currentCharacterStreams, streamKey);
+            if (!mutationNumericFragment(currentValue)) clearMutationStream(mutationEvidence.currentCharacterStreams, streamKey, record.target);
           }
           continue;
         }
@@ -948,7 +948,7 @@ export function installSensitiveMasks() {
           if (mutationEvidence.seenChildValues.get(node) === text) continue;
           mutationEvidence.seenChildValues.set(node, text);
           if (rememberMutationFragment(mutationEvidence.childStreams, childStreamKey, text, node)) return true;
-          if (!mutationNumericFragment(text)) clearMutationStream(mutationEvidence.childStreams, childStreamKey);
+          if (!mutationNumericFragment(text)) clearMutationStream(mutationEvidence.childStreams, childStreamKey, node);
           const joined = `${pending}${text}`;
           if (containsPiiText(joined)) return true;
           if (mutationPartialPattern(joined)) return true;
