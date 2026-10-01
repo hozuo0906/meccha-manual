@@ -274,8 +274,12 @@ export function installSensitiveMasks() {
       const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
       const containsCompletePii = (value) => completePiiPatterns.some(({ pattern }) => pattern.test(String(value ?? "")));
       const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
-      const uncertainBudgetContinuation = (value) => uncertainBoundary(value)
-        || /^[A-Z0-9._%+-]{16,}$/i.test(String(value ?? ""));
+      const uncertainBudgetContinuation = (value, nextValue = "") => {
+        if (uncertainBoundary(value)) return true;
+        const suffix = String(value ?? "").match(/[A-Z0-9._%+-]{3,}$/i)?.[0];
+        const next = String(nextValue ?? "");
+        return Boolean(suffix && (next.startsWith("@") || /^[A-Z0-9._%+-]*@/i.test(next)));
+      };
       const renderedTextBoundarySafeThroughHidden = (previous, next, root) => {
         if (!previous || !next || previous.getRootNode?.() !== root || next.getRootNode?.() !== root) return false;
         const previousParent = previous.parentElement;
@@ -367,7 +371,7 @@ export function installSensitiveMasks() {
             }
             if (characterCount + value.length > maxPrivacyAdjacentTextCharacters) {
               if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)
-                && uncertainBudgetContinuation(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+                && uncertainBudgetContinuation(entries.map((entry) => entry.value).join(""), value)) privacyCandidateRangeOverflow = true;
               break;
             }
             entries.push({ node, value, start: characterCount, end: characterCount + value.length });
@@ -410,7 +414,7 @@ export function installSensitiveMasks() {
           }
           if (entries.length >= maxPrivacyAdjacentTextNodes && textNodes[start + entries.length]
             && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)
-            && uncertainBudgetContinuation(joined)) privacyCandidateRangeOverflow = true;
+            && uncertainBudgetContinuation(joined, textNodes[start + entries.length].nodeValue)) privacyCandidateRangeOverflow = true;
         }
       };
       const rootRecords = new Map();
