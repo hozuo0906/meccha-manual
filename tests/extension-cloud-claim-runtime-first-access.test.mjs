@@ -10,7 +10,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import test from "node:test";
 import { chromium } from "@playwright/test";
 import { exportJWK, SignJWT } from "jose";
-import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 import { ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 import cloudWorker from "../apps/worker/src/index.ts";
 
@@ -579,12 +579,19 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
       pageReadyAt: null, activatedAt: null
     });
 
+    const restoredUrl = buildContinueUrl(STAGING_ORIGIN, handoffId, extensionId, null, "save", launchId);
+    const restoredNavigation = page.waitForURL(restoredUrl, { waitUntil: "commit" });
     await page.goto(hashlessUrl, { waitUntil: "commit" });
+    await restoredNavigation;
     const readyKey = handoffReadyStorageKey(handoffId, launchId);
     for (let attempt = 0; attempt < 40 && Number((await readMetadata(worker, readyKey))?.restoreAttempts || 0) !== 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     const restoredReady = await readMetadata(worker, readyKey);
     assert.equal(restoredReady.restoreAttempts, 1, "the first hashless return must restore the bound handoff before onboarding JS has context");
     assert.equal(restoredReady.tabId, tabId);
+    for (let attempt = 0; attempt < 40 && typeof (await readMetadata(worker, readyKey))?.pageReadyAt !== "string"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const pageReady = await readMetadata(worker, readyKey);
+    assert.equal(typeof pageReady.pageReadyAt, "string", "the restored fragment page must notify the extension after its listener is installed");
+    await page.waitForFunction(() => location.hash === "" && document.readyState !== "loading");
     await page.waitForSelector("#bootstrap", { state: "visible" });
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
