@@ -1218,6 +1218,72 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
       const prefix = document.createElement("span");
+      prefix.id = "numeric-prose-prefix";
+      prefix.textContent = "label 123";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "numeric-prose-suffix";
+      suffix.textContent = "-4567, ordinary text";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "numeric PII with bounded surrounding prose must fail closed");
+    await page.evaluate(() => document.getElementById("numeric-prose-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("numeric-prose-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "numeric prose removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "phone-prose-prefix";
+      prefix.textContent = "safe";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("phone-prose-prefix").firstChild.nodeValue = "09012"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "phone-prose-suffix";
+      suffix.textContent = "345678 ordinary text";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "phone PII with bounded suffix prose must fail closed");
+    await page.evaluate(() => document.getElementById("phone-prose-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("phone-prose-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "phone prose removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const text = document.createElement("span");
+      text.textContent = "ordinary explanation";
+      document.getElementById("stream").append(text);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("stream").firstElementChild.firstChild.nodeValue = "ordinary explanation 123"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "ordinary numeric explanation remains recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
       prefix.id = "delimited-phone-prefix";
       prefix.textContent = "safe";
       document.getElementById("stream").append(prefix);
