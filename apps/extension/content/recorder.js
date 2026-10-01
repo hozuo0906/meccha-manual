@@ -40,7 +40,13 @@
       const textNode = walker.currentNode;
       let current = textNode.parentElement;
       let visible = true;
+      let ancestorDepth = 0;
       while (current) {
+        ancestorDepth += 1;
+        if (ancestorDepth > 128) {
+          visible = false;
+          break;
+        }
         if (current.hidden || current.getAttribute("aria-hidden") === "true") {
           visible = false;
           break;
@@ -50,7 +56,6 @@
           visible = false;
           break;
         }
-        if (current === element) break;
         current = current.parentElement;
       }
       if (!visible) continue;
