@@ -488,6 +488,35 @@ test("recording a focused input keeps typing available while its screenshot is c
       const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
+    const readInputCaptureDiagnostic = async () => {
+      const storage = await worker.evaluate(async () => {
+        const [{ activeCaptureSession: session }, { captureRecoveryJournal: recovery }] = await Promise.all([
+          chrome.storage.session.get("activeCaptureSession"),
+          chrome.storage.local.get("captureRecoveryJournal")
+        ]);
+        const summarize = (value) => value ? {
+          phase: value.phase || null,
+          failureCategory: value.failureCategory || null,
+          eventCount: Array.isArray(value.events) ? value.events.length : null,
+          eventKinds: Array.isArray(value.events) ? value.events.slice(-4).map((event) => event?.kind || null) : [],
+          stepImageRefs: Array.isArray(value.stepImageRefs)
+            ? value.stepImageRefs.slice(-4).map((ref) => ({ status: ref?.status || null, eventId: typeof ref?.eventId === "string" ? ref.eventId.slice(0, 80) : null }))
+            : [],
+          pendingImageCount: Array.isArray(value.stepImageRefs) ? value.stepImageRefs.filter((ref) => ref?.status === "capturing").length : null
+        } : null;
+        return { session: summarize(session), recovery: summarize(recovery) };
+      });
+      const panel = await evaluateNative(`(() => { const text = (selector) => { const value = document.querySelector(selector)?.textContent; return typeof value === "string" ? value.slice(0, 160) : null; }; const liveCountText = text("#liveCount"); return { readyState: document.readyState, status: text("#status"), liveCurrentStep: text("#liveCurrentStep"), liveCurrentStatus: text("#liveCurrentStatus"), liveCount: liveCountText === null ? null : Number.parseInt(liveCountText, 10), imageCardCount: document.querySelectorAll("#liveSteps .step-card").length, imageStatuses: [...document.querySelectorAll("#liveSteps [data-state]")].slice(0, 8).map((element) => element.getAttribute("data-state")) }; })()`);
+      const input = await target.evaluate(() => {
+        const element = document.querySelector("#entry");
+        return {
+          activeId: document.activeElement?.id || null,
+          value: typeof element?.value === "string" ? element.value.slice(0, 2) : null,
+          valueLength: typeof element?.value === "string" ? element.value.length : null
+        };
+      });
+      return { storage, panel, input };
+    };
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "input fixture tab should be active");
@@ -498,7 +527,12 @@ test("recording a focused input keeps typing available while its screenshot is c
     assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 1), 1);
     await target.evaluate(() => { window.entryTrace = []; });
     await target.keyboard.type("a");
-    assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 2), 2);
+    try {
+      assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 2), 2);
+    } catch (error) {
+      const diagnostic = await readInputCaptureDiagnostic();
+      throw new Error(`${error.message}; focused input capture diagnostic: ${JSON.stringify(diagnostic)}`, { cause: error });
+    }
     await target.keyboard.type("b");
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.equal(await target.locator("#entry").inputValue(), "ab");
