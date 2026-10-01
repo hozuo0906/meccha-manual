@@ -37,6 +37,12 @@ export function installSensitiveMasks() {
   // Keep candidate count and composed-tree evidence traversal bounded separately:
   // unrelated DOM depth must not consume the overlay budget.
   const maxPrivacyTraversalNodes = 4096;
+  // A rendered value may be split across inline elements (for example,
+  // <span>alice@</span><span>example.com</span>). Keep this recovery finite
+  // and never join text across a rendering boundary.
+  const maxPrivacyAdjacentTextNodes = 32;
+  const maxPrivacyAdjacentTextCharacters = 256;
+  const maxPrivacyTextRanges = 256;
   const privacyOverlayElements = new WeakSet();
   const restoreMask = (mask) => {
     for (const item of mask.previous) {
@@ -163,12 +169,16 @@ export function installSensitiveMasks() {
     ];
     let privacyCandidateOverflow = false;
     let privacyCandidateTraversalOverflow = false;
+    let privacyCandidateRangeOverflow = false;
     const collectPrivacyCandidates = () => {
+      privacyCandidateRangeOverflow = false;
       const candidates = [];
       const pairedValues = new WeakSet();
       const candidateKeys = new Set();
       const rangeCandidates = new Map();
+      const seenRangeKeys = new Set();
       let candidateOverflow = false;
+      let textRangeCount = 0;
       const traversal = { inspected: 0, exceeded: false };
       const textNodeIds = new WeakMap();
       let nextTextNodeId = 1;
@@ -196,6 +206,144 @@ export function installSensitiveMasks() {
         }
         candidateKeys.add(key);
         candidates.push(candidate);
+      };
+      const inlineDisplay = (element) => {
+        const display = String(getComputedStyle(element).display || "").toLowerCase();
+        return display === "inline" || display === "inline-block" || display === "inline-flex"
+          || display === "inline-grid" || display === "contents" || display === "ruby" || display === "ruby-text";
+      };
+      const nextNodeInRoot = (node, root) => {
+        if (node?.firstChild) return node.firstChild;
+        let current = node;
+        while (current && current !== root) {
+          if (current.nextSibling) return current.nextSibling;
+          current = current.parentNode;
+        }
+        return null;
+      };
+      const renderedTextBoundarySafe = (previous, next, root) => {
+        if (!previous || !next || previous.getRootNode?.() !== root || next.getRootNode?.() !== root) return false;
+        const previousParent = previous.parentElement;
+        const nextParent = next.parentElement;
+        if (!previousParent || !nextParent || !isVisibleTextElement(previousParent) || !isVisibleTextElement(nextParent)) return false;
+        let current = previous;
+        while (current && current !== root) {
+          if (current.nextSibling) {
+            if (current.nodeType === 1 && (!isVisibleTextElement(current) || !inlineDisplay(current))) return false;
+            current = current.nextSibling;
+            break;
+          }
+          if (current.nodeType === 1 && (!isVisibleTextElement(current) || !inlineDisplay(current))) return false;
+          current = current.parentNode;
+        }
+        while (current && current !== next) {
+          if (current.nodeType === 1) {
+            if (current.matches?.("script,style,noscript,template,br")) return false;
+            if (!isVisibleTextElement(current) || !inlineDisplay(current)) return false;
+          }
+          current = nextNodeInRoot(current, root);
+        }
+        return current === next;
+      };
+      const createTextRange = (root, startNode, startOffset, endNode, endOffset) => {
+        if (textRangeCount >= maxPrivacyTextRanges) {
+          privacyCandidateRangeOverflow = true;
+          return null;
+        }
+        const range = root.createRange?.() || document.createRange?.();
+        if (!range) {
+          privacyCandidateRangeOverflow = true;
+          return null;
+        }
+        try {
+          range.setStart(startNode, startOffset);
+          range.setEnd(endNode, endOffset);
+          textRangeCount += 1;
+          return range;
+        } catch {
+          privacyCandidateRangeOverflow = true;
+          return null;
+        }
+      };
+      const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]?\d{0,4}|〒?\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
+      const isPairedTextNode = (node, pairedValues) => {
+        let current = node?.parentElement;
+        while (current) {
+          if (pairedValues.has(current)) return true;
+          current = current.parentElement;
+        }
+        return false;
+      };
+      const addRenderedTextCandidates = (record, textNodes, pairedValues) => {
+        for (let start = 0; start < textNodes.length && !candidateOverflow; start += 1) {
+          const first = textNodes[start];
+          if (!first.parentElement || isPairedTextNode(first, pairedValues) || !isVisibleTextElement(first.parentElement)) continue;
+          const entries = [];
+          let characterCount = 0;
+          for (let index = start; index < textNodes.length && entries.length < maxPrivacyAdjacentTextNodes; index += 1) {
+            const node = textNodes[index];
+            if (!node.parentElement || isPairedTextNode(node, pairedValues) || !isVisibleTextElement(node.parentElement)) {
+              if (entries.length && partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              break;
+            }
+            if (entries.length > 0 && !renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) {
+              if (partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              break;
+            }
+            const value = String(node.nodeValue ?? "");
+            // Preserve the established single-node detector for long rendered
+            // text. The adjacent recovery budget applies only when joining
+            // multiple nodes; a single node is already a bounded DOM item.
+            if (!entries.length && value.length > maxPrivacyAdjacentTextCharacters) {
+              entries.push({ node, value, start: 0, end: value.length });
+              characterCount = value.length;
+              continue;
+            }
+            if (characterCount + value.length > maxPrivacyAdjacentTextCharacters) {
+              if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)
+                && partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              break;
+            }
+            entries.push({ node, value, start: characterCount, end: characterCount + value.length });
+            characterCount += value.length;
+          }
+          if (!entries.length || !characterCount) continue;
+          const joined = entries.map((entry) => entry.value).join("");
+          for (const { kind, pattern } of textPatterns) {
+            pattern.lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(joined)) && !candidateOverflow) {
+              const matchedValue = match[1] || match[0];
+              const matchStart = match.index + (match[0].length - matchedValue.length);
+              const matchEnd = matchStart + matchedValue.length;
+              const previousNode = textNodes[start - 1];
+              const previousCharacter = previousNode && renderedTextBoundarySafe(previousNode, first, record.root)
+                ? String(previousNode.nodeValue ?? "").slice(-1) : "";
+              const startsInsideToken = matchStart === 0 && (kind === "email"
+                ? /[A-Z0-9._%+-]/i.test(previousCharacter)
+                : /\d/.test(previousCharacter));
+              if (startsInsideToken) continue;
+              const startEntry = entries.find((entry) => matchStart >= entry.start && matchStart < entry.end);
+              const endEntry = entries.find((entry) => matchEnd > entry.start && matchEnd <= entry.end);
+              if (!startEntry || !endEntry) {
+                privacyCandidateRangeOverflow = true;
+                continue;
+              }
+              const rangeKey = `text:${textNodeId(startEntry.node)}:${matchStart - startEntry.start}:${textNodeId(endEntry.node)}:${matchEnd - endEntry.start}`;
+              if (seenRangeKeys.has(rangeKey)) continue;
+              seenRangeKeys.add(rangeKey);
+              const range = createTextRange(record.root, startEntry.node, matchStart - startEntry.start, endEntry.node, matchEnd - endEntry.start);
+              if (!range) continue;
+              const rect = rangeRect(range);
+              if (rect) {
+                addCandidate({ kind, target: startEntry.node.parentElement, rect, range, rangeKey, key: rangeKey, textNodes: entries.filter((entry) => entry.end > matchStart && entry.start < matchEnd).map((entry) => entry.node) });
+              }
+            }
+          }
+          if (entries.length >= maxPrivacyAdjacentTextNodes && textNodes[start + entries.length]
+            && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)
+            && partialPatternAtBoundary(joined)) privacyCandidateRangeOverflow = true;
+        }
       };
       const rootRecords = new Map();
       const seenRoots = new Set();
@@ -256,32 +404,7 @@ export function installSensitiveMasks() {
           addCandidate({ kind, target: valueElement, rect, key: `pair:${kind}:${candidates.length}` });
         }
         if (candidateOverflow) break;
-        for (const node of record.textNodes) {
-          if (candidateOverflow) break;
-          const parent = node.parentElement;
-          let pairedAncestor = parent;
-          while (pairedAncestor && !["DD", "TD"].includes(String(pairedAncestor.tagName || "").toUpperCase())) pairedAncestor = pairedAncestor.parentElement;
-          if (!parent || pairedValues.has(parent) || (pairedAncestor && pairedValues.has(pairedAncestor)) || !isVisibleTextElement(parent)) continue;
-          const value = String(node.nodeValue ?? "");
-          if (!value.trim()) continue;
-          for (const { kind, pattern } of textPatterns) {
-            pattern.lastIndex = 0;
-            let match;
-            while ((match = pattern.exec(value)) && !candidateOverflow) {
-              const matchedValue = match[1] || match[0];
-              const offset = match.index + (match[0].length - matchedValue.length);
-              const range = record.root.createRange?.() || document.createRange?.();
-              if (!range) break;
-              range.setStart(node, offset);
-              range.setEnd(node, offset + matchedValue.length);
-              const rect = rangeRect(range);
-              if (rect) {
-                const rangeKey = `text:${textNodeId(node)}:${offset}:${matchedValue.length}`;
-                addCandidate({ kind, target: parent, rect, range, rangeKey, key: rangeKey });
-              }
-            }
-          }
-        }
+        addRenderedTextCandidates(record, record.textNodes, pairedValues);
       }
       privacyCandidateOverflow = candidateOverflow;
       privacyCandidateTraversalOverflow = traversal.exceeded;
@@ -385,10 +508,11 @@ export function installSensitiveMasks() {
           overlay,
           target: candidate.target,
           range: candidate.range || null,
+          textNodes: candidate.textNodes || [],
           targetRect: rectValues(candidate.target.getBoundingClientRect()),
           protectedRect: rectValues(rect),
           overlayRect: rectValues(overlayRect),
-          textFingerprint: textFingerprint(candidate.target.textContent)
+          textFingerprint: textFingerprint(candidate.range?.toString?.() || candidate.target.textContent)
         });
       }
       return privacyOverlays.length;
@@ -483,9 +607,12 @@ export function installSensitiveMasks() {
     const privacyRootSnapshot = collectPrivacyRootSnapshot();
     const privacyRootSet = new Set(privacyRootSnapshot);
     const protectedTargets = new Set(privacyOverlays.map(({ target }) => target));
+    const protectedTextNodes = new Set(privacyOverlays.flatMap(({ textNodes }) => textNodes || []));
+    const protectedTextParents = new Set([...protectedTextNodes].map((node) => node.parentElement).filter(Boolean));
     const isProtectedMutationNode = (node) => {
       if (!node) return false;
-      for (const target of protectedTargets) {
+      if (protectedTextNodes.has(node) || protectedTextParents.has(node) || protectedTextParents.has(node?.parentElement)) return true;
+      for (const target of [...protectedTargets, ...protectedTextParents]) {
         const label = target?.previousElementSibling;
         if (node === target || node === label || node === target?.parentElement || target?.contains?.(node)) return true;
       }
@@ -494,7 +621,7 @@ export function installSensitiveMasks() {
     const isProtectedAncestorMutationNode = (node) => {
       const element = node?.nodeType === 3 ? node.parentElement : node;
       if (!element) return false;
-      for (const target of protectedTargets) {
+      for (const target of [...protectedTargets, ...protectedTextParents]) {
         for (const candidate of [target, target?.previousElementSibling]) {
           let current = candidate;
           while (current) {
@@ -681,7 +808,7 @@ export function installSensitiveMasks() {
     const flushPrivacyMutations = () => {
       for (const observer of privacyObservers) processPrivacyMutations(observer.takeRecords?.() || []);
     };
-    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates, get privacyCandidateOverflow() { return privacyCandidateOverflow; }, get privacyCandidateTraversalOverflow() { return privacyCandidateTraversalOverflow; }, get privacyRootTraversalOverflow() { return privacyRootTraversalOverflow; } };
+    globalThis.__mecchaManualScreenshotMasks = { token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates, get privacyCandidateOverflow() { return privacyCandidateOverflow; }, get privacyCandidateTraversalOverflow() { return privacyCandidateTraversalOverflow; }, get privacyCandidateRangeOverflow() { return privacyCandidateRangeOverflow; }, get privacyRootTraversalOverflow() { return privacyRootTraversalOverflow; } };
     return { applied: true, count: masks.length, privacyMaskedCount, token };
   } catch {
     for (const observer of observers) observer.disconnect();
@@ -734,7 +861,7 @@ export function verifySensitiveMasks(expectedToken) {
     if (typeof state.collectPrivacyCandidates === "function") {
       const currentCandidates = state.collectPrivacyCandidates();
       const overlays = state.privacyOverlays || [];
-      if (state.privacyCandidateOverflow || state.privacyCandidateTraversalOverflow) return false;
+      if (state.privacyCandidateOverflow || state.privacyCandidateTraversalOverflow || state.privacyCandidateRangeOverflow) return false;
       if (currentCandidates.length !== overlays.length) return false;
       if (currentCandidates.some((candidate) => !overlays.some((item) => item.target === candidate.target && sameRect(item.protectedRect, candidate.rect)))) return false;
     }
@@ -750,7 +877,7 @@ export function verifySensitiveMasks(expectedToken) {
       if (!sameRect(item.overlayRect, item.overlay.getBoundingClientRect()) || !sameRect(item.overlay.getBoundingClientRect(), protectedRect)) return false;
       if (item.textFingerprint !== (() => {
         let hash = 2166136261;
-        const text = String(item.target.textContent ?? "");
+        const text = String(item.range?.toString?.() || item.target.textContent || "");
         for (let index = 0; index < text.length; index += 1) {
           hash ^= text.charCodeAt(index);
           hash = Math.imul(hash, 16777619);
