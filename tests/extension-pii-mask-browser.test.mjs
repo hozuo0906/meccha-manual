@@ -336,6 +336,79 @@ test("transient split PII across collapsed rendered whitespace remains rejected"
   }
 });
 
+test("mutation whitespace uses each text node CSS and collapses across node boundaries", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><main><p id='mixed'></p></main>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const appendMixed = async (outerWhiteSpace, innerWhiteSpace, text) => page.evaluate(({ outerWhiteSpace, innerWhiteSpace, text }) => {
+      const outer = document.createElement("span");
+      outer.style.whiteSpace = outerWhiteSpace;
+      const inner = document.createElement("span");
+      inner.style.whiteSpace = innerWhiteSpace;
+      inner.textContent = text;
+      outer.append(inner);
+      document.getElementById("mixed").append(outer);
+    }, { outerWhiteSpace, innerWhiteSpace, text });
+
+    let mask = await inject(installSensitiveMasks);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await appendMixed("pre", "normal", "123   4567");
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "inner normal whitespace must remain protected under an outer pre element");
+    await page.evaluate(() => document.querySelector("#mixed > span")?.remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    mask = await inject(installSensitiveMasks);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const target = document.getElementById("mixed");
+      const prefix = document.createElement("span");
+      prefix.textContent = "123 ";
+      target.append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.textContent = " 4567";
+      document.getElementById("mixed").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "collapsed whitespace across adjacent callbacks must remain protected");
+    await page.evaluate(() => document.querySelector("#mixed > span")?.remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.querySelector("#mixed > span")?.remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    mask = await inject(installSensitiveMasks);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await appendMixed("normal", "pre", "123\n4567");
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "pre whitespace must remain a rendering boundary");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("bounded split recovery keeps complete suffixes, precedence, and boundary failures", async () => {
   const server = createServer((request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");

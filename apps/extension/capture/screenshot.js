@@ -770,11 +770,13 @@ export function installSensitiveMasks() {
       }
       if (node.nodeType === 3) {
         const value = String(node.nodeValue ?? "");
-        if (mutationPartialPattern(value)) state.completeMatch = true;
-        if (containsPiiText(value)) state.completeMatch = true;
+        const renderedValue = collapseMutationWhitespace(value, node);
+        if (mutationPartialPattern(renderedValue)) state.completeMatch = true;
+        if (containsPiiText(renderedValue)) state.completeMatch = true;
         state.characterCount += value.length;
         if (state.characterCount > maxPrivacyAdjacentTextCharacters) state.characterOverflow = true;
-        state.text = `${state.text}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+        state.text = appendMutationRenderedText(state.text, renderedValue, state.lastNode, node).slice(-maxPrivacyAdjacentTextCharacters);
+        state.lastNode = node;
         return;
       }
       if (node.nodeType !== 1) return;
@@ -823,13 +825,37 @@ export function installSensitiveMasks() {
       return numericMutationCorePattern.test(text);
     };
     const mutationNumericSeparator = (value) => /^[ \t\n\f\r\-\u30fc\u2212\u2010\u2013]+$/.test(String(value ?? ""));
+    const mutationWhitespaceMode = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node?.nodeType === 1 ? node : null;
+      if (!element) return "normal";
+      if (element.isConnected) {
+        const computed = String(getComputedStyle(element).whiteSpace || "").toLowerCase();
+        if (computed) return computed;
+      }
+      let current = element;
+      while (current) {
+        const inline = String(current.style?.whiteSpace || "").toLowerCase();
+        if (inline) return inline;
+        current = current.parentElement;
+      }
+      return "normal";
+    };
     const collapseMutationWhitespace = (value, node) => {
       const text = String(value ?? "");
-      const element = node?.nodeType === 3 ? node.parentElement : node?.nodeType === 1 ? node : null;
-      const whiteSpace = String(element ? getComputedStyle(element).whiteSpace : "normal").toLowerCase();
+      const whiteSpace = mutationWhitespaceMode(node);
       if (whiteSpace === "normal" || whiteSpace === "nowrap") return text.replace(/[ \t\n\f\r]+/g, " ");
       if (whiteSpace === "pre-line") return text.replace(/[ \t\f\r]+/g, " ");
       return text;
+    };
+    const appendMutationRenderedText = (left, right, leftNode, rightNode) => {
+      const leftMode = mutationWhitespaceMode(leftNode);
+      const rightMode = mutationWhitespaceMode(rightNode);
+      const leftCollapses = leftMode === "normal" || leftMode === "nowrap" || leftMode === "pre-line";
+      const rightCollapses = rightMode === "normal" || rightMode === "nowrap" || rightMode === "pre-line";
+      if (leftCollapses && rightCollapses && /[ \t\f\r]$/.test(left) && /^[ \t\f\r]/.test(right)) {
+        return `${left.replace(/[ \t\f\r]+$/g, " ")}${right.replace(/^[ \t\f\r]+/g, "")}`;
+      }
+      return `${left}${right}`;
     };
     const mutationNumericContext = (value) => mutationNumericFragment(value) || mutationNumericSeparator(value);
     const mutationStreamKey = (node) => {
@@ -1098,7 +1124,7 @@ export function installSensitiveMasks() {
             hasNumericPrefix = false;
             continue;
           }
-          joined = `${joined}${renderedValue}`.slice(-maxPrivacyAdjacentTextCharacters);
+          joined = appendMutationRenderedText(joined, renderedValue, previous?.node, node).slice(-maxPrivacyAdjacentTextCharacters);
           pendingSeparatorNodes += 1;
           pendingSeparatorCharacters += value.length;
           previous = { node, value };
@@ -1120,7 +1146,7 @@ export function installSensitiveMasks() {
             pendingSeparatorNodes = 0;
             pendingSeparatorCharacters = 0;
           }
-          joined = `${joined}${renderedValue}`.slice(-maxPrivacyAdjacentTextCharacters);
+          joined = appendMutationRenderedText(joined, renderedValue, previous?.node, node).slice(-maxPrivacyAdjacentTextCharacters);
         }
         if (containsPiiText(joined)) return true;
         hasNumericPrefix = true;
@@ -1128,7 +1154,7 @@ export function installSensitiveMasks() {
       }
       return false;
     };
-    const rememberMutationFragment = (streams, key, value, node) => {
+    const rememberMutationFragment = (streams, key, value, node, alreadyRendered = false) => {
       const text = String(value ?? "");
       if (!mutationNumericContext(text)) return false;
       if (mutationEvidence.inspectedNodes >= maxPrivacyAdjacentTextNodes
@@ -1145,8 +1171,10 @@ export function installSensitiveMasks() {
         mutationEvidence.overflow = true;
         return true;
       }
-      const renderedText = collapseMutationWhitespace(text, node);
-      stream.text = adjacent ? `${stream.text}${renderedText}`.slice(-maxPrivacyAdjacentTextCharacters) : renderedText;
+      const renderedText = alreadyRendered ? text : collapseMutationWhitespace(text, node);
+      stream.text = adjacent
+        ? appendMutationRenderedText(stream.text, renderedText, stream.lastNode, node).slice(-maxPrivacyAdjacentTextCharacters)
+        : renderedText;
       stream.lastNode = node;
       streams.set(key, stream);
       return containsPiiText(stream.text);
@@ -1181,6 +1209,7 @@ export function installSensitiveMasks() {
     };
     const containsSplitPiiMutation = (records) => {
       let pending = "";
+      let pendingNode = null;
       const oldCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
       const currentCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
       for (const record of records || []) {
@@ -1225,19 +1254,21 @@ export function installSensitiveMasks() {
             mutationEvidence.overflow = true;
             return true;
           }
-          if (state.text) fragments.push({ node, text: state.text });
+          if (state.text) fragments.push({ node, text: state.text, alreadyRendered: true });
         }
         const childStreamKey = mutationStreamKey(record.target);
-        for (const { node, text } of fragments) {
+        for (const { node, text, alreadyRendered } of fragments) {
           if (mutationEvidence.seenChildValues.get(node) === text) continue;
           mutationEvidence.seenChildValues.set(node, text);
-          if (rememberMutationFragment(mutationEvidence.currentStreams, childStreamKey, text, node)) return true;
+          if (rememberMutationFragment(mutationEvidence.currentStreams, childStreamKey, text, node, alreadyRendered)) return true;
           if (!mutationNumericContext(text)) clearMutationStream(mutationEvidence.currentStreams, childStreamKey, node);
-          const joined = `${pending}${collapseMutationWhitespace(text, node)}`;
+          const renderedText = alreadyRendered ? text : collapseMutationWhitespace(text, node);
+          const joined = appendMutationRenderedText(pending, renderedText, pendingNode, node);
           if (containsPiiText(joined)) return true;
           if (mutationPartialPattern(joined)) return true;
           const hasBoundaryMarker = mutationBoundaryMarker(joined);
           pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
+          pendingNode = hasBoundaryMarker ? node : null;
         }
       }
       return false;
