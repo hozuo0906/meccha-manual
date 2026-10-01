@@ -23,11 +23,18 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 - 共通: `sequence`、`type`、実在するUTC日時を表すISO 8601 `occurredAt`。sub-millisecond精度はmillisecondへ切り詰めて正規化
 - click: 表示中の秘密値由来でないことを証明できないため、`targetText`は常に`対象`へ置換
+- 拡張機能のlocal click eventでは、安全な短いcaptionを採用した場合だけ`labelSource: "caption"`を付加する。未指定値は従来のsemantic fallbackであり、この補助fieldはguest capture APIへ送信しない。
 - input completion: 入力値由来でないことを証明できないため、`targetText`は常に`入力欄`へ置換
 - navigation: pathを含むURLに秘密値が埋め込まれ得るため、URLは保存しない
 - scroll: `up`または`down`のsummaryだけ
 
 未知field、入力値、password、カード番号、token、Cookie、Authorization、座標の生値は出力eventへ複製しない。機密候補を含むtarget labelは`入力欄`へ置換する。
+
+## スクリーンショット個人情報境界
+
+スクリーンショット直前のDOM個人情報候補は、表示viewportと交差する高信頼な候補だけを固定ダミーoverlayへ置換する。1回のcaptureで生成するoverlayは最大64件とし、65件目の候補を検出した場合は画像を保存せずfail closedにする。初期・再検証の候補集合、shadow root snapshot、属性変更時のcomposed-tree候補確認を含む各DOM走査は、light DOM・open shadow root・extensionが検査できるprivileged shadow rootをまたいで最大4096 DOM nodeの単一予算で数え、rootごとにリセットしない。上限を超えて走査が完了しない場合も画像を保存しない。extension自身が作成したoverlay要素はこの候補走査からidentityで除外し、ページが同じclass名を付けた要素は除外しない。これにより、PII候補を含まない64件超の子nodeに対する無関係な属性変更を許容しつつ、候補数超過と走査不完了を成功扱いにしない。
+
+paint後のcapture前およびcapture後に候補集合、overlayの接続・幾何・不透明性、document identityを検証する。追加・除去・文字列・属性変更で個人情報が一時的に出現した場合、変更後に値が消えていても検証を失敗させる。元DOM、候補文字列、入力値はevent、ログ、handoff metadata、D1/R2へ保存しない。対象外の文字は利用者が編集画面で手動黒塗りする。
 
 ## 決定的draft生成
 

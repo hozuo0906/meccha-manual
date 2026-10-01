@@ -2,14 +2,15 @@
 <html lang="ja">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>手順書を編集 | めっちゃマニュアル</title><link rel="stylesheet" href="editor.css"></head>
 <body><main>
-  <header class="editor-header"><div class="brand-lockup"><img src="../assets/meccha-manual-logo-mark.png" width="56" height="56" alt="めっちゃマニュアル"><div><span class="eyebrow">めっちゃマニュアル</span><h1><label class="sr-only" for="title">手順書のタイトル</label><input id="title"></h1><label class="sr-only" for="description">手順書の説明</label><textarea id="description" placeholder="この手順書の説明"></textarea></div></div><div class="header-actions"><span id="saveState" class="save-state" role="status" aria-live="polite">編集中</span><button id="save" type="button">保存して続ける</button></div></header>
-  <p class="local-note"><strong>この端末の下書き</strong>　編集内容はこの端末に保存されます。鉛筆ボタンから画像を編集できます。</p>
-  <div class="layout"><nav aria-label="手順一覧"><div class="section-heading"><div><h2>手順</h2></div><button id="addStep" type="button">手順を追加</button></div><ol id="steps"></ol></nav><section><div class="section-heading"><div><h2>手順の内容</h2></div></div><div id="detail"></div></section></div>
+  <header class="editor-header"><div class="brand-lockup"><img src="../assets/meccha-manual-logo-mark.png" width="48" height="48" alt="めっちゃマニュアル"><div class="header-fields"><h1 id="editor-heading" class="eyebrow editor-heading" tabindex="-1">手順書を編集</h1><label for="title">タイトル</label><input id="title" placeholder="手順書のタイトル"><label for="description">説明 <span class="optional">任意</span></label><textarea id="description" placeholder="この手順書の説明"></textarea></div></div><div class="header-actions"><span id="saveState" class="save-state" role="status" aria-live="polite">編集中</span><button id="save" type="button">保存して続ける</button></div></header>
+  <p class="local-note"><strong>下書きはこの端末に保存されます</strong><span>入力した内容は自動で保存します。保存先を選ぶときは、「保存して続ける」ボタンを押してください。</span></p>
+  <div class="layout"><nav aria-label="手順一覧"><div class="section-heading"><div><h2>手順</h2><p class="section-hint">手順を選ぶと、内容を確認・編集できます。</p></div><button id="addStep" type="button">手順を追加</button></div><ol id="steps"></ol></nav><section><div class="section-heading"><div><h2>手順の内容</h2><p class="section-hint">説明と画像を確認して編集できます。</p></div></div><div id="detail"></div></section></div>
   <p id="status" role="status" aria-live="polite"></p>
   <dialog id="outputGate" class="output-gate" aria-labelledby="outputGateTitle">
     <form method="dialog">
       <div class="gate-brand"><img src="../assets/meccha-manual-mascot-me-clear-eyes.png" width="104" height="104" alt="手順書の準備をするめっちゃマニュアルのキャラクター"><div><span class="eyebrow">保存・共有</span><h2 id="outputGateTitle">この手順書を保存・共有する</h2></div></div>
       <p>保存の準備に進む前に、この端末に保存された手順書を確認してください。</p>
+      <p class="privacy-note">自動処理で隠せない情報もあります。画像を確認し、必要な箇所を黒塗りしてください。</p>
       <p class="local-note">ワークスペースに保存しても共有されません。共有する場合は、保存後に共有リンクを作成してください。</p>
       <div class="gate-actions">
         <button id="cancelOutput" value="cancel" type="submit" class="secondary">編集に戻る</button>
@@ -20,9 +21,9 @@
     </form>
   </dialog>
   <dialog id="imageEditorDialog" class="image-editor-dialog" aria-labelledby="imageEditorTitle">
-  <form method="dialog" class="image-editor-form">
+  <form method="dialog" class="image-editor-form" tabindex="-1">
       <header><div><span class="eyebrow">画像の編集</span><h2 id="imageEditorTitle">画像に文字や図形を追加</h2></div><button type="button" class="secondary" data-editor-cancel aria-label="画像編集を閉じる">閉じる</button></header>
-      <div class="image-editor-workspace"><div class="image-editor-canvas-wrap"><canvas id="imageEditorCanvas" tabindex="0" aria-label="編集する画像"></canvas></div><aside class="image-editor-tools" aria-label="画像編集ツール"><p data-editor-status role="status" aria-live="polite">画像を準備しています。</p><div class="tool-grid"> <button type="button" data-editor-tool="select" aria-pressed="true">選択</button><button type="button" data-editor-tool="text" aria-pressed="false">文字</button><button type="button" data-editor-tool="rectangle" aria-pressed="false">四角</button><button type="button" data-editor-tool="ellipse" aria-pressed="false">丸</button><button type="button" data-editor-tool="arrow" aria-pressed="false">矢印</button><button type="button" data-editor-tool="mask" aria-pressed="false">黒塗り</button></div><label>選択中の文字<textarea data-editor-text placeholder="文字を入力"></textarea></label><label>文字サイズ<input data-editor-font-size type="number" min="10" max="96" step="1" value="24"></label><div data-editor-selection aria-label="追加した文字や図形、黒塗り"></div><p class="editor-help">文字や図形、黒塗りはドラッグで移動、右下のハンドルでサイズを変更できます。削除ボタンで削除し、Deleteキーも使えます。</p></aside></div>
+      <div class="image-editor-workspace"><div class="image-editor-canvas-wrap"><div class="canvas-caption">プレビュー</div><canvas id="imageEditorCanvas" tabindex="0" aria-label="編集する画像"></canvas></div><aside class="image-editor-tools" aria-label="画像編集ツール"><p data-editor-status role="status" aria-live="polite">画像を準備しています。</p><div class="tool-group"><span class="tool-label">追加するもの</span><div class="tool-grid"> <button type="button" data-editor-tool="select" aria-pressed="true">選択</button><button type="button" data-editor-tool="text" aria-pressed="false">文字</button><button type="button" data-editor-tool="rectangle" aria-pressed="false">四角形</button><button type="button" data-editor-tool="ellipse" aria-pressed="false">円</button><button type="button" data-editor-tool="arrow" aria-pressed="false">矢印</button><button type="button" data-editor-tool="mask" aria-pressed="false">黒塗り</button></div></div><div class="property-group"><label>選択中の文字<textarea data-editor-text placeholder="文字を入力"></textarea></label><label>文字サイズ<input data-editor-font-size type="number" min="10" max="96" step="1" value="24"></label></div><div class="selection-group"><span class="tool-label">追加した要素</span><div data-editor-selection aria-label="追加した文字や図形、黒塗り"></div></div><p class="editor-help">文字や図形を選んでドラッグすると、位置を変更できます。選んだ要素は削除ボタンで消せます。</p></aside></div>
       <footer class="image-editor-actions"><button type="button" class="secondary" data-editor-cancel>キャンセル</button><button type="button" data-editor-save>保存</button></footer>
     </form>
   </dialog>

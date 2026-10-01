@@ -64,6 +64,14 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
+スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。inline要素（空またはdisplay:contentsの可視inline要素を含む）で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre-lineでは空白・タブをcollapseするが改行は保持し、pre／pre-wrapの改行は保持して連結しない。MutationObserverの一時候補も各text nodeのwhite-space規則を使って同じrender boundaryへ写像し、PIIの不確かな境界や継続が予算を超えた場合はfail closedにする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とする。単一text nodeの既存検出はこの連結予算とは別に維持する。候補overlayは1回につき64件まで、候補確認のcomposed-tree走査は4096 DOM nodeまでとし、65件目の候補または走査上限超過はfail closedにする。overlay件数と走査node数の予算を分離し、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許容する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、同一mutation batchで追加・除去された可視text nodeのboundedなsplit PIIをrecord targetが空になった後もnode自身から確認し、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+
+
+
+MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する際に、各履歴系列を混ぜず、有限値内のASCII local-part直後の`@`またはleading `@`直後のASCII domainを含む明らかなemail partial markerは区切り文字・後続文字に関係なく出現時点で拒否する。孤立した日本語文中の`@`は記録可能とする。128 nodeまたは1024文字の有限予算へ到達して候補を確定できない場合は、通常の長文DOM検出とは別にcaptureをfail closedとする。
+
+numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保持し、同じrendered parentで実際に隣接する可視nodeだけを連結する。変更後の可視valueはchildListとcharacterDataのrecord種別をまたいで同じ系列として照合し、oldValueは別系列に保つ。周囲の空白・句読点および有限の普通文はnumeric coreを含むnodeの判定境界としてだけ扱い、連結時の原文から無条件に除去しない。普通文を含むnodeもnumeric coreがある場合だけ候補へ加え、numeric separatorだけの可視nodeはhyphenまたは空白に限ってbounded sequenceの一部として保持し、それ以外の非numeric separatorでは連結を止める。capture中は同じparentの現在可視textも同じ128 node・1024文字の有限snapshotで確認し、初期から存在したprefixと後続追加の組み合わせを取りこぼさない。予算を超えた未知のmutationはfail closedとし、removeSensitiveMasksで履歴を解放する。
+
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
 - MVP capture runtimeはChrome拡張のみ。
@@ -72,10 +80,11 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - 終了失敗後の再試行では永続化された`finish_failed` phaseを正として、選択済みのsmartphone / tablet responsive viewportを再適用してscreenshotを生成する。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
-- clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
-- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。
+- clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。安全な短いcaptionを採用した拡張機能内eventだけ`labelSource: "caption"`を付加し、未指定値は後方互換のsemantic fallbackとして扱う。この補助fieldはguest capture APIへ送信しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
+- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。PII overlay境界は`tests/extension-pii-mask-browser.test.mjs`で、64件超のPII候補拒否、64件超のPII候補なしclass変更の許可、4096 node走査上限の成功／超過拒否、一時PII変更の拒否を実ブラウザで検証する。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 - 通常の`capture:event`送信中は離脱警告を出さず、送信失敗が判明して保存成功を確認できないeventとretain中の未保存batchだけをbeforeunload保護対象とする。再送成功まで失敗保護を保持し、送信世代を照合して遅着ACKによる新しいeventの消去を防ぐ。
+ - 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。現在地表示は保存済み下書き一覧まで含むサイドパネル全体で固定し、終了時はeditorが下書き取得と初回renderを完了した`editor:ready`を確認できた場合だけサイドパネルを閉じる。結果不明・復元待ち・editorの下書き取得／render失敗・readyタイムアウトでは復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。
 
 capture runtimeはcloud claim契約と同じ保存ready画像100件・手順200件を上限とし、保存済みlive画像のIDB件数を画像上限の正本として判定する。通常pauseはdrain前に`paused`意図をsessionまたはrecovery journalへ保存し、両方が失敗した場合はrecorderを停止しない。停止時のpending batchはページ側でclone保持し、sessionまたはjournalへの保存確認後だけreleaseする。recorderのretain確認が欠落または失敗した場合はbatchを空配列として保存せず、releaseや再注入を行わない。release確認が欠落または失敗した場合も成功扱いにせず、保持中のbatchと再試行可能な状態を維持する。上限到達時はrecorderを停止して記録を一時停止し、終了・手順書保存へ案内する。上限到達済みの記録は保存でき、上限超過の保留イベントは追加せず終了処理を妨げない。上限超過を成功扱いにせず、`CLOUD_CLAIM_MAX_ASSETS`を正本として追跡する。
 
@@ -124,6 +133,8 @@ FR-001、FR-002、FR-022のB実装では、明示された不正／空／重複f
 
 FR-001、FR-002、FR-022の登録／共有handoffでは、拡張機能がinactive tabを作成してからWebページの`handoff.page-ready`を受け、自動activate期限内に固定origin・`/onboarding/continue`・tab ID・launch ID・保存済みdraft fingerprintの存在・64桁hex形式・TTLを検証してpageReadyAtだけを記録し、現activeなeditorがrun／launch／tab／期限を再検証した場合だけ対象tabをactivateしてactivatedAtを保存する。tabs.update開始後のactivating中は取消・Esc・新しいhandoff開始を受け付けず、失敗時だけpreparedへ戻して再試行する。handoff作成時のdraft fingerprint照合とclaim本体のrequest fingerprint検証は別境界として追跡する。古い通知、別tab、別origin、期限切れ、保存済みdraft fingerprintの不在または形式不正、利用者が閉じたattemptは副作用0で拒否し、Accessログイン等でreadyを受信できない場合はtimeout後に自動activateせず利用者の明示操作で画面を表示する。ready観測後にauto期限を超えた場合は同じ準備済みtabでmanual継続し、回帰で確認する。実装は`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、回帰は`tests/onboarding-ui.test.mjs`と`tests/extension-editor-browser.test.mjs`で追跡する。
 
+DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰証明にせず、同じtabの保存済みhandoffで利用者が「保存を再開する」または「保存状況を確認する」を押した場合だけ`handoff.access-return`を送る。初回AccessでWeb側JSが実行されないDEC-092のpayloadなしcontent script経路は自動復帰を維持する。回帰では通常navigationの復帰0回、明示クリックによる復帰、初回native 302、期限切れ結果回収、local原本保持を確認する。
+
 ### Issue #264 editor image workspace
 
-全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。
+全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、画像差し替え成功時の対象dialogだけの破棄、別画像dialogの保持、bitmap identity不一致時の注釈・mask保存拒否、失敗時の旧内容保持と操作フォーカス復帰、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。

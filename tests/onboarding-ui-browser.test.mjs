@@ -43,7 +43,6 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
 
     await page.goto(`${baseUrl}/onboarding/continue?same=1#handoff=${handoff}`);
     assert.equal(await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).createdAt; }), firstCreatedAt);
-    await page.reload();
     await page.locator("#bootstrap").click();
     await page.getByText(/保存先の準備が完了しました/).waitFor();
     assert.equal(calls.length, 2);
@@ -358,7 +357,7 @@ test("onboarding retains per-handoff history across A-B-A and tombstones expired
     assert.equal(stateAAgain.activeHandoffId, handoffA);
     assert.equal(secondA.operationId, firstA.entries[0].operationId);
     assert.equal(secondA.createdAt, firstA.entries[0].createdAt);
-    await page.reload();
+    await page.goto(`${baseUrl}/onboarding/continue?handoff=a#handoff=${handoffA}`);
     await page.locator("#bootstrap").click();
     await page.waitForFunction(() => document.querySelector("#status")?.className.includes("success"));
     assert.equal(calls.length, 1);
@@ -493,7 +492,7 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     await page.getByRole("button", { name: "保存先を準備する" }).click();
     await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
-    await page.reload();
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.locator("#bootstrap").click();
     await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1);
@@ -548,7 +547,7 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     await page.getByRole("button", { name: "保存先を準備する" }).click();
     await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
-    await page.reload();
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.locator("#bootstrap").click();
     await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
@@ -692,7 +691,7 @@ test("onboarding keeps an expired pending finalize read-only without prepare or 
       state.entries[0].createdAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
       sessionStorage.setItem("meccha-manual:onboarding-operation", JSON.stringify(state));
     });
-    await page.reload();
+    await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
     await page.getByText(/結果を確認中です/).waitFor();
     assert.equal(bootstrapCalls, 0);

@@ -38,6 +38,15 @@
       <p class="privacy-note">入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があるため、画像編集で黒塗りしてください。</p>
     </section>
 
+    <div id="liveProgress" class="live-progress" aria-live="polite" hidden>
+      <div>
+        <span class="live-progress-label">現在の手順</span>
+        <strong id="liveCurrentStep">まだありません</strong>
+      </div>
+      <span id="liveCurrentStatus" class="live-current-status">操作を待っています</span>
+      <button id="liveLatest" class="live-latest" type="button" hidden>最新の手順を見る</button>
+    </div>
+
     <section id="liveSection" class="live-section" hidden aria-labelledby="liveTitle">
       <div class="section-heading">
         <div>

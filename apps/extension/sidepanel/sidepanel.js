@@ -16,12 +16,32 @@ const liveSection = document.querySelector("#liveSection");
 const liveSteps = document.querySelector("#liveSteps");
 const liveCount = document.querySelector("#liveCount");
 const liveDescription = document.querySelector("#liveDescription");
+const liveCurrentStep = document.querySelector("#liveCurrentStep");
+const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
+const liveLatest = document.querySelector("#liveLatest");
+const liveProgress = document.querySelector("#liveProgress");
 const draftSection = document.querySelector("#draftSection");
 const drafts = document.querySelector("#drafts");
 const draftCount = document.querySelector("#draftCount");
 const emptyState = document.querySelector("#emptyState");
+const controls = document.querySelector(".controls");
 const SEMANTIC_LABELS = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
 const DRAFT_POLL_INTERVAL_MS = 3_000;
+const EDITOR_READY_TIMEOUT_MS = 8_000;
+
+function syncControlsSpace() {
+  if (!controls) return;
+  document.documentElement.style.setProperty("--controls-height", `${Math.ceil(controls.getBoundingClientRect().height)}px`);
+}
+
+syncControlsSpace();
+if (typeof ResizeObserver === "function" && controls) {
+  new ResizeObserver(() => {
+    syncControlsSpace();
+    keepLiveTailVisibleAfterResize();
+  }).observe(controls);
+}
+window.addEventListener("resize", syncControlsSpace, { passive: true });
 
 const MODE_LABELS = {
   pc: "PC",
@@ -42,6 +62,7 @@ function instructionFor(event) {
   if (event?.kind === "navigation") return "次のページへ移動する";
   const semanticLabel = SEMANTIC_LABELS.has(event?.label) ? event.label : "操作対象";
   if (event?.kind === "input") return `${semanticLabel}に入力する`;
+  if (event?.kind === "click" && event.label && (event.labelSource === "caption" || !SEMANTIC_LABELS.has(event.label))) return `【${event.label}】クリック`;
   return `${semanticLabel}を操作する`;
 }
 
@@ -50,7 +71,84 @@ function setImage(image, source, alt) {
   image.alt = alt;
 }
 
+function imageStatusFor(event, imageEntries, imageRefs) {
+  const imageEntry = imageEntries.find((entry) => entry?.eventId === event?.eventId);
+  const imageRef = imageRefs.find((entry) => entry?.eventId === event?.eventId);
+  if (imageEntry?.status === "ready" && imageEntry.dataUrl) return "保存済み";
+  if (["failed", "unavailable"].includes(imageRef?.status)) return "記録できませんでした";
+  return "記録中…";
+}
+
+function updateLiveLatestVisibility() {
+  liveLatest.hidden = followLiveTail || !liveSteps.children.length;
+}
+
+function scrollLiveLatest({ behavior = "smooth", scheduleRepair = true } = {}) {
+  const latest = liveSteps.lastElementChild;
+  if (!latest) return;
+  followLiveTail = true;
+  programmaticFollowPending = true;
+  updateLiveLatestVisibility();
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const scrollBehavior = reducedMotion ? "auto" : behavior;
+  const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
+  const targetScrollY = Math.max(0, window.scrollY + latest.getBoundingClientRect().bottom - footerTop + 8);
+  if (Math.abs(targetScrollY - window.scrollY) > 1) {
+    window.scrollTo({ top: targetScrollY, behavior: scrollBehavior });
+  }
+  const repairFollow = followLiveTail;
+  if (repairFollow && scheduleRepair) {
+    const repairGeneration = ++liveTailRepairGeneration;
+    for (const delay of [80, 220, 420]) {
+      setTimeout(() => {
+        if (repairGeneration !== liveTailRepairGeneration || !followLiveTail || liveSection.hidden) return;
+        if (!isLiveTailVisible()) scrollLiveLatest({ behavior: "auto", scheduleRepair: false });
+      }, delay);
+    }
+  }
+  requestAnimationFrame(() => {
+    if (isLiveTailVisible()) programmaticFollowPending = false;
+  });
+}
+
+function isLiveTailVisible() {
+  const latest = liveSteps.lastElementChild;
+  if (!latest) return true;
+  const rect = latest.getBoundingClientRect();
+  const footerTop = controls?.getBoundingClientRect().top ?? window.innerHeight;
+  const viewportBottom = Math.min(window.innerHeight, footerTop);
+  return rect.bottom <= viewportBottom && rect.top < viewportBottom;
+}
+
+function captureLiveScrollAnchor() {
+  const anchor = [...liveSteps.children].find((item) => {
+    const rect = item.getBoundingClientRect();
+    return rect.bottom > 0 && rect.top < window.innerHeight;
+  });
+  return anchor ? { eventId: anchor.dataset.eventId, top: anchor.getBoundingClientRect().top } : null;
+}
+
+function restoreLiveScrollAnchor(anchor) {
+  if (!anchor?.eventId) return;
+  const next = liveSteps.querySelector(`[data-event-id="${CSS.escape(anchor.eventId)}"]`);
+  if (!next) return;
+  const delta = next.getBoundingClientRect().top - anchor.top;
+  if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "auto" });
+}
+
+function keepLiveTailVisibleAfterResize() {
+  if (!followLiveTail || liveSection.hidden) return;
+  requestAnimationFrame(() => {
+    if (followLiveTail && !isLiveTailVisible()) scrollLiveLatest({ behavior: "auto" });
+  });
+}
+
+if (typeof ResizeObserver === "function" && liveSteps) {
+  new ResizeObserver(keepLiveTailVisibleAfterResize).observe(liveSteps);
+}
+
 function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
+  const scrollAnchor = followLiveTail ? null : captureLiveScrollAnchor();
   liveSteps.replaceChildren();
   liveCount.textContent = String(events.length);
   const images = new Map(imageEntries.map((entry) => [entry.eventId, entry]));
@@ -58,6 +156,11 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
   for (const [index, event] of events.entries()) {
     const item = document.createElement("li");
     item.className = "step-card";
+    item.dataset.eventId = event.eventId || "";
+    if (index === events.length - 1) {
+      item.classList.add("is-current");
+      item.setAttribute("aria-current", "step");
+    }
     const text = document.createElement("div");
     text.className = "step-text";
     const number = document.createElement("span");
@@ -66,6 +169,12 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     const instruction = document.createElement("p");
     instruction.textContent = instructionFor(event);
     text.append(number, instruction);
+    const imageStatus = document.createElement("span");
+    imageStatus.className = "step-image-status";
+    const imageStatusText = imageStatusFor(event, imageEntries, imageRefs);
+    imageStatus.textContent = imageStatusText === "保存済み" ? "✓ スクリーンショット保存済み" : `スクリーンショット：${imageStatusText}`;
+    imageStatus.dataset.state = imageStatusText === "保存済み" ? "ready" : imageStatusText === "記録できませんでした" ? "failed" : "pending";
+    text.append(imageStatus);
     const imageEntry = images.get(event.eventId);
     const imageRef = refs.get(event.eventId);
     if (imageEntry?.status === "ready" && imageEntry.dataUrl) {
@@ -83,6 +192,16 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     liveSteps.append(item);
   }
   liveDescription.textContent = events.length ? "操作を続けると、手順がここへ追加されます。" : "操作すると、ここに手順が追加されます。";
+  const current = events.at(-1);
+  liveCurrentStep.textContent = current ? `手順 ${events.length}：${instructionFor(current)}` : "まだありません";
+  const currentStatus = current ? imageStatusFor(current, imageEntries, imageRefs) : "操作を待っています";
+  liveCurrentStatus.textContent = current ? `スクリーンショット：${currentStatus}` : currentStatus;
+  liveCurrentStatus.dataset.state = currentStatus === "保存済み" ? "ready" : currentStatus === "記録できませんでした" ? "failed" : "pending";
+  updateLiveLatestVisibility();
+  requestAnimationFrame(() => {
+    if (followLiveTail) scrollLiveLatest({ behavior: "auto" });
+    else restoreLiveScrollAnchor(scrollAnchor);
+  });
 }
 
 function firstScreenshot(draft) {
@@ -94,9 +213,60 @@ function editorUrl(draftId) {
   return chrome.runtime.getURL(`editor/editor.html#${encodeURIComponent(draftId)}`);
 }
 
-async function openDraftEditor(draftId) {
+function isEditorReadySender(sender, draftId) {
+  try {
+    const senderUrl = new URL(sender?.url || "");
+    const expectedUrl = new URL(editorUrl(draftId));
+    return senderUrl.origin === expectedUrl.origin && senderUrl.pathname === expectedUrl.pathname;
+  } catch {
+    return false;
+  }
+}
+
+function waitForEditorReady(draftId) {
+  if (!chrome.runtime?.onMessage?.addListener) return { promise: Promise.resolve(false), cancel() {} };
+  let finishWait;
+  const promise = new Promise((resolve) => {
+    let settled = false;
+    finishWait = (ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(listener);
+      resolve(ready);
+    };
+    const listener = (message, sender) => {
+      if (message?.type !== "editor:ready" || message.draftId !== draftId || message.ready !== true) return;
+      if (!isEditorReadySender(sender, draftId)) return;
+      finishWait(true);
+    };
+    const timeout = setTimeout(() => finishWait(false), EDITOR_READY_TIMEOUT_MS);
+    chrome.runtime.onMessage.addListener(listener);
+  });
+  return {
+    promise,
+    cancel() { finishWait(false); }
+  };
+}
+
+async function openDraftEditor(draftId, { waitForReady = false } = {}) {
   if (typeof draftId !== "string" || !draftId) throw new Error("下書きIDがありません");
-  return chrome.tabs.create({ url: editorUrl(draftId) });
+  const readyWaiter = waitForReady ? waitForEditorReady(draftId) : null;
+  try {
+    const tab = await chrome.tabs.create({ url: editorUrl(draftId) });
+    if (!waitForReady) return tab;
+    if (!(await readyWaiter.promise)) throw new Error("EDITOR_NOT_READY");
+    return tab;
+  } catch (error) {
+    readyWaiter?.cancel();
+    throw error;
+  }
+}
+
+async function closeSidePanel() {
+  const currentWindow = await chrome.windows.getCurrent();
+  const response = await send({ type: "capture:close-panel", windowId: currentWindow?.id });
+  return response?.closed === true;
 }
 
 function draftRenderKey(items = []) {
@@ -147,6 +317,11 @@ function renderDrafts(items = []) {
 }
 
 function renderStatus(state = {}, imageEntries = []) {
+  if (state.sessionId !== liveSessionId) {
+    liveSessionId = state.sessionId || null;
+    followLiveTail = true;
+    programmaticFollowPending = false;
+  }
   const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase);
   const canFinish = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
   const waitingForRestore = Boolean(state.restorePending || state.phase === "starting");
@@ -156,6 +331,7 @@ function renderStatus(state = {}, imageEntries = []) {
   }
   startSection.hidden = active || waitingForRestore;
   liveSection.hidden = !active;
+  liveProgress.hidden = !active;
   finish.hidden = !canFinish;
   finish.disabled = false;
   pause.hidden = state.phase !== "recording";
@@ -316,11 +492,13 @@ finish.addEventListener("click", async () => {
       return;
     }
     let editorOpenError = null;
+    let sidePanelClosed = false;
     try {
-      await openDraftEditor(result.draftId);
+      await openDraftEditor(result.draftId, { waitForReady: true });
     } catch (error) {
       editorOpenError = error;
     }
+    if (!editorOpenError && !result.restorePending) sidePanelClosed = await closeSidePanel().catch(() => false);
     let refreshError = null;
     try {
       await refresh(true);
@@ -350,7 +528,9 @@ finish.addEventListener("click", async () => {
       status.textContent = result.missingImageCount
         ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
         : "記録できました。画像付きの手順を保存しました。";
+      if (!sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
       if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
+      if (refreshError && !sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
     }
   } catch {
     await showFinishFailureOutcome();
@@ -391,6 +571,32 @@ let lastLiveKey = "";
 let statusOverride = "";
 let liveImages = [];
 let localDrafts = [];
+let liveSessionId = null;
+let followLiveTail = true;
+let programmaticFollowPending = false;
+let liveTailRepairGeneration = 0;
+
+function updateLiveTailPosition() {
+  if (programmaticFollowPending) {
+    if (isLiveTailVisible()) programmaticFollowPending = false;
+    else return;
+  }
+  if (!liveSection.hidden) followLiveTail = isLiveTailVisible();
+  updateLiveLatestVisibility();
+}
+
+liveLatest.addEventListener("click", () => scrollLiveLatest());
+window.addEventListener("scroll", updateLiveTailPosition, { passive: true });
+window.addEventListener("scrollend", () => {
+  if (programmaticFollowPending && isLiveTailVisible()) programmaticFollowPending = false;
+}, { passive: true });
+for (const eventName of ["wheel", "touchstart", "keydown"]) {
+  window.addEventListener(eventName, () => {
+    programmaticFollowPending = false;
+    updateLiveTailPosition();
+  }, { passive: eventName !== "keydown" });
+}
+
 async function startPolling() {
   await refresh().catch(() => { status.textContent = "状態を読み込めませんでした。もう一度お試しください。"; });
   const poll = async () => {

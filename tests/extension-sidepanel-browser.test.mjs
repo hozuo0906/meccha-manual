@@ -8,6 +8,47 @@ import test from "node:test";
 import { chromium } from "@playwright/test";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
+
+const waitForExtensionValue = async (read, predicate, message) => {
+  const deadline = Date.now() + 15_000;
+  let value;
+  do {
+    value = await read();
+    if (predicate(value)) return value;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  } while (Date.now() < deadline);
+  throw new Error(`${message}: ${JSON.stringify(value)}`);
+};
+
+const waitForTabTarget = (browserCdp, url) => waitForExtensionValue(
+  async () => (await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] })).targetInfos
+    .find((info) => info.url === url),
+  (value) => Boolean(value),
+  "synthetic tab target was not discoverable"
+);
+
+const waitForActionListener = (worker) => waitForExtensionValue(
+  () => worker.evaluate(() => chrome.action?.onClicked?.hasListeners?.() === true),
+  (value) => value === true,
+  "action listener was not registered"
+);
+
+const waitForSidePanelTarget = async (worker, browserCdp, extensionId) => {
+  await waitForExtensionValue(
+    () => worker.evaluate(async () => chrome.runtime.getContexts
+      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+      : []),
+    (value) => Array.isArray(value) && value.length > 0,
+    "action did not create a SIDE_PANEL extension context"
+  );
+  return waitForExtensionValue(
+    async () => (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
+      .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`),
+    (value) => Boolean(value),
+    "native sidepanel page target was not discoverable"
+  );
+};
 
 test("real MV3 action opens sidepanel and records separate step images", { timeout: 60_000 }, async () => {
   const server = createServer((_request, response) => {
@@ -31,23 +72,10 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const target = await context.newPage();
     await target.goto(baseUrl);
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "synthetic tab target should be discoverable");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    try {
-      await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    } catch (error) {
-      throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    const sidePanelContexts = await worker.evaluate(async () => chrome.runtime.getContexts
-      ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
-      : []);
-    assert.ok(sidePanelContexts.length > 0, "action should create a SIDE_PANEL extension context");
-    const panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-      .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
+    await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression, awaitPromise = false) => new Promise((resolve, reject) => {
@@ -87,7 +115,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       assert.notEqual(imageState[0].src, imageState[1].src, "each operation should retain its own screenshot");
     };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
     const sendNativeCommand = (method, params = {}) => new Promise((resolve, reject) => {
@@ -118,21 +146,37 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       }
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
+    assert.equal(await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true), true, "sidepanel start control should be ready before native click");
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
     assert.match(await target.content(), /id=["']do["']/, "synthetic target should retain its action button");
+    await target.locator("#do").evaluate((element) => element.setAttribute("aria-label", "参照"));
     await target.locator("#do").click();
     const stateAfterFirstClick = await target.locator("#state").textContent();
     await waitForNativeValue(
       "[...document.querySelectorAll('.step-card img')].map((image) => ({ complete: image.complete, width: image.naturalWidth }))",
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
+    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】クリック"));
+    assert.match(captionProgress, /【参照】クリック/);
     await new Promise((resolve) => setTimeout(resolve, 700));
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
     assert.notEqual(stateAfterFirstClick, stateAfterSecondClick, "synthetic workflow should visibly change between events");
     await expectNativeImages();
+    const progressState = await waitForNativeValue(
+      "(() => { const progress = document.querySelector('#liveProgress'); const live = document.querySelector('#liveSection'); return { active: progress && !progress.hidden, progressBeforeLive: progress && live && progress.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING ? true : false, current: document.querySelector('#liveCurrentStep')?.textContent, status: document.querySelector('#liveCurrentStatus')?.textContent }; })()",
+      (value) => value?.active === true && value.progressBeforeLive === true && value.current?.startsWith("手順 2") && value.status?.includes("保存済み")
+    );
+    assert.equal(progressState.active, true, "recording progress should be visible while recording");
+    assert.equal(progressState.progressBeforeLive, true, "recording progress should remain before the scrollable step list");
+    await evaluateNative("new Promise((resolve) => { window.scrollTo(0, document.body.scrollHeight); requestAnimationFrame(resolve); })", true);
+    const stickyProgress = await waitForNativeValue(
+      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
+      (value) => Number.isFinite(value?.top) && value.top <= 1 && value.bottom > 0 && value.current?.startsWith("手順 2")
+    );
+    assert.ok(stickyProgress.top <= 1, `current recording progress should stay visible while browsing earlier steps: ${JSON.stringify(stickyProgress)}`);
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");
@@ -150,8 +194,6 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
-    const draftImageCount = await waitForNativeValue("document.querySelectorAll('.draft-card img').length", (value) => value > 0);
-    assert.ok(draftImageCount > 0, "saved draft should retain its step image");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
     let editorPage;
     const editorDeadline = Date.now() + 10_000;
@@ -160,6 +202,17 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       if (!editorPage) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assert.ok(editorPage, "successful finish should open the saved draft editor");
+    const sidePanelTargetClosed = async () => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const targetsAfterFinish = await browserCdp.send("Target.getTargets", { filter: [{}] });
+        const targetStillOpen = targetsAfterFinish.targetInfos.some((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+        if (!targetStillOpen) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    assert.equal(await sidePanelTargetClosed(), true, "successful finish should close the native recording sidepanel after editor ready");
     await editorPage.waitForSelector("#title");
     await editorPage.waitForFunction(() => document.querySelector("#title")?.value === "新しい手順書");
     assert.equal(await editorPage.locator("#title").inputValue(), "新しい手順書");
@@ -194,7 +247,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
     assert.notEqual(imagePixels[0], imagePixels[1], "each selected step canvas should contain different pixels");
     if (process.env.MECCHA_SIDEPANEL_DRAFT) {
-      const draftSnapshot = await waitForNativeValue(`new Promise((resolve) => {
+      const draftSnapshot = await editorPage.evaluate(async () => new Promise((resolve) => {
         const request = indexedDB.open("meccha-manual-guest", 1);
         request.onerror = () => resolve(null);
         request.onsuccess = () => {
@@ -203,7 +256,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
           getAll.onsuccess = () => resolve(JSON.stringify(getAll.result.find((draft) => draft.steps?.length >= 2) || null));
           getAll.onerror = () => resolve(null);
         };
-      })`, (value) => typeof value === "string" && value !== "null", true);
+      }));
       assert.ok(draftSnapshot, "actual draftStore record should be exported");
       const draftPath = resolve(process.env.MECCHA_SIDEPANEL_DRAFT);
       await mkdir(resolve(draftPath, ".."), { recursive: true });
@@ -211,11 +264,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
-    const screenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
-    assert.ok(screenshot, "native sidepanel screenshot should be captured");
-    const screenshotData = screenshot?.data?.value || screenshot?.data || screenshot?.result?.data || screenshot?.result?.result?.data;
-    assert.equal(typeof screenshotData, "string", "native finished screenshot should contain base64 data");
-    await writeFile(screenshotPath, Buffer.from(screenshotData, "base64"));
+    await editorPage.screenshot({ path: screenshotPath });
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
@@ -256,20 +305,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     const target = await context.newPage();
     await target.goto(baseUrl);
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "navigation fixture tab should be discoverable");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
     await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    let panelTarget;
-    const panelDeadline = Date.now() + 15_000;
-    while (!panelTarget && Date.now() < panelDeadline) {
-      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression) => new Promise((resolve, reject) => {
@@ -293,8 +332,18 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
         message: JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true } })
       }).catch(reject);
     });
+    const waitForNativeValue = async (expression, predicate) => {
+      const deadline = Date.now() + 15_000;
+      let value;
+      do {
+        value = await evaluateNative(expression);
+        if (predicate(value)) return value;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      throw new Error(`timed out waiting for native navigation sidepanel value: ${JSON.stringify(value)}`);
+    };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
     const waitForRecorder = async (label) => {
@@ -323,6 +372,7 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "navigation fixture tab should be active");
+    await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true);
     await clickNative("#start");
     await waitForRecorder("initial page");
 
@@ -367,10 +417,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     assert.ok(editorPage, "successful finish should open the saved draft editor");
     await editorPage.waitForSelector("#steps li");
     const instructions = await editorPage.locator("#steps li button").allTextContents();
-    assert.ok(instructions.some((instruction) => instruction.includes("リンクを操作する")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】クリック")), "click before normal navigation should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
-    assert.ok(instructions.some((instruction) => instruction.includes("ボタンを操作する")), "form submit click should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】クリック")), "form submit click should be retained");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
@@ -402,21 +452,11 @@ test("recording a focused input keeps typing available while its screenshot is c
     const target = await context.newPage();
     await target.goto(baseUrl);
     await target.bringToFront();
-    await new Promise((resolve) => setTimeout(resolve, 300));
     const browserCdp = await context.browser().newBrowserCDPSession();
-    const targets = await browserCdp.send("Target.getTargets", { filter: [{ type: "tab", exclude: false }] });
-    const targetInfo = targets.targetInfos.find((info) => info.url === baseUrl);
-    assert.ok(targetInfo, "input fixture tab should be discoverable");
+    const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
+    await waitForActionListener(worker);
     await browserCdp.send("Extensions.triggerAction", { id: extensionId, targetId: targetInfo.targetId });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    let panelTarget;
-    const panelDeadline = Date.now() + 15_000;
-    while (!panelTarget && Date.now() < panelDeadline) {
-      panelTarget = (await browserCdp.send("Target.getTargets", { filter: [{}] })).targetInfos
-        .find((info) => info.type === "page" && info.url === `chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
-      if (!panelTarget) await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.ok(panelTarget, "native sidepanel page target should be discoverable");
+    const panelTarget = await waitForSidePanelTarget(worker, browserCdp, extensionId);
     const { sessionId } = await browserCdp.send("Target.attachToTarget", { targetId: panelTarget.targetId, flatten: false });
     let evaluationId = 0;
     const evaluateNative = (expression) => new Promise((resolve, reject) => {
@@ -445,19 +485,54 @@ test("recording a focused input keeps typing available while its screenshot is c
       throw new Error(`timed out waiting for native input sidepanel value: ${JSON.stringify(value)}`);
     };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
+    };
+    const readInputCaptureDiagnostic = async () => {
+      const storage = await worker.evaluate(async () => {
+        const [{ activeCaptureSession: session }, { captureRecoveryJournal: recovery }] = await Promise.all([
+          chrome.storage.session.get("activeCaptureSession"),
+          chrome.storage.local.get("captureRecoveryJournal")
+        ]);
+        const summarize = (value) => value ? {
+          phase: value.phase || null,
+          failureCategory: value.failureCategory || null,
+          eventCount: Array.isArray(value.events) ? value.events.length : null,
+          eventKinds: Array.isArray(value.events) ? value.events.slice(-4).map((event) => event?.kind || null) : [],
+          stepImageRefs: Array.isArray(value.stepImageRefs)
+            ? value.stepImageRefs.slice(-4).map((ref) => ({ status: ref?.status || null, eventId: typeof ref?.eventId === "string" ? ref.eventId.slice(0, 80) : null }))
+            : [],
+          pendingImageCount: Array.isArray(value.stepImageRefs) ? value.stepImageRefs.filter((ref) => ref?.status === "capturing").length : null
+        } : null;
+        return { session: summarize(session), recovery: summarize(recovery) };
+      });
+      const panel = await evaluateNative(`(() => { const text = (selector) => { const value = document.querySelector(selector)?.textContent; return typeof value === "string" ? value.slice(0, 160) : null; }; const liveCountText = text("#liveCount"); return { readyState: document.readyState, status: text("#status"), liveCurrentStep: text("#liveCurrentStep"), liveCurrentStatus: text("#liveCurrentStatus"), liveCount: liveCountText === null ? null : Number.parseInt(liveCountText, 10), imageCardCount: document.querySelectorAll("#liveSteps .step-card").length, imageStatuses: [...document.querySelectorAll("#liveSteps [data-state]")].slice(0, 8).map((element) => element.getAttribute("data-state")) }; })()`);
+      const input = await target.evaluate(() => {
+        const element = document.querySelector("#entry");
+        return {
+          activeId: document.activeElement?.id || null,
+          value: typeof element?.value === "string" ? element.value.slice(0, 2) : null,
+          valueLength: typeof element?.value === "string" ? element.value.length : null
+        };
+      });
+      return { storage, panel, input };
     };
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "input fixture tab should be active");
+    await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true);
     await clickNative("#start");
     assert.equal(await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true), true);
     await target.locator("#entry").click();
     assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 1), 1);
     await target.evaluate(() => { window.entryTrace = []; });
     await target.keyboard.type("a");
-    assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 2), 2);
+    try {
+      assert.equal(await waitForNativeValue("document.querySelectorAll('.step-card img').length", (value) => value === 2), 2);
+    } catch (error) {
+      const diagnostic = await readInputCaptureDiagnostic();
+      throw new Error(`${error.message}; focused input capture diagnostic: ${JSON.stringify(diagnostic)}`, { cause: error });
+    }
     await target.keyboard.type("b");
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.equal(await target.locator("#entry").inputValue(), "ab");

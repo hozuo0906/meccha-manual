@@ -10,6 +10,8 @@ Status: Accepted
 
 ゲスト中のmanual本文、screenshot、capture eventはChrome拡張ローカルだけに存在し、APIへ送らない。
 
+スクリーンショット取得前に、既存の入力欄等のmaskと高信頼DOM個人情報の一時ダミーoverlayを適用する。claimへ渡せる画像はoverlay描画後に取得し、元DOM文字列・入力値・検出候補・画像原本をhandoff metadata、event、ログ、API payloadへ含めない。open shadow root内の通常テキストも候補境界内で対象とし、closed shadow rootは既存のhost全体maskで保護する。`aria-hidden`は視覚的な非表示を表さないため、表示中の値は候補に含める。祖先`opacity: 0`の値は候補にせず、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界でMutationObserver、初期shadow root snapshot、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更、overlayの不透明性・位置・接続・document identityのいずれかを確認できない場合は画像をclaimへ渡さずfail closedにする。legacy `clip`を含むCSS paintも不透明な矩形へ固定し、時計や無関係なclass変更は保護候補に関係しない限り無効化しない。メールアドレス・電話番号・郵便番号の明確な形式と意味ラベル付き表示値以外は自動置換を保証せず、画像OCRやcross-origin iframeも対象外とするため、編集画面で手動マスクを確認する。
+
 サーバーAPIを使い始めるのは、利用者が `保存 / 共有 / PDF出力` 等を選び、Cloudflare Accessでhuman actorとして認証された後とする。
 
 Access JWT、Access cookie、OTP等のcredentialをChrome拡張へ渡さない。business write APIは認証済みWebアプリoriginからのみ呼び出す。
@@ -319,6 +321,13 @@ Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoff
 
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
+ ### C Access認証後のhandoff復帰境界
+
+DEC-090により、通常Web経路の`handoff.access-return`はhashlessページ表示や通常navigationだけでは送信しない。同じtabの`sessionStorage` handoffを表示した利用者が「保存を再開する」または「保存状況を確認する」を押した場合だけ、下記のsender・handoff・ready・identity・TTL検証を実行してfragment再付与を要求する。初回AccessでWeb側JSが実行されない場合のDEC-092 payloadなしcontent script経路は自動復帰を維持する。
+
+AccessのURLを拡張機能の`tabs.onUpdated`から判定しない。通常は認証後に同一originの`/onboarding/continue`へ戻ったWeb画面が、fragmentを失った状態で`handoff.access-return` external messageを1回送る。初回AccessでWeb側JSが実行されない場合だけ、固定staging originの同path content scriptがpayloadなしの内部`handoff.access-return`を1回送る。拡張機能はsenderの固定origin・`/onboarding/continue`・top-level frame・tab IDと、通常経路では通知のhandoff ID等、初回経路では同じtabに紐づく`pageReadyAt`未確認ready recordおよびlocal metadataから得たhandoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAtを照合する。期限内の通常handoff、または期限を過ぎても`finalize-pending`／`completion-pending`の結果回収identityを持つhandoffだけに、同じfragmentを最大3回まで再付与する。復帰通知の有効期限はmetadataのexpiresAtを延長しない。通常のfragment除去、別tab・同tabの別navigation、期限切れの通常handoff、取消済み、完了済み、metadata不一致は復帰の根拠にしない。初回経路のhost permissionは固定staging originだけに限定し、`tabs`／`all_urls`／Access origin権限は持たない。
+
+復帰印は復帰処理で消費し、fragmentへ本文・画像・認証情報・共有tokenを追加しない。復帰に失敗した場合はlocal原本を保持したまま再試行可能な状態を表示し、保存成功やclaim完了を推測しない。
 owner限定staging配布版はstaging B登録UIへ接続する。production originの配布とAccess環境が未準備の場合、clientはCTAを無効化して準備中を表示する。準備状態を推測して本番originを露出させない。Cのguest claim、asset transfer、完了通知はこのB実装の範囲外であり、claim成功までlocal原本を保持する契約を継続する。
 ### B handoff fragment と operation の期限境界
 

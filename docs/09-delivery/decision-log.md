@@ -4,6 +4,10 @@ Status: Accepted
 
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
+| DEC-093 | 2026-10-01 | 初回Access復帰でfragment再付与後の旧document由来の遅着`hashchange`は、`event.newURL`のfragmentと現在の`location.hash`が一致しない場合に無視する。現在のfragmentと一致するhash-only遷移は従来どおりCTAを無効化して再読込し、遷移先を再検証する | `history.replaceState`後の遅着イベントがhashless画面を再読込すると、初回復帰のbootstrapではなくresume経路が選択され、保存操作が失敗し得るため。stale eventの副作用を0回にし、通常のfragment遷移の安全境界を維持する |
+| DEC-090 | 2026-10-01 | DEC-091の通常Web経路は、hashlessなページ遷移だけでは`handoff.access-return`を送らず、同じtabの`sessionStorage` handoffを表示した画面で利用者が「保存を再開する」または「保存状況を確認する」を押した場合だけ、既存のsender／handoff／ready／identity／TTL検証を通してfragment再付与を要求する。初回AccessでJSが実行されないDEC-092のpayloadなしcontent script経路は自動復帰を維持する | `performance.navigation`の`navigate`だけをAccess復帰の証明にすると、同一originの通常navigationを認証後returnと誤認して同tabへfragmentを再付与するため。Webの明示意図を復帰の入口に限定し、通常navigationの自動復帰0回、期限切れ通常handoffのwrite拒否、結果回収identityのGET専用、local原本保持を維持する |
+| DEC-091 | 2026-10-01 | Access認証後のhandoff復帰はURL監視に依存せず、同一originのWeb画面からの`handoff.access-return` external messageを、senderのtop-level frame・tab ID、handoff ID・launch ID・拡張ID・operation identity・action・draft fingerprint・元のexpiresAt・既存ready recordで再検証する。通常handoffは元の期限内、`finalize-pending`／`completion-pending`はGET専用の結果回収identityがある場合だけ、同じfragmentを最大3回まで再付与する。本文、画像、credential、共有token、Access URL観測権限は追加しない | Access redirectでfragmentが失われても、最小権限のまま認証後のWeb画面から対象tabを証明できるため。通常の期限切れ書き込みと別tab・通常fragment除去・完了済みhandoffの誤復帰を拒否する |
+| DEC-092 | 2026-10-01 | DEC-091の初回Access復帰に限り、固定staging originの`/onboarding/continue`へ完全一致するMV3 content scriptと同originだけのhost permissionを追加する。hashlessかつ初回`navigate`のcontent scriptは識別子を送らず、service workerがsenderのtab IDに束縛された`pageReadyAt`未確認のready recordを一意照合し、保存済みmetadataから同じfragmentを最大3回まで再付与する。DEC-091の「host permissionを追加しない」はこの初回経路の範囲で失効する | Accessが初回URLを302して`ONBOARDING_JS`を一度も実行させず、hashlessで同originへ戻す場合でも、Webへhandoff capabilityやextension IDをquery／fragmentで追加露出せず同じintentを回復するため。staging以外のorigin、Access URL、tabs permission、本文・画像・credential・tokenは追加しない |
 | DEC-075 | 2026-09-20 | B登録UIのhandoff metadataは同一タブの`sessionStorage`にhandoffごとの履歴として保持し、`handoffId`ごとに一意な`operationId`を再利用する。metadataは作成から15分で、期限切れtombstoneの保存に成功した場合に限り`expired`へ遷移し、期限切れの同じIDを再開・再送せず、拡張機能で新しいhandoffを発行してやり直す | A-B-Aのタブ内遷移で別handoffの操作を混同せず、期限切れ・結果不明の再送で新しいoperationを発行しない。本文・画像・下書きはsessionStorageへ移さず、正式origin／Accessが未準備の場合は登録操作を無効化して準備中を表示する。tombstoneの保存に失敗した現在ページはfail closedとし、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先を再検証する。 |
 | DEC-076 | 2026-09-20 | B owner pilotのruntimeは既存legacy `wrangler.jsonc`から分離した`wrangler.onboarding.jsonc`を使い、`apps/worker/src/index.ts`、環境別の完全一致`APP_ENV`／`APP_BASE_URL`、staging専用D1、10回／60秒のrate-limit bindingを固定する。productionのD1 ID、Access audience、rate-limit namespaceが未確定の間はplaceholderでfail closedにする | legacy Supabase／Discord runtimeへ影響させず、stagingの限定検証だけを可能にする。host反映やwildcardによるWeb UI有効化を拒否し、production資源作成・migration・deployやCの実装をこの準備で承認しない。 |
 | DEC-077 | 2026-09-21 | owner限定staging配布版のChrome拡張は、`https://meccha-manual-staging.meccha-iiyatsu.com`だけを登録UI handoff先として固定し、production、preview、localhost、userinfo、port、path、query付きoriginを拒否する。configとhandoffは同じ固定値を参照し、配布版のmanifest versionは`0.1.1`とする | staging B登録UIへ接続できる reviewable な配布導線を用意しつつ、production公開や任意originへの接続を防ぐ。本文・画像・credentialは拡張から送信せず、Cの保存・claimは有効化しない。 |
@@ -300,8 +304,9 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 - Status: Accepted
 - Date: 2026-09-20
+- 関係: click labelを固定semantic値へ戻す境界のうち、安全な短い操作名をguest下書きへ反映する範囲だけDEC-084で部分的にSuperseded。入力値・秘密値を保存しない境界は継続する。
 - Decision:
-  - click eventのlabelは固定semantic値へ正規化し、ページ上の`aria-label`、関連label、placeholder、本文をlocal event／draftへ保存しない。
+  - click eventのlabelは固定semantic値へ正規化する。ただしDEC-084で定める安全な短い操作名の候補だけは、その決定で定める範囲に限りlocal event／draftの生成文へ反映する。placeholder、本文、入力欄の現在値は保存しない。
   - navigationのsession storageとrecovery journalが同時に失敗した場合は、同一session IDに限定した一時fallbackへ保持し、後続storage操作またはfinishでevent IDの重複排除を行って一度だけmergeする。service worker終了をまたぐメモリ状態のdurabilityは保証しない。
   - scrollは開始時の既存要素をseedし、動的に追加された未知要素は初回位置だけをseedして、その一回の方向イベントは生成しない。
 - Reason:
@@ -462,3 +467,81 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 - Decision: 共有停止の4xxはAPIの案内を表示する。5xx、通信切断は結果不明として共有リンクと`shareLinkId`を画面に保持し、画面を閉じずに同じリンクの停止を再試行する。結果不明を新しい共有リンク作成や別の識別子の停止で解消しない。
 - Reason: 停止要求がサーバーへ到達したか、停止後の応答だけが失われたかを画面から判定できない場合に、リンクを失って再発行したり、利用者が停止済みリンクを使い続けたりする誤操作を防ぐため。
 - Boundary: APIの権限判定、D1の停止処理、匿名viewerのgrant再検証、production反映、deploy、共有リンク公開は変更しない。
+
+### DEC-084: Chrome拡張の短い操作名を限定的に下書きへ反映する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Decision:
+  - 表示用captionは表示可能な原形を保持し、機密判定は用途別のprivacy viewで行う。メール判定用sourceでは、ECMAScriptの`\s`に含まれる`Cc`（TAB／LF／VT／FF／CR）を空白へ写像し、それ以外の`Cc`（C1 controlを含む）は除去する。`Cf`は除去し、メール候補の値照合ではUnicode combining mark（`U+034F`を含む）だけを除去する。電話番号・secret判定では`Cc`、`Cf`、Unicode combining markを除いた安全viewを使い、emailのUnicode字形は表示用captionへ反映する前に変更しない。
+  - `Cc`除去の記述は電話番号・secret・URL等の値判定用privacy viewとメール判定用sourceの非layout controlを指す。メールlayout判定では`\s`相当の空白を保持し、`@`の両側が空白の通常caption（`保存 @ 次へ`）は保持する。一方、片側だけlayout空白で反対側がUnicode `L`／`N`／`M`のmailbox文字なら、改行・空白で分断されたメール候補として拒否する。
+  - clickの対象がbutton、link、menuitem、またはinputのbutton／submit／reset／imageで、短い操作名を安全に取り出せる場合だけ、aria-label、関連label、title、対象要素自身の可視テキスト、input button／submit／resetのHTML `value`属性、input imageの`alt`属性を候補にする。inputのvalueはこのcaption境界に限って扱い、テキスト入力の現在値は読まない。
+  - 候補は空白・制御文字を正規化し、40 Unicode code pointを上限とする。メールアドレス、URL、電話番号、郵便番号、token、password、カード情報などの高信頼な機密候補は固定semantic値へ戻す。
+  - privacy viewのUnicode decimal digitは固定のzero一覧を持たず、Unicode `Nd`カテゴリの連続runを最大64 code pointだけ後方探索して10進値へ写像する。Unicode data上の隣接した数学用数字を含む10桁単位のrunを対象とし、boundを超える未知のrunはfail closedで固定semantic値へ戻す。メールのlayout補助判定とdomain組成はUnicode `L`／`N`／`M`カテゴリを扱い、`@`直前隣接と改行・空白後のdomainを検査する。メール候補の照合では`M`を除いてもlayout空白を保持し、`@`後の空白だけを値照合で詰める。privacy viewからはUnicode `Cc`を除去してC1 controlを挿入したsecretや電話番号の検出を分断させない。
+  - selectの選択値、テキスト入力の現在値、placeholder、対象要素外の本文は取得しない。inputのvalueはbutton／submit／resetのcaption候補としてだけ扱う。buttonやlinkの短い日本語名でも氏名・住所を完全判定できないため、曖昧な候補は利用者が手順文を確認・修正できる前提とする。
+  - 安全な候補はローカルeventとguest下書きの生成文にだけ反映し、既存のサーバー側capture APIのgeneric target契約、入力値非保存、外部AI API初期OFFを変更しない。
+- Reason:
+  - 「参照」のような操作名を手順へ反映し、利用者が記録結果を修正しやすくする一方、表示値・入力値・機密情報を無制限に下書きへ持ち込まないため。
+- Boundary:
+  - 一般的な氏名・住所の完全自動判定やスクリーンショット内の静的文字列置換は本決定の対象外とし、画像の自動ダミー置換は別の小さな作業単位で高信頼DOM候補だけを扱う。
+  - 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
+
+- 2026-10-01 review補足: caption内に複数の`@`がある場合も各候補を順に検査し、先行する通常文の`@`で後続の改行・空白分断メール候補を隠さない。既存の40 code point上限と固定semantic fallbackを維持する。
+- 2026-10-01 review補足: 固定semantic fallbackと、同じ文字列を持つ実caption（例: `メニュー`、`入力欄`）を下流で混同しないよう、拡張機能内のclick eventだけ任意の`labelSource: "caption"`を付与する。既存eventの未指定値はsemantic fallbackとして扱い、capture APIの汎用`対象`契約は変更しない。
+
+### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272
+- Decision:
+  - 既存の入力欄・canvas・iframe・shadow配下のopacity maskを維持し、追加の自動置換はメールアドレス・電話番号・郵便番号の明確な形式と、`氏名／名前／住所／電話／メール`の意味ラベルに対応する`dt/dd`・`th/td`の表示値に限定する。表示viewportと交差する候補overlayは1回のcaptureにつき64件までとし、既存の画像100件・手順200件のcapture上限とは別に、生成するoverlay数を固定する。
+  - capture直前にviewport上の同じ位置へ固定ダミー値を描画する一時overlayを追加し、元DOMの文字列・入力値・イベント・ページ状態は変更しない。overlayの接続、対象要素とoverlayの幾何、document identityをcapture後に検証し、検証失敗や復元失敗は画像保存を成功扱いにしない。
+  - open shadow root内の通常テキストも64件の候補上限で走査し、closed shadow rootは既存のhost全体maskで保護する。祖先`opacity: 0`、不透明描画を確認できない半透明・filter・blend・clip・maskは候補外またはfail closedとする。OCR、画像内文字、複雑なレイアウト、cross-origin iframe、外部AI、新しい権限は対象外とする。
+- Reason: 実在の業務画面に含まれる代表的な連絡先や氏名を元ページの操作を壊さずcapture pixel上だけで置き換え、未検出を自動保護済みと誤認させないため。
+- Boundary: 入力値・DOM本文・画像原本をログ、event、handoff metadata、D1/R2へ複製しない。住所・氏名の自由記述、画像OCR、共有・公開・保存先の認可は対象外。
+
+### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #277
+- Decision:
+  - 初期候補が0件でもMutationObserverを登録し、paint後のcapture前とcapture後の両境界でopen shadow rootを含む候補集合を再走査する。初期snapshotにないshadow rootの出現、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更は、最終候補が空でもfail closedにする。同一mutation batchで追加・除去された可視text nodeがboundedなsplit PIIを形成する場合も、node除去後を含めてfail closedを維持する。observer callback時にrecord targetが空になっていても、追加・除去node自身から有限の可視候補を照合し、hidden本文は読まない。時計や無関係なclass変更など、保護候補に関係しないDOM変更は無効化しない。
+  - composed treeの属性変更に伴う候補存在確認は最大4096 DOM nodeを別予算として走査し、走査が上限を超えた場合は候補の有無を確定せずfail closedにする。候補overlayの生成上限64件とは独立させ、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許可する。65件目の候補、または4096 nodeを超える走査は画像を保存しない。
+  - `aria-hidden`は視覚的な非表示とは扱わず、表示中の候補を保護する。祖先`opacity: 0`など実際に描画されない候補は対象外とする。
+  - overlayは背景画像、`background-clip: text`、legacy `clip`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。clip解除後のpixelをcapture前後の両境界で確認できない場合は画像を保存しない。
+  - 同一テキスト範囲が電話番号と郵便番号の形式に一致した場合は候補を重ねず、郵便番号として1回だけ置換する。
+  - inline要素（空またはdisplay:contentsの可視inline要素を含む）で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre-lineでは空白・タブをcollapseするが改行は保持し、pre／pre-wrapの改行は保持して連結しない。MutationObserverの一時候補も各text nodeのwhite-space規則を使って同じrender boundaryへ写像し、PIIの不確かな境界または継続が予算を超えた場合はfail closedとする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とし、単一text nodeの既存検出は維持する。
+- Reason:
+  - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。
+- Boundary:
+  - 候補は高信頼なDOM文字列に限定し、OCR、画像内文字、cross-origin iframe、外部AI、新しい権限は対象外。元DOM、入力値、候補文字列はログ・event・handoff metadataへ保存しない。
+MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する有限予算へ到達して候補を確定できない場合は、未知の大規模mutationとしてcaptureをfail closedにする。有限値内のASCII local-part直後の`@`またはleading `@`直後のASCII domainを含む明らかなemail partial markerは、区切り文字・後続文字に関係なく出現時点で拒否し、孤立した日本語文中の`@`は記録可能とする。oldValueと変更後valueは別の有限履歴系列として扱い、これは静的な長文PII-free DOMの記録可否とは分離する。
+
+numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保持し、同じrendered parentで実際に隣接する可視nodeだけを連結する。変更後の可視valueはchildListとcharacterDataのrecord種別をまたいで同じ系列として照合し、oldValueは別系列に保つ。周囲の空白・句読点および有限の普通文はnumeric coreを含むnodeの判定境界としてだけ扱い、連結時の原文から無条件に除去しない。普通文を含むnodeもnumeric coreがある場合だけ候補へ加え、numeric separatorだけの可視nodeはhyphenまたは空白に限ってbounded sequenceの一部として保持し、それ以外の非numeric separatorでは連結を止める。capture中は同じparentの現在可視textも同じ128 node・1024文字の有限snapshotで確認し、初期から存在したprefixと後続追加の組み合わせを取りこぼさない。予算を超えた未知のmutationはfail closedとし、removeSensitiveMasksで履歴を解放する。
+
+### DEC-086: 記録中サイドパネルの現在地表示と終了後の復旧境界
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272 / PR #273
+- Decision: 記録中は現在の手順番号、操作内容、画像の記録状態を常に表示し、新しい手順が追加されたときは最新位置へ追従する。利用者が過去の手順を閲覧している場合はその位置を保ち、「最新の手順を見る」から明示的に追従へ戻す。記録終了に成功して編集画面を開けた場合だけサイドパネルを閉じる。編集画面を開けない、復元が必要、終了結果が不明、またはブラウザが閉鎖APIを提供しない場合は、記録確認と再試行のためサイドパネルを残す。
+- Reason: 記録中の最新操作と画像保存の成否をスクロールせずに判断できるようにし、過去の手順を確認している利用者の閲覧位置を奪わないため。終了後の表示障害を保存成功や終了完了と混同させず、復旧導線を残すため。
+- Boundary: 手順画像の取得・保存処理、local draftの構造、Cloudflare Access／D1／R2、production反映、サイドパネルを提供しないChromeバージョンのUI変更は対象外とする。閉鎖API非対応時は利用者へ不自然な成功表示をせず、表示中の記録確認を優先する。
+- Evidence: `apps/extension/sidepanel/sidepanel.js`、`apps/extension/sidepanel/sidepanel.css`、`apps/extension/editor/editor.js`、`apps/extension/background/service-worker.js`、`tests/extension-sidepanel-browser.test.mjs`、`docs/05-api/api-contracts.md`。
+- 2026-10-01 review補足: `tabs.create`の成功だけでは編集画面の表示完了とみなさず、editorの`draftStore.get`と初回render後に送る`editor:ready`をtrusted extension originのeditor pathと同じ`draftId`で照合する。取得・render失敗またはreadyタイムアウトでは保存済みlocal draftと記録確認のためサイドパネルを残す。現在地表示のsticky範囲は`liveSection`だけに限定せず、保存済み下書き一覧を含むshell全体とし、終了・一時停止・再開で変わる固定フッター高さはResizeObserverから追従処理へ渡す。
+
+### DEC-087: 手順編集の画像追加と編集画面の操作配置
+
+- Status: Accepted
+- Date: 2026-10-01
+- Issue: #272
+- Decision: 手動追加した手順には、PNG、JPEG、WebP（1画像10MiB以下）の画像を選択して追加できる。追加前に形式とヘッダーの寸法を確認し、寸法を確認できないファイルはdecode前に拒否する。canvasへ再エンコードし、PNG・WebPでは透明度を保持する。PNGが上限を超える場合だけ白背景へ平坦化してJPEGへ再エンコードし、元ファイル名、EXIF、その他のファイルメタデータは下書きへ保存しない。画像の追加・差し替えに失敗した場合は既存の手順・画像・選択状態を保持し、再試行できる案内を表示する。
+- Decision: 画像は縦横12,000px以下かつ4,000万画素以内、下書き全体で100件・合計100MiB以内に制限する。共有されている画像を差し替える場合は対象手順だけに新しい画像を割り当てる。画像の確認・保存中は処理中であることを表示し、制限超過や保存失敗は元の画像を残して再試行できる状態にする。
+- Decision: 画像の差し替えが成功した場合は、差し替え対象の画像を開いていた編集dialogだけを閉じる。差し替え後の異なるbitmapへ、差し替え前dialogの注釈・黒塗りを保存しない。別画像の編集中dialogは保持する。差し替え失敗時は既存画像と編集状態を保持し、利用者が別のcontrolへ移動していなければ差し替え操作へフォーカスを戻す。
+- Decision: 保存・共有の準備画面では、自動処理で隠せない情報が残る可能性を案内し、利用者が画像を確認して必要な箇所を黒塗りできる導線を表示する。個人情報の自動検出・置換そのものは別の決定で扱う。
+- Decision: 編集画面はタイトル、説明、保存状態を上部にまとめ、手順一覧と内容を分ける。画像は元の縦横比を保って表示し、画像編集のツールと保存・キャンセルを固定した役割の領域へ配置する。注釈の保存形式、画像のclaim、handoff metadata、外部AI APIの契約は変更しない。
+- Reason: 手順を追加した直後に利用者が任意の画像を迷わず添付でき、既存画像の機密情報をファイルメタデータごと持ち込まず、画像編集時も現在地と確定操作を見失わないようにするため。
+- Boundary: 画像内の個人情報の自動検出・置換、記録中のスクロール、保存handoff、Worker、DB、Access、production反映はこの決定の対象外とする。
+- 2026-10-01 UX補足: 画像編集dialogの読み込み中はキャンセル操作へフォーカスを置き、読み込み完了後の選択ツールへのフォーカス復帰は利用者が別操作へ移っていない場合だけ行う。クラウド編集では保存状態を保存操作の近くに表示し、未保存時は変更を反映するための保存を案内する。共有リンクの作成は引き続き明示操作と保存済み内容を前提にする。

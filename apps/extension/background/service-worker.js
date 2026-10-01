@@ -9,7 +9,7 @@ import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
 import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
-import { handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
+import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
@@ -342,22 +342,15 @@ async function takeMaskedScreenshot(session) {
 }
 
 function instructionFor(event) {
-  const semanticLabel = {
-    "ボタン": "ボタン",
-    "リンク": "リンク",
-    "メニュー": "メニュー",
-    "入力欄": "入力欄",
-    "選択欄": "選択欄",
-    "ファイル選択": "ファイル選択",
-    "保護された入力欄": "保護された入力欄",
-    "操作対象": "操作対象"
-  }[event.label] || "操作対象";
+  const semanticLabels = new Set(["ボタン", "リンク", "メニュー", "入力欄", "選択欄", "ファイル選択", "保護された入力欄", "操作対象"]);
+  const semanticLabel = semanticLabels.has(event.label) ? event.label : "操作対象";
   if (event.kind === "scroll") {
     const label = { up: "上", down: "下", left: "左", right: "右" }[event.direction] || "指定方向";
     return `画面を${label}へスクロールする`;
   }
   if (event.kind === "navigation") return "次のページへ移動する";
   if (event.kind === "input") return `${semanticLabel}に入力する`;
+  if (event.kind === "click" && event.label && (event.labelSource === "caption" || !semanticLabels.has(event.label))) return `【${event.label}】クリック`;
   return `${semanticLabel}を操作する`;
 }
 
@@ -655,7 +648,7 @@ async function resumeCapture(tabId) {
     const sessionSaved = await setSession(failedSession).then(() => true, () => false);
     if ((journalSaved || sessionSaved) && recoveredPending !== undefined) await stopRecorder(tabId, "release");
     else if (!journalSaved && !sessionSaved) navigationFallback = { sessionId: session.id, events: failedSession.events || [] };
-    throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの内容を終了して編集してください。");
+    throw new Error("このページでは記録を再開できません。対応ページへ戻るか、ここまでの操作で記録を終了して、手順書を編集してください。");
   }
 }
 
@@ -676,6 +669,16 @@ async function captureStatus() {
   };
 }
 
+async function closeCaptureSidePanel(windowId) {
+  if (!Number.isInteger(windowId) || !chrome.sidePanel?.close) return { closed: false };
+  try {
+    await chrome.sidePanel.close({ windowId });
+    return { closed: true };
+  } catch {
+    return { closed: false };
+  }
+}
+
 if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
   chrome.action.onClicked.addListener((tab) => {
     if (!tab?.windowId) return;
@@ -689,7 +692,109 @@ const HANDOFF_PAGE_READY_SCHEMA = "meccha-manual/cloud-claim-v1";
 const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
 const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
+const HANDOFF_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+const HANDOFF_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
 const handoffExternalOperations = new Map();
+
+function recoveryMetadataForHandoff(metadata) {
+  if (!metadata || typeof metadata !== "object") return null;
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(metadata.operationId || "") ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(metadata.claimIntentId || "") ||
+    !HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "")) return null;
+  return metadata;
+}
+
+function validHandoffAccessReturnSender(sender) {
+  try {
+    const url = new URL(sender?.url || "");
+    return url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && !url.username && !url.password && sender?.frameId === 0 && Number.isInteger(sender?.tab?.id);
+  } catch {
+    return false;
+  }
+}
+
+async function handleInitialHandoffAccessReturn(sender, locked = false) {
+  if (!validHandoffAccessReturnSender(sender)) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  const values = await chrome.storage.local.get(null);
+  const candidates = Object.entries(values || {}).filter(([key, ready]) => {
+    if (!key.startsWith(HANDOFF_READY_KEY_PREFIX) || !ready || typeof ready !== "object") return false;
+    if (ready.tabId !== sender.tab.id || !["auto", "manual"].includes(ready.activationPolicy) || ready.pageReadyAt ||
+      !HANDOFF_PAGE_READY_PATTERN.test(ready.handoffId || "") || !HANDOFF_PAGE_READY_PATTERN.test(ready.launchId || "")) return false;
+    return Number(ready.restoreAttempts || 0) < 3;
+  });
+  if (candidates.length !== 1) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  const [readyKey, ready] = candidates[0];
+  if (!locked) return withHandoffReadyLock(ready.handoffId, () => handleInitialHandoffAccessReturn(sender, true));
+  const metadataKey = handoffStorageKey(ready.handoffId);
+  const metadata = values?.[metadataKey];
+  const readyExpiresAt = Date.parse(ready.expiresAt || "");
+  const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+  const pendingRecovery = metadata?.status === "finalize-pending" || metadata?.status === "completion-pending";
+  const validIdentity = !metadata?.operationId || /^[A-Za-z0-9_-]{16,128}$/.test(metadata.operationId);
+  const validMetadata = metadata?.handoffId === ready.handoffId && HANDOFF_EXTENSION_ID_PATTERN.test(metadata.extensionId || "") &&
+    HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
+    Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt &&
+    validIdentity && metadata.status !== "completed" &&
+    (pendingRecovery ? recoveryMetadataForHandoff(metadata) !== null : metadataExpiresAt > Date.now());
+  if (!validMetadata) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  let pendingUrl;
+  try {
+    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, ready.launchId);
+  } catch {
+    return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  }
+  await chrome.storage.local.set({ [readyKey]: { ...ready, restoreAttempts: Number(ready.restoreAttempts || 0) + 1 } });
+  try {
+    await chrome.tabs.update(sender.tab.id, { url: pendingUrl });
+  } catch {
+    return { ok: false, error: "HANDOFF_ACCESS_RETURN_RETRYABLE" };
+  }
+  return { ok: true, status: pendingRecovery ? "recovery" : "restored" };
+}
+
+async function handleHandoffAccessReturn(message, sender) {
+  const initialMessage = message && typeof message === "object" && !Array.isArray(message) &&
+    message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
+    Object.keys(message).length === 2;
+  if (initialMessage) return handleInitialHandoffAccessReturn(sender);
+  const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
+    message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
+    HANDOFF_EXTENSION_ID_PATTERN.test(message.extensionId || "") && HANDOFF_OPERATION_ID_PATTERN.test(message.operationId || "") &&
+    HANDOFF_PAGE_READY_TYPES.has(message.action) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
+    typeof message.expiresAt === "string" && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "extensionId", "operationId", "action", "draftFingerprint", "expiresAt"].includes(key));
+  if (!validMessage || !validHandoffAccessReturnSender(sender)) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  const handoffId = message.handoffId;
+  const readyKey = handoffReadyStorageKey(handoffId, message.launchId);
+  const metadataKey = handoffStorageKey(handoffId);
+  return withHandoffReadyLock(handoffId, async () => {
+    const values = await chrome.storage.local.get([readyKey, metadataKey]);
+    const ready = values?.[readyKey];
+    const metadata = values?.[metadataKey];
+    const readyExpiresAt = Date.parse(ready?.expiresAt || "");
+    const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+    const pendingRecovery = metadata?.status === "finalize-pending" || metadata?.status === "completion-pending";
+    const validExpiry = Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt && metadata.expiresAt === message.expiresAt;
+    const validIdentity = !metadata?.operationId || metadata.operationId === message.operationId;
+    if (!ready || ready.tabId !== sender.tab.id || ready.handoffId !== handoffId || ready.launchId !== message.launchId || ready.activationPolicy === "cancelled" || Number(ready.restoreAttempts || 0) >= 3 ||
+      !metadata || metadata.handoffId !== handoffId || metadata.extensionId !== message.extensionId || metadata.outputAction !== message.action || metadata.draftFingerprint !== message.draftFingerprint || !validExpiry || !validIdentity || metadata.status === "completed" ||
+      (!pendingRecovery && metadataExpiresAt <= Date.now())) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+    let pendingUrl;
+    try {
+      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, message.launchId);
+    } catch {
+      return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+    }
+    await chrome.storage.local.set({ [readyKey]: { ...ready, restoreAttempts: Number(ready.restoreAttempts || 0) + 1 } });
+    try {
+      await chrome.tabs.update(sender.tab.id, { url: pendingUrl });
+    } catch {
+      return { ok: false, error: "HANDOFF_ACCESS_RETURN_RETRYABLE" };
+    }
+    return { ok: true, status: pendingRecovery ? "recovery" : "restored" };
+  });
+}
 
 function queueHandoffExternalOperation(message, sender, callback) {
   const handoffId = message?.handoffId;
@@ -729,30 +834,33 @@ async function handleHandoffPageReady(message, sender) {
     const expiresAt = Date.parse(stored?.expiresAt || "");
     if (!stored || stored.handoffId !== message.handoffId || stored.outputAction !== message.action || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!ready || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready" };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
     if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
-    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual" };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready" };
+    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
     const latest = (await chrome.storage.local.get(key))?.[key];
     const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
     if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const readyAt = new Date().toISOString();
     await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: null } });
-    return { ok: true, status: "ready" };
+    return { ok: true, status: "ready", extensionId: latest.extensionId, draftFingerprint: latest.draftFingerprint, expiresAt: latest.expiresAt };
   });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+    if (message?.schema === HANDOFF_PAGE_READY_SCHEMA && message?.type === "handoff.access-return") return handleHandoffAccessReturn(message, sender);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
     if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());
     if (message?.type === "capture:cancel" && fromExtensionPage) return serializeSessionOperation(() => cancelCapture());
     if (message?.type === "capture:restore" && fromExtensionPage) return serializeSessionOperation(() => retryRestore());
     if (message?.type === "capture:resume" && fromExtensionPage) return serializeSessionOperation(() => resumeCapture(message.tabId));
+    if (message?.type === "capture:close-panel" && fromExtensionPage) return closeCaptureSidePanel(message.windowId);
+    if (message?.type === "editor:ready" && fromExtensionPage) return { ready: message.ready === true };
     if (message?.type === "capture:status") return captureStatus();
     if (message?.type === "capture:event") {
       const eventGeneration = Number.isInteger(sender.tab?.id) ? nextCaptureEventGeneration(sender.tab.id) : undefined;
@@ -771,7 +879,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
-  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : handleExternalCloudClaimMessage;
+  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : handleExternalCloudClaimMessage;
   queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
 });

@@ -223,6 +223,116 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
   assert.doesNotMatch(emptyDraftList.elements.get("#status").textContent, /下書き一覧から開いてください/);
 });
 
+test("sidepanel closes only after the editor ready acknowledgement", async () => {
+  const source = (await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8"))
+    .replace(/^import .*;\r?\n/gm, "")
+    .replace("const EDITOR_READY_TIMEOUT_MS = 8_000;", "const EDITOR_READY_TIMEOUT_MS = 25;");
+
+  async function createSidepanel({ editorReady, createTabError = false }) {
+    const elements = new Map();
+    const messages = [];
+    const listeners = new Set();
+    let closeCalls = 0;
+    let tabCreateCalls = 0;
+    const makeElement = () => {
+      const element = {
+        hidden: false,
+        disabled: false,
+        value: "",
+        textContent: "",
+        dataset: {},
+        children: [],
+        listeners: {},
+        style: { setProperty() {} },
+        addEventListener(type, handler) { this.listeners[type] = handler; },
+        append(...children) { this.children.push(...children); },
+        appendChild(child) { this.children.push(child); },
+        replaceChildren(...children) { this.children = children; },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        setAttribute() {},
+        getBoundingClientRect() { return { top: 0, bottom: 120, height: 120 }; }
+      };
+      Object.defineProperty(element, "lastElementChild", { get: () => element.children.at(-1) || null });
+      return element;
+    };
+    const getElement = (selector) => {
+      if (!elements.has(selector)) elements.set(selector, makeElement());
+      return elements.get(selector);
+    };
+    const document = {
+      documentElement: { style: { setProperty() {} } },
+      querySelector: getElement,
+      createElement: () => makeElement()
+    };
+    const chrome = {
+      runtime: {
+        getURL: (path) => `chrome-extension://test/${path}`,
+        onMessage: {
+          addListener(listener) { listeners.add(listener); },
+          removeListener(listener) { listeners.delete(listener); }
+        },
+        sendMessage: async (message) => {
+          messages.push(message.type);
+          if (message.type === "capture:finish") return { ok: true, value: { draftId: "saved-draft", restorePending: false } };
+          if (message.type === "capture:status") return { ok: true, value: { phase: "recording", sessionId: "session", events: [], stepImageRefs: [] } };
+          if (message.type === "capture:close-panel") { closeCalls += 1; return { ok: true, value: { closed: true } }; }
+          return { ok: true, value: null };
+        }
+      },
+      tabs: {
+        create: async ({ url }) => {
+          tabCreateCalls += 1;
+          if (createTabError) throw new Error("TABS_CREATE_FAILED");
+          if (editorReady) queueMicrotask(() => {
+            for (const listener of listeners) listener({ type: "editor:ready", draftId: "saved-draft", ready: true }, { url });
+          });
+          return { id: 1 };
+        }
+      },
+      windows: { getCurrent: async () => ({ id: 1 }) }
+    };
+    const waiters = [];
+    const context = {
+      document,
+      chrome,
+      window: {
+        innerHeight: 576,
+        scrollY: 0,
+        addEventListener() {},
+        matchMedia: () => ({ matches: true }),
+        scrollTo() {},
+        scrollBy() {}
+      },
+      requestAnimationFrame: (callback) => callback(),
+      ResizeObserver: undefined,
+      CSS: { escape: (value) => value },
+      URL,
+      draftStore: { list: async () => [{ id: "saved-draft", title: "保存済みの下書き", steps: [] }] },
+      captureLiveStore: { list: async () => [] },
+      setTimeout: (callback, delay) => delay >= 700 ? (waiters.push(callback), waiters.length) : globalThis.setTimeout(callback, delay),
+      clearTimeout: (timer) => globalThis.clearTimeout(timer)
+    };
+    vm.runInNewContext(source, context);
+    await new Promise((resolve) => setImmediate(resolve));
+    await elements.get("#finish").listeners.click();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 45));
+    return { elements, messages, closeCalls, tabCreateCalls };
+  }
+
+  const success = await createSidepanel({ editorReady: true });
+  assert.equal(success.tabCreateCalls, 1);
+  assert.equal(success.closeCalls, 1, "editor ready must close the panel after the draft is rendered");
+  assert.equal(success.messages.includes("capture:close-panel"), true);
+
+  const timeout = await createSidepanel({ editorReady: false });
+  assert.equal(timeout.closeCalls, 0, "ready timeout must retain the panel for recovery");
+  assert.match(timeout.elements.get("#status").textContent, /編集画面を開けませんでした/);
+
+  const createFailed = await createSidepanel({ editorReady: false, createTabError: true });
+  assert.equal(createFailed.closeCalls, 0, "tab creation failure must retain the panel");
+});
+
 test("MAIN-world history bridge emits a generic navigation event for pushState/replaceState without leaking URL", async () => {
   const source = await readFile(new URL("../apps/extension/content/history-bridge.js", import.meta.url), "utf8");
   const calls = [];

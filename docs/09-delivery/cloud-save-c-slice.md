@@ -85,3 +85,9 @@ D1 migration `0005`の適用、D Worker deploy、Access `/s/*`公開、PR #259�
 ### 0.1.6 配布候補（Issue #264）
 
 同じ読込フォルダを上書き更新し、拡張機能を削除しない。`chrome://extensions`で該当カードを再読み込みし、0.1.6を確認する。通常の合成Webページで20手順以上を記録し、本文を連続表示して17番を目次から選択する。画像編集で文字・四角・丸・矢印・黒マスクを追加、保存・再表示し、保存先と明示した共有先で同じ焼き込み画像を確認する。Chrome限定URLは記録対象にせず、手順確認URLは`https://meccha-manual-staging.meccha-iiyatsu.com/manuals`と区別する。8秒後に準備確認が必要な場合は自動切替せず明示ログインボタンを使う。0.1.5以前へ戻した注釈付きdraftは保存共有せず、0.1.6以降で扱う。ZIPの確定パスは統合SHA確定後に記録する。
+
+### 0.1.7 配布候補（Issue #272）
+
+この候補は、記録終了後のeditor初回render完了確認、明示操作によるAccess復帰、captionの機密境界、画像入力のJPEG marker走査、PII overlayと有限走査予算を含む統合branchから生成する。既存の拡張機能を削除せず、同じ展開フォルダを上書き更新してから`chrome://extensions`で再読み込みし、表示versionが`0.1.7`であることを確認する。通常の記録、保存済み下書きのeditor表示、画像追加・差し替え、PII候補を含む合成ページの回帰を対象とする。
+
+実stagingのAccess・D1・R2反映、owner向けChrome導入、外部AI/OCR、production公開はこの候補文書だけでは完了扱いにしない。最終SHA、CI、browser証跡、未検証の外部境界はIssue #70と対象PRのlive stateへ親PMが記録する。
