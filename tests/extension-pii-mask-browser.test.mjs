@@ -1284,6 +1284,76 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
       const prefix = document.createElement("span");
+      prefix.id = "standalone-separator-prefix";
+      prefix.textContent = "123";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const separator = document.createElement("span");
+      separator.id = "standalone-separator-hyphen";
+      separator.textContent = "-";
+      document.getElementById("stream").append(separator);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "standalone-separator-suffix";
+      suffix.textContent = "4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "a standalone visible hyphen must bridge adjacent postal fragments");
+    await page.evaluate(() => document.getElementById("standalone-separator-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("standalone-separator-hyphen").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("standalone-separator-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "standalone separator removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "standalone-space-prefix";
+      prefix.textContent = "safe";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("standalone-space-prefix").firstChild.nodeValue = "09012"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const separator = document.createElement("span");
+      separator.id = "standalone-space-separator";
+      separator.textContent = " ";
+      document.getElementById("stream").append(separator);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "standalone-space-suffix";
+      suffix.textContent = "345678";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "a standalone visible space must bridge adjacent phone fragments");
+    await page.evaluate(() => document.getElementById("standalone-space-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("standalone-space-separator").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("standalone-space-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "standalone phone separator removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
       prefix.id = "delimited-phone-prefix";
       prefix.textContent = "safe";
       document.getElementById("stream").append(prefix);
