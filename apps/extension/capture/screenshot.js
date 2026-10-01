@@ -1013,7 +1013,7 @@ export function installSensitiveMasks() {
           state.hiddenBoundary = true;
           continue;
         }
-        const value = normalizeMutationNumericFragment(node.nodeValue);
+        const value = String(node.nodeValue ?? "");
         if (!mutationNumericFragment(value)) {
           previous = null;
           joined = "";
@@ -1032,7 +1032,7 @@ export function installSensitiveMasks() {
       return false;
     };
     const rememberMutationFragment = (streams, key, value, node) => {
-      const text = normalizeMutationNumericFragment(value);
+      const text = String(value ?? "");
       if (!mutationNumericFragment(text)) return false;
       if (mutationEvidence.inspectedNodes >= maxPrivacyAdjacentTextNodes
         || mutationEvidence.inspectedCharacters + text.length > maxPrivacyAdjacentTextCharacters) {
