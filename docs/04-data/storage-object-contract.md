@@ -11,11 +11,13 @@ R2 objectとD1 assetsメタデータの対応を固定し、ワークスペー�
 | binding | bucket | kind |
 |---|---|---|
 | `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` / `meccha-manual-capture-assets-prod` | `capture_screenshot` |
-| `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` / `meccha-manual-manual-assets-prod` | `manual_image`、ADR-0038の`brand_logo` |
+| `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` / `meccha-manual-manual-assets-prod` | `manual_image` |
 | `EXPORTS` | `meccha-manual-exports-staging` / `meccha-manual-exports-prod` | `pdf_export`, `html_export`, `markdown_export` |
 | `AVATARS` | `meccha-manual-avatars-staging` / `meccha-manual-avatars-prod` | `user_avatar`, `workspace_avatar` |
 
 staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。bindingと実接続確認は未実施。
+
+ADR-0038のロゴもMANUAL_ASSETSを使うが、汎用assets.kindには追加しない。専用workspace_brand_logosのbrand_logoとして認可・保持する。
 
 ## object key
 

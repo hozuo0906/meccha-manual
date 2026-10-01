@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleExternalCloudClaimMessage } from "../apps/extension/background/cloud-claim.js";
-import { createHandoffMetadata, fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
+import { createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 
 function memoryIndexedDb(drafts) {
   return { open() {
@@ -146,4 +146,58 @@ test("pending save blocks another action's prepare/finalize and stale tabs canno
   } finally {
     for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; }
   }
+});
+
+test("terminal expiry requires the bounded trusted-origin server result and exact recovery identity before releasing all output actions", async () => {
+  const saved = { chrome: globalThis.chrome, indexedDB: globalThis.indexedDB, fetch: globalThis.fetch };
+  const storage = new Map();
+  const draft = { id: "expired-retained", title: "新しい編集を保持する", description: "", updatedAt: "2026-10-01T00:00:00.000Z", selectedStepId: "kept", steps: [], screenshots: [] };
+  const drafts = new Map([[draft.id, draft]]);
+  const local = { async get(key) { return key === null ? Object.fromEntries(storage) : { [key]: structuredClone(storage.get(key)) }; }, async set(entries) { for (const [key, value] of Object.entries(entries)) storage.set(key, structuredClone(value)); } };
+  globalThis.chrome = { storage: { local } }; globalThis.indexedDB = memoryIndexedDb(drafts);
+  const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue" };
+  const fingerprint = await fingerprintDraft({ ...draft, title: "古い保存内容" });
+  const metadata = { ...createHandoffMetadata(draft.id, "save", Date.now() - 60 * 60 * 1000, "a".repeat(32), draft.updatedAt, fingerprint), status: "finalize-pending", operationId: "old-operation-12345678", claimIntentId: crypto.randomUUID() };
+  const key = handoffStorageKey(metadata.handoffId);
+  storage.set(key, metadata);
+  const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.expired", action: "save", handoffId: metadata.handoffId, operationId: metadata.operationId, claimIntentId: metadata.claimIntentId, draftFingerprint: fingerprint };
+  const result = { status: "expired", claimIntentId: metadata.claimIntentId, operationId: metadata.operationId, workspaceId: crypto.randomUUID(), expiresAt: metadata.expiresAt };
+  globalThis.fetch = async () => { throw new Error("extension must never fetch cloud APIs"); };
+  try {
+    for (const action of ["save", "share"]) assert.equal((await findRecoverableHandoff(draft.id, await fingerprintDraft(draft), local, action)).handoffId, metadata.handoffId, "local expiry and changed content do not abandon unknown outcome");
+    for (const patch of [{ handoffId: "B".repeat(43) }, { operationId: "different-operation-123" }, { claimIntentId: crypto.randomUUID() }, { draftFingerprint: "0".repeat(64) }, { action: "share" }]) assert.equal((await handleExternalCloudClaimMessage({ ...message, ...patch }, sender)).ok, false);
+    assert.equal((await handleExternalCloudClaimMessage(message, { url: "https://other.example/onboarding/continue" })).ok, false);
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_UNCONFIRMED" }, "a local expiry signal without a server result never releases recovery");
+    for (const invalid of [{ ...result, status: "pending" }, { ...result, status: "completed", manualId: crypto.randomUUID() }, { ...result, claimIntentId: crypto.randomUUID() }, { ...result, operationId: "different-operation-123" }, { ...result, workspaceId: "bad" }]) {
+      assert.deepEqual(await handleExternalCloudClaimMessage({ ...message, claimResult: invalid }, sender), { ok: false, error: "RECOVERY_UNCONFIRMED" });
+      assert.equal(storage.get(key).status, "finalize-pending");
+    }
+    assert.deepEqual(await handleExternalCloudClaimMessage({ ...message, claimResult: { error: "CLAIM_INTENT_NOT_FOUND" } }, sender), { ok: false, error: "RECOVERY_UNCONFIRMED" }, "revoked actor or workspace cannot release recovery");
+    message.claimResult = result;
+    storage.set(key, { ...metadata, sourceCloudRef: { workspaceId: crypto.randomUUID(), manualId: crypto.randomUUID(), revisionId: crypto.randomUUID(), updatedAt: draft.updatedAt, contentVersion: "a".repeat(32) } });
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_UNCONFIRMED" }, "a different valid workspace cannot release the target handoff");
+    for (const status of ["completion-pending", "completed"]) {
+      storage.set(key, { ...metadata, status });
+      assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_NOT_FOUND" }, "a saved outcome can never be discarded as expired");
+    }
+    storage.set(key, metadata);
+    const save = local.set; local.set = async () => { throw new Error("storage unavailable"); };
+    assert.equal((await handleExternalCloudClaimMessage(message, sender)).ok, false);
+    assert.equal(storage.get(key).status, "finalize-pending"); local.set = save;
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: true, status: "expired" });
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: true, status: "expired" }, "same terminal result is retryable");
+    assert.deepEqual(drafts.get(draft.id), draft, "expiry never mutates local content or selection");
+    for (const action of ["save", "share"]) assert.equal(await findRecoverableHandoff(draft.id, await fingerprintDraft(draft), local, action), null);
+    for (const type of ["handoff.prepare", "handoff.begin"]) assert.equal((await handleExternalCloudClaimMessage({ schema: message.schema, type, action: "save", handoffId: metadata.handoffId }, sender)).ok, false);
+    const { claimResult, ...identity } = message;
+    assert.equal((await handleExternalCloudClaimMessage({ ...identity, type: "handoff.finalize-pending", cloudRef: null }, sender)).ok, false);
+    assert.equal((await handleExternalCloudClaimMessage({ ...identity, type: "handoff.completed", manualId: crypto.randomUUID() }, sender)).ok, false, "late completion cannot resurrect a terminal handoff");
+    const freshFingerprint = await fingerprintDraft(draft);
+    const fresh = createHandoffMetadata(draft.id, "share", Date.now(), "a".repeat(32), draft.updatedAt, freshFingerprint);
+    storage.set(handoffStorageKey(fresh.handoffId), fresh);
+    const next = { schema: message.schema, action: "share", handoffId: fresh.handoffId };
+    const begun = await handleExternalCloudClaimMessage({ ...next, type: "handoff.begin" }, sender);
+    assert.equal((await handleExternalCloudClaimMessage({ ...next, type: "handoff.prepare" }, sender)).ok, true);
+    assert.equal((await handleExternalCloudClaimMessage({ ...next, type: "handoff.finalize-pending", operationId: begun.operationId, claimIntentId: crypto.randomUUID(), draftFingerprint: freshFingerprint, cloudRef: null }, sender)).ok, true, "terminal expiry releases the draft-level gate for the next save/share");
+  } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } }
 });

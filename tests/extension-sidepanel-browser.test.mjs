@@ -171,12 +171,12 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     assert.equal(progressState.active, true, "recording progress should be visible while recording");
     assert.equal(progressState.progressBeforeLive, true, "recording progress should remain before the scrollable step list");
-    await evaluateNative("new Promise((resolve) => { window.scrollTo(0, document.body.scrollHeight); requestAnimationFrame(resolve); })", true);
+    await evaluateNative("new Promise((resolve) => { document.querySelector('#liveSection').scrollTop = document.querySelector('#liveSection').scrollHeight; requestAnimationFrame(resolve); })", true);
     const stickyProgress = await waitForNativeValue(
-      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
-      (value) => Number.isFinite(value?.top) && value.top <= 1 && value.bottom > 0 && value.current?.startsWith("手順 2")
+      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, listTop: document.querySelector('#liveSection')?.getBoundingClientRect().top, height: innerHeight, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
+      (value) => Number.isFinite(value?.top) && value.top >= 0 && value.bottom <= value.listTop && value.bottom < value.height && value.current?.startsWith("手順 2")
     );
-    assert.ok(stickyProgress.top <= 1, `current recording progress should stay visible while browsing earlier steps: ${JSON.stringify(stickyProgress)}`);
+    assert.ok(stickyProgress.top >= 0 && stickyProgress.bottom <= stickyProgress.listTop, `current recording progress stays visible without covering the scrollable steps: ${JSON.stringify(stickyProgress)}`);
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");

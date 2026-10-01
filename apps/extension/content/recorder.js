@@ -84,21 +84,120 @@
     return text;
   };
 
-  const privateValueContext = (element) => {
-    const privateLabel = /password|passcode|token|secret|cc-|card|credit|cvv|cvc|pin|パスワード|秘密|カード|暗証|個人番号|マイナンバー|認証コード|メール|e-?mail|mail|電子.?メール|電話|tel|phone|携帯|mobile|住所|address|所在地|会社|企業|店舗|施設|organization|company|生年月日|誕生日|birth|bday|社員番号|従業員番号|employee.?id|staff.?id|顧客番号|会員番号|customer.?id|member.?id|氏名|名前|担当者|姓名|(?:^|[\s_-])(?:given-|family-|full-)?name(?:$|[\s_-])/i;
-    let current = element;
-    for (let depth = 0; current && depth < 64; depth += 1) {
-      const tag = String(current.tagName || "").toUpperCase();
-      const label = current.previousElementSibling;
-      if (((tag === "DD" && label?.tagName === "DT") || (tag === "TD" && label?.tagName === "TH")) && privateLabel.test(String(label.textContent || "").slice(0, 200))) return true;
-      if (tag === "TD" && Number.isInteger(current.cellIndex)) {
-        const table = current.closest?.("table");
-        const heading = table?.querySelector?.("thead tr")?.children?.[current.cellIndex];
-        if (heading && privateLabel.test(String(heading.textContent || "").slice(0, 200))) return true;
+  const semanticKind = (value) => {
+      // A truncated label is unknown, never evidence that a value is public.
+      const raw = String(value ?? "");
+      if (raw.length > 4096) return "unknown";
+      const label = raw.replace(/\s+/g, " ").trim().toLowerCase();
+      if (/password|passcode|token|secret|cc-|card|credit|cvv|cvc|pin|パスワード|秘密|カード|暗証|個人番号|マイナンバー|認証コード/.test(label)) return "secret";
+      if (/メール|e-?mail|mail|電子.?メール/.test(label)) return "email";
+      if (/電話|tel|phone|携帯|mobile/.test(label)) return "phone";
+      if (/住所|address|所在地/.test(label)) return "address";
+      if (/会社|企業|店舗|施設|organization|company/.test(label)) return "company";
+      if (/生年月日|誕生日|birth|bday/.test(label)) return "birthday";
+      if (/社員番号|従業員番号|employee.?id|staff.?id/.test(label)) return "employeeId";
+      if (/顧客番号|会員番号|customer.?id|member.?id/.test(label)) return "customerId";
+      if (/氏名|名前|担当者|姓名|(?:^|[\s_-])(?:given-|family-|full-)?name(?:$|[\s_-])/.test(label)) return "name";
+      return null;
+    };
+    // Kept identical in recorder.js: both injected entry points must classify
+    // table context without imports. A slot/association budget is fail-closed.
+    const semanticTableKinds = (table, classify) => {
+      const rows = Array.from(table?.rows || []);
+      const kinds = new Map();
+      const entries = [];
+      const grid = [];
+      const groupEnds = new Map();
+      let slots = 0, associations = 0;
+      const exceed = () => { throw new Error("SCREENSHOT_BUDGET_EXCEEDED"); };
+      if (rows.length > 4096) exceed();
+      rows.forEach((row, index) => groupEnds.set(row.parentElement, index + 1));
+      for (const [rowIndex, row] of rows.entries()) {
+        const cells = Array.from(row.cells || []);
+        if (cells.length > 4096) exceed();
+        const headerRow = cells.length > 0 && cells.every((cell) => cell.tagName === "TH");
+        let column = 0;
+        for (const cell of cells) {
+          while (grid[rowIndex]?.[column]) { if (++column > 4096) exceed(); }
+          const width = Number(cell.colSpan || 1);
+          const height = Number(cell.rowSpan);
+          if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 0) exceed();
+          const endRow = Math.min(groupEnds.get(row.parentElement), height === 0 ? groupEnds.get(row.parentElement) : rowIndex + height);
+          const endColumn = column + width;
+          const scope = String(cell.getAttribute?.("scope") || "").toLowerCase();
+          if (scope && !["row", "rowgroup", "col", "colgroup"].includes(scope)) exceed();
+          const columnHeader = cell.tagName === "TH" && (scope === "col" || scope === "colgroup"
+            || (!scope && (row.parentElement?.tagName === "THEAD" || headerRow)));
+          const entry = { cell, row: rowIndex, endRow, column, endColumn, group: row.parentElement, scope, columnHeader };
+          for (let r = rowIndex; r < endRow; r += 1) {
+            grid[r] ||= [];
+            for (let c = column; c < endColumn; c += 1) {
+              if (++slots > 4096 || grid[r][c]) exceed();
+              grid[r][c] = entry;
+            }
+          }
+          entries.push(entry);
+          column = endColumn;
+        }
       }
-      current = current.parentElement || current.getRootNode?.()?.host || null;
+      const headers = entries.filter((entry) => entry.cell.tagName === "TH");
+      const byId = new Map();
+      for (const header of headers) {
+        header.kind = classify(header.cell.textContent);
+        const id = header.cell.id;
+        if (id) byId.set(id, byId.has(id) ? null : header);
+      }
+      for (const entry of entries) {
+        if (entry.columnHeader) continue;
+        const matched = new Set();
+        const explicit = String(entry.cell.getAttribute?.("headers") || "");
+        if (explicit.length > 4096) exceed();
+        for (const id of explicit.split(/\s+/).filter(Boolean)) {
+          if (++associations > 65536) exceed();
+          const header = byId.get(id);
+          if (!header || header === entry) matched.add("unknown");
+          else if (header.kind) matched.add(header.kind);
+        }
+        for (const header of headers) {
+          if (++associations > 65536) exceed();
+          if (header === entry || !header.kind) continue;
+          const sameColumns = header.column < entry.endColumn && entry.column < header.endColumn;
+          const sameRows = header.row < entry.endRow && entry.row < header.endRow;
+          const applies = header.columnHeader
+            ? header.row < entry.row && sameColumns
+            : header.scope === "rowgroup" ? header.group === entry.group
+              : sameRows && header.endColumn <= entry.column;
+          if (applies) matched.add(header.kind);
+        }
+        // Conflicting hierarchical headers must not produce a guessed alias.
+        const kind = matched.has("secret") ? "secret" : matched.size > 1 ? "unknown" : [...matched][0] || null;
+        if (kind) kinds.set(entry.cell, kind);
+      }
+      return kinds;
+    };
+  const privateValueContext = (element) => {
+    let current = element;
+    const tables = new Map();
+    try {
+      for (let depth = 0; current && depth < 64; depth += 1) {
+        const tag = String(current.tagName || "").toUpperCase();
+        const label = current.previousElementSibling;
+        if (((tag === "DD" && label?.tagName === "DT") || (tag === "TD" && label?.tagName === "TH"))
+          && semanticKind(label.textContent)) return true;
+        if (["TD", "TH"].includes(tag)) {
+          const table = current.closest?.("table");
+          if (table) {
+            if (!tables.has(table)) tables.set(table, semanticTableKinds(table, semanticKind));
+            if (tables.get(table).has(current)) return true;
+          }
+        }
+        current = current.parentElement || current.getRootNode?.()?.host || null;
+      }
+      return Boolean(current);
+    } catch {
+      // Malformed/over-budget tables cannot authorize a page-derived caption.
+      return true;
     }
-    return Boolean(current);
   };
 
   const describe = (element) => {

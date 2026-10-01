@@ -324,7 +324,7 @@ export const ONBOARDING_JS = `(() => {
       capturedContext = matching;
       return matching;
     }
-    const validRecoveryStatus = ["finalize-pending", "completion-pending", "completed"].includes(reply?.status);
+    const validRecoveryStatus = ["finalize-pending", "completion-pending", "completed", "expired"].includes(reply?.status);
     if (!reply?.ok || !validRecoveryStatus || !validOperationId(reply.operationId) || !validClaimIntentId(reply.claimIntentId) || !validDraftFingerprint(reply.draftFingerprint) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) {
       if (context.state === "recovery-probe") {
         context.state = "recovery-probe";
@@ -344,7 +344,7 @@ export const ONBOARDING_JS = `(() => {
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId);
     if (!matching) return markRecoveryProbe(context);
     const canWrite = reply.status === "finalize-pending" && Number.isFinite(Date.parse(reply.expiresAt || "")) && Date.parse(reply.expiresAt) > Date.now();
-    Object.assign(matching, { operationId: reply.operationId, claimIntentId: reply.claimIntentId, draftFingerprint: reply.draftFingerprint, claimStatus: reply.status, state: canWrite ? "active" : "recovery", ...(reply.expiresAt ? { recoveryExpiresAt: reply.expiresAt } : {}), ...(reply.manualId ? { manualId: reply.manualId } : {}) });
+    Object.assign(matching, { operationId: reply.operationId, claimIntentId: reply.claimIntentId, draftFingerprint: reply.draftFingerprint, claimStatus: reply.status, state: reply.status === "expired" ? "expired" : canWrite ? "active" : "recovery", ...(reply.expiresAt ? { recoveryExpiresAt: reply.expiresAt } : {}), ...(reply.manualId ? { manualId: reply.manualId } : {}) });
     if (!persistState(saved.state)) return markRecoveryProbe(context);
     capturedContext = matching;
     return matching;
@@ -409,6 +409,11 @@ export const ONBOARDING_JS = `(() => {
     if (!completedSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
     return showClaimSuccess(context, manualId);
   }
+  function showExpiredHandoff() {
+    message("保存準備の期限が切れました。元の下書きと新しい編集はこの端末に保持しています。拡張機能の編集画面から、もう一度保存・共有できます。", "error");
+    setButton("編集画面からもう一度保存", true);
+    return true;
+  }
   async function reconcileFinalize(context, extensionId, metadata) {
     if (!(metadata?.claimStatus === "finalize-pending" || metadata?.claimStatus === "expired") || typeof metadata.claimIntentId !== "string") return false;
     const statusUrl = "/api/onboarding/claims/" + encodeURIComponent(metadata.claimIntentId) + "?operationId=" + encodeURIComponent(context.operationId);
@@ -426,9 +431,12 @@ export const ONBOARDING_JS = `(() => {
     }
     if (response.ok && result?.status === "pending") return { status: "pending", claimIntentId: metadata.claimIntentId };
     if (response.ok && result?.status === "expired") {
-      saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "expired" });
+      if (result.claimIntentId !== metadata.claimIntentId || result.operationId !== context.operationId || !validClaimIntentId(result.workspaceId) || !Number.isFinite(Date.parse(result.expiresAt || ""))) throw new Error("CLAIM_RESULT_INVALID");
+      const expired = await extensionMessage(extensionId, "handoff.expired", context, { operationId: context.operationId, claimIntentId: metadata.claimIntentId, draftFingerprint: metadata.draftFingerprint, claimResult: result });
+      if (!expired?.ok || expired.status !== "expired") throw new Error("保存結果を拡張機能で確認できませんでした。元の下書きを保持したまま、もう一度確認してください。");
+      if (!saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "expired" })) throw new Error("CLOUD_STATE_UNAVAILABLE");
       expireCapturedContext(context);
-      throw new Error("保存準備の期限が切れました。元の下書きはこの端末に保持しています。新しい保存は開始していません。");
+      return showExpiredHandoff();
     }
     throw new Error("保存結果を確認できませんでした。元の下書きを保持しています。");
   }
@@ -542,6 +550,7 @@ export const ONBOARDING_JS = `(() => {
     let context = currentOperation();
     try {
       context = await recoverExtensionContext(context);
+      if (context?.claimStatus === "expired" && context.state === "expired") return showExpiredHandoff();
       context = await beginExtensionContext(context);
     } catch (error) {
       message(error?.message || "保存準備を開始できませんでした。元の手順書は保持されています。", "error");

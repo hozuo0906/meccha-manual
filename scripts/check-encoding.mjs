@@ -59,7 +59,8 @@ const d1MigrationFiles = [
   "migrations/0003_d1_onboarding_bootstrap.sql",
   "migrations/0004_d1_cloud_manual_claim.sql",
   "migrations/0005_d1_share_links.sql",
-  "migrations/0006_d1_manual_editor_branding.sql"
+  "migrations/0006_d1_manual_editor_branding.sql",
+  "migrations/0007_d1_retained_save_recovery.sql"
 ];
 
 for (const relativePath of d1MigrationFiles) {

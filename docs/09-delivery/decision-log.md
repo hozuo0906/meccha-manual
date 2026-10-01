@@ -557,3 +557,7 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Decision: クリック対象の矩形はtop frameの可視geometryを検証できる場合だけ注釈として追加し、色を編集できる。説明は「【参照】をクリック」のように自然な日本語にする。
 - Boundary: 外部AI、追加の拡張権限、実顧客データ、remote DB migration、公開・deployを追加しない。現段階のロゴ・テーマ設定は端末プレビューに限定し、workspace設定・保存済み画像編集・共有/PDFの整合は別の実装段階で契約と試験を揃えるまで完成扱いにしない。
 - Verification: [100点の独立UIレビュー基準](../02-ux/manual-editor-review-rubric.md)。各評価者80点以上と必須安全条件を別々に満たす。未実行の実Chrome検証や実SSOをNode/static検査で代用しない。
+
+### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
+
+同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。

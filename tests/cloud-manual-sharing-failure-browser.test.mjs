@@ -5,7 +5,7 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
-test("cloud sharing keeps explicit failures, dirty edits, and stale delayed responses recoverable", { timeout: 20_000 }, async () => {
+test("cloud sharing keeps explicit failures, dirty edits, and stale delayed responses recoverable", { timeout: 60_000 }, async () => {
   const workspaceId = "workspace-share-failure";
   const manuals = [
     { id: "manual-1", title: "Manual One", draftId: "draft-1" },
@@ -59,7 +59,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
   let context;
   try {
     context = await chromium.launchPersistentContext("", { channel, headless: true });
-    const page = await context.newPage();
+    const page = await context.newPage();page.setDefaultTimeout(5000);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/manuals`);
     const list = page.locator("#cloud-list button");

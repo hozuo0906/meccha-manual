@@ -23,8 +23,19 @@
 
 ## Consequences
 
+### 保存中断と画像undoの追補（2026-10-01）
+
+- 未確定claimの期限切れはWeb/Accessの認証済みstatus GETでactor・workspace・operationを照合し、D1のpendingをexpiredへ原子的に確定してから通知する。遅延したfinalizeは古いserver時刻を持っていてもexpiredを復活できない。
+- Webは成功応答のbounded結果を`handoff.expired`へ渡す。拡張は既存の固定origin coordinatorだけを信頼し、handoff/action/claim/operation/fingerprintと保存先workspaceを照合して同じfinalize lock下でexpiredを保存する。独自fetch、認証情報の移送、local clockだけでのpending解除は追加しない。terminal後は原本・新しい編集・既存cloudRefを保持したまま新しい保存／共有を許可する。
+- `manual_edit_assets.first_attached_at`は、同じworkspace/manualのstepへ実際に添付された時だけD1 triggerで一度記録する。後の差し替えで参照が消えても、同じmanualの認可済みwriterは過去に保存した画像へ戻せる。未添付ready画像のactor／期待版制限は維持する。rollback、失敗、uploadだけでは添付履歴を作らない。
+- 追補はmigration `0007_d1_retained_save_recovery.sql`を使う。既存step（削除済み・公開版を含む）に証拠のある画像だけをbackfillし、過去の参照が全て上書き済みで証拠のない画像は推測で許可しない。
+
 Migration `0006_d1_manual_editor_branding.sql` が必要。migration未適用環境への反映は本作業に含めない。R2とD1を跨ぐatomic transactionはないため、予約を残して同一operationで再照合する。未使用の予約・objectの自動削除は対象外。共有停止・期限切れはロゴを含め全assetへ適用する。
 
 ## Verification
 
 `tests/cloud-manual-c.test.mjs`、`tests/manual-raster.test.mjs`、`tests/extension-retained-cloud-draft.test.mjs`、`tests/share-link-backend.test.mjs`で、正常系、再送、並行upload、CAS、D1途中rollback、R2応答不明、tenant／actor／role、改ざん、公開版固定を検証する。ブラウザー実機検証とremote migration適用は別の品質ゲートとする。
+
+## 不可逆黒塗りと注釈の順序
+
+黒塗りを含む画像は、元の「画像→注釈→黒塗り」の順序を維持して一枚の安全なrasterへ統合する。その画像の注釈JSONは送信・共有しない。部分的に隠した文章も元文字列をmetadataから復元できないことを優先する。黒塗りがない画像だけ、注釈を編集可能なmetadataとして保持する。この制約は画像編集器に表示する。

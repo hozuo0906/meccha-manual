@@ -2,7 +2,7 @@ import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 import { fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
 import { normalizeAnnotations } from "../editor/image-annotations.js";
-import { drawScreenshot } from "../editor/image-renderer.js";
+import { drawScreenshot, cloudImageLayers } from "../editor/image-renderer.js";
 
 export const CLOUD_CLAIM_SCHEMA = "meccha-manual/cloud-claim-v1";
 export const CLOUD_CLAIM_CHUNK_BYTES = 192 * 1024;
@@ -51,6 +51,7 @@ export function safeMessage(message, type) {
     "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "assetSlot", "sequence"],
     "handoff.recovery": ["schema", "type", "handoffId", "action"],
     "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"],
+    "handoff.expired": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint", "claimResult"],
     "handoff.completed": ["schema", "type", "handoffId", "action", "manualId", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"]
   }[type];
   return Boolean(allowed && Object.keys(message || {}).every((key) => allowed.includes(key)));
@@ -78,7 +79,7 @@ async function readHandoff(handoffId) {
   const key = handoffStorageKey(handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.status === "superseded" || !isFresh(metadata)) return null;
+  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || ["superseded", "expired"].includes(metadata.status) || !isFresh(metadata)) return null;
   return metadata;
 }
 
@@ -172,7 +173,8 @@ export function cleanDraft(draft) {
     if (masks.some((mask) => [mask.x, mask.y, mask.width, mask.height].some((value) => !Number.isFinite(value) || value < 0 || value > 1) || !mask.width || !mask.height || mask.x + mask.width > 1 || mask.y + mask.height > 1)) return null;
     const annotations = normalizeAnnotations(screenshot.annotations);
     if (annotations === null) return null;
-    return { id: screenshot.id, masks, ...(annotations.length ? { annotations } : {}) };
+    const exportAnnotations = cloudImageLayers({ annotations, masks }).annotations;
+    return { id: screenshot.id, masks, ...(exportAnnotations.length ? { annotations: exportAnnotations } : {}) };
   });
   const screenshotIds = new Set();
   for (const screenshot of screenshots) {
@@ -233,9 +235,10 @@ async function maskAndEncode(screenshot) {
         }
       }
     }
-    // Privacy is irreversible in the uploaded base; editable overlays travel
-    // separately as bounded step metadata and are never a source-image layer.
-    drawScreenshot(context, bitmap, { annotations: [], masks: screenshot.masks || [] });
+    const layers = cloudImageLayers(screenshot);
+    // Annotations covered by a redaction never survive as metadata or reappear
+    // over the burned mask. Preserve annotations → masks painter order.
+    drawScreenshot(context, bitmap, { annotations: layers.baseAnnotations, masks: layers.masks });
     const png = await canvas.convertToBlob({ type: "image/png" });
     if (png.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await png.arrayBuffer()), contentType: "image/png" };
     if (hasTransparency) throw new Error("ASSET_TOO_LARGE");
@@ -364,6 +367,7 @@ async function begin(message, sender) {
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
+    if (metadata.status === "expired") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     const expiresAt = Date.parse(metadata.expiresAt || "");
     if (!Number.isFinite(expiresAt)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (OPERATION_ID_PATTERN.test(metadata.operationId || "")) {
@@ -476,6 +480,7 @@ async function finalizePending(message, sender) {
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
+    if (metadata.status === "expired") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
     if (metadata.operationId && metadata.operationId !== message.operationId) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "finalize-pending" || metadata.status === "completion-pending" || metadata.status === "completed") {
@@ -527,7 +532,7 @@ async function recovery(message, sender) {
   const key = handoffStorageKey(message.handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== message.handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !["finalize-pending", "completion-pending", "completed"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
+  if (!metadata || metadata.handoffId !== message.handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !["finalize-pending", "completion-pending", "completed", "expired"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
   return {
     ok: true,
     status: metadata.status,
@@ -537,6 +542,40 @@ async function recovery(message, sender) {
     expiresAt: metadata.expiresAt,
     ...(metadata.completedManualId ? { manualId: metadata.completedManualId } : {})
   };
+}
+
+async function expired(message, sender) {
+  if (!validRequest(message, sender, "handoff.expired") || !validRecoveryIdentity(message)) return reject("HANDOFF_REQUEST_REJECTED");
+  const handoffId = message.handoffId;
+  const previous = finalizeLocks.get(handoffId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  finalizeLocks.set(handoffId, queued);
+  await previous;
+  try {
+    const key = handoffStorageKey(handoffId);
+    const metadata = (await chrome.storage.local.get(key))?.[key];
+    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== message.action || !["finalize-pending", "expired"].includes(metadata.status)) return reject("RECOVERY_NOT_FOUND");
+    if (!validRecoveryIdentity(metadata) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
+    // As with completion, only the trusted Web/Access coordinator transports
+    // the authenticated server result. The extension never fetches credentials
+    // or cloud APIs, and local expiry alone cannot release an unknown outcome.
+    const result = message.claimResult;
+    if (!result || typeof result !== "object" || Array.isArray(result)
+      || Object.keys(result).some((key) => !["status", "claimIntentId", "operationId", "workspaceId", "expiresAt"].includes(key))
+      || result.status !== "expired" || result.claimIntentId !== metadata.claimIntentId || result.operationId !== metadata.operationId
+      || !CLAIM_INTENT_ID_PATTERN.test(result.workspaceId || "") || !Number.isFinite(Date.parse(result.expiresAt || ""))
+      || (metadata.sourceCloudRef && result.workspaceId !== metadata.sourceCloudRef.workspaceId)) return reject("RECOVERY_UNCONFIRMED");
+    return await withDraftCloudStateLock(metadata.draftId, async () => {
+      await chrome.storage.local.set({ [key]: { ...metadata, status: "expired" } });
+      clearClaimRuntime(handoffId);
+      return { ok: true, status: "expired" };
+    });
+  } finally {
+    release();
+    if (finalizeLocks.get(handoffId) === queued) finalizeLocks.delete(handoffId);
+  }
 }
 
 async function completed(message, sender) {
@@ -554,6 +593,7 @@ async function completed(message, sender) {
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (metadata.status === "expired" || metadata.status === "superseded") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
     if (metadata.status === "completed") {
       if (metadata.operationId || metadata.claimIntentId) {
@@ -637,6 +677,7 @@ export async function handleExternalCloudClaimMessage(message, sender) {
     if (message?.type === "handoff.asset.chunk" || message?.type === "handoff.logo.chunk") return await assetChunk(message, sender);
     if (message?.type === "handoff.recovery") return await recovery(message, sender);
     if (message?.type === "handoff.finalize-pending") return await finalizePending(message, sender);
+    if (message?.type === "handoff.expired") return await expired(message, sender);
     if (message?.type === "handoff.completed") return await completed(message, sender);
     return reject("UNKNOWN_MESSAGE");
   } catch (error) {

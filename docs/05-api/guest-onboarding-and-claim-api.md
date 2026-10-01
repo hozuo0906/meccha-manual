@@ -344,6 +344,8 @@ Web画面がfragmentを受け取った場合、`handoff` が1つだけ存在し�
 
 finalize応答が失われた場合は、同じclaim intentの結果を照会する。request bodyは持たず、Access actor、workspace、claim intent、operationIdを照合する。`completed`なら同じ`manualId`を返し、未完了なら`pending`、期限切れなら`expired`を返す。別operationIdは409で拒否し、workspace・actorの境界はfail closedとする。期限後のWeb reload／service worker restartでも、拡張機能のdurable recovery identityと同一claim intent・operation・draft fingerprintを照合できる場合だけ回収する。
 
+ADR-0038の継続保存では、expired応答前にactor/workspace/operationと現時点の権限をUPDATE内でも照合してD1のpendingをterminal expiredへ変更する。競合finalizeが先にcompletedとなった場合はその確定receiptを返す。expired応答は`status,claimIntentId,operationId,workspaceId,expiresAt`だけを含む。Webは成功応答を元の回収identityと共に`handoff.expired`へ渡し、拡張が固定origin／identity／target workspaceを検証してterminal保存したACK後にだけWeb状態をexpiredにする。原本を保持したまま新規handoffを許可するが、旧handoffは再利用しない。local clock、404、権限取消、通信失敗だけでpendingを解除しない。拡張から直接APIへfetchせず、認証とserver結果の転送は既存のWeb/Access coordinatorが担当する。
+
 ## ローカル画像注釈の境界（Issue #264）
 
 ADR-0038により、注釈はローカル保持に加え、認証後のclaim本文の`steps[].annotations`へ正規化して保存する。claim assetは黒マスクだけを不可逆に焼き込んだ安全なbase rasterとし、注釈は編集可能なmetadataとして公開snapshotにも固定する。`page-ready`とdurable handoff metadataには注釈本文・元画像を保存しない。旧draftの注釈未指定・空状態は従来のcanonical fingerprint形状を維持し、旧cloud画像の焼き込み済み注釈を分離できるとは扱わない。

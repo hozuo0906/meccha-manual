@@ -15,6 +15,9 @@ export const CLOUD_MANUAL_CSS = `:root{color-scheme:light;font-family:system-ui,
 @media(max-width:1100px){.manual-workspace{grid-template-columns:200px minmax(0,1fr)}.manual-tools-toggle{display:block}.manual-context-tools{display:none}.manual-context-tools[data-panel-open=true]{display:flex;flex-direction:column;position:fixed;right:0;top:0;bottom:0;width:280px;z-index:15;background:#fff;padding:20px;border-left:1px solid var(--manual-line)}.manual-panel-close{display:block;min-height:44px}.manual-context-tools button{width:100%;flex:none}.image-editor-dialog{grid-column:2;min-height:0}}
 @media(max-width:760px){.manual-toolbar .manual-tools-toggle{display:none}.manual-workspace{display:block}.manual-step-center{height:100%;box-sizing:border-box}.manual-step-nav{display:none}.manual-step-nav[data-panel-open=true]{display:flex;flex-direction:column;position:fixed;inset:20% 0 0;max-height:none;width:auto;z-index:15;border-radius:18px 18px 0 0;padding:16px}.manual-step-nav ol{display:grid;overflow:auto;flex:1}.manual-step-nav li{flex:none}.manual-step-nav>button{width:auto;align-self:flex-start}.manual-step-nav .manual-panel-close{position:absolute;right:16px;top:16px}.manual-context-tools[data-panel-open=true]{inset:22% 0 0;width:auto;border-radius:18px 18px 0 0}.manual-mobile-actions{flex:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:#fff;border-top:1px solid var(--manual-line);padding:8px 12px;min-height:60px;box-sizing:border-box}.manual-mobile-actions button{min-height:44px}.manual-toolbar .manual-share{display:none}.manual-toolbar .manual-title{grid-column:2/4}.manual-toolbar [data-manual-save]{grid-column:3;grid-row:2}.manual-step-heading input{min-width:0}.image-editor-dialog[open]{height:100%;overflow:auto}.manual-editor:has(.image-editor-dialog[open]) .manual-mobile-actions{display:none}}
 .share-feedback[data-kind=error]{color:#a3362b}.share-feedback[data-kind=success]{color:#067647}.share-feedback[data-kind=warning]{color:#8c5600}.expiry-preview{font-size:14px;font-weight:400;color:var(--manual-muted)}.cloud-field input,.cloud-field textarea,.cloud-step input,.cloud-step textarea,.share-form input,button.secondary,.tool-grid button{border-color:#789099}.manual-share-drawer .cloud-note{overflow-wrap:anywhere;word-break:keep-all}.cloud-image-retry{min-height:44px}
+.manual-context-tools .manual-panel-close,.manual-step-nav .manual-panel-close{display:none}
+@media(max-width:1100px){.manual-context-tools[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog .image-editor-tools{display:flex;flex-direction:column;overflow:auto}.image-editor-dialog .tool-grid{grid-template-columns:repeat(2,minmax(66px,1fr))}.image-editor-dialog .tool-grid button{white-space:nowrap;padding:8px 6px}}
+@media(max-width:760px){.manual-step-nav[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog[open]{height:100%;overflow:auto}.image-editor-dialog .image-editor-form{display:flex;height:auto;min-height:100%;overflow:visible}.image-editor-dialog .image-editor-workspace{display:block;overflow:visible}.image-editor-dialog .image-editor-canvas-wrap{overflow:visible;min-height:0;width:100%;box-sizing:border-box;padding:12px}.image-editor-dialog #imageEditorCanvas{display:block;max-width:100%;width:100%;height:auto;max-height:none;box-sizing:border-box}.image-editor-dialog .image-editor-tools{overflow:visible;display:flex;gap:14px}.image-editor-dialog .tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.image-editor-dialog .image-editor-actions{position:sticky;bottom:0;background:#fff}.image-editor-dialog .selection-group [data-editor-selection]{max-height:none;overflow:visible}}
 `;
 
 export const CLOUD_MANUAL_JS = `(() => {
@@ -156,11 +159,11 @@ export const CLOUD_MANUAL_JS = `(() => {
   ${MANUAL_BRANDING_JS}
   ${MANUAL_PRINT_JS}
   function imageTools() { if (!globalThis.MecchaImageTools) throw new Error("画像編集を準備できませんでした。再読み込みしてください。"); return globalThis.MecchaImageTools; }
-  async function encodeBaseImage(dataUrl, masks) {
+  async function encodeBaseImage(dataUrl, masks, annotations = []) {
     const image = new Image(); image.src = dataUrl; await image.decode();
     imageTools().assertImageDimensions(image.naturalWidth, image.naturalHeight);
     const canvas = document.createElement("canvas"); canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
-    imageTools().drawScreenshot(canvas.getContext("2d"), image, {annotations:[],masks:masks||[]});
+    imageTools().drawScreenshot(canvas.getContext("2d"), image, {annotations,masks:masks||[]});
     const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error("画像を保存できませんでした。")),"image/png"));
     if(blob.size>10*1024*1024)throw new Error("画像は10MB以下にしてください。切り抜きで小さくできます。");
     return blob;
@@ -178,7 +181,7 @@ export const CLOUD_MANUAL_JS = `(() => {
   async function openCloudImageEditor(step, workspace, center, tools, rerender, options={}) {
     if(activeCloudImageEditor||cloudImageBusy||saveInFlight)return;
     cloudImageBusy=true;setMessage("画像を準備しています…");
-    const key=stepKey(step),manualId=detailData.manual.id,originalAssetId=step.assetId;
+    const key=stepKey(step),manualId=detailData.manual.id,originalAssetId=step.assetId,returnFocus=document.activeElement;
     try {
       let dataUrl=options.dataUrl;
       if(!dataUrl) {
@@ -190,20 +193,21 @@ export const CLOUD_MANUAL_JS = `(() => {
       if(detailData?.manual?.id!==manualId||!editorState.steps.some(value=>stepKey(value)===key))return;
       const holder=document.createElement("div");holder.innerHTML=SHARED_IMAGE_EDITOR_HTML;const dialog=holder.firstElementChild;
       workspace.append(dialog);center.hidden=true;tools.hidden=true;
-      const close=()=>{activeCloudImageEditor?.dispose();activeCloudImageEditor=null;dialog.remove();center.hidden=false;tools.hidden=false;cloudImageBusy=false;rerender();tools.querySelector("button")?.focus();};
+      const close=()=>{activeCloudImageEditor?.dispose();activeCloudImageEditor=null;dialog.remove();center.hidden=false;tools.hidden=false;cloudImageBusy=false;rerender();if(returnFocus?.isConnected)returnFocus.focus();else if(innerWidth<=760)document.querySelector(".manual-mobile-actions button:nth-child(2)")?.focus();else if(innerWidth<=1100)document.querySelector(".manual-tools-toggle")?.focus();else tools.querySelector(".cloud-image-tools button")?.focus();};
       const screenshot={dataUrl,annotations:options.replace?[]:clone(step.annotations||[]),masks:[]};
       if(options.replace){dialog.querySelector("[data-editor-save]").textContent="内容を確認して、この画像を適用";dialog.querySelector(".editor-help").textContent="公開できない情報があれば黒塗りしてから適用してください。自動置換は行いません。";}
       activeCloudImageEditor=imageTools().createImageEditor({dialog,canvas:dialog.querySelector("canvas"),screenshot,inline:true,initialTool:options.tool||"select",onClose:close,onCancel:()=>{pendingImageJobs.delete(key);setMessage("画像の変更を取り消しました。元の手順書は変更していません。");},onSave:async(next)=>{
         const current=editorState.steps.find(value=>stepKey(value)===key);
         if(detailData?.manual?.id!==manualId||!current||current.assetId!==originalAssetId)return false;
         try {
-          const base=await encodeBaseImage(next.dataUrl||screenshot.dataUrl,next.masks);
+          const layers=imageTools().cloudImageLayers(next);
+          const base=await encodeBaseImage(next.dataUrl||screenshot.dataUrl,layers.masks,layers.baseAnnotations);
           const uploaded=await uploadEditedBase(current,base);
           if(detailData?.manual?.id!==manualId||!editorState.steps.some(value=>stepKey(value)===key))return false;
-          checkpointEditor();current.assetId=uploaded.assetId;current.assetUrl=uploaded.assetUrl;current.annotations=clone(next.annotations||[]);markChanged();setMessage("画像の変更を適用しました。クラウドへ保存すると手順書に反映されます。","success");return true;
+          checkpointEditor();current.assetId=uploaded.assetId;current.assetUrl=uploaded.assetUrl;current.annotations=clone(layers.annotations);markChanged();setMessage("画像の変更を適用しました。クラウドへ保存すると手順書に反映されます。","success");return true;
         }catch(error){setMessage(error.message||"画像を保存できませんでした。元の画像と編集中の内容を保持しています。","error");return false;}
       }});
-      await activeCloudImageEditor.open();
+      const opened=await activeCloudImageEditor.open();if(opened)setMessage("画像を編集中です。変更を適用すると手順に戻ります。");else setMessage("画像を表示できません。画像欄から再読み込みできます。","error");
     } catch(error) {cloudImageBusy=false;setMessage(error.message||"画像を準備できませんでした。","error");}
     finally {if(!activeCloudImageEditor)cloudImageBusy=false;}
   }
@@ -312,7 +316,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const closeShare = make("button", "閉じる", "secondary"); closeShare.type = "button"; closeShare.addEventListener("click", () => { shareOpen = false; panel.hidden = true; panel.querySelector(".share-feedback").textContent = ""; share.setAttribute("aria-expanded", "false"); shareReturnFocus?.focus(); }); panel.prepend(closeShare);
     panel.insertBefore(make("p", editorState.title + " · " + editorState.steps.length + "手順 · 画像" + editorState.steps.filter((step) => imageUrlFor(step)).length + "枚", "cloud-note"), closeShare.nextSibling);
     const panelMessage = make("p", shareToken && shareIsActive() ? "共有リンクを作成しました。" : dirty ? "未保存の変更があります。保存してから共有できます。" : "画像・説明・期限を確認してからリンクを作成してください。", "share-feedback"); panelMessage.dataset.kind=shareToken&&shareIsActive()?"success":dirty?"warning":"";panelMessage.setAttribute("role", "status"); panelMessage.setAttribute("aria-live", "polite"); panel.append(panelMessage);
-    share.addEventListener("click", (event) => { if(event.isTrusted)shareReturnFocus=share; shareOpen = !shareOpen; panel.hidden = !shareOpen; share.setAttribute("aria-expanded", String(shareOpen)); if (shareOpen) closeShare.focus(); });
+    share.addEventListener("click", (event) => { closePanels(); if(event.isTrusted)shareReturnFocus=share; shareOpen = !shareOpen; panel.hidden = !shareOpen; share.setAttribute("aria-expanded", String(shareOpen)); if (shareOpen) closeShare.focus(); });
     panel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeShare.click(); } });
     detail.append(form, panel); renderSteps();
   }

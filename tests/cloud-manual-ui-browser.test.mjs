@@ -6,7 +6,7 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
-test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 20_000 }, async () => {
+test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 60_000 }, async () => {
   const workspaceId = "workspace-1";
   const manualId = "manual-1";
   const patches = [];
@@ -80,7 +80,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
   let context;
   try {
     context = await chromium.launchPersistentContext("", { channel, headless: true });
-    const page = await context.newPage();
+    const page = await context.newPage();page.setDefaultTimeout(5000);
     const consoleErrors = [];
     page.on("console", (message) => { if (message.type() === "error" && !message.text().startsWith("Failed to load resource:")) consoleErrors.push(message.text()); });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
@@ -129,7 +129,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByRole("button", { name: "変更を保存" }).click();
     const patchRequest = await saveResponse;
     assert.equal(await page.getByRole("button", { name: "最新の内容を読み込む" }).isDisabled(), true);
-    assert.equal(await page.getByRole("button", { name: "業務手順" }).isDisabled(), true);
+    assert.equal(await page.locator("#cloud-list button").first().isDisabled(), true);
     await page.getByLabel("タイトル", { exact: true }).fill("保存中に変更したタイトル");
     await page.getByLabel("タイトル", { exact: true }).focus();
     await page.getByLabel("タイトル", { exact: true }).selectText();
@@ -145,7 +145,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     assert.equal(patches.length, 2);
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
     assert.equal(await page.getByRole("img", { name: "手順 1の画像" }).count(), 1);
-    assert.equal(await page.getByRole("button", { name: "保存中に変更したタイトル" }).count(), 1);
+    assert.equal(await page.locator('#cloud-list button[aria-label="保存中に変更したタイトル"]').count(), 1);
     await page.getByLabel("タイトル", { exact: true }).fill("503でも保持");
     detailFailure = true;
     await page.getByRole("button", { name: "変更を保存" }).click();

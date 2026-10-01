@@ -169,8 +169,8 @@ async function runVariant(name, extensionRoot, baseUrl, scratch, report) {
   let context;
   try {
     context = await chromium.launchPersistentContext(profile, {
-      channel: "chromium", headless: true, viewport: { width: 1280, height: 900 },
-      args: ["--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`]
+      channel: "chromium", headless: true, viewport: null,
+      args: ["--window-size=1366,1000", "--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`]
     });
     report.browserVersion = context.browser().version();
     const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker", { timeout: 15_000 });
@@ -189,6 +189,7 @@ async function runVariant(name, extensionRoot, baseUrl, scratch, report) {
     await until(() => evaluatePanel("document.readyState === 'complete' && !!document.querySelector('#start:not([hidden]):not([disabled])') && !document.querySelector('#startSection')?.hidden"), Boolean, "Native recording start control missing");
     await evaluatePanel("document.querySelector('#start').click(); true");
     const initial = await until(() => readLive(worker), (value) => value?.phase === "recording", "Recording did not start");
+    await delay(500); // Let native sidepanel/window geometry settle; no emulated viewport.
     report.nativeActionGranted = await worker.evaluate(async (tabId) => {
       const [result] = await chrome.scripting.executeScript({ target: { tabId }, func: () => Boolean(globalThis.__mecchaManualRecorder) });
       return result.result;

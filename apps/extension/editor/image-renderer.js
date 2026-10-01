@@ -75,6 +75,16 @@ export function drawMasks(context, masks, width, height) {
   context.restore();
 }
 
+// Irreversible redaction must preserve the local painter order. When a mask
+// exists, flatten every annotation below it, including partially hidden text.
+// Only the unmasked case may retain editable annotation metadata in exports.
+export function cloudImageLayers(screenshot) {
+  const annotations = normalizeAnnotations(screenshot?.annotations);
+  const masks = normalizedMasks(screenshot?.masks);
+  if (annotations === null) throw new TypeError("invalid annotations");
+  return masks.length ? { baseAnnotations: annotations, annotations: [], masks } : { baseAnnotations: [], annotations, masks };
+}
+
 export function drawScreenshot(context, image, screenshot) {
   const width = image?.naturalWidth || image?.width;
   const height = image?.naturalHeight || image?.height;

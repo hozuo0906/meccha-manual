@@ -154,9 +154,13 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 |---|---|---|
 | クラウド保存後も同じローカル下書き・選択を保持 | ADR-0038、unified-editor-storage-api、cloud-claim.js | extension-retained-cloud-draft、extension-cloud-claim-runtime |
 | 再保存で重複manualを作らず版衝突では保持 | claim target、revision CAS、completed receipt | cloud-manual-cのrepeat local saves／failure rollback |
+| 認証済みterminal expiry後の再保存／共有と変更済み原本の保持 | status GETのD1 terminal CAS、bounded handoff.expired、draft gate | cloud-manual-cのexpired create/update race・権限取消、extension-retained-cloud-draftのidentity negative、onboarding-recovery-actionsのsave/share/変更/reload |
 | 編集画像の失敗で旧画像を失わない | immutable edit asset予約、条件付きR2、PATCH CAS | cloud-manual-cのedited image upload／tampering／concurrency |
+| 保存済み画像A→B→undo Aの再保存 | migration 0007 first_attached_at、same-manual provenance | cloud-manual-cのsaved edited image・rollback・古い未添付／tenant／manual／role negative |
 | チーム書式の権限・tenant境界と共有版固定 | branding versions、private logos、published snapshot | cloud-manual-c branding、share-link-backend published branding、manual-raster |
 
 ブラウザーの視覚・操作確認、remote migration適用、公開配備は上表のローカル単体テストと別に検証する。
 
 | ローカル固有の色・ロゴを保存・共有・印刷へ維持 | claim branding snapshot、safe logo chunk、source_claim_id、draft CAS | cloud-manual-c manual branding、onboarding-recovery-actions rasterized branding、share-link-backend local manual branding |
+
+2026-10-01追補: 記録単位の表示値aliasは[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)に従う。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。

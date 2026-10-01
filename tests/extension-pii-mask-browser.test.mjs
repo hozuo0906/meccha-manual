@@ -2392,7 +2392,7 @@ test("semantic form interiors preserve frames, labels, choices, original values 
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     const safe = await inject(() => globalThis.__mecchaManualScreenshotMasks.privacyOverlays.map(item => ({ id: item.target.id, value: item.replacement, rect: item.protectedRect })));
     const names = safe.filter(item => item.id.startsWith("person")).map(item => item.value);
-    assert.equal(new Set(names).size, 2, "same-name people must not be silently merged");
+    assert.equal(new Set(names).size, 1, "identical displayed values share an alias without inferring person identity");
     assert.equal(safe.find(item => item.id === "email").value, safe.find(item => item.id === "email2").value);
     assert.match(safe.find(item => item.id === "company").value, /^株式会社サンプル/);
     assert.match(safe.find(item => item.id === "customer").value, /^C\d{6}$/);
@@ -2468,7 +2468,7 @@ test("unreadable surfaces report review and content-visibility cannot hide prote
 });
 
 test("unsupported editable regions preserve the rest of the useful screenshot", async () => {
-  const server=createServer((_req,res)=>{res.setHeader("content-type","text/html");res.end('<!doctype html><style>body{font:18px sans-serif}main{padding:20px}button{margin:20px}</style><main><label>氏名 <input name="name" value="合成カナリア氏名"></label><div id="custom" contenteditable>合成カスタム値<span>合成子要素値</span></div><button id="save">保存</button></main>');});
+  const server=createServer((_req,res)=>{res.setHeader("content-type","text/html; charset=utf-8");res.end('<!doctype html><meta charset="utf-8"><style>body{font:18px sans-serif}main{padding:20px}button{margin:20px}</style><main><label>氏名 <input name="name" value="合成カナリア氏名"></label><div id="custom" contenteditable>合成カスタム値<span>合成子要素値</span></div><button id="save">保存</button></main>');});
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const extensionPath=fileURLToPath(new URL("./fixtures/mask-extension",import.meta.url));let context;
   try {

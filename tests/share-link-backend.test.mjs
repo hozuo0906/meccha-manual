@@ -16,7 +16,7 @@ const migrationNames = [
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
   "0005_d1_share_links.sql",
-  "0006_d1_manual_editor_branding.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"
 ];
 const NOW = "2026-09-26T00:00:00.000Z";
 const HTTP_BASE_URL = "https://meccha-manual-staging.meccha-iiyatsu.com";

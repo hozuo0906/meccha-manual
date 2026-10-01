@@ -23,7 +23,7 @@ const migrationNames = [
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
-  "0006_d1_manual_editor_branding.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"
 ];
 
 class LocalStatement {
@@ -1321,4 +1321,122 @@ test("manual branding rejects unsafe raster and payloads, and stale CAS or revok
   assert.equal((await editorRequest(`/api/onboarding/claims/${next.claimIntentId}`, { method: "POST", subject: "brand-revoked-editor", body: nextBody })).response.status, 409);
   assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, null);
   assert.equal(count("workspace_branding"), 0);
+});
+
+test("saved edited image A can be restored after B while stale never-attached uploads and other manuals remain rejected", async () => {
+  const fixture = await editorFixture();
+  const uploadA = await editUpload(fixture, "undo-image-upload-A-0001");
+  const unused = await editUpload(fixture, "undo-image-never-used-01");
+  assert.equal(uploadA.response.status, 200); assert.equal(unused.response.status, 200);
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at, null);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = ?").run(NOW, unused.payload.assetId), /attachment provenance/);
+  const saveA = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploadA.payload.assetId) });
+  assert.equal(saveA.response.status, 200, JSON.stringify(saveA.payload));
+  const attachedAt = one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at;
+  assert.equal(typeof attachedAt, "string");
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  const uploadB = await editUpload(fixture, "undo-image-upload-B-0001");
+  assert.equal(uploadB.response.status, 200);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploadB.payload.assetId) })).response.status, 200);
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(fixture.detail.steps[0].assetId, uploadB.payload.assetId);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, unused.payload.assetId) })).response.status, 409, "ready but never attached at an older version is not provenance");
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", unused.payload.assetId).first_attached_at, null);
+  const editor = addEditorMember(fixture.workspaceId, "undo-collaborator");
+  const restored = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-collaborator", body: patchPayload(fixture.detail, uploadA.payload.assetId) });
+  assert.equal(restored.response.status, 200, JSON.stringify(restored.payload));
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(fixture.detail.steps[0].assetId, uploadA.payload.assetId);
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at, attachedAt);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = NULL WHERE id = ?").run(uploadA.payload.assetId), /attachment provenance/);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = ?").run(NOW, uploadA.payload.assetId), /attachment provenance/);
+  database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE application_id = ?").run(editor);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-collaborator", body: patchPayload(fixture.detail, uploadB.payload.assetId) })).response.status, 403);
+  const second = await stageClaim({ operationId: "undo-other-manual-0001" });
+  const claimed = await editorRequest(`/api/onboarding/claims/${second.claimIntentId}`, { method: "POST", body: claimBody(second) });
+  assert.equal(claimed.response.status, 200);
+  const otherPath = `/api/workspaces/${fixture.workspaceId}/manuals/${claimed.payload.manualId}`;
+  const otherDetail = (await editorRequest(otherPath)).payload;
+  assert.equal((await editorRequest(`${otherPath}/draft`, { method: "PATCH", body: patchPayload(otherDetail, uploadA.payload.assetId) })).response.status, 409, "previous attachment never grants another manual access");
+  assert.throws(() => database.prepare("UPDATE manual_steps SET asset_id = ? WHERE id = ?").run(uploadA.payload.assetId, otherDetail.steps[0].id), /manual mismatch/);
+  assert.equal((await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "undo-other-tenant", body: { operationId: "undo-other-tenant-bootstrap" } })).response.status, 200);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-other-tenant", body: patchPayload(fixture.detail, uploadA.payload.assetId) })).response.status, 404);
+});
+
+test("failed draft saves never establish reusable attachment provenance", async () => {
+  const fixture = await editorFixture();
+  const upload = await editUpload(fixture, "never-attached-rollback-01");
+  assert.equal(upload.response.status, 200);
+  d1.failAt = 4;
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, upload.payload.assetId) })).response.status, 503);
+  d1.failAt = -1;
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", upload.payload.assetId).first_attached_at, null);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail) })).response.status, 200);
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, upload.payload.assetId) })).response.status, 409);
+});
+
+test("authenticated expired status is terminal and fences delayed finalization using an earlier server time", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  const operationId = "expiry-terminal-operation-01";
+  const created = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 0 } });
+  assert.equal(created.response.status, 201);
+  const id = created.payload.claimIntentId;
+  const repository = new CloudManualRepository(d1);
+  const beforeExpiry = await repository.getClaimIntent(actorId, id);
+  const startedAt = new Date(Date.now() - 60_000).toISOString();
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), id);
+  const wrongOperation = await editorRequest(`/api/onboarding/claims/${id}?operationId=incorrect-operation-0001`);
+  assert.equal(wrongOperation.response.status, 409);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "pending", "wrong operation cannot terminalize another claim");
+  assert.equal((await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "expired-other-actor", body: { operationId: "expiry-other-actor-bootstrap" } })).response.status, 200);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`, { subject: "expired-other-actor" })).response.status, 404);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "pending");
+  let releaseFinalize;
+  d1.tail = new Promise((resolve) => { releaseFinalize = resolve; });
+  const delayedFinalize = repository.finalizeClaim(actorId, beforeExpiry, "a".repeat(64), "期限前に開始した保存", "", [], [], startedAt);
+  const status = await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`);
+  releaseFinalize();
+  assert.equal(status.response.status, 200);
+  assert.deepEqual(status.payload, { status: "expired", claimIntentId: id, operationId, workspaceId, expiresAt: one("SELECT expires_at FROM claim_intents WHERE id = ?", id).expires_at });
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "expired");
+  await assert.rejects(delayedFinalize, (error) => error.code === "conflict");
+  assert.equal(count("manuals"), 0, "delayed finalize creates no manual after expired was returned");
+  assert.throws(() => database.prepare("UPDATE claim_intents SET status = 'pending' WHERE id = ?").run(id), /expired claim is terminal/);
+  assert.throws(() => database.prepare("UPDATE claim_intents SET status = 'completed' WHERE id = ?").run(id), /expired claim is terminal/);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`)).payload.status, "expired");
+  addEditorMember(workspaceId, "expiry-backup-owner", "owner");
+  database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`)).response.status, 404, "revoked permissions hide even a terminal receipt");
+});
+
+test("expired update claims fence in-flight old-time CAS and revoked expiry writes remain pending", async () => {
+  const fixture = await editorFixture();
+  const repository = new CloudManualRepository(d1);
+  const operationId = "expired-update-operation-01";
+  const created = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 0, target: { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt } } });
+  assert.equal(created.response.status, 201);
+  const id = created.payload.claimIntentId;
+  const oldIntent = await repository.getClaimIntent(fixture.actorId, id);
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), id);
+  let releaseFinalize; d1.tail = new Promise((resolve) => { releaseFinalize = resolve; });
+  const delayed = repository.finalizeClaim(fixture.actorId, oldIntent, "a".repeat(64), "遅延した旧保存", "", [], [], new Date(Date.now() - 60_000).toISOString());
+  const expired = await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`);
+  releaseFinalize();
+  assert.equal(expired.payload.status, "expired");
+  await assert.rejects(delayed, (error) => error.code === "conflict");
+  assert.deepEqual((await editorRequest(fixture.path)).payload, fixture.detail, "terminal expiry protects the current draft from a delayed old write");
+  const revokeOperation = "revoked-expiry-operation-01";
+  const second = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: revokeOperation, assetCount: 0 } });
+  assert.equal(second.response.status, 201);
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), second.payload.claimIntentId);
+  addEditorMember(fixture.workspaceId, "expiry-race-backup-owner", "owner");
+  const prepare = d1.prepare.bind(d1);
+  d1.prepare = (sql) => {
+    if (/UPDATE claim_intents SET status = 'expired'/.test(sql)) database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(fixture.workspaceId, fixture.actorId);
+    return prepare(sql);
+  };
+  const revoked = await editorRequest(`/api/onboarding/claims/${second.payload.claimIntentId}?operationId=${revokeOperation}`);
+  assert.equal(revoked.response.status, 404);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", second.payload.claimIntentId).status, "pending", "authorization is rechecked inside the terminal state mutation");
 });

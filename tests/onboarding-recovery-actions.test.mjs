@@ -66,7 +66,8 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
           return Response.json({ status: "ready", logoId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
         }
         if (options.method === "GET" && path === `/api/onboarding/claims/${pending.claimIntentId}?operationId=${pending.operationId}`) {
-          return Response.json(serverStatus === "completed" ? { status: "completed", manualId: cloudRef.manualId, cloudRef } : { status: "pending", expiresAt: pending.expiresAt });
+          if (serverStatus === "forbidden") return Response.json({ error: "CLAIM_INTENT_NOT_FOUND" }, { status: 404 });
+          return Response.json(serverStatus === "completed" ? { status: "completed", manualId: cloudRef.manualId, cloudRef } : { status: serverStatus, claimIntentId: pending.claimIntentId, operationId: pending.operationId, workspaceId: cloudRef.workspaceId, expiresAt: pending.expiresAt });
         }
         if (options.method === "POST" && path === `/api/onboarding/claims/${pending.claimIntentId}` && serverStatus === "pending" && !changed) return Response.json({ status: "claimed", manualId: cloudRef.manualId, cloudRef });
         throw new Error("Unexpected cloud write: " + path);
@@ -81,7 +82,21 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     assert.equal(requests.filter((request) => request.path === "/api/onboarding/bootstrap").length, 0);
     assert.equal(drafts.get(original.id).title, current.title);
     assert.equal(drafts.get(original.id).selectedStepId, "step-17");
-    if (serverStatus === "completed" || !changed) {
+    if (serverStatus === "expired") {
+      assert.equal(storage.get(handoffStorageKey(pending.handoffId)).status, "expired");
+      assert.equal(drafts.get(original.id).cloudRef, undefined);
+      assert.equal(await findRecoverableHandoff(original.id, await fingerprintDraft(current), local, requestedAction), null);
+      assert.equal(button.textContent, "編集画面からもう一度保存");
+      assert.match(status.textContent, /もう一度保存・共有できます/);
+      assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
+      const requestCount = requests.length;
+      location.hash = url.hash;
+      runInNewContext(ONBOARDING_JS, context);
+      await button.listeners.get("click")();
+      assert.equal(requests.length, requestCount, "terminal extension state survives a reopened old URL without bootstrap, re-finalize or status writes");
+      assert.equal(button.textContent, "編集画面からもう一度保存");
+      assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
+    } else if (serverStatus === "completed" || (serverStatus === "pending" && !changed)) {
       assert.equal(drafts.get(original.id).cloudRef.manualId, cloudRef.manualId);
       assert.equal(button.textContent, requestedAction === "share" ? "共有設定を開く" : "保存した手順書を開く");
       button.onclick();
@@ -123,4 +138,15 @@ test("onboarding transfers rasterized per-manual branding and uses natural bound
   assert.equal(manual.steps[1].title, "操作の説明");
   assert.equal(Array.from(manual.steps[2].title).length, 128);
   assert.equal(JSON.stringify(manual).includes("logoDataUrl"), false);
+});
+
+for (const requestedAction of ["save", "share"]) for (const changed of [false, true]) {
+  test(`server-confirmed expiry releases ${requestedAction} recovery with changed local content=${changed}`, async () => {
+    const calls = await runRecovery({ requestedAction, changed, serverStatus: "expired" });
+    assert.deepEqual(calls.map((call) => call.method), ["GET"], "authenticated Web result is reconciled without new upload/finalize or extension networking");
+  });
+}
+test("revoked claim permission preserves the unresolved handoff and all changed local content", async () => {
+  const calls = await runRecovery({ requestedAction: "share", changed: true, serverStatus: "forbidden" });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
 });

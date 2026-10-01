@@ -14,6 +14,7 @@ import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandof
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 const SCREENSHOT_TIMING_KEY = "captureScreenshotAt";
+const PRIVACY_ALIAS_KEY = "capturePrivacyAliases";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
@@ -140,7 +141,7 @@ async function setSession(session) {
     clearNavigationFallback(session.id);
     if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
   } else {
-    await chrome.storage.session.remove(SESSION_KEY);
+    await chrome.storage.session.remove([SESSION_KEY, PRIVACY_ALIAS_KEY]);
     clearNavigationFallback();
     clearReinjectionFailureMarker(reinjectionFailureSessionId);
   }
@@ -270,6 +271,7 @@ async function startCapture(tabId, mode) {
   captureEventIds.delete(tabId);
   captureEventGenerations.delete(tabId);
   await clearRecoveryJournal();
+  await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
   await setSession(session);
   try {
     if (mode !== "pc") await applyResponsiveViewport({ windowId: tab.windowId, tabId, viewport, windowsApi: chrome.windows, measure: measureViewport });
@@ -303,7 +305,35 @@ async function currentClickTarget(session, event) {
   } catch { return null; }
 }
 
+// This key is separate from the public capture session/status and is never
+// copied into a draft, recovery journal, event, image, handoff or network body.
+// storage.session remains at Chrome's default TRUSTED_CONTEXTS access level.
+async function readCapturePrivacyAliases(session) {
+  const existing = (await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY];
+  if (existing) {
+    if (existing.recordId !== session.id || existing.version !== 1 || !/^[a-f0-9]{64}$/.test(existing.secret)) throw new Error("SCREENSHOT_MASK_FAILED");
+    return existing;
+  }
+  const state = { version: 1, recordId: session.id, namespace: crypto.randomUUID(),
+    secret: Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    allocations: [], next: 0 };
+  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: state });
+  return state;
+}
+
+async function persistCapturePrivacyAliases(state, result) {
+  const next = result?.privateAliasAllocations;
+  if (!next || next.namespace !== state.namespace || !Array.isArray(next.allocations) || next.allocations.length > 512
+    || next.next !== next.allocations.length || next.next < state.next
+    || next.allocations.some((entry, index) => !Array.isArray(entry) || entry.length !== 2
+      || !/^[a-f0-9]{64}$/.test(entry[0]) || entry[1] !== index + 1
+      || (index < state.next && (entry[0] !== state.allocations[index][0] || entry[1] !== state.allocations[index][1])))
+    || new Set(next.allocations.map(([key]) => key)).size !== next.allocations.length) throw new Error("SCREENSHOT_MASK_FAILED");
+  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: { ...state, allocations: next.allocations, next: next.next } });
+}
+
 async function clearCapturePrivacy(session) {
+  if ((await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY]) await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
   if (!Number.isInteger(session?.tabId)) return;
   await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks, args: [{ endRecord: true }] }).catch(() => undefined);
 }
@@ -314,8 +344,24 @@ async function takeMaskedScreenshot(session, assertCurrent = () => undefined, ev
     includePrivacyMetadata: true,
     applyMasks: async () => {
       assertCurrent();
-      try { return (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: installSensitiveMasks, args: [{ recordId: session.id }] }))[0]?.result; }
-      catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
+      let privateAliasState;
+      let mask;
+      try {
+        privateAliasState = await readCapturePrivacyAliases(session);
+        mask = (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, world: "ISOLATED",
+          func: installSensitiveMasks, args: [{ recordId: session.id, privateAliasState }] }))[0]?.result;
+      } catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
+      // A navigation or newer scene has its own safe reason code. Do not
+      // relabel it as a mask failure after waiting for isolated-world crypto.
+      assertCurrent();
+      if (mask?.applied && !mask.reason) {
+        try { await persistCapturePrivacyAliases(privateAliasState, mask); }
+        catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
+      }
+      // Explicit allowlist keeps HMAC keys and allocation state inside the
+      // trusted worker, including when capture later fails or is retried.
+      return mask && { applied: mask.applied, count: mask.count, privacyMaskedCount: mask.privacyMaskedCount,
+        privacyReview: mask.privacyReview, token: mask.token, ...(mask.reason ? { reason: mask.reason } : {}) };
     },
     waitForPaint: async () => {
       await visibleCaptureTab(session);

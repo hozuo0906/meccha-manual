@@ -82,3 +82,14 @@ button.quiet { width: 100%; color: #40505a; border: 1px solid #b5c6cb; backgroun
 
 /* Shared interface tokens and minimum touch targets. */
 select,button.quiet,.draft-card button,.live-latest{border-color:#789099}.draft-card button{min-height:44px}.image-state,.step-text p,.draft-card h3{overflow-wrap:anywhere}
+
+.live-progress{position:relative;top:auto;box-shadow:none}.shell{padding-top:16px}.intro{box-shadow:none}.live-section{margin-top:12px}
+
+body:has(#liveSection:not([hidden])){height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+body:has(#liveSection:not([hidden])) .shell{flex:1;min-height:0;padding:16px 16px 8px;display:flex;flex-direction:column;overflow:hidden}
+body:has(#liveSection:not([hidden])) .brand-header,body:has(#liveSection:not([hidden])) .intro,body:has(#liveSection:not([hidden])) .live-progress{flex:none}
+body:has(#liveSection:not([hidden])) .intro{padding:10px 12px}
+body:has(#liveSection:not([hidden])) #liveSection{flex:1;min-height:0;overflow-y:auto;padding-right:4px}
+body:has(#liveSection:not([hidden])) .controls{position:static;flex:none;box-shadow:none;padding:10px 16px}
+body:has(#liveSection:not([hidden])) #draftSection{display:none}
+body:has(#liveSection:not([hidden])) .status{flex:none;margin-top:6px}

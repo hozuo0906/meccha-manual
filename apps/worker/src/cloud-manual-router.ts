@@ -499,11 +499,13 @@ async function claimStatusRoute(request: Request, env: CloudManualEnv, claimInte
   const params = new URL(request.url).searchParams;
   if ([...params.keys()].some((key) => key !== "operationId") || params.getAll("operationId").length !== 1) throw new CloudManualError(400, "OPERATION_ID_INVALID", "operationId is required.");
   const operationId = operationField(params.get("operationId"));
-  const intent = await repository.getClaimIntent(actorId, uuid(claimIntentId, "CLAIM_INTENT_ID_INVALID"));
+  let intent = await repository.getClaimIntent(actorId, uuid(claimIntentId, "CLAIM_INTENT_ID_INVALID"));
   if (!intent) throw new CloudManualError(404, "CLAIM_INTENT_NOT_FOUND", "保存操作が見つかりません。");
   if (intent.operationId !== operationId) throw new CloudManualError(409, "CLAIM_OPERATION_CONFLICT", "保存操作が一致しません。");
+  if (intent.status === "pending" && Date.parse(intent.expiresAt) <= Date.now()) intent = await repository.expireClaimIntent(actorId, intent, new Date().toISOString());
+  if (!intent) throw new CloudManualError(404, "CLAIM_INTENT_NOT_FOUND", "保存操作が見つかりません。");
   if (intent.status === "completed") return json({ status: "completed", manualId: intent.manualId, cloudRef: claimCloudRef(intent) });
-  if (Date.parse(intent.expiresAt) <= Date.now()) return json({ status: "expired", expiresAt: intent.expiresAt });
+  if (intent.status === "expired") return json({ status: "expired", claimIntentId: intent.id, operationId: intent.operationId, workspaceId: intent.workspaceId, expiresAt: intent.expiresAt });
   return json({ status: "pending", expiresAt: intent.expiresAt });
 }
 

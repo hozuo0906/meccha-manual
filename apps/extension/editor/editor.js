@@ -562,7 +562,9 @@ function renderStepArticle(step) {
   if (!article) return render();
   const oldCanvas = article.querySelector(".screenshot-canvas");
   if (oldCanvas) { invalidatePreview(oldCanvas); previewObserver.unobserve(oldCanvas); oldCanvas.__screenshot = null; }
+  article.querySelector(".image-file-actions")?.remove();
   article.querySelector(".screenshot-area")?.replaceWith(renderScreenshot(step));
+  const uploadDetails=article.querySelector(".image-file-actions");if(uploadDetails)article.append(uploadDetails);
   updateContextTools(step); updateImageSummary();
 }
 function renderListOnly() {
@@ -619,7 +621,7 @@ function render() {
   const updateInstruction = (event) => { if (event.isComposing) return; remember(`instruction:${step.id}`); instruction.value = Array.from(instruction.value).slice(0, 500).join(""); updateStepInstruction(draft, step.id, instruction.value); persist(); renderListOnly(); };
   instruction.addEventListener("input", updateInstruction); instruction.addEventListener("compositionend", updateInstruction);
   instruction.addEventListener("blur", () => { historyGroup = null; });
-  label.append(instruction); article.append(label); detail.append(article); updateContextTools(step); applyBranding();
+  label.append(instruction); article.append(label); const uploadDetails=article.querySelector(".image-file-actions");if(uploadDetails)article.append(uploadDetails); detail.append(article); updateContextTools(step); applyBranding();
 }
 function notifyEditorReady() { if (typeof chrome !== "undefined") chrome.runtime?.sendMessage?.({ type: "editor:ready", draftId: id, ready: true }, () => void globalThis.chrome?.runtime?.lastError); }
 addStepButton.addEventListener("click", async () => {

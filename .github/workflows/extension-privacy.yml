@@ -26,7 +26,7 @@ jobs:
         run: node scripts/install-test-chrome.mjs
       - id: privacy
         continue-on-error: true
-        run: xvfb-run -a node --test tests/extension-pii-mask-browser.test.mjs
+        run: xvfb-run -a node --test --test-concurrency=1 tests/extension-pii-mask-browser.test.mjs tests/extension-record-alias-browser.test.mjs tests/extension-semantic-context-browser.test.mjs
       - id: masks
         continue-on-error: true
         run: xvfb-run -a node --test tests/extension-mask-browser.test.mjs
@@ -52,7 +52,7 @@ jobs:
       - name: Test saved editor and sharing with synthetic data
         id: cloud
         continue-on-error: true
-        run: xvfb-run -a node --experimental-strip-types --test tests/cloud-manual-ui-browser.test.mjs tests/cloud-manual-sharing-ui.test.mjs tests/cloud-manual-sharing-failure-browser.test.mjs tests/cloud-manual-uiux-browser.test.mjs tests/share-viewer-browser.test.mjs tests/cloud-manual-tools-browser.test.mjs
+        run: xvfb-run -a node --experimental-strip-types --test --test-concurrency=1 tests/cloud-manual-ui-browser.test.mjs tests/cloud-manual-sharing-ui.test.mjs tests/cloud-manual-sharing-failure-browser.test.mjs tests/cloud-manual-uiux-browser.test.mjs tests/share-viewer-browser.test.mjs tests/cloud-manual-tools-browser.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs
       - name: Preserve synthetic UI evidence
         if: always()
         uses: actions/upload-artifact@v4

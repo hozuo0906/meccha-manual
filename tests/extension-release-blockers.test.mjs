@@ -532,7 +532,7 @@ test("screenshot privacy disables transitions, verifies document identity, and r
       opacity: target.style.getPropertyValue("opacity") || "1"
     });
     delete globalThis.__mecchaManualScreenshotMasks;
-    const result = installSensitiveMasks();
+    const result = await installSensitiveMasks();
     assert.equal(result.applied, true);
     assert.equal(typeof result.token, "string");
     assert.equal(style.getPropertyValue("transition"), "none");
@@ -573,6 +573,6 @@ test("captured image is discarded when mask identity is invalidated by document 
   assert.equal(removed, true);
 });
 
-test("missing privileged shadow inspection fails closed before screenshot capture", () => {
-  assert.deepEqual(installSensitiveMasks(), { applied: false });
+test("missing privileged shadow inspection fails closed before screenshot capture", async () => {
+  assert.deepEqual(await installSensitiveMasks(), { applied: false });
 });

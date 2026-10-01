@@ -48,7 +48,7 @@ test("20-step cloud editing preserves step 17 through reorder, undo, save and sh
       await page.screenshot({path:`.artifacts/uiux-20261001/screens/cloud-${width}-step17.png`,fullPage:true});
       const share=page.getByRole("button",{name:"共有",exact:true});await share.click();await page.getByLabel("パスコード（12〜128文字）").waitFor();
       await page.screenshot({path:`.artifacts/uiux-20261001/screens/cloud-${width}-share.png`,fullPage:true});
-      await page.getByRole("button",{name:"閉じる",exact:true}).click();assert.equal(await share.evaluate(node=>document.activeElement===node),true);assert.equal(await active().getAttribute("data-step-key"),"step-17");
+      await page.locator(".manual-share-drawer").getByRole("button",{name:"閉じる",exact:true}).click();assert.equal(await share.evaluate(node=>document.activeElement===node),true);assert.equal(await active().getAttribute("data-step-key"),"step-17");
       assert.deepEqual(errors,[]);await page.close();
     }
   } finally {await browser?.close();server.closeAllConnections?.();await new Promise(resolve=>server.close(resolve));}

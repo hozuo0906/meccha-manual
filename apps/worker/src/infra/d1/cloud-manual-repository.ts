@@ -269,6 +269,22 @@ export class CloudManualRepository {
     }
   }
 
+  async expireClaimIntent(actorId: string, intent: ClaimIntentRecord, now: string): Promise<ClaimIntentRecord | null> {
+    try {
+      // This write serializes against finalize's batch. Once expiry is returned,
+      // an earlier in-flight finalize cannot commit using an older server time.
+      await this.db.prepare(`UPDATE claim_intents SET status = 'expired', updated_at = ?1
+        WHERE id = ?2 AND actor_application_id = ?3 AND workspace_id = ?4 AND operation_id = ?5
+          AND status = 'pending' AND expires_at <= ?1
+          AND EXISTS (SELECT 1 FROM identities i JOIN workspaces w ON w.id = claim_intents.workspace_id
+            JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.application_id = i.application_id
+            WHERE i.application_id = ?3 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active'
+              AND (wm.role = 'owner' OR (claim_intents.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))))`)
+        .bind(now, intent.id, actorId, intent.workspaceId, intent.operationId).run();
+      return await this.getClaimIntent(actorId, intent.id);
+    } catch (error) { throw repositoryError(error); }
+  }
+
   async getStagedAsset(actorId: string, claimIntentId: string, assetSlot: number): Promise<StagedAssetRecord | null> {
     try {
       const row = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
@@ -465,7 +481,7 @@ export class CloudManualRepository {
             WHERE ca.asset_id = a.id AND ca.status = 'completed' AND ci.status = 'completed' AND ci.manual_id = ?1 AND ci.workspace_id = ?2)
           OR EXISTS (SELECT 1 FROM manual_edit_assets ea WHERE ea.id = a.id AND ea.workspace_id = ?2 AND ea.manual_id = ?1 AND ea.status = 'ready'
             AND ((ea.actor_application_id = ?4 AND ea.revision_id = ?5 AND ea.expected_updated_at = ?6)
-              OR EXISTS (SELECT 1 FROM manual_steps s WHERE s.asset_id = a.id AND s.workspace_id = ?2 AND s.revision_id = ?5 AND s.deleted_at IS NULL))))`)
+              OR ea.first_attached_at IS NOT NULL)))`)
           .bind(manualId, workspaceId, JSON.stringify(Array.from(assetIds)), actorId, current.draft_id, expectedUpdatedAt).all<{ id: string }>();
         if (new Set(assetRows.results.map((row) => row.id)).size !== assetIds.size) throw new D1RepositoryError("conflict");
       }

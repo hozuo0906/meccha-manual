@@ -14,7 +14,7 @@ Status: Accepted
 - 同じdraft版の編集画像予約は合計100MiB以下。別actor、manual、revisionへ予約を流用しない。
 - 応答: `{status:"ready", assetId, assetUrl, revisionId, expectedUpdatedAt, sha256, byteLength}`
 - upload成功だけでは現在の手順画像を変更しない。既存`PATCH .../draft`の`steps[].assetId`に返却IDを指定し、`expectedUpdatedAt`のCASで確定する。
-- 未添付画像はuploadしたactorと期待版に限り初回添付できる。添付後の画像は対象manual内で既存の共同編集者が維持できる。別manual／tenantへの参照はWorkerとD1 triggerで拒否する。
+- 未添付画像はuploadしたactorと期待版に限り初回添付できる。添付後の画像は対象manual内で既存の共同編集者が維持・undo復元できる。migration 0007の`first_attached_at`は保存成功のstep参照だけから記録し、差し替え後も不変とする。古いready uploadだけでは許可しない。別manual／tenantへの参照はWorkerとD1 triggerで拒否する。
 - 再送は同じactor/workspace/manual/operationと固定したbyte数・形式・寸法・checksum・版を再照合する。違うpayloadは409。R2応答不明は503、予約を保持し同じ操作で再試行する。旧画像は失敗時も保持する。
 
 ### 編集できる注釈と不可逆な保護
@@ -40,6 +40,9 @@ Status: Accepted
 - 回収URLの`action`は元のclaim actionを維持し、今回希望する保存後の移動先は別の`requestedAction=save|share`で渡す。共有希望へ切り替えても新規claimは作らず、元manualの保存結果確認後に共有設定へ進む。
 - draft単位のfinalize gateは別handoffの未確定claimを拒否する。`handoff.finalize-pending`はprepareが返したcloudRef（新規ならnull）を送り、現在のreceiptと照合して`sourceCloudRef`へ固定する。古いタブが別の完了前に準備した新規claimを後から確定することはできない。
 - 競合で無効になった未確定handoffはローカル状態`superseded`へ移し、新しいhandoffの再利用候補から外す。既にfinalize-pendingの操作は消さずGET回収だけを維持する。新しい操作は確定receiptをtargetにするまで許可しない。
+- status GETが認証済みactor／workspace／operationを照合してD1のpendingをexpiredへ確定した場合、`{status:"expired",claimIntentId,operationId,workspaceId,expiresAt}`を返す。競合finalizeが先に確定した場合はcompletedを返す。expiredはterminalであり、古いserver時刻のfinalizeも復活できない。
+- Webはこの成功応答を`handoff.expired`の`claimResult`として、元のhandoff/action/operation/claim/fingerprintと共に送る。拡張は固定origin、厳密なfield allowlist、元の回収identity、既存targetのworkspaceを照合する。finalize/completedと同じlockで`finalize-pending -> expired`を永続化したACKを受けてから、Webもexpiredを記録する。通信・認証・権限・storageの失敗はpendingを推測で解除しない。
+- terminal expiredは次の保存／共有の回収候補・draft gateから除外し、原本・新しい編集・選択・既存cloudRefを保持する。旧handoffのprepare／finalize／completedは拒否する。旧URL再訪は新しいoperationやbootstrapを作らず編集画面からの再保存を案内する。TTLだけで未確定claimを捨てない。拡張はcloud APIへ直接fetchせず、認証済みWebの既存transportを維持する。
 - prepareは全IDの重複と不明参照を検証してから参照画像だけを固定順でsnapshotする。参照先stepまたはscreenshotが要確認なら、ready表示でも拒否する。削除済み／説明のみ化した手順の孤立画像は転送しない。
 
 ## 3. チームのテーマとロゴ
@@ -83,3 +86,5 @@ Status: Accepted
 ## 検証と適用
 
 `npm run test:cloud-manual`、`npm run test:extension-cloud-claim`、`npm run test:share-links`に含む。ローカルSQLiteとR2 mockの成功を実ブラウザーやremote環境適用の成功とは扱わない。新テーブルはmigration 0006で追加し、remote適用と本番配備には別途承認を必要とする。
+
+黒塗りがある画像の注釈は描画後に黒塗りで覆ってrasterへ統合し、その画像の `steps[].annotations` は空配列とする。非表示になった文字を含むJSONは送信しない。黒塗りなしの画像は編集可能な注釈metadataを維持する。

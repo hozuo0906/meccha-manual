@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
+import { handleExternalCloudClaimMessage } from "../apps/extension/background/cloud-claim.js";
+import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 
 test("onboarding browser retries the same operation after a 503 and rejects expired reload metadata", { timeout: 20_000 }, async () => {
@@ -701,6 +703,69 @@ test("onboarding keeps an expired pending finalize read-only without prepare or 
     assert.equal(await page.evaluate(() => globalThis.prepareCalls || 0), 0);
   } finally {
     await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+for (const requestedAction of ["save", "share"]) test(`onboarding terminal expiry releases ${requestedAction} after local edits and survives reopening`, { timeout: 30_000 }, async () => {
+  const originalChrome = globalThis.chrome;
+  const trustedOrigin = "https://meccha-manual-staging.meccha-iiyatsu.com";
+  const localDraft = { id: `browser-expired-${requestedAction}`, title: "保存中に追加した編集", description: "保持する説明", selectedStepId: "step-17", updatedAt: "2026-10-01T00:00:00.000Z", steps: [], screenshots: [] };
+  const originalFingerprint = await fingerprintDraft({ ...localDraft, title: "保存前の本文" });
+  const metadata = { ...createHandoffMetadata(localDraft.id, "save", Date.now() - 60 * 60 * 1000, "a".repeat(32), localDraft.updatedAt, originalFingerprint), status: "finalize-pending", operationId: "expired-browser-operation-0001", claimIntentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const storage = new Map([[handoffStorageKey(metadata.handoffId), metadata]]);
+  const local = {
+    async get(key) { return key === null ? Object.fromEntries(storage) : { [key]: structuredClone(storage.get(key)) }; },
+    async set(entries) { for (const [key, value] of Object.entries(entries)) storage.set(key, structuredClone(value)); }
+  };
+  globalThis.chrome = { storage: { local } };
+  const requests = []; const messages = [];
+  const server = createServer((request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    if (url.pathname === "/onboarding/continue") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderOnboardingContinuePage({ bootstrapEnabled: true })); return; }
+    if (url.pathname === "/assets/onboarding.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(ONBOARDING_CSS); return; }
+    if (url.pathname === "/assets/onboarding.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(ONBOARDING_JS); return; }
+    if (url.pathname.startsWith("/api/")) requests.push([request.method, url.pathname, url.search]);
+    if (request.method === "GET" && url.pathname === `/api/onboarding/claims/${metadata.claimIntentId}` && url.searchParams.get("operationId") === metadata.operationId) {
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ status: "expired", claimIntentId: metadata.claimIntentId, operationId: metadata.operationId, workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", expiresAt: metadata.expiresAt })); return;
+    }
+    response.writeHead(404).end();
+  });
+  let context;
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const recovery = await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction);
+    assert.equal(recovery.handoffId, metadata.handoffId);
+    const handoffUrl = new URL(buildContinueUrl(trustedOrigin, metadata.handoffId, "a".repeat(32), recovery, requestedAction));
+    const url = `${baseUrl}${handoffUrl.pathname}${handoffUrl.hash}`;
+    context = await chromium.launchPersistentContext("", { channel: process.platform === "win32" ? "chrome" : "chromium", headless: true });
+    await context.exposeFunction("testExtensionMessage", async (_id, message) => {
+      messages.push(structuredClone(message));
+      return handleExternalCloudClaimMessage(message, { url: trustedOrigin + "/onboarding/continue" });
+    });
+    await context.addInitScript(() => { globalThis.chrome = { runtime: { sendMessage: (...args) => globalThis.testExtensionMessage(...args) } }; });
+    const page = await context.newPage();
+    await page.goto(url);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor();
+    assert.equal(storage.get(handoffStorageKey(metadata.handoffId)).status, "expired");
+    assert.equal(await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction), null);
+    assert.deepEqual(requests.map(([method]) => method), ["GET"]);
+    assert.equal(messages.filter((message) => message.type === "handoff.expired").length, 1);
+    assert.ok(messages.every((message) => message.action === "save"), "recovery retains the original action identity even for Share");
+    assert.match(await page.locator("#status").textContent(), /元の下書きと新しい編集/);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "expired");
+    await page.goto(url);
+    await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor();
+    assert.equal(requests.length, 1, "old URL never begins bootstrap or re-finalizes a terminal operation");
+  } finally {
+    await context?.close();
+    if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
   }

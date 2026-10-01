@@ -16,11 +16,12 @@ export async function captureWithMaskBoundary({ applyMasks, waitForPaint = async
   }
 }
 
-export function installSensitiveMasks(options = {}) {
+export async function installSensitiveMasks(options = {}) {
   const existing = globalThis.__mecchaManualScreenshotMasks;
   if (existing?.token) {
     if (options?.recordId && options.recordId !== existing.recordId) return { applied: false };
     return { applied: true, count: existing.masks.length, privacyMaskedCount: existing.privacyOverlays.length, privacyReview: existing.privacyReview, token: existing.token,
+      ...(options.privateAliasState ? { privateAliasAllocations: existing.privateAliasAllocations } : {}),
       ...((existing.privacyCandidateOverflow || existing.privacyCandidateTraversalOverflow || existing.privacyCandidateRangeOverflow || existing.privacyRootTraversalOverflow) ? { reason: "SCREENSHOT_BUDGET_EXCEEDED" } : {}) };
   }
 
@@ -38,15 +39,11 @@ export function installSensitiveMasks(options = {}) {
     employeeId: "EMP0007", birthday: "2000-01-01", secret: "••••••••", unknown: "サンプル値"
   });
   const reviewReasons = new Set();
-  // Recording identity is an opaque local session ID. Never retain a value-to-
-  // replacement table or carry one into another recording. Element identity
-  // separates namesakes; explicit identifiers/contact values may correlate.
+  // Only exact displayed value + kind correlates within a recording. These
+  // aliases do not assert that two fields describe the same person or entity.
   const recordId = typeof options?.recordId === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(options.recordId) ? options.recordId : token;
-  let record = globalThis.__mecchaManualPrivacyRecord;
-  if (!record || record.recordId !== recordId) {
-    record = { recordId, namespace: crypto.randomUUID?.() || token, salt: crypto.randomUUID?.() || token, allocations: new Map(), targets: new WeakMap(), nextTarget: 0, next: 0 };
-    globalThis.__mecchaManualPrivacyRecord = record;
-  }
+  let record;
+  let stopAliasPreparation = () => false;
   const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: false, reasonCodes: [], replacements: [] };
   const maxPrivacyOverlays = 64;
   // Keep candidate count and composed-tree evidence traversal bounded separately:
@@ -67,6 +64,27 @@ export function installSensitiveMasks(options = {}) {
   };
   try {
     if (typeof globalThis.chrome?.dom?.openOrClosedShadowRoot !== "function") throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
+    if (options.privateAliasState) {
+      const state = options.privateAliasState;
+      if (state.version !== 1 || state.recordId !== recordId || !/^[a-f0-9-]{36}$/.test(state.namespace)
+        || !/^[a-f0-9]{64}$/.test(state.secret) || !Array.isArray(state.allocations)
+        || state.allocations.length > 512 || state.next !== state.allocations.length
+        || state.allocations.some((entry, index) => !Array.isArray(entry) || entry.length !== 2
+          || !/^[a-f0-9]{64}$/.test(entry[0]) || entry[1] !== index + 1)
+        || new Set(state.allocations.map(([key]) => key)).size !== state.allocations.length) throw new Error("SCREENSHOT_ALIAS_STATE_INVALID");
+      record = { ...state, allocations: new Map(state.allocations) };
+    } else {
+      // Standalone installation keeps the same bounded state only in the
+      // isolated document. Production always supplies the trusted session state.
+      record = globalThis.__mecchaManualPrivacyRecord;
+      if (!record || record.recordId !== recordId) {
+        record = { version: 1, recordId, namespace: crypto.randomUUID(),
+          secret: Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+          allocations: new Map(), next: 0 };
+        globalThis.__mecchaManualPrivacyRecord = record;
+      }
+    }
+
     const shadowRootOf = (host) => host instanceof HTMLElement ? chrome.dom.openOrClosedShadowRoot(host) : host.shadowRoot;
     const selector = [
       "canvas",
@@ -138,7 +156,10 @@ export function installSensitiveMasks(options = {}) {
 
     const normalizeText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
     const semanticKind = (value) => {
-      const label = normalizeText(value).toLowerCase();
+      // A truncated label is unknown, never evidence that a value is public.
+      const raw = String(value ?? "");
+      if (raw.length > 4096) return "unknown";
+      const label = normalizeText(raw).toLowerCase();
       if (/password|passcode|token|secret|cc-|card|credit|cvv|cvc|pin|パスワード|秘密|カード|暗証|個人番号|マイナンバー|認証コード/.test(label)) return "secret";
       if (/メール|e-?mail|mail|電子.?メール/.test(label)) return "email";
       if (/電話|tel|phone|携帯|mobile/.test(label)) return "phone";
@@ -149,6 +170,81 @@ export function installSensitiveMasks(options = {}) {
       if (/顧客番号|会員番号|customer.?id|member.?id/.test(label)) return "customerId";
       if (/氏名|名前|担当者|姓名|(?:^|[\s_-])(?:given-|family-|full-)?name(?:$|[\s_-])/.test(label)) return "name";
       return null;
+    };
+    // Kept identical in recorder.js: both injected entry points must classify
+    // table context without imports. A slot/association budget is fail-closed.
+    const semanticTableKinds = (table, classify) => {
+      const rows = Array.from(table?.rows || []);
+      const kinds = new Map();
+      const entries = [];
+      const grid = [];
+      const groupEnds = new Map();
+      let slots = 0, associations = 0;
+      const exceed = () => { throw new Error("SCREENSHOT_BUDGET_EXCEEDED"); };
+      if (rows.length > 4096) exceed();
+      rows.forEach((row, index) => groupEnds.set(row.parentElement, index + 1));
+      for (const [rowIndex, row] of rows.entries()) {
+        const cells = Array.from(row.cells || []);
+        if (cells.length > 4096) exceed();
+        const headerRow = cells.length > 0 && cells.every((cell) => cell.tagName === "TH");
+        let column = 0;
+        for (const cell of cells) {
+          while (grid[rowIndex]?.[column]) { if (++column > 4096) exceed(); }
+          const width = Number(cell.colSpan || 1);
+          const height = Number(cell.rowSpan);
+          if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 0) exceed();
+          const endRow = Math.min(groupEnds.get(row.parentElement), height === 0 ? groupEnds.get(row.parentElement) : rowIndex + height);
+          const endColumn = column + width;
+          const scope = String(cell.getAttribute?.("scope") || "").toLowerCase();
+          if (scope && !["row", "rowgroup", "col", "colgroup"].includes(scope)) exceed();
+          const columnHeader = cell.tagName === "TH" && (scope === "col" || scope === "colgroup"
+            || (!scope && (row.parentElement?.tagName === "THEAD" || headerRow)));
+          const entry = { cell, row: rowIndex, endRow, column, endColumn, group: row.parentElement, scope, columnHeader };
+          for (let r = rowIndex; r < endRow; r += 1) {
+            grid[r] ||= [];
+            for (let c = column; c < endColumn; c += 1) {
+              if (++slots > 4096 || grid[r][c]) exceed();
+              grid[r][c] = entry;
+            }
+          }
+          entries.push(entry);
+          column = endColumn;
+        }
+      }
+      const headers = entries.filter((entry) => entry.cell.tagName === "TH");
+      const byId = new Map();
+      for (const header of headers) {
+        header.kind = classify(header.cell.textContent);
+        const id = header.cell.id;
+        if (id) byId.set(id, byId.has(id) ? null : header);
+      }
+      for (const entry of entries) {
+        if (entry.columnHeader) continue;
+        const matched = new Set();
+        const explicit = String(entry.cell.getAttribute?.("headers") || "");
+        if (explicit.length > 4096) exceed();
+        for (const id of explicit.split(/\s+/).filter(Boolean)) {
+          if (++associations > 65536) exceed();
+          const header = byId.get(id);
+          if (!header || header === entry) matched.add("unknown");
+          else if (header.kind) matched.add(header.kind);
+        }
+        for (const header of headers) {
+          if (++associations > 65536) exceed();
+          if (header === entry || !header.kind) continue;
+          const sameColumns = header.column < entry.endColumn && entry.column < header.endColumn;
+          const sameRows = header.row < entry.endRow && entry.row < header.endRow;
+          const applies = header.columnHeader
+            ? header.row < entry.row && sameColumns
+            : header.scope === "rowgroup" ? header.group === entry.group
+              : sameRows && header.endColumn <= entry.column;
+          if (applies) matched.add(header.kind);
+        }
+        // Conflicting hierarchical headers must not produce a guessed alias.
+        const kind = matched.has("secret") ? "secret" : matched.size > 1 ? "unknown" : [...matched][0] || null;
+        if (kind) kinds.set(entry.cell, kind);
+      }
+      return kinds;
     };
     const rectValues = (rect) => ({ left: Number(rect.left), top: Number(rect.top), width: Number(rect.width), height: Number(rect.height) });
     const usableRect = (rect) => rect && [rect.left, rect.top, rect.width, rect.height].every((value) => Number.isFinite(value)) && rect.width > 0 && rect.height > 0;
@@ -239,6 +335,13 @@ export function installSensitiveMasks(options = {}) {
       privacyCandidateRangeOverflow = false;
       const candidates = [];
       const pairedValues = new WeakSet();
+      const tableKinds = new Map();
+      const tableKind = (element) => {
+        const table = element.closest?.("table");
+        if (!table) return null;
+        if (!tableKinds.has(table)) tableKinds.set(table, semanticTableKinds(table, semanticKind));
+        return tableKinds.get(table).get(element) || null;
+      };
       const candidateKeys = new Set();
       const rangeCandidates = new Map();
       const seenRangeKinds = new Map();
@@ -607,7 +710,8 @@ export function installSensitiveMasks(options = {}) {
           const valueTag = String(valueElement.tagName || "").toUpperCase();
           const labelTag = String(labelElement?.tagName || "").toUpperCase();
           const isSemanticPair = (labelTag === "DT" && valueTag === "DD") || (labelTag === "TH" && valueTag === "TD");
-          const kind = isSemanticPair ? semanticKind(labelElement?.textContent) : null;
+          const kind = (["TD", "TH"].includes(valueTag) ? tableKind(valueElement) : null)
+            || (isSemanticPair ? semanticKind(labelElement?.textContent) : null);
           if (!kind || !isVisibleTextElement(valueElement) || valueElement.querySelector?.(fieldSelector)) continue;
           const text = normalizeText(valueElement.textContent);
           if (!text) continue;
@@ -638,38 +742,94 @@ export function installSensitiveMasks(options = {}) {
       }
       return `${text.length}:${hash >>> 0}`;
     };
+    const candidateValue = (candidate) => String(candidate.field ? fieldValue(candidate.target) : candidate.range?.toString?.() || candidate.target.textContent || "");
+    const prepareAliases = async (candidates) => {
+      const snapshots = candidates.map((candidate) => {
+        const value = candidateValue(candidate);
+        if (value.length > 4096) throw new Error("SCREENSHOT_BUDGET_EXCEEDED");
+        return { candidate, value };
+      });
+      if (!snapshots.length) return;
+      let invalidated = false;
+      const invalidate = () => { invalidated = true; };
+      // Async key preparation has the same conservative hidden-content lease
+      // as quota waiting: only content already AND still display:none is exempt.
+      const roots = collectPrivacyRootSnapshot();
+      const hiddenRoots = [];
+      let visited = 0;
+      for (const root of roots) {
+        for (const element of root.querySelectorAll?.("*") || []) {
+          if (++visited > 4096) break;
+          if (["HTML", "HEAD", "STYLE", "LINK", "SCRIPT"].includes(element.tagName)) continue;
+          if (hiddenRoots.some((hidden) => hidden.contains(element))) continue;
+          if (getComputedStyle(element).display === "none") hiddenRoots.push(element);
+        }
+        if (visited > 4096) break;
+      }
+      const stylingNode = (node) => {
+        const element = node?.nodeType === 3 ? node.parentElement : node;
+        return Boolean(element?.closest?.("style,link,script,head") || element?.matches?.("style,link,script") || element?.querySelector?.("style,link,script"));
+      };
+      const contentStayedHidden = (change) => change.type !== "attributes" && !stylingNode(change.target)
+        && ![...change.addedNodes || [], ...change.removedNodes || []].some(stylingNode)
+        && hiddenRoots.some((root) => root.isConnected && getComputedStyle(root).display === "none" && (root === change.target || root.contains(change.target)));
+      const inspect = (changes) => {
+        if (changes.some((change) => !isOwnedPrivacyOverlayNode(change.target) && !contentStayedHidden(change)
+          && !([...change.addedNodes || [], ...change.removedNodes || []].length
+            && [...change.addedNodes || [], ...change.removedNodes || []].every(isOwnedPrivacyOverlayNode)))) invalidate();
+      };
+      const preparationObservers = [];
+      for (const root of roots) {
+        const observer = new MutationObserver(inspect);
+        observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
+        preparationObservers.push(observer);
+        observers.push(observer);
+      }
+      const events = ["input", "change", "scroll", "resize", "pagehide"];
+      for (const name of events) globalThis.addEventListener(name, invalidate, true);
+      stopAliasPreparation = () => {
+        for (const observer of preparationObservers) { inspect(observer.takeRecords()); observer.disconnect(); }
+        for (const name of events) globalThis.removeEventListener(name, invalidate, true);
+        return invalidated;
+      };
+      const key = await crypto.subtle.importKey("raw", Uint8Array.from(record.secret.match(/../g), (byte) => parseInt(byte, 16)),
+        { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const keys = await Promise.all(snapshots.map(async ({ candidate, value }) => {
+        if (["secret", "unknown"].includes(candidate.kind)) return null;
+        const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify([candidate.kind, value])));
+        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      }));
+      // Async crypto must never leave a gap in the existing capture boundary.
+      // Property writes need this explicit comparison because they need not
+      // dispatch input events or produce DOM mutation records.
+      if (invalidated || snapshots.some(({ candidate, value }) => !isConnected(candidate.target) || candidateValue(candidate) !== value)) {
+        throw new Error("SCREENSHOT_MASK_INVALIDATED");
+      }
+      for (let index = 0; index < snapshots.length; index += 1) {
+        const digest = keys[index];
+        if (!digest) continue;
+        if (!record.allocations.has(digest)) {
+          if (record.allocations.size >= 512) throw new Error("SCREENSHOT_BUDGET_EXCEEDED");
+          record.allocations.set(digest, ++record.next);
+        }
+        snapshots[index].candidate.aliasOrdinal = record.allocations.get(digest);
+      }
+    };
     const replacementFor = (candidate) => {
       const kind = candidate.kind;
       if (kind === "secret" || kind === "unknown") return privacyDummies[kind];
-      // Salted fingerprints are only local allocation keys, never output
-      // suffixes. Only generated ordinal aliases survive into safe metadata.
-      // The map is bounded to 512 entries and replaced for a new recording;
-      // document navigation naturally destroys this isolated-world state.
-      const value = String(candidate.field ? fieldValue(candidate.target) : candidate.range?.toString?.() || candidate.target.textContent || "");
-      if (value.length > 4096) throw new Error("SCREENSHOT_BUDGET_EXCEEDED");
-      let identity = "";
-      if (["name", "company", "address", "birthday"].includes(kind)) {
-        if (!record.targets.has(candidate.target)) {
-          if (record.nextTarget >= 512) throw new Error("SCREENSHOT_BUDGET_EXCEEDED");
-          record.targets.set(candidate.target, ++record.nextTarget);
-        }
-        identity = String(record.targets.get(candidate.target));
-      }
-      const key = `${kind}:${textFingerprint(`${record.salt}:${identity}:${value}`)}`;
-      if (!record.allocations.has(key)) {
-        if (record.allocations.size >= 512) throw new Error("SCREENSHOT_BUDGET_EXCEEDED");
-        record.allocations.set(key, ++record.next);
-      }
-      const serial = String(record.allocations.get(key)).padStart(6, "0");
+      const ordinal = candidate.aliasOrdinal;
+      if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 512) throw new Error("SCREENSHOT_ALIAS_STATE_INVALID");
+      const serial = String(ordinal).padStart(6, "0");
       candidate.safeAliasId = `${record.namespace}:${kind}:${serial}`;
-      if (kind === "name") return `山田 花子${Number(serial)}`;
-      if (kind === "company") return `株式会社サンプル${Number(serial)}`;
+      if (kind === "name") return `山田 花子${ordinal}`;
+      if (kind === "company") return `株式会社サンプル${ordinal}`;
       if (kind === "address") return `サンプル県 例示市 テスト町 ${serial.slice(0, 2)}-${serial.slice(2, 4)}-${serial.slice(4)}`;
       if (kind === "email") return `sample${serial}@example.invalid`;
       if (kind === "phone") return `000-0${serial.slice(0, 3)}-${serial.slice(2)}`;
       if (kind === "customerId") return `C${serial}`;
       if (kind === "employeeId") return `EMP${serial}`;
-      if (kind === "birthday") return `2000-${String(Number(serial.slice(0, 2)) % 12 + 1).padStart(2, "0")}-${String(Number(serial.slice(2, 4)) % 28 + 1).padStart(2, "0")}`;
+      if (kind === "birthday") return `${2000 + Math.floor((ordinal - 1) / 336)}-${String(Math.floor((ordinal - 1) % 336 / 28) + 1).padStart(2, "0")}-${String((ordinal - 1) % 28 + 1).padStart(2, "0")}`;
       return privacyDummies[kind];
     };
     const overlayBackground = (element) => {
@@ -691,10 +851,12 @@ export function installSensitiveMasks(options = {}) {
       }
       return true;
     };
-    const addPrivacyOverlays = () => {
+    const addPrivacyOverlays = async () => {
       if (!document.body || typeof document.createElement !== "function") return 0;
       const overlayHost = document.documentElement || document.body;
-      for (const candidate of collectPrivacyCandidates()) {
+      const candidates = collectPrivacyCandidates();
+      await prepareAliases(candidates);
+      for (const candidate of candidates) {
         const overlay = document.createElement("span");
         const rect = candidate.rect;
         const computed = getComputedStyle(candidate.target);
@@ -896,7 +1058,7 @@ export function installSensitiveMasks(options = {}) {
     };
 
     scanRoot(document);
-    const privacyMaskedCount = addPrivacyOverlays();
+    const privacyMaskedCount = await addPrivacyOverlays();
     const privacyRootSnapshot = collectPrivacyRootSnapshot();
     const privacyRootSet = new Set(privacyRootSnapshot);
     const protectedTargets = new Set(privacyOverlays.map(({ target }) => target));
@@ -1557,6 +1719,10 @@ export function installSensitiveMasks(options = {}) {
       return Boolean(element.querySelector?.(fieldSelector));
     };
     const privacyMutationAffectsBoundary = (record) => {
+      const element = record.target?.nodeType === 3 ? record.target.parentElement : record.target;
+      // Row/column associations can change without touching an existing value.
+      // Keep transient header/scope/span/table changes inside the boundary too.
+      if (element?.closest?.("table") || element?.querySelector?.("table")) return true;
       if (record.type === "characterData") {
         return isProtectedMutationNode(record.target?.parentElement)
           || isSemanticMutationNode(record.target, [record.oldValue])
@@ -1628,13 +1794,17 @@ export function installSensitiveMasks(options = {}) {
     const flushPrivacyMutations = () => {
       for (const observer of privacyObservers) processPrivacyMutations(observer.takeRecords?.() || []);
     };
+    if (stopAliasPreparation()) throw new Error("SCREENSHOT_MASK_INVALIDATED");
+    const privateAliasAllocations = { namespace: record.namespace, next: record.next, allocations: [...record.allocations] };
     privacyReview.replacementCount = privacyMaskedCount;
     privacyReview.reasonCodes = [...reviewReasons];
     privacyReview.reviewRequired = privacyReview.reasonCodes.length > 0;
-    globalThis.__mecchaManualScreenshotMasks = { recordId, privacyReview, fieldRect, fieldValue, initialMaskCount: masks.length, token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates, get privacyCandidateOverflow() { return privacyCandidateOverflow; }, get privacyCandidateTraversalOverflow() { return privacyCandidateTraversalOverflow; }, get privacyCandidateRangeOverflow() { return privacyCandidateRangeOverflow; }, get privacyRootTraversalOverflow() { return privacyRootTraversalOverflow; } };
+    globalThis.__mecchaManualScreenshotMasks = { recordId, privateAliasAllocations, privacyReview, fieldRect, fieldValue, initialMaskCount: masks.length, token, masks, observers, backdropMasks, backdropSelector, backdropRule, privacyOverlays, privacyMutation, privacyRootSnapshot, collectPrivacyRootSnapshot, flushPrivacyMutations, document, privacyOverlayClass, collectPrivacyCandidates, get privacyCandidateOverflow() { return privacyCandidateOverflow; }, get privacyCandidateTraversalOverflow() { return privacyCandidateTraversalOverflow; }, get privacyCandidateRangeOverflow() { return privacyCandidateRangeOverflow; }, get privacyRootTraversalOverflow() { return privacyRootTraversalOverflow; } };
     return { applied: true, count: masks.length, privacyMaskedCount, privacyReview, token,
+      ...(options.privateAliasState ? { privateAliasAllocations } : {}),
       ...((privacyCandidateOverflow || privacyCandidateTraversalOverflow || privacyCandidateRangeOverflow || privacyRootTraversalOverflow) ? { reason: "SCREENSHOT_BUDGET_EXCEEDED" } : {}) };
   } catch (error) {
+    stopAliasPreparation();
     for (const observer of observers) observer.disconnect();
     for (const backdropMask of backdropMasks) backdropMask.style.remove();
     for (const { overlay } of privacyOverlays) overlay.remove?.();
