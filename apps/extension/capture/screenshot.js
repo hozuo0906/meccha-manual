@@ -780,7 +780,12 @@ export function installSensitiveMasks() {
     const normalizeMutationNumericFragment = (value) => String(value ?? "")
       .replace(/^[\s,、。.!！?？:：;；"'「『（【〈《]+/u, "")
       .replace(/[\s,、。.!！?？:：;；"'」』）】〉》]+$/u, "");
-    const mutationNumericFragment = (value) => /^(?:\d{1,16}|[-ー−‐– ]\d{1,16}|\d{1,16}(?:[-ー−‐– ]\d{0,16}){1,3})$/.test(normalizeMutationNumericFragment(value));
+    const numericMutationCorePattern = /(?:^|[^\d])[-\u30fc\u2212\u2010\u2013 ]?\d{1,16}(?:[-\u30fc\u2212\u2010\u2013 ]\d{0,16}){0,3}(?!\d)/;
+    const mutationNumericFragment = (value) => {
+      const text = String(value ?? "");
+      if (/^(?:\d{1,16}|[-ー−‐– ]\d{1,16}|\d{1,16}(?:[-ー−‐– ]\d{0,16}){1,3})$/.test(normalizeMutationNumericFragment(text))) return true;
+      return numericMutationCorePattern.test(text);
+    };
     const mutationStreamKey = (node) => {
       let element = node?.nodeType === 3 ? node.parentElement : node;
       if (!element) return node;
