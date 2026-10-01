@@ -512,7 +512,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - `aria-hidden`は視覚的な非表示とは扱わず、表示中の候補を保護する。祖先`opacity: 0`など実際に描画されない候補は対象外とする。
   - overlayは背景画像、`background-clip: text`、legacy `clip`、角丸、影を無効にした不透明な矩形として描画し、computed styleと対象範囲を検証する。clip解除後のpixelをcapture前後の両境界で確認できない場合は画像を保存しない。
   - 同一テキスト範囲が電話番号と郵便番号の形式に一致した場合は候補を重ねず、郵便番号として1回だけ置換する。
-  - inline要素で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre／pre-line／pre-wrapの改行は保持して連結しない、PIIの不確かな境界または継続が予算を超えた場合はfail closedとする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とし、単一text nodeの既存検出は維持する。
+  - inline要素で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre-lineでは空白・タブをcollapseするが改行は保持し、pre／pre-wrapの改行は保持して連結しない、PIIの不確かな境界または継続が予算を超えた場合はfail closedとする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とし、単一text nodeの既存検出は維持する。
 - Reason:
   - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。
 - Boundary:
