@@ -8,6 +8,7 @@ import test from "node:test";
 import { chromium } from "@playwright/test";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
 
 const waitForExtensionValue = async (read, predicate, message) => {
   const deadline = Date.now() + 15_000;
@@ -114,7 +115,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       assert.notEqual(imageState[0].src, imageState[1].src, "each operation should retain its own screenshot");
     };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
     const sendNativeCommand = (method, params = {}) => new Promise((resolve, reject) => {
@@ -145,6 +146,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       }
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
+    assert.equal(await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true), true, "sidepanel start control should be ready before native click");
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
@@ -330,8 +332,18 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
         message: JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true } })
       }).catch(reject);
     });
+    const waitForNativeValue = async (expression, predicate) => {
+      const deadline = Date.now() + 15_000;
+      let value;
+      do {
+        value = await evaluateNative(expression);
+        if (predicate(value)) return value;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      throw new Error(`timed out waiting for native navigation sidepanel value: ${JSON.stringify(value)}`);
+    };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
     const waitForRecorder = async (label) => {
@@ -360,6 +372,7 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "navigation fixture tab should be active");
+    await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true);
     await clickNative("#start");
     await waitForRecorder("initial page");
 
@@ -472,12 +485,13 @@ test("recording a focused input keeps typing available while its screenshot is c
       throw new Error(`timed out waiting for native input sidepanel value: ${JSON.stringify(value)}`);
     };
     const clickNative = async (selector) => {
-      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden) return false; element.click(); return true; })()`);
+      const clicked = await evaluateNative(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || element.hidden || element.disabled) return false; element.click(); return true; })()`);
       assert.equal(clicked, true, `native sidepanel control ${selector} should be clickable`);
     };
     await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "input fixture tab should be active");
+    await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true);
     await clickNative("#start");
     assert.equal(await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true), true);
     await target.locator("#entry").click();
