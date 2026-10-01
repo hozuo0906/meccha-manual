@@ -229,6 +229,17 @@ export function installSensitiveMasks() {
         return display === "inline" || display === "inline-block" || display === "inline-flex"
           || display === "inline-grid" || display === "contents" || display === "ruby" || display === "ruby-text";
       };
+      const visibleInlineBoundary = (element) => {
+        if (!element || !inlineDisplay(element)) return false;
+        let current = element;
+        while (current) {
+          if (isOwnedPrivacyOverlayNode(current) || current.matches?.("script,style,noscript,template,br")) return false;
+          const computed = getComputedStyle(current);
+          if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
+          current = current.parentElement || current.getRootNode?.()?.host || null;
+        }
+        return usableRect(element.getBoundingClientRect()) || String(element.textContent ?? "") === "";
+      };
       const nextNodeInRoot = (node, root) => {
         if (node?.firstChild) return node.firstChild;
         let current = node;
@@ -244,19 +255,30 @@ export function installSensitiveMasks() {
         const nextParent = next.parentElement;
         if (!previousParent || !nextParent || !isVisibleTextElement(previousParent) || !isVisibleTextElement(nextParent)) return false;
         let current = previous;
+        let inspected = 0;
         while (current && current !== root) {
+          inspected += 1;
+          if (inspected > maxPrivacyAdjacentTextNodes) {
+            privacyCandidateRangeOverflow = true;
+            return false;
+          }
           if (current.nextSibling) {
-            if (current.nodeType === 1 && (!isVisibleTextElement(current) || !inlineDisplay(current))) return false;
+            if (current.nodeType === 1 && !visibleInlineBoundary(current)) return false;
             current = current.nextSibling;
             break;
           }
-          if (current.nodeType === 1 && (!isVisibleTextElement(current) || !inlineDisplay(current))) return false;
+          if (current.nodeType === 1 && !visibleInlineBoundary(current)) return false;
           current = current.parentNode;
         }
         while (current && current !== next) {
+          inspected += 1;
+          if (inspected > maxPrivacyAdjacentTextNodes) {
+            privacyCandidateRangeOverflow = true;
+            return false;
+          }
           if (current.nodeType === 1) {
             if (current.matches?.("script,style,noscript,template,br")) return false;
-            if (!isVisibleTextElement(current) || !inlineDisplay(current)) return false;
+            if (!visibleInlineBoundary(current)) return false;
           }
           current = nextNodeInRoot(current, root);
         }
@@ -332,7 +354,8 @@ export function installSensitiveMasks() {
           if (!element || !element.matches?.("script,style,noscript,template,br")) {
             if (isVisibleTextElement(element)) return inlineDisplay(element);
             const computed = element && getComputedStyle(element);
-            return Boolean(computed && (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0));
+            if (computed && (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0)) return true;
+            return visibleInlineBoundary(element);
           }
           return false;
         };
