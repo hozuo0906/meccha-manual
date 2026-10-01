@@ -182,9 +182,10 @@ export function installSensitiveMasks() {
       const pairedValues = new WeakSet();
       const candidateKeys = new Set();
       const rangeCandidates = new Map();
-      const seenRangeKeys = new Set();
+      const seenRangeKinds = new Map();
       let candidateOverflow = false;
       let textRangeCount = 0;
+      const candidatePriority = (kind) => kind === "address" ? 3 : kind === "phone" ? 2 : 1;
       const traversal = { inspected: 0, exceeded: false };
       const textNodeIds = new WeakMap();
       let nextTextNodeId = 1;
@@ -198,8 +199,7 @@ export function installSensitiveMasks() {
           const existingIndex = rangeCandidates.get(candidate.rangeKey);
           if (existingIndex !== undefined) {
             const existing = candidates[existingIndex];
-            const priority = (kind) => kind === "address" ? 3 : kind === "phone" ? 2 : 1;
-            if (priority(candidate.kind) > priority(existing?.kind)) candidates[existingIndex] = candidate;
+            if (candidatePriority(candidate.kind) > candidatePriority(existing?.kind)) candidates[existingIndex] = candidate;
             return;
           }
           rangeCandidates.set(candidate.rangeKey, candidates.length);
@@ -271,7 +271,7 @@ export function installSensitiveMasks() {
           return null;
         }
       };
-      const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]?\d{0,4}|〒?\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
+      const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
       const containsCompletePii = (value) => completePiiPatterns.some(({ pattern }) => pattern.test(String(value ?? "")));
       const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
       const isPairedTextNode = (node, pairedValues) => {
@@ -345,12 +345,13 @@ export function installSensitiveMasks() {
                 continue;
               }
               const rangeKey = `text:${textNodeId(startEntry.node)}:${matchStart - startEntry.start}:${textNodeId(endEntry.node)}:${matchEnd - endEntry.start}`;
-              if (seenRangeKeys.has(rangeKey)) continue;
-              seenRangeKeys.add(rangeKey);
+              const previousKind = seenRangeKinds.get(rangeKey);
+              if (previousKind !== undefined && candidatePriority(kind) <= candidatePriority(previousKind)) continue;
               const range = createTextRange(record.root, startEntry.node, matchStart - startEntry.start, endEntry.node, matchEnd - endEntry.start);
               if (!range) continue;
               const rect = rangeRect(range);
               if (rect) {
+                seenRangeKinds.set(rangeKey, kind);
                 addCandidate({ kind, target: startEntry.node.parentElement, rect, range, rangeKey, key: rangeKey, textNodes: entries.filter((entry) => entry.end > matchStart && entry.start < matchEnd).map((entry) => entry.node) });
               }
             }
