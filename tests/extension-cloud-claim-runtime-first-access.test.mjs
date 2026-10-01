@@ -606,10 +606,18 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     assert.equal(typeof pageReady.pageReadyAt, "string", "the restored fragment page must notify the extension after its listener is installed");
     await page.waitForFunction(() => location.hash === "" && document.readyState !== "loading");
     const documentLoadsBeforeStaleEvent = await page.evaluate(() => Number(sessionStorage.getItem("__mecchaManualDocumentLoads") || 0));
-    await page.evaluate((newURL) => {
-      dispatchEvent(new HashChangeEvent("hashchange", { oldURL: location.href, newURL }));
-    }, restoredUrl);
-    await page.waitForFunction((expectedLoads) => Number(sessionStorage.getItem("__mecchaManualDocumentLoads") || 0) === expectedLoads, documentLoadsBeforeStaleEvent);
+    let staleEventProbeError = null;
+    try {
+      await page.evaluate((newURL) => {
+        dispatchEvent(new HashChangeEvent("hashchange", { oldURL: location.href, newURL }));
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, restoredUrl);
+    } catch (error) {
+      staleEventProbeError = String(error?.message || error);
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    }
+    assert.equal(staleEventProbeError, null, "a stale hashchange must not navigate the restored onboarding document");
+    assert.equal(await page.evaluate(() => Number(sessionStorage.getItem("__mecchaManualDocumentLoads") || 0)), documentLoadsBeforeStaleEvent, "a stale hashchange must not reload the document");
     const hashChanges = await page.evaluate(() => { try { return JSON.parse(sessionStorage.getItem("__mecchaManualHashChanges") || "[]"); } catch { return []; } });
     assert.equal(hashChanges.some(({ eventHashPresent, currentHashPresent, matches }) => eventHashPresent && !currentHashPresent && !matches), true, "the fixture must observe the stale fragment event after hash removal");
     await page.waitForSelector("#bootstrap", { state: "visible" });
