@@ -463,6 +463,77 @@ test("a pending image write preserves concurrent title, step text, order, add, a
   }
 });
 
+test("image replacement invalidates an open editor before its stale save can reuse the screenshot id", { timeout: 25_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  const draftId = "stale-image-editor-replacement";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1024, height: 768 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.goto(`${baseUrl}/seed.html`);
+    const { oldDataUrl, replacementDataUrl } = await page.evaluate(() => {
+      const makeImage = (color) => {
+        const canvas = document.createElement("canvas"); canvas.width = 4; canvas.height = 3;
+        const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/png");
+      };
+      return { oldDataUrl: makeImage("#173d46"), replacementDataUrl: makeImage("#087f7a") };
+    });
+    await page.evaluate(async ({ draftId: currentDraftId, oldDataUrl }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id: currentDraftId,
+        title: "stale editor replacement",
+        description: "",
+        steps: [{ id: "stale-step", order: 1, instruction: "画像差し替え", screenshotId: "shared-id" }],
+        screenshots: [{
+          id: "shared-id",
+          dataUrl: oldDataUrl,
+          annotations: [{ id: "old-annotation", type: "text", x: .1, y: .1, width: .3, height: .1, color: "#087f7a", strokeWidth: 3, text: "旧画像の注釈", fontSize: 24 }],
+          masks: [{ id: "old-mask", x: .6, y: .2, width: .2, height: .2 }]
+        }]
+      });
+    }, { draftId, oldDataUrl });
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await openImageEditor(page, "stale-step");
+    await page.locator("[data-editor-save]:not([disabled])").waitFor();
+    await page.evaluate(() => {
+      const originalCreateImageBitmap = globalThis.createImageBitmap;
+      globalThis.__uploadBitmapStarted = false;
+      globalThis.__releaseUploadBitmap = null;
+      globalThis.createImageBitmap = async (...args) => {
+        const bitmap = await originalCreateImageBitmap(...args);
+        globalThis.__uploadBitmapStarted = true;
+        await new Promise((resolve) => { globalThis.__releaseUploadBitmap = resolve; });
+        return bitmap;
+      };
+    });
+    const input = page.locator("#step-stale-step .image-upload-panel input[type=file]");
+    await input.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
+    await page.waitForFunction(() => globalThis.__uploadBitmapStarted && typeof globalThis.__releaseUploadBitmap === "function");
+    await page.evaluate(() => globalThis.__releaseUploadBitmap());
+    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+
+    const replaced = await readScreenshot(page, draftId, "shared-id");
+    assert.notEqual(replaced.dataUrl, oldDataUrl, "置換後は旧bitmapのdata URLを保持しない");
+    assert.deepEqual(replaced.annotations, [], "置換後の新bitmapに旧dialogの注釈を引き継がない");
+    assert.deepEqual(replaced.masks, [], "置換後の新bitmapに旧dialogのマスクを引き継がない");
+    if (await page.locator("#imageEditorDialog").isVisible()) await page.locator("[data-editor-save]").click();
+    await page.waitForTimeout(150);
+    const afterStaleSave = await readScreenshot(page, draftId, "shared-id");
+    assert.deepEqual(afterStaleSave.annotations, [], "置換完了後の旧dialog保存が新bitmapへ注釈を反映しない");
+    assert.deepEqual(afterStaleSave.masks, [], "置換完了後の旧dialog保存が新bitmapへマスクを反映しない");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});
+
 test("image editor cancels stale decode generation", { timeout: 20_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
