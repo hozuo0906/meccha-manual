@@ -1382,12 +1382,10 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
         }
       };
     });
-    await page.goto(`${baseUrl}/seed.html`);
-    await page.evaluate(async () => {
-      const { draftStore } = await import("/storage/draft-store.js");
-      await draftStore.put({ id: "timeout-output-gate-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
-    });
-    await page.goto(`${baseUrl}/editor/editor.html#timeout-output-gate-fixture`);
+    await seedImageEditorDraft(page, baseUrl, "timeout-output-gate-fixture", 20);
+    await page.locator("#steps button").nth(16).click();
+    await page.locator(".instruction-label textarea").fill("17番の編集を認証中断後も保持します");
+    const retainedImages = await page.evaluate(async () => { const { draftStore } = await import("/storage/draft-store.js"); return (await draftStore.get("timeout-output-gate-fixture")).screenshots; });
     await page.locator("#save").click();
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
@@ -1416,10 +1414,18 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
-    await page.waitForFunction(() => /保存の準備に進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /ログインしてクラウドに保存/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
     await captureEditorEvidence(page, "auth-closed-tab-recovery", { operation: "synthetic-closed-registration-tab", freshHandoffAvailable: !(await page.locator("#startRegistration").isDisabled()), status: await page.locator("#gateStatus").textContent() });
+    await page.locator("#cancelOutput").click();
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
+    await page.reload();
+    assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+    assert.equal(await page.locator(".instruction-label textarea").inputValue(), "17番の編集を認証中断後も保持します");
+    const restored = await page.evaluate(async () => { const { draftStore } = await import("/storage/draft-store.js"); return draftStore.get("timeout-output-gate-fixture"); });
+    assert.equal(restored.steps.length, 20); assert.deepEqual(restored.screenshots, retainedImages);
+    await captureEditorEvidence(page, "auth-step17-restored", { operation: "cancel-after-closed-registration-tab-and-editor-reload", steps: restored.steps.length, selectedStep: restored.selectedStepId, imagesUnchanged: true });
   } finally {
     await context?.close();
     server.closeAllConnections?.();
