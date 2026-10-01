@@ -366,6 +366,14 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
       response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p>${nodes}<span>@example.com</span></p>`);
       return;
     }
+    if (path === "/english-richtext") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>Help</span><span>${" ordinary help text without private data.".repeat(80)}</span></p>`);
+      return;
+    }
+    if (path === "/hidden-visible-continuation") {
+      response.end("<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>alice</span><span hidden>ignored</span><span>@example.com</span></p>");
+      return;
+    }
     response.end("<!doctype html><p>unknown</p>");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -429,6 +437,18 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
     const tokenBudget = await inject(installSensitiveMasks);
     assert.equal(tokenBudget.privacyMaskedCount, 0);
     assert.equal(await inject(verifySensitiveMasks, [tokenBudget.token]), false, "an email token continuing after the node budget fails closed");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/english-richtext`);
+    const englishRichText = await inject(installSensitiveMasks);
+    assert.equal(englishRichText.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [englishRichText.token]), true, "PII-free English rich text remains recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/hidden-visible-continuation`);
+    const hiddenVisibleContinuation = await inject(installSensitiveMasks);
+    assert.equal(hiddenVisibleContinuation.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [hiddenVisibleContinuation.token]), false, "visible PII split by hidden text fails closed");
     await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
