@@ -167,6 +167,12 @@ export function installSensitiveMasks() {
       { kind: "phone", pattern: /(?:^|[^\d])((?:0\d{1,4})[-ー−‐– ]?(?:\d{1,4})[-ー−‐– ]?\d{3,4})(?!\d)/g },
       { kind: "address", pattern: /(?:^|[^\d])(〒?\d{3}[-ー−‐– ]?\d{4})(?!\d)/g }
     ];
+    // Boundary checks must not mutate the global expressions used by the
+    // candidate collector's exec loops.
+    const completePiiPatterns = textPatterns.map(({ kind, pattern }) => ({
+      kind,
+      pattern: new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""))
+    }));
     let privacyCandidateOverflow = false;
     let privacyCandidateTraversalOverflow = false;
     let privacyCandidateRangeOverflow = false;
@@ -266,10 +272,7 @@ export function installSensitiveMasks() {
         }
       };
       const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]?\d{0,4}|〒?\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
-      const containsCompletePii = (value) => textPatterns.some(({ pattern }) => {
-        pattern.lastIndex = 0;
-        return pattern.test(String(value ?? ""));
-      });
+      const containsCompletePii = (value) => completePiiPatterns.some(({ pattern }) => pattern.test(String(value ?? "")));
       const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
       const isPairedTextNode = (node, pairedValues) => {
         let current = node?.parentElement;
@@ -287,7 +290,6 @@ export function installSensitiveMasks() {
           let characterCount = 0;
           for (let index = start; index < textNodes.length && entries.length < maxPrivacyAdjacentTextNodes; index += 1) {
             const node = textNodes[index];
-            if (entries.length && containsCompletePii(entries.map((entry) => entry.value).join(""))) break;
             if (!node.parentElement || isPairedTextNode(node, pairedValues)) {
               if (entries.length && uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
