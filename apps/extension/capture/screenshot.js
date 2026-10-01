@@ -853,22 +853,22 @@ export function installSensitiveMasks() {
       const root = mutationStreamKey(target);
       if (!root || root.nodeType !== 1) return false;
       const textNodes = [];
-      const state = { nodes: 0, characters: 0, overflow: false };
+      const state = { nodes: 0, characters: 0, visited: 0, overflow: false };
       const collectTextNodes = (node) => {
         if (!node || state.overflow) return;
-        state.nodes += 1;
-        if (state.nodes > maxPrivacyAdjacentTextNodes) {
+        state.visited += 1;
+        if (state.visited > maxPrivacyAdjacentTextNodes * 4) {
           state.overflow = true;
           return;
         }
         if (node.nodeType === 3) {
           const value = String(node.nodeValue ?? "");
-          state.characters += value.length;
-          if (state.characters > maxPrivacyAdjacentTextCharacters) {
-            state.overflow = true;
-            return;
-          }
           textNodes.push(node);
+          if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
+            state.nodes += 1;
+            state.characters += value.length;
+            if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
+          }
           return;
         }
         if (node.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return;
@@ -878,16 +878,75 @@ export function installSensitiveMasks() {
         }
         for (const child of node.childNodes || []) collectTextNodes(child);
       };
-      collectTextNodes(root);
+      const previousTextNode = (node) => {
+        let current = node;
+        while (current && current !== root) {
+          state.visited += 1;
+          if (state.visited > maxPrivacyAdjacentTextNodes * 4) {
+            state.overflow = true;
+            return null;
+          }
+          if (current.previousSibling) {
+            const previous = mutationTextNode(current.previousSibling, true);
+            if (previous) return previous;
+          }
+          current = current.parentNode;
+        }
+        return null;
+      };
+      const nextTextNode = (node) => {
+        let current = node;
+        while (current && current !== root) {
+          state.visited += 1;
+          if (state.visited > maxPrivacyAdjacentTextNodes * 4) {
+            state.overflow = true;
+            return null;
+          }
+          if (current.nextSibling) {
+            const next = mutationTextNode(current.nextSibling, false);
+            if (next) return next;
+          }
+          current = current.parentNode;
+        }
+        return null;
+      };
+      if (target?.nodeType === 3) {
+        const before = [];
+        let current = previousTextNode(target);
+        while (current && before.length < maxPrivacyAdjacentTextNodes) {
+          before.push(current);
+          current = previousTextNode(current);
+        }
+        textNodes.push(...before.reverse(), target);
+        current = nextTextNode(target);
+        while (current && textNodes.length < maxPrivacyAdjacentTextNodes) {
+          textNodes.push(current);
+          current = nextTextNode(current);
+        }
+        for (const node of textNodes) {
+          const value = String(node.nodeValue ?? "");
+          if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
+            state.nodes += 1;
+            state.characters += value.length;
+            if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
+          }
+        }
+      } else {
+        collectTextNodes(root);
+      }
       if (state.overflow) return true;
       let previous = null;
+      let joined = "";
       for (const node of textNodes) {
         const value = String(node.nodeValue ?? "");
         if (!mutationNumericFragment(value)) {
           previous = null;
+          joined = "";
           continue;
         }
-        if (previous && mutationNodesAdjacent(previous.node, node) && containsPiiText(`${previous.value}${value}`)) return true;
+        if (!previous || !mutationNodesAdjacent(previous.node, node)) joined = value;
+        else joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+        if (containsPiiText(joined)) return true;
         previous = { node, value };
       }
       return false;
