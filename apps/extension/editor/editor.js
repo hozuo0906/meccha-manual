@@ -331,7 +331,7 @@ async function normalizeUploadedImage(file) {
   }
 }
 
-function imageUploadError(error) {
+function imageUploadError(error, replacing = false) {
   if (error?.message === "IMAGE_TYPE_UNSUPPORTED") return "PNG、JPEG、WebPの画像を選んでください。";
   if (error?.message === "IMAGE_INPUT_TOO_LARGE") return "画像が10MBを超えています。10MB以下の画像を選んでください。";
   if (error?.message === "IMAGE_OUTPUT_TOO_LARGE") return "画像を変換した結果、10MBを超えました。解像度を下げるか、別の画像を選んでください。";
@@ -339,7 +339,7 @@ function imageUploadError(error) {
   if (error?.message === "IMAGE_TOTAL_TOO_LARGE") return "画像の合計サイズが大きすぎます。画像を減らすか、小さい画像を選んでください。";
   if (error?.message === "IMAGE_COUNT_LIMIT") return "画像は100件まで追加できます。";
   if (error?.message === "IMAGE_DIMENSIONS_INVALID") return "画像の大きさを確認できませんでした。別の画像を選んでください。";
-  return "画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。";
+  return replacing ? "画像を差し替えられませんでした。元の内容は変更されていません。もう一度お試しください。" : "画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。";
 }
 
 async function drawPreview(canvas, screenshot) {
@@ -371,7 +371,9 @@ function renderScreenshot(step) {
     edit.addEventListener("click", async () => {
       activeImageEditor?.dispose();
       const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
-      activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const currentScreenshot = screenshotFor(step); if (!currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false; const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id); if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE"); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === editorBitmap.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(editorBitmap.id)}"]`); } });
+      const editor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const currentScreenshot = screenshotFor(step); if (!currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false; const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id); if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE"); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === editorBitmap.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(editorBitmap.id)}"]`); } });
+      editor.screenshotId = editorBitmap.id;
+      activeImageEditor = editor;
       await activeImageEditor.open();
     });
     actionRow.append(edit);
@@ -390,6 +392,7 @@ function renderScreenshot(step) {
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0]; if (!file) return;
     uploadButton.disabled = true; uploadMessage.hidden = false; uploadMessage.dataset.state = "pending"; uploadMessage.textContent = "画像を確認して保存しています…";
+    let focusTarget = null;
     try {
       const normalized = await normalizeUploadedImage(file);
       const result = await persistCandidate(() => {
@@ -404,11 +407,18 @@ function renderScreenshot(step) {
         return candidate;
       }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
       if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
-      activeImageEditor?.dispose(); activeImageEditor = null;
-      fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success"; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
+      const shouldRestoreFocus = document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
+      fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success";
+      const currentStep = draft.steps.find((item) => item.id === step.id) || step;
+      const replacedBitmap = Boolean(screenshot && currentStep.screenshotId === screenshot.id);
+      if (replacedBitmap && activeImageEditor?.screenshotId === screenshot.id) { activeImageEditor.dispose(); activeImageEditor = null; }
+      renderStepArticle(currentStep);
+      if (shouldRestoreFocus && currentStep.screenshotId) focusTarget = detail.querySelector(`[data-step-id="${CSS.escape(currentStep.id)}"] [data-editor-trigger="${CSS.escape(currentStep.screenshotId)}"]`);
     } catch (error) {
-      uploadMessage.textContent = imageUploadError(error); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
-    } finally { fileInput.value = ""; uploadButton.disabled = false; }
+      const shouldRestoreFocus = document.activeElement === document.body || document.activeElement === fileInput || document.activeElement === uploadButton;
+      uploadMessage.textContent = imageUploadError(error, Boolean(screenshot)); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
+      if (shouldRestoreFocus) focusTarget = uploadButton;
+    } finally { fileInput.value = ""; uploadButton.disabled = false; focusTarget?.focus?.({ preventScroll: true }); }
   });
   uploadPanel.append(uploadTitle, uploadHint, uploadButton, fileInput, uploadMessage); area.append(uploadPanel);
   return area;
