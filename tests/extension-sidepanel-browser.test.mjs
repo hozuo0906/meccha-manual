@@ -387,10 +387,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     assert.ok(editorPage, "successful finish should open the saved draft editor");
     await editorPage.waitForSelector("#steps li");
     const instructions = await editorPage.locator("#steps li button").allTextContents();
-    assert.ok(instructions.some((instruction) => instruction.includes("リンクを操作する")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】クリック")), "click before normal navigation should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
-    assert.ok(instructions.some((instruction) => instruction.includes("ボタンを操作する")), "form submit click should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】クリック")), "form submit click should be retained");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
