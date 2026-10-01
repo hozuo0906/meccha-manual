@@ -370,7 +370,8 @@ function renderScreenshot(step) {
     const edit = document.createElement("button"); edit.type = "button"; edit.className = "image-edit-button"; edit.textContent = "画像を編集"; edit.setAttribute("aria-label", "画像を編集"); edit.dataset.editorTrigger = screenshot.id;
     edit.addEventListener("click", async () => {
       activeImageEditor?.dispose();
-      activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === screenshot.id); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === screenshot.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(screenshot.id)}"]`); } });
+      const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
+      activeImageEditor = createImageEditor({ dialog: document.querySelector("#imageEditorDialog"), canvas: document.querySelector("#imageEditorCanvas"), screenshot, onSave: async (next) => { const currentScreenshot = screenshotFor(step); if (!currentScreenshot || currentScreenshot.id !== editorBitmap.id || currentScreenshot.dataUrl !== editorBitmap.dataUrl) return false; const result = await persistCandidate(() => { const candidate = structuredClone(draft); const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id); if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE"); candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks; candidate.updatedAt = new Date().toISOString(); return candidate; }, "画像を更新して、この端末に保存しました。"); if (!result.ok) return false; Object.assign(draft, result.candidate); draft.steps.filter((candidateStep) => candidateStep.screenshotId === editorBitmap.id).forEach(renderStepArticle); return detail.querySelector(`[data-step-id="${CSS.escape(step.id)}"] [data-editor-trigger="${CSS.escape(editorBitmap.id)}"]`); } });
       await activeImageEditor.open();
     });
     actionRow.append(edit);
@@ -403,6 +404,7 @@ function renderScreenshot(step) {
         return candidate;
       }, screenshot ? "画像を差し替えて、この端末に保存しました。" : "画像を追加して、この端末に保存しました。");
       if (!result.ok) throw new Error("IMAGE_PERSIST_FAILED");
+      activeImageEditor?.dispose(); activeImageEditor = null;
       fileInput.value = ""; uploadMessage.hidden = true; uploadMessage.dataset.state = "success"; renderStepArticle(draft.steps.find((item) => item.id === step.id) || step);
     } catch (error) {
       uploadMessage.textContent = imageUploadError(error); uploadMessage.hidden = false; uploadMessage.dataset.state = "error";
