@@ -707,10 +707,10 @@ test("unrelated dashboard mutations remain valid but transient PII is rejected",
   }
 });
 
-test("split transient PII is rejected after its target and child nodes are removed", async () => {
+test("split transient PII is rejected after connected child nodes are removed", async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    response.end("<!doctype html><main id='dashboard'><span>稼働中</span></main>");
+    response.end("<!doctype html><main id='dashboard'><span>稼働中</span><p id='transient'></p></main>");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
@@ -727,16 +727,15 @@ test("split transient PII is rejected after its target and child nodes are remov
     assert.equal(mask.applied, true);
     assert.equal(mask.privacyMaskedCount, 0);
     await page.evaluate(() => {
-      const transient = document.createElement("p");
+      const transient = document.getElementById("transient");
       const mailbox = document.createElement("span");
       mailbox.textContent = "alice@";
       const domain = document.createElement("span");
       domain.textContent = "example.com";
-      transient.append(mailbox, domain);
-      document.body.append(transient);
+      transient.append(mailbox);
+      transient.append(domain);
       mailbox.remove();
       domain.remove();
-      transient.remove();
     });
     await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "removed split PII must fail closed");
