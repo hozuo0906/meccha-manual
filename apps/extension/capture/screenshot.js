@@ -76,6 +76,8 @@ export function installSensitiveMasks() {
       seenCurrentCharacterValues: new WeakMap(),
       inspectedNodes: 0,
       inspectedCharacters: 0,
+      childListNodes: 0,
+      childListCharacters: 0,
       overflow: false
     };
     const privacyMutation = { detected: false, mutationEvidence };
@@ -777,7 +779,78 @@ export function installSensitiveMasks() {
     const mutationBoundaryMarker = (value) => mutationPartialPattern(value)
       || /[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
     const mutationNumericFragment = (value) => /^(?:\d{1,4}|[-ー−‐– ]\d{1,4}|\d{1,4}(?:[-ー−‐– ]\d{0,4}){1,3})$/.test(String(value ?? ""));
-    const rememberMutationFragment = (streams, key, value) => {
+    const mutationStreamKey = (node) => {
+      let element = node?.nodeType === 3 ? node.parentElement : node;
+      if (!element) return node;
+      const isBlock = (candidate) => ["block", "flow-root", "list-item", "table", "table-cell", "flex", "grid"].includes(String(getComputedStyle(candidate).display || "").toLowerCase());
+      if (isBlock(element)) return element;
+      while (element.parentElement) {
+        const parent = element.parentElement;
+        if (isBlock(parent)) return parent;
+        element = parent;
+      }
+      return element;
+    };
+    const mutationTextNode = (node, last = false) => {
+      if (node?.nodeType === 3) return node;
+      if (node?.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return null;
+      const children = [...node.childNodes || []];
+      const ordered = last ? children.reverse() : children;
+      let inspected = 0;
+      for (const child of ordered) {
+        inspected += 1;
+        if (inspected > maxPrivacyAdjacentTextNodes) return null;
+        const result = mutationTextNode(child, last);
+        if (result) return result;
+      }
+      return null;
+    };
+    const mutationNodesAdjacent = (previousNode, nextNode) => {
+      const previous = mutationTextNode(previousNode, true);
+      const next = mutationTextNode(nextNode, false);
+      if (!previous || !next) return false;
+      if (previous === next) return false;
+      if (previous.getRootNode?.() !== next.getRootNode?.()) return false;
+      const visibleInline = (element) => {
+        if (!element || element.matches?.("script,style,noscript,template,br,[hidden]")) return false;
+        const computed = getComputedStyle(element);
+        if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
+        return ["inline", "inline-block", "inline-flex", "inline-grid", "contents", "ruby", "ruby-text"].includes(String(computed.display || "").toLowerCase());
+      };
+      let current = previous;
+      let inspected = 0;
+      const root = previous.getRootNode?.();
+      const nextMutationNode = (node) => {
+        if (node?.firstChild) return node.firstChild;
+        let candidate = node;
+        while (candidate && candidate !== root) {
+          if (candidate.nextSibling) return candidate.nextSibling;
+          candidate = candidate.parentNode;
+        }
+        return null;
+      };
+      while (current && current !== root) {
+        inspected += 1;
+        if (inspected > maxPrivacyAdjacentTextNodes) return false;
+        if (current.nextSibling) {
+          if (current.nodeType === 1 && !visibleInline(current)) return false;
+          current = current.nextSibling;
+          break;
+        }
+        if (current.nodeType === 1 && !visibleInline(current)) return false;
+        current = current.parentNode;
+      }
+      while (current && current !== next) {
+        inspected += 1;
+        if (inspected > maxPrivacyAdjacentTextNodes) return false;
+        if (current.nodeType === 3 && String(current.nodeValue ?? "")) return false;
+        if (current.nodeType === 1 && !current.contains?.(next) && String(current.textContent ?? "")) return false;
+        if (current.nodeType === 1 && !visibleInline(current)) return false;
+        current = nextMutationNode(current);
+      }
+      return current === next;
+    };
+    const rememberMutationFragment = (streams, key, value, node) => {
       const text = String(value ?? "");
       if (!mutationNumericFragment(text)) return false;
       if (mutationEvidence.inspectedNodes >= maxPrivacyAdjacentTextNodes
@@ -789,9 +862,19 @@ export function installSensitiveMasks() {
       mutationEvidence.inspectedCharacters += text.length;
       const stream = streams.get(key) || { text: "", fragments: 0 };
       stream.fragments += 1;
-      stream.text = `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters);
+      stream.text = stream.lastNode && mutationNodesAdjacent(stream.lastNode, node)
+        ? `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters)
+        : text;
+      stream.lastNode = node;
       streams.set(key, stream);
       return containsPiiText(stream.text);
+    };
+    const clearMutationStream = (streams, key) => {
+      const stream = streams.get(key);
+      if (stream) {
+        stream.text = "";
+        stream.lastNode = null;
+      }
     };
     const inspectMutationValue = (value, state) => {
       if (state.nodeOverflow || state.characterOverflow) return true;
@@ -829,13 +912,15 @@ export function installSensitiveMasks() {
           if (!targetVisibility) continue;
           if (inspectMutationValue(record.oldValue, oldCharacterState)
             || inspectMutationValue(record.target?.nodeValue, currentCharacterState)) return true;
-          const streamKey = record.target?.parentElement || record.target;
-          if (rememberMutationFragment(mutationEvidence.oldCharacterStreams, streamKey, record.oldValue)) return true;
+          const streamKey = mutationStreamKey(record.target);
+          if (rememberMutationFragment(mutationEvidence.oldCharacterStreams, streamKey, record.oldValue, record.target)) return true;
+          if (!mutationNumericFragment(record.oldValue)) clearMutationStream(mutationEvidence.oldCharacterStreams, streamKey);
           const currentValue = String(record.target?.nodeValue ?? "");
           const previousCurrentValue = mutationEvidence.seenCurrentCharacterValues.get(record.target);
           if (previousCurrentValue !== currentValue) {
             mutationEvidence.seenCurrentCharacterValues.set(record.target, currentValue);
-            if (rememberMutationFragment(mutationEvidence.currentCharacterStreams, streamKey, currentValue)) return true;
+            if (rememberMutationFragment(mutationEvidence.currentCharacterStreams, streamKey, currentValue, record.target)) return true;
+            if (!mutationNumericFragment(currentValue)) clearMutationStream(mutationEvidence.currentCharacterStreams, streamKey);
           }
           continue;
         }
@@ -849,12 +934,21 @@ export function installSensitiveMasks() {
           collectMutationVisibleText(node, state);
           if (state.completeMatch) return true;
           if (state.nodeOverflow || state.characterOverflow) return true;
+          mutationEvidence.childListNodes += state.inspectedNodes;
+          mutationEvidence.childListCharacters += state.characterCount;
+          if (mutationEvidence.childListNodes > maxPrivacyAdjacentTextNodes
+            || mutationEvidence.childListCharacters > maxPrivacyAdjacentTextCharacters) {
+            mutationEvidence.overflow = true;
+            return true;
+          }
           if (state.text) fragments.push({ node, text: state.text });
         }
+        const childStreamKey = mutationStreamKey(record.target);
         for (const { node, text } of fragments) {
           if (mutationEvidence.seenChildValues.get(node) === text) continue;
           mutationEvidence.seenChildValues.set(node, text);
-          if (rememberMutationFragment(mutationEvidence.childStreams, record.target, text)) return true;
+          if (rememberMutationFragment(mutationEvidence.childStreams, childStreamKey, text, node)) return true;
+          if (!mutationNumericFragment(text)) clearMutationStream(mutationEvidence.childStreams, childStreamKey);
           const joined = `${pending}${text}`;
           if (containsPiiText(joined)) return true;
           if (mutationPartialPattern(joined)) return true;

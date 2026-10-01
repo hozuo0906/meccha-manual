@@ -1027,6 +1027,77 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await page.waitForTimeout(25);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "characterData numeric fragments must fail closed");
     await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "same-node-prefix";
+      prefix.textContent = "123";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "same-node numeric prefix remains recordable");
+    await page.evaluate(() => { document.getElementById("same-node-prefix").firstChild.nodeValue = "-4567"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "same-node numeric continuation remains recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "nonadjacent-prefix";
+      prefix.textContent = "123";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const separator = document.createElement("span");
+      separator.textContent = "ordinary separator";
+      document.getElementById("stream").append(separator);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "nonadjacent numeric fragments remain recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const target = document.getElementById("stream");
+      for (let index = 0; index < 129; index += 1) {
+        const span = document.createElement("span");
+        span.textContent = "visible";
+        target.append(span);
+      }
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "childList node budget overflow must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const target = document.getElementById("stream");
+      for (const value of ["x".repeat(800), "y".repeat(800)]) {
+        const span = document.createElement("span");
+        span.textContent = value;
+        target.append(span);
+      }
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "childList character budget overflow must fail closed");
+    await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
