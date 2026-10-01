@@ -805,24 +805,46 @@ export function installSensitiveMasks() {
       }
       return true;
     };
-    const mutationTextNode = (node, last = false) => {
-      if (node?.nodeType === 3) return mutationElementVisibility(node) === true ? node : null;
+    const mutationTextNode = (node, last = false, budget = { nodes: 0, depth: 0, overflow: false }) => {
+      if (node?.nodeType === 3) {
+        const visibility = mutationElementVisibility(node);
+        if (visibility === null) budget.overflow = true;
+        return visibility === true ? node : null;
+      }
       if (node?.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return null;
-      if (mutationElementVisibility(node) !== true) return null;
+      const visibility = mutationElementVisibility(node);
+      if (visibility !== true) {
+        if (visibility === null) budget.overflow = true;
+        return null;
+      }
+      budget.depth += 1;
+      if (budget.depth > maxPrivacyAdjacentTextNodes) {
+        budget.overflow = true;
+        budget.depth -= 1;
+        return null;
+      }
       const children = [...node.childNodes || []];
       const ordered = last ? children.reverse() : children;
-      let inspected = 0;
       for (const child of ordered) {
-        inspected += 1;
-        if (inspected > maxPrivacyAdjacentTextNodes) return null;
-        const result = mutationTextNode(child, last);
-        if (result) return result;
+        budget.nodes += 1;
+        if (budget.nodes > maxPrivacyAdjacentTextNodes) {
+          budget.overflow = true;
+          break;
+        }
+        const result = mutationTextNode(child, last, budget);
+        if (result) {
+          budget.depth -= 1;
+          return result;
+        }
       }
+      budget.depth -= 1;
       return null;
     };
     const mutationNodesAdjacent = (previousNode, nextNode) => {
-      const previous = mutationTextNode(previousNode, true);
-      const next = mutationTextNode(nextNode, false);
+      const budget = { nodes: 0, depth: 0, overflow: false };
+      const previous = mutationTextNode(previousNode, true, budget);
+      const next = mutationTextNode(nextNode, false, budget);
+      if (budget.overflow) return null;
       if (!previous || !next) return false;
       if (previous === next) return false;
       if (previous.getRootNode?.() !== next.getRootNode?.()) return false;
@@ -869,7 +891,7 @@ export function installSensitiveMasks() {
       const root = mutationStreamKey(target);
       if (!root || root.nodeType !== 1) return false;
       const textNodes = [];
-      const state = { nodes: 0, characters: 0, visited: 0, hiddenBoundary: false, overflow: false };
+      const state = { nodes: 0, characters: 0, visited: 0, hiddenBoundary: false, overflow: false, textBudget: { nodes: 0, depth: 0, overflow: false } };
       const collectTextNodes = (node) => {
         if (!node || state.overflow) return;
         state.visited += 1;
@@ -917,7 +939,7 @@ export function installSensitiveMasks() {
               current = sibling.nodeType === 1 ? sibling.parentNode : sibling;
               continue;
             }
-            const previous = mutationTextNode(sibling, true);
+            const previous = mutationTextNode(sibling, true, state.textBudget);
             if (previous) return previous;
             if (sibling.nodeType === 1 && sibling.childNodes?.length) state.hiddenBoundary = true;
           }
@@ -941,7 +963,7 @@ export function installSensitiveMasks() {
               current = sibling;
               continue;
             }
-            const next = mutationTextNode(sibling, false);
+            const next = mutationTextNode(sibling, false, state.textBudget);
             if (next) return next;
             if (sibling.nodeType === 1 && sibling.childNodes?.length) state.hiddenBoundary = true;
           }
@@ -980,7 +1002,7 @@ export function installSensitiveMasks() {
       } else {
         collectTextNodes(root);
       }
-      if (state.overflow) return true;
+      if (state.overflow || state.textBudget.overflow) return true;
       let previous = null;
       let joined = "";
       for (const node of textNodes) {
@@ -994,7 +1016,9 @@ export function installSensitiveMasks() {
           joined = "";
           continue;
         }
-        if (!previous || !mutationNodesAdjacent(previous.node, node)) {
+        const adjacent = previous ? mutationNodesAdjacent(previous.node, node) : false;
+        if (adjacent === null) return true;
+        if (!previous || !adjacent) {
           if (state.hiddenBoundary && previous && containsPiiText(`${joined}${value}`)) return true;
           joined = value;
         }
@@ -1016,9 +1040,12 @@ export function installSensitiveMasks() {
       mutationEvidence.inspectedCharacters += text.length;
       const stream = streams.get(key) || { text: "", fragments: 0 };
       stream.fragments += 1;
-      stream.text = stream.lastNode && mutationNodesAdjacent(stream.lastNode, node)
-        ? `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters)
-        : text;
+      const adjacent = stream.lastNode ? mutationNodesAdjacent(stream.lastNode, node) : false;
+      if (adjacent === null) {
+        mutationEvidence.overflow = true;
+        return true;
+      }
+      stream.text = adjacent ? `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters) : text;
       stream.lastNode = node;
       streams.set(key, stream);
       return containsPiiText(stream.text);

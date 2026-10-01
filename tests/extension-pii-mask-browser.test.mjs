@@ -1215,6 +1215,32 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const target = document.createElement("span");
+      target.id = "wide-context-target";
+      target.textContent = "safe";
+      stream.append(target);
+      let branch = document.createElement("span");
+      stream.append(branch);
+      for (let depth = 0; depth < 8; depth += 1) {
+        for (let index = 0; index < 127; index += 1) branch.append(document.createElement("span"));
+        const nested = document.createElement("span");
+        branch.append(nested);
+        branch = nested;
+      }
+      const suffix = document.createElement("span");
+      suffix.textContent = "345678";
+      branch.append(suffix);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.getElementById("wide-context-target").firstChild.nodeValue = "09012"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "wide inline neighbor traversal beyond the shared budget must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
