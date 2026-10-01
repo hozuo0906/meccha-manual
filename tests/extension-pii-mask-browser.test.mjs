@@ -1185,6 +1185,21 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
       const prefix = document.createElement("span");
+      prefix.textContent = "123,";
+      document.getElementById("stream").append(prefix);
+      const suffix = document.createElement("span");
+      suffix.textContent = "4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "a punctuation boundary must not be stripped into an unrelated postal value");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
       prefix.id = "delimited-phone-prefix";
       prefix.textContent = "safe";
       document.getElementById("stream").append(prefix);
