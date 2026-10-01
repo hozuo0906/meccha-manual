@@ -912,7 +912,7 @@ export function installSensitiveMasks() {
         if (node.nodeType === 3) {
           const value = String(node.nodeValue ?? "");
           textNodes.push(node);
-          if (mutationNumericContext(value) || mutationPartialPattern(value)) {
+          if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
             state.nodes += 1;
             state.characters += value.length;
             if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
@@ -1003,7 +1003,7 @@ export function installSensitiveMasks() {
         for (const node of textNodes) {
           if (!node) continue;
           const value = String(node.nodeValue ?? "");
-          if (mutationNumericContext(value) || mutationPartialPattern(value)) {
+          if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
             state.nodes += 1;
             state.characters += value.length;
             if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
@@ -1015,15 +1015,48 @@ export function installSensitiveMasks() {
       if (state.overflow || state.textBudget.overflow) return true;
       let previous = null;
       let joined = "";
+      let pendingSeparatorNodes = 0;
+      let pendingSeparatorCharacters = 0;
+      let hasNumericPrefix = false;
       for (const node of textNodes) {
         if (!node) {
           state.hiddenBoundary = true;
+          pendingSeparatorNodes = 0;
+          pendingSeparatorCharacters = 0;
+          hasNumericPrefix = false;
           continue;
         }
         const value = String(node.nodeValue ?? "");
         if (!mutationNumericContext(value)) {
           previous = null;
           joined = "";
+          pendingSeparatorNodes = 0;
+          pendingSeparatorCharacters = 0;
+          hasNumericPrefix = false;
+          continue;
+        }
+        if (mutationNumericSeparator(value)) {
+          if (!hasNumericPrefix) {
+            previous = null;
+            joined = "";
+            pendingSeparatorNodes = 0;
+            pendingSeparatorCharacters = 0;
+            continue;
+          }
+          const separatorAdjacent = previous ? mutationNodesAdjacent(previous.node, node) : false;
+          if (separatorAdjacent === null) return true;
+          if (!previous || !separatorAdjacent) {
+            previous = null;
+            joined = "";
+            pendingSeparatorNodes = 0;
+            pendingSeparatorCharacters = 0;
+            hasNumericPrefix = false;
+            continue;
+          }
+          joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+          pendingSeparatorNodes += 1;
+          pendingSeparatorCharacters += value.length;
+          previous = { node, value };
           continue;
         }
         const adjacent = previous ? mutationNodesAdjacent(previous.node, node) : false;
@@ -1031,9 +1064,21 @@ export function installSensitiveMasks() {
         if (!previous || !adjacent) {
           if (state.hiddenBoundary && previous && containsPiiText(`${joined}${value}`)) return true;
           joined = value;
+          pendingSeparatorNodes = 0;
+          pendingSeparatorCharacters = 0;
         }
-        else joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+        else {
+          if (pendingSeparatorNodes > 0) {
+            state.nodes += pendingSeparatorNodes;
+            state.characters += pendingSeparatorCharacters;
+            if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) return true;
+            pendingSeparatorNodes = 0;
+            pendingSeparatorCharacters = 0;
+          }
+          joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+        }
         if (containsPiiText(joined)) return true;
+        hasNumericPrefix = true;
         previous = { node, value };
       }
       return false;
