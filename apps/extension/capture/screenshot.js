@@ -282,8 +282,15 @@ export function installSensitiveMasks() {
           let characterCount = 0;
           for (let index = start; index < textNodes.length && entries.length < maxPrivacyAdjacentTextNodes; index += 1) {
             const node = textNodes[index];
-            if (!node.parentElement || isPairedTextNode(node, pairedValues) || !isVisibleTextElement(node.parentElement)) {
+            if (!node.parentElement || isPairedTextNode(node, pairedValues)) {
               if (entries.length && partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              break;
+            }
+            if (!isVisibleTextElement(node.parentElement)) {
+              // A hidden node can later reveal text that was split from the
+              // visible prefix. Its contents are intentionally not joined or
+              // inspected; the uncertain boundary therefore fails closed.
+              if (entries.length) privacyCandidateRangeOverflow = true;
               break;
             }
             if (entries.length > 0 && !renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) {
@@ -300,8 +307,7 @@ export function installSensitiveMasks() {
               continue;
             }
             if (characterCount + value.length > maxPrivacyAdjacentTextCharacters) {
-              if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)
-                && partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) privacyCandidateRangeOverflow = true;
               break;
             }
             entries.push({ node, value, start: characterCount, end: characterCount + value.length });
@@ -341,8 +347,7 @@ export function installSensitiveMasks() {
             }
           }
           if (entries.length >= maxPrivacyAdjacentTextNodes && textNodes[start + entries.length]
-            && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)
-            && partialPatternAtBoundary(joined)) privacyCandidateRangeOverflow = true;
+            && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)) privacyCandidateRangeOverflow = true;
         }
       };
       const rootRecords = new Map();

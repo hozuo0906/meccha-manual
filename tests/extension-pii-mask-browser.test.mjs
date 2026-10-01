@@ -269,6 +269,10 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
       response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>alice@</span>${nodes}<span>example.com</span></p>`);
       return;
     }
+    if (path === "/char-budget") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>${"alice@" + "x".repeat(250)}</span><span>example.com</span></p>`);
+      return;
+    }
     response.end("<!doctype html><p>unknown</p>");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -308,6 +312,12 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
     const budget = await inject(installSensitiveMasks);
     assert.equal(budget.privacyMaskedCount, 0);
     assert.equal(await inject(verifySensitiveMasks, [budget.token]), false, "a candidate continuing beyond the adjacent node budget fails closed");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/char-budget`);
+    const charBudget = await inject(installSensitiveMasks);
+    assert.equal(charBudget.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [charBudget.token]), false, "a candidate continuing beyond the adjacent character budget fails closed");
     await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
