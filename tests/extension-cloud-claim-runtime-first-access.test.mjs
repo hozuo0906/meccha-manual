@@ -551,6 +551,19 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     let extensionId;
     const hostResolverRules = `--host-resolver-rules=MAP meccha-manual-staging.meccha-iiyatsu.com 127.0.0.1:${networkServer.port},MAP meccha-manual-access-login.example.test 127.0.0.1:${networkServer.port}`;
     ({ context, worker, extensionId } = await openExtensionContext(userDataDir, [hostResolverRules]));
+    await context.addInitScript(() => {
+      const key = "__mecchaManualHashChanges";
+      const loadKey = "__mecchaManualDocumentLoads";
+      let changes = [];
+      try { changes = JSON.parse(sessionStorage.getItem(key) || "[]"); } catch {}
+      try { sessionStorage.setItem(loadKey, String(Number(sessionStorage.getItem(loadKey) || 0) + 1)); } catch {}
+      globalThis.addEventListener("hashchange", (event) => {
+        let eventHash = "";
+        try { eventHash = new URL(event.newURL || "").hash; } catch {}
+        changes.push({ eventHashPresent: Boolean(eventHash), currentHashPresent: Boolean(location.hash), matches: eventHash === location.hash });
+        try { sessionStorage.setItem(key, JSON.stringify(changes)); } catch {}
+      });
+    });
     const handoffId = "L".repeat(43);
     const launchId = "M".repeat(43);
     const hashlessUrl = `${STAGING_ORIGIN}/onboarding/continue`;
@@ -592,6 +605,13 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     const pageReady = await readMetadata(worker, readyKey);
     assert.equal(typeof pageReady.pageReadyAt, "string", "the restored fragment page must notify the extension after its listener is installed");
     await page.waitForFunction(() => location.hash === "" && document.readyState !== "loading");
+    const documentLoadsBeforeStaleEvent = await page.evaluate(() => Number(sessionStorage.getItem("__mecchaManualDocumentLoads") || 0));
+    await page.evaluate((newURL) => {
+      dispatchEvent(new HashChangeEvent("hashchange", { oldURL: location.href, newURL }));
+    }, restoredUrl);
+    await page.waitForFunction((expectedLoads) => Number(sessionStorage.getItem("__mecchaManualDocumentLoads") || 0) === expectedLoads, documentLoadsBeforeStaleEvent);
+    const hashChanges = await page.evaluate(() => { try { return JSON.parse(sessionStorage.getItem("__mecchaManualHashChanges") || "[]"); } catch { return []; } });
+    assert.equal(hashChanges.some(({ eventHashPresent, currentHashPresent, matches }) => eventHashPresent && !currentHashPresent && !matches), true, "the fixture must observe the stale fragment event after hash removal");
     await page.waitForSelector("#bootstrap", { state: "visible" });
     await page.locator("#bootstrap").click();
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
