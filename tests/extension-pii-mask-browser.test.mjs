@@ -1015,6 +1015,42 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
+      const status = document.createElement("span");
+      status.id = "stream-status";
+      status.textContent = "status";
+      document.getElementById("stream").append(status);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "stream-prefix";
+      prefix.textContent = "123";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const status = document.getElementById("stream-status");
+      status.replaceChildren(document.createTextNode("updated"));
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "stream-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("stream-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("stream-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "unrelated sibling updates must not clear adjacent numeric evidence");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
       document.querySelector("#char-a").firstChild.nodeValue = "123";
     });
     await page.waitForTimeout(25);
