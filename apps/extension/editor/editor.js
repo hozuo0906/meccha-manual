@@ -514,7 +514,11 @@ function createUploadPanel(step, screenshot) {
         const current = draft.steps.find((entry) => entry.id === step.id);
         if (current && selectedStepId === step.id) { renderStepArticle(current); if (shouldRestoreFocus) detail.querySelector(succeeded ? ".image-edit-button" : ".image-upload-panel button")?.focus({ preventScroll: true }); }
         renderListOnly(); updateImageSummary();
-        if (!localWriteFailed) setSaveState("端末に保存済み");
+        if (!localWriteFailed) {
+          const processing = pendingImages.size > 0;
+          setSaveState(processing ? "画像を保存中…" : "端末に保存済み", processing ? "saving" : "saved");
+          if (succeeded && !processing) status.textContent = "画像を端末に保存しました。公開できない情報が残っていないか確認してください。";
+        }
       }
     })();
   });

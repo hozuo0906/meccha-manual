@@ -3,6 +3,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
+import { launchNativeVisibilityPage, waitForNativeVisibility } from "./support/native-visibility-browser.mjs";
 import { handleShareLinkRoute } from "../apps/worker/src/share-link-router.ts";
 
 const SHARE_TOKEN = "T".repeat(43);
@@ -74,18 +75,10 @@ async function startViewerServer({ assetStatus = 200, assetStatuses = null, reso
   return { baseUrl: `http://127.0.0.1:${server.address().port}`, server, state };
 }
 
-async function restoreNativeFocus(page) {
-  // Playwright initializes every main page with focus emulation enabled
-  // (playwright-core coreBundle.js). Disable only this test override so real
-  // native tab visibility transitions can exercise the reader's access gate.
-  const session = await page.context().newCDPSession(page);
-  await session.send("Emulation.setFocusEmulationEnabled", { enabled: false });
-  return page;
-}
 async function launchPage() {
   const channel = process.platform === "win32" ? "chrome" : "chromium";
   const context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1280, height: 900 } });
-  return { context, page: await restoreNativeFocus(await context.newPage()) };
+  return { context, page: await context.newPage() };
 }
 
 test("share viewer presents readable multi-image steps on desktop and mobile", { timeout: 30_000 }, async () => {
@@ -276,11 +269,11 @@ test("share viewer sends an 80-emoji passcode without truncating it", { timeout:
 // These tests use an explicit synthetic API server. They prove browser lifecycle
 // behavior, not live Access, D1 authorization, R2 access, or production revocation.
 for (const width of [1366, 1024, 390]) {
-  test(`20-step reader navigation, zoom and safe tab/reload recovery at ${width}px (mock API)`, { timeout: 60_000 }, async () => {
+  test(`20-step reader navigation, zoom and safe tab/reload recovery at ${width}px (mock API)`, { timeout: 60_000 }, async (t) => {
     const { baseUrl, server, state } = await startViewerServer({ twentySteps: true, resolvePasscode: 'correct-passcode' });
     let context;
     try {
-      const launched = await launchPage(); context = launched.context; const page = launched.page;
+      const launched = await launchNativeVisibilityPage(t); context = launched.context; const page = launched.page;
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       const requests = []; page.on('request', request => requests.push(request.url()));
       await openReader(page, baseUrl);
@@ -320,10 +313,12 @@ for (const width of [1366, 1024, 390]) {
       assert.equal(new URL(page.url()).hash, '');
       assert.equal(await page.locator('#share-passcode').inputValue(), '');
 
-      const other = await restoreNativeFocus(await context.newPage()); await other.goto(baseUrl + '/other'); await other.bringToFront();
-      await page.waitForFunction(() => document.visibilityState === 'hidden' && document.querySelector('#share-content').hidden, undefined, { polling: 50, timeout: 5000 });
+      const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
+      await waitForNativeVisibility(page, 'hidden', t);
+      assert.equal(await page.locator('#share-content').isHidden(), true);
       const before = state.contentGrants.length; state.contentDelayMs = 250;
       await page.bringToFront();
+      await waitForNativeVisibility(page, 'visible', t);
       await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'validating');
       assert.equal(await page.locator('#share-content').isHidden(), true);
       assert.equal(await page.locator('.share-step').count(), 0);
@@ -369,14 +364,15 @@ test('reader clears content and open zoom at the grant deadline (mock API)', { t
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); }
 });
 
-test('reader refuses cached content after tab-return revocation or offline revalidation, and retries only online (mock API)', { timeout: 40_000 }, async () => {
+test('reader refuses cached content after tab-return revocation or offline revalidation, and retries only online (mock API)', { timeout: 40_000 }, async (t) => {
   const { baseUrl, server, state } = await startViewerServer({ twentySteps: true }); let context;
   try {
-    const launched = await launchPage(); context = launched.context; const page = launched.page;
+    const launched = await launchNativeVisibilityPage(t); context = launched.context; const page = launched.page;
     await openReader(page, baseUrl); await chooseStep(page, 17);
-    const other = await restoreNativeFocus(await context.newPage()); await other.goto(baseUrl + '/other'); await other.bringToFront();
-    await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50, timeout: 5000 });
+    const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
+    await waitForNativeVisibility(page, 'hidden', t);
     await context.setOffline(true); await page.bringToFront();
+    await waitForNativeVisibility(page, 'visible', t);
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'interrupted');
     assert.equal(await page.locator('.share-step').count(), 0);
     assert.equal(await page.locator('#share-content').isHidden(), true);
@@ -384,8 +380,9 @@ test('reader refuses cached content after tab-return revocation or offline reval
     await context.setOffline(false); await page.locator('.reader-access-retry').click();
     await page.locator('#share-content').waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.querySelector('.reader-current')?.textContent === '17 / 20');
-    await other.bringToFront(); await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50, timeout: 5000 });
+    await other.bringToFront(); await waitForNativeVisibility(page, 'hidden', t);
     state.contentStatus = 401; await page.bringToFront();
+    await waitForNativeVisibility(page, 'visible', t);
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'unavailable');
     assert.equal(await page.locator('.share-step').count(), 0);
     assert.equal(await page.locator('.reader-image-dialog').count(), 0);
