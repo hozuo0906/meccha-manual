@@ -1158,6 +1158,63 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      for (let index = 0; index < 128; index += 1) {
+        const ordinary = document.createElement("span");
+        ordinary.textContent = "ordinary";
+        stream.append(ordinary);
+      }
+      const target = document.createElement("span");
+      target.id = "left-budget-target";
+      target.textContent = "safe";
+      stream.append(target);
+      const suffix = document.createElement("span");
+      suffix.id = "left-budget-suffix";
+      suffix.textContent = "345678";
+      stream.append(suffix);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.getElementById("left-budget-target").firstChild.nodeValue = "09012"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("left-budget-target").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("left-budget-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "numeric context must preserve a right suffix beyond left-side ordinary nodes");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const prefix = document.createElement("span");
+      prefix.id = "hidden-boundary-prefix";
+      prefix.textContent = "123";
+      stream.append(prefix);
+      const hidden = document.createElement("span");
+      hidden.style.display = "none";
+      hidden.textContent = "ignored";
+      stream.append(hidden);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "hidden-boundary-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("hidden-boundary-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("hidden-boundary-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "visible numeric sequence across a CSS-hidden sibling must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
