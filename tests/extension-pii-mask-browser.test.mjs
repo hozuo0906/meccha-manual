@@ -786,6 +786,26 @@ test("large transient split PII fails closed when the mutation budget is exceede
     await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "mutation budget overflow must fail closed");
     await inject(removeSensitiveMasks);
+    const emptyPrefixMask = await inject(installSensitiveMasks);
+    assert.equal(emptyPrefixMask.applied, true);
+    assert.equal(emptyPrefixMask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const target = document.getElementById("large-transient");
+      const prefix = document.createElement("span");
+      for (let index = 0; index < 140; index += 1) prefix.append(document.createElement("span"));
+      const mailbox = document.createElement("span");
+      mailbox.textContent = "alice@";
+      prefix.append(mailbox);
+      const domain = document.createElement("span");
+      domain.textContent = "example.com";
+      target.append(prefix);
+      target.append(domain);
+      prefix.remove();
+      domain.remove();
+    });
+    await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
+    assert.equal(await inject(verifySensitiveMasks, [emptyPrefixMask.token]), false, "empty mutation budget overflow must fail closed");
+    await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
