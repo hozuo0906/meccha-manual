@@ -682,6 +682,16 @@ test("unrelated dashboard mutations remain valid but transient PII is rejected",
       transient.textContent = "transient@example.com";
       document.body.append(transient);
       transient.remove();
+      const splitTransient = document.createElement("p");
+      const mailbox = document.createElement("span");
+      mailbox.textContent = "alice@";
+      const domain = document.createElement("span");
+      domain.textContent = "example.com";
+      splitTransient.append(mailbox, domain);
+      document.body.append(splitTransient);
+      mailbox.remove();
+      domain.remove();
+      splitTransient.remove();
       const pair = document.createElement("dl");
       pair.innerHTML = "<dt>氏名</dt><dd>佐藤花子</dd>";
       document.body.append(pair);

@@ -711,6 +711,23 @@ export function installSensitiveMasks() {
         return pattern.test(text);
       });
     };
+    const containsSplitPiiMutation = (records) => {
+      const history = [];
+      let characterCount = 0;
+      for (const record of records || []) {
+        if (record.type !== "childList" || !isVisibleTextElement(record.target)) continue;
+        for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
+          if (history.length >= maxPrivacyAdjacentTextNodes) return false;
+          if (node?.nodeType === 1 && (node.hidden || node.matches?.("[hidden],script,style,noscript,template"))) continue;
+          const value = node?.nodeType === 3 ? String(node.nodeValue ?? "") : node?.nodeType === 1 ? String(node.textContent ?? "") : "";
+          if (!value) continue;
+          if (characterCount + value.length > maxPrivacyAdjacentTextCharacters) return false;
+          history.push(value);
+          characterCount += value.length;
+        }
+      }
+      return history.length > 1 && containsPiiText(history.join(""));
+    };
     const semanticPairKind = (labelElement, valueElement, labelText = labelElement?.textContent) => {
       const labelTag = String(labelElement?.tagName || "").toUpperCase();
       const valueTag = String(valueElement?.tagName || "").toUpperCase();
@@ -845,6 +862,10 @@ export function installSensitiveMasks() {
     const privacyObservers = [];
     const isOverlayNode = (node) => isOwnedPrivacyOverlayNode(node);
     const processPrivacyMutations = (records) => {
+      if (containsSplitPiiMutation(records)) {
+        privacyMutation.detected = true;
+        return;
+      }
       for (const record of records || []) {
         const isOverlayRecord = isOverlayNode(record.target)
           || ([...record.addedNodes || [], ...record.removedNodes || []].length > 0
