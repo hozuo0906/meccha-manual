@@ -274,6 +274,8 @@ export function installSensitiveMasks() {
       const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
       const containsCompletePii = (value) => completePiiPatterns.some(({ pattern }) => pattern.test(String(value ?? "")));
       const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
+      const uncertainBudgetContinuation = (value) => uncertainBoundary(value)
+        || /^[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
       const isPairedTextNode = (node, pairedValues) => {
         let current = node?.parentElement;
         while (current) {
@@ -295,10 +297,10 @@ export function installSensitiveMasks() {
               break;
             }
             if (!isVisibleTextElement(node.parentElement)) {
-              // A hidden node can later reveal text that was split from the
-              // visible prefix. Its contents are intentionally not joined or
-              // inspected; the uncertain boundary therefore fails closed.
-              if (entries.length) privacyCandidateRangeOverflow = true;
+              // A hidden node can later reveal text that was split from a
+              // visible PII prefix. PII-free help/menu boundaries remain
+              // recordable; hidden contents are never joined or inspected.
+              if (entries.length && uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
             }
             if (entries.length > 0 && !renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) {
@@ -315,7 +317,8 @@ export function installSensitiveMasks() {
               continue;
             }
             if (characterCount + value.length > maxPrivacyAdjacentTextCharacters) {
-              if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) privacyCandidateRangeOverflow = true;
+              if (entries.length > 0 && renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)
+                && uncertainBudgetContinuation(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
             }
             entries.push({ node, value, start: characterCount, end: characterCount + value.length });
@@ -357,7 +360,8 @@ export function installSensitiveMasks() {
             }
           }
           if (entries.length >= maxPrivacyAdjacentTextNodes && textNodes[start + entries.length]
-            && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)) privacyCandidateRangeOverflow = true;
+            && renderedTextBoundarySafe(entries[entries.length - 1].node, textNodes[start + entries.length], record.root)
+            && uncertainBudgetContinuation(joined)) privacyCandidateRangeOverflow = true;
         }
       };
       const rootRecords = new Map();
