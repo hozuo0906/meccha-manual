@@ -321,7 +321,10 @@ test("transient split PII across collapsed rendered whitespace remains rejected"
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "transient rendered whitespace split PII must fail closed");
     await page.evaluate(() => document.getElementById("transient-prefix").remove());
     await page.waitForTimeout(25);
-    await page.evaluate(() => document.getElementById("transient").lastChild.remove());
+    await page.evaluate(() => {
+      const separator = [...document.getElementById("transient").childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+      separator?.remove();
+    });
     await page.waitForTimeout(25);
     await page.evaluate(() => document.getElementById("transient-suffix").remove());
     await page.waitForTimeout(25);
