@@ -352,6 +352,20 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
       response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p id=value><span>${"alice@" + "x".repeat(1018)}</span><span>example.com</span></p>`);
       return;
     }
+    if (path === "/hidden-normal") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>Help center</span><span hidden>menu item</span><span> next</span></p>`);
+      return;
+    }
+    if (path === "/richtext-budget") {
+      const nodes = [...Array(128)].map(() => "<span>操作手順</span>").join("");
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p>${nodes}<span>完了</span></p>`);
+      return;
+    }
+    if (path === "/token-budget") {
+      const nodes = ["<span>alice</span>", ...Array(127).fill("<span>x</span>")].join("");
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p>${nodes}<span>@example.com</span></p>`);
+      return;
+    }
     response.end("<!doctype html><p>unknown</p>");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -397,6 +411,24 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
     const charBudget = await inject(installSensitiveMasks);
     assert.equal(charBudget.privacyMaskedCount, 0);
     assert.equal(await inject(verifySensitiveMasks, [charBudget.token]), false, "a candidate continuing beyond the adjacent character budget fails closed");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/hidden-normal`);
+    const hiddenNormal = await inject(installSensitiveMasks);
+    assert.equal(hiddenNormal.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [hiddenNormal.token]), true, "PII-free hidden help/menu boundaries remain recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/richtext-budget`);
+    const richText = await inject(installSensitiveMasks);
+    assert.equal(richText.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [richText.token]), true, "CJK rich text at the node budget remains recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/token-budget`);
+    const tokenBudget = await inject(installSensitiveMasks);
+    assert.equal(tokenBudget.privacyMaskedCount, 0);
+    assert.equal(await inject(verifySensitiveMasks, [tokenBudget.token]), false, "an email token continuing after the node budget fails closed");
     await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
