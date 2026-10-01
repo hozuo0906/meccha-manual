@@ -28,6 +28,12 @@ test("native recording uses only bounded safe captions for real click controls",
         <button id="node-budget"></button>
         <button id="long-title" title="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></button>
         <button id="long-visible">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</button>
+        <label for="label-save" style="opacity:0">不可視保存ラベル</label>
+        <input id="label-save" type="button">
+        <label for="label-hidden-child"><span hidden>不可視顧客名</span><span>可視ラベル</span></label>
+        <input id="label-hidden-child" type="button">
+        <label for="label-visible">正常ラベル</label>
+        <input id="label-visible" type="button">
         <input id="password" type="password" aria-label="認証コード" value="パスワード秘密">
         <textarea id="richtext">リッチテキスト秘密</textarea>
         <button id="pii" title="PIN 1234"></button>
@@ -154,7 +160,7 @@ test("native recording uses only bounded safe captions for real click controls",
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
 
-    const selectors = ["#reference", "#nested-save span", "#opacity-child", "#opacity-ancestor", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
+    const selectors = ["#reference", "#nested-save span", "#opacity-child", "#opacity-ancestor", "#title-only", "#input-button", "#input-submit", "#input-reset", "#input-image", "#editable", "#editable-own", "#node-budget", "#long-title", "#long-visible", "#label-save", "#label-hidden-child", "#label-visible", "#password", "#richtext", "#pii", "#url", "#unicode", "#data-only", "#text"];
     for (const [index, selector] of selectors.entries()) {
       await target.locator(selector).click({ force: true });
       await waitForNativeValue("document.querySelectorAll('.step-card').length", (value) => value >= index + 1);
@@ -175,10 +181,13 @@ test("native recording uses only bounded safe captions for real click controls",
     for (const caption of ["参照", "保存", "タイトル操作", "入力参照", "送信", "リセット", "画像検索"]) {
       assert.match(joined, new RegExp(`【${caption}】クリック`), `safe caption should be retained: ${caption}`);
     }
+    for (const caption of ["可視ラベル", "正常ラベル"]) {
+      assert.match(joined, new RegExp(`【${caption}】クリック`), `visible associated label should be retained: ${caption}`);
+    }
     assert.ok((joined.match(/ボタンを操作する/g) || []).length >= 5, "nested/editable and unsafe controls should use the button fallback");
     assert.match(joined, /保護された入力欄を操作する/, "password clicks should use the protected-input semantic label");
     assert.match(joined, /入力欄を操作する/, "value-bearing clicks should use the input semantic label");
-    assert.doesNotMatch(joined, /不可視顧客名|パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
+    assert.doesNotMatch(joined, /不可視保存ラベル|不可視顧客名|パスワード秘密|リッチテキスト秘密|PIN 1234|tenant\.example\.dev|機密データ|利用者秘密/);
   } finally {
     await context?.close();
     if (canRemoveUserDataDir) await rm(resolvedUserDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
