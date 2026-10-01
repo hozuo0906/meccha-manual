@@ -713,7 +713,7 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
   const trustedOrigin = "https://meccha-manual-staging.meccha-iiyatsu.com";
   const localDraft = { id: `browser-expired-${requestedAction}`, title: "保存中に追加した編集", description: "保持する説明", selectedStepId: "step-17", updatedAt: "2026-10-01T00:00:00.000Z", steps: [], screenshots: [] };
   const originalFingerprint = await fingerprintDraft({ ...localDraft, title: "保存前の本文" });
-  const metadata = { ...createHandoffMetadata(localDraft.id, "save", Date.now() - 60 * 60 * 1000, "a".repeat(32), localDraft.updatedAt, originalFingerprint), status: "finalize-pending", operationId: "expired-browser-operation-0001", claimIntentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const metadata = { ...createHandoffMetadata(localDraft.id, "save", Date.now() - 60 * 60 * 1000, "a".repeat(32), localDraft.updatedAt, originalFingerprint), status: "finalize-pending", operationId: "E".repeat(43), claimIntentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
   const storage = new Map([[handoffStorageKey(metadata.handoffId), metadata]]);
   const local = {
     async get(key) { return key === null ? Object.fromEntries(storage) : { [key]: structuredClone(storage.get(key)) }; },
@@ -748,10 +748,10 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
       return handleExternalCloudClaimMessage(message, { url: trustedOrigin + "/onboarding/continue" });
     });
     await context.addInitScript(() => { globalThis.chrome = { runtime: { sendMessage: (...args) => globalThis.testExtensionMessage(...args) } }; });
-    const page = await context.newPage();
+    const page = await context.newPage();page.setDefaultTimeout(5000);
     await page.goto(url);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
-    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor();
+    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
     assert.equal(storage.get(handoffStorageKey(metadata.handoffId)).status, "expired");
     assert.equal(await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction), null);
     assert.deepEqual(requests.map(([method]) => method), ["GET"]);
@@ -759,10 +759,12 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     assert.ok(messages.every((message) => message.action === "save"), "recovery retains the original action identity even for Share");
     assert.match(await page.locator("#status").textContent(), /元の下書きと新しい編集/);
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "expired");
-    await page.goto(url);
-    await page.getByRole("button", { name: "保存先を準備する" }).click();
-    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor();
-    assert.equal(requests.length, 1, "old URL never begins bootstrap or re-finalizes a terminal operation");
+    await page.reload();
+    await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
+    assert.equal(await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).isDisabled(), true);
+    assert.equal(requests.length, 1, "stripped-URL refresh never begins bootstrap or re-finalizes a terminal operation");
+    await page.goto(url);await page.waitForFunction(()=>!location.hash&&document.querySelector("#bootstrap")?.textContent==="編集画面からもう一度保存");
+    assert.equal(await page.locator("#bootstrap").isDisabled(),true);assert.equal(requests.length,1);
   } finally {
     await context?.close();
     if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;

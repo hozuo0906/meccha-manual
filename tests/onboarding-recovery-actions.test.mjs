@@ -90,12 +90,20 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
       assert.match(status.textContent, /もう一度保存・共有できます/);
       assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
       const requestCount = requests.length;
-      location.hash = url.hash;
-      runInNewContext(ONBOARDING_JS, context);
-      await button.listeners.get("click")();
-      assert.equal(requests.length, requestCount, "terminal extension state survives a reopened old URL without bootstrap, re-finalize or status writes");
-      assert.equal(button.textContent, "編集画面からもう一度保存");
-      assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
+      const launchRevisit = new URL(url);
+      const launchParams = new URLSearchParams(launchRevisit.hash.slice(1)); launchParams.set("launchId", "L".repeat(43)); launchRevisit.hash = launchParams.toString();
+      for (const hash of [url.hash, launchRevisit.hash, ""]) {
+        location.hash = hash;
+        button.listeners.clear(); button.textContent="";button.disabled=false;button.onclick=null;status.textContent="";
+        runInNewContext(ONBOARDING_JS, context);
+        await Promise.resolve(); await Promise.resolve();
+        assert.match(status.textContent, /もう一度保存・共有できます/, "terminal guidance survives queued page-ready callbacks");
+        assert.equal(button.disabled, true);
+        assert.equal(button.listeners.has("click"), false);
+        assert.equal(requests.length, requestCount, "revisit and stripped-URL refresh never restart a terminal operation");
+        assert.equal(button.textContent, "編集画面からもう一度保存");
+        assert.equal(messages.filter((item) => item.type === "handoff.expired").length, 1);
+      }
     } else if (serverStatus === "completed" || (serverStatus === "pending" && !changed)) {
       assert.equal(drafts.get(original.id).cloudRef.manualId, cloudRef.manualId);
       assert.equal(button.textContent, requestedAction === "share" ? "共有設定を開く" : "保存した手順書を開く");

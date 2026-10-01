@@ -74,3 +74,20 @@ test("over-budget and overlapping span models fail closed for both image and cap
     assert.equal(privateValueContext(ids.get("value")), true);
   }
 });
+
+
+test("TH data cells inherit private headings even in all-TH body rows", () => {
+  for(const explicit of [true,false]){
+    const ids=dom(`<table id="table"><thead><tr><th id="name">氏名</th><th id="action-label">操作</th></tr></thead><tbody><tr><th id="value" ${explicit?'headers="name"':''}><button id="control">Synthetic Person</button></th><th id="action"><button id="safe">確認</button></th></tr></tbody></table>`);
+    const result=kinds(ids);assert.equal(result.get(ids.get('value')),'name');assert.equal(privateValueContext(ids.get('control')),true);
+    assert.equal(result.has(ids.get('name')),false);assert.equal(result.has(ids.get('action-label')),false);assert.equal(result.has(ids.get('action')),false);assert.equal(privateValueContext(ids.get('safe')),false);
+  }
+  const single=dom('<table id="table"><thead><tr><th>氏名</th></tr></thead><tbody><tr><th id="value"><button id="control">Synthetic Person</button></th></tr></tbody></table>');
+  assert.equal(kinds(single).get(single.get('value')),'name');assert.equal(privateValueContext(single.get('control')),true);
+});
+
+
+test("later and repeated all-TH headings retain private column propagation",()=>{
+ const ids=dom('<table id="table"><tbody><tr><td colspan="2">顧客一覧</td></tr><tr><th id="heading">氏名</th><th>操作</th></tr><tr><td id="value"><button id="control">Synthetic Person</button></td><td><button id="safe">確認</button></td></tr><tr><th>氏名</th><th>操作</th></tr><tr><th id="th-value"><button id="th-control">Another Person</button></th><th>確認</th></tr></tbody></table>');
+ const result=kinds(ids);for(const id of ['value','th-value'])assert.equal(result.get(ids.get(id)),'name');for(const id of ['control','th-control'])assert.equal(privateValueContext(ids.get(id)),true);assert.equal(result.has(ids.get('heading')),false);assert.equal(privateValueContext(ids.get('safe')),false);
+});

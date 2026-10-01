@@ -1,3 +1,4 @@
+import { ONBOARDING_CSS, ONBOARDING_JS } from "../apps/worker/src/onboarding-assets.ts";
 import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -176,6 +177,10 @@ test("asset内容を変更したらversion更新が必須になる", () => {
     .update(CLOUD_MANUAL_JS)
     .update("\0")
     .update(EDITOR_TOOLS_JS)
+    .update("\0")
+    .update(ONBOARDING_CSS)
+    .update("\0")
+    .update(ONBOARDING_JS)
     .digest("hex")
     .slice(0, 16)}`;
 

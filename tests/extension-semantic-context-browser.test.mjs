@@ -12,18 +12,20 @@ async function until(read, accept, message) {
   do { const value = await read(); if (accept(value)) return value; await delay(30); } while (Date.now() < end);
   assert.fail(message);
 }
-const canaries = ["Synthetic Person", "Column Person Alpha", "Column Person Beta", "Span Person Gamma", "Ambiguous Person", "Explicit Person", "Zero Span Person"];
+const canaries = ["Synthetic Person", "Column Person Alpha", "Column Person Beta", "Span Person Gamma", "Ambiguous Person", "Explicit Person", "Zero Span Person", "Header Person One", "Header Person Two"];
 const fixture = `<!doctype html><meta charset="utf-8"><style>
 body{margin:20px;font:16px Arial,sans-serif;color:#172b4d;background:#f4f8fa}
-table{border-collapse:collapse;margin:12px 0;table-layout:fixed;width:670px}td,th{border:2px solid #456;padding:6px;height:26px;background:#fff}th{text-align:left}
+table{border-collapse:collapse;margin:8px 0;table-layout:fixed;width:670px}td,th{border:2px solid #456;padding:4px;height:24px;background:#fff}th{text-align:left}
 dt{width:170px;white-space:nowrap;overflow:hidden}dd{margin:0;width:350px;height:36px;padding:4px;background:#fff}button{font:16px Arial;border:0;padding:0;background:transparent;color:rgb(208,0,127)}
 #safe{color:#172b4d}h1{font-size:20px;margin:8px}
 </style><h1>合成データの意味境界</h1>
 <dl><dt>${"X".repeat(201)} 氏名</dt><dd id="long-value"><button id="long-name">Synthetic Person</button></dd></dl>
-<table id="standard"><thead><tr><th>氏名</th><th>操作</th></tr></thead><tbody>
+<table id="standard"><tbody><tr><td colspan="2">顧客一覧</td></tr><tr><th id="standard-name-heading">氏名</th><th>操作</th></tr>
 <tr><td id="column-a"><button id="column-name">Column Person Alpha</button></td><td><button id="safe">確認</button></td></tr>
 <tr><td id="column-copy"><button>Column Person Alpha</button></td><td>未処理</td></tr>
-<tr><td id="column-b"><button>Column Person Beta</button></td><td>処理済み</td></tr></tbody></table>
+<tr><td id="column-b"><button>Column Person Beta</button></td><td>処理済み</td></tr>
+<tr><th id="all-th-explicit" headers="standard-name-heading"><button>Header Person One</button></th><th><button id="safe-th">確認</button></th></tr>
+<tr><th id="all-th-implicit"><button>Header Person Two</button></th><th>確認</th></tr></tbody></table>
 <table id="spans"><thead><tr><th rowspan="2">区分</th><th colspan="2">基本情報</th></tr><tr><th>氏名</th><th>会社</th></tr></thead><tbody>
 <tr><td rowspan="2">受付</td><td id="span-name"><button>Span Person Gamma</button></td><td>合成企業</td></tr>
 <tr><td colspan="2" id="ambiguous"><button>Ambiguous Person</button></td></tr></tbody></table>
@@ -33,7 +35,7 @@ dt{width:170px;white-space:nowrap;overflow:hidden}dd{margin:0;width:350px;height
 async function launchFixture(t, html = fixture) {
   const server = createServer((_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end(html); });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
+  t.after(() => { server.closeAllConnections?.(); return new Promise((resolve) => server.close(resolve)); });
   const extensionPath = fileURLToPath(new URL("../apps/extension", import.meta.url));
   const context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true, viewport: null,
     args: ["--window-size=1366,1000", "--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
@@ -83,7 +85,7 @@ async function pixelCounts(page, dataUrl, boxes) {
 test("native capture protects long-label and span-aware table values in pixels and captions", { timeout: 90_000 }, async (t) => {
   const { worker, page, command, tabId } = await launchFixture(t);
   assert.equal((await command({ type: "capture:start", tabId, mode: "pc" })).ok, true);
-  const ids = ["long-value", "column-a", "column-copy", "column-b", "span-name", "ambiguous", "explicit-value", "zero-first", "zero-second"];
+  const ids = ["long-value", "column-a", "column-copy", "column-b", "span-name", "ambiguous", "explicit-value", "zero-first", "zero-second", "all-th-explicit", "all-th-implicit"];
   const before = await rectangles(page, ids);
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const originals = await page.locator("body").textContent();
@@ -118,6 +120,7 @@ test("native capture protects long-label and span-aware table values in pixels a
   assert.equal(find("column-copy").id, find("column-a").id);
   assert.notEqual(find("column-b").id, find("column-a").id);
   assert.equal(find("span-name").kind, "name");
+  assert.equal(find("all-th-explicit").kind,"name");assert.equal(find("all-th-implicit").kind,"name");
   assert.equal(find("ambiguous").kind, "unknown");
   assert.equal(find("ambiguous").text, "サンプル値");
   assert.equal(find("zero-first").id, find("zero-second").id);
@@ -133,7 +136,9 @@ test("native capture protects long-label and span-aware table values in pixels a
   assert.equal(second.event.label, "ボタン");
   assert.equal(second.event.labelSource, undefined);
   await delay(650);
-  const safe = await collect("#safe");
+  const headerValue=await collect("#all-th-explicit button");assert.equal(headerValue.event.label,"ボタン");assert.equal(headerValue.event.labelSource,undefined);
+  await delay(650);
+  const safe = await collect("#safe-th");
   assert.equal(safe.event.label, "確認", "A clearly unrelated action column retains its caption");
   assert.equal((await command({ type: "capture:finish" })).ok, true);
   const exported = await worker.evaluate(() => new Promise((resolve, reject) => {

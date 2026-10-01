@@ -130,7 +130,9 @@ function shareViewerHtml(): string {
 }
 
 const SHARE_CSS = `html{scroll-behavior:smooth;scroll-padding-top:84px}body{margin:0;background:#f2f6f7}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #117bce;outline-offset:3px}.reader-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:32px;align-items:start}.reader-toc{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto}.reader-toc h2{font-size:14px;margin:0 0 14px}.reader-toc ol{list-style:none;padding:0;margin:0;display:grid;gap:6px}.reader-toc a{display:block;color:#183039;text-decoration:none;min-height:44px;padding:10px 12px;box-sizing:border-box;border:1px solid transparent;border-radius:8px;line-height:1.5;font-size:14px}.reader-toc a[aria-current=step]{background:#e5f4f2;border-color:var(--reader-accent,#087f7a);font-weight:700}.reader-progress{font-size:13px;color:#5c7077;margin:12px 0}.reader-team-logo{max-width:180px!important;max-height:64px;object-fit:contain;object-position:left;margin:0 0 20px!important;padding:4px;box-sizing:border-box;background:white}.reader-document-header{border-top:5px solid var(--reader-accent,#087f7a);padding:24px 0 20px}.reader-document-header h2{font-size:clamp(24px,3vw,34px);line-height:1.4;margin:0}.reader-print{min-height:44px;background:white;border:1px solid #789099;border-radius:8px;padding:8px 16px;color:#183039;font:inherit}.reader-print:disabled{opacity:.5}.share-step{scroll-margin-top:24px}.share-step>p{white-space:pre-wrap}.reader-print-note{font-size:12px;color:#5c7077}.reader-toc summary{display:none}@media(max-width:760px){.reader-layout{display:block}.reader-toc{position:sticky;top:0;z-index:3;background:#fff;border:1px solid #d7e2e5;border-radius:8px;padding:8px 12px;max-height:60vh;margin-bottom:20px}.reader-toc summary{display:block;min-height:44px;line-height:44px;cursor:pointer;font-weight:700}.reader-toc:not([open]) ol,.reader-toc:not([open]) h2{display:none}.reader-toc .reader-progress{margin:0}.reader-document-header{padding:20px 0}.reader-print{margin:12px 0}.reader-toc h2{display:none}}@media(max-width:560px){.share-shell{padding:12px!important}.share-brand{border:0;box-shadow:none;padding:4px 0 12px!important}.share-brand h1{font-size:17px}.share-brand>img:first-child{width:32px!important;height:32px!important}.share-mascot{display:none}.share-kicker{font-size:11px}#share-message{padding:4px 0;margin:0;font-size:12px}.reader-document-header{padding:14px 0 12px}.reader-document-header h2{font-size:23px}.reader-document-header>p{margin:8px 0;font-size:13px}.reader-toc{position:relative;padding:0 8px;margin-bottom:12px}.reader-toc .reader-progress{display:none}#share-content{margin-top:8px!important;padding:12px!important}.share-step{padding:14px 0}.share-step-image-card{padding:8px}.reader-print-note{display:none}.reader-print{margin:4px 0;min-height:44px}.reader-team-logo{max-height:40px;margin-bottom:10px!important}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{body{background:#fff}.share-brand,#share-message,#share-auth,.reader-toc,.reader-print,.reader-print-note{display:none!important}.share-shell{padding:0!important;max-width:none!important;background:#fff!important}.reader-layout{display:block}.share-step{break-inside:avoid;page-break-inside:avoid}.share-step-image-card{border:0!important;padding:0!important;background:#fff!important}#share-content{border:0!important;box-shadow:none!important;padding:0!important}.reader-document-header{border-top-color:var(--reader-accent,#087f7a)!important;print-color-adjust:exact}.share-step-image-card img{max-height:660px!important}.share-image-error,.share-image-status{color:#000}}
-.share-shell{box-sizing:border-box;max-width:1240px;margin:0 auto;padding:24px 16px;font:16px/1.7 system-ui,sans-serif;color:#20282e;background:#f3fbfa;min-height:100vh}.share-brand{display:flex;align-items:center;gap:14px;padding:12px 16px 20px;background:#fff;border:1px solid #b6deda;border-radius:16px;box-shadow:0 8px 24px #204a4420}.share-brand>img:first-child{width:58px;height:58px;object-fit:contain}.share-brand h1{margin:0;font-size:clamp(1.5rem,4vw,2.15rem)}.share-kicker{margin:0;color:#087f7a;font-weight:700}.share-mascot{width:80px;height:80px;object-fit:contain;margin-left:auto}.share-shell>h1{font-size:clamp(1.4rem,4vw,2rem)}#share-message{padding:12px 0;color:#46555b}#share-auth{display:grid;gap:10px;max-width:420px;padding:18px;background:#fff;border:1px solid #b6deda;border-radius:12px}#share-auth[hidden],#share-content[hidden],#share-content [hidden]{display:none!important}#share-auth input{min-height:44px;padding:8px;border:1px solid #9abbb8;border-radius:6px}#share-auth button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:#087f7a;color:#fff;font-weight:700}#share-content{margin-top:18px;background:#fff;border:1px solid #b6deda;border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px #204a4420}#share-content>h2{margin-top:0}#share-content img{max-width:100%;height:auto;display:block;margin:12px auto;border-radius:8px}.share-step{padding:20px 0;border-top:1px solid #b6deda}.share-step h3{margin:0 0 8px}.share-step-image-card{margin-top:14px;padding:16px;border:1px solid #b6deda;border-radius:10px;background:#f7fffd}.share-step-image-card img{width:100%;max-height:600px;object-fit:contain;margin:8px auto}.share-image-status,.share-image-error,.share-image-empty{margin:0;color:#52666a}.share-image-error{color:#a3362b}.share-image-retry{min-height:44px;margin-top:8px;padding:7px 14px;border:1px solid #087f7a;border-radius:7px;background:#e9faf7;color:#126b5c;font-weight:700;cursor:pointer}.share-note{color:#52666a}@media(max-width:560px){.share-brand{padding:10px 12px}.share-mascot{width:58px;height:58px}.share-brand>img:first-child{width:48px;height:48px}#share-content{padding:14px}}`;
+.share-shell{box-sizing:border-box;max-width:1240px;margin:0 auto;padding:24px 16px;font:16px/1.7 system-ui,sans-serif;color:#20282e;background:#f3fbfa;min-height:100vh}.share-brand{display:flex;align-items:center;gap:14px;padding:12px 16px 20px;background:#fff;border:1px solid #b6deda;border-radius:16px;box-shadow:0 8px 24px #204a4420}.share-brand>img:first-child{width:58px;height:58px;object-fit:contain}.share-brand h1{margin:0;font-size:clamp(1.5rem,4vw,2.15rem)}.share-kicker{margin:0;color:#087f7a;font-weight:700}.share-mascot{width:80px;height:80px;object-fit:contain;margin-left:auto}.share-shell>h1{font-size:clamp(1.4rem,4vw,2rem)}#share-message{padding:12px 0;color:#46555b}#share-auth{display:grid;gap:10px;max-width:420px;padding:18px;background:#fff;border:1px solid #b6deda;border-radius:12px}#share-auth[hidden],#share-content[hidden],#share-content [hidden]{display:none!important}#share-auth input{min-height:44px;padding:8px;border:1px solid #9abbb8;border-radius:6px}#share-auth button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:#087f7a;color:#fff;font-weight:700}#share-content{margin-top:18px;background:#fff;border:1px solid #b6deda;border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px #204a4420}#share-content>h2{margin-top:0}#share-content img{max-width:100%;height:auto;display:block;margin:12px auto;border-radius:8px}.share-step{padding:20px 0;border-top:1px solid #b6deda}.share-step h3{margin:0 0 8px}.share-step-image-card{margin-top:14px;padding:16px;border:1px solid #b6deda;border-radius:10px;background:#f7fffd}.share-step-image-card img{width:100%;max-height:600px;object-fit:contain;margin:8px auto}.share-image-status,.share-image-error,.share-image-empty{margin:0;color:#52666a}.share-image-error{color:#a3362b}.share-image-retry{min-height:44px;margin-top:8px;padding:7px 14px;border:1px solid #087f7a;border-radius:7px;background:#e9faf7;color:#126b5c;font-weight:700;cursor:pointer}.share-note{color:#52666a}@media(max-width:560px){.share-brand{padding:10px 12px}.share-mascot{width:58px;height:58px}.share-brand>img:first-child{width:48px;height:48px}#share-content{padding:14px}}
+.reader-navigation{position:sticky;top:8px;z-index:4;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:8px;background:#fff;border:1px solid #b6deda;border-radius:10px;box-shadow:0 3px 12px #204a4415}.reader-navigation button,.reader-image-zoom,.reader-zoom-toolbar button,.reader-access-retry{min-height:44px;padding:8px 12px;border:1px solid #789099;border-radius:8px;background:#fff;color:#183039;font:inherit;cursor:pointer}.reader-navigation button:disabled,.reader-image-zoom:disabled{opacity:.5;cursor:default}.reader-current{font-weight:700;white-space:nowrap}.reader-document{min-width:0}.share-step{scroll-margin-top:88px}.reader-image-state{min-height:28px}.reader-image-frame{aspect-ratio:16/9;max-height:600px;display:flex;align-items:center;justify-content:center}#share-content .reader-image-frame img{width:100%;height:100%;max-height:600px;object-fit:contain;margin:0}.reader-image-zoom{margin-top:8px}.reader-access-retry{display:block;margin-top:12px}.reader-zoom-open{overflow:hidden}.reader-image-dialog{font:16px/1.7 system-ui,sans-serif;box-sizing:border-box;width:min(1100px,calc(100vw - 24px));height:min(850px,calc(100dvh - 24px));padding:16px;border:1px solid #789099;border-radius:12px;color:#183039;background:#fff}.reader-image-dialog[open]{display:flex;flex-direction:column;gap:10px}.reader-image-dialog::backdrop{background:#10252bbf}.reader-image-dialog h2{font-size:18px;margin:0}.reader-zoom-toolbar{display:flex;flex-wrap:wrap;gap:8px}.reader-zoom-close{margin-left:auto}.reader-zoom-toolbar button[aria-pressed=true]{background:#e5f4f2;border-color:#087f7a}.reader-zoom-hint{font-size:14px;margin:0}.reader-image-stage{flex:1;min-height:0;overflow:auto;background:#edf1f2;overscroll-behavior:contain}.reader-image-stage[data-zoom="200"]{cursor:grab;touch-action:pan-x pan-y}.reader-image-dialog .reader-image-stage img{max-width:none;max-height:none;height:auto;margin:0;border-radius:0}.reader-image-stage[data-zoom=fit]{display:flex;align-items:center;justify-content:center}@media(max-width:560px){.reader-navigation{gap:6px;padding:4px;top:4px;font-size:14px}.reader-navigation button{padding:6px}.reader-image-dialog{padding:12px}.reader-zoom-hint{font-size:13px}}@media print{.reader-navigation,.reader-image-zoom,.reader-image-dialog,.reader-access-retry{display:none!important}.reader-image-frame{max-height:none}}
+`;
 
 const SHARE_JS = `(() => {
   const message = document.querySelector('#share-message');
@@ -138,62 +140,224 @@ const SHARE_JS = `(() => {
   const passcode = document.querySelector('#share-passcode');
   const submit = document.querySelector('#share-submit');
   const content = document.querySelector('#share-content');
-  const token = location.hash.startsWith('#token=') ? location.hash.slice(7) : '';
-  let grant = '';
+  let token = location.hash.startsWith('#token=') ? location.hash.slice(7) : '';
+  // The URL is only an entry point. Credentials remain in this page's memory.
+  history.replaceState(null, '', location.pathname);
+  let grant = '', deadline = 0, expiryTimer = null, accessEpoch = 0, authEpoch = 0, accessController = null;
+  let renderEpoch = 0, imageController = null, cleanupReader = () => {}, currentIndex = 0, positionKey = '';
+  let imagePending = 0, imageFailures = 0, printButton = null;
   const objectUrls = [];
   const setMessage = (value) => { message.textContent = value; };
   const validSecret = (value) => /^[A-Za-z0-9_-]{43}$/.test(value);
+  const setState = (value) => { content.dataset.accessState = value; };
   async function request(path, init = {}) {
     const headers = { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) };
     const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
     let body = null; try { body = await response.json(); } catch {}
-    if (!response.ok) { const error = new Error(body?.message || '共有内容を表示できません。'); error.status = response.status; throw error; }
+    if (!response.ok) { const error = new Error('共有内容を表示できません。'); error.status = response.status; throw error; }
     return body;
   }
-  let imagePending=0, imageFailures=0, printButton=null;
-  const updatePrint=()=>{if(printButton)printButton.disabled=imagePending>0||imageFailures>0;};
-  async function loadImage(image, assetId, status, error, retry, annotations=[]) {
-    if(image.dataset.failed==="true"){imageFailures--;delete image.dataset.failed;}imagePending++;updatePrint();
+  function clearReader() {
+    content.hidden = true; renderEpoch++; imageController?.abort(); cleanupReader(); cleanupReader = () => {};
+    content.replaceChildren(); objectUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
+    imagePending = 0; imageFailures = 0; printButton = null;
+  }
+  function endAccess(expired) {
+    accessEpoch++; authEpoch++; accessController?.abort(); clearTimeout(expiryTimer); clearReader(); grant = ''; token = ''; passcode.value = ''; auth.hidden = true;
+    setState(expired ? 'expired' : 'unavailable');
+    setMessage(expired ? '閲覧の有効期限が切れました。元の共有リンクから開き直してください。再表示できない場合は共有元に確認してください。' : '共有が停止されたか、閲覧権限を確認できません。元の共有リンクから開き直してください。再表示できない場合は共有元に確認してください。');
+  }
+  function armExpiry(value) {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) throw new Error('invalid expiry');
+    deadline = deadline ? Math.min(deadline, parsed) : parsed;
+    clearTimeout(expiryTimer);
+    if (deadline <= Date.now()) { endAccess(true); return false; }
+    expiryTimer = setTimeout(() => armExpiry(new Date(deadline).toISOString()), Math.min(deadline - Date.now(), 2147483647));
+    return true;
+  }
+  const updatePrint = () => { if (printButton) printButton.disabled = imagePending > 0 || imageFailures > 0; };
+  async function loadImage(image, assetId, status, error, retry, zoom, annotations = []) {
+    const epoch = renderEpoch, signal = imageController.signal;
+    const active = () => epoch === renderEpoch && !signal.aborted;
+    if (image.dataset.failed === 'true') { imageFailures--; delete image.dataset.failed; }
+    imagePending++; updatePrint(); zoom.disabled = true;
     image.hidden = true; status.hidden = false; error.hidden = true; retry.hidden = true;
     try {
-      const response = await fetch('/s/api/assets/' + encodeURIComponent(assetId), { headers: { Accept: 'image/*', 'X-Share-Grant': grant }, credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/s/api/assets/' + encodeURIComponent(assetId), { headers: { Accept: 'image/*', 'X-Share-Grant': grant }, credentials: 'same-origin', cache: 'no-store', signal });
       if (!response.ok) { const failure = new Error('asset unavailable'); failure.status = response.status; throw failure; }
-      const url = URL.createObjectURL(await response.blob()); objectUrls.push(url); image.src = url;
-      await image.decode();
-      if(annotations.length){if(!globalThis.MecchaImageTools)throw new Error('renderer unavailable');const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;MecchaImageTools.drawScreenshot(canvas.getContext('2d'),image,{annotations,masks:[]});const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('render failed');const rendered=URL.createObjectURL(blob);objectUrls.push(rendered);image.src=rendered;await image.decode();}
-      status.hidden = true; image.hidden = false;
+      const blob = await response.blob(); if (!active()) return;
+      const url = URL.createObjectURL(blob); objectUrls.push(url); image.src = url;
+      await image.decode(); if (!active()) return;
+      if (annotations.length) {
+        if (!globalThis.MecchaImageTools) throw new Error('renderer unavailable');
+        const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+        MecchaImageTools.drawScreenshot(canvas.getContext('2d'), image, { annotations, masks: [] });
+        const renderedBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')); if (!active()) return;
+        if (!renderedBlob) throw new Error('render failed');
+        const rendered = URL.createObjectURL(renderedBlob); objectUrls.push(rendered); image.src = rendered; await image.decode(); if (!active()) return;
+      }
+      status.hidden = true; image.hidden = false; zoom.disabled = false;
     } catch (failure) {
-      imageFailures++;image.dataset.failed='true';status.hidden = true; error.textContent = failure?.status === 401 ? '共有期限が切れているか、共有権限を確認できません。共有元に確認してください。' : '画像を読み込めませんでした。もう一度お試しください。'; error.hidden = false; retry.hidden = false;
-    }finally{imagePending--;updatePrint();}
+      if (!active()) return;
+      imageFailures++; image.dataset.failed = 'true'; status.hidden = true;
+      error.textContent = failure?.status === 401 ? '共有期限が切れているか、共有権限を確認できません。共有元に確認してください。' : '画像を読み込めませんでした。もう一度お試しください。';
+      error.hidden = false; retry.hidden = false;
+    } finally { if (active()) { imagePending--; updatePrint(); } }
   }
   function render(data) {
-    content.replaceChildren();imagePending=0;imageFailures=0;
-    const color=/^#[0-9a-f]{6}$/i.test(data.branding?.themeColor||'')?data.branding.themeColor:'#087f7a';content.style.setProperty('--reader-accent',color);
-    const layout=document.createElement('div');layout.className='reader-layout';const toc=document.createElement('details');toc.className='reader-toc';toc.open=innerWidth>760;const summary=document.createElement('summary');summary.textContent='手順一覧';const tocHeading=document.createElement('h2');tocHeading.textContent='この手順書の内容';const links=document.createElement('ol');const progress=document.createElement('p');progress.className='reader-progress';progress.textContent='全 '+(data.steps||[]).length+' 手順';toc.append(summary,tocHeading,links,progress);
-    const documentBody=document.createElement('div');documentBody.className='reader-document';const documentHeader=document.createElement('header');documentHeader.className='reader-document-header';const title = document.createElement('h2'); title.textContent = data.title || '手順書'; documentHeader.append(title);documentBody.append(documentHeader);layout.append(toc,documentBody);content.append(layout);
-    if(data.branding?.logoId){imagePending++;const logo=document.createElement('img');logo.className='reader-team-logo';logo.alt='チームのロゴ';logo.hidden=true;documentHeader.prepend(logo);fetch('/s/api/logos/'+encodeURIComponent(data.branding.logoId),{headers:{'X-Share-Grant':grant},credentials:'same-origin',cache:'no-store'}).then(async response=>{if(!response.ok)throw new Error('logo unavailable');const url=URL.createObjectURL(await response.blob());objectUrls.push(url);logo.src=url;await logo.decode();logo.hidden=false;}).catch(()=>{imageFailures++;const warning=document.createElement('p');warning.className='share-image-error';warning.textContent='チームのロゴを読み込めませんでした。手順書を開き直してください。';documentHeader.append(warning);}).finally(()=>{imagePending--;updatePrint();});}
-    printButton=document.createElement('button');printButton.type='button';printButton.className='reader-print';printButton.textContent='PDF / 印刷';printButton.disabled=true;printButton.addEventListener('click',()=>{if(!imagePending&&!imageFailures)window.print();});const printNote=document.createElement('p');printNote.className='reader-print-note';printNote.textContent='すべての画像を読み込むと、PDF・印刷できます。';documentHeader.append(printButton,printNote);
-    const observer=new IntersectionObserver(entries=>{const visible=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];if(!visible)return;const index=Number(visible.target.dataset.index);progress.textContent='いま '+(index+1)+' / '+data.steps.length+' 手順';links.querySelectorAll('a').forEach((link,i)=>link.setAttribute('aria-current',i===index?'step':'false'));},{rootMargin:'-10% 0px -60% 0px'});
-
-    if (data.description) { const description = document.createElement('p'); description.textContent = data.description; documentHeader.insertBefore(description,printButton); }
-    for (const [index, step] of (data.steps || []).entries()) {
-      const item = document.createElement('section'); item.className = 'share-step'; item.setAttribute('aria-labelledby', 'share-step-' + (index + 1)); const heading = document.createElement('h3'); heading.id = 'share-step-' + (index + 1); heading.textContent = '手順 ' + (index + 1) + '：' + (step.title || '手順'); item.append(heading);item.id='reader-step-'+(index+1);item.dataset.index=String(index);const li=document.createElement('li'),link=document.createElement('a');link.href='#'+item.id;link.textContent=(index+1)+'  '+(step.title||'手順');link.setAttribute('aria-current',index===0?'step':'false');link.addEventListener('click',event=>{event.preventDefault();if(innerWidth<=760)toc.open=false;item.scrollIntoView({block:'start'});heading.tabIndex=-1;heading.focus({preventScroll:true});});li.append(link);links.append(li);observer.observe(item); const text = document.createElement('p'); text.textContent = step.instruction || ''; item.append(text);
+    clearReader(); imageController = new AbortController(); const epoch = renderEpoch;
+    const steps = Array.isArray(data.steps) ? data.steps : [];
+    // Published step IDs identify an immutable snapshot without storing its text or access secrets.
+    const firstId = steps[0]?.id || '';
+    const nextKey = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(firstId) ? 'meccha.reader.position:' + firstId : '';
+    if (positionKey !== nextKey || !positionKey) {
+      currentIndex = 0;
+      try { const saved = nextKey ? localStorage.getItem(nextKey) : null; if (saved !== null && /^\\d{1,5}$/.test(saved)) currentIndex = Number(saved); } catch {}
+    }
+    positionKey = nextKey; currentIndex = Math.max(0, Math.min(currentIndex, steps.length - 1));
+    const color = /^#[0-9a-f]{6}$/i.test(data.branding?.themeColor || '') ? data.branding.themeColor : '#087f7a'; content.style.setProperty('--reader-accent', color);
+    const layout = document.createElement('div'); layout.className = 'reader-layout';
+    const toc = document.createElement('details'); toc.className = 'reader-toc'; toc.open = innerWidth > 760;
+    const summary = document.createElement('summary'); summary.textContent = '手順一覧';
+    const tocHeading = document.createElement('h2'); tocHeading.textContent = 'この手順書の内容';
+    const links = document.createElement('ol'); const progress = document.createElement('p'); progress.className = 'reader-progress'; toc.append(summary, tocHeading, links, progress);
+    const documentBody = document.createElement('div'); documentBody.className = 'reader-document';
+    const navigation = document.createElement('nav'); navigation.className = 'reader-navigation'; navigation.setAttribute('aria-label', '手順の前後移動');
+    const button = (text, className) => { const element = document.createElement('button'); element.type = 'button'; element.className = className; element.textContent = text; return element; };
+    const previous = button('前の手順', 'reader-previous'), next = button('次の手順', 'reader-next');
+    const current = document.createElement('span'); current.className = 'reader-current'; current.setAttribute('role', 'status'); current.setAttribute('aria-live', 'polite'); navigation.append(previous, current, next);
+    const documentHeader = document.createElement('header'); documentHeader.className = 'reader-document-header';
+    const title = document.createElement('h2'); title.textContent = data.title || '手順書'; documentHeader.append(title); documentBody.append(navigation, documentHeader); layout.append(toc, documentBody); content.append(layout);
+    if (data.branding?.logoId) {
+      imagePending++; const logo = document.createElement('img'); logo.className = 'reader-team-logo'; logo.alt = 'チームのロゴ'; logo.hidden = true; documentHeader.prepend(logo);
+      fetch('/s/api/logos/' + encodeURIComponent(data.branding.logoId), { headers: { 'X-Share-Grant': grant }, credentials: 'same-origin', cache: 'no-store', signal: imageController.signal }).then(async response => {
+        if (!response.ok) throw new Error('logo unavailable'); const blob = await response.blob(); if (epoch !== renderEpoch) return;
+        const url = URL.createObjectURL(blob); objectUrls.push(url); logo.src = url; await logo.decode(); if (epoch === renderEpoch) logo.hidden = false;
+      }).catch(() => { if (epoch !== renderEpoch) return; imageFailures++; const warning = document.createElement('p'); warning.className = 'share-image-error'; warning.textContent = 'チームのロゴを読み込めませんでした。手順書を開き直してください。'; documentHeader.append(warning); }).finally(() => { if (epoch === renderEpoch) { imagePending--; updatePrint(); } });
+    }
+    printButton = button('PDF / 印刷', 'reader-print'); printButton.disabled = true;
+    printButton.addEventListener('click', () => { if (deadline <= Date.now()) { endAccess(true); return; } if (!content.hidden && !imagePending && !imageFailures) window.print(); });
+    const printNote = document.createElement('p'); printNote.className = 'reader-print-note'; printNote.textContent = 'すべての画像を読み込むと、PDF・印刷できます。'; documentHeader.append(printButton, printNote);
+    if (data.description) { const description = document.createElement('p'); description.textContent = data.description; documentHeader.insertBefore(description, printButton); }
+    const dialog = document.createElement('dialog'); dialog.className = 'reader-image-dialog'; dialog.setAttribute('aria-labelledby', 'reader-zoom-title');
+    const dialogTitle = document.createElement('h2'); dialogTitle.id = 'reader-zoom-title'; dialogTitle.textContent = '画像を拡大して確認';
+    const toolbar = document.createElement('div'); toolbar.className = 'reader-zoom-toolbar';
+    const fit = button('全体表示', 'reader-zoom-fit'), enlarge = button('200%', 'reader-zoom-double'), close = button('閉じる', 'reader-zoom-close'); toolbar.append(fit, enlarge, close);
+    const hint = document.createElement('p'); hint.className = 'reader-zoom-hint'; hint.textContent = '200%ではドラッグ・スクロール・矢印キーで移動できます。元の画像は変更されません。';
+    const stage = document.createElement('div'); stage.className = 'reader-image-stage'; stage.tabIndex = 0; stage.setAttribute('aria-label', '拡大画像。矢印キーで表示位置を移動');
+    const enlargedImage = document.createElement('img'); enlargedImage.className = 'reader-zoom-image'; enlargedImage.alt = '手順の拡大画像'; enlargedImage.draggable = false; stage.append(enlargedImage); dialog.append(dialogTitle, toolbar, hint, stage); document.body.append(dialog);
+    let zoomTrigger = null, zoomSource = null, drag = null;
+    const setZoom = (double) => {
+      if (!zoomSource) return;
+      const ratio = Math.min(stage.clientWidth / zoomSource.naturalWidth, stage.clientHeight / zoomSource.naturalHeight, 1);
+      enlargedImage.style.width = Math.max(1, zoomSource.naturalWidth * ratio * (double ? 2 : 1)) + 'px';
+      stage.dataset.zoom = double ? '200' : 'fit'; fit.setAttribute('aria-pressed', String(!double)); enlarge.setAttribute('aria-pressed', String(double)); stage.scrollTo(0, 0);
+    };
+    fit.addEventListener('click', () => setZoom(false)); enlarge.addEventListener('click', () => setZoom(true)); close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => { document.body.classList.remove('reader-zoom-open'); enlargedImage.removeAttribute('src'); zoomSource = null; if (!content.hidden && zoomTrigger?.isConnected) zoomTrigger.focus({ preventScroll: true }); });
+    stage.addEventListener('pointerdown', event => { if (stage.dataset.zoom !== '200' || event.button !== 0) return; drag = { x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop }; stage.setPointerCapture(event.pointerId); event.preventDefault(); stage.focus(); });
+    stage.addEventListener('pointermove', event => { if (drag) { stage.scrollLeft = drag.left + drag.x - event.clientX; stage.scrollTop = drag.top + drag.y - event.clientY; } });
+    stage.addEventListener('pointerup', () => { drag = null; }); stage.addEventListener('pointercancel', () => { drag = null; }); stage.addEventListener('lostpointercapture', () => { drag = null; });
+    const items = [], tocLinks = [];
+    const select = index => {
+      currentIndex = Math.max(0, Math.min(index, steps.length - 1));
+      current.textContent = steps.length ? (currentIndex + 1) + ' / ' + steps.length : '0 / 0'; progress.textContent = 'いま ' + current.textContent + ' 手順';
+      previous.disabled = !steps.length || currentIndex === 0; next.disabled = !steps.length || currentIndex === steps.length - 1;
+      tocLinks.forEach((link, i) => link.setAttribute('aria-current', i === currentIndex ? 'step' : 'false'));
+      try { if (positionKey && steps.length) localStorage.setItem(positionKey, String(currentIndex)); } catch {}
+    };
+    const go = (index, focus = false) => { select(index); if (innerWidth <= 760) toc.open = false; const item = items[currentIndex]; if (item) window.scrollTo({ top: Math.max(0, scrollY + item.getBoundingClientRect().top - navigation.offsetHeight - 24), behavior: 'instant' }); if (focus) { const heading = item?.querySelector('h3'); heading?.focus({ preventScroll: true }); } };
+    previous.addEventListener('click', () => go(currentIndex - 1)); next.addEventListener('click', () => go(currentIndex + 1));
+    for (const [index, step] of steps.entries()) {
+      const item = document.createElement('section'); item.className = 'share-step'; item.setAttribute('aria-labelledby', 'share-step-' + (index + 1)); item.id = 'reader-step-' + (index + 1); item.dataset.index = String(index);
+      const heading = document.createElement('h3'); heading.id = 'share-step-' + (index + 1); heading.tabIndex = -1; heading.textContent = '手順 ' + (index + 1) + '：' + (step.title || '手順'); item.append(heading); items.push(item);
+      const li = document.createElement('li'), link = document.createElement('a'); link.href = '#' + item.id; link.textContent = (index + 1) + '  ' + (step.title || '手順'); link.addEventListener('click', event => { event.preventDefault(); go(index, true); }); li.append(link); links.append(li); tocLinks.push(link);
+      const text = document.createElement('p'); text.textContent = step.instruction || ''; item.append(text);
       if (step.assetId) {
-        const card = document.createElement('div'); card.className = 'share-step-image-card'; const status = document.createElement('p'); status.className = 'share-image-status'; status.textContent = '画像を読み込んでいます…'; const error = document.createElement('p'); error.className = 'share-image-error'; error.hidden = true; const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'share-image-retry'; retry.textContent = '画像をもう一度読み込む'; retry.hidden = true; const image = document.createElement('img'); image.alt = '手順の画像'; image.loading = 'eager'; retry.addEventListener('click', () => loadImage(image, step.assetId, status, error, retry, step.annotations||[])); card.append(status, error, retry, image); item.append(card); loadImage(image, step.assetId, status, error, retry, step.annotations||[]);
-      } else {
-        const empty = document.createElement('p'); empty.className = 'share-image-empty'; empty.textContent = 'この手順には画像がありません。'; item.append(empty);
-      }
+        const card = document.createElement('div'); card.className = 'share-step-image-card';
+        const status = document.createElement('p'); status.className = 'share-image-status'; status.textContent = '画像を読み込んでいます…';
+        const error = document.createElement('p'); error.className = 'share-image-error'; error.hidden = true;
+        const retry = button('画像をもう一度読み込む', 'share-image-retry'); retry.hidden = true;
+        const zoom = button('画像を拡大', 'reader-image-zoom'); zoom.disabled = true; zoom.setAttribute('aria-label', '手順 ' + (index + 1) + ' の画像を拡大');
+        const frame = document.createElement('div'); frame.className = 'reader-image-frame';
+        const image = document.createElement('img'); image.alt = '手順の画像'; image.loading = 'eager'; frame.append(image);
+        retry.addEventListener('click', () => loadImage(image, step.assetId, status, error, retry, zoom, step.annotations || []));
+        zoom.addEventListener('click', () => { if (content.hidden || deadline <= Date.now()) { if (deadline <= Date.now()) endAccess(true); return; } zoomTrigger = zoom; zoomSource = image; enlargedImage.src = image.src; dialog.showModal(); document.body.classList.add('reader-zoom-open'); setZoom(false); close.focus(); });
+        const imageState = document.createElement('div'); imageState.className = 'reader-image-state'; imageState.append(status, error, retry);
+        card.append(imageState, frame, zoom); item.append(card); loadImage(image, step.assetId, status, error, retry, zoom, step.annotations || []);
+      } else { const empty = document.createElement('p'); empty.className = 'share-image-empty'; empty.textContent = 'この手順には画像がありません。'; item.append(empty); }
       documentBody.append(item);
     }
-    updatePrint();
+    let scrollFrame = 0;
+    const onScroll = () => {
+      if (scrollFrame || content.hidden || dialog.open) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0; if (epoch !== renderEpoch || content.hidden) return;
+        const threshold = navigation.getBoundingClientRect().bottom + 24;
+        let selected = 0; for (const [i, item] of items.entries()) { if (item.getBoundingClientRect().top <= threshold) selected = i; else break; }
+        if (items.length && scrollY + innerHeight >= document.documentElement.scrollHeight - 2) selected = items.length - 1;
+        select(selected);
+      });
+    };
+    addEventListener('scroll', onScroll, { passive: true });
+    cleanupReader = () => { removeEventListener('scroll', onScroll); cancelAnimationFrame(scrollFrame); if (dialog.open) dialog.close(); dialog.remove(); document.body.classList.remove('reader-zoom-open'); };
+    content.hidden = false; select(currentIndex); updatePrint();
+    if (currentIndex > 0) go(currentIndex);
   }
-  async function start() {
-    if (!validSecret(token)) { setMessage('共有リンクを確認できません。'); return; }
-    auth.hidden = false; setMessage('パスコードを入力してください。');
-    submit.addEventListener('click', async () => { submit.disabled = true; try { const result = await request('/s/api/resolve', { method: 'POST', headers: { 'X-Share-Token': token }, body: JSON.stringify({ passcode: passcode.value }) }); grant = result.grant; history.replaceState(null, '', location.pathname); setMessage('共有された手順書を表示しています。'); const data = await request('/s/api/content', { method: 'POST', headers: { 'X-Share-Grant': grant }, body: '{}' }); render(data); content.hidden = false; auth.hidden = true; } catch (failure) { setMessage(failure.status === 429 ? '試行回数が多いため、時間をおいてください。' : '共有リンクまたはパスコードを確認してください。'); } finally { submit.disabled = false; } });
+  async function revalidate() {
+    if (!grant || document.visibilityState === 'hidden') return;
+    if (deadline <= Date.now()) { endAccess(true); return; }
+    const epoch = ++accessEpoch; accessController?.abort(); accessController = new AbortController(); clearReader(); setState('validating'); setMessage('閲覧権限を確認しています。');
+    try {
+      const data = await request('/s/api/content', { method: 'POST', headers: { 'X-Share-Grant': grant }, body: '{}', signal: accessController.signal });
+      if (epoch !== accessEpoch || document.visibilityState === 'hidden') return;
+      if (!armExpiry(data?.expiresAt)) return;
+      render(data); setState('ready'); auth.hidden = true; setMessage('共有された手順書を表示しています。');
+    } catch (failure) {
+      if (epoch !== accessEpoch || failure.name === 'AbortError') return;
+      if (deadline <= Date.now()) { endAccess(true); return; }
+      if (failure.status === 401 || failure.status === 403) { endAccess(false); return; }
+      clearReader(); setState('interrupted'); setMessage('通信できず、閲覧権限を確認できません。接続を確認して再試行してください。');
+      const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'reader-access-retry'; retry.textContent = '閲覧権限を再確認'; retry.addEventListener('click', revalidate); message.append(retry);
+    }
   }
-  passcode.addEventListener('keydown',event=>{if(event.key==='Enter'&&!submit.disabled)submit.click();});
-  addEventListener('pagehide', () => objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url))); start();
+  function suspend() {
+    if (!grant) return;
+    accessEpoch++; accessController?.abort(); clearReader(); setState('suspended'); setMessage('戻ると閲覧権限を再確認します。');
+  }
+  function resume() { if (grant && content.dataset.accessState !== 'validating') revalidate(); }
+  function start() {
+    if (!validSecret(token)) { token = ''; setState('reopen'); setMessage('元の共有リンクから開き直してください。共有リンクが見つからない場合は共有元に確認してください。'); return; }
+    auth.hidden = false; setState('locked'); setMessage('パスコードを入力してください。');
+  }
+  submit.addEventListener('click', async () => {
+      if (!validSecret(token) || submit.disabled) return;
+      const attempt = ++authEpoch; submit.disabled = true;
+      try {
+        const result = await request('/s/api/resolve', { method: 'POST', headers: { 'X-Share-Token': token }, body: JSON.stringify({ passcode: passcode.value }) });
+        if (attempt !== authEpoch) return;
+        if (!validSecret(result?.grant)) throw new Error('invalid grant');
+        grant = result.grant; passcode.value = ''; token = ''; auth.hidden = true;
+        if (!armExpiry(result.expiresAt)) return;
+        if (document.visibilityState === 'hidden') { suspend(); return; }
+        await revalidate();
+      } catch (failure) {
+        if (attempt !== authEpoch) return;
+        if (grant) { endAccess(false); return; }
+        setMessage(failure.status === 429 ? '試行回数が多いため、時間をおいてください。' : '共有リンクまたはパスコードを確認してください。');
+      } finally { if (attempt === authEpoch) submit.disabled = false; }
+  });
+  addEventListener('hashchange', () => {
+    const incoming = location.hash.startsWith('#token=') ? location.hash.slice(7) : '';
+    history.replaceState(null, '', location.pathname);
+    if (!incoming) return;
+    accessEpoch++; authEpoch++; accessController?.abort(); clearTimeout(expiryTimer); clearReader();
+    grant = ''; deadline = 0; token = incoming; passcode.value = ''; auth.hidden = true; submit.disabled = false; start();
+  });
+  passcode.addEventListener('keydown', event => { if (event.key === 'Enter' && !submit.disabled) submit.click(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') suspend(); else resume(); });
+  addEventListener('pagehide', suspend); addEventListener('pageshow', resume); start();
 })();`;
 
 async function rateLimit(request: Request, env: ShareLinkEnv, tokenHash: string): Promise<void> {

@@ -14,7 +14,7 @@ async function until(read, accept, message, timeout = 15_000) {
 const fixtureValues = ["合成氏名カナリア甲", "合成氏名カナリア甲", "合成氏名カナリア乙", "fixture-alias@example.test", "1977-04-15", "1988-05-16"];
 function fixture(reverse) {
   const fields = fixtureValues.map((value, index) => `<label>${index < 3 ? "氏名" : index === 3 ? "メール" : "生年月日"}<input id="field${index}" aria-label="${index < 3 ? "氏名" : index === 3 ? "メール" : "生年月日"}" value="${value}"></label>`);
-  return `<!doctype html><meta charset="utf-8"><style>body{font:18px sans-serif;background:#e8f5fa}label{display:block;margin:16px}input{margin-left:24px;width:320px;padding:6px}</style><h1>合成値の記録試験</h1>${(reverse ? fields.reverse() : fields).join("")}<button id="confirm">${reverse ? "確認二" : "確認一"}</button><script>window.formChanges=0;addEventListener('input',()=>formChanges++);addEventListener('change',()=>formChanges++);</script>`;
+  return `<!doctype html><meta charset="utf-8"><style>body{font:18px sans-serif;background:#e8f5fa}label{display:block;margin:16px}input{margin-left:24px;width:320px;padding:6px}</style><h1>合成値の記録試験</h1>${(reverse ? fields.reverse() : fields).join("")}<button id="confirm">${reverse ? "確認二" : "確認一"}</button><span id="hidden-heartbeat" style="display:none">0</span><script>setInterval(()=>{document.querySelector("#hidden-heartbeat").firstChild.nodeValue=String(Date.now());},8);window.formChanges=0;addEventListener('input',()=>formChanges++);addEventListener('change',()=>formChanges++);</script>`;
 }
 async function stored(worker, database, store, key) {
   return worker.evaluate(({ database, store, key }) => new Promise((resolve, reject) => {

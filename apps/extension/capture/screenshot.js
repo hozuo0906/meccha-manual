@@ -219,7 +219,6 @@ export async function installSensitiveMasks(options = {}) {
         if (id) byId.set(id, byId.has(id) ? null : header);
       }
       for (const entry of entries) {
-        if (entry.columnHeader) continue;
         const matched = new Set();
         const explicit = String(entry.cell.getAttribute?.("headers") || "");
         if (explicit.length > 4096) exceed();

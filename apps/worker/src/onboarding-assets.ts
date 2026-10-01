@@ -36,6 +36,7 @@ export const ONBOARDING_JS = `(() => {
   function validDraftFingerprint(value) { return /^[a-f0-9]{64}$/.test(value || ""); }
   function validOutputAction(value) { return value === "save" || value === "share"; }
   function hasRecoveryIdentity(value) { return (value?.claimStatus === "finalize-pending" || value?.claimStatus === "completion-pending" || value?.claimStatus === "completed") && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
+  function hasTerminalExpiry(value) { return value?.claimStatus === "expired" && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
   function recoveryFresh(value, now = Date.now()) { const expiresAt = Date.parse(value?.recoveryExpiresAt || ""); return Number.isFinite(expiresAt) && expiresAt > now; }
   function operationFresh(value, now = Date.now()) { return value?.recoveryExpiresAt !== undefined ? recoveryFresh(value, now) : isFresh(value, now); }
   function validCreatedAt(value) { return Number.isFinite(Date.parse(value || "")); }
@@ -118,6 +119,7 @@ export const ONBOARDING_JS = `(() => {
         existing.requestedAction = fragmentRequestedAction;
         if (!persistState(state)) return null;
       }
+      if (hasTerminalExpiry(existing)) { capturedContext = existing; return capturedContext; }
       if (existing.state === "recovery" && hasRecoveryIdentity(existing)) {
         state.activeHandoffId = fragmentHandoff;
         if (!persistState(state)) return null;
@@ -169,6 +171,7 @@ export const ONBOARDING_JS = `(() => {
     if (!saved.ok || !saved.state) return null;
     if (saved.needsWrite && !persistState(saved.state)) return null;
     const active = metadataFor(saved.state);
+    if (hasTerminalExpiry(active)) { capturedContext = active; return capturedContext; }
     if (active?.state === "expired" && validExtensionId(active.extensionId)) {
       active.state = "recovery-probe";
       if (!persistState(saved.state)) return null;
@@ -180,12 +183,12 @@ export const ONBOARDING_JS = `(() => {
     return capturedContext;
   }
   function expireCapturedContext(context) {
-    context.state = hasRecoveryIdentity(context) ? "recovery" : "expired";
+    context.state = context.claimStatus === "expired" ? "expired" : hasRecoveryIdentity(context) ? "recovery" : "expired";
     const saved = readSaved();
     if (!saved.ok || !saved.state) return false;
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId);
     if (!matching) return false;
-    const nextState = hasRecoveryIdentity(matching) ? "recovery" : "expired";
+    const nextState = matching.claimStatus === "expired" ? "expired" : hasRecoveryIdentity(matching) ? "recovery" : "expired";
     if (matching.state !== nextState || saved.needsWrite) {
       matching.state = nextState;
       if (!persistState(saved.state)) return false;
@@ -598,7 +601,9 @@ export const ONBOARDING_JS = `(() => {
     else message("保存を再開できませんでした。元の下書きを保持したまま、もう一度お試しください。", "error");
     setButton(context.state === "recovery" || context.state === "recovery-probe" ? "保存状況を確認する" : "保存を再開する", false);
   }
+  const terminalCapturedContext = hasFragment ? initializeCapturedContext() : initializeActiveContext();
   if (!configured) { message("保存先の準備画面は現在利用できません。元の手順書はこの端末に残っています。"); setButton("保存先は準備中", true); }
+  else if (hasTerminalExpiry(terminalCapturedContext)) showExpiredHandoff();
   else if (!getHandoff()) { message("保存を続けるための情報を確認できません。拡張機能の編集画面から、もう一度進んでください。", "error"); setButton("保存を続ける", true); }
   else {
     const context = currentOperation();
@@ -612,7 +617,7 @@ export const ONBOARDING_JS = `(() => {
       button.addEventListener("click", bootstrap);
     }
   }
-  if (configured && validLaunchId(fragmentLaunchId)) {
+  if (configured && !hasTerminalExpiry(terminalCapturedContext) && validLaunchId(fragmentLaunchId)) {
     signalPageReady(currentOperation()).then((ready) => {
       if (!ready) message("保存先の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");
     });
