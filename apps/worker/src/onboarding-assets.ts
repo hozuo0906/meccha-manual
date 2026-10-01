@@ -74,7 +74,10 @@ export const ONBOARDING_JS = `(() => {
   function persistState(state) { try { sessionStorage.setItem(operationKey, JSON.stringify(state)); return true; } catch { return false; } }
   let capturedContext;
   let capturedContextInitialized = false;
-  function handleHashChange() {
+  function handleHashChange(event) {
+    let eventHash = "";
+    try { eventHash = new URL(event?.newURL || "").hash; } catch { return; }
+    if (!eventHash || eventHash !== location.hash) return;
     hashNavigationPending = true;
     button.disabled = true;
     location.reload();
