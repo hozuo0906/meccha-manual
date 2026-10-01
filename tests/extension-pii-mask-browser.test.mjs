@@ -374,6 +374,10 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
       response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>Help</span><span>${" ordinary help text without private data.".repeat(80)}</span></p>`);
       return;
     }
+    if (path === "/english-richtext-mutation") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>${" ordinary help text without private data.".repeat(80)}</span><span id=status>status</span></p>`);
+      return;
+    }
     if (path === "/hidden-visible-continuation") {
       response.end("<!doctype html><style>body{margin:0;padding:24px;font:20px Arial}</style><p><span>alice</span><span hidden>ignored</span><span>@example.com</span></p>");
       return;
@@ -453,6 +457,13 @@ test("split candidates respect rendering boundaries and finite recovery budgets"
     const englishRichText = await inject(installSensitiveMasks);
     assert.equal(englishRichText.privacyMaskedCount, 0);
     assert.equal(await inject(verifySensitiveMasks, [englishRichText.token]), true, "PII-free English rich text remains recordable");
+    await inject(removeSensitiveMasks);
+
+    await page.goto(`${baseUrl}/english-richtext-mutation`);
+    const englishRichTextMutation = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.querySelector("#status").firstChild.nodeValue = "updated"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [englishRichTextMutation.token]), true, "PII-free long prose status mutation remains recordable");
     await inject(removeSensitiveMasks);
 
     await page.goto(`${baseUrl}/hidden-visible-continuation`);
