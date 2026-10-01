@@ -1158,6 +1158,55 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.textContent = "123,";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.textContent = "-4567、";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "postal fragments with punctuation delimiters must fail closed");
+    await page.evaluate(() => document.getElementById("stream").firstElementChild.remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("stream").firstElementChild.remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "postal delimiter removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const prefix = document.createElement("span");
+      prefix.id = "delimited-phone-prefix";
+      prefix.textContent = "safe";
+      document.getElementById("stream").append(prefix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("delimited-phone-prefix").firstChild.nodeValue = "09012"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "delimited-phone-suffix";
+      suffix.textContent = "345678。";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("delimited-phone-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("delimited-phone-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "phone characterData and childList fragments with a Japanese delimiter must fail closed");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     await page.evaluate(() => {
       const stream = document.getElementById("stream");
       for (let index = 0; index < 128; index += 1) {
