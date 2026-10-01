@@ -1162,7 +1162,7 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
       const prefix = document.createElement("span");
-      prefix.textContent = "123,";
+      prefix.textContent = "123";
       document.getElementById("stream").append(prefix);
     });
     await page.waitForTimeout(25);
