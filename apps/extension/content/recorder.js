@@ -87,7 +87,11 @@
   const describe = (element) => {
     if (!(element instanceof Element)) return {};
     const id = element.id;
-    const associatedLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : undefined;
+    const associatedLabelElement = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : undefined;
+    const associatedLabelResult = associatedLabelElement && typeof document.createTreeWalker === "function"
+      ? boundedVisibleText(associatedLabelElement)
+      : null;
+    const associatedLabel = associatedLabelResult?.truncated ? undefined : associatedLabelResult?.text;
     const tagName = element.tagName.toLowerCase();
     const type = String(element.getAttribute("type") || "").toLowerCase();
     const role = element.getAttribute("role");
