@@ -711,7 +711,8 @@ export function installSensitiveMasks() {
         return pattern.test(text);
       });
     };
-    const mutationPartialPattern = (value) => /@/.test(String(value ?? ""))
+    const mutationPartialPattern = (value) => /[A-Z0-9._%+-]+@[A-Z0-9.-]*/i.test(String(value ?? ""))
+      || /@[A-Z0-9.-]+/i.test(String(value ?? ""))
       || /(?:0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(String(value ?? ""));
     const collectMutationVisibleText = (node, state) => {
       if (!node || state.nodeOverflow) return;

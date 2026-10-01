@@ -68,7 +68,7 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 
 
-MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する際に、各履歴系列を混ぜず、有限値内の任意位置にある`@`を含む明らかなpartial markerは区切り文字・後続文字に関係なく出現時点で拒否する。128 nodeまたは1024文字の有限予算へ到達して候補を確定できない場合は、通常の長文DOM検出とは別にcaptureをfail closedとする。
+MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する際に、各履歴系列を混ぜず、有限値内のASCII local-part直後の`@`またはleading `@`直後のASCII domainを含む明らかなemail partial markerは区切り文字・後続文字に関係なく出現時点で拒否する。孤立した日本語文中の`@`は記録可能とする。128 nodeまたは1024文字の有限予算へ到達して候補を確定できない場合は、通常の長文DOM検出とは別にcaptureをfail closedとする。
 
 FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 
