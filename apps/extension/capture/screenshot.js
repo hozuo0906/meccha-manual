@@ -308,17 +308,20 @@ export function installSensitiveMasks() {
       const visibleContinuationAfterHidden = (textNodes, hiddenIndex, entries, root) => {
         const previous = entries[entries.length - 1]?.node;
         if (!previous) return false;
-        const joined = entries.map((entry) => entry.value).join("");
+        let joined = entries.map((entry) => entry.value).join("");
+        let previousVisible = previous;
         let inspected = 0;
         for (let index = hiddenIndex + 1; index < textNodes.length && inspected < 4; index += 1) {
           const node = textNodes[index];
           if (!node?.parentElement) return false;
           if (!isVisibleTextElement(node.parentElement)) continue;
-          if (!renderedTextBoundarySafeThroughHidden(previous, node, root)) return false;
-          const continuation = `${joined}${String(node.nodeValue ?? "")}`;
-          return containsCompletePii(continuation) || partialPatternAtBoundary(continuation);
+          inspected += 1;
+          if (!renderedTextBoundarySafeThroughHidden(previousVisible, node, root)) return false;
+          joined += String(node.nodeValue ?? "");
+          if (containsCompletePii(joined) || partialPatternAtBoundary(joined)) return true;
+          previousVisible = node;
         }
-        return false;
+        return inspected >= 4 && uncertainBudgetContinuation(joined);
       };
       const isPairedTextNode = (node, pairedValues) => {
         let current = node?.parentElement;
