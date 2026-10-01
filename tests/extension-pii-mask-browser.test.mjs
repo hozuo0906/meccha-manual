@@ -933,6 +933,106 @@ test("isolated at prose mutation remains recordable", async () => {
   }
 });
 
+test("numeric fragments stay bounded across mutation callbacks", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><main><p id='stream'></p><p id='unrelated'>status</p><p id='char-stream'><span id='char-a'>safe</span><span id='char-b'>value</span></p></main>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const tabIdForPage = async () => (await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id));
+    const install = async () => {
+      const tabId = await tabIdForPage();
+      return {
+        tabId,
+        inject: async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result
+      };
+    };
+    await page.goto(`${baseUrl}/`);
+    let { inject } = await install();
+    let mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    await page.evaluate(() => {
+      const fragment = document.createElement("span");
+      fragment.id = "postal-fragment";
+      fragment.textContent = "123";
+      document.getElementById("stream").append(fragment);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "single numeric prefix remains recordable");
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "postal-suffix";
+      suffix.textContent = "-4567";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "postal fragments across callbacks must fail closed");
+    await page.evaluate(() => document.getElementById("postal-fragment").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("postal-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "postal removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      const fragment = document.createElement("span");
+      fragment.id = "phone-fragment";
+      fragment.textContent = "0";
+      document.getElementById("stream").append(fragment);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "single phone prefix remains recordable");
+    await page.evaluate(() => { document.getElementById("unrelated").textContent = "updated"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "unrelated callback does not reject a lone prefix");
+    await page.evaluate(() => {
+      const suffix = document.createElement("span");
+      suffix.id = "phone-suffix";
+      suffix.textContent = "90-1234-5678";
+      document.getElementById("stream").append(suffix);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "phone fragments across callbacks must fail closed");
+    await page.evaluate(() => document.getElementById("phone-fragment").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("phone-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "phone removal remains invalid");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => {
+      document.querySelector("#char-a").firstChild.nodeValue = "123";
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "single characterData prefix remains recordable");
+    await page.evaluate(() => { document.getElementById("unrelated").textContent = "updated again"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      document.querySelector("#char-b").firstChild.nodeValue = "-4567";
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "characterData numeric fragments must fail closed");
+    await inject(removeSensitiveMasks);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("visibility mutations inspect bounded composed PII candidates and refuse the 65th candidate", async () => {
   const server = createServer((request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");

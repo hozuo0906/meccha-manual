@@ -68,7 +68,17 @@ export function installSensitiveMasks() {
     const masked = new WeakSet();
     const observedRoots = new WeakMap();
     const backdropRoots = new WeakSet();
-    const privacyMutation = { detected: false };
+    const mutationEvidence = {
+      childStreams: new Map(),
+      oldCharacterStreams: new Map(),
+      currentCharacterStreams: new Map(),
+      seenChildValues: new WeakMap(),
+      seenCurrentCharacterValues: new WeakMap(),
+      inspectedNodes: 0,
+      inspectedCharacters: 0,
+      overflow: false
+    };
+    const privacyMutation = { detected: false, mutationEvidence };
     let privacyRootTraversalOverflow = false;
     const collectPrivacyRootSnapshot = () => {
       const roots = [];
@@ -766,6 +776,23 @@ export function installSensitiveMasks() {
     };
     const mutationBoundaryMarker = (value) => mutationPartialPattern(value)
       || /[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
+    const mutationNumericFragment = (value) => /^(?:\d{1,4}|[-ー−‐– ]\d{1,4}|\d{1,4}(?:[-ー−‐– ]\d{0,4}){1,3})$/.test(String(value ?? ""));
+    const rememberMutationFragment = (streams, key, value) => {
+      const text = String(value ?? "");
+      if (!mutationNumericFragment(text)) return false;
+      if (mutationEvidence.inspectedNodes >= maxPrivacyAdjacentTextNodes
+        || mutationEvidence.inspectedCharacters + text.length > maxPrivacyAdjacentTextCharacters) {
+        mutationEvidence.overflow = true;
+        return true;
+      }
+      mutationEvidence.inspectedNodes += 1;
+      mutationEvidence.inspectedCharacters += text.length;
+      const stream = streams.get(key) || { text: "", fragments: 0 };
+      stream.fragments += 1;
+      stream.text = `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters);
+      streams.set(key, stream);
+      return containsPiiText(stream.text);
+    };
     const inspectMutationValue = (value, state) => {
       if (state.nodeOverflow || state.characterOverflow) return true;
       state.inspectedNodes += 1;
@@ -792,6 +819,7 @@ export function installSensitiveMasks() {
       const oldCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
       const currentCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
       for (const record of records || []) {
+        if (mutationEvidence.overflow) return true;
         // The target can be empty by the time the observer callback runs. Use
         // the bounded added/removed text evidence itself so a transient split
         // PII remains fail closed after both child nodes are removed.
@@ -801,25 +829,38 @@ export function installSensitiveMasks() {
           if (!targetVisibility) continue;
           if (inspectMutationValue(record.oldValue, oldCharacterState)
             || inspectMutationValue(record.target?.nodeValue, currentCharacterState)) return true;
+          const streamKey = record.target?.parentElement || record.target;
+          if (rememberMutationFragment(mutationEvidence.oldCharacterStreams, streamKey, record.oldValue)) return true;
+          const currentValue = String(record.target?.nodeValue ?? "");
+          const previousCurrentValue = mutationEvidence.seenCurrentCharacterValues.get(record.target);
+          if (previousCurrentValue !== currentValue) {
+            mutationEvidence.seenCurrentCharacterValues.set(record.target, currentValue);
+            if (rememberMutationFragment(mutationEvidence.currentCharacterStreams, streamKey, currentValue)) return true;
+          }
           continue;
         }
         if (record.type !== "childList") continue;
         const targetVisibility = mutationTargetMayBeVisible(record.target);
         if (targetVisibility === null) return true;
         if (!targetVisibility) continue;
-        const state = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false, completeMatch: false };
+        const fragments = [];
         for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
+          const state = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false, completeMatch: false };
           collectMutationVisibleText(node, state);
-          if (state.nodeOverflow) break;
+          if (state.completeMatch) return true;
+          if (state.nodeOverflow || state.characterOverflow) return true;
+          if (state.text) fragments.push({ node, text: state.text });
         }
-        if (state.completeMatch) return true;
-        if (state.nodeOverflow || state.characterOverflow) return true;
-        if (!state.text) continue;
-        const joined = `${pending}${state.text}`;
-        if (containsPiiText(joined)) return true;
-        if (mutationPartialPattern(joined)) return true;
-        const hasBoundaryMarker = mutationBoundaryMarker(joined);
-        pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
+        for (const { node, text } of fragments) {
+          if (mutationEvidence.seenChildValues.get(node) === text) continue;
+          mutationEvidence.seenChildValues.set(node, text);
+          if (rememberMutationFragment(mutationEvidence.childStreams, record.target, text)) return true;
+          const joined = `${pending}${text}`;
+          if (containsPiiText(joined)) return true;
+          if (mutationPartialPattern(joined)) return true;
+          const hasBoundaryMarker = mutationBoundaryMarker(joined);
+          pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
+        }
       }
       return false;
     };
