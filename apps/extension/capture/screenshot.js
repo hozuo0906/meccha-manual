@@ -763,12 +763,42 @@ export function installSensitiveMasks() {
     };
     const mutationBoundaryMarker = (value) => mutationPartialPattern(value)
       || /[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
+    const inspectMutationValue = (value, state) => {
+      if (state.nodeOverflow || state.characterOverflow) return true;
+      state.inspectedNodes += 1;
+      if (state.inspectedNodes > maxPrivacyAdjacentTextNodes) {
+        state.nodeOverflow = true;
+        return true;
+      }
+      const text = String(value ?? "");
+      if (containsPiiText(text)) return true;
+      state.characterCount += text.length;
+      if (state.characterCount > maxPrivacyAdjacentTextCharacters) {
+        state.characterOverflow = true;
+        return true;
+      }
+      state.text = `${state.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters);
+      if (containsPiiText(state.text)) return true;
+      if (mutationPartialPattern(state.text)) return true;
+      if (!mutationBoundaryMarker(state.text)) state.text = "";
+      return false;
+    };
     const containsSplitPiiMutation = (records) => {
       let pending = "";
+      const oldCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
+      const currentCharacterState = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false };
       for (const record of records || []) {
         // The target can be empty by the time the observer callback runs. Use
         // the bounded added/removed text evidence itself so a transient split
         // PII remains fail closed after both child nodes are removed.
+        if (record.type === "characterData") {
+          const targetVisibility = mutationTargetMayBeVisible(record.target);
+          if (targetVisibility === null) return true;
+          if (!targetVisibility) continue;
+          if (inspectMutationValue(record.oldValue, oldCharacterState)
+            || inspectMutationValue(record.target?.nodeValue, currentCharacterState)) return true;
+          continue;
+        }
         if (record.type !== "childList") continue;
         const targetVisibility = mutationTargetMayBeVisible(record.target);
         if (targetVisibility === null) return true;
@@ -783,6 +813,7 @@ export function installSensitiveMasks() {
         if (!state.text) continue;
         const joined = `${pending}${state.text}`;
         if (containsPiiText(joined)) return true;
+        if (mutationPartialPattern(joined)) return true;
         const hasBoundaryMarker = mutationBoundaryMarker(joined);
         pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
       }

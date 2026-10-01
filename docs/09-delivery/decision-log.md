@@ -517,7 +517,7 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
   - capture中のDOM追加、アクセシビリティ属性と視覚表示の混同、CSS paintによる部分露出、同一範囲の二重overlayで元の個人情報がpixelへ残る経路を閉じるため。
 - Boundary:
   - 候補は高信頼なDOM文字列に限定し、OCR、画像内文字、cross-origin iframe、外部AI、新しい権限は対象外。元DOM、入力値、候補文字列はログ・event・handoff metadataへ保存しない。
-MutationObserverの追加・除去nodeからsplit PIIを照合する有限予算へ到達して候補を確定できない場合は、未知の大規模mutationとしてcaptureをfail closedにする。これは静的な長文PII-free DOMの記録可否とは分離する。
+MutationObserverの追加・除去nodeまたはcharacterDataのoldValue／変更後valueからsplit PIIを照合する有限予算へ到達して候補を確定できない場合は、未知の大規模mutationとしてcaptureをfail closedにする。oldValueと変更後valueは別の有限履歴系列として扱い、これは静的な長文PII-free DOMの記録可否とは分離する。
 
 ### DEC-086: 記録中サイドパネルの現在地表示と終了後の復旧境界
 
