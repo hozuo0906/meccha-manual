@@ -868,7 +868,7 @@ export function installSensitiveMasks() {
       };
       while (current && current !== root) {
         inspected += 1;
-        if (inspected > maxPrivacyAdjacentTextNodes) return false;
+        if (inspected > maxPrivacyAdjacentTextNodes) return null;
         if (current.nextSibling) {
           if (current.nodeType === 1 && !visibleInline(current)) return false;
           current = current.nextSibling;
@@ -879,7 +879,7 @@ export function installSensitiveMasks() {
       }
       while (current && current !== next) {
         inspected += 1;
-        if (inspected > maxPrivacyAdjacentTextNodes) return false;
+        if (inspected > maxPrivacyAdjacentTextNodes) return null;
         if (current.nodeType === 3 && String(current.nodeValue ?? "")) return false;
         if (current.nodeType === 1 && !current.contains?.(next) && String(current.textContent ?? "")) return false;
         if (current.nodeType === 1 && !visibleInline(current)) return false;
