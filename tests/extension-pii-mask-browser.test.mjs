@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
+import nodeTest from "node:test";
 import { chromium } from "@playwright/test";
 import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../apps/extension/capture/screenshot.js";
+
+const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
 async function waitForPaint(page) {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -239,6 +241,75 @@ test("PII split across adjacent rendered text nodes is replaced and restored", a
       document.querySelector("#split-phone").textContent,
       document.querySelector("#split-postal").textContent
     ]), ["alice@example.com", "03-1234-5678", "123-4567"]);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("bounded split recovery keeps complete suffixes, precedence, and boundary failures", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    const path = new URL(request.url, "http://127.0.0.1").pathname;
+    if (path === "/complete") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:22px Arial,sans-serif}</style>
+        <div id="complete-email"><span>alice@example.co</span><span>m</span></div>
+        <div id="postal"><span>123-</span><span>4567</span></div>`);
+      return;
+    }
+    if (path === "/block") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:22px Arial,sans-serif}</style>
+        <div id="block"><span>block@example.co</span></div><span>m</span>`);
+      return;
+    }
+    if (path === "/br") {
+      response.end(`<!doctype html><style>body{margin:0;padding:24px;font:22px Arial,sans-serif}</style>
+        <span id="br">line@example.co</span><br><span>m</span>`);
+      return;
+    }
+    response.end(`<!doctype html><style>body{margin:0;padding:24px;font:22px Arial,sans-serif}</style>
+      <div id="hidden"><span>hidden@</span><span hidden>ignored</span><span>example.com</span></div>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/complete`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const run = async (path) => {
+      await page.goto(`http://127.0.0.1:${server.address().port}${path}`);
+      const mask = await inject(installSensitiveMasks);
+      const state = await page.evaluate(() => ({
+        overlays: [...document.querySelectorAll(".meccha-manual-pii-overlay")].map((element) => ({ text: element.textContent, width: element.getBoundingClientRect().width })),
+        sourceWidths: [...document.querySelectorAll("#complete-email, #postal, #block, #br")].map((element) => element.getBoundingClientRect().width)
+      }));
+      const verified = await inject(verifySensitiveMasks, [mask.token]);
+      await inject(removeSensitiveMasks);
+      return { mask, state, verified };
+    };
+
+    const complete = await run("/complete");
+    assert.equal(complete.mask.privacyMaskedCount, 2);
+    assert.deepEqual(complete.state.overlays.map(({ text }) => text).sort(), ["100-0000", "manual@example.invalid"]);
+    const completeEmailOverlay = complete.state.overlays.find(({ text }) => text === "manual@example.invalid");
+    assert.ok(Math.abs(completeEmailOverlay.width - complete.state.sourceWidths[0]) < 1, "complete adjacent email suffix is protected");
+    assert.equal(complete.verified, true);
+
+    const block = await run("/block");
+    assert.equal(block.mask.privacyMaskedCount, 1);
+    assert.equal(block.verified, true);
+    const br = await run("/br");
+    assert.equal(br.mask.privacyMaskedCount, 1);
+    assert.equal(br.verified, true);
+
+    const hidden = await run("/hidden");
+    assert.equal(hidden.mask.privacyMaskedCount, 0);
+    assert.equal(hidden.verified, false, "hidden text between visible fragments fails closed");
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
