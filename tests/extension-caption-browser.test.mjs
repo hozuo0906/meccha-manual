@@ -145,6 +145,10 @@ test("native recording uses only bounded safe captions for real click controls",
     };
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "caption fixture tab should be active");
+    await waitForNativeValue(
+      "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); return Boolean(start && !start.hidden && !start.disabled && start.getClientRects().length > 0); })()",
+      (value) => value === true
+    );
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
 
