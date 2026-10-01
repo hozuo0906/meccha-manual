@@ -711,7 +711,8 @@ export function installSensitiveMasks() {
         return pattern.test(text);
       });
     };
-    const mutationPartialPattern = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(String(value ?? ""));
+    const mutationPartialPattern = (value) => /@/.test(String(value ?? ""))
+      || /(?:0\d{1,4}[-ー−‐– ]\d{0,4}|〒\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(String(value ?? ""));
     const collectMutationVisibleText = (node, state) => {
       if (!node || state.nodeOverflow) return;
       state.inspectedNodes += 1;
@@ -721,6 +722,7 @@ export function installSensitiveMasks() {
       }
       if (node.nodeType === 3) {
         const value = String(node.nodeValue ?? "");
+        if (mutationPartialPattern(value)) state.completeMatch = true;
         if (containsPiiText(value)) state.completeMatch = true;
         state.characterCount += value.length;
         if (state.characterCount > maxPrivacyAdjacentTextCharacters) state.characterOverflow = true;
@@ -771,6 +773,7 @@ export function installSensitiveMasks() {
         return true;
       }
       const text = String(value ?? "");
+      if (mutationPartialPattern(text)) return true;
       if (containsPiiText(text)) return true;
       state.characterCount += text.length;
       if (state.characterCount > maxPrivacyAdjacentTextCharacters) {

@@ -877,17 +877,19 @@ test("leading at marker is rejected across separate mutation tasks", async () =>
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "ASCII-only precursor remains recordable");
     await page.evaluate(() => {
       const mailbox = document.getElementById("split-mailbox");
-      mailbox.textContent = "@";
-      const domain = document.createElement("span");
-      domain.id = "split-domain";
-      domain.textContent = "example.com";
-      document.getElementById("split-transient").append(domain);
+      const suffix = document.createElement("span");
+      suffix.id = "split-suffix";
+      suffix.textContent = "@example.com, ordinary text";
+      document.getElementById("split-transient").append(suffix);
     });
     await page.waitForTimeout(25);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "leading at continuation must fail closed");
     await page.evaluate(() => {
       document.getElementById("split-mailbox").remove();
-      document.getElementById("split-domain").remove();
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      document.getElementById("split-suffix").remove();
     });
     await page.waitForTimeout(25);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "removal after leading at marker remains invalid");
