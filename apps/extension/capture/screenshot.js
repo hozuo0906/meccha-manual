@@ -229,7 +229,7 @@ export function installSensitiveMasks() {
         return display === "inline" || display === "inline-block" || display === "inline-flex"
           || display === "inline-grid" || display === "contents" || display === "ruby" || display === "ruby-text";
       };
-      const visibleInlineBoundary = (element) => {
+      const visibleInlineCss = (element) => {
         if (!element || !inlineDisplay(element)) return false;
         let current = element;
         while (current) {
@@ -238,7 +238,14 @@ export function installSensitiveMasks() {
           if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return false;
           current = current.parentElement || current.getRootNode?.()?.host || null;
         }
-        return usableRect(element.getBoundingClientRect()) || String(element.textContent ?? "") === "";
+        return true;
+      };
+      const visibleTextBoundary = (element) => {
+        if (!element) return false;
+        if (isVisibleTextElement(element)) return true;
+        if (!visibleInlineCss(element)) return false;
+        const computed = getComputedStyle(element);
+        return computed.display === "contents" || String(element.textContent ?? "") === "";
       };
       const nextNodeInRoot = (node, root) => {
         if (node?.firstChild) return node.firstChild;
@@ -253,7 +260,7 @@ export function installSensitiveMasks() {
         if (!previous || !next || previous.getRootNode?.() !== root || next.getRootNode?.() !== root) return false;
         const previousParent = previous.parentElement;
         const nextParent = next.parentElement;
-        if (!previousParent || !nextParent || !isVisibleTextElement(previousParent) || !isVisibleTextElement(nextParent)) return false;
+        if (!previousParent || !nextParent || !visibleTextBoundary(previousParent) || !visibleTextBoundary(nextParent)) return false;
         let current = previous;
         let inspected = 0;
         while (current && current !== root) {
@@ -263,11 +270,11 @@ export function installSensitiveMasks() {
             return false;
           }
           if (current.nextSibling) {
-            if (current.nodeType === 1 && !visibleInlineBoundary(current)) return false;
+            if (current.nodeType === 1 && !visibleInlineCss(current)) return false;
             current = current.nextSibling;
             break;
           }
-          if (current.nodeType === 1 && !visibleInlineBoundary(current)) return false;
+          if (current.nodeType === 1 && !visibleInlineCss(current)) return false;
           current = current.parentNode;
         }
         while (current && current !== next) {
@@ -278,7 +285,7 @@ export function installSensitiveMasks() {
           }
           if (current.nodeType === 1) {
             if (current.matches?.("script,style,noscript,template,br")) return false;
-            if (!visibleInlineBoundary(current)) return false;
+            if (!visibleInlineCss(current)) return false;
           }
           current = nextNodeInRoot(current, root);
         }
@@ -349,13 +356,13 @@ export function installSensitiveMasks() {
         if (!previous || !next || previous.getRootNode?.() !== root || next.getRootNode?.() !== root) return false;
         const previousParent = previous.parentElement;
         const nextParent = next.parentElement;
-        if (!previousParent || !nextParent || !isVisibleTextElement(nextParent)) return false;
+        if (!previousParent || !nextParent || !visibleTextBoundary(nextParent)) return false;
         const boundaryElementSafe = (element) => {
           if (!element || !element.matches?.("script,style,noscript,template,br")) {
             if (isVisibleTextElement(element)) return inlineDisplay(element);
             const computed = element && getComputedStyle(element);
             if (computed && (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0)) return true;
-            return visibleInlineBoundary(element);
+            return visibleInlineCss(element);
           }
           return false;
         };
@@ -384,7 +391,7 @@ export function installSensitiveMasks() {
         for (let index = hiddenIndex + 1; index < textNodes.length && inspected < 4; index += 1) {
           const node = textNodes[index];
           if (!node?.parentElement) return false;
-          if (!isVisibleTextElement(node.parentElement)) continue;
+          if (!visibleTextBoundary(node.parentElement)) continue;
           inspected += 1;
           if (!renderedTextBoundarySafeThroughHidden(previousVisible, node, root)) return false;
           joined += String(node.nodeValue ?? "");
@@ -404,7 +411,7 @@ export function installSensitiveMasks() {
       const addRenderedTextCandidates = (record, textNodes, pairedValues) => {
         for (let start = 0; start < textNodes.length && !candidateOverflow; start += 1) {
           const first = textNodes[start];
-          if (!first.parentElement || isPairedTextNode(first, pairedValues) || !isVisibleTextElement(first.parentElement)) continue;
+          if (!first.parentElement || isPairedTextNode(first, pairedValues) || !visibleTextBoundary(first.parentElement)) continue;
           const entries = [];
           let characterCount = 0;
           for (let index = start; index < textNodes.length && entries.length < maxPrivacyAdjacentTextNodes; index += 1) {
@@ -413,7 +420,7 @@ export function installSensitiveMasks() {
               if (entries.length && uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
             }
-            if (!isVisibleTextElement(node.parentElement)) {
+            if (!visibleTextBoundary(node.parentElement)) {
               // A hidden node can later reveal text that was split from a
               // visible PII prefix. PII-free help/menu boundaries remain
               // recordable; hidden contents are never joined or inspected.
