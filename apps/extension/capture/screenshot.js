@@ -69,9 +69,8 @@ export function installSensitiveMasks() {
     const observedRoots = new WeakMap();
     const backdropRoots = new WeakSet();
     const mutationEvidence = {
-      childStreams: new Map(),
+      currentStreams: new Map(),
       oldCharacterStreams: new Map(),
-      currentCharacterStreams: new Map(),
       seenChildValues: new WeakMap(),
       seenCurrentCharacterValues: new WeakMap(),
       inspectedNodes: 0,
@@ -778,7 +777,7 @@ export function installSensitiveMasks() {
     };
     const mutationBoundaryMarker = (value) => mutationPartialPattern(value)
       || /[A-Z0-9._%+-]{3,}$/i.test(String(value ?? ""));
-    const mutationNumericFragment = (value) => /^(?:\d{1,4}|[-ー−‐– ]\d{1,4}|\d{1,4}(?:[-ー−‐– ]\d{0,4}){1,3})$/.test(String(value ?? ""));
+    const mutationNumericFragment = (value) => /^(?:\d{1,16}|[-ー−‐– ]\d{1,16}|\d{1,16}(?:[-ー−‐– ]\d{0,16}){1,3})$/.test(String(value ?? ""));
     const mutationStreamKey = (node) => {
       let element = node?.nodeType === 3 ? node.parentElement : node;
       if (!element) return node;
@@ -850,6 +849,49 @@ export function installSensitiveMasks() {
       }
       return current === next;
     };
+    const containsVisibleNumericSplit = (target) => {
+      const root = mutationStreamKey(target);
+      if (!root || root.nodeType !== 1) return false;
+      const textNodes = [];
+      const state = { nodes: 0, characters: 0, overflow: false };
+      const collectTextNodes = (node) => {
+        if (!node || state.overflow) return;
+        state.nodes += 1;
+        if (state.nodes > maxPrivacyAdjacentTextNodes) {
+          state.overflow = true;
+          return;
+        }
+        if (node.nodeType === 3) {
+          const value = String(node.nodeValue ?? "");
+          state.characters += value.length;
+          if (state.characters > maxPrivacyAdjacentTextCharacters) {
+            state.overflow = true;
+            return;
+          }
+          textNodes.push(node);
+          return;
+        }
+        if (node.nodeType !== 1 || node.hidden || node.matches?.("[hidden],script,style,noscript,template")) return;
+        if (node.isConnected) {
+          const computed = getComputedStyle(node);
+          if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse" || Number(computed.opacity) === 0) return;
+        }
+        for (const child of node.childNodes || []) collectTextNodes(child);
+      };
+      collectTextNodes(root);
+      if (state.overflow) return true;
+      let previous = null;
+      for (const node of textNodes) {
+        const value = String(node.nodeValue ?? "");
+        if (!mutationNumericFragment(value)) {
+          previous = null;
+          continue;
+        }
+        if (previous && mutationNodesAdjacent(previous.node, node) && containsPiiText(`${previous.value}${value}`)) return true;
+        previous = { node, value };
+      }
+      return false;
+    };
     const rememberMutationFragment = (streams, key, value, node) => {
       const text = String(value ?? "");
       if (!mutationNumericFragment(text)) return false;
@@ -910,6 +952,7 @@ export function installSensitiveMasks() {
           const targetVisibility = mutationTargetMayBeVisible(record.target);
           if (targetVisibility === null) return true;
           if (!targetVisibility) continue;
+          if (containsVisibleNumericSplit(record.target)) return true;
           if (inspectMutationValue(record.oldValue, oldCharacterState)
             || inspectMutationValue(record.target?.nodeValue, currentCharacterState)) return true;
           const streamKey = mutationStreamKey(record.target);
@@ -919,8 +962,8 @@ export function installSensitiveMasks() {
           const previousCurrentValue = mutationEvidence.seenCurrentCharacterValues.get(record.target);
           if (previousCurrentValue !== currentValue) {
             mutationEvidence.seenCurrentCharacterValues.set(record.target, currentValue);
-            if (rememberMutationFragment(mutationEvidence.currentCharacterStreams, streamKey, currentValue, record.target)) return true;
-            if (!mutationNumericFragment(currentValue)) clearMutationStream(mutationEvidence.currentCharacterStreams, streamKey, record.target);
+            if (rememberMutationFragment(mutationEvidence.currentStreams, streamKey, currentValue, record.target)) return true;
+            if (!mutationNumericFragment(currentValue)) clearMutationStream(mutationEvidence.currentStreams, streamKey, record.target);
           }
           continue;
         }
@@ -928,6 +971,7 @@ export function installSensitiveMasks() {
         const targetVisibility = mutationTargetMayBeVisible(record.target);
         if (targetVisibility === null) return true;
         if (!targetVisibility) continue;
+        if (containsVisibleNumericSplit(record.target)) return true;
         const fragments = [];
         for (const node of [...record.addedNodes || [], ...record.removedNodes || []]) {
           const state = { text: "", inspectedNodes: 0, characterCount: 0, nodeOverflow: false, characterOverflow: false, completeMatch: false };
@@ -947,8 +991,8 @@ export function installSensitiveMasks() {
         for (const { node, text } of fragments) {
           if (mutationEvidence.seenChildValues.get(node) === text) continue;
           mutationEvidence.seenChildValues.set(node, text);
-          if (rememberMutationFragment(mutationEvidence.childStreams, childStreamKey, text, node)) return true;
-          if (!mutationNumericFragment(text)) clearMutationStream(mutationEvidence.childStreams, childStreamKey, node);
+          if (rememberMutationFragment(mutationEvidence.currentStreams, childStreamKey, text, node)) return true;
+          if (!mutationNumericFragment(text)) clearMutationStream(mutationEvidence.currentStreams, childStreamKey, node);
           const joined = `${pending}${text}`;
           if (containsPiiText(joined)) return true;
           if (mutationPartialPattern(joined)) return true;
