@@ -46,7 +46,7 @@
           break;
         }
         const style = getComputedStyle(current);
-        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
           visible = false;
           break;
         }
