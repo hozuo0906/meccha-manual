@@ -266,6 +266,11 @@ export function installSensitiveMasks() {
         }
       };
       const partialPatternAtBoundary = (value) => /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]*|0\d{1,4}[-ー−‐– ]?\d{0,4}|〒?\d{1,3}[-ー−‐– ]?\d{0,4})$/i.test(value);
+      const containsCompletePii = (value) => textPatterns.some(({ pattern }) => {
+        pattern.lastIndex = 0;
+        return pattern.test(String(value ?? ""));
+      });
+      const uncertainBoundary = (value) => partialPatternAtBoundary(value) && !containsCompletePii(value);
       const isPairedTextNode = (node, pairedValues) => {
         let current = node?.parentElement;
         while (current) {
@@ -282,8 +287,9 @@ export function installSensitiveMasks() {
           let characterCount = 0;
           for (let index = start; index < textNodes.length && entries.length < maxPrivacyAdjacentTextNodes; index += 1) {
             const node = textNodes[index];
+            if (entries.length && containsCompletePii(entries.map((entry) => entry.value).join(""))) break;
             if (!node.parentElement || isPairedTextNode(node, pairedValues)) {
-              if (entries.length && partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              if (entries.length && uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
             }
             if (!isVisibleTextElement(node.parentElement)) {
@@ -294,7 +300,7 @@ export function installSensitiveMasks() {
               break;
             }
             if (entries.length > 0 && !renderedTextBoundarySafe(entries[entries.length - 1].node, node, record.root)) {
-              if (partialPatternAtBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
+              if (uncertainBoundary(entries.map((entry) => entry.value).join(""))) privacyCandidateRangeOverflow = true;
               break;
             }
             const value = String(node.nodeValue ?? "");
@@ -325,9 +331,10 @@ export function installSensitiveMasks() {
               const previousNode = textNodes[start - 1];
               const previousCharacter = previousNode && renderedTextBoundarySafe(previousNode, first, record.root)
                 ? String(previousNode.nodeValue ?? "").slice(-1) : "";
+              const previousComplete = previousNode && containsCompletePii(previousNode.nodeValue);
               const startsInsideToken = matchStart === 0 && (kind === "email"
-                ? /[A-Z0-9._%+-]/i.test(previousCharacter)
-                : /\d/.test(previousCharacter));
+                ? !previousComplete && /[A-Z0-9._%+-]/i.test(previousCharacter)
+                : !previousComplete && /\d/.test(previousCharacter));
               if (startsInsideToken) continue;
               const startEntry = entries.find((entry) => matchStart >= entry.start && matchStart < entry.end);
               const endEntry = entries.find((entry) => matchEnd > entry.start && matchEnd <= entry.end);
