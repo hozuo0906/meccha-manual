@@ -1314,6 +1314,30 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
     await inject(removeSensitiveMasks);
 
     await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const prefix = document.createElement("span");
+      prefix.id = "static-separator-prefix";
+      prefix.textContent = "safe";
+      stream.append(prefix);
+      const separator = document.createElement("span");
+      separator.textContent = "-";
+      stream.append(separator);
+      const suffix = document.createElement("span");
+      suffix.id = "static-separator-suffix";
+      suffix.textContent = "safe";
+      stream.append(suffix);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.getElementById("static-separator-prefix").firstChild.nodeValue = "123"; });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("static-separator-suffix").firstChild.nodeValue = "4567"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "static separator between numeric fragments must still be protected by the current snapshot");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
     ({ inject } = await install());
     mask = await inject(installSensitiveMasks);
     await page.evaluate(() => {
