@@ -22,7 +22,8 @@ const migrationNames = [
   "0001_d1_identity_workspace.sql",
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
-  "0004_d1_cloud_manual_claim.sql"
+  "0004_d1_cloud_manual_claim.sql",
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"
 ];
 
 class LocalStatement {
@@ -933,4 +934,509 @@ test("claim retries require an active owner membership", async () => {
   assert.equal(retryUpload.response.status, 404);
   const retryFinalize = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: claimBody(staged) });
   assert.equal(retryFinalize.response.status, 404);
+});
+
+async function editorFixture() {
+  const { workspaceId, actorId } = await bootstrap();
+  const staged = await stageClaim();
+  const claimed = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: claimBody(staged) });
+  assert.equal(claimed.response.status, 200, JSON.stringify(claimed.payload));
+  const manualId = claimed.payload.manualId;
+  const path = `/api/workspaces/${workspaceId}/manuals/${manualId}`;
+  const detail = (await jsonRequest(path)).payload;
+  return { workspaceId, actorId, manualId, path, detail, cloudRef: claimed.payload.cloudRef };
+}
+async function editorRequest(path, options = {}) {
+  const response = await handleCloudManualRoute(await request(path, options), env);
+  assert.ok(response, path);
+  const payload = response.headers.get("content-type")?.includes("json") ? await response.json() : null;
+  return { response, payload };
+}
+async function editUpload(fixture, operationId = "edited-image-operation-0001", options = {}) {
+  const bytes = options.bytes ?? ONE_PIXEL_PNG;
+  return editorRequest(`${fixture.path}/draft/assets/${operationId}`, {
+    method: "PUT", body: bytes, ...options,
+    headers: { "content-type": "image/png", "content-length": String(bytes.length), "x-asset-byte-length": String(bytes.length), "x-asset-sha256": await digest(bytes), "x-draft-revision-id": fixture.detail.draft.id, "x-draft-updated-at": fixture.detail.draft.updatedAt, ...options.headers }
+  });
+}
+function patchPayload(detail, assetId = detail.steps[0].assetId) {
+  return { title: detail.draft.title, description: detail.draft.description, expectedUpdatedAt: detail.draft.updatedAt,
+    steps: detail.steps.map(({ assetUrl, position, updatedAt, ...step }) => ({ ...step, assetId })) };
+}
+function addEditorMember(workspaceId, subject, role = "editor") {
+  const id = crypto.randomUUID();
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run(id, ISSUER, subject, NOW, NOW);
+  database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run(workspaceId, id, role, NOW, NOW);
+  return id;
+}
+
+test("edited image upload is immutable, actor/revision scoped, retryable and leaves old image until draft CAS", async () => {
+  const fixture = await editorFixture();
+  const originalAsset = fixture.detail.steps[0].assetId;
+  r2.failPut = true;
+  const failed = await editUpload(fixture);
+  assert.equal(failed.response.status, 503);
+  assert.equal(one("SELECT asset_id FROM manual_steps WHERE id = ?", fixture.detail.steps[0].id).asset_id, originalAsset);
+  assert.equal(count("manual_edit_assets"), 1);
+  r2.failPut = false; r2.failAfterPut = true;
+  const uploaded = await editUpload(fixture);
+  assert.equal(uploaded.response.status, 200, JSON.stringify(uploaded.payload));
+  const calls = r2.putCount;
+  r2.failAfterPut = false;
+  const retry = await editUpload(fixture);
+  assert.equal(retry.payload.assetId, uploaded.payload.assetId);
+  assert.equal(r2.putCount, calls);
+  assert.equal(count("manual_edit_assets"), 1);
+  const attached = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploaded.payload.assetId) });
+  assert.equal(attached.response.status, 200, JSON.stringify(attached.payload));
+  assert.equal(one("SELECT asset_id FROM manual_steps WHERE id = ?", fixture.detail.steps[0].id).asset_id, uploaded.payload.assetId);
+  const stale = await editUpload(fixture, "edited-image-operation-0002");
+  assert.equal(stale.response.status, 409);
+  assert.equal(count("manual_edit_assets"), 1);
+  assert.equal((await editUpload(fixture)).response.status, 200, "same immutable upload receipt can be reconciled after the draft advances");
+});
+
+test("edited image rejects tampered bytes, metadata containers, wrong revision, viewer and other tenant", async () => {
+  const fixture = await editorFixture();
+  addEditorMember(fixture.workspaceId, "image-viewer", "viewer");
+  assert.equal((await editUpload(fixture, "edited-image-rejected-01", { subject: "image-viewer" })).response.status, 403);
+  assert.equal((await editUpload(fixture, "edited-image-rejected-02", { origin: "https://other.invalid" })).response.status, 403);
+  assert.equal((await editUpload(fixture, "edited-image-rejected-03", { headers: { "x-draft-revision-id": crypto.randomUUID() } })).response.status, 409);
+  assert.equal((await editUpload(fixture, "edited-image-rejected-04", { headers: { "x-asset-sha256": "0".repeat(64) } })).response.status, 400);
+  assert.equal((await editUpload(fixture, "edited-image-rejected-05", { bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'), headers: { "content-type": "image/svg+xml" } })).response.status, 415);
+  assert.equal((await editUpload(fixture, "edited-image-rejected-06", { bytes: new Uint8Array([...ONE_PIXEL_PNG, 42]) })).response.status, 415);
+  assert.equal((await editUpload({ ...fixture, path: fixture.path.replace(fixture.workspaceId, crypto.randomUUID()) }, "edited-image-rejected-07")).response.status, 404);
+  assert.equal(count("manual_edit_assets"), 0);
+  const uploaded = await editUpload(fixture);
+  assert.equal(uploaded.response.status, 200);
+  const conflict = await editUpload(fixture, "edited-image-operation-0001", { headers: { "x-draft-updated-at": NOW } });
+  assert.equal(conflict.response.status, 409);
+  const editorId = addEditorMember(fixture.workspaceId, "other-image-editor");
+  const other = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "other-image-editor", body: patchPayload(fixture.detail, uploaded.payload.assetId) });
+  assert.equal(other.response.status, 409, "another actor cannot adopt an unattached upload");
+  database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = ?").run(editorId);
+  const directRow = one("SELECT * FROM manual_edit_assets LIMIT 1");
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET manual_id = ? WHERE id = ?").run(crypto.randomUUID(), directRow.id), /immutable/);
+});
+
+test("simultaneous edited image upload retries reserve one immutable object", async () => {
+  const fixture = await editorFixture();
+  const results = await Promise.all([editUpload(fixture), editUpload(fixture), editUpload(fixture)]);
+  assert.ok(results.every((result) => result.response.status === 200), JSON.stringify(results.map((r) => r.payload)));
+  assert.equal(new Set(results.map((result) => result.payload.assetId)).size, 1);
+  assert.equal(count("manual_edit_assets"), 1);
+});
+
+test("repeat local saves update one existing manual and reconcile response loss without duplicates", async () => {
+  const fixture = await editorFixture();
+  assert.equal(fixture.cloudRef.manualId, fixture.manualId);
+  const target = { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt };
+  const operationId = "same-manual-update-operation-0001";
+  const intent = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 1, target } });
+  assert.equal(intent.response.status, 201, JSON.stringify(intent.payload));
+  assert.equal((await uploadIntentAsset(intent.payload, operationId, 0, ONE_PIXEL_PNG)).response.status, 200);
+  const body = claimBody({ operationId, assetCount: 1, sha256: await digest(ONE_PIXEL_PNG) }, { title: "同じ手順書の更新" });
+  const concurrent = await Promise.all([editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", body }), editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", body })]);
+  const response = concurrent[0];
+  assert.equal(response.response.status, 200, JSON.stringify(response.payload));
+  assert.equal(concurrent[1].response.status, 200, JSON.stringify(concurrent[1].payload));
+  assert.deepEqual(concurrent[1].payload, response.payload);
+  assert.equal(response.payload.manualId, fixture.manualId);
+  assert.equal(count("manuals"), 1);
+  assert.notEqual(response.payload.cloudRef.updatedAt, fixture.cloudRef.updatedAt);
+  const retry = await editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", body });
+  assert.deepEqual(retry.payload, response.payload);
+  const receipt = await editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}?operationId=${operationId}`);
+  assert.deepEqual(receipt.payload.cloudRef, response.payload.cloudRef);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", body: { ...body, manual: { ...body.manual, title: "改ざん" } } })).response.status, 409);
+  assert.equal((await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 1, target: { ...target, expectedUpdatedAt: response.payload.cloudRef.updatedAt } } })).response.status, 409);
+});
+
+test("repeat local save CAS conflicts and injected failures keep all prior text/images, while editor role can update", async () => {
+  const fixture = await editorFixture();
+  addEditorMember(fixture.workspaceId, "repeat-editor");
+  const target = { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt };
+  const operationId = "same-manual-editor-update-0001";
+  const intent = await editorRequest("/api/onboarding/claim-intents", { method: "POST", subject: "repeat-editor", body: { operationId, assetCount: 0, target } });
+  assert.equal(intent.response.status, 201, JSON.stringify(intent.payload));
+  const body = claimBody({ operationId, assetCount: 0 }, { title: "共同編集" });
+  const before = all("SELECT * FROM manual_steps");
+  for (let failedStatement = 0; failedStatement < 6; failedStatement++) {
+    d1.failAt = failedStatement;
+    const failed = await editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", subject: "repeat-editor", body });
+    assert.equal(failed.response.status, 503);
+    assert.deepEqual(all("SELECT * FROM manual_steps"), before);
+    assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", intent.payload.claimIntentId).status, "pending");
+  }
+  d1.failAt = -1;
+  await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: { ...patchPayload(fixture.detail), title: "先行編集" } });
+  const raced = await editorRequest(`/api/onboarding/claims/${intent.payload.claimIntentId}`, { method: "POST", subject: "repeat-editor", body });
+  assert.equal(raced.response.status, 409);
+  assert.equal(one("SELECT title FROM manuals WHERE id = ?", fixture.manualId).title, "先行編集");
+  assert.equal(count("manuals"), 1);
+});
+
+test("workspace branding is admin-only, tenant scoped, CAS protected and frozen into explicit saves", async () => {
+  const fixture = await editorFixture();
+  const path = `/api/workspaces/${fixture.workspaceId}/branding`;
+  const initial = await editorRequest(path);
+  assert.equal(initial.payload.branding.versionId, null);
+  addEditorMember(fixture.workspaceId, "branding-editor");
+  addEditorMember(fixture.workspaceId, "branding-admin", "admin");
+  const body = { themeColor: "#FFFF00", logoId: null, expectedVersionId: null };
+  assert.equal((await editorRequest(path, { method: "PATCH", subject: "branding-editor", body })).response.status, 403);
+  assert.equal((await editorRequest(path, { method: "PATCH", body: { ...body, themeColor: "url(https://other.invalid)" } })).response.status, 400);
+  const brand = await editorRequest(path, { method: "PATCH", subject: "branding-admin", body });
+  assert.equal(brand.response.status, 200, JSON.stringify(brand.payload));
+  assert.equal(brand.payload.branding.themeColor, "#ffff00");
+  assert.equal(brand.payload.branding.foregroundColor, "#000000");
+  assert.equal((await editorRequest(path, { method: "PATCH", body })).response.status, 409);
+  const detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(detail.branding.versionId, null, "team settings do not silently mutate saved manual snapshots");
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(detail) })).response.status, 200);
+  assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, brand.payload.branding.versionId);
+  const original = brand.payload.branding.versionId;
+  const changed = await editorRequest(path, { method: "PATCH", body: { ...body, themeColor: "#000000", expectedVersionId: original } });
+  assert.equal(changed.payload.branding.foregroundColor, "#ffffff");
+  assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, original);
+  assert.throws(() => database.prepare("UPDATE workspace_branding_versions SET theme_color = '#ffffff' WHERE id = ?").run(original), /immutable/);
+  assert.throws(() => database.prepare("UPDATE manual_revisions SET branding_version_id = ? WHERE id = ?").run(crypto.randomUUID(), detail.draft.id), /scope/);
+});
+
+test("brand logos are immutable, bounded, private and cannot be smuggled as external URLs or manual images", async () => {
+  const fixture = await editorFixture();
+  const path = `/api/workspaces/${fixture.workspaceId}/branding`;
+  const headers = { "content-type": "image/png", "content-length": String(ONE_PIXEL_PNG.length), "x-asset-byte-length": String(ONE_PIXEL_PNG.length), "x-asset-sha256": await digest(ONE_PIXEL_PNG) };
+  const uploadPath = `${path}/logos/brand-logo-operation-0001`;
+  const uploaded = await editorRequest(uploadPath, { method: "PUT", body: ONE_PIXEL_PNG, headers });
+  assert.equal(uploaded.response.status, 200, JSON.stringify(uploaded.payload));
+  assert.equal((await editorRequest(uploadPath, { method: "PUT", body: ONE_PIXEL_PNG, headers })).payload.logoId, uploaded.payload.logoId);
+  assert.equal(count("workspace_brand_logos"), 1);
+  assert.equal((await editorRequest(uploaded.payload.logoUrl)).response.status, 200);
+  assert.equal((await editorRequest(path, { method: "PATCH", body: { themeColor: "#123456", logoId: uploaded.payload.logoId, expectedVersionId: null } })).response.status, 200);
+  assert.equal((await editorRequest(path, { method: "PATCH", body: { themeColor: "#123456", logoId: "https://evil.invalid/logo.svg", expectedVersionId: null } })).response.status, 400);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploaded.payload.logoId) })).response.status, 409);
+  assert.equal((await editorRequest(`${path}/logos/brand-logo-operation-0002`, { method: "PUT", body: ONE_PIXEL_PNG, headers: { ...headers, "content-length": String(1024 * 1024 + 1) } })).response.status, 413);
+});
+
+test("new editor contracts reject cross-tenant targets and direct storage mutations at the actual authorization boundary", async () => {
+  const fixture = await editorFixture();
+  const second = await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "other-tenant-owner", body: { operationId: "other-tenant-bootstrap-0001" } });
+  assert.equal(second.response.status, 200);
+  const otherWorkspace = second.payload.workspaceId;
+  const otherActor = one("SELECT application_id AS id FROM identities WHERE subject = 'other-tenant-owner'").id;
+  const target = { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt };
+  assert.equal((await editorRequest("/api/onboarding/claim-intents", { method: "POST", subject: "other-tenant-owner", body: { operationId: "forbidden-target-operation", assetCount: 0, target } })).response.status, 403);
+  assert.equal((await editorRequest(`/api/workspaces/${fixture.workspaceId}/branding`, { subject: "other-tenant-owner" })).response.status, 403);
+  const uploaded = await editUpload(fixture);
+  assert.equal(uploaded.response.status, 200);
+  assert.equal((await editUpload(fixture, "another-actor-upload-0001", { subject: "other-tenant-owner" })).response.status, 404);
+  const edit = one("SELECT * FROM manual_edit_assets LIMIT 1");
+  const insert = "INSERT INTO manual_edit_assets(id,workspace_id,manual_id,revision_id,actor_application_id,operation_id,expected_updated_at,object_key,content_type,byte_length,width,height,sha256,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'reserved',?)";
+  assert.throws(() => database.prepare(insert).run(fixture.detail.steps[0].assetId, fixture.workspaceId, fixture.manualId, fixture.detail.draft.id, fixture.actorId, "direct-image-relabeling", fixture.detail.draft.updatedAt, "rejected/relabel", "image/png", 68, 1, 1, edit.sha256, NOW), /new identity/);
+  assert.throws(() => database.prepare("UPDATE assets SET object_key = 'forged/object' WHERE id = ?").run(uploaded.payload.assetId), /immutable/);
+  assert.throws(() => database.prepare(insert).run(crypto.randomUUID(), otherWorkspace, fixture.manualId, fixture.detail.draft.id, otherActor, "direct-tenant-tampering", fixture.detail.draft.updatedAt, "rejected/asset", "image/png", 68, 1, 1, edit.sha256, NOW), /scope mismatch/);
+  assert.throws(() => database.prepare("INSERT INTO claim_intents(id,actor_application_id,workspace_id,operation_id,asset_count,expires_at,status,created_at,updated_at,target_manual_id,target_revision_id,expected_updated_at) VALUES (?,?,?,?,0,?,'pending',?,?,?,?,?)")
+    .run(crypto.randomUUID(), otherActor, otherWorkspace, "direct-claim-tampering", new Date(Date.now() + 60000).toISOString(), NOW, NOW, fixture.manualId, fixture.detail.draft.id, fixture.detail.draft.updatedAt), /authorized workspace draft/);
+  const admin = addEditorMember(fixture.workspaceId, "temporary-brand-admin", "admin");
+  d1.beforeBatch = () => { database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE application_id = ?").run(admin); d1.beforeBatch = null; };
+  const raced = await editorRequest(`/api/workspaces/${fixture.workspaceId}/branding`, { method: "PATCH", subject: "temporary-brand-admin", body: { themeColor: "#123456", logoId: null, expectedVersionId: null } });
+  assert.equal(raced.response.status, 403);
+  assert.equal(count("workspace_branding_versions"), 0);
+  assert.equal(count("workspace_branding"), 0);
+});
+
+const safeOverlay = (overrides = {}) => ({ id: "shape-1", type: "rectangle", x: .1, y: .2, width: .3, height: .2, color: "#A14EBA", strokeWidth: 3, ...overrides });
+test("claim and PATCH persist editable annotations, preserve omitted old-client layers and bind retries to overlay content", async () => {
+  const { workspaceId } = await bootstrap();
+  const staged = await stageClaim();
+  const body = claimBody(staged);
+  body.manual.steps[0].annotations = [safeOverlay()];
+  const claimed = await editorRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body });
+  assert.equal(claimed.response.status, 200, JSON.stringify(claimed.payload));
+  const path = `/api/workspaces/${workspaceId}/manuals/${claimed.payload.manualId}`;
+  const detail = (await editorRequest(path)).payload;
+  assert.deepEqual(detail.steps[0].annotations, [safeOverlay({ color: "#a14eba" })]);
+  assert.equal("masking" in detail.steps[0], false);
+  const stored = one("SELECT annotation, masking FROM manual_steps WHERE id = ?", detail.steps[0].id);
+  assert.deepEqual(JSON.parse(stored.annotation), detail.steps[0].annotations);
+  assert.equal(stored.masking, "{}");
+  const tampered = structuredClone(body); tampered.manual.steps[0].annotations[0].x = .15;
+  assert.equal((await editorRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: tampered })).response.status, 409);
+  const oldClient = patchPayload(detail);
+  delete oldClient.steps[0].annotations;
+  assert.equal((await editorRequest(`${path}/draft`, { method: "PATCH", body: oldClient })).response.status, 200);
+  const afterLegacy = (await editorRequest(path)).payload;
+  assert.deepEqual(afterLegacy.steps[0].annotations, detail.steps[0].annotations);
+  const edited = patchPayload(afterLegacy);
+  edited.steps[0].annotations = [safeOverlay({ type: "ellipse", color: "#087f7a", x: .2 })];
+  assert.equal((await editorRequest(`${path}/draft`, { method: "PATCH", body: edited })).response.status, 200);
+  assert.deepEqual((await editorRequest(path)).payload.steps[0].annotations, edited.steps[0].annotations);
+});
+
+test("annotation API and D1 reject unsafe shapes, fields, unmask layers and over-limit data without changing the draft", async () => {
+  const fixture = await editorFixture();
+  const original = one("SELECT annotation, masking FROM manual_steps WHERE id = ?", fixture.detail.steps[0].id);
+  const badValues = [
+    [safeOverlay({ color: "url(https://evil.invalid)" })], [safeOverlay({ color: "var(--color)" })],
+    [safeOverlay({ x: "0.1" })], [safeOverlay({ x: .9 })], [safeOverlay({ width: 0 })],
+    [safeOverlay({ type: "image", src: "https://evil.invalid" })], [safeOverlay({ sourceDataUrl: "data:image/png;base64,AQ==" })],
+    [safeOverlay(), safeOverlay()], [safeOverlay({ id: "x".repeat(129) })],
+    [safeOverlay({ type: "text", text: "x".repeat(501), fontSize: 24 })],
+    Array.from({ length: 101 }, (_, index) => safeOverlay({ id: String(index) }))
+  ];
+  for (const value of badValues) {
+    const body = patchPayload(fixture.detail); body.steps[0].annotations = value;
+    const response = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body });
+    assert.equal(response.response.status, 400, JSON.stringify(response.payload));
+    assert.equal(response.payload.code, "ANNOTATIONS_INVALID");
+    assert.deepEqual(one("SELECT annotation, masking FROM manual_steps WHERE id = ?", fixture.detail.steps[0].id), original);
+  }
+  for (const value of badValues.slice(0, 8)) assert.throws(() => database.prepare("UPDATE manual_steps SET annotation = ? WHERE id = ?").run(JSON.stringify(value), fixture.detail.steps[0].id), /annotation/);
+  assert.throws(() => database.prepare("UPDATE manual_steps SET masking = ? WHERE id = ?").run(JSON.stringify([{ x: 0, y: 0, width: 1, height: 1 }]), fixture.detail.steps[0].id), /annotation format/);
+  const noImage = patchPayload(fixture.detail, null); noImage.steps[0].annotations = [safeOverlay()];
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: noImage })).response.status, 400);
+});
+
+async function claimLogo(intent, operationId, options = {}) {
+  const bytes = options.bytes ?? ONE_PIXEL_PNG;
+  return editorRequest(`/api/onboarding/claim-intents/${intent.claimIntentId}/branding/logo`, {
+    method: "PUT", body: bytes, ...options,
+    headers: { "content-type": "image/png", "content-length": String(bytes.length), "x-asset-byte-length": String(bytes.length), "x-asset-sha256": await digest(bytes), "x-claim-operation-id": operationId, ...options.headers }
+  });
+}
+async function manualBrandIntent(fixture, operationId, subject = OWNER_SUBJECT) {
+  const result = await editorRequest("/api/onboarding/claim-intents", { method: "POST", subject, body: { operationId, assetCount: 0, target: { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt } } });
+  assert.equal(result.response.status, 201, JSON.stringify(result.payload));
+  return result.payload;
+}
+
+test("local branding claims pin an immutable manual snapshot, reconcile logo/finalize retries and never change team defaults", async () => {
+  const fixture = await editorFixture();
+  const staged = await stageClaim({ operationId: "manual-local-branding-0001" });
+  const upload = () => claimLogo(staged, staged.operationId);
+  r2.failPut = true;
+  assert.equal((await upload()).response.status, 503);
+  assert.equal(count("workspace_branding"), 0);
+  r2.failPut = false; r2.failAfterPut = true;
+  const logos = await Promise.all([upload(), upload()]);
+  r2.failAfterPut = false;
+  assert.ok(logos.every((r) => r.response.status === 200), JSON.stringify(logos.map((r) => r.payload)));
+  assert.equal(logos[0].payload.logoId, logos[1].payload.logoId);
+  const putCount = r2.putCount;
+  assert.equal((await upload()).payload.logoId, logos[0].payload.logoId);
+  assert.equal(r2.putCount, putCount);
+  const body = claimBody(staged);
+  body.manual.branding = { themeColor: "#A14EBA", logoId: logos[0].payload.logoId };
+  const path = `/api/onboarding/claims/${staged.claimIntentId}`;
+  d1.failAt = 2;
+  assert.equal((await editorRequest(path, { method: "POST", body })).response.status, 503);
+  d1.failAt = -1;
+  assert.equal(count("manuals"), 1);
+  assert.equal(count("workspace_branding_versions"), 1, "an unattached immutable snapshot can be safely retried");
+  const changed = structuredClone(body); changed.manual.branding.themeColor = "#123456";
+  assert.equal((await editorRequest(path, { method: "POST", body: changed })).response.status, 409);
+  const omitted = structuredClone(body); delete omitted.manual.branding;
+  assert.equal((await editorRequest(path, { method: "POST", body: omitted })).response.status, 409);
+  const completed = await Promise.all([editorRequest(path, { method: "POST", body }), editorRequest(path, { method: "POST", body })]);
+  assert.ok(completed.every((r) => r.response.status === 200), JSON.stringify(completed.map((r) => r.payload)));
+  assert.deepEqual(completed[0].payload, completed[1].payload);
+  const manualPath = `/api/workspaces/${fixture.workspaceId}/manuals/${completed[0].payload.manualId}`;
+  let detail = (await editorRequest(manualPath)).payload;
+  assert.equal(detail.branding.themeColor, "#a14eba");
+  assert.equal(detail.branding.logoId, logos[0].payload.logoId);
+  assert.equal((await editorRequest(detail.branding.logoUrl)).response.status, 200);
+  assert.equal(count("workspace_branding"), 0, "manual branding never updates the workspace pointer");
+  assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, null, "other manuals retain their saved appearance");
+  const brandId = detail.branding.versionId;
+  assert.equal((await editorRequest(`${manualPath}/draft`, { method: "PATCH", body: patchPayload(detail) })).response.status, 200);
+  detail = (await editorRequest(manualPath)).payload;
+  assert.equal(detail.branding.versionId, brandId, "ordinary cloud edits preserve the explicit local branding snapshot");
+  assert.throws(() => database.prepare("INSERT INTO workspace_branding(workspace_id,version_id) VALUES (?,?)").run(fixture.workspaceId, brandId), /scope mismatch/);
+  assert.throws(() => database.prepare("UPDATE manual_revisions SET branding_version_id = ? WHERE id = ?").run(brandId, fixture.detail.draft.id), /scope mismatch/);
+  assert.equal((await editorRequest(path, { method: "POST", body: changed })).response.status, 409);
+});
+
+test("claim-scoped branding permits an editor's own manual update but rejects actor, tenant, role and unrelated logo substitution", async () => {
+  const fixture = await editorFixture();
+  const editorId = addEditorMember(fixture.workspaceId, "manual-brand-editor");
+  addEditorMember(fixture.workspaceId, "manual-brand-viewer", "viewer");
+  const op = "manual-editor-branding-0001";
+  const intent = await manualBrandIntent(fixture, op, "manual-brand-editor");
+  assert.equal((await claimLogo(intent, op, { subject: "manual-brand-viewer" })).response.status, 404);
+  assert.equal((await claimLogo(intent, op)).response.status, 404, "the workspace owner cannot upload through another actor's claim");
+  await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "brand-other-tenant", body: { operationId: "brand-other-bootstrap-0001" } });
+  assert.equal((await claimLogo(intent, op, { subject: "brand-other-tenant" })).response.status, 404);
+  assert.equal((await claimLogo(intent, op, { subject: "manual-brand-editor", origin: "https://other.invalid" })).response.status, 403);
+  assert.equal((await claimLogo(intent, op, { subject: "manual-brand-editor", headers: { "x-claim-operation-id": "wrong-operation-branding" } })).response.status, 409);
+  const logo = await claimLogo(intent, op, { subject: "manual-brand-editor" });
+  assert.equal(logo.response.status, 200, JSON.stringify(logo.payload));
+  const otherIntent = await manualBrandIntent(fixture, "manual-other-branding-0001", "manual-brand-editor");
+  const body = claimBody({ operationId: "manual-other-branding-0001", assetCount: 0 });
+  body.manual.branding = { themeColor: "#abcdef", logoId: logo.payload.logoId };
+  assert.equal((await editorRequest(`/api/onboarding/claims/${otherIntent.claimIntentId}`, { method: "POST", subject: "manual-brand-editor", body })).response.status, 400);
+  body.operationId = op;
+  const path = `/api/onboarding/claims/${intent.claimIntentId}`;
+  const completed = await editorRequest(path, { method: "POST", subject: "manual-brand-editor", body });
+  assert.equal(completed.response.status, 200, JSON.stringify(completed.payload));
+  assert.equal(completed.payload.manualId, fixture.manualId);
+  assert.equal(count("workspace_branding"), 0);
+  const detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(detail.branding.logoId, logo.payload.logoId);
+  const teamChange = await editorRequest(`/api/workspaces/${fixture.workspaceId}/branding`, { method: "PATCH", body: { themeColor: "#abcdef", logoId: logo.payload.logoId, expectedVersionId: null } });
+  assert.equal(teamChange.response.status, 400, "a manual-only logo cannot silently become a team default");
+  database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE application_id = ?").run(editorId);
+  assert.equal((await editorRequest(path, { method: "POST", subject: "manual-brand-editor", body })).response.status, 404);
+});
+
+test("manual branding rejects unsafe raster and payloads, and stale CAS or revoked permission keeps the old snapshot", async () => {
+  const fixture = await editorFixture();
+  const op = "manual-safe-branding-0001";
+  const intent = await manualBrandIntent(fixture, op);
+  const rejected = [
+    { bytes: new TextEncoder().encode("<svg/>") , headers: { "content-type": "image/svg+xml" }, status: 415 },
+    { bytes: new Uint8Array([...ONE_PIXEL_PNG, 42]), status: 415 },
+    { headers: { "content-length": String(1024 * 1024 + 1) }, status: 413 },
+    { headers: { "x-asset-sha256": "0".repeat(64) }, status: 400 }
+  ];
+  for (const { status, ...options } of rejected) assert.equal((await claimLogo(intent, op, options)).response.status, status);
+  assert.equal(count("workspace_brand_logos"), 0);
+  const body = claimBody({ operationId: op, assetCount: 0 });
+  for (const branding of [{ themeColor: "var(--accent)", logoId: null }, { themeColor: "#123456", logoId: "https://other.invalid/logo.png" }, { themeColor: "#123456", logoId: null, logoDataUrl: "data:image/svg+xml,test" }]) {
+    assert.equal((await editorRequest(`/api/onboarding/claims/${intent.claimIntentId}`, { method: "POST", body: { ...body, manual: { ...body.manual, branding } } })).response.status, 400);
+  }
+  const logo = await claimLogo(intent, op);
+  body.manual.branding = { themeColor: "#123456", logoId: logo.payload.logoId };
+  await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: { ...patchPayload(fixture.detail), title: "先行編集" } });
+  const stale = await editorRequest(`/api/onboarding/claims/${intent.claimIntentId}`, { method: "POST", body });
+  assert.ok([403, 409].includes(stale.response.status), JSON.stringify(stale.payload));
+  assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, null);
+  assert.equal(count("workspace_branding_versions"), 0);
+  assert.equal((await claimLogo(intent, op)).response.status, 409);
+  const current = (await editorRequest(fixture.path)).payload;
+  const editorId = addEditorMember(fixture.workspaceId, "brand-revoked-editor");
+  const next = await manualBrandIntent({ ...fixture, detail: current }, "brand-revoke-operation-01", "brand-revoked-editor");
+  const nextBody = claimBody({ operationId: "brand-revoke-operation-01", assetCount: 0 }); nextBody.manual.branding = { themeColor: "#fedcba", logoId: null };
+  d1.beforeBatch = () => { database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE application_id = ?").run(editorId); d1.beforeBatch = null; };
+  assert.equal((await editorRequest(`/api/onboarding/claims/${next.claimIntentId}`, { method: "POST", subject: "brand-revoked-editor", body: nextBody })).response.status, 409);
+  assert.equal((await editorRequest(fixture.path)).payload.branding.versionId, null);
+  assert.equal(count("workspace_branding"), 0);
+});
+
+test("saved edited image A can be restored after B while stale never-attached uploads and other manuals remain rejected", async () => {
+  const fixture = await editorFixture();
+  const uploadA = await editUpload(fixture, "undo-image-upload-A-0001");
+  const unused = await editUpload(fixture, "undo-image-never-used-01");
+  assert.equal(uploadA.response.status, 200); assert.equal(unused.response.status, 200);
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at, null);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = ?").run(NOW, unused.payload.assetId), /attachment provenance/);
+  const saveA = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploadA.payload.assetId) });
+  assert.equal(saveA.response.status, 200, JSON.stringify(saveA.payload));
+  const attachedAt = one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at;
+  assert.equal(typeof attachedAt, "string");
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  const uploadB = await editUpload(fixture, "undo-image-upload-B-0001");
+  assert.equal(uploadB.response.status, 200);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, uploadB.payload.assetId) })).response.status, 200);
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(fixture.detail.steps[0].assetId, uploadB.payload.assetId);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, unused.payload.assetId) })).response.status, 409, "ready but never attached at an older version is not provenance");
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", unused.payload.assetId).first_attached_at, null);
+  const editor = addEditorMember(fixture.workspaceId, "undo-collaborator");
+  const restored = await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-collaborator", body: patchPayload(fixture.detail, uploadA.payload.assetId) });
+  assert.equal(restored.response.status, 200, JSON.stringify(restored.payload));
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal(fixture.detail.steps[0].assetId, uploadA.payload.assetId);
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", uploadA.payload.assetId).first_attached_at, attachedAt);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = NULL WHERE id = ?").run(uploadA.payload.assetId), /attachment provenance/);
+  assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = ?").run(NOW, uploadA.payload.assetId), /attachment provenance/);
+  database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE application_id = ?").run(editor);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-collaborator", body: patchPayload(fixture.detail, uploadB.payload.assetId) })).response.status, 403);
+  const second = await stageClaim({ operationId: "undo-other-manual-0001" });
+  const claimed = await editorRequest(`/api/onboarding/claims/${second.claimIntentId}`, { method: "POST", body: claimBody(second) });
+  assert.equal(claimed.response.status, 200);
+  const otherPath = `/api/workspaces/${fixture.workspaceId}/manuals/${claimed.payload.manualId}`;
+  const otherDetail = (await editorRequest(otherPath)).payload;
+  assert.equal((await editorRequest(`${otherPath}/draft`, { method: "PATCH", body: patchPayload(otherDetail, uploadA.payload.assetId) })).response.status, 409, "previous attachment never grants another manual access");
+  assert.throws(() => database.prepare("UPDATE manual_steps SET asset_id = ? WHERE id = ?").run(uploadA.payload.assetId, otherDetail.steps[0].id), /manual mismatch/);
+  assert.equal((await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "undo-other-tenant", body: { operationId: "undo-other-tenant-bootstrap" } })).response.status, 200);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", subject: "undo-other-tenant", body: patchPayload(fixture.detail, uploadA.payload.assetId) })).response.status, 404);
+});
+
+test("failed draft saves never establish reusable attachment provenance", async () => {
+  const fixture = await editorFixture();
+  const upload = await editUpload(fixture, "never-attached-rollback-01");
+  assert.equal(upload.response.status, 200);
+  d1.failAt = 4;
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, upload.payload.assetId) })).response.status, 503);
+  d1.failAt = -1;
+  assert.equal(one("SELECT first_attached_at FROM manual_edit_assets WHERE id = ?", upload.payload.assetId).first_attached_at, null);
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail) })).response.status, 200);
+  fixture.detail = (await editorRequest(fixture.path)).payload;
+  assert.equal((await editorRequest(`${fixture.path}/draft`, { method: "PATCH", body: patchPayload(fixture.detail, upload.payload.assetId) })).response.status, 409);
+});
+
+test("authenticated expired status is terminal and fences delayed finalization using an earlier server time", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  const operationId = "expiry-terminal-operation-01";
+  const created = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 0 } });
+  assert.equal(created.response.status, 201);
+  const id = created.payload.claimIntentId;
+  const repository = new CloudManualRepository(d1);
+  const beforeExpiry = await repository.getClaimIntent(actorId, id);
+  const startedAt = new Date(Date.now() - 60_000).toISOString();
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), id);
+  const wrongOperation = await editorRequest(`/api/onboarding/claims/${id}?operationId=incorrect-operation-0001`);
+  assert.equal(wrongOperation.response.status, 409);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "pending", "wrong operation cannot terminalize another claim");
+  assert.equal((await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "expired-other-actor", body: { operationId: "expiry-other-actor-bootstrap" } })).response.status, 200);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`, { subject: "expired-other-actor" })).response.status, 404);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "pending");
+  let releaseFinalize;
+  d1.tail = new Promise((resolve) => { releaseFinalize = resolve; });
+  const delayedFinalize = repository.finalizeClaim(actorId, beforeExpiry, "a".repeat(64), "期限前に開始した保存", "", [], [], startedAt);
+  const status = await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`);
+  releaseFinalize();
+  assert.equal(status.response.status, 200);
+  assert.deepEqual(status.payload, { status: "expired", claimIntentId: id, operationId, workspaceId, expiresAt: one("SELECT expires_at FROM claim_intents WHERE id = ?", id).expires_at });
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", id).status, "expired");
+  await assert.rejects(delayedFinalize, (error) => error.code === "conflict");
+  assert.equal(count("manuals"), 0, "delayed finalize creates no manual after expired was returned");
+  assert.throws(() => database.prepare("UPDATE claim_intents SET status = 'pending' WHERE id = ?").run(id), /expired claim is terminal/);
+  assert.throws(() => database.prepare("UPDATE claim_intents SET status = 'completed' WHERE id = ?").run(id), /expired claim is terminal/);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`)).payload.status, "expired");
+  addEditorMember(workspaceId, "expiry-backup-owner", "owner");
+  database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId);
+  assert.equal((await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`)).response.status, 404, "revoked permissions hide even a terminal receipt");
+});
+
+test("expired update claims fence in-flight old-time CAS and revoked expiry writes remain pending", async () => {
+  const fixture = await editorFixture();
+  const repository = new CloudManualRepository(d1);
+  const operationId = "expired-update-operation-01";
+  const created = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 0, target: { workspaceId: fixture.workspaceId, manualId: fixture.manualId, revisionId: fixture.detail.draft.id, expectedUpdatedAt: fixture.detail.draft.updatedAt } } });
+  assert.equal(created.response.status, 201);
+  const id = created.payload.claimIntentId;
+  const oldIntent = await repository.getClaimIntent(fixture.actorId, id);
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), id);
+  let releaseFinalize; d1.tail = new Promise((resolve) => { releaseFinalize = resolve; });
+  const delayed = repository.finalizeClaim(fixture.actorId, oldIntent, "a".repeat(64), "遅延した旧保存", "", [], [], new Date(Date.now() - 60_000).toISOString());
+  const expired = await editorRequest(`/api/onboarding/claims/${id}?operationId=${operationId}`);
+  releaseFinalize();
+  assert.equal(expired.payload.status, "expired");
+  await assert.rejects(delayed, (error) => error.code === "conflict");
+  assert.deepEqual((await editorRequest(fixture.path)).payload, fixture.detail, "terminal expiry protects the current draft from a delayed old write");
+  const revokeOperation = "revoked-expiry-operation-01";
+  const second = await editorRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: revokeOperation, assetCount: 0 } });
+  assert.equal(second.response.status, 201);
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1).toISOString(), second.payload.claimIntentId);
+  addEditorMember(fixture.workspaceId, "expiry-race-backup-owner", "owner");
+  const prepare = d1.prepare.bind(d1);
+  d1.prepare = (sql) => {
+    if (/UPDATE claim_intents SET status = 'expired'/.test(sql)) database.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND application_id = ?").run(fixture.workspaceId, fixture.actorId);
+    return prepare(sql);
+  };
+  const revoked = await editorRequest(`/api/onboarding/claims/${second.payload.claimIntentId}?operationId=${revokeOperation}`);
+  assert.equal(revoked.response.status, 404);
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", second.payload.claimIntentId).status, "pending", "authorization is rechecked inside the terminal state mutation");
 });

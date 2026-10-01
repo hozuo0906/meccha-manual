@@ -52,7 +52,7 @@
           break;
         }
         const style = getComputedStyle(current);
-        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
+        if (style.display === "none" || style.contentVisibility === "hidden" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
           visible = false;
           break;
         }
@@ -84,6 +84,121 @@
     return text;
   };
 
+  const semanticKind = (value) => {
+      // A truncated label is unknown, never evidence that a value is public.
+      const raw = String(value ?? "");
+      if (raw.length > 4096) return "unknown";
+      const label = raw.replace(/\s+/g, " ").trim().toLowerCase();
+      if (/password|passcode|token|secret|cc-|card|credit|cvv|cvc|pin|パスワード|秘密|カード|暗証|個人番号|マイナンバー|認証コード/.test(label)) return "secret";
+      if (/メール|e-?mail|mail|電子.?メール/.test(label)) return "email";
+      if (/電話|tel|phone|携帯|mobile/.test(label)) return "phone";
+      if (/住所|address|所在地/.test(label)) return "address";
+      if (/会社|企業|店舗|施設|organization|company/.test(label)) return "company";
+      if (/生年月日|誕生日|birth|bday/.test(label)) return "birthday";
+      if (/社員番号|従業員番号|employee.?id|staff.?id/.test(label)) return "employeeId";
+      if (/顧客番号|会員番号|customer.?id|member.?id/.test(label)) return "customerId";
+      if (/氏名|名前|担当者|姓名|(?:^|[\s_-])(?:given-|family-|full-)?name(?:$|[\s_-])/.test(label)) return "name";
+      return null;
+    };
+    // Kept identical in recorder.js: both injected entry points must classify
+    // table context without imports. A slot/association budget is fail-closed.
+    const semanticTableKinds = (table, classify) => {
+      const rows = Array.from(table?.rows || []);
+      const kinds = new Map();
+      const entries = [];
+      const grid = [];
+      const groupEnds = new Map();
+      let slots = 0, associations = 0;
+      const exceed = () => { throw new Error("SCREENSHOT_BUDGET_EXCEEDED"); };
+      if (rows.length > 4096) exceed();
+      rows.forEach((row, index) => groupEnds.set(row.parentElement, index + 1));
+      for (const [rowIndex, row] of rows.entries()) {
+        const cells = Array.from(row.cells || []);
+        if (cells.length > 4096) exceed();
+        const headerRow = cells.length > 0 && cells.every((cell) => cell.tagName === "TH");
+        let column = 0;
+        for (const cell of cells) {
+          while (grid[rowIndex]?.[column]) { if (++column > 4096) exceed(); }
+          const width = Number(cell.colSpan || 1);
+          const height = Number(cell.rowSpan);
+          if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 0) exceed();
+          const endRow = Math.min(groupEnds.get(row.parentElement), height === 0 ? groupEnds.get(row.parentElement) : rowIndex + height);
+          const endColumn = column + width;
+          const scope = String(cell.getAttribute?.("scope") || "").toLowerCase();
+          if (scope && !["row", "rowgroup", "col", "colgroup"].includes(scope)) exceed();
+          const columnHeader = cell.tagName === "TH" && (scope === "col" || scope === "colgroup"
+            || (!scope && (row.parentElement?.tagName === "THEAD" || headerRow)));
+          const entry = { cell, row: rowIndex, endRow, column, endColumn, group: row.parentElement, scope, columnHeader };
+          for (let r = rowIndex; r < endRow; r += 1) {
+            grid[r] ||= [];
+            for (let c = column; c < endColumn; c += 1) {
+              if (++slots > 4096 || grid[r][c]) exceed();
+              grid[r][c] = entry;
+            }
+          }
+          entries.push(entry);
+          column = endColumn;
+        }
+      }
+      const headers = entries.filter((entry) => entry.cell.tagName === "TH");
+      const byId = new Map();
+      for (const header of headers) {
+        header.kind = classify(header.cell.textContent);
+        const id = header.cell.id;
+        if (id) byId.set(id, byId.has(id) ? null : header);
+      }
+      for (const entry of entries) {
+        const matched = new Set();
+        const explicit = String(entry.cell.getAttribute?.("headers") || "");
+        if (explicit.length > 4096) exceed();
+        for (const id of explicit.split(/\s+/).filter(Boolean)) {
+          if (++associations > 65536) exceed();
+          const header = byId.get(id);
+          if (!header || header === entry) matched.add("unknown");
+          else if (header.kind) matched.add(header.kind);
+        }
+        for (const header of headers) {
+          if (++associations > 65536) exceed();
+          if (header === entry || !header.kind) continue;
+          const sameColumns = header.column < entry.endColumn && entry.column < header.endColumn;
+          const sameRows = header.row < entry.endRow && entry.row < header.endRow;
+          const applies = header.columnHeader
+            ? header.row < entry.row && sameColumns
+            : header.scope === "rowgroup" ? header.group === entry.group
+              : sameRows && header.endColumn <= entry.column;
+          if (applies) matched.add(header.kind);
+        }
+        // Conflicting hierarchical headers must not produce a guessed alias.
+        const kind = matched.has("secret") ? "secret" : matched.size > 1 ? "unknown" : [...matched][0] || null;
+        if (kind) kinds.set(entry.cell, kind);
+      }
+      return kinds;
+    };
+  const privateValueContext = (element) => {
+    let current = element;
+    const tables = new Map();
+    try {
+      for (let depth = 0; current && depth < 64; depth += 1) {
+        const tag = String(current.tagName || "").toUpperCase();
+        const label = current.previousElementSibling;
+        if (((tag === "DD" && label?.tagName === "DT") || (tag === "TD" && label?.tagName === "TH"))
+          && semanticKind(label.textContent)) return true;
+        if (["TD", "TH"].includes(tag)) {
+          const table = current.closest?.("table");
+          if (table) {
+            if (!tables.has(table)) tables.set(table, semanticTableKinds(table, semanticKind));
+            if (tables.get(table).has(current)) return true;
+          }
+        }
+        current = current.parentElement || current.getRootNode?.()?.host || null;
+      }
+      return Boolean(current);
+    } catch {
+      // Malformed/over-budget tables cannot authorize a page-derived caption.
+      return true;
+    }
+  };
+
   const describe = (element) => {
     if (!(element instanceof Element)) return {};
     const id = element.id;
@@ -108,8 +223,10 @@
       ? boundedVisibleText(element)
       : null;
     const visibleText = visibleTextResult?.truncated ? undefined : visibleTextResult?.text;
-    const captionSourcesAllowed = !hasEditableBoundary;
+    const privateContext = privateValueContext(element);
+    const captionSourcesAllowed = !hasEditableBoundary && !privateContext;
     return {
+      privateValueContext: privateContext,
       type: element.getAttribute("type"),
       controlCaption: captionSourcesAllowed && tagName === "input" && ["button", "submit", "reset"].includes(type)
         ? boundedAttribute(element.getAttribute("value"))
@@ -127,7 +244,7 @@
       tagName
     };
   };
-  const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...extra });
+  const captureEvent = (kind, target, extra = {}) => ({ kind, target: describe(target), at: Date.now(), ...(kind === "click" ? { clickTarget: clickTargetRect(target) } : {}), ...extra });
   const sendEvent = (event) => chrome.runtime.sendMessage({ type: "capture:event", event })
     .then((response) => Boolean(response?.ok && response?.value?.accepted !== false), () => false);
 
@@ -255,12 +372,28 @@
   };
 
   const flushBeforeAction = () => Promise.all([flushInput(), flushScroll()]);
+  let latestClick = null;
+  const clickTargetRect = (target) => {
+    if (globalThis.top !== globalThis || typeof target?.getBoundingClientRect !== "function") return undefined;
+    const rect = target.getBoundingClientRect();
+    const viewportWidth = Number(globalThis.innerWidth), viewportHeight = Number(globalThis.innerHeight);
+    const devicePixelRatio = Number(globalThis.devicePixelRatio || 1);
+    if (![rect.left, rect.top, rect.width, rect.height, viewportWidth, viewportHeight, devicePixelRatio].every(Number.isFinite)
+      || viewportWidth <= 0 || viewportHeight <= 0 || devicePixelRatio <= 0 || devicePixelRatio > 8) return undefined;
+    const x = Math.max(0, rect.left), y = Math.max(0, rect.top);
+    const width = Math.min(viewportWidth, rect.right) - x, height = Math.min(viewportHeight, rect.bottom) - y;
+    if (width <= 0 || height <= 0) return undefined;
+    const scrollX = Number(globalThis.scrollX || 0), scrollY = Number(globalThis.scrollY || 0);
+    if (![scrollX, scrollY].every(Number.isFinite)) return undefined;
+    return { x, y, width, height, viewportWidth, viewportHeight, devicePixelRatio, scrollX, scrollY, topFrame: true };
+  };
   const click = (event) => {
     const target = event.target instanceof Element
       ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=menuitem]") || event.target
       : event.target;
     void flushBeforeAction();
-    trackAndSend("click", target);
+    const recorded = trackAndSend("click", target);
+    latestClick = recorded.clickTarget ? { target, eventId: recorded.eventId, rect: recorded.clickTarget } : null;
   };
 
   let pendingNavigation;
@@ -320,6 +453,7 @@
     return uniqueEvents.sort((left, right) => (Number(left.at) || 0) - (Number(right.at) || 0));
   };
   const removeRecordingListeners = ({ keepBeforeUnload = false } = {}) => {
+    latestClick = null;
     removeEventListener("click", click, true);
     removeEventListener("input", queueInput, true);
     removeEventListener("change", commitInput, true);
@@ -343,7 +477,13 @@
   addEventListener("hashchange", historyNavigation, true);
   addEventListener(HISTORY_EVENT, historyNavigation, true);
 
-  globalThis.__mecchaManualRecorder = (command = "drain") => {
+  globalThis.__mecchaManualRecorder = (command = "drain", eventId) => {
+    if (command === "click-target") {
+      if (!latestClick || latestClick.eventId !== eventId || !latestClick.target?.isConnected) return null;
+      const current = clickTargetRect(latestClick.target);
+      if (!current || Object.keys(latestClick.rect).some(key => current[key] !== latestClick.rect[key])) return null;
+      return current;
+    }
     if (command === "retain") {
       if (!retainedEvents.length) retainedEvents = collectPendingEvents().map(cloneEvent);
       removeRecordingListeners({ keepBeforeUnload: true });

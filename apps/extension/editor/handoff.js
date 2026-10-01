@@ -36,9 +36,14 @@ function canonicalDraftJsonInternal(draft) {
       id: step?.id ?? null,
       order: step?.order ?? null,
       instruction: step?.instruction ?? "",
-      screenshotId: step?.screenshotId ?? null
+      screenshotId: step?.screenshotId ?? null,
+      ...(step?.imageState ? { imageState: {
+        status: step.imageState.status ?? null,
+        version: step.imageState.version ?? null
+      } } : {})
     })) : [],
-    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map(canonicalScreenshot) : []
+    screenshots: Array.isArray(draft.screenshots) ? draft.screenshots.map(canonicalScreenshot) : [],
+    ...(draft.branding !== undefined ? { branding: { themeColor: draft.branding?.themeColor ?? "#087f7a", logoDataUrl: draft.branding?.logoDataUrl ?? null } } : {})
   });
 }
 
@@ -119,7 +124,7 @@ export async function findRecoverableHandoff(draftId, draftFingerprint, storage 
   if (!validOutputAction(outputAction)) return null;
   const entries = await storage.get(null);
   const handoffs = Object.values(entries || {}).filter((value) =>
-    value?.outputAction === outputAction &&
+    validOutputAction(value?.outputAction) &&
     value?.draftId === draftId &&
     /^[A-Za-z0-9_-]{43}$/.test(value?.handoffId || "") &&
     /^[a-f0-9]{64}$/.test(value?.draftFingerprint || "")
@@ -131,6 +136,7 @@ export async function findRecoverableHandoff(draftId, draftFingerprint, storage 
   );
   if (pending.length > 0) return pending.find((value) => value.draftFingerprint === draftFingerprint) || pending[0];
   return handoffs.find((value) =>
+    value.outputAction === outputAction &&
     value.status === undefined &&
     value.draftFingerprint === draftFingerprint &&
     Number.isFinite(Date.parse(value.expiresAt || "")) &&
@@ -159,9 +165,13 @@ export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chr
     /^[a-f0-9]{64}$/.test(recovery.draftFingerprint || "")
     ? `&operationId=${encodeURIComponent(recovery.operationId)}&claimIntentId=${encodeURIComponent(recovery.claimIntentId)}&draftFingerprint=${encodeURIComponent(recovery.draftFingerprint)}`
     : "";
-  const actionParam = outputAction === "share" ? "&action=share" : "";
+  // Claim authorization uses the original action. A different requested destination
+  // is UI intent only; it must never create a second in-flight claim.
+  const claimAction = validOutputAction(recovery?.outputAction) ? recovery.outputAction : outputAction;
+  const actionParam = claimAction === "share" ? "&action=share" : "";
+  const requestedActionParam = outputAction !== claimAction ? `&requestedAction=${outputAction}` : "";
   const launchParam = launchId ? `&launchId=${encodeURIComponent(launchId)}` : "";
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${recoveryParams}${launchParam}`;
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${requestedActionParam}${recoveryParams}${launchParam}`;
 }
 
 export async function withHandoffReadyLock(handoffId, callback, navigatorLike = globalThis.navigator) {

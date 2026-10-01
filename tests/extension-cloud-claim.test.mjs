@@ -104,7 +104,7 @@ test("share output keeps an explicit action through handoff recovery", async () 
   assert.equal(safeMessage({ ...validMessage, action: "share" }, "handoff.prepare"), true);
 });
 
-test("guest share claim rejects mismatched actions and keeps matching recovery isolated", async () => {
+test("guest claim rejects mismatched messages but recovers a pending draft across output actions", async () => {
   const handoffId = "A".repeat(43);
   const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue" };
   const previousChrome = globalThis.chrome;
@@ -134,7 +134,13 @@ test("guest share claim rejects mismatched actions and keeps matching recovery i
     } }; }
   };
   assert.equal((await findRecoverableHandoff("draft-share", fingerprint, storage, "share")).outputAction, "share");
-  assert.equal(await findRecoverableHandoff("draft-share", fingerprint, storage, "save"), null);
+  const saveRecovery = await findRecoverableHandoff("draft-share", fingerprint, storage, "save");
+  assert.equal(saveRecovery.outputAction, "share");
+  const url = new URL(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", handoffId, "a".repeat(32), saveRecovery, "save"));
+  const params = new URLSearchParams(url.hash.slice(1));
+  assert.equal(params.get("action"), "share");
+  assert.equal(params.get("requestedAction"), "save");
+  assert.equal(params.get("operationId"), saveRecovery.operationId);
 });
 
 test("draft lock requires Web Locks and holds the callback across async work", async () => {
@@ -159,8 +165,63 @@ test("completed handoff is not selected for a changed draft", async () => {
   assert.equal(await findRecoverableHandoff("draft-1", "a".repeat(64), storage), null);
 });
 
-test("D extension distribution is pinned to staging and version 0.1.7", async () => {
+test("D extension distribution is pinned to staging and version 0.1.8", async () => {
   const manifest = JSON.parse(await readFile("apps/extension/manifest.json", "utf8"));
-  assert.equal(manifest.version, "0.1.7");
+  assert.equal(manifest.version, "0.1.8");
   assert.deepEqual(manifest.externally_connectable.matches, ["https://meccha-manual-staging.meccha-iiyatsu.com/*"]);
+});
+
+
+test("known pending, failed and unreviewed images block output instead of being dropped", async () => {
+  const base = { id: "review", title: "確認", description: "", steps: [{ id: "s1", order: 1, instruction: "保存する" }], screenshots: [] };
+  for (const status of ["queued", "capturing", "unavailable", "failed", "protected", "unknown"]) {
+    assert.equal(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status, version: 1 } }] }), null, status);
+  }
+  assert.ok(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status: "none", version: 1 } }] }));
+  assert.equal(cleanDraft({ ...base, steps: [{ ...base.steps[0], imageState: { status: "ready", version: 1 } }] }), null);
+  const ready = { ...base, steps: [{ ...base.steps[0], screenshotId: "image", imageState: { status: "ready", version: 1 } }], screenshots: [{ id: "image", dataUrl: "data:image/png;base64,AA==", masks: [] }] };
+  assert.ok(cleanDraft(ready));
+  assert.equal(cleanDraft({ ...ready, steps: [{ ...ready.steps[0], imageState: { status: "none", version: 1 } }] }), null);
+  assert.notEqual(await fingerprintDraft(ready), await fingerprintDraft({ ...ready, steps: [{ ...ready.steps[0], imageState: { status: "protected", version: 1 } }] }));
+  assert.equal(await fingerprintDraft({ ...ready, editorState: { selectedStepId: "s1", zoom: 200 } }), await fingerprintDraft(ready));
+});
+
+
+test("output prunes orphan screenshots but rejects referenced pending privacy review independently of image state", () => {
+  const image = { id: "image", dataUrl: "data:image/png;base64,AA==", masks: [] };
+  const step = { id: "s1", order: 1, instruction: "確認する", screenshotId: "image", imageState: { status: "ready", version: 1 } };
+  const draft = { title: "手順書", description: "", steps: [step], screenshots: [{ ...image, id: "orphan", privacyReview: { reviewRequired: true } }, image] };
+  assert.deepEqual(cleanDraft(draft).screenshots.map((item) => item.id), ["image"]);
+  assert.equal(cleanDraft({ ...draft, steps: [{ ...step, privacyReview: { reviewRequired: true } }] }), null);
+  assert.equal(cleanDraft({ ...draft, screenshots: [{ ...image, privacyReview: { reviewRequired: true } }] }), null);
+  assert.deepEqual(cleanDraft({ ...draft, steps: [{ id: "s1", order: 1, instruction: "説明のみ", imageState: { status: "none", version: 2 } }] }).screenshots, []);
+});
+
+
+test("pending save is recovered before Share even when local content changed", async () => {
+  for (const status of ["finalize-pending", "completion-pending"]) {
+    const pending = { handoffId: "B".repeat(43), draftId: "draft-1", draftFingerprint: "a".repeat(64), outputAction: "save", status, operationId: "O".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000" };
+    const freshShare = { handoffId: "C".repeat(43), draftId: "draft-1", draftFingerprint: "b".repeat(64), outputAction: "share", expiresAt: new Date(Date.now() + 60000).toISOString() };
+    const storage = { async get() { return { freshShare, pending }; } };
+    const recovered = await findRecoverableHandoff("draft-1", "b".repeat(64), storage, "share");
+    assert.equal(recovered.handoffId, pending.handoffId);
+    assert.equal(recovered.draftFingerprint, pending.draftFingerprint);
+    const params = new URLSearchParams(new URL(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", recovered.handoffId, "a".repeat(32), recovered, "share")).hash.slice(1));
+    assert.equal(params.get("action"), null, "original save action remains canonical");
+    assert.equal(params.get("requestedAction"), "share");
+    assert.equal(params.get("draftFingerprint"), pending.draftFingerprint);
+  }
+});
+
+test("local branding participates in the handoff fingerprint and prepares only bounded color/logo metadata", async () => {
+  const draft = { id: "brand-local", title: "手順書", description: "", steps: [], screenshots: [], branding: { themeColor: "#A14EBA", logoDataUrl: "data:image/png;base64,AQ==" } };
+  assert.deepEqual(cleanDraft(draft).branding, { themeColor: "#a14eba", hasLogo: true });
+  assert.equal(JSON.stringify(cleanDraft(draft)).includes("base64"), false);
+  assert.notEqual(await fingerprintDraft(draft), await fingerprintDraft({ ...draft, branding: { ...draft.branding, themeColor: "#123456" } }));
+  assert.notEqual(await fingerprintDraft(draft), await fingerprintDraft({ ...draft, branding: { ...draft.branding, logoDataUrl: "data:image/png;base64,Ag==" } }));
+  assert.notEqual(await fingerprintDraft(draft), await fingerprintDraft({ ...draft, branding: { themeColor: "#a14eba" } }));
+  for (const branding of [null, [], { themeColor: "var(--accent)" }, { logoDataUrl: "https://other.invalid/logo.png" }, { logoDataUrl: "data:image/svg+xml;base64,AQ==" }, { themeColor: "#123456", externalUrl: "https://other.invalid" }, { logoDataUrl: "data:image/png;base64," + "A".repeat(14 * 1024 * 1024) }]) assert.equal(cleanDraft({ ...draft, branding }), null);
+  assert.equal(safeMessage({ ...validMessage, type: "handoff.logo.start" }, "handoff.logo.start"), true);
+  assert.equal(safeMessage({ ...validMessage, type: "handoff.logo.start", assetSlot: 0 }, "handoff.logo.start"), false);
+  assert.equal(safeMessage({ ...validMessage, type: "handoff.logo.chunk", sequence: 0 }, "handoff.logo.chunk"), true);
 });

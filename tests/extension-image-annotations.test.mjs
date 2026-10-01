@@ -84,3 +84,36 @@ test("renderer validates all layers before drawing and composites annotations be
   });
   assert.deepEqual(calls.filter((call) => ["image", "rectangle", "text", "mask"].includes(call)), ["image", "rectangle", "text", "mask"]);
 });
+
+test("manual instruction limits count Unicode code points without splitting surrogate pairs", async () => {
+  const { addStep, updateStepInstruction } = await import("../apps/extension/editor/draft-model.js");
+  const draft = { steps: [], screenshots: [] };
+  const step = addStep(draft, "😀".repeat(501));
+  assert.equal(Array.from(step.instruction).length, 500);
+  assert.equal(step.instruction.endsWith("😀"), true);
+  updateStepInstruction(draft, step.id, "あ😀".repeat(300));
+  assert.equal(Array.from(step.instruction).length, 500);
+  assert.equal(step.instruction.endsWith("😀"), true);
+});
+
+test("crop rebases only generated-value review outlines into the new output bitmap", async () => {
+  const { cropReviewRegions } = await import("../apps/extension/editor/image-editor.js");
+  const review = { replacementCount: 2, protectedRegionCount: 1, reviewRequired: true, reasonCodes: ["synthetic_review"], replacements: [
+    { id: "fictional-name", kind: "name", text: "山田 花子", x: .3, y: .3, width: .2, height: .1 },
+    { id: "outside-crop", kind: "company", text: "株式会社サンプル", x: .8, y: .8, width: .1, height: .1 }
+  ] };
+  const next = cropReviewRegions(review, { x: .2, y: .2, width: .4, height: .4 });
+  assert.equal(next.replacementCount, 1);
+  assert.equal(next.replacements[0].id, "fictional-name");
+  assert.ok(Math.abs(next.replacements[0].x - .25) < 1e-10);
+  assert.ok(Math.abs(next.replacements[0].width - .5) < 1e-10);
+  assert.equal(next.reviewRequired, true, "切り抜きだけで安全上の要確認を解除しない");
+  assert.equal(review.replacements.length, 2, "履歴に残る元の安全なmetadataを変更しない");
+});
+
+
+test("custom rectangle colors use bounded hexadecimal values and survive normalization", () => {
+  const rectangle = { id: "custom", type: "rectangle", x:.1, y:.1, width:.2, height:.2, color:"#A14EBA", strokeWidth:3 };
+  assert.equal(normalizeAnnotation(rectangle).color,"#a14eba");
+  for (const color of ["red", "var(--private)", "url(https://example.invalid)", "#fff", "#12345678", "#GGGGGG"]) assert.equal(normalizeAnnotation({...rectangle,color}),null);
+});

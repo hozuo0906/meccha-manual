@@ -1,7 +1,6 @@
 export const MAX_ANNOTATIONS = 100;
 export const MAX_ANNOTATION_TEXT = 500;
 export const ANNOTATION_TYPES = new Set(["text", "rectangle", "ellipse", "arrow"]);
-const COLORS = new Set(["#111827", "#ffffff", "#087f7a", "#dc2626", "#2563eb"]);
 
 function finite(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -26,7 +25,7 @@ function normalizedStrokeWidth(value) {
 
 function normalizedColor(value) {
   const color = value === undefined ? "#087f7a" : value;
-  return COLORS.has(color) ? color : null;
+  return typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null;
 }
 
 function normalizedFontSize(value) {

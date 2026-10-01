@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { generateKeyPairSync, createHash, randomBytes } from 'node:crypto';
-import { chromium } from '@playwright/test';
+import { chromium } from '../tests/support/test-browser.mjs';
 import { exportJWK, SignJWT } from 'jose';
 import worker from '../apps/worker/src/index.ts';
 
@@ -37,7 +37,7 @@ const classes = source.slice(source.indexOf('class LocalStatement'), source.inde
   + source.slice(source.indexOf('class MemoryR2'), source.indexOf('let database;'));
 const { LocalD1, MemoryR2 } = Function(classes + ';return {LocalD1,MemoryR2};')();
 const database = new DatabaseSync(':memory:');
-for (const name of ['0001_d1_identity_workspace.sql', '0002_d1_personal_workspace.sql', '0003_d1_onboarding_bootstrap.sql', '0004_d1_cloud_manual_claim.sql', '0005_d1_share_links.sql']) {
+for (const name of ['0001_d1_identity_workspace.sql', '0002_d1_personal_workspace.sql', '0003_d1_onboarding_bootstrap.sql', '0004_d1_cloud_manual_claim.sql', '0005_d1_share_links.sql', '0006_d1_manual_editor_branding.sql', '0007_d1_retained_save_recovery.sql']) {
   database.exec(await readFile(new URL('migrations/' + name, root), 'utf8'));
 }
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -108,7 +108,11 @@ try {
   const page = await context.newPage(); page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(base + '/manuals');
   await page.getByRole('button', { name: '記録した操作の手順書', exact: true }).click();
-  await page.waitForFunction((count) => { const images = [...document.querySelectorAll('img.cloud-step-image')]; const brand = [...document.querySelectorAll('img.cloud-brand-logo, img.cloud-brand-mascot')]; return images.length === count && images.every((image) => !image.hidden && image.complete && image.naturalWidth > 300) && brand.length === 2 && brand.every((image) => image.complete && image.naturalWidth > 0); }, images.length);
+  const choices=page.locator('.manual-step-nav li button');
+  await page.waitForFunction(count => document.querySelectorAll('.manual-step-nav li button').length === count, images.length);
+  assert.equal(await choices.count(),images.length);
+  for(let index=0;index<images.length;index++){await choices.nth(index).click();await page.waitForFunction(()=>{const images=[...document.querySelectorAll('img.cloud-step-image')];return images.length===1&&images.every(image=>!image.hidden&&image.complete&&image.naturalWidth>300);});}
+  await choices.first().click();await page.waitForFunction(()=>document.querySelector('img.cloud-step-image')?.naturalWidth>300);
   await page.screenshot({ path: join(outputDir, 'chain-cloud.png'), fullPage: true });
   assert.deepEqual(await page.evaluate(() => globalThis.syntheticCspViolations), [], 'cloud page must obey actual Worker CSP');
   await page.goto(base + '/s/#token=' + token);

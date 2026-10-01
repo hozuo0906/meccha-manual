@@ -1,3 +1,4 @@
+import { readStoredManualAnnotations, type ManualAnnotation } from "../../manual-annotations.ts";
 import { D1RepositoryError, ensureRepositoryError } from "./d1-errors.ts";
 import { changed, type D1DatabaseLike, type D1RunResult } from "./d1-types.ts";
 
@@ -5,6 +6,7 @@ export type CloudManualRole = "owner" | "admin" | "editor" | "viewer";
 export type ClaimIntentStatus = "pending" | "completed" | "expired";
 export type ManualStatus = "draft" | "reviewing" | "published" | "stale" | "archived";
 
+export interface ClaimUpdateTarget { workspaceId: string; manualId: string; revisionId: string; expectedUpdatedAt: string }
 export interface ClaimIntentRecord {
   id: string;
   actorId: string;
@@ -15,6 +17,10 @@ export interface ClaimIntentRecord {
   status: ClaimIntentStatus;
   requestFingerprint: string | null;
   manualId: string | null;
+  target: ClaimUpdateTarget | null;
+  completedRevisionId: string | null;
+  completedUpdatedAt: string | null;
+  completedContentVersion: string | null;
 }
 
 export interface StagedAssetRecord {
@@ -49,6 +55,7 @@ export interface ManualDetailRecord extends ManualListRecord {
     updatedAt: string;
     state: "draft" | "published";
     contentVersion: string;
+    brandingVersionId: string | null;
   } | null;
   steps: Array<{
     id: string;
@@ -60,6 +67,7 @@ export interface ManualDetailRecord extends ManualListRecord {
     targetText: string | null;
     url: string | null;
     assetId: string | null;
+    annotations: ManualAnnotation[];
     updatedAt: string;
   }>;
   canEdit: boolean;
@@ -74,6 +82,7 @@ export interface ClaimStepInput {
   url: string | null;
   assetSlot: number | null;
   assetId: string | null;
+  annotations: ManualAnnotation[];
 }
 
 export interface ClaimAssetInput {
@@ -89,6 +98,7 @@ export interface ManualStepMutationInput {
   targetText: string | null;
   url: string | null;
   assetId: string | null;
+  annotations?: ManualAnnotation[];
 }
 
 interface ClaimIntentRow {
@@ -101,6 +111,12 @@ interface ClaimIntentRow {
   status: ClaimIntentStatus;
   request_fingerprint: string | null;
   manual_id: string | null;
+  target_manual_id: string | null;
+  target_revision_id: string | null;
+  expected_updated_at: string | null;
+  completed_revision_id: string | null;
+  completed_updated_at: string | null;
+  completed_content_version: string | null;
 }
 
 interface StagedAssetRow {
@@ -131,6 +147,7 @@ interface ManualDetailRow {
   revision_updated_at: string | null;
   revision_state: "draft" | "published" | null;
   content_version: string | null;
+  branding_version_id: string | null;
   workspace_role: CloudManualRole;
   steps_json: string;
 }
@@ -151,7 +168,11 @@ function mapClaimIntent(row: ClaimIntentRow): ClaimIntentRecord {
     expiresAt: row.expires_at,
     status: row.status,
     requestFingerprint: row.request_fingerprint,
-    manualId: row.manual_id
+    manualId: row.manual_id,
+    target: row.target_manual_id && row.target_revision_id && row.expected_updated_at ? { workspaceId: row.workspace_id, manualId: row.target_manual_id, revisionId: row.target_revision_id, expectedUpdatedAt: row.expected_updated_at } : null,
+    completedRevisionId: row.completed_revision_id,
+    completedUpdatedAt: row.completed_updated_at,
+    completedContentVersion: row.completed_content_version
   };
 }
 
@@ -176,7 +197,7 @@ export class CloudManualRepository {
     }
   }
 
-  async createClaimIntent(actorId: string, operationId: string, assetCount: number, now: string, ttlMs: number): Promise<ClaimIntentRecord> {
+  async createClaimIntent(actorId: string, operationId: string, assetCount: number, now: string, ttlMs: number, target: ClaimUpdateTarget | null = null): Promise<ClaimIntentRecord> {
     if (!/^[A-Za-z0-9_-]{16,128}$/u.test(operationId) || !Number.isInteger(assetCount) || assetCount < 0 || assetCount > 100) {
       throw new D1RepositoryError("invalid_input");
     }
@@ -185,8 +206,19 @@ export class CloudManualRepository {
     try {
       const existing = await this.getClaimIntentByOperation(actorId, operationId);
       if (existing) {
-        if (existing.assetCount !== assetCount) throw new D1RepositoryError("conflict");
+        if (existing.assetCount !== assetCount || JSON.stringify(existing.target) !== JSON.stringify(target)) throw new D1RepositoryError("conflict");
         return existing;
+      }
+      if (target) {
+        const detail = await this.getManual(actorId, target.workspaceId, target.manualId);
+        if (!detail?.canEdit) throw new D1RepositoryError("forbidden");
+        if (detail.draft?.id !== target.revisionId || detail.draft.updatedAt !== target.expectedUpdatedAt || detail.draft.state !== "draft") throw new D1RepositoryError("conflict");
+        await this.db.prepare(`INSERT INTO claim_intents (id, actor_application_id, workspace_id, operation_id, asset_count, expires_at, status, created_at, updated_at, target_manual_id, target_revision_id, expected_updated_at)
+          VALUES (?1,?2,?3,?4,?5,?6,'pending',?7,?7,?8,?9,?10)`)
+          .bind(id, actorId, target.workspaceId, operationId, assetCount, expiresAt, now, target.manualId, target.revisionId, target.expectedUpdatedAt).run();
+        const row = await this.getClaimIntent(actorId, id);
+        if (!row) throw new D1RepositoryError("unavailable");
+        return row;
       }
       const result = await this.db.prepare(`
         INSERT INTO claim_intents (id, actor_application_id, workspace_id, operation_id, asset_count, expires_at, status, created_at, updated_at)
@@ -205,7 +237,7 @@ export class CloudManualRepository {
       if (mapped.code === "conflict") {
         const raced = await this.getClaimIntentByOperation(actorId, operationId);
         if (raced) {
-          if (raced.assetCount !== assetCount) throw mapped;
+          if (raced.assetCount !== assetCount || JSON.stringify(raced.target) !== JSON.stringify(target)) throw mapped;
           return raced;
         }
       }
@@ -215,10 +247,10 @@ export class CloudManualRepository {
 
   async getClaimIntent(actorId: string, claimIntentId: string): Promise<ClaimIntentRecord | null> {
     try {
-      const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id
+      const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id, c.target_manual_id, c.target_revision_id, c.expected_updated_at, c.completed_revision_id, c.completed_updated_at, c.completed_content_version
         FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-        WHERE c.id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(claimIntentId, actorId).first<ClaimIntentRow>();
+        WHERE c.id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))) LIMIT 1`).bind(claimIntentId, actorId).first<ClaimIntentRow>();
       return row ? mapClaimIntent(row) : null;
     } catch (error) {
       throw repositoryError(error);
@@ -227,14 +259,30 @@ export class CloudManualRepository {
 
   async getClaimIntentByOperation(actorId: string, operationId: string): Promise<ClaimIntentRecord | null> {
     try {
-      const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id
+      const row = await this.db.prepare(`SELECT c.id, c.actor_application_id, c.workspace_id, c.operation_id, c.asset_count, c.expires_at, c.status, c.request_fingerprint, c.manual_id, c.target_manual_id, c.target_revision_id, c.expected_updated_at, c.completed_revision_id, c.completed_updated_at, c.completed_content_version
         FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-        WHERE c.actor_application_id = ?1 AND c.operation_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(actorId, operationId).first<ClaimIntentRow>();
+        WHERE c.actor_application_id = ?1 AND c.operation_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))) LIMIT 1`).bind(actorId, operationId).first<ClaimIntentRow>();
       return row ? mapClaimIntent(row) : null;
     } catch (error) {
       throw repositoryError(error);
     }
+  }
+
+  async expireClaimIntent(actorId: string, intent: ClaimIntentRecord, now: string): Promise<ClaimIntentRecord | null> {
+    try {
+      // This write serializes against finalize's batch. Once expiry is returned,
+      // an earlier in-flight finalize cannot commit using an older server time.
+      await this.db.prepare(`UPDATE claim_intents SET status = 'expired', updated_at = ?1
+        WHERE id = ?2 AND actor_application_id = ?3 AND workspace_id = ?4 AND operation_id = ?5
+          AND status = 'pending' AND expires_at <= ?1
+          AND EXISTS (SELECT 1 FROM identities i JOIN workspaces w ON w.id = claim_intents.workspace_id
+            JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.application_id = i.application_id
+            WHERE i.application_id = ?3 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active'
+              AND (wm.role = 'owner' OR (claim_intents.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))))`)
+        .bind(now, intent.id, actorId, intent.workspaceId, intent.operationId).run();
+      return await this.getClaimIntent(actorId, intent.id);
+    } catch (error) { throw repositoryError(error); }
   }
 
   async getStagedAsset(actorId: string, claimIntentId: string, assetSlot: number): Promise<StagedAssetRecord | null> {
@@ -242,7 +290,7 @@ export class CloudManualRepository {
       const row = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-       WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND c.actor_application_id = ?3 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`)
+       WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND c.actor_application_id = ?3 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))) LIMIT 1`)
         .bind(claimIntentId, assetSlot, actorId).first<StagedAssetRow>();
       return row ? { id: row.id, claimIntentId: row.claim_intent_id, assetSlot: row.asset_slot, workspaceId: row.workspace_id, operationId: row.operation_id, objectKey: row.object_key, contentType: row.content_type, byteLength: row.byte_length, sha256: row.sha256, status: row.status } : null;
     } catch (error) {
@@ -256,7 +304,7 @@ export class CloudManualRepository {
       const result = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-       WHERE a.claim_intent_id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner'
+       WHERE a.claim_intent_id = ?1 AND c.actor_application_id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor')))
          AND a.asset_slot IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))`)
         .bind(claimIntentId, actorId, JSON.stringify(assetSlots)).all<StagedAssetRow>();
       return result.results.map((row) => ({ id: row.id, claimIntentId: row.claim_intent_id, assetSlot: row.asset_slot, workspaceId: row.workspace_id, operationId: row.operation_id, objectKey: row.object_key, contentType: row.content_type, byteLength: row.byte_length, sha256: row.sha256, status: row.status }));
@@ -271,13 +319,13 @@ export class CloudManualRepository {
         SELECT ?1, c.id, ?2, c.workspace_id, c.operation_id, ?3, ?4, ?5, ?6, 'reserved', ?7, ?7
           FROM claim_intents c WHERE c.id = ?8 AND c.workspace_id = ?9 AND c.operation_id = ?10 AND c.status = 'pending'
             AND EXISTS (SELECT 1 FROM identities i JOIN workspaces w ON w.id = c.workspace_id JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-              WHERE i.application_id = c.actor_application_id AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`)
+              WHERE i.application_id = c.actor_application_id AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))))`)
         .bind(record.id, record.assetSlot, record.objectKey, record.contentType, record.byteLength, record.sha256, now, record.claimIntentId, record.workspaceId, record.operationId).run();
       if (changed(result) === 1) return { ...record, status: "reserved" };
       const existing = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
+        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))) LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
       if (existing) return { id: existing.id, claimIntentId: existing.claim_intent_id, assetSlot: existing.asset_slot, workspaceId: existing.workspace_id, operationId: existing.operation_id, objectKey: existing.object_key, contentType: existing.content_type, byteLength: existing.byte_length, sha256: existing.sha256, status: existing.status };
       throw new D1RepositoryError("conflict");
     } catch (error) { throw repositoryError(error); }
@@ -288,13 +336,13 @@ export class CloudManualRepository {
       const result = await this.db.prepare(`UPDATE claim_assets SET status = 'staged', updated_at = ?1
         WHERE claim_intent_id = ?2 AND asset_slot = ?3 AND status = 'reserved' AND id = ?4 AND workspace_id = ?5 AND operation_id = ?6 AND object_key = ?7 AND content_type = ?8 AND byte_length = ?9 AND sha256 = ?10
           AND EXISTS (SELECT 1 FROM claim_intents c JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-            WHERE c.id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`)
+            WHERE c.id = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))))`)
         .bind(now, record.claimIntentId, record.assetSlot, record.id, record.workspaceId, record.operationId, record.objectKey, record.contentType, record.byteLength, record.sha256).run();
       if (changed(result) === 1) return { ...record, status: "staged" };
       const existing = await this.db.prepare(`SELECT a.id, a.claim_intent_id, a.asset_slot, a.workspace_id, a.operation_id, a.object_key, a.content_type, a.byte_length, a.sha256, a.status
         FROM claim_assets a JOIN claim_intents c ON c.id = a.claim_intent_id JOIN identities i ON i.application_id = c.actor_application_id JOIN workspaces w ON w.id = c.workspace_id
         JOIN workspace_members wm ON wm.workspace_id = c.workspace_id AND wm.application_id = c.actor_application_id
-        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
+        WHERE a.claim_intent_id = ?1 AND a.asset_slot = ?2 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND (wm.role = 'owner' OR (c.target_manual_id IS NOT NULL AND wm.role IN ('admin','editor'))) LIMIT 1`).bind(record.claimIntentId, record.assetSlot).first<StagedAssetRow>();
       if (existing) return { id: existing.id, claimIntentId: existing.claim_intent_id, assetSlot: existing.asset_slot, workspaceId: existing.workspace_id, operationId: existing.operation_id, objectKey: existing.object_key, contentType: existing.content_type, byteLength: existing.byte_length, sha256: existing.sha256, status: existing.status };
       throw new D1RepositoryError("conflict");
     } catch (error) {
@@ -324,7 +372,7 @@ export class CloudManualRepository {
                m.current_draft_revision_id, m.current_published_revision_id, m.updated_at,
                r.id AS revision_id, r.revision_no, r.title AS revision_title,
                r.description AS revision_description, r.updated_at AS revision_updated_at,
-               r.state AS revision_state, r.content_version,
+               r.state AS revision_state, r.content_version, r.branding_version_id,
                wm.role AS workspace_role,
                COALESCE((
                  SELECT json_group_array(json_object(
@@ -337,11 +385,12 @@ export class CloudManualRepository {
                    'targetText', step.target_text,
                    'url', step.url,
                    'assetId', step.asset_id,
+                   'annotations', json(step.annotation),
                    'updatedAt', step.updated_at
                  ))
                    FROM (
                      SELECT s.id, s.position, s.type, s.title, s.instruction,
-                            s.action_type, s.target_text, s.url, s.asset_id, s.updated_at
+                            s.action_type, s.target_text, s.url, s.asset_id, s.annotation, s.updated_at
                        FROM manual_steps s
                       WHERE s.workspace_id = m.workspace_id
                         AND s.revision_id = COALESCE(m.current_draft_revision_id, m.current_published_revision_id)
@@ -371,7 +420,7 @@ export class CloudManualRepository {
       if (!row) return null;
       const displayedRevision = row.current_draft_revision_id ?? row.current_published_revision_id;
       if (displayedRevision && !row.revision_id) throw new D1RepositoryError("unavailable");
-      const parsedSteps = JSON.parse(row.steps_json) as ManualDetailRecord["steps"];
+      const parsedSteps = (JSON.parse(row.steps_json) as ManualDetailRecord["steps"]).map((step) => ({ ...step, annotations: readStoredManualAnnotations(step.annotations) }));
       if (parsedSteps.length > 200) throw new D1RepositoryError("limit_exceeded");
       const draft = row.revision_id ? {
         id: row.revision_id,
@@ -380,7 +429,8 @@ export class CloudManualRepository {
         description: row.revision_description as string,
         updatedAt: row.revision_updated_at as string,
         state: row.revision_state as "draft" | "published",
-        contentVersion: row.content_version as string
+        contentVersion: row.content_version as string,
+        brandingVersionId: row.branding_version_id
       } : null;
       return {
         id: row.id,
@@ -408,7 +458,12 @@ export class CloudManualRepository {
       if (!current?.draft_id) throw new D1RepositoryError("not_found");
       if (current.updated_at !== expectedUpdatedAt) throw new D1RepositoryError("conflict");
       const writeNow = new Date(Math.max(Date.parse(now), Date.parse(current.updated_at) + 1)).toISOString();
-      const existingRows = await this.db.prepare("SELECT id FROM manual_steps WHERE revision_id = ?1 AND workspace_id = ?2 AND deleted_at IS NULL ORDER BY position ASC, id ASC").bind(current.draft_id, workspaceId).all<{ id: string }>();
+      const existingRows = await this.db.prepare("SELECT id, asset_id, annotation FROM manual_steps WHERE revision_id = ?1 AND workspace_id = ?2 AND deleted_at IS NULL ORDER BY position ASC, id ASC").bind(current.draft_id, workspaceId).all<{ id: string; asset_id: string | null; annotation: string }>();
+      const previousById = new Map(existingRows.results.map((row) => [row.id, row]));
+      steps = steps.map((step) => {
+        const previous = step.id ? previousById.get(step.id) : undefined;
+        return { ...step, annotations: step.annotations ?? (previous && previous.asset_id === step.assetId ? readStoredManualAnnotations(previous.annotation) : []) };
+      });
       const existingIds = new Set(existingRows.results.map((row) => row.id));
       const seenIds = new Set<string>();
       const assetIds = new Set<string>();
@@ -421,10 +476,13 @@ export class CloudManualRepository {
       }
       if (assetIds.size > 0) {
         const assetRows = await this.db.prepare(`SELECT DISTINCT a.id FROM assets a
-          JOIN claim_assets ca ON ca.asset_id = a.id AND ca.status = 'completed'
-          JOIN claim_intents ci ON ci.id = ca.claim_intent_id AND ci.status = 'completed' AND ci.manual_id = ?1
-          WHERE a.workspace_id = ?2 AND a.kind = 'manual_image' AND a.id IN (SELECT value FROM json_each(?3))`)
-          .bind(manualId, workspaceId, JSON.stringify(Array.from(assetIds))).all<{ id: string }>();
+          WHERE a.workspace_id = ?2 AND a.kind = 'manual_image' AND a.id IN (SELECT value FROM json_each(?3))
+          AND (EXISTS (SELECT 1 FROM claim_assets ca JOIN claim_intents ci ON ci.id = ca.claim_intent_id
+            WHERE ca.asset_id = a.id AND ca.status = 'completed' AND ci.status = 'completed' AND ci.manual_id = ?1 AND ci.workspace_id = ?2)
+          OR EXISTS (SELECT 1 FROM manual_edit_assets ea WHERE ea.id = a.id AND ea.workspace_id = ?2 AND ea.manual_id = ?1 AND ea.status = 'ready'
+            AND ((ea.actor_application_id = ?4 AND ea.revision_id = ?5 AND ea.expected_updated_at = ?6)
+              OR ea.first_attached_at IS NOT NULL)))`)
+          .bind(manualId, workspaceId, JSON.stringify(Array.from(assetIds)), actorId, current.draft_id, expectedUpdatedAt).all<{ id: string }>();
         if (new Set(assetRows.results.map((row) => row.id)).size !== assetIds.size) throw new D1RepositoryError("conflict");
       }
       const newIds = steps.map((step) => step.id ?? crypto.randomUUID());
@@ -433,8 +491,9 @@ export class CloudManualRepository {
       const newCount = steps.filter((step) => step.id === null).length;
       const newContentVersion = crypto.randomUUID().replaceAll("-", "").slice(0, 32);
       const stepsPayload = JSON.stringify(steps.map((step, index) => ({ ...step, id: newIds[index], position: index })));
+      if (new TextEncoder().encode(stepsPayload).length > 90 * 1024) throw new D1RepositoryError("limit_exceeded");
       const statements = [
-        this.db.prepare(`UPDATE manual_revisions SET title = ?1, description = ?2, content_version = ?3, updated_at = ?4
+        this.db.prepare(`UPDATE manual_revisions SET title = ?1, description = ?2, content_version = ?3, updated_at = ?4, branding_version_id = CASE WHEN EXISTS (SELECT 1 FROM workspace_branding_versions b WHERE b.id = manual_revisions.branding_version_id AND b.source_claim_id IS NOT NULL) THEN branding_version_id ELSE (SELECT version_id FROM workspace_branding WHERE workspace_id = ?6) END
           WHERE id = ?5 AND workspace_id = ?6 AND state = 'draft' AND updated_at = ?7
             AND EXISTS (SELECT 1 FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id
               WHERE wm.workspace_id = ?6 AND wm.application_id = ?8 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active')
@@ -454,16 +513,17 @@ export class CloudManualRepository {
             target_text = (SELECT json_extract(item.value, '$.targetText') FROM json_each(?1) AS item WHERE json_extract(item.value, '$.id') = manual_steps.id),
             url = (SELECT json_extract(item.value, '$.url') FROM json_each(?1) AS item WHERE json_extract(item.value, '$.id') = manual_steps.id),
             asset_id = (SELECT json_extract(item.value, '$.assetId') FROM json_each(?1) AS item WHERE json_extract(item.value, '$.id') = manual_steps.id),
+            annotation = (SELECT json_extract(item.value, '$.annotations') FROM json_each(?1) AS item WHERE json_extract(item.value, '$.id') = manual_steps.id),
             deleted_at = ?2, updated_at = ?2
           WHERE revision_id = ?3 AND workspace_id = ?4
             AND id IN (SELECT json_extract(item.value, '$.id') FROM json_each(?1) AS item)
             AND EXISTS (SELECT 1 FROM manual_revisions gr WHERE gr.id = ?5 AND gr.workspace_id = ?6 AND gr.state = 'draft' AND gr.updated_at = ?7 AND gr.content_version = ?8)`)
           .bind(stepsPayload, writeNow, current.draft_id, workspaceId, current.draft_id, workspaceId, writeNow, newContentVersion),
-        this.db.prepare(`INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, action_type, target_text, url, asset_id, created_at, updated_at)
+        this.db.prepare(`INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, action_type, target_text, url, asset_id, annotation, created_at, updated_at)
           SELECT json_extract(item.value, '$.id'), ?2, ?3, CAST(json_extract(item.value, '$.position') AS INTEGER),
             json_extract(item.value, '$.type'), json_extract(item.value, '$.title'), json_extract(item.value, '$.instruction'),
             json_extract(item.value, '$.actionType'), json_extract(item.value, '$.targetText'), json_extract(item.value, '$.url'),
-            json_extract(item.value, '$.assetId'), ?4, ?4
+            json_extract(item.value, '$.assetId'), json_extract(item.value, '$.annotations'), ?4, ?4
           FROM json_each(?1) AS item
           WHERE NOT EXISTS (SELECT 1 FROM manual_steps old_step WHERE old_step.id = json_extract(item.value, '$.id'))
             AND EXISTS (SELECT 1 FROM manual_revisions gr WHERE gr.id = ?5 AND gr.workspace_id = ?6 AND gr.state = 'draft' AND gr.updated_at = ?7 AND gr.content_version = ?8)`)
@@ -476,27 +536,27 @@ export class CloudManualRepository {
       let results: D1RunResult[];
       results = await this.db.batch(statements);
       if (results.length !== 5 || changed(results[0]) !== 1 || changed(results[1]) !== deletedCount || changed(results[2]) !== existingCount || changed(results[3]) !== newCount || changed(results[4]) !== steps.length) throw new D1RepositoryError("conflict");
-      const updated = await this.db.prepare("SELECT content_version, updated_at FROM manual_revisions WHERE id = ?1 AND workspace_id = ?2 LIMIT 1").bind(current.draft_id, workspaceId).first<{ content_version: string; updated_at: string }>();
-      if (!updated) throw new D1RepositoryError("unavailable");
-      return { draftId: current.draft_id, contentVersion: updated.content_version, updatedAt: updated.updated_at };
+      return { draftId: current.draft_id, contentVersion: newContentVersion, updatedAt: writeNow };
     } catch (error) {
       throw repositoryError(error);
     }
   }
 
-  async finalizeClaim(actorId: string, intent: ClaimIntentRecord, fingerprint: string, title: string, description: string, steps: ClaimStepInput[], assets: Array<ClaimAssetInput & { id: string; objectKey: string; contentType: string; byteLength: number }>, now: string): Promise<{ status: "claimed"; manualId: string }> {
+  async finalizeClaim(actorId: string, intent: ClaimIntentRecord, fingerprint: string, title: string, description: string, steps: ClaimStepInput[], assets: Array<ClaimAssetInput & { id: string; objectKey: string; contentType: string; byteLength: number }>, now: string, brandingVersionId: string | null = null): Promise<{ status: "claimed"; manualId: string }> {
     const manualId = crypto.randomUUID();
     const revisionId = crypto.randomUUID();
+    const contentVersion = crypto.randomUUID().replaceAll("-", "");
+    if (intent.target) return this.finalizeUpdateClaim(actorId, intent, fingerprint, title, description, steps, assets, now, brandingVersionId);
     try {
       const stepRows = steps.map((step) => ({ ...step, id: crypto.randomUUID() }));
       const assetsPayload = JSON.stringify(assets);
       const statements = [
-        this.db.prepare(`UPDATE claim_intents SET status = 'completed', request_fingerprint = ?1, manual_id = ?2, completed_at = ?3, updated_at = ?3
+        this.db.prepare(`UPDATE claim_intents SET status = 'completed', request_fingerprint = ?1, manual_id = ?2, completed_at = ?3, updated_at = ?3, completed_revision_id = ?6, completed_updated_at = ?3, completed_content_version = ?7
           WHERE id = ?4 AND actor_application_id = ?5 AND status = 'pending' AND expires_at > ?3
             AND EXISTS (SELECT 1 FROM identities i JOIN workspaces w ON w.id = claim_intents.workspace_id JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.application_id = ?5
-              WHERE i.application_id = ?5 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`).bind(fingerprint, manualId, now, intent.id, actorId),
+              WHERE i.application_id = ?5 AND i.status = 'active' AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner')`).bind(fingerprint, manualId, now, intent.id, actorId, revisionId, contentVersion),
         this.db.prepare(`INSERT INTO manuals (id, workspace_id, title, status, current_draft_revision_id, created_by, created_at, updated_at) SELECT ?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?6 WHERE EXISTS (SELECT 1 FROM claim_intents WHERE id = ?7 AND status = 'completed' AND manual_id = ?1)`).bind(manualId, intent.workspaceId, title, revisionId, actorId, now, intent.id),
-        this.db.prepare(`INSERT INTO manual_revisions (id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) SELECT ?1, ?2, ?3, 1, 'draft', ?4, ?5, lower(hex(randomblob(16))), ?6, ?6 WHERE EXISTS (SELECT 1 FROM manuals WHERE id = ?3 AND current_draft_revision_id = ?1)`).bind(revisionId, intent.workspaceId, manualId, title, description, now),
+        this.db.prepare(`INSERT INTO manual_revisions (id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at, branding_version_id) SELECT ?1, ?2, ?3, 1, 'draft', ?4, ?5, ?7, ?6, ?6, COALESCE(?8, (SELECT version_id FROM workspace_branding WHERE workspace_id = ?2)) WHERE EXISTS (SELECT 1 FROM manuals WHERE id = ?3 AND current_draft_revision_id = ?1)`).bind(revisionId, intent.workspaceId, manualId, title, description, now, contentVersion, brandingVersionId),
         this.db.prepare(`INSERT INTO assets (id, workspace_id, bucket, object_key, kind, content_type, byte_length, checksum_sha256, created_at, updated_at)
           SELECT json_extract(item.value, '$.id'), ?1, 'MANUAL_ASSETS', json_extract(item.value, '$.objectKey'), 'manual_image', json_extract(item.value, '$.contentType'), CAST(json_extract(item.value, '$.byteLength') AS INTEGER), json_extract(item.value, '$.sha256'), ?2, ?2
           FROM json_each(?3) AS item WHERE EXISTS (SELECT 1 FROM manuals WHERE id = ?4 AND workspace_id = ?1)`)
@@ -507,8 +567,8 @@ export class CloudManualRepository {
             AND EXISTS (SELECT 1 FROM claim_intents ci WHERE ci.id = ?3 AND ci.status = 'completed' AND ci.manual_id = ?4)
             AND EXISTS (SELECT 1 FROM manuals m WHERE m.id = ?4 AND m.workspace_id = ?5 AND m.current_draft_revision_id = ?6)`)
           .bind(assetsPayload, now, intent.id, manualId, intent.workspaceId, revisionId),
-        this.db.prepare(`INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, action_type, target_text, url, asset_id, created_at, updated_at)
-          SELECT json_extract(item.value, '$.id'), ?1, ?2, CAST(json_extract(item.value, '$.position') AS INTEGER), json_extract(item.value, '$.type'), json_extract(item.value, '$.title'), json_extract(item.value, '$.instruction'), json_extract(item.value, '$.actionType'), json_extract(item.value, '$.targetText'), json_extract(item.value, '$.url'), json_extract(item.value, '$.assetId'), ?3, ?3
+        this.db.prepare(`INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, action_type, target_text, url, asset_id, annotation, created_at, updated_at)
+          SELECT json_extract(item.value, '$.id'), ?1, ?2, CAST(json_extract(item.value, '$.position') AS INTEGER), json_extract(item.value, '$.type'), json_extract(item.value, '$.title'), json_extract(item.value, '$.instruction'), json_extract(item.value, '$.actionType'), json_extract(item.value, '$.targetText'), json_extract(item.value, '$.url'), json_extract(item.value, '$.assetId'), json_extract(item.value, '$.annotations'), ?3, ?3
           FROM json_each(?4) AS item WHERE EXISTS (SELECT 1 FROM manual_revisions WHERE id = ?2 AND workspace_id = ?1 AND state = 'draft')`)
           .bind(intent.workspaceId, revisionId, now, JSON.stringify(stepRows.map((step, index) => ({ ...step, position: index }))))
       ];
@@ -521,6 +581,51 @@ export class CloudManualRepository {
     } catch (error) {
       throw repositoryError(error);
     }
+  }
+
+  private async finalizeUpdateClaim(actorId: string, intent: ClaimIntentRecord, fingerprint: string, title: string, description: string, steps: ClaimStepInput[], assets: Array<ClaimAssetInput & { id: string; objectKey: string; contentType: string; byteLength: number }>, now: string, brandingVersionId: string | null = null): Promise<{ status: "claimed"; manualId: string }> {
+    const target = intent.target!;
+    const contentVersion = crypto.randomUUID().replaceAll("-", "");
+    const writeNow = new Date(Math.max(Date.parse(now), Date.parse(target.expectedUpdatedAt) + 1)).toISOString();
+    const assetPayload = JSON.stringify(assets);
+    const stepPayload = JSON.stringify(steps.map((step, position) => ({ ...step, id: crypto.randomUUID(), position })));
+    // Every later statement is fenced by this unique CAS result. A lost race changes nothing.
+    const fence = `EXISTS (SELECT 1 FROM manual_revisions r WHERE r.id = ?1 AND r.workspace_id = ?2 AND r.manual_id = ?3 AND r.state = 'draft' AND r.content_version = ?4)`;
+    try {
+      const results = await this.db.batch([
+        this.db.prepare(`UPDATE manual_revisions SET title = ?1, description = ?2, content_version = ?3, updated_at = ?4,
+          branding_version_id = CASE WHEN ?12 IS NOT NULL THEN ?12 WHEN EXISTS (SELECT 1 FROM workspace_branding_versions b WHERE b.id = manual_revisions.branding_version_id AND b.source_claim_id IS NOT NULL) THEN branding_version_id ELSE (SELECT version_id FROM workspace_branding WHERE workspace_id = ?6) END
+          WHERE id = ?5 AND workspace_id = ?6 AND manual_id = ?7 AND state = 'draft' AND updated_at = ?8
+            AND EXISTS (SELECT 1 FROM manuals m WHERE m.id = ?7 AND m.workspace_id = ?6 AND m.current_draft_revision_id = ?5 AND m.archived_at IS NULL)
+            AND EXISTS (SELECT 1 FROM claim_intents ci WHERE ci.id = ?9 AND ci.actor_application_id = ?10 AND ci.workspace_id = ?6 AND ci.target_manual_id = ?7 AND ci.target_revision_id = ?5 AND ci.expected_updated_at = ?8 AND ci.status = 'pending' AND ci.expires_at > ?11
+              AND ci.asset_count = (SELECT count(*) FROM claim_assets ca WHERE ca.claim_intent_id = ci.id AND ca.status = 'staged'))
+            AND EXISTS (SELECT 1 FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id
+              WHERE wm.workspace_id = ?6 AND wm.application_id = ?10 AND wm.status = 'active' AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active')`)
+          .bind(title, description, contentVersion, writeNow, target.revisionId, target.workspaceId, target.manualId, target.expectedUpdatedAt, intent.id, actorId, now, brandingVersionId),
+        this.db.prepare(`UPDATE claim_intents SET status = 'completed', request_fingerprint = ?5, manual_id = ?3, completed_revision_id = ?1, completed_updated_at = ?6, completed_content_version = ?4, completed_at = ?6, updated_at = ?6
+          WHERE id = ?7 AND actor_application_id = ?8 AND workspace_id = ?2 AND status = 'pending' AND ${fence}`)
+          .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, fingerprint, writeNow, intent.id, actorId),
+        this.db.prepare(`INSERT INTO assets (id, workspace_id, bucket, object_key, kind, content_type, byte_length, checksum_sha256, created_at, updated_at)
+          SELECT ca.id, ca.workspace_id, 'MANUAL_ASSETS', ca.object_key, 'manual_image', ca.content_type, ca.byte_length, ca.sha256, ?5, ?5
+          FROM claim_assets ca WHERE ca.claim_intent_id = ?6 AND ca.workspace_id = ?2 AND ca.status = 'staged' AND ${fence}
+            AND EXISTS (SELECT 1 FROM json_each(?7) item WHERE json_extract(item.value,'$.id') = ca.id AND json_extract(item.value,'$.sha256') = ca.sha256)`)
+          .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, writeNow, intent.id, assetPayload),
+        this.db.prepare(`UPDATE claim_assets SET status = 'completed', asset_id = id, updated_at = ?5
+          WHERE claim_intent_id = ?6 AND workspace_id = ?2 AND status = 'staged' AND ${fence}
+            AND EXISTS (SELECT 1 FROM assets a WHERE a.id = claim_assets.id AND a.workspace_id = ?2 AND a.checksum_sha256 = claim_assets.sha256)`)
+          .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, writeNow, intent.id),
+        this.db.prepare(`UPDATE manual_steps SET deleted_at = ?5, updated_at = ?5 WHERE revision_id = ?1 AND workspace_id = ?2 AND deleted_at IS NULL AND ${fence}`)
+          .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, writeNow),
+        this.db.prepare(`INSERT INTO manual_steps (id, workspace_id, revision_id, position, type, title, instruction, action_type, target_text, url, asset_id, annotation, created_at, updated_at)
+          SELECT json_extract(item.value,'$.id'), ?2, ?1, CAST(json_extract(item.value,'$.position') AS INTEGER), json_extract(item.value,'$.type'), json_extract(item.value,'$.title'), json_extract(item.value,'$.instruction'), json_extract(item.value,'$.actionType'), json_extract(item.value,'$.targetText'), json_extract(item.value,'$.url'), json_extract(item.value,'$.assetId'), json_extract(item.value,'$.annotations'), ?5, ?5
+          FROM json_each(?6) item WHERE ${fence}`)
+          .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, writeNow, stepPayload)
+      ]);
+      if (changed(results[0]) === 1 && changed(results[1]) === 1 && changed(results[2]) === assets.length && changed(results[3]) === assets.length && changed(results[5]) === steps.length) return { status: "claimed", manualId: target.manualId };
+      const completed = await this.getClaimIntent(actorId, intent.id);
+      if (completed?.status === "completed" && completed.requestFingerprint === fingerprint && completed.manualId === target.manualId) return { status: "claimed", manualId: target.manualId };
+      throw new D1RepositoryError("conflict");
+    } catch (error) { throw repositoryError(error); }
   }
 
   async getAssetForRead(actorId: string, workspaceId: string, assetId: string): Promise<{ objectKey: string; contentType: string } | null> {

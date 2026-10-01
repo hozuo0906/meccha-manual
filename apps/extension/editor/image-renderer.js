@@ -75,13 +75,25 @@ export function drawMasks(context, masks, width, height) {
   context.restore();
 }
 
+// Irreversible redaction must preserve the local painter order. When a mask
+// exists, flatten every annotation below it, including partially hidden text.
+// Only the unmasked case may retain editable annotation metadata in exports.
+export function cloudImageLayers(screenshot) {
+  const annotations = normalizeAnnotations(screenshot?.annotations);
+  const masks = normalizedMasks(screenshot?.masks);
+  if (annotations === null) throw new TypeError("invalid annotations");
+  return masks.length ? { baseAnnotations: annotations, annotations: [], masks } : { baseAnnotations: [], annotations, masks };
+}
+
 export function drawScreenshot(context, image, screenshot) {
-  if (!image || !Number.isFinite(image.width) || !Number.isFinite(image.height) || image.width <= 0 || image.height <= 0) throw new TypeError("invalid image");
+  const width = image?.naturalWidth || image?.width;
+  const height = image?.naturalHeight || image?.height;
+  if (!image || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) throw new TypeError("invalid image");
   const validAnnotations = normalizeAnnotations(screenshot?.annotations);
   const validMasks = normalizedMasks(screenshot?.masks);
   if (validAnnotations === null) throw new TypeError("invalid annotations");
-  context.canvas.width = image.width; context.canvas.height = image.height;
-  context.clearRect(0, 0, image.width, image.height); context.drawImage(image, 0, 0, image.width, image.height);
-  drawAnnotations(context, validAnnotations, image.width, image.height);
-  drawMasks(context, validMasks, image.width, image.height);
+  context.canvas.width = width; context.canvas.height = height;
+  context.clearRect(0, 0, width, height); context.drawImage(image, 0, 0, width, height);
+  drawAnnotations(context, validAnnotations, width, height);
+  drawMasks(context, validMasks, width, height);
 }

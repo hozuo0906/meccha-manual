@@ -1,8 +1,10 @@
 # ADR-0036: ローカル画像注釈エディタと共有時の焼き込み
 
-- Status: Accepted
+- Status: Partially Superseded
 - Date: 2026-09-27
 - Scope: Issue #264
+
+2026-10-01更新: 注釈のlocal限定と注釈焼き込みの方針はADR-0038により更新した。プライバシーmaskだけを不可逆に安全なbaseへ焼き込み、許可した編集用注釈を認証後に保存する。以下は採用時点の記録を保持する。
 
 ## Context
 

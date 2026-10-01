@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
@@ -147,6 +147,13 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
     assert.equal(await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true), true, "sidepanel start control should be ready before native click");
+    const rubricDirectory = join(process.cwd(), ".artifacts", "uiux-20261001", "screens");
+    await mkdir(rubricDirectory, { recursive: true });
+    const guestScreenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
+    const guestScreenshotData = guestScreenshot?.data?.value || guestScreenshot?.data || guestScreenshot?.result?.data || guestScreenshot?.result?.result?.data;
+    assert.equal(typeof guestScreenshotData, "string", "native guest start screen should contain PNG data");
+    await writeFile(join(rubricDirectory, "native-guest-start.png"), Buffer.from(guestScreenshotData, "base64"));
+    const guestViewport = await evaluateNative("({ width: innerWidth, height: innerHeight })");
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
@@ -158,8 +165,8 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       "[...document.querySelectorAll('.step-card img')].map((image) => ({ complete: image.complete, width: image.naturalWidth }))",
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
-    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】クリック"));
-    assert.match(captionProgress, /【参照】クリック/);
+    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】をクリック"));
+    assert.match(captionProgress, /【参照】をクリック/);
     await new Promise((resolve) => setTimeout(resolve, 700));
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
@@ -171,12 +178,12 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     assert.equal(progressState.active, true, "recording progress should be visible while recording");
     assert.equal(progressState.progressBeforeLive, true, "recording progress should remain before the scrollable step list");
-    await evaluateNative("new Promise((resolve) => { window.scrollTo(0, document.body.scrollHeight); requestAnimationFrame(resolve); })", true);
+    await evaluateNative("new Promise((resolve) => { document.querySelector('#liveSection').scrollTop = document.querySelector('#liveSection').scrollHeight; requestAnimationFrame(resolve); })", true);
     const stickyProgress = await waitForNativeValue(
-      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
-      (value) => Number.isFinite(value?.top) && value.top <= 1 && value.bottom > 0 && value.current?.startsWith("手順 2")
+      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, listTop: document.querySelector('#liveSection')?.getBoundingClientRect().top, height: innerHeight, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
+      (value) => Number.isFinite(value?.top) && value.top >= 0 && value.bottom <= value.listTop && value.bottom < value.height && value.current?.startsWith("手順 2")
     );
-    assert.ok(stickyProgress.top <= 1, `current recording progress should stay visible while browsing earlier steps: ${JSON.stringify(stickyProgress)}`);
+    assert.ok(stickyProgress.top >= 0 && stickyProgress.bottom <= stickyProgress.listTop, `current recording progress stays visible without covering the scrollable steps: ${JSON.stringify(stickyProgress)}`);
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");
@@ -192,6 +199,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const recordingScreenshotData = recordingScreenshot?.data?.value || recordingScreenshot?.data || recordingScreenshot?.result?.data || recordingScreenshot?.result?.result?.data;
     assert.equal(typeof recordingScreenshotData, "string", "native recording screenshot should contain base64 data");
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
+    await writeFile(join(rubricDirectory, "native-recording-two-steps.png"), Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
@@ -222,7 +230,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const imagePixels = [];
     for (const index of [0, 1]) {
       const stepButton = stepButtons.nth(index);
-      const instruction = (await stepButton.textContent()).replace(/^\s*\d+\.\s*/, "");
+      const instruction = await stepButton.locator(".step-name").textContent();
       const articleId = await stepButton.getAttribute("aria-controls");
       assert.ok(articleId, "TOC button should identify its step article");
       await stepButton.click();
@@ -265,6 +273,19 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
     await editorPage.screenshot({ path: screenshotPath });
+    await editorPage.screenshot({ path: join(rubricDirectory, "native-recording-finished-editor.png") });
+    await writeFile(join(rubricDirectory, "native-recording-operation.json"), JSON.stringify({
+      candidateCommit: process.env.GITHUB_SHA || null,
+      fixture: "synthetic-business-page-native-MV3",
+      screenshots: ["native-guest-start.png", "native-recording-two-steps.png", "native-recording-finished-editor.png"],
+      viewport: guestViewport,
+      operations: ["extension-action-opens-guest-panel", "start", "click-first-state", "click-second-state", "finish-opens-editor"],
+      recordedSteps: await editorPage.locator("#steps li").count(),
+      distinctStoredImages: imageSources[0] !== imageSources[1],
+      distinctRenderedPixels: imagePixels[0] !== imagePixels[1],
+      progressVisible: progressState.active,
+      progressAboveScrollableList: stickyProgress.bottom <= stickyProgress.listTop
+    }, null, 2) + "\n");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
@@ -417,10 +438,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     assert.ok(editorPage, "successful finish should open the saved draft editor");
     await editorPage.waitForSelector("#steps li");
     const instructions = await editorPage.locator("#steps li button").allTextContents();
-    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】クリック")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】をクリック")), "click before normal navigation should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
-    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】クリック")), "form submit click should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】をクリック")), "form submit click should be retained");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);

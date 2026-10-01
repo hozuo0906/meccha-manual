@@ -18,6 +18,8 @@ const liveCount = document.querySelector("#liveCount");
 const liveDescription = document.querySelector("#liveDescription");
 const liveCurrentStep = document.querySelector("#liveCurrentStep");
 const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
+const liveImageSummary = document.querySelector("#liveImageSummary");
+const failedDisplayImages = new Set();
 const liveLatest = document.querySelector("#liveLatest");
 const liveProgress = document.querySelector("#liveProgress");
 const draftSection = document.querySelector("#draftSection");
@@ -62,7 +64,7 @@ function instructionFor(event) {
   if (event?.kind === "navigation") return "次のページへ移動する";
   const semanticLabel = SEMANTIC_LABELS.has(event?.label) ? event.label : "操作対象";
   if (event?.kind === "input") return `${semanticLabel}に入力する`;
-  if (event?.kind === "click" && event.label && (event.labelSource === "caption" || !SEMANTIC_LABELS.has(event.label))) return `【${event.label}】クリック`;
+  if (event?.kind === "click" && event.label && (event.labelSource === "caption" || !SEMANTIC_LABELS.has(event.label))) return `【${event.label}】をクリック`;
   return `${semanticLabel}を操作する`;
 }
 
@@ -71,12 +73,59 @@ function setImage(image, source, alt) {
   image.alt = alt;
 }
 
+function imageStateFor(event, imageEntries, imageRefs) {
+  const image = imageEntries.find((entry) => entry?.eventId === event?.eventId);
+  const ref = imageRefs.find((entry) => entry?.eventId === event?.eventId);
+  const state = ref && (ref.version || 1) > (image?.version || 1) ? ref : image || ref;
+  const currentBytes = image?.dataUrl && (image.version || 1) >= (state?.version || 1);
+  if (["ready", "protected"].includes(state?.status) && currentBytes && failedDisplayImages.has(image.id)) return { ...state, status: "display_failed", reason: "display_failed" };
+  if (state?.status === "ready" && !currentBytes) return { status: "failed", reason: "storage_failed" };
+  return state || { status: "queued" };
+}
+
 function imageStatusFor(event, imageEntries, imageRefs) {
-  const imageEntry = imageEntries.find((entry) => entry?.eventId === event?.eventId);
-  const imageRef = imageRefs.find((entry) => entry?.eventId === event?.eventId);
-  if (imageEntry?.status === "ready" && imageEntry.dataUrl) return "保存済み";
-  if (["failed", "unavailable"].includes(imageRef?.status)) return "記録できませんでした";
-  return "記録中…";
+  return ({
+    ready: "保存済み", queued: "画像を準備しています", capturing: "個人情報を置換しています",
+    unavailable: "この操作の画像を取得できませんでした", failed: "この操作の画像を取得できませんでした",
+    protected: "保護した領域の確認が必要です", none: "説明のみの手順",
+    display_failed: "保存済みの画像を読み込めませんでした"
+  })[imageStateFor(event, imageEntries, imageRefs).status] || "画像を準備しています";
+}
+
+function imageReasonText(reason) {
+  return ({
+    screen_changed: "次の操作で画面が変わったため、過去の画面を取得できませんでした。",
+    navigation_changed: "ページが移動したため、移動前の画面を取得できませんでした。",
+    tab_not_visible: "記録対象のタブが表示されていませんでした。",
+    tab_unavailable: "記録対象のタブを確認できませんでした。",
+    mask_failed: "個人情報の置換を完了できませんでした。",
+    mask_invalidated: "処理中に画面が変わり、個人情報の保護を確認できませんでした。",
+    paint_timeout: "画面の描画を確認できるまでに時間がかかりました。",
+    paint_unavailable: "画面の描画を確認できませんでした。",
+    privacy_budget_exceeded: "安全に確認できる範囲を超えたため、画像を保存していません。",
+    storage_failed: "画像を端末に保存できませんでした。",
+    capture_not_requested: "終了・一時停止時に操作文だけを回収しました。",
+    capture_interrupted: "画像の処理が中断されました。",
+    unsupported_editable: "この編集領域だけを保護しました。ほかの画面は記録されています。",
+    unsupported_canvas: "描画領域は架空値へ置換できないため保護しました。",
+    unsupported_iframe: "埋め込み領域は架空値へ置換できないため保護しました。",
+    unsupported_closed_shadow: "安全に読み取れない領域を保護しました。",
+    unknown_field_semantics: "入力欄の種類を確認できないため保護しました。",
+    protection_too_broad: "保護した範囲が広く、操作を確認できません。",
+    protected_region: "安全な画像ですが、保護した領域を編集画面で確認してください。"
+  })[reason] || "記録を続けられます。終了後、元の画面で撮り直すか画像を追加してください。";
+}
+
+function imageSummaryFor(events, imageEntries, imageRefs) {
+  const counts = { ready: 0, pending: 0, missing: 0, protected: 0, none: 0, displayFailed: 0 };
+  for (const event of events) {
+    const state = imageStateFor(event, imageEntries, imageRefs).status;
+    if (state === "ready" || state === "protected" || state === "none") counts[state] += 1;
+    else if (state === "display_failed") counts.displayFailed += 1;
+    else if (["unavailable", "failed"].includes(state)) counts.missing += 1;
+    else counts.pending += 1;
+  }
+  return `画像 完了 ${counts.ready}/${events.length}・準備中 ${counts.pending}・取得できず ${counts.missing}・要確認 ${counts.protected}・説明のみ ${counts.none}${counts.displayFailed ? `・表示できず ${counts.displayFailed}` : ""}`;
 }
 
 function updateLiveLatestVisibility() {
@@ -151,8 +200,8 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
   const scrollAnchor = followLiveTail ? null : captureLiveScrollAnchor();
   liveSteps.replaceChildren();
   liveCount.textContent = String(events.length);
+  if (liveImageSummary) liveImageSummary.textContent = imageSummaryFor(events, imageEntries, imageRefs);
   const images = new Map(imageEntries.map((entry) => [entry.eventId, entry]));
-  const refs = new Map(imageRefs.map((entry) => [entry.eventId, entry]));
   for (const [index, event] of events.entries()) {
     const item = document.createElement("li");
     item.className = "step-card";
@@ -172,22 +221,41 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     const imageStatus = document.createElement("span");
     imageStatus.className = "step-image-status";
     const imageStatusText = imageStatusFor(event, imageEntries, imageRefs);
-    imageStatus.textContent = imageStatusText === "保存済み" ? "✓ スクリーンショット保存済み" : `スクリーンショット：${imageStatusText}`;
-    imageStatus.dataset.state = imageStatusText === "保存済み" ? "ready" : imageStatusText === "記録できませんでした" ? "failed" : "pending";
+    const currentImageState = imageStateFor(event, imageEntries, imageRefs);
+    imageStatus.textContent = imageStatusText === "保存済み" ? "✓ 画像を端末に保存済み" : imageStatusText;
+    imageStatus.dataset.state = currentImageState.status;
     text.append(imageStatus);
     const imageEntry = images.get(event.eventId);
-    const imageRef = refs.get(event.eventId);
-    if (imageEntry?.status === "ready" && imageEntry.dataUrl) {
+    if (["ready", "protected"].includes(currentImageState.status) && imageEntry?.dataUrl && (imageEntry.version || 1) >= (currentImageState.version || 1)) {
       const image = document.createElement("img");
       setImage(image, imageEntry.dataUrl, "この手順のスクリーンショット");
+      image.addEventListener("error", () => {
+        failedDisplayImages.add(imageEntry.id);
+        renderLiveSteps(events, imageEntries, imageRefs);
+      }, { once: true });
       item.append(text, image);
+      if (currentImageState.status === "protected") {
+        const review = document.createElement("p");
+        review.className = "image-state";
+        review.textContent = imageReasonText(currentImageState.reason);
+        item.append(review);
+      }
     } else {
       const imageState = document.createElement("span");
       imageState.className = "image-state";
-      imageState.textContent = imageRef?.status === "failed" || imageRef?.status === "unavailable"
-        ? "画像を記録できませんでした。記録を続けるか、終了して手順書を確認してください。"
-        : "画像を読み込んでいます…";
+      imageState.textContent = ["queued", "capturing", "none", "display_failed"].includes(currentImageState.status)
+        ? imageStatusText : imageReasonText(currentImageState.reason);
       item.append(text, imageState);
+      if (currentImageState.status === "display_failed") {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.textContent = "もう一度読み込む";
+        retry.addEventListener("click", () => {
+          failedDisplayImages.delete(imageEntry.id);
+          renderLiveSteps(events, imageEntries, imageRefs);
+        });
+        item.append(retry);
+      }
     }
     liveSteps.append(item);
   }
@@ -196,7 +264,7 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
   liveCurrentStep.textContent = current ? `手順 ${events.length}：${instructionFor(current)}` : "まだありません";
   const currentStatus = current ? imageStatusFor(current, imageEntries, imageRefs) : "操作を待っています";
   liveCurrentStatus.textContent = current ? `スクリーンショット：${currentStatus}` : currentStatus;
-  liveCurrentStatus.dataset.state = currentStatus === "保存済み" ? "ready" : currentStatus === "記録できませんでした" ? "failed" : "pending";
+  liveCurrentStatus.dataset.state = current ? imageStateFor(current, imageEntries, imageRefs).status : "queued";
   updateLiveLatestVisibility();
   requestAnimationFrame(() => {
     if (followLiveTail) scrollLiveLatest({ behavior: "auto" });
@@ -333,7 +401,7 @@ function renderStatus(state = {}, imageEntries = []) {
   liveSection.hidden = !active;
   liveProgress.hidden = !active;
   finish.hidden = !canFinish;
-  finish.disabled = false;
+  finish.disabled = finishInFlight;
   pause.hidden = state.phase !== "recording";
   resume.hidden = !["paused", "reinjection_failed"].includes(state.phase) || Boolean(state.captureLimitReached);
   cancel.hidden = !active && !waitingForRestore;
@@ -358,7 +426,7 @@ function renderStatus(state = {}, imageEntries = []) {
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
-  else if (active) status.textContent = "このタブだけを記録しています。入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があります。";
+  else if (active) status.textContent = "このタブだけを記録しています。個人情報は種類に合う架空値へ置換します。保護した領域や置換できない画像は要確認として残します。";
   else if (!state.hasDrafts) status.textContent = "";
 }
 
@@ -485,6 +553,9 @@ start.addEventListener("click", () => withError(async () => {
 }, "記録を開始できませんでした。対象ページを開いて、もう一度お試しください。"));
 
 finish.addEventListener("click", async () => {
+  if (finishInFlight) return;
+  finishInFlight = true;
+  finish.disabled = true;
   try {
     const result = await send({ type: "capture:finish" });
     if (!result?.draftId) {
@@ -528,12 +599,16 @@ finish.addEventListener("click", async () => {
       status.textContent = result.missingImageCount
         ? `記録できました。${result.imageCount || 0}件の画像を保存しました。${result.missingImageCount}件は画像を記録できませんでした。`
         : "記録できました。画像付きの手順を保存しました。";
+      if (result.reviewImageCount) status.textContent += `保護した領域の確認が必要な手順が${result.reviewImageCount}件あります。`;
       if (!sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
       if (refreshError) status.textContent = "記録できました。編集画面を開きました。下書き一覧の更新は次回表示時に確認してください。";
       if (refreshError && !sidePanelClosed) status.textContent += "記録パネルは自動で閉じられませんでした。必要に応じて手動で閉じてください。";
     }
   } catch {
     await showFinishFailureOutcome();
+  } finally {
+    finishInFlight = false;
+    finish.disabled = false;
   }
 });
 
@@ -563,6 +638,7 @@ restore.addEventListener("click", () => withError(async () => {
   await refresh();
 }, "画面を復元できませんでした。復元情報は残っています。"));
 
+let finishInFlight = false;
 let refreshTimer;
 let lastStatusKey = "";
 let lastDraftKey = null;

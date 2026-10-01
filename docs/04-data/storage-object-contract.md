@@ -17,6 +17,8 @@ R2 objectとD1 assetsメタデータの対応を固定し、ワークスペー�
 
 staging 4 bucketはユーザーの作成完了申告あり。production 4 bucketはまだ作成しない。bindingと実接続確認は未実施。
 
+ADR-0038のロゴもMANUAL_ASSETSを使うが、汎用assets.kindには追加しない。専用workspace_brand_logosのbrand_logoとして認可・保持する。
+
 ## object key
 
 ```text
@@ -33,6 +35,8 @@ workspace-id/avatars/user-id/asset-id.webp
 ```
 
 C sliceのguest claim中はmanual IDがまだ確定していないため、staged objectだけresource IDにclaim intent IDを使う。finalize後も同じobjectをD1 `assets`へ採用し、`workspace_id/manuals/{claim_intent_id}/{asset_id}.{ext}`の4要素を維持する。asset IDはclaim intentとslotから決定的に導出し、再送で別IDを発行しない。
+
+ADR-0038の編集画像は確定済みmanualを持つため`{workspace_id}/manuals/{manual_id}/{asset_id}.{ext}`を使う。ロゴは`{workspace_id}/branding/{workspace_id}/{logo_id}.{ext}`を使い、D1では`assets`へ不正なkindを追加せず専用`workspace_brand_logos`へ保存する。claim経由の手順書固有ロゴも同じprivate key形式で、D1のsource_claim_idにより当該actor/workspace/claimへ固定する。チームpointerは変更しない。いずれも4要素、opaque UUID、サーバー生成key、許可された5個のcustom metadataだけを維持する。upload operationはactor/workspace（編集画像はmanualも）へ固定し、同一操作のasset IDを決定的に導出する。
 
 ## D1 assetsメタデータ
 
