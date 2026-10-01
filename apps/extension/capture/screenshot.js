@@ -779,10 +779,10 @@ export function installSensitiveMasks() {
           if (state.nodeOverflow) break;
         }
         if (state.completeMatch) return true;
+        if (state.nodeOverflow || state.characterOverflow) return true;
         if (!state.text) continue;
         const joined = `${pending}${state.text}`;
         if (containsPiiText(joined)) return true;
-        if (state.nodeOverflow || state.characterOverflow) return true;
         const hasBoundaryMarker = mutationBoundaryMarker(joined);
         pending = hasBoundaryMarker ? joined.slice(-maxPrivacyAdjacentTextCharacters) : "";
       }
