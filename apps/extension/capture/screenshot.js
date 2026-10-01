@@ -275,13 +275,15 @@ export function installSensitiveMasks() {
         for (const entry of entries) {
           const value = String(entry.value ?? "");
           const whiteSpace = String(getComputedStyle(entry.node.parentElement || entry.node).whiteSpace || "normal").toLowerCase();
-          const collapsesWhitespace = whiteSpace === "normal" || whiteSpace === "nowrap";
+          const collapsesWhitespace = whiteSpace === "normal" || whiteSpace === "nowrap" || whiteSpace === "pre-line";
+          const collapsesSegmentBreak = whiteSpace === "normal" || whiteSpace === "nowrap";
           for (let index = 0; index < value.length; index += 1) {
             const character = value[index];
-            if (collapsesWhitespace && /\s/u.test(character)) {
-              if (!pendingWhitespace) pendingWhitespace = { entry, start: index, end: index + 1 };
+            if ((collapsesWhitespace && /[ \t\f\r]/u.test(character))
+              || (collapsesSegmentBreak && character === "\n")) {
+              if (!pendingWhitespace) pendingWhitespace = { entry, entries: new Set([entry]), start: index, end: index + 1 };
               else if (pendingWhitespace.entry === entry) pendingWhitespace.end = index + 1;
-              else pendingWhitespace.end = index + 1;
+              else pendingWhitespace.entries.add(entry);
               continue;
             }
             emitWhitespace();
@@ -452,7 +454,7 @@ export function installSensitiveMasks() {
               const rect = rangeRect(range);
               if (rect) {
                 seenRangeKinds.set(rangeKey, kind);
-                const matchedEntries = entries.filter((entry) => rendered.mapping.slice(matchStart, matchEnd).some((point) => point.entry === entry));
+                const matchedEntries = entries.filter((entry) => rendered.mapping.slice(matchStart, matchEnd).some((point) => point.entry === entry || point.entries?.has(entry)));
                 addCandidate({ kind, target: startEntry.node.parentElement, rect, range, rangeKey, key: rangeKey, textNodes: matchedEntries.map((entry) => entry.node) });
               }
             }
@@ -820,7 +822,15 @@ export function installSensitiveMasks() {
       if (/^(?:\d{1,16}|[-ー−‐– ]\d{1,16}|\d{1,16}(?:[-ー−‐– ]\d{0,16}){1,3})$/.test(normalizeMutationNumericFragment(text))) return true;
       return numericMutationCorePattern.test(text);
     };
-    const mutationNumericSeparator = (value) => /^[\s\-\u30fc\u2212\u2010\u2013]+$/.test(String(value ?? ""));
+    const mutationNumericSeparator = (value) => /^[ \t\n\f\r\-\u30fc\u2212\u2010\u2013]+$/.test(String(value ?? ""));
+    const collapseMutationWhitespace = (value, node) => {
+      const text = String(value ?? "");
+      const element = node?.nodeType === 3 ? node.parentElement : node?.nodeType === 1 ? node : null;
+      const whiteSpace = String(element ? getComputedStyle(element).whiteSpace : "normal").toLowerCase();
+      if (whiteSpace === "normal" || whiteSpace === "nowrap") return text.replace(/[ \t\n\f\r]+/g, " ");
+      if (whiteSpace === "pre-line") return text.replace(/[ \t\f\r]+/g, " ");
+      return text;
+    };
     const mutationNumericContext = (value) => mutationNumericFragment(value) || mutationNumericSeparator(value);
     const mutationStreamKey = (node) => {
       let element = node?.nodeType === 3 ? node.parentElement : node;
@@ -1061,6 +1071,7 @@ export function installSensitiveMasks() {
           continue;
         }
         const value = String(node.nodeValue ?? "");
+        const renderedValue = collapseMutationWhitespace(value, node);
         if (!mutationNumericContext(value)) {
           previous = null;
           joined = "";
@@ -1087,7 +1098,7 @@ export function installSensitiveMasks() {
             hasNumericPrefix = false;
             continue;
           }
-          joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+          joined = `${joined}${renderedValue}`.slice(-maxPrivacyAdjacentTextCharacters);
           pendingSeparatorNodes += 1;
           pendingSeparatorCharacters += value.length;
           previous = { node, value };
@@ -1097,7 +1108,7 @@ export function installSensitiveMasks() {
         if (adjacent === null) return true;
         if (!previous || !adjacent) {
           if (state.hiddenBoundary && previous && containsPiiText(`${joined}${value}`)) return true;
-          joined = value;
+          joined = renderedValue;
           pendingSeparatorNodes = 0;
           pendingSeparatorCharacters = 0;
         }
@@ -1109,7 +1120,7 @@ export function installSensitiveMasks() {
             pendingSeparatorNodes = 0;
             pendingSeparatorCharacters = 0;
           }
-          joined = `${joined}${value}`.slice(-maxPrivacyAdjacentTextCharacters);
+          joined = `${joined}${renderedValue}`.slice(-maxPrivacyAdjacentTextCharacters);
         }
         if (containsPiiText(joined)) return true;
         hasNumericPrefix = true;
@@ -1134,7 +1145,8 @@ export function installSensitiveMasks() {
         mutationEvidence.overflow = true;
         return true;
       }
-      stream.text = adjacent ? `${stream.text}${text}`.slice(-maxPrivacyAdjacentTextCharacters) : text;
+      const renderedText = collapseMutationWhitespace(text, node);
+      stream.text = adjacent ? `${stream.text}${renderedText}`.slice(-maxPrivacyAdjacentTextCharacters) : renderedText;
       stream.lastNode = node;
       streams.set(key, stream);
       return containsPiiText(stream.text);
@@ -1221,7 +1233,7 @@ export function installSensitiveMasks() {
           mutationEvidence.seenChildValues.set(node, text);
           if (rememberMutationFragment(mutationEvidence.currentStreams, childStreamKey, text, node)) return true;
           if (!mutationNumericContext(text)) clearMutationStream(mutationEvidence.currentStreams, childStreamKey, node);
-          const joined = `${pending}${text}`;
+          const joined = `${pending}${collapseMutationWhitespace(text, node)}`;
           if (containsPiiText(joined)) return true;
           if (mutationPartialPattern(joined)) return true;
           const hasBoundaryMarker = mutationBoundaryMarker(joined);

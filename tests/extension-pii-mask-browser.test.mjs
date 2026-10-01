@@ -252,9 +252,10 @@ test("collapsed rendered whitespace joins PII while preserved whitespace stays s
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.end(`<!doctype html><main>
       <p id="normal"><span>123</span>\r\n\t<span>4567</span></p>
-      <p id="nowrap" style="white-space: nowrap"><span>090</span>\t\r\n<span>1234 5678</span></p>
+      <p id="nowrap" style="white-space: nowrap"><span>03</span>\t\r\n<span>1234 5678</span></p>
       <p id="pre" style="white-space: pre"><span>123</span>\n<span>4567</span></p>
-      <p id="pre-line" style="white-space: pre-line"><span>123</span>\n<span>4567</span></p>
+      <p id="pre-line" style="white-space: pre-line"><span>123</span> \t <span>4567</span></p>
+      <p id="pre-line-break" style="white-space: pre-line"><span>123</span>\n<span>4567</span></p>
       <p id="pre-wrap" style="white-space: pre-wrap"><span>123</span>\n<span>4567</span></p>
     </main>`);
   });
@@ -269,14 +270,63 @@ test("collapsed rendered whitespace joins PII while preserved whitespace stays s
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
-    const original = await page.evaluate(() => ["normal", "nowrap", "pre", "pre-line", "pre-wrap"].map((id) => document.getElementById(id).textContent));
+    const original = await page.evaluate(() => ["normal", "nowrap", "pre", "pre-line", "pre-line-break", "pre-wrap"].map((id) => document.getElementById(id).textContent));
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
-    assert.equal(mask.privacyMaskedCount, 2, "only normal and nowrap collapsed whitespace cases should be masked");
+    assert.equal(mask.privacyMaskedCount, 3, "normal, nowrap, and pre-line collapsed whitespace cases should be masked");
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     await inject(removeSensitiveMasks);
     assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
-    assert.deepEqual(await page.evaluate(() => ["normal", "nowrap", "pre", "pre-line", "pre-wrap"].map((id) => document.getElementById(id).textContent)), original);
+    assert.deepEqual(await page.evaluate(() => ["normal", "nowrap", "pre", "pre-line", "pre-line-break", "pre-wrap"].map((id) => document.getElementById(id).textContent)), original);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("transient split PII across collapsed rendered whitespace remains rejected", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end("<!doctype html><main><p id='transient'></p></main>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.privacyMaskedCount, 0);
+    await page.evaluate(() => {
+      const node = document.createElement("span");
+      node.id = "transient-prefix";
+      node.textContent = "123";
+      document.getElementById("transient").append(node);
+    });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => { document.getElementById("transient").append(document.createTextNode("\r\n \t")); });
+    await page.waitForTimeout(25);
+    await page.evaluate(() => {
+      const node = document.createElement("span");
+      node.id = "transient-suffix";
+      node.textContent = "4567";
+      document.getElementById("transient").append(node);
+    });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "transient rendered whitespace split PII must fail closed");
+    await page.evaluate(() => document.getElementById("transient-prefix").remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("transient").lastChild.remove());
+    await page.waitForTimeout(25);
+    await page.evaluate(() => document.getElementById("transient-suffix").remove());
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "transient removal remains invalid");
+    await inject(removeSensitiveMasks);
   } finally {
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
