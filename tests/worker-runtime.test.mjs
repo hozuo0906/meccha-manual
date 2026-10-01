@@ -1,3 +1,4 @@
+import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, test } from "node:test";
@@ -173,6 +174,8 @@ test("asset内容を変更したらversion更新が必須になる", () => {
     .update(CLOUD_MANUAL_CSS)
     .update("\0")
     .update(CLOUD_MANUAL_JS)
+    .update("\0")
+    .update(EDITOR_TOOLS_JS)
     .digest("hex")
     .slice(0, 16)}`;
 

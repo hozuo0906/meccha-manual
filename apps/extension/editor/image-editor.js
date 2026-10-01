@@ -58,7 +58,7 @@ export function cropReviewRegions(review, crop) {
   return next;
 }
 
-export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, inline = false, initialTool = "select" }) {
+export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, onStateChange, inline = false, initialTool = "select" }) {
   const controller = new AbortController();
   const { signal } = controller;
   const status = dialog.querySelector("[data-editor-status]");
@@ -69,6 +69,10 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   const saveButton = dialog.querySelector("[data-editor-save]");
   const cancelButtons = [...dialog.querySelectorAll("[data-editor-cancel]")];
   const toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
+  const errorPanel = document.createElement("div"); errorPanel.className = "image-editor-error"; errorPanel.hidden = true;
+  const errorText = document.createElement("p"); errorText.textContent = "画像を表示できませんでした。元の画像は保持しています。";
+  const retryImage = document.createElement("button"); retryImage.type = "button"; retryImage.textContent = "画像をもう一度読み込む"; retryImage.dataset.editorRetry = "true";
+  errorPanel.append(errorText, retryImage); canvas.parentElement?.append(errorPanel);
   const selection = dialog.querySelector("[data-editor-selection]") || (() => {
     const list = document.createElement("div");
     list.dataset.editorSelection = "";
@@ -95,6 +99,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function closeEditor(reason) { dialog.close(reason); onClose?.(reason); }
 
   function setStatus(message) { if (!disposed && status) status.textContent = message; }
+  function showImageError() { state = "error"; onStateChange?.("error"); setControlsDisabled(true); canvas.hidden = true; errorPanel.hidden = false; }
   function isBusy() { return state === "loading" || state === "saving" || state === "error"; }
   function setControlsDisabled(disabled) {
     toolButtons.forEach((button) => { button.disabled = disabled; });
@@ -140,7 +145,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   }
 
   function redraw() {
-    if (!image || disposed) return;
+    if (!image || disposed) return false;
     const annotations = previewAnnotations(working.annotations); const masks = working.masks.slice(); const transient = previewItem();
     if (drag?.operation === "new" && transient && working.annotations.length < MAX_ANNOTATIONS) {
       const normalized = normalizeAnnotation(transient);
@@ -161,8 +166,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
       drawScreenshot(context, image, { annotations, masks }); renderSelection(context);
       const frame = drag?.operation === "crop" ? transient : crop;
       if (frame) { const x = frame.x * image.width, y = frame.y * image.height, w = frame.width * image.width, h = frame.height * image.height; context.save(); context.fillStyle = "#19303966"; context.fillRect(0, 0, image.width, y); context.fillRect(0, y + h, image.width, image.height - y - h); context.fillRect(0, y, x, h); context.fillRect(x + w, y, image.width - x - w, h); context.strokeStyle = "#087f7a"; context.lineWidth = 3; context.strokeRect(x, y, w, h); context.restore(); }
+      errorPanel.hidden = true; canvas.hidden = false; return true;
     }
-    catch { canvas.width = 1; canvas.height = 1; setStatus("画像の編集内容を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); }
+    catch { showImageError(); setStatus("画像の編集内容を確認できません。キャンセルすると元の画像へ戻れます。"); return false; }
   }
 
   function selectTool(next) {
@@ -181,6 +187,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     dialog.querySelectorAll("[data-text-property]").forEach((node) => { node.hidden = current?.type !== "text"; });
     dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation"; });
     if (colorInput && current?.color) colorInput.value = current.color;
+    const colorLabel = dialog.querySelector("[data-color-label]"); if(colorLabel)colorLabel.textContent=current?.type==="text"?"文字の色":current?.type==="arrow"?"矢印の色":"枠線の色";
     selection.replaceChildren();
     const entries = [...working.annotations.map((item, index) => ({ ...item, kind: "annotation", label: `${TOOL_LABELS[item.type]} ${index + 1}` })), ...working.masks.map((item, index) => ({ ...item, kind: "mask", label: `黒塗り ${index + 1}` }))];
     entries.forEach((entry) => {
@@ -252,7 +259,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   }
   async function save() {
     if (disposed || state !== "editing" || !image) return;
-    state = "saving"; setControlsDisabled(true); setStatus("画像を保存しています。");
+    state = "saving"; onStateChange?.("saving"); setControlsDisabled(true); setStatus("画像を保存しています。");
     try {
       const annotations = cloneAnnotations(previewAnnotations(working.annotations)); if (annotations === null) throw new TypeError("invalid annotations");
       const masks = copyMasks(working.masks);
@@ -268,10 +275,10 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
         output = { annotations: [], masks: [], dataUrl, ...(screenshot.privacyReview ? { privacyReview: cropReviewRegions(screenshot.privacyReview, crop) } : {}) };
       }
       const focusTarget = await onSave(output); if (focusTarget === false) throw new Error("save failed");
-      state = "closed"; closeEditor("save"); (focusTarget || restoreFocus)?.focus?.();
-    } catch { state = "editing"; setControlsDisabled(false); refreshSelection(); setStatus("保存できませんでした。編集内容を保持したまま、もう一度保存してください。"); }
+      state = "closed"; onStateChange?.("closed"); closeEditor("save"); (focusTarget || restoreFocus)?.focus?.();
+    } catch { state = "editing"; onStateChange?.("editing"); setControlsDisabled(false); refreshSelection(); setStatus("保存できませんでした。編集内容を保持したまま、もう一度保存してください。"); }
   }
-  function cancel() { if (disposed || state === "saving") return; generation += 1; drag = null; state = "closed"; onCancel?.(); closeEditor("cancel"); restoreFocus?.focus?.(); }
+  function cancel() { if (disposed || state === "saving") return; generation += 1; drag = null; state = "closed"; onStateChange?.("closed"); onCancel?.(); closeEditor("cancel"); restoreFocus?.focus?.(); }
 
   toolButtons.forEach((button) => button.addEventListener("click", () => selectTool(button.dataset.editorTool), { signal }));
   colorInput?.addEventListener("input", () => { const item = itemFor(); if (isBusy() || !item || selected?.kind !== "annotation") return; if (!/^#[\da-f]{6}$/i.test(colorInput.value)) return; remember(`color:${item.id}`); item.color = colorInput.value; redraw(); }, { signal });
@@ -284,10 +291,11 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   }, { signal });
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); if (state !== "saving") cancel(); }, { signal });
 
-  return {
-    async open() {
-      restoreFocus = document.activeElement; const currentGeneration = ++generation; state = "loading"; image = null; selected = null; drag = null; focusMovedDuringLoad = false;
-      if (inline) dialog.show(); else dialog.showModal();
+  const api = {
+    async open({ preserveWorking = false } = {}) {
+      restoreFocus = document.activeElement; const currentGeneration = ++generation; state = "loading"; onStateChange?.("loading"); image = null; selected = null; drag = null; focusMovedDuringLoad = false;
+      if (!dialog.open) { if (inline) dialog.show(); else dialog.showModal(); }
+      errorPanel.hidden = true; canvas.hidden = false;
       canvas.width = 1; canvas.height = 1; canvas.getContext("2d")?.clearRect(0, 0, 1, 1); selection.replaceChildren(); if (textInput) textInput.value = ""; if (fontSizeInput) fontSizeInput.value = "24";
       setControlsDisabled(true);
       // Loading disables the editing tools, so keep focus on an enabled
@@ -298,19 +306,21 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
       try {
         const cloned = cloneAnnotations(screenshot.annotations === undefined ? [] : screenshot.annotations);
         if (cloned === null) throw new TypeError("invalid annotations");
-        working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setStatus("画像を準備しています。");
+        if (!preserveWorking) working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setStatus("画像を準備しています。");
         const loaded = new Image(); loaded.src = screenshot.dataUrl; if (typeof loaded.decode === "function") await loaded.decode(); if (disposed || currentGeneration !== generation) return false;
         image = loaded;
         if (!image.width || !image.height || image.width > 12_000 || image.height > 12_000 || image.width * image.height > 40_000_000) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");
         // Validate source data before the first draw; invalid data must not reveal the raw image.
         drawScreenshot(canvas.getContext("2d"), image, { annotations: previewAnnotations(working.annotations), masks: working.masks });
-        state = "editing"; setControlsDisabled(false); selectTool(initialTool); refreshSelection(); redraw();
+        state = "editing"; onStateChange?.("editing"); setControlsDisabled(false); selectTool(initialTool); refreshSelection(); if (!redraw()) return false;
         if (!focusMovedDuringLoad && document.activeElement === loadingFocusTarget) dialog.querySelector('[data-editor-tool="select"]')?.focus?.({ preventScroll: true });
         loadingFocusTarget = null; setStatus("画像を編集できます。"); return true;
       } catch {
-        if (disposed || currentGeneration !== generation) return false; image = null; state = "error"; setControlsDisabled(true); canvas.width = 1; canvas.height = 1; if (!dialog.contains(document.activeElement) || document.activeElement === document.body) loadingFocusTarget?.focus?.({ preventScroll: true }); loadingFocusTarget = null; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
+        if (disposed || currentGeneration !== generation) return false; image = null; showImageError(); canvas.width = 1; canvas.height = 1; if (!dialog.contains(document.activeElement) || document.activeElement === document.body) loadingFocusTarget?.focus?.({ preventScroll: true }); loadingFocusTarget = null; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
       }
     },
-    dispose() { disposed = true; state = "closed"; generation += 1; controller.abort(); if (dialog.open) closeEditor("dispose"); }
+    dispose() { disposed = true; state = "closed"; onStateChange?.("closed"); generation += 1; controller.abort(); errorPanel.remove(); if (dialog.open) closeEditor("dispose"); }
   };
+  retryImage.addEventListener("click", () => { if (!disposed && state === "error") void api.open({ preserveWorking: true }); }, { signal });
+  return api;
 }

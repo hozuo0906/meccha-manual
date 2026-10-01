@@ -1,3 +1,4 @@
+import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
@@ -18,6 +19,7 @@ test("cloud manual sharing requires confirmation, keeps token in memory, and sto
     const json = (status, body) => { response.writeHead(status, { "content-type": "application/json; charset=utf-8" }); response.end(JSON.stringify(body)); };
     if (url.pathname === "/manuals") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderCloudManualsPage({ workspaceId })); return; }
     if (url.pathname === "/assets/cloud-manual.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(CLOUD_MANUAL_CSS); return; }
+    if (url.pathname === "/assets/editor-tools.js") { response.writeHead(200,{"content-type":"application/javascript"});response.end(EDITOR_TOOLS_JS);return; }
     if (url.pathname === "/assets/cloud-manual.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(CLOUD_MANUAL_JS); return; }
     if (url.pathname === `/api/workspaces/${workspaceId}/manuals` && request.method === "GET") { json(200, { manuals: [{ id: manualId, title: "共有テスト" }] }); return; }
     if (url.pathname === `/api/workspaces/${workspaceId}/manuals/${manualId}` && request.method === "GET") { json(200, { manual: { id: manualId, title: "共有テスト" }, draft: { id: "draft-1", contentVersion: "0123456789abcdef0123456789abcdef", title: "共有テスト", description: "説明", updatedAt: "v1" }, steps: [{ id: "step-1", position: 1, title: "手順", instruction: "操作" }], permissions: { canEdit: true } }); return; }

@@ -11,7 +11,7 @@ R2 objectとD1 assetsメタデータの対応を固定し、ワークスペー�
 | binding | bucket | kind |
 |---|---|---|
 | `CAPTURE_ASSETS` | `meccha-manual-capture-assets-staging` / `meccha-manual-capture-assets-prod` | `capture_screenshot` |
-| `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` / `meccha-manual-manual-assets-prod` | `manual_image` |
+| `MANUAL_ASSETS` | `meccha-manual-manual-assets-staging` / `meccha-manual-manual-assets-prod` | `manual_image`、ADR-0038の`brand_logo` |
 | `EXPORTS` | `meccha-manual-exports-staging` / `meccha-manual-exports-prod` | `pdf_export`, `html_export`, `markdown_export` |
 | `AVATARS` | `meccha-manual-avatars-staging` / `meccha-manual-avatars-prod` | `user_avatar`, `workspace_avatar` |
 
@@ -33,6 +33,8 @@ workspace-id/avatars/user-id/asset-id.webp
 ```
 
 C sliceのguest claim中はmanual IDがまだ確定していないため、staged objectだけresource IDにclaim intent IDを使う。finalize後も同じobjectをD1 `assets`へ採用し、`workspace_id/manuals/{claim_intent_id}/{asset_id}.{ext}`の4要素を維持する。asset IDはclaim intentとslotから決定的に導出し、再送で別IDを発行しない。
+
+ADR-0038の編集画像は確定済みmanualを持つため`{workspace_id}/manuals/{manual_id}/{asset_id}.{ext}`を使う。ロゴは`{workspace_id}/branding/{workspace_id}/{logo_id}.{ext}`を使い、D1では`assets`へ不正なkindを追加せず専用`workspace_brand_logos`へ保存する。claim経由の手順書固有ロゴも同じprivate key形式で、D1のsource_claim_idにより当該actor/workspace/claimへ固定する。チームpointerは変更しない。いずれも4要素、opaque UUID、サーバー生成key、許可された5個のcustom metadataだけを維持する。upload operationはactor/workspace（編集画像はmanualも）へ固定し、同一操作のasset IDを決定的に導出する。
 
 ## D1 assetsメタデータ
 

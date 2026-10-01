@@ -61,7 +61,7 @@ class MemoryR2 {
   async delete(key) { this.objects.delete(key); }
 }
 
-const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql"];
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql"];
 
 async function createLocalWorkerFixture() {
   const database = new DatabaseSync(":memory:");
@@ -625,7 +625,7 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));
     assert.equal(completed.status, "completed", `実Workerへの保存が完了する: ${JSON.stringify({ completed, status: await page.locator("#status").textContent().catch(() => ""), databaseClaims: fixture.database.prepare("SELECT status, manual_id FROM claim_intents").all() })}`);
-    assert.equal(await getDraft(worker, draft.id), null, "保存完了後はローカル下書きを消費する");
+    assert.ok((await getDraft(worker, draft.id)).cloudRef, "保存完了後も同じローカル下書きとクラウドの版を保持する");
 
     const workspaceId = fixture.database.prepare("SELECT id FROM workspaces WHERE workspace_kind = 'personal'").get()?.id;
     const manual = fixture.database.prepare("SELECT id, title FROM manuals ORDER BY created_at DESC LIMIT 1").get();

@@ -12,6 +12,8 @@ import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey } from "../
 import { ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
 import cloudWorker from "../apps/worker/src/index.ts";
 
+const RETAINED_MANUAL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const RETAINED_CLOUD_REF = { workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", manualId: RETAINED_MANUAL_ID, revisionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", updatedAt: "2026-10-01T00:00:00.000Z", contentVersion: "a".repeat(32) };
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const STAGING_URL = `${STAGING_ORIGIN}/onboarding/continue?runtime-test=1`;
 const ACCESS_AUTH_ORIGIN = "https://meccha-manual-access-login.example.test";
@@ -57,7 +59,7 @@ class MemoryR2 {
   async delete(key) { this.objects.delete(key); }
 }
 
-const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql"];
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql"];
 
 async function createLocalWorkerFixture() {
   const database = new DatabaseSync(":memory:");
@@ -479,7 +481,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
       title: "隔離ランタイム検証",
       description: "合成データのみ",
       updatedAt,
-      steps: [{ id: "step-1", order: 1, instruction: "合成操作", screenshotId: "asset-1" }],
+      steps: [{ id: "step-1", order: 1, instruction: "合成操作", screenshotId: "asset-1" }, { id: "step-2", order: 2, instruction: "合成操作2", screenshotId: "asset-2" }],
       screenshots: [
         {
           id: "asset-1",
@@ -537,6 +539,9 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.equal(prepared.status, "ready");
     assert.equal(prepared.draftFingerprint, draftFingerprint);
     assert.equal(prepared.assets[0].assetSlot, 0);
+    assert.deepEqual(prepared.draft.steps[0].annotations, draft.screenshots[0].annotations);
+    assert.deepEqual(prepared.draft.steps[1].annotations, draft.screenshots[1].annotations);
+    assert.equal(prepared.draft.steps.some((step) => "masks" in step), false);
     assert.deepEqual(await getDraft(worker, draft.id), sameContentDraft, "prepare must retain the local original");
     assert.equal((await readMetadata(worker, storageKey)).draftUpdatedAt, updatedAt, "prepare must retain the handoff timestamp while allowing unchanged content");
 
@@ -574,12 +579,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const sourceEncoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
     const sourceRectanglePixels = await decodePixelRegion(page, sourceEncoded, 12, 12, 80, 80);
     const rectanglePixels = await decodePixelRegion(page, encoded, 12, 12, 80, 80);
-    assert.ok(rectanglePixels.some(([red, green, blue]) => red === 220 && green === 38 && blue === 38), "cloud asset must contain the rectangle annotation pixels");
-    assert.ok(rectanglePixels.some((pixel, index) => pixel.join(",") !== sourceRectanglePixels[index].join(",")), "rectangle pixels must differ from the source region");
+    assert.deepEqual(rectanglePixels, sourceRectanglePixels, "safe base keeps rectangle annotations editable rather than flattening them");
     const sourceTextPixels = await decodePixelRegion(page, sourceEncoded, 192, 192, 80, 70);
     const textPixels = await decodePixelRegion(page, encoded, 192, 192, 80, 70);
-    assert.ok(textPixels.some(([red, green, blue]) => green > red * 1.5 && green > blue * 1.2), "cloud asset must contain the text annotation pixels");
-    assert.ok(textPixels.some((pixel, index) => pixel.join(",") !== sourceTextPixels[index].join(",")), "text pixels must differ from the source region");
+    assert.deepEqual(textPixels, sourceTextPixels, "safe base keeps text annotations editable rather than flattening them");
 
     const secondStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 1 });
     assert.equal(secondStarted.ok, true);
@@ -592,12 +595,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const secondEncoded = Buffer.concat(secondChunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
     const sourceEllipsePixels = await decodePixelRegion(page, sourceEncoded, 180, 0, 130, 130);
     const ellipsePixels = await decodePixelRegion(page, secondEncoded, 180, 0, 130, 130);
-    assert.ok(ellipsePixels.some(([red, green, blue]) => blue > 180 && red < 100 && green < 150), "cloud asset must contain the ellipse annotation pixels");
-    assert.ok(ellipsePixels.some((pixel, index) => pixel.join(",") !== sourceEllipsePixels[index].join(",")), "ellipse pixels must differ from the source region");
+    assert.deepEqual(ellipsePixels, sourceEllipsePixels, "safe base keeps ellipse annotations editable rather than flattening them");
     const sourceArrowPixels = await decodePixelRegion(page, sourceEncoded, 24, 210, 160, 130);
     const arrowPixels = await decodePixelRegion(page, secondEncoded, 24, 210, 160, 130);
-    assert.ok(arrowPixels.some(([red, green, blue]) => red === 220 && green === 38 && blue === 38), "cloud asset must contain the arrow annotation pixels");
-    assert.ok(arrowPixels.some((pixel, index) => pixel.join(",") !== sourceArrowPixels[index].join(",")), "arrow pixels must differ from the source region");
+    assert.deepEqual(arrowPixels, sourceArrowPixels, "safe base keeps arrow annotations editable rather than flattening them");
     const artifactPath = resolve(".artifacts/editor-image-workspace/annotated-export-draft.json");
     await mkdir(resolve(".artifacts/editor-image-workspace"), { recursive: true });
     await writeFile(artifactPath, JSON.stringify({
@@ -608,8 +609,8 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
         { id: "step-2", order: 2, instruction: "注釈付き画像2", screenshotId: "asset-2" }
       ],
       screenshots: [
-        { id: "asset-1", dataUrl: `data:image/png;base64,${encoded}`, masks: [] },
-        { id: "asset-2", dataUrl: `data:image/png;base64,${secondEncoded}`, masks: [] }
+        { id: "asset-1", dataUrl: `data:image/png;base64,${encoded}`, masks: [], annotations: draft.screenshots[0].annotations },
+        { id: "asset-2", dataUrl: `data:image/png;base64,${secondEncoded}`, masks: [], annotations: draft.screenshots[1].annotations }
       ]
     }, null, 2), "utf8");
 
@@ -672,7 +673,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
       type: "handoff.completed",
       handoffId,
       action: "save",
-      manualId: "manual-cas-1",
+      manualId: RETAINED_MANUAL_ID,
       operationId: identities.find((identity) => identity.operationId !== operationId).operationId,
       claimIntentId,
       draftFingerprint
@@ -683,7 +684,7 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
       type: "handoff.completed",
       handoffId,
       action: "save",
-      manualId: "manual-cas-1",
+      manualId: RETAINED_MANUAL_ID,
       operationId,
       claimIntentId: identities.find((identity) => identity.claimIntentId !== claimIntentId).claimIntentId,
       draftFingerprint
@@ -752,15 +753,15 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
 
     const changedDraft = { ...draft, title: "同一ms更新" };
     await putDraft(worker, changedDraft);
-    const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
+    const changedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId, claimIntentId, draftFingerprint });
     assert.deepEqual(changedCompletion, { ok: true, status: "completed" });
     assert.equal((await getDraft(worker, draft.id)).title, changedDraft.title, "CAS mismatch must retain the changed local draft");
     assert.equal((await readMetadata(worker, storageKey)).status, "completed", "the confirmed claim must be durably completed after a CAS mismatch");
 
     const resumedDraft = { ...changedDraft, title: "同一ms再編集" };
     await putDraft(worker, resumedDraft);
-    await setMetadata(worker, storageKey, { ...(await readMetadata(worker, storageKey)), status: "completion-pending", completedManualId: "manual-cas-1" });
-    const resumedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint });
+    await setMetadata(worker, storageKey, { ...(await readMetadata(worker, storageKey)), status: "completion-pending", completedManualId: RETAINED_MANUAL_ID });
+    const resumedCompletion = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId, claimIntentId, draftFingerprint });
     assert.deepEqual(resumedCompletion, { ok: true, status: "completed" }, "completion-pending retry must complete after retaining an edited draft");
     assert.equal((await getDraft(worker, draft.id)).title, resumedDraft.title, "completion-pending CAS mismatch must retain the edited draft");
 
@@ -783,16 +784,16 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const nextPrepared = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: nextHandoffId, action: "save" });
     assert.equal(nextPrepared.ok, true);
     const nextClaimIntentId = "33333333-3333-4333-8333-333333333333";
-    const nextFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", handoffId: nextHandoffId, action: "save", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
+    const nextFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", cloudRef: RETAINED_CLOUD_REF, handoffId: nextHandoffId, action: "save", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
     assert.deepEqual(nextFinalize, { ok: true, status: "finalize-pending" });
     await failNextStorageSet(worker);
-    const storageFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: nextHandoffId, action: "save", manualId: "manual-cas-2", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
+    const storageFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: nextHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
     assert.deepEqual(storageFailed, { ok: false, error: "HANDOFF_FAILED" }, "metadata storage failure must remain a technical failure");
     assert.equal((await readMetadata(worker, nextStorageKey)).status, "finalize-pending");
     assert.equal((await getDraft(worker, draft.id)).title, resumedDraft.title, "metadata storage failure must not delete the local draft");
-    const nextCompleted = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: nextHandoffId, action: "save", manualId: "manual-cas-2", operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
+    const nextCompleted = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: nextHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: nextBegin.operationId, claimIntentId: nextClaimIntentId, draftFingerprint: nextDraftFingerprint });
     assert.deepEqual(nextCompleted, { ok: true, status: "completed" });
-    assert.equal(await getDraft(worker, draft.id), null, "an unchanged draft is removed only after its own claim completes");
+    assert.equal((await getDraft(worker, draft.id)).cloudRef.manualId, RETAINED_MANUAL_ID, "completed saves retain the draft and original manual identity");
 
     const finalSetDraft = { ...draft, title: "完了保存失敗後の回収" };
     await putDraft(worker, finalSetDraft);
@@ -805,15 +806,15 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     });
     const finalSetBegin = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: finalSetHandoffId, action: "save" });
     const finalSetClaimIntentId = "55555555-5555-4555-8555-555555555555";
-    const finalSetFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", handoffId: finalSetHandoffId, action: "save", operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
+    const finalSetFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", cloudRef: RETAINED_CLOUD_REF, handoffId: finalSetHandoffId, action: "save", operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
     assert.deepEqual(finalSetFinalize, { ok: true, status: "finalize-pending" });
-    await failStorageSetOnCall(worker, 2);
-    const finalSetFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: finalSetHandoffId, action: "save", manualId: "manual-cas-4", operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
+    await failStorageSetOnCall(worker, 3);
+    const finalSetFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: finalSetHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
     assert.deepEqual(finalSetFailed, { ok: false, error: "HANDOFF_FAILED" }, "final completed metadata failure must remain retryable");
     assert.equal((await readMetadata(worker, finalSetStorageKey)).status, "completion-pending");
-    assert.equal(await getDraft(worker, draft.id), null, "the completed metadata failure occurs after local deletion");
-    const finalSetRecovered = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: finalSetHandoffId, action: "save", manualId: "manual-cas-4", operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
-    assert.deepEqual(finalSetRecovered, { ok: true, status: "completed" }, "completion-pending retry must accept an already missing original");
+    assert.equal((await getDraft(worker, draft.id)).title, finalSetDraft.title, "completed metadata failure preserves local content");
+    const finalSetRecovered = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: finalSetHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: finalSetBegin.operationId, claimIntentId: finalSetClaimIntentId, draftFingerprint: finalSetDraftFingerprint });
+    assert.deepEqual(finalSetRecovered, { ok: true, status: "completed" }, "completion-pending retry must preserve the original local draft");
     assert.equal((await readMetadata(worker, finalSetStorageKey)).status, "completed");
 
     const idbDraft = { ...draft, title: "IDB技術障害後の再試行" };
@@ -827,27 +828,27 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     });
     const idbBegin = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: idbHandoffId, action: "save" });
     const idbClaimIntentId = "44444444-4444-4444-8444-444444444444";
-    const idbFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", handoffId: idbHandoffId, action: "save", operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
+    const idbFinalize = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.finalize-pending", cloudRef: RETAINED_CLOUD_REF, handoffId: idbHandoffId, action: "save", operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
     assert.deepEqual(idbFinalize, { ok: true, status: "finalize-pending" });
     await failNextDraftDeleteTransaction(worker);
-    const idbFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: idbHandoffId, action: "save", manualId: "manual-cas-3", operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
+    const idbFailed = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: idbHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
     assert.deepEqual(idbFailed, { ok: false, error: "HANDOFF_FAILED" }, "an IndexedDB technical abort must not be classified as a changed draft");
     assert.equal((await readMetadata(worker, idbStorageKey)).status, "completion-pending");
     assert.equal((await getDraft(worker, draft.id)).title, idbDraft.title);
     await restoreDraftDeleteTransaction(worker);
-    const idbCompleted = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId: idbHandoffId, action: "save", manualId: "manual-cas-3", operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
+    const idbCompleted = await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId: idbHandoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId: idbBegin.operationId, claimIntentId: idbClaimIntentId, draftFingerprint: idbDraftFingerprint });
     assert.deepEqual(idbCompleted, { ok: true, status: "completed" });
-    assert.equal(await getDraft(worker, draft.id), null);
+    assert.equal((await getDraft(worker, draft.id)).cloudRef.manualId, RETAINED_MANUAL_ID);
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId, action: "save" }), {
       ok: true,
       status: "completed",
       operationId,
       claimIntentId,
       draftFingerprint,
-      manualId: "manual-cas-1",
+      manualId: RETAINED_MANUAL_ID,
       expiresAt: expiredAt
     });
-    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-cas-1", operationId, claimIntentId, draftFingerprint }), { ok: true, status: "completed" });
+    assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", cloudRef: RETAINED_CLOUD_REF, handoffId, action: "save", manualId: RETAINED_MANUAL_ID, operationId, claimIntentId, draftFingerprint }), { ok: true, status: "completed" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "manual-other", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
     assert.deepEqual(await sendExternal(restartedPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "save", manualId: "different-manual", operationId, claimIntentId, draftFingerprint }), { ok: false, error: "COMPLETION_MISMATCH" });
   } finally {
@@ -1165,7 +1166,7 @@ test("MV3 bound external Access return restores the same activated handoff", { t
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));
     assert.equal(completed.status, "completed", "the real onboarding page must complete the restored handoff");
     assert.equal(completed.completedManualId, "runtime-manual-1");
-    assert.equal(await getDraft(worker, draft.id), null, "completed workflow must clear the unchanged local draft");
+    assert.ok((await getDraft(worker, draft.id)).cloudRef, "completed workflow keeps the same editable local draft with cloud receipt");
     await page.reload({ waitUntil: "domcontentloaded" });
     const savedContext = await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"));
     assert.equal(savedContext?.entries?.find((entry) => entry.handoffId === "V".repeat(43))?.claimStatus, "completed", "reopening the page must retain the completed claim context");
@@ -1234,7 +1235,7 @@ test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧�
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));
     assert.equal(completed.status, "completed", `実Workerへの保存が完了する: ${JSON.stringify({ completed, status: await page.locator("#status").textContent().catch(() => ""), databaseClaims: fixture.database.prepare("SELECT status, manual_id FROM claim_intents").all() })}`);
-    assert.equal(await getDraft(worker, draft.id), null, "保存完了後はローカル下書きを消費する");
+    assert.ok((await getDraft(worker, draft.id)).cloudRef, "保存完了後も同じローカル下書きとクラウドの版を保持する");
 
     const workspaceId = fixture.database.prepare("SELECT id FROM workspaces WHERE workspace_kind = 'personal'").get()?.id;
     const manual = fixture.database.prepare("SELECT id, title FROM manuals ORDER BY created_at DESC LIMIT 1").get();

@@ -14,7 +14,8 @@ const migrationPaths = [
   new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
   new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url),
   new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url),
-  new URL("../migrations/0005_d1_share_links.sql", import.meta.url)
+  new URL("../migrations/0005_d1_share_links.sql", import.meta.url),
+  new URL("../migrations/0006_d1_manual_editor_branding.sql", import.meta.url)
 ];
 const d1BindingMigrationPaths = migrationPaths.slice(0, 3);
 const NOW = "2026-09-05T00:00:00.000Z";

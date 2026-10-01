@@ -158,8 +158,8 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       "[...document.querySelectorAll('.step-card img')].map((image) => ({ complete: image.complete, width: image.naturalWidth }))",
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
-    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】クリック"));
-    assert.match(captionProgress, /【参照】クリック/);
+    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】をクリック"));
+    assert.match(captionProgress, /【参照】をクリック/);
     await new Promise((resolve) => setTimeout(resolve, 700));
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
@@ -417,10 +417,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     assert.ok(editorPage, "successful finish should open the saved draft editor");
     await editorPage.waitForSelector("#steps li");
     const instructions = await editorPage.locator("#steps li button").allTextContents();
-    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】クリック")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】をクリック")), "click before normal navigation should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
-    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】クリック")), "form submit click should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】をクリック")), "form submit click should be retained");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);

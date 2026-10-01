@@ -23,6 +23,9 @@ const startShare = document.querySelector("#startShare");
 const activateHandoff = document.querySelector("#activateHandoff");
 const gateStatus = document.querySelector("#gateStatus");
 const saveState = document.querySelector("#saveState");
+const cloudSaveState = document.querySelector("#cloudSaveState");
+let cloudStateVersion = 0;
+const cloudReferenceKey = "meccha-manual:cloud-ref:" + id;
 const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "保存先を準備できません。時間をおいてもう一度お試しください。手順書はこの端末に残っています。";
@@ -35,6 +38,7 @@ let selectedStepId = draft.editorState?.selectedStepId || draft.steps[0]?.id;
 let previewZoom = Math.max(1, Math.min(3, Number(draft.editorState?.zoom) || 1));
 const pendingImages = new Map();
 const displayFailures = new Set();
+const editorViewStates = new Map();
 const uploadFailures = new Map();
 const shownReplacements = new Set();
 const undoStack = [];
@@ -93,6 +97,8 @@ function replacementRegions(step) {
   return (Array.isArray(metadata?.replacements) ? metadata.replacements : []).slice(0, 64).filter((region) => region && typeof region.id === "string" && typeof region.text === "string" && Array.from(region.text).length <= 160 && [region.x, region.y, region.width, region.height].every((value) => typeof value === "number" && Number.isFinite(value)) && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0 && region.x + region.width <= 1 && region.y + region.height <= 1);
 }
 function imageLabel(step) {
+  if(editorViewStates.get(step.id)==="error")return "画像編集を読み込めませんでした";
+  if(editorViewStates.get(step.id)==="loading")return "画像編集を準備しています";
   const state = imageStatus(step);
   if (["queued", "capturing"].includes(state)) return "画像を準備しています";
   if (state === "none") return "説明のみの手順";
@@ -157,6 +163,27 @@ let persistQueue = Promise.resolve();
 
 title.value = draft.title;
 description.value = draft.description;
+
+async function refreshCloudReference(reference) {
+  if (!reference && chrome.storage?.local?.get) {
+    const values = await chrome.storage.local.get(cloudReferenceKey);
+    reference = values?.[cloudReferenceKey];
+  }
+  if (reference && typeof reference.manualId === "string" && typeof reference.workspaceId === "string"
+    && typeof reference.revisionId === "string" && typeof reference.updatedAt === "string") {
+    if (!draft.cloudRef?.updatedAt || Date.parse(reference.updatedAt) >= Date.parse(draft.cloudRef.updatedAt)) draft.cloudRef = structuredClone(reference);
+  }
+  document.querySelector("#save").textContent = draft.cloudRef ? "クラウドへ更新" : "クラウドに保存";
+  const version = ++cloudStateVersion;
+  if (!cloudSaveState) return;
+  if (!draft.cloudRef) { cloudSaveState.textContent = "クラウド未保存"; return; }
+  const saved = draft.cloudRef.savedFingerprint === await fingerprintDraft(draft);
+  if (version !== cloudStateVersion) return;
+  cloudSaveState.textContent = saved ? "クラウドに保存済み" : "クラウド未反映の変更あり";
+}
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes[cloudReferenceKey]?.newValue) void refreshCloudReference(changes[cloudReferenceKey].newValue);
+});
 
 function setSaveState(label, state = "saved") {
   if (!saveState) return;
@@ -259,6 +286,7 @@ function persist(message = "この端末に保存しました。") {
     draft.updatedAt = new Date().toISOString();
     setSaveState("端末に保存中…", "saving");
     try {
+      await refreshCloudReference();
       await draftStore.put(draft);
       status.textContent = message;
       localWriteFailed = false; document.querySelector("#retrySave").hidden = true; setSaveState(pendingImages.size ? "画像を保存中…" : "端末に保存済み", pendingImages.size ? "saving" : "saved");
@@ -347,6 +375,7 @@ async function openImageEditor(step, initialTool = "select") {
   const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
   const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
     inline: true, initialTool,
+    onStateChange: (state) => { if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
     onSave: async (next) => {
       const currentStep = draft.steps.find((entry) => entry.id === step.id);
       const currentScreenshot = screenshotFor(currentStep);
@@ -474,7 +503,7 @@ function createUploadPanel(step, screenshot) {
         const current = draft.steps.find((entry) => entry.id === step.id);
         if (current) { current.imageState = { status: "failed", reason: null, attempts: current.imageState?.attempts || 1, version }; uploadFailures.set(step.id, { priorState, message: imageUploadError(error, Boolean(screenshot)) }); }
         message.textContent = imageUploadError(error, Boolean(screenshot)); message.hidden = false; message.dataset.state = "error";
-        status.textContent = message.textContent;
+        status.textContent = "画像欄の案内を確認してください。元の画像は保持しています。";
         await persist("画像を準備できませんでした。画像欄から再試行できます。");
       } finally {
         clearTimeout(timer);
@@ -661,6 +690,7 @@ async function verifyOutputImages(generation) {
   }
 }
 async function openOutput(action) {
+  if(imageDialog.open){status.textContent="画像の変更を適用するか、閉じてから保存・共有へ進んでください。";return;}
   if (!textFieldsValid()) { status.textContent = title.validationMessage || description.validationMessage; title.reportValidity(); description.reportValidity(); return; }
   if (imageDialog.open) { status.textContent = "画像の変更を適用するか、閉じてから保存・共有してください。"; return; }
   const generation = ++outputGateGeneration; outputIntent = action; closePanels();
@@ -692,10 +722,11 @@ function applyBranding() {
 }
 document.querySelector("#brandColor").addEventListener("input", async (event) => { remember("brandColor"); draft.branding = { ...draft.branding, themeColor: event.target.value }; applyBranding(); await persist(); });
 document.querySelector("#brandLogo").addEventListener("change", async (event) => {
-  const file = event.target.files?.[0]; if (!file) return;
-  try { const image = await normalizeUploadedImage(file); remember(); draft.branding = { ...draft.branding, logoDataUrl: image.dataUrl }; applyBranding(); await persist(); }
-  catch { document.querySelector("#brandStatus").textContent = "ロゴを読み込めませんでした。10MB以下のPNG・JPEG・WebPを選んでください。"; }
-  finally { event.target.value = ""; }
+  const file = event.target.files?.[0]; if (!file || pendingImages.has("branding")) return;
+  const input=event.target;input.disabled=true;let resolvePending;const promise=new Promise(resolve=>{resolvePending=resolve;});pendingImages.set("branding",{promise});updateHistoryButtons();document.querySelector("#brandStatus").textContent="ロゴを画像に変換して、端末に保存しています…";let timer;
+  try { const image = await Promise.race([normalizeUploadedImage(file),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("IMAGE_DECODE_TIMEOUT")),30_000);})]); remember(); draft.branding = { ...draft.branding, logoDataUrl: image.dataUrl }; applyBranding(); const saved=await persist();document.querySelector("#brandStatus").textContent=saved?"ロゴを端末に保存しました。":"ロゴを端末に保存できませんでした。再試行してください。"; }
+  catch { document.querySelector("#brandStatus").textContent = "ロゴを読み込めませんでした。10MB以下のPNG・JPEG・WebPを選んでください。前のロゴを保持しています。"; }
+  finally { clearTimeout(timer);pendingImages.delete("branding");resolvePending();input.disabled=false;input.value = "";updateHistoryButtons();renderOutputSummary(); }
 });
 document.querySelector("#removeBrandLogo").addEventListener("click", async () => { remember(); if (draft.branding) delete draft.branding.logoDataUrl; applyBranding(); await persist(); });
 
@@ -761,6 +792,7 @@ async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
     }
     await chrome.storage.local.set({ [readyKey]: {
       handoffId: base.handoffId,
+      requestedAction: outputAction,
       launchId,
       tabId: tab.id,
       expiresAt: base.expiresAt,
@@ -896,7 +928,8 @@ async function startOutput(outputAction) {
       const draftFingerprint = await fingerprintDraft(draft);
       const recovery = await findRecoverableHandoff(draft.id, draftFingerprint, undefined, outputAction);
       const metadata = recovery || createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
-      if (metadata.draftFingerprint !== draftFingerprint) throw new Error("DRAFT_CHANGED");
+      const reconcilingPendingSave = recovery && ["finalize-pending", "completion-pending"].includes(recovery.status);
+      if (metadata.draftFingerprint !== draftFingerprint && !reconcilingPendingSave) throw new Error("DRAFT_CHANGED");
       run.handoffId = metadata.handoffId;
       if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
       const opened = await openHandoffTab(origin, metadata, recovery, outputAction, run);
@@ -992,5 +1025,6 @@ const interruptedImages = draft.steps.filter((step) => ["queued", "capturing"].i
 for (const step of interruptedImages) setImageState(step, "unavailable", "capture_interrupted");
 render();
 notifyEditorReady();
+void refreshCloudReference().catch(() => { if (cloudSaveState) cloudSaveState.textContent = "クラウド保存状態を確認できません"; });
 if (interruptedImages.length) persist("前回の画像準備が完了しませんでした。画像を追加するか、説明だけの手順に変更できます。");
 document.getElementById("editor-heading")?.focus({ preventScroll: true });

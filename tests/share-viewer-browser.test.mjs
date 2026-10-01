@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { handleShareLinkRoute } from "../apps/worker/src/share-link-router.ts";
 
 const SHARE_TOKEN = "T".repeat(43);
@@ -50,8 +50,9 @@ async function startViewerServer({ assetStatus = 200, assetStatuses = null, reso
       if (url.pathname === "/s/api/content" && request.method === "POST") {
         state.contentGrants.push(request.headers["x-share-grant"] || "");
         if ((request.headers["x-share-grant"] || "") !== SHARE_GRANT) return sendJson(response, 401, { code: "SHARE_UNAVAILABLE" });
-        return sendJson(response, 200, { title: "共有された手順書", description: "ブラウザ確認用", permission: "read_only", expiresAt: "2099-01-01T00:00:00.000Z", steps: multiImage ? [{ id: "step-1", position: 0, title: "申請画面を開く", instruction: "申請一覧を表示", assetId: "asset-1" }, { id: "step-2", position: 1, title: "承認待ちを確認", instruction: "対象月の状態を確認", assetId: "asset-2" }, { id: "step-3", position: 2, title: "画像なしの確認", instruction: "画像が無い場合の案内" }] : [{ id: "step-1", position: 0, title: "画像付き手順", instruction: "画像を確認", assetId: "asset-1" }] });
+        return sendJson(response, 200, { title: "共有された手順書", description: "ブラウザ確認用", permission: "read_only", expiresAt: "2099-01-01T00:00:00.000Z", ...(multiImage?{branding:{themeColor:"#563aa3",logoId:"synthetic-logo"}}:{}), steps: multiImage ? [{ id: "step-1", position: 0, title: "申請画面を開く", instruction: "申請一覧を表示", assetId: "asset-1", annotations:[{id:"rectangle",type:"rectangle",x:.05,y:.3,width:.8,height:.1,color:"#a14eba",strokeWidth:4}] }, { id: "step-2", position: 1, title: "承認待ちを確認", instruction: "対象月の状態を確認", assetId: "asset-2" }, { id: "step-3", position: 2, title: "画像なしの確認", instruction: "画像が無い場合の案内" }] : [{ id: "step-1", position: 0, title: "画像付き手順", instruction: "画像を確認", assetId: "asset-1" }] });
       }
+      if(url.pathname==="/s/api/logos/synthetic-logo"){assert.equal(request.headers["x-share-grant"],SHARE_GRANT);response.writeHead(200,{"content-type":"image/png"});return response.end(PNG);}
       if (/^\/s\/api\/assets\/asset-[12]$/.test(url.pathname) && request.method === "GET") {
         state.assetGrants.push(request.headers["x-share-grant"] || "");
         if ((request.headers["x-share-grant"] || "") !== SHARE_GRANT) return sendJson(response, 401, { code: "SHARE_UNAVAILABLE" });
@@ -92,6 +93,12 @@ test("share viewer presents readable multi-image steps on desktop and mobile", {
     assert.equal(await page.locator("img[src='/s/assets/brand/logo.png']").count(), 1);
     assert.equal(await page.locator("img[src='/s/assets/brand/mascot.png']").count(), 1);
     await page.screenshot({ path: ".artifacts/experience-repair/share-viewer-desktop.png", fullPage: true });
+    await mkdir(".artifacts/uiux-20261001/screens",{recursive:true});
+    for(const width of [1366,1024,390]){await page.setViewportSize({width,height:width===390?844:900});await page.screenshot({path:`.artifacts/uiux-20261001/screens/reader-${width}.png`});}
+    await page.waitForFunction(()=>!document.querySelector(".reader-print")?.disabled);
+    assert.equal(await page.locator(".reader-team-logo").isVisible(),true);
+    const pixel=await page.locator(".share-step-image-card img").first().evaluate(image=>{const canvas=document.createElement("canvas");canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext("2d");ctx.drawImage(image,0,0);return [...ctx.getImageData(48,180,1,1).data];});
+    assert.deepEqual(pixel,[161,78,186,255],"shared output must draw the edited rectangle color");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => [...document.querySelectorAll("#share-content img")].every((image) => image.getBoundingClientRect().width <= 358));
     await page.screenshot({ path: ".artifacts/experience-repair/share-viewer-mobile.png", fullPage: true });
@@ -122,7 +129,7 @@ test("share viewer renders a snapshot, passes grant headers to image fetch, and 
     assert.equal(state.assetGrants.length, 1);
     assert.equal(state.assetGrants[0] === SHARE_GRANT, true);
     assert.equal(await page.locator("#share-content").getByText("共有された手順書").count(), 1);
-    assert.equal(await page.locator("#share-content").getByText("画像付き手順").count(), 1);
+    assert.equal(await page.locator("#share-content .share-step").getByText("画像付き手順").count(), 1);
     assert.equal(await page.locator("#share-content img").count(), 1);
     assert.equal(await page.locator("#share-submit").count(), 1);
     assert.equal(await page.locator("input").count(), 1);
@@ -247,7 +254,7 @@ test("share viewer sends an 80-emoji passcode without truncating it", { timeout:
     await page.locator("#share-submit").click();
     await page.locator("#share-content").waitFor({ state: "visible" });
     assert.deepEqual(state.passcodes, [passcode]);
-    assert.equal(await page.locator("#share-content h2").count(), 1);
+    assert.equal(await page.locator("#share-content .reader-document-header h2").count(), 1);
   } finally {
     await context?.close();
     server.closeAllConnections?.();

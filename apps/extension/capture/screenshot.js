@@ -801,7 +801,7 @@ export function installSensitiveMasks(options = {}) {
       backdropMasks.push({ root, style });
     };
 
-    const maskElement = (element, opaqueSubtree = false) => {
+    const maskElement = (element, opaqueSubtree = false, protectedReason = null) => {
       if (!element || masked.has(element) || typeof element.getBoundingClientRect !== "function") return;
       const rect = element.getBoundingClientRect();
       if (!opaqueSubtree && (rect.width <= 0 || rect.height <= 0)) return;
@@ -831,10 +831,23 @@ export function installSensitiveMasks(options = {}) {
       masks.push(mask);
       if (intersectsViewport(rect)) {
         privacyReview.protectedRegionCount += 1;
-        reviewReasons.add(opaqueSubtree ? "unsupported_closed_shadow" : String(element.tagName).toUpperCase() === "CANVAS" ? "unsupported_canvas" : "unsupported_iframe");
+        reviewReasons.add(protectedReason || (opaqueSubtree ? "unsupported_closed_shadow" : String(element.tagName).toUpperCase() === "CANVAS" ? "unsupported_canvas" : "unsupported_iframe"));
       }
     };
 
+    const fieldNeedsOpaqueProtection = (element) => element.matches?.(fieldSelector)
+      && fieldKind(element) && isVisibleTextElement(element) && intersectsViewport(element.getBoundingClientRect())
+      && (!fieldGeometrySafe(element) || !["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)
+        || (element.tagName === "SELECT" && (element.multiple || element.size > 1)));
+    const protectUnsupportedField = (element) => {
+      maskElement(element, true, "unsupported_editable");
+      const root = element.getRootNode?.();
+      if (root && !backdropRoots.has(root)) { installBackdropMask(root); backdropRoots.add(root); }
+      // Protect every descendant separately, including top-layer content whose
+      // pixels do not inherit the host's opacity. This is a partial safe image,
+      // explicitly marked for review, rather than rejecting the whole viewport.
+      scanRoot(element, true);
+    };
     const scanRoot = (root, maskAllDescendants = false) => {
       if (!root?.querySelectorAll) throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
       if (root.host && maskAllDescendants && !backdropRoots.has(root)) {
@@ -845,6 +858,7 @@ export function installSensitiveMasks(options = {}) {
         for (const element of root.querySelectorAll("*")) maskElement(element, true);
       }
       for (const element of root.querySelectorAll(selector)) maskElement(element, Boolean(shadowRootOf(element) && !element.shadowRoot));
+      if (!maskAllDescendants) for (const element of root.querySelectorAll(fieldSelector)) if (fieldNeedsOpaqueProtection(element)) protectUnsupportedField(element);
       for (const host of root.querySelectorAll("*")) {
         const shadow = shadowRootOf(host);
         if (shadow && !shadow.querySelectorAll) throw new Error("SHADOW_INSPECTION_UNAVAILABLE");
@@ -869,6 +883,7 @@ export function installSensitiveMasks(options = {}) {
               } else {
                 if (maskAllDescendants) maskElement(node, true);
                 else if (node.matches?.(selector)) maskElement(node);
+                else if (fieldNeedsOpaqueProtection(node)) protectUnsupportedField(node);
               }
               scanRoot(node, maskAllDescendants);
             }

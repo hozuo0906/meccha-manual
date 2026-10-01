@@ -1079,3 +1079,24 @@ test("durable image count includes review images but excludes failure metadata a
   vm.runInNewContext(storageSource + "\nglobalThis.store = captureLiveStore;", context);
   assert.equal(await context.store.count("capture-1"), 2);
 });
+
+test("queued capture ignores proven hidden text churn but rejects reveal, styles and visible changes", async () => {
+  const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
+  let observer;
+  const hidden = { tagName:"DIV", display:"none", isConnected:true, contains(node){ return node===this || node?.parentElement===this || node?.parentElement?.parentElement===this; }, closest(){return null}, matches(){return false}, querySelector(){return null} };
+  const hiddenText = {nodeType:3,parentElement:hidden};
+  const visible = {tagName:"DIV",display:"block",isConnected:true,contains(node){return node===this},closest(){return null},matches(){return false},querySelector(){return null}};
+  const style = {tagName:"STYLE",parentElement:hidden,closest(){return this},matches(){return true},querySelector(){return null}};
+  const context = {
+    document:{querySelectorAll(){return [hidden,visible]}},innerWidth:800,innerHeight:600,
+    getComputedStyle:node=>({display:node.display}),
+    MutationObserver:class{constructor(callback){this.callback=callback;this.records=[];observer=this}observe(){}takeRecords(){return this.records.splice(0)}disconnect(){}},
+    addEventListener(){},removeEventListener(){},setTimeout(){return 1},clearTimeout(){}
+  };
+  vm.runInNewContext(source.slice(source.indexOf("function screenshotSceneLease("),source.indexOf("async function waitForScreenshotSlot("))+"\nglobalThis.lease=screenshotSceneLease;",context);
+  context.lease("begin","hidden");observer.callback([{type:"characterData",target:hiddenText}]);assert.equal(context.lease("verify","hidden"),true);
+  context.lease("begin","visible");observer.records.push({type:"childList",target:visible});assert.equal(context.lease("verify","visible"),false);
+  context.lease("begin","attributes");observer.records.push({type:"attributes",target:hidden});assert.equal(context.lease("verify","attributes"),false);
+  context.lease("begin","styles");observer.records.push({type:"childList",target:hidden,addedNodes:[style]});assert.equal(context.lease("verify","styles"),false);
+  context.lease("begin","reveal");hidden.display="block";observer.records.push({type:"characterData",target:hiddenText});assert.equal(context.lease("verify","reveal"),false);
+});

@@ -1,6 +1,6 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
-import { canonicalDraftJson, fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
+import { fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
 import { normalizeAnnotations } from "../editor/image-annotations.js";
 import { drawScreenshot } from "../editor/image-renderer.js";
 
@@ -17,6 +17,7 @@ const TRANSFER_TTL_MS = 10 * 60 * 1000;
 const transfers = new Map();
 const snapshots = new Map();
 const finalizeLocks = new Map();
+const completionDraftLocks = new Map();
 const beginLocks = new Map();
 const assetStartLocks = new Map();
 let transferBytesTotal = 0;
@@ -44,11 +45,13 @@ export function safeMessage(message, type) {
   const allowed = {
     "handoff.begin": ["schema", "type", "handoffId", "action"],
     "handoff.prepare": ["schema", "type", "handoffId", "action"],
+    "handoff.logo.start": ["schema", "type", "handoffId", "action"],
+    "handoff.logo.chunk": ["schema", "type", "handoffId", "action", "sequence"],
     "handoff.asset.start": ["schema", "type", "handoffId", "action", "assetSlot"],
     "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "assetSlot", "sequence"],
     "handoff.recovery": ["schema", "type", "handoffId", "action"],
-    "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint"],
-    "handoff.completed": ["schema", "type", "handoffId", "action", "manualId", "operationId", "claimIntentId", "draftFingerprint"]
+    "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"],
+    "handoff.completed": ["schema", "type", "handoffId", "action", "manualId", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"]
   }[type];
   return Boolean(allowed && Object.keys(message || {}).every((key) => allowed.includes(key)));
 }
@@ -75,7 +78,7 @@ async function readHandoff(handoffId) {
   const key = handoffStorageKey(handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || !isFresh(metadata)) return null;
+  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.status === "superseded" || !isFresh(metadata)) return null;
   return metadata;
 }
 
@@ -90,6 +93,42 @@ function createOperationId() {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
+
+function validCloudRef(value, manualId = value?.manualId) {
+  return value && typeof value === "object" && Object.keys(value).every((key) => ["workspaceId", "manualId", "revisionId", "updatedAt", "contentVersion", "savedFingerprint"].includes(key))
+    && [value.workspaceId, value.manualId, value.revisionId].every((id) => typeof id === "string" && CLAIM_INTENT_ID_PATTERN.test(id))
+    && value.manualId === manualId && typeof value.updatedAt === "string" && Number.isFinite(Date.parse(value.updatedAt))
+    && /^[a-f0-9]{32}$/.test(value.contentVersion || "");
+}
+function cloudRefStorageKey(draftId) { return "meccha-manual:cloud-ref:" + draftId; }
+function cloudRefIdentity(value) {
+  if (!validCloudRef(value)) return null;
+  return JSON.stringify([value.workspaceId, value.manualId, value.revisionId, value.updatedAt, value.contentVersion]);
+}
+async function currentCloudReceipt(draftId) {
+  const key = cloudRefStorageKey(draftId);
+  return (await chrome.storage.local.get(key))?.[key] || (await draftStore.get(draftId))?.cloudRef || null;
+}
+async function hasOtherPendingClaim(draftId, handoffId) {
+  const entries = await chrome.storage.local.get(null);
+  return Object.entries(entries || {}).some(([key, value]) => key.startsWith("meccha-manual:handoff:")
+    && value?.draftId === draftId && value.handoffId !== handoffId
+    && ["finalize-pending", "completion-pending"].includes(value.status));
+}
+async function withDraftCloudStateLock(draftId, callback) {
+  const previous = completionDraftLocks.get(draftId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  completionDraftLocks.set(draftId, queued);
+  await previous;
+  try { return await callback(); }
+  finally {
+    release();
+    if (completionDraftLocks.get(draftId) === queued) completionDraftLocks.delete(draftId);
+  }
+}
+
 
 function cleanStep(step) {
   if (!step || typeof step !== "object" || typeof step.id !== "string" || !step.id || !Number.isInteger(step.order) || step.order < 1 || typeof step.instruction !== "string" || Array.from(step.instruction).length > 500) return null;
@@ -111,6 +150,14 @@ function cleanStep(step) {
   return clean;
 }
 
+function cleanBranding(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["themeColor", "logoDataUrl"].includes(key))) return null;
+  const themeColor = value.themeColor ?? "#087f7a";
+  if (typeof themeColor !== "string" || !/^#[0-9a-f]{6}$/i.test(themeColor)) return null;
+  if (value.logoDataUrl !== undefined && (typeof value.logoDataUrl !== "string" || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value.logoDataUrl) || value.logoDataUrl.length > Math.ceil(CLOUD_CLAIM_MAX_ASSET_BYTES / 3) * 4 + 40)) return null;
+  return { themeColor: themeColor.toLowerCase(), hasLogo: value.logoDataUrl !== undefined };
+}
+
 export function cleanDraft(draft) {
   if (!draft || typeof draft !== "object" || !Array.isArray(draft.steps) || !Array.isArray(draft.screenshots)) return null;
   if (typeof draft.title !== "string" || typeof draft.description !== "string" || draft.steps.length > 200 || draft.screenshots.length > CLOUD_CLAIM_MAX_ASSETS) return null;
@@ -125,7 +172,7 @@ export function cleanDraft(draft) {
     if (masks.some((mask) => [mask.x, mask.y, mask.width, mask.height].some((value) => !Number.isFinite(value) || value < 0 || value > 1) || !mask.width || !mask.height || mask.x + mask.width > 1 || mask.y + mask.height > 1)) return null;
     const annotations = normalizeAnnotations(screenshot.annotations);
     if (annotations === null) return null;
-    return { id: screenshot.id, masks };
+    return { id: screenshot.id, masks, ...(annotations.length ? { annotations } : {}) };
   });
   const screenshotIds = new Set();
   for (const screenshot of screenshots) {
@@ -141,7 +188,14 @@ export function cleanDraft(draft) {
   if (!title || Array.from(title).length > 64 || Array.from(description).length > 10000 || steps.some((step) => !step) || screenshots.some((screenshot) => !screenshot)) return null;
   const referenced = new Set(steps.map((step) => step.screenshotId).filter(Boolean));
   if (draft.screenshots.some((screenshot) => referenced.has(screenshot.id) && screenshot.privacyReview?.reviewRequired === true)) return null;
-  return { title, description, steps, screenshots: screenshots.filter((screenshot) => referenced.has(screenshot.id)) };
+  const screenshotById = new Map(screenshots.map((screenshot) => [screenshot.id, screenshot]));
+  const cloudSteps = steps.map((step) => {
+    const annotations = screenshotById.get(step.screenshotId)?.annotations || [];
+    return { ...step, ...(annotations.length ? { annotations } : {}) };
+  });
+  const branding = draft.branding === undefined ? undefined : cleanBranding(draft.branding);
+  if (branding === null) return null;
+  return { title, description, steps: cloudSteps, screenshots: screenshots.filter((screenshot) => referenced.has(screenshot.id)), ...(branding ? { branding } : {}) };
 }
 
 function base64ToBytes(dataUrl) {
@@ -179,7 +233,9 @@ async function maskAndEncode(screenshot) {
         }
       }
     }
-    drawScreenshot(context, bitmap, { annotations, masks: screenshot.masks || [] });
+    // Privacy is irreversible in the uploaded base; editable overlays travel
+    // separately as bounded step metadata and are never a source-image layer.
+    drawScreenshot(context, bitmap, { annotations: [], masks: screenshot.masks || [] });
     const png = await canvas.convertToBlob({ type: "image/png" });
     if (png.size <= CLOUD_CLAIM_MAX_ASSET_BYTES) return { bytes: new Uint8Array(await png.arrayBuffer()), contentType: "image/png" };
     if (hasTransparency) throw new Error("ASSET_TOO_LARGE");
@@ -191,6 +247,27 @@ async function maskAndEncode(screenshot) {
   } finally {
     bitmap.close?.();
   }
+}
+
+async function encodeLogo(dataUrl) {
+  if (typeof OffscreenCanvas !== "function" || typeof createImageBitmap !== "function") throw new Error("MASK_RENDER_UNAVAILABLE");
+  const { bytes, type } = base64ToBytes(dataUrl);
+  if (bytes.length > CLOUD_CLAIM_MAX_ASSET_BYTES) throw new Error("ASSET_TOO_LARGE");
+  const bitmap = await createImageBitmap(new Blob([bytes], { type }));
+  try {
+    if (!bitmap.width || !bitmap.height || bitmap.width > 16384 || bitmap.height > 16384 || bitmap.width * bitmap.height > 40_000_000) throw new Error("ASSET_TOO_LARGE");
+    const scale = Math.min(1, 2048 / bitmap.width, 2048 / bitmap.height, Math.sqrt(4_000_000 / (bitmap.width * bitmap.height)));
+    const canvas = new OffscreenCanvas(Math.max(1, Math.floor(bitmap.width * scale)), Math.max(1, Math.floor(bitmap.height * scale)));
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw new Error("MASK_RENDER_UNAVAILABLE");
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    for (const format of [{ type: "image/png" }, ...[.92, .8, .65, .5, .35].map((quality) => ({ type: "image/webp", quality }))]) {
+      const blob = await canvas.convertToBlob(format);
+      if (blob.size <= 1024 * 1024 && ["image/png", "image/webp"].includes(blob.type)) return { bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type };
+    }
+    throw new Error("ASSET_TOO_LARGE");
+  } finally { bitmap.close?.(); }
 }
 
 async function sha256(bytes) {
@@ -241,6 +318,7 @@ async function prepare(message, sender) {
   const metadata = await readHandoff(message.handoffId);
   if (!metadata || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
+  if (await hasOtherPendingClaim(metadata.draftId, metadata.handoffId)) return reject("DRAFT_CLAIM_PENDING");
   const draft = await draftStore.get(metadata.draftId);
   if (!draft) return reject("DRAFT_CHANGED");
   const contentFingerprint = await fingerprintDraft(draft);
@@ -249,11 +327,16 @@ async function prepare(message, sender) {
     if (metadata.draftFingerprint !== legacyFingerprint) return reject("DRAFT_CHANGED");
   }
   const draftFingerprint = metadata.draftFingerprint;
+  const stored = await chrome.storage.local.get(cloudRefStorageKey(metadata.draftId));
+  const cloudRef = stored?.[cloudRefStorageKey(metadata.draftId)] || draft.cloudRef || null;
+  // Old clients may have a confirmed manual but no revision receipt. Never duplicate it.
+  if (cloudRef && !validCloudRef(cloudRef)) return reject("CLOUD_REFERENCE_INCOMPLETE");
   const clean = cleanDraft(draft);
   if (!clean) return reject("DRAFT_INVALID");
   const sourceById = new Map(draft.screenshots.map((screenshot) => [screenshot.id, screenshot]));
   const referencedScreenshots = clean.screenshots.map((screenshot) => structuredClone(sourceById.get(screenshot.id)));
-  const estimatedBytes = referencedScreenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), 0);
+  const logoDataUrl = clean.branding?.hasLogo ? draft.branding.logoDataUrl : null;
+  const estimatedBytes = referencedScreenshots.reduce((total, screenshot) => total + Math.ceil(String(screenshot?.dataUrl || "").length * 0.75), Math.ceil((logoDataUrl?.length || 0) * 0.75));
   cleanupTransfers();
   if (estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
   const previous = snapshots.get(message.handoffId);
@@ -261,9 +344,9 @@ async function prepare(message, sender) {
   if (snapshotBytesTotal - previousBytes + estimatedBytes > CLOUD_CLAIM_MAX_TOTAL_BYTES) return reject("CLAIM_TOO_LARGE");
   if (previous) snapshotBytesTotal = Math.max(0, snapshotBytesTotal - previousBytes);
   const assets = clean.screenshots.map((screenshot, assetSlot) => ({ assetSlot, screenshotId: screenshot.id }));
-  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draftFingerprint, draft: clean, screenshots: referencedScreenshots, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
+  snapshots.set(message.handoffId, { draftId: metadata.draftId, draftUpdatedAt: draft.updatedAt, draftFingerprint, draft: clean, screenshots: referencedScreenshots, logoDataUrl, estimatedBytes, expiresAt: Date.now() + TRANSFER_TTL_MS });
   snapshotBytesTotal += estimatedBytes;
-  return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps }, assets, draftUpdatedAt: draft.updatedAt, draftFingerprint };
+  return { ok: true, status: "ready", draft: { title: clean.title, description: clean.description, steps: clean.steps, ...(clean.branding ? { branding: clean.branding } : {}) }, assets, draftUpdatedAt: draft.updatedAt, draftFingerprint, ...(cloudRef ? { cloudRef } : {}) };
 }
 
 async function begin(message, sender) {
@@ -280,6 +363,7 @@ async function begin(message, sender) {
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
     const expiresAt = Date.parse(metadata.expiresAt || "");
     if (!Number.isFinite(expiresAt)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (OPERATION_ID_PATTERN.test(metadata.operationId || "")) {
@@ -296,8 +380,10 @@ async function begin(message, sender) {
 }
 
 async function startAsset(message, sender) {
-  if (!validRequest(message, sender, "handoff.asset.start") || !Number.isInteger(message.assetSlot) || message.assetSlot < 0 || message.assetSlot >= CLOUD_CLAIM_MAX_ASSETS) return reject("HANDOFF_REQUEST_REJECTED");
-  const transferKey = `${message.handoffId}:${message.assetSlot}`;
+  const isLogo = message.type === "handoff.logo.start";
+  if (!validRequest(message, sender, isLogo ? "handoff.logo.start" : "handoff.asset.start") || (!isLogo && (!Number.isInteger(message.assetSlot) || message.assetSlot < 0 || message.assetSlot >= CLOUD_CLAIM_MAX_ASSETS))) return reject("HANDOFF_REQUEST_REJECTED");
+  const assetSlot = isLogo ? "logo" : message.assetSlot;
+  const transferKey = `${message.handoffId}:${assetSlot}`;
   const previous = assetStartLocks.get(transferKey) || Promise.resolve();
   let release;
   const current = new Promise((resolve) => { release = resolve; });
@@ -313,8 +399,8 @@ async function startAsset(message, sender) {
     const snapshot = snapshots.get(message.handoffId);
     if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
     const screenshot = snapshot.screenshots?.[message.assetSlot];
-    if (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id) return reject("DRAFT_INVALID");
-    const encoded = await maskAndEncode(screenshot);
+    if (isLogo ? !snapshot.logoDataUrl : (!screenshot || !snapshot.draft.screenshots[message.assetSlot] || snapshot.draft.screenshots[message.assetSlot].id !== screenshot.id)) return reject("DRAFT_INVALID");
+    const encoded = isLogo ? await encodeLogo(snapshot.logoDataUrl) : await maskAndEncode(screenshot);
     const { bytes, contentType } = encoded;
     const totalBytes = bytes.byteLength;
     if (totalBytes > CLOUD_CLAIM_MAX_ASSET_BYTES) return reject("ASSET_TOO_LARGE");
@@ -328,7 +414,7 @@ async function startAsset(message, sender) {
     if (existing) removeTransfer(transferKey, existing);
     transfers.set(transferKey, { bytes, digest, contentType, nextSequence: 0, expiresAt: Date.now() + TRANSFER_TTL_MS });
     transferBytesTotal += totalBytes;
-    return { ok: true, status: "staged-source", assetSlot: message.assetSlot, contentType, byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
+    return { ok: true, status: "staged-source", ...(isLogo ? {} : { assetSlot: message.assetSlot }), contentType, byteLength: totalBytes, sha256: digest, chunkSize: CLOUD_CLAIM_CHUNK_BYTES, totalChunks: Math.ceil(totalBytes / CLOUD_CLAIM_CHUNK_BYTES) };
   } finally {
     transferBytesReserved = Math.max(0, transferBytesReserved - reservedBytes);
     release();
@@ -337,8 +423,10 @@ async function startAsset(message, sender) {
 }
 
 async function assetChunk(message, sender) {
-  if (!validRequest(message, sender, "handoff.asset.chunk") || !Number.isInteger(message.assetSlot) || !Number.isInteger(message.sequence) || message.sequence < 0) return reject("HANDOFF_REQUEST_REJECTED");
-  const transferKey = `${message.handoffId}:${message.assetSlot}`;
+  const isLogo = message.type === "handoff.logo.chunk";
+  if (!validRequest(message, sender, isLogo ? "handoff.logo.chunk" : "handoff.asset.chunk") || (!isLogo && !Number.isInteger(message.assetSlot)) || !Number.isInteger(message.sequence) || message.sequence < 0) return reject("HANDOFF_REQUEST_REJECTED");
+  const assetSlot = isLogo ? "logo" : message.assetSlot;
+  const transferKey = `${message.handoffId}:${assetSlot}`;
   const previous = assetStartLocks.get(transferKey) || Promise.resolve();
   let release;
   const current = new Promise((resolve) => { release = resolve; });
@@ -347,18 +435,18 @@ async function assetChunk(message, sender) {
   await previous;
   try {
     cleanupTransfers();
-    const transfer = transferFor(message.handoffId, message.assetSlot);
+    const transfer = transferFor(message.handoffId, assetSlot);
     if (!transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const metadata = await readHandoff(message.handoffId);
     if (!metadata || metadata.outputAction !== message.action || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-    if (transferFor(message.handoffId, message.assetSlot) !== transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
+    if (transferFor(message.handoffId, assetSlot) !== transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const totalChunks = Math.ceil(transfer.bytes.byteLength / CLOUD_CLAIM_CHUNK_BYTES);
     if (message.sequence >= totalChunks) return reject("CHUNK_SEQUENCE_INVALID");
     const start = message.sequence * CLOUD_CLAIM_CHUNK_BYTES;
     const chunk = transfer.bytes.slice(start, start + CLOUD_CLAIM_CHUNK_BYTES);
     transfer.nextSequence += 1;
     const done = start + chunk.byteLength === transfer.bytes.byteLength;
-    const result = { ok: true, assetSlot: message.assetSlot, sequence: message.sequence, totalChunks, chunk: bytesToBase64(chunk), done };
+    const result = { ok: true, ...(isLogo ? {} : { assetSlot: message.assetSlot }), sequence: message.sequence, totalChunks, chunk: bytesToBase64(chunk), done };
     if (done) removeTransfer(transferKey, transfer);
     return result;
   } finally {
@@ -368,7 +456,7 @@ async function assetChunk(message, sender) {
 }
 
 async function finalizePending(message, sender) {
-  if (!validRequest(message, sender, "handoff.finalize-pending") || !validRecoveryIdentity(message)) return reject("HANDOFF_REQUEST_REJECTED");
+  if (!validRequest(message, sender, "handoff.finalize-pending") || !validRecoveryIdentity(message) || (message.cloudRef !== undefined && message.cloudRef !== null && !validCloudRef(message.cloudRef))) return reject("HANDOFF_REQUEST_REJECTED");
   const handoffId = message.handoffId;
   const previous = finalizeLocks.get(handoffId) || Promise.resolve();
   let release;
@@ -387,24 +475,45 @@ async function finalizePending(message, sender) {
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
     if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
     if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
     if (metadata.operationId && metadata.operationId !== message.operationId) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "finalize-pending" || metadata.status === "completion-pending" || metadata.status === "completed") {
       if (metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId) return reject("RECOVERY_MISMATCH");
+      if (metadata.status === "finalize-pending") return await withDraftCloudStateLock(metadata.draftId, async () => {
+        if (await hasOtherPendingClaim(metadata.draftId, metadata.handoffId)) return reject("DRAFT_CLAIM_PENDING");
+        const currentReceipt = await currentCloudReceipt(metadata.draftId);
+        if (currentReceipt && !validCloudRef(currentReceipt)) return reject("CLOUD_REFERENCE_INCOMPLETE");
+        if (cloudRefIdentity(currentReceipt) !== cloudRefIdentity(metadata.sourceCloudRef) || cloudRefIdentity(message.cloudRef) !== cloudRefIdentity(metadata.sourceCloudRef)) return reject("DRAFT_CLOUD_CHANGED");
+        return { ok: true, status: metadata.status };
+      });
       return { ok: true, status: metadata.status };
     }
     if (!isFresh(metadata)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
-    await chrome.storage.local.set({
-      [key]: {
-        ...metadata,
-        status: "finalize-pending",
-        operationId: message.operationId,
-        claimIntentId: message.claimIntentId,
-        draftFingerprint: message.draftFingerprint,
-        finalizePendingAt: new Date().toISOString()
-      }
+    return await withDraftCloudStateLock(metadata.draftId, async () => {
+      const supersede = async (code) => {
+        await chrome.storage.local.set({ [key]: { ...metadata, status: "superseded" } });
+        return reject(code);
+      };
+      if (await hasOtherPendingClaim(metadata.draftId, metadata.handoffId)) return supersede("DRAFT_CLAIM_PENDING");
+      const currentReceipt = await currentCloudReceipt(metadata.draftId);
+      if (currentReceipt && !validCloudRef(currentReceipt)) return reject("CLOUD_REFERENCE_INCOMPLETE");
+      // A stale tab may have prepared a brand-new claim before another handoff
+      // completed. It must re-prepare against that receipt instead of finalizing.
+      if (cloudRefIdentity(currentReceipt) !== cloudRefIdentity(message.cloudRef)) return supersede("DRAFT_CLOUD_CHANGED");
+      await chrome.storage.local.set({
+        [key]: {
+          ...metadata,
+          status: "finalize-pending",
+          operationId: message.operationId,
+          claimIntentId: message.claimIntentId,
+          draftFingerprint: message.draftFingerprint,
+          sourceCloudRef: currentReceipt,
+          finalizePendingAt: new Date().toISOString()
+        }
+      });
+      return { ok: true, status: "finalize-pending" };
     });
-    return { ok: true, status: "finalize-pending" };
   } finally {
     identityRelease();
     if (beginLocks.get(handoffId) === identityQueued) beginLocks.delete(handoffId);
@@ -432,6 +541,7 @@ async function recovery(message, sender) {
 
 async function completed(message, sender) {
   if (!validRequest(message, sender, "handoff.completed") || typeof message.manualId !== "string" || message.manualId.length < 1 || message.manualId.length > 128) return reject("HANDOFF_REQUEST_REJECTED");
+  if (message.cloudRef !== undefined && !validCloudRef(message.cloudRef, message.manualId)) return reject("HANDOFF_REQUEST_REJECTED");
   const handoffId = message.handoffId;
   const previous = finalizeLocks.get(handoffId) || Promise.resolve();
   let release;
@@ -466,23 +576,16 @@ async function completed(message, sender) {
       ...metadata,
       status: "completion-pending",
       completedManualId: metadata.completedManualId || message.manualId,
-      completedAt
+      completedAt,
+      cloudRef: message.cloudRef ? { ...message.cloudRef, savedFingerprint: metadata.draftFingerprint } : metadata.cloudRef || { manualId: message.manualId }
     };
     if (metadata.status !== "completion-pending") {
-      // Persist the claim result before attempting local cleanup. A storage failure
+      // Persist the claim result before attaching the local cloud receipt. A storage failure
       // keeps the durable identity retryable and must not be treated as a draft edit.
       await chrome.storage.local.set({ [key]: pending });
     }
 
-    try {
-      const expected = await draftDeleteExpectation(pending);
-      await transactDraftDelete(pending.draftId, pending.draftUpdatedAt, expected.canonical);
-    } catch (error) {
-      // A changed or already removed local draft is an expected CAS outcome. The
-      // confirmed cloud claim is still completed, while a changed draft remains
-      // available for a new handoff. Other storage failures stay retryable.
-      if (error?.message !== "DRAFT_MISSING" && error?.message !== "DRAFT_CHANGED") throw error;
-    }
+    await persistCloudReceipt(pending);
     await chrome.storage.local.set({ [key]: { ...pending, status: "completed" } });
     clearClaimRuntime(handoffId);
     return { ok: true, status: "completed" };
@@ -492,19 +595,19 @@ async function completed(message, sender) {
   }
 }
 
-async function draftDeleteExpectation(metadata) {
-  const draft = await draftStore.get(metadata.draftId);
-  if (!draft) throw new Error("DRAFT_MISSING");
-  if (draft.updatedAt !== metadata.draftUpdatedAt) throw new Error("DRAFT_CHANGED");
-  const fingerprint = await fingerprintDraft(draft);
-  if (metadata.draftFingerprint && metadata.draftFingerprint !== fingerprint) {
-    const legacyFingerprint = await legacyFingerprintDraft(draft);
-    if (metadata.draftFingerprint !== legacyFingerprint) throw new Error("DRAFT_CHANGED");
-  }
-  return { canonical: canonicalDraftJson(draft), fingerprint };
+async function persistCloudReceipt(pending) {
+  return withDraftCloudStateLock(pending.draftId, async () => {
+    const cloudKey = cloudRefStorageKey(pending.draftId);
+    const existingRef = (await chrome.storage.local.get(cloudKey))?.[cloudKey];
+    if (existingRef?.manualId && existingRef.manualId !== pending.completedManualId) throw new Error("COMPLETION_MISMATCH");
+    const cloudRef = validCloudRef(existingRef) && (!validCloudRef(pending.cloudRef) || Date.parse(existingRef.updatedAt) > Date.parse(pending.cloudRef.updatedAt)) ? existingRef : pending.cloudRef;
+    // A separate durable receipt survives an editor's in-flight autosave of an older draft object.
+    await chrome.storage.local.set({ [cloudKey]: cloudRef });
+    await retainDraftWithCloudRef(pending.draftId, cloudRef);
+  });
 }
 
-async function transactDraftDelete(id, expectedUpdatedAt, expectedCanonical) {
+async function retainDraftWithCloudRef(id, cloudRef) {
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open("meccha-manual-guest", 1);
     request.onsuccess = () => resolve(request.result);
@@ -514,34 +617,30 @@ async function transactDraftDelete(id, expectedUpdatedAt, expectedCanonical) {
     await new Promise((resolve, reject) => {
       const transaction = db.transaction("drafts", "readwrite");
       const store = transaction.objectStore("drafts");
-      let abortReason = null;
       const request = store.get(id);
       request.onsuccess = () => {
-        if (!request.result) { abortReason = "DRAFT_MISSING"; transaction.abort(); return; }
-        if (request.result.updatedAt !== expectedUpdatedAt || canonicalDraftJson(request.result) !== expectedCanonical) { abortReason = "DRAFT_CHANGED"; transaction.abort(); return; }
-        store.delete(id);
+        // Preserve concurrent edits, timestamps, annotations and selection. Only attach the receipt.
+        if (request.result) store.put({ ...request.result, cloudRef: structuredClone(cloudRef) });
       };
       transaction.oncomplete = resolve;
       transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(new Error(abortReason || transaction.error?.message || "DRAFT_DELETE_FAILED"));
+      transaction.onabort = () => reject(transaction.error || new Error("DRAFT_SAVE_FAILED"));
     });
-  } finally {
-    db.close();
-  }
+  } finally { db.close(); }
 }
 
 export async function handleExternalCloudClaimMessage(message, sender) {
   try {
     if (message?.type === "handoff.begin") return await begin(message, sender);
     if (message?.type === "handoff.prepare") return await prepare(message, sender);
-    if (message?.type === "handoff.asset.start") return await startAsset(message, sender);
-    if (message?.type === "handoff.asset.chunk") return await assetChunk(message, sender);
+    if (message?.type === "handoff.asset.start" || message?.type === "handoff.logo.start") return await startAsset(message, sender);
+    if (message?.type === "handoff.asset.chunk" || message?.type === "handoff.logo.chunk") return await assetChunk(message, sender);
     if (message?.type === "handoff.recovery") return await recovery(message, sender);
     if (message?.type === "handoff.finalize-pending") return await finalizePending(message, sender);
     if (message?.type === "handoff.completed") return await completed(message, sender);
     return reject("UNKNOWN_MESSAGE");
   } catch (error) {
-    const safeErrors = new Set(["DRAFT_CHANGED", "DRAFT_FINGERPRINT_REQUIRED", "DRAFT_INVALID", "HANDOFF_EXPIRED_OR_UNKNOWN", "MASK_RENDER_UNAVAILABLE", "CLAIM_TOO_LARGE", "ASSET_TOO_LARGE", "CHUNK_SEQUENCE_INVALID"]);
+    const safeErrors = new Set(["DRAFT_CHANGED", "DRAFT_FINGERPRINT_REQUIRED", "DRAFT_INVALID", "HANDOFF_EXPIRED_OR_UNKNOWN", "MASK_RENDER_UNAVAILABLE", "CLAIM_TOO_LARGE", "ASSET_TOO_LARGE", "CHUNK_SEQUENCE_INVALID", "CLOUD_REFERENCE_INCOMPLETE", "COMPLETION_MISMATCH", "DRAFT_CLAIM_PENDING", "DRAFT_CLOUD_CHANGED"]);
     return reject(safeErrors.has(error?.message) ? error.message : "HANDOFF_FAILED");
   }
 }

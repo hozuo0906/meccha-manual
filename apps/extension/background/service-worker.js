@@ -577,7 +577,7 @@ const IMAGE_REASONS = new Set([
   "screen_changed", "navigation_changed", "tab_not_visible", "tab_unavailable", "mask_failed", "mask_invalidated",
   "paint_timeout", "paint_unavailable", "capture_failed", "privacy_budget_exceeded", "storage_failed",
   "capture_interrupted", "capture_not_requested", "protected_region", "protection_too_broad",
-  "unsupported_canvas", "unsupported_iframe", "unsupported_closed_shadow", "unknown_field_semantics"
+  "unsupported_canvas", "unsupported_iframe", "unsupported_closed_shadow", "unsupported_editable", "unknown_field_semantics"
 ]);
 
 function imageStateFor(value, fallbackStatus = "unavailable") {
@@ -649,7 +649,29 @@ function screenshotSceneLease(command, token) {
     globalThis[key]?.dispose();
     let changed = false;
     const invalidate = () => { changed = true; };
-    const observer = new MutationObserver(invalidate);
+    // Ignore content-only churn inside a subtree proved display:none at lease
+    // creation and still hidden now. Attribute/stylesheet changes still break
+    // the lease: they can reveal content or affect the visible layout.
+    const hiddenRoots = [];
+    if (typeof document.querySelectorAll === "function" && typeof getComputedStyle === "function") {
+      let visited = 0;
+      for (const element of document.querySelectorAll("*")) {
+        if (++visited > 4096) break;
+        if (["HTML", "HEAD", "STYLE", "LINK", "SCRIPT"].includes(element.tagName)) continue;
+        if (hiddenRoots.some((root) => root.contains(element))) continue;
+        if (getComputedStyle(element).display === "none") hiddenRoots.push(element);
+      }
+    }
+    const stylingNode = (node) => {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      return Boolean(element?.closest?.("style,link,head") || element?.matches?.("style,link") || element?.querySelector?.("style,link"));
+    };
+    const contentStayedHidden = (record) => record.type !== "attributes" && !stylingNode(record.target)
+      && ![...record.addedNodes || [], ...record.removedNodes || []].some(stylingNode)
+      && hiddenRoots.some((root) => root.isConnected && root.contains(record.target)
+        && getComputedStyle(root).display === "none");
+    const inspectMutations = (records) => { if (records.some((record) => !contentStayedHidden(record))) changed = true; };
+    const observer = new MutationObserver(inspectMutations);
     observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
     for (const name of ["scroll", "resize", "input", "click", "pagehide"]) globalThis.addEventListener(name, invalidate, true);
     const state = { token, document, width: innerWidth, height: innerHeight, dispose: () => {
@@ -657,7 +679,7 @@ function screenshotSceneLease(command, token) {
       for (const name of ["scroll", "resize", "input", "click", "pagehide"]) globalThis.removeEventListener(name, invalidate, true);
       clearTimeout(state.timeout);
       if (globalThis[key] === state) delete globalThis[key];
-    }, valid: () => !changed && observer.takeRecords().length === 0 && state.document === document && state.width === innerWidth && state.height === innerHeight };
+    }, valid: () => { inspectMutations(observer.takeRecords()); return !changed && state.document === document && state.width === innerWidth && state.height === innerHeight; } };
     state.timeout = setTimeout(state.dispose, 1500);
     globalThis[key] = state;
     return true;
@@ -928,7 +950,7 @@ async function handleInitialHandoffAccessReturn(sender, locked = false) {
   if (!validMetadata) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   let pendingUrl;
   try {
-    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, ready.launchId);
+    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, ready.launchId);
   } catch {
     return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   }
@@ -970,7 +992,7 @@ async function handleHandoffAccessReturn(message, sender) {
       (!pendingRecovery && metadataExpiresAt <= Date.now())) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     let pendingUrl;
     try {
-      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), metadata.outputAction, message.launchId);
+      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, message.launchId);
     } catch {
       return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     }

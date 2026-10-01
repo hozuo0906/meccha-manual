@@ -38,6 +38,8 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
@@ -2463,4 +2465,21 @@ test("unreadable surfaces report review and content-visibility cannot hide prote
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test("unsupported editable regions preserve the rest of the useful screenshot", async () => {
+  const server=createServer((_req,res)=>{res.setHeader("content-type","text/html");res.end('<!doctype html><style>body{font:18px sans-serif}main{padding:20px}button{margin:20px}</style><main><label>氏名 <input name="name" value="合成カナリア氏名"></label><div id="custom" contenteditable>合成カスタム値<span>合成子要素値</span></div><button id="save">保存</button></main>');});
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+  const extensionPath=fileURLToPath(new URL("./fixtures/mask-extension",import.meta.url));let context;
+  try {
+    context=await chromium.launchPersistentContext("",{channel:"chromium",headless:true,args:[`--disable-extensions-except=${extensionPath}`,`--load-extension=${extensionPath}`]});
+    const worker=context.serviceWorkers()[0]||await context.waitForEvent("serviceworker");const page=await context.newPage();await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId=await worker.evaluate(async()=>(await chrome.tabs.query({url:"http://127.0.0.1/*"}))[0].id);
+    const inject=async(fn,args=[]) => (await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask=await inject(installSensitiveMasks,[{recordId:"unsupported-editable-fixture"}]);await waitForPaint(page);
+    assert.equal(mask.applied,true);assert.equal(mask.privacyReview.reviewRequired,true);assert.ok(mask.privacyReview.reasonCodes.includes("unsupported_editable"));
+    assert.equal(await inject(verifySensitiveMasks,[mask.token]),true);
+    assert.deepEqual(await page.evaluate(()=>({custom:getComputedStyle(document.querySelector("#custom")).opacity,child:getComputedStyle(document.querySelector("#custom span")).opacity,save:getComputedStyle(document.querySelector("#save")).opacity,value:document.querySelector("input").value})),{custom:"0",child:"0",save:"1",value:"合成カナリア氏名"});
+    await inject(removeSensitiveMasks);assert.equal(await page.locator("#custom").textContent(),"合成カスタム値合成子要素値");
+  } finally {await context?.close();server.closeAllConnections?.();await new Promise(resolve=>server.close(resolve));}
 });

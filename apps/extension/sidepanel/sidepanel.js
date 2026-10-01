@@ -106,6 +106,7 @@ function imageReasonText(reason) {
     storage_failed: "画像を端末に保存できませんでした。",
     capture_not_requested: "終了・一時停止時に操作文だけを回収しました。",
     capture_interrupted: "画像の処理が中断されました。",
+    unsupported_editable: "この編集領域だけを保護しました。ほかの画面は記録されています。",
     unsupported_canvas: "描画領域は架空値へ置換できないため保護しました。",
     unsupported_iframe: "埋め込み領域は架空値へ置換できないため保護しました。",
     unsupported_closed_shadow: "安全に読み取れない領域を保護しました。",

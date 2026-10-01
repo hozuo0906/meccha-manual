@@ -1,3 +1,4 @@
+import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -31,6 +32,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
       response.end(CLOUD_MANUAL_CSS);
       return;
     }
+    if (url.pathname === "/assets/editor-tools.js") { response.writeHead(200,{"content-type":"application/javascript"});response.end(EDITOR_TOOLS_JS);return; }
     if (url.pathname === "/assets/cloud-manual.js") {
       response.setHeader("content-type", "application/javascript; charset=utf-8");
       response.end(CLOUD_MANUAL_JS);
@@ -104,6 +106,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => document.querySelector("img.cloud-step-image")?.getBoundingClientRect().width <= 358);
     await page.screenshot({ path: ".artifacts/experience-repair/cloud-editor-mobile.png", fullPage: true });
+    await page.setViewportSize({width:1366,height:900});
     const titleField = page.getByLabel("タイトル", { exact: true });
     assert.equal(await titleField.getAttribute("maxlength"), null);
     assert.equal(await titleField.getAttribute("data-code-point-max"), "64");

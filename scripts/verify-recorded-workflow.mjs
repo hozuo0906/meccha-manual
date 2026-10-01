@@ -37,7 +37,7 @@ const classes = source.slice(source.indexOf('class LocalStatement'), source.inde
   + source.slice(source.indexOf('class MemoryR2'), source.indexOf('let database;'));
 const { LocalD1, MemoryR2 } = Function(classes + ';return {LocalD1,MemoryR2};')();
 const database = new DatabaseSync(':memory:');
-for (const name of ['0001_d1_identity_workspace.sql', '0002_d1_personal_workspace.sql', '0003_d1_onboarding_bootstrap.sql', '0004_d1_cloud_manual_claim.sql', '0005_d1_share_links.sql']) {
+for (const name of ['0001_d1_identity_workspace.sql', '0002_d1_personal_workspace.sql', '0003_d1_onboarding_bootstrap.sql', '0004_d1_cloud_manual_claim.sql', '0005_d1_share_links.sql', '0006_d1_manual_editor_branding.sql']) {
   database.exec(await readFile(new URL('migrations/' + name, root), 'utf8'));
 }
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

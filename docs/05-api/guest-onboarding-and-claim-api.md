@@ -225,7 +225,7 @@ claim requestでは画像byteを再送せず、staged reference manifestだけ�
 - R2 put前にD1が同じ固定identityの`reserved`行をatomicに確保し、100MiB上限を予約へ適用する。再upload前にD1のclaim/asset記録を照合する。R2 put成功後に`staged`へ遷移し、R2 putまたはHEADの結果が不明な場合は予約を保持して、同じkey／digest／固定metadataのretryでreconcileする。mismatchはfail closedにして上書きしない。
 - finalize結果が不明な場合は、同じ認証主体が`GET /api/onboarding/claims/{claimIntentId}?operationId=...`で`pending`、`expired`、`completed`（completed時は同じ`manualId`）を照会できる。queryは`operationId`だけを受け付け、他workspace／actor／operationはfail closedする。`completed`は元TTL経過後も保存済み結果だけを返し、新しいwriteを行わない。
 - finalize POSTの直前に、拡張機能は`handoff.finalize-pending` external messageで同じ`handoffId`に`operationId`、`claimIntentId`、draft fingerprintを保存する。これは既存finalizeの結果回収identityであり、期限後のprepare、asset upload、claim-intent作成、finalize再送を許可する権限ではない。拡張機能の保存状態が`finalize-pending`のhandoffだけが、期限後にGETで`completed`を照合し、同じ`manualId`の`handoff.completed`を送信できる。
-- `handoff.completed`は、claimの完了identityを`completion-pending`へ先に耐久保存してからlocal原本の削除を試みる。削除直前のCASでdraftが変更されていた場合、または原本が既に存在しない場合は、変更後のdraftを削除せず、確定済みclaimのmetadataだけを`completed`として耐久保存する。これにより同じdraft IDの新しい編集・handoffを開始できる。metadata保存やIndexedDBの技術障害は編集済みとは扱わず、既存の未確定状態（`finalize-pending`または`completion-pending`）を維持して同じidentityで再試行する。
+- `handoff.completed`の原本削除契約はADR-0038で更新した。完了identityを`completion-pending`へ先に耐久保存し、local原本を保持したまま確定cloudRefを付与する。転送中の編集と選択を保持し、次の保存は同じmanualの期待revisionをtargetに指定する。metadata保存やIndexedDBの技術障害では既存の未確定状態を維持し、同じidentityで再試行する。詳細は`unified-editor-storage-api.md`を参照する。
 - `handoff.recovery`は副作用のない照会で、拡張機能は`status`、`operationId`、`claimIntentId`、`draftFingerprint`、元の`expiresAt`、完了済みの場合だけ`manualId`を返す。Webは再訪時刻でTTLを延長せず、返された元の`expiresAt`を期限判定の正本として扱う。通信失敗、不正な応答、未知statusは結果不明として停止し、明示的な`RECOVERY_NOT_FOUND`だけを元のoperationの通常flowへ戻る根拠とする。期限切れoperationのidentityは再発行しない。
 - 初回のbootstrap、claim intent作成、asset PUTより前に、Webは`handoff.begin` external messageを一度送信する。拡張機能はhandoffごとに`chrome.storage.local`のoperation identityを排他的に確定し、既存identityの再訪では同じ`operationId`と元の`expiresAt`をread-onlyで返す。同じhandoffを複数タブで開始した場合も、全てのcloud writeはこのcanonical operationIdを使い、期限後に新しいidentityを発行しない。
 - D1のcompleted claimは確定済みmanualIdと全asset slot／digest／object keyを対応づける。completed再送はその同じmanualIdとasset集合を返し、新しいmanual、assetまたはobject keyを作らない。
@@ -346,10 +346,14 @@ finalize応答が失われた場合は、同じclaim intentの結果を照会す
 
 ## ローカル画像注釈の境界（Issue #264）
 
-画像注釈は拡張機能のlocal draftにだけ保持する。`page-ready`、claim metadata、handoff messageには注釈本文や元画像を含めず、claim assetとして共通rendererで注釈と既存黒マスクを焼き込んだPNGだけを送信する。旧draftの注釈未指定・空状態は従来のcanonical fingerprint形状を維持する。
+ADR-0038により、注釈はローカル保持に加え、認証後のclaim本文の`steps[].annotations`へ正規化して保存する。claim assetは黒マスクだけを不可逆に焼き込んだ安全なbase rasterとし、注釈は編集可能なmetadataとして公開snapshotにも固定する。`page-ready`とdurable handoff metadataには注釈本文・元画像を保存しない。旧draftの注釈未指定・空状態は従来のcanonical fingerprint形状を維持し、旧cloud画像の焼き込み済み注釈を分離できるとは扱わない。
 
 ## 編集中画像のoutput境界（2026-10-01）
 
 DEC-090のimageStateを持つdraftでは、queued/capturing/failed/unavailable/protectedを含む状態のままoutputを開始しない。noneは明示的な説明のみ、readyは実際のscreenshot参照がある場合だけ許可する。画像追加はdecode前から端末への確定保存までpendingとして扱う。snapshot fingerprintはimageStateのstatus/versionを含め、表示倍率や選択手順などローカル表示状態は含めない。
 
 未確認画像を「画像なし」としてsilent dropしない。共有する版を確認し、画像や端末保存に失敗した場合は同じ下書きを保持して回復する。既存の同一origin、Access、workspace、hand-off TTL/nonce、chunk上限と冪等性の境界は維持する。
+
+### ローカルの色・ロゴの保持（ADR-0038）
+
+`draft.branding`はprepare時にfingerprintへ固定し、色・ロゴ有無だけをWebへ返す。ロゴはCanvas再描画済みPNG/WebPを`handoff.logo.start/chunk`で転送し、認証後の`PUT /api/onboarding/claim-intents/{id}/branding/logo`へ送る。finalizeの`manual.branding:{themeColor,logoId}`を手順書固有のimmutable snapshotとして保存する。チーム全体の設定は変更せず、通常のcloud編集・共有・印刷でも固定版を保持する。詳細と上限・認可は[統一編集器の保存API](./unified-editor-storage-api.md)を参照する。

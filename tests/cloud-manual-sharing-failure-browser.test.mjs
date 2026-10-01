@@ -1,3 +1,4 @@
+import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
@@ -25,6 +26,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     const json = (status, body) => { response.writeHead(status, { "content-type": "application/json; charset=utf-8" }); response.end(JSON.stringify(body)); };
     if (url.pathname === "/manuals") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(renderCloudManualsPage({ workspaceId })); return; }
     if (url.pathname === "/assets/cloud-manual.css") { response.setHeader("content-type", "text/css; charset=utf-8"); response.end(CLOUD_MANUAL_CSS); return; }
+    if (url.pathname === "/assets/editor-tools.js") { response.writeHead(200,{"content-type":"application/javascript"});response.end(EDITOR_TOOLS_JS);return; }
     if (url.pathname === "/assets/cloud-manual.js") { response.setHeader("content-type", "application/javascript; charset=utf-8"); response.end(CLOUD_MANUAL_JS); return; }
     if (url.pathname === `/api/workspaces/${workspaceId}/manuals` && request.method === "GET") { json(200, { manuals: manuals.map(({ id, title }) => ({ id, title })) }); return; }
     const detailMatch = url.pathname.match(new RegExp(`/api/workspaces/${workspaceId}/manuals/(manual-[12])$`));
@@ -72,19 +74,23 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       await page.locator(".share-form button.primary").click();
     };
 
+    await page.locator(".manual-share-drawer").getByRole("button",{name:"閉じる",exact:true}).click();
     await page.locator('input[aria-label="タイトル"]').fill("Unsaved title");
+    await page.getByRole("button",{name:"共有",exact:true}).click();
     await fillShareForm();
     await page.locator("#cloud-message.warning").waitFor();
     assert.equal(postBodies.length, 0);
     const detailReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1` && response.request().method() === "GET" && response.status() === 200);
     const metadataReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "GET" && response.status() === 200);
     await page.once("dialog", (dialog) => dialog.accept());
+    await page.locator(".manual-share-drawer").getByRole("button",{name:"閉じる",exact:true}).click();
     await page.getByRole("button", {name:"手順書一覧",exact:true}).click();
     await list.nth(0).click();
     assert.equal((await detailReloadResponse).status(), 200);
     assert.equal((await metadataReloadResponse).status(), 200);
     await page.waitForFunction(() => document.querySelector('input[aria-label="タイトル"]')?.value === "Manual One" && document.querySelector("[data-share-passcode]")?.isConnected);
 
+    await page.getByRole("button",{name:"共有",exact:true}).click();
     for (const status of [400, 403, 409]) {
       failureStatus = status;
       const expectedPostCount = postBodies.length + 1;

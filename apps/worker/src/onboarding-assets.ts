@@ -15,11 +15,13 @@ export const ONBOARDING_JS = `(() => {
   const claimIntentValues = fragmentParams.getAll("claimIntentId");
   const fingerprintValues = fragmentParams.getAll("draftFingerprint");
   const actionValues = fragmentParams.getAll("action");
+  const requestedActionValues = fragmentParams.getAll("requestedAction");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   const fragmentLaunchId = !hasFragment ? undefined : launchValues.length === 1 ? launchValues[0] : null;
   const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
   const fragmentAction = !hasFragment ? undefined : actionValues.length === 1 ? actionValues[0] : actionValues.length === 0 ? "save" : null;
+  const fragmentRequestedAction = requestedActionValues.length === 0 ? fragmentAction : requestedActionValues.length === 1 ? requestedActionValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
   let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
@@ -66,6 +68,7 @@ export const ONBOARDING_JS = `(() => {
     if (value.activeHandoffId !== null && !mirror) return { ok: false, state: null, needsWrite: false };
     let needsWrite = value.entries.some((entry) => entry.outputAction === undefined);
     for (const entry of state.entries) {
+      if (entry.requestedAction !== undefined && !validOutputAction(entry.requestedAction)) return { ok: false, state: null, needsWrite: false };
       if (!validOutputAction(entry.outputAction)) return { ok: false, state: null, needsWrite: false };
       if (entry.state === "active" && !operationFresh(entry, now)) { entry.state = hasRecoveryIdentity(entry) ? "recovery" : "expired"; needsWrite = true; }
     }
@@ -92,7 +95,7 @@ export const ONBOARDING_JS = `(() => {
       return capturedContext;
     }
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || !validOutputAction(fragmentRequestedAction) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -101,7 +104,7 @@ export const ONBOARDING_JS = `(() => {
       try {
         const now = Date.now();
         const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, requestedAction: fragmentRequestedAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -111,6 +114,10 @@ export const ONBOARDING_JS = `(() => {
     const existing = state.entries.find((entry) => entry.handoffId === fragmentHandoff);
     if (existing) {
       if ((existing.outputAction || "save") !== fragmentAction) return null;
+      if (existing.requestedAction !== fragmentRequestedAction) {
+        existing.requestedAction = fragmentRequestedAction;
+        if (!persistState(state)) return null;
+      }
       if (existing.state === "recovery" && hasRecoveryIdentity(existing)) {
         state.activeHandoffId = fragmentHandoff;
         if (!persistState(state)) return null;
@@ -141,7 +148,7 @@ export const ONBOARDING_JS = `(() => {
     try {
       const now = Date.now();
       const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, requestedAction: fragmentRequestedAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -276,7 +283,15 @@ export const ONBOARDING_JS = `(() => {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
     const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...extra });
-    if (!reply?.ok) throw new Error(reply?.error || "HANDOFF_FAILED");
+    if (!reply?.ok) {
+      const guidance = {
+        DRAFT_CLAIM_PENDING: "前の保存結果を確認する必要があります。編集画面からもう一度進んでください。下書きはこの端末に残っています。",
+        DRAFT_CLOUD_CHANGED: "前の保存が完了しています。新しい編集を保存するには、編集画面からもう一度進んでください。",
+        DRAFT_CHANGED: "転送後の新しい編集はこの端末に残っています。前の保存結果を確認してから、編集画面で保存をやり直してください。",
+        CLOUD_REFERENCE_INCOMPLETE: "保存先の版を確認できません。同じ手順書を重複作成せず、下書きをこの端末に保持しています。"
+      };
+      throw new Error(guidance[reply?.error] || reply?.error || "HANDOFF_FAILED");
+    }
     return reply;
   }
   async function recoverExtensionContext(context) {
@@ -359,18 +374,19 @@ export const ONBOARDING_JS = `(() => {
       if (step.screenshotId !== undefined && !Number.isInteger(assetSlot)) throw new Error("DRAFT_INVALID");
       return {
         type: typeof step.type === "string" ? step.type : "action",
-        title: typeof step.title === "string" ? step.title : "手順 " + (index + 1),
+        title: typeof step.title === "string" ? step.title : (Array.from(String(step.instruction || "").trim().split(/\\r?\\n/u)[0].trim()).slice(0, 128).join("") || "操作の説明"),
         instruction: String(step.instruction || ""),
         actionType: step.actionType ?? null,
         targetText: step.targetText ?? null,
         url: step.url ?? null,
-        assetSlot
+        assetSlot,
+        annotations: Array.isArray(step.annotations) ? step.annotations : []
       };
     });
     return { title: String(prepared.draft.title || ""), description: String(prepared.draft.description || ""), steps };
   }
   function showClaimSuccess(context, manualId) {
-    const isShare = context?.outputAction === "share";
+    const isShare = (context?.requestedAction || context?.outputAction) === "share";
     message("手順書を保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
     if (isShare) message("共有用の保存が完了しました。共有設定を開いて共有リンクを作成してください。", "success");
@@ -378,13 +394,14 @@ export const ONBOARDING_JS = `(() => {
     button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);
   }
-  async function completePending(context, extensionId, manualId) {
+  async function completePending(context, extensionId, manualId, confirmedCloudRef = null) {
     if (typeof manualId !== "string" || !manualId) throw new Error("CLAIM_RESULT_INVALID");
-    const pendingSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completion-pending", manualId });
+    const pendingSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completion-pending", manualId, ...(confirmedCloudRef ? { cloudRef: confirmedCloudRef } : {}) });
     if (!pendingSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
     const metadata = metadataForContext(context);
     const completed = await extensionMessage(extensionId, "handoff.completed", context, {
       manualId,
+      ...(metadata?.cloudRef ? { cloudRef: metadata.cloudRef } : {}),
       ...(metadata?.claimIntentId ? { operationId: context.operationId, claimIntentId: metadata.claimIntentId, draftFingerprint: metadata.draftFingerprint } : {})
     });
     if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
@@ -404,7 +421,7 @@ export const ONBOARDING_JS = `(() => {
     let result = null;
     try { result = await response.json(); } catch {}
     if (response.ok && (result?.status === "claimed" || result?.status === "completed") && typeof result.manualId === "string") {
-      await completePending(context, extensionId, result.manualId);
+      await completePending(context, extensionId, result.manualId, result.cloudRef);
       return true;
     }
     if (response.ok && result?.status === "pending") return { status: "pending", claimIntentId: metadata.claimIntentId };
@@ -441,12 +458,12 @@ export const ONBOARDING_JS = `(() => {
       credentials: "same-origin",
       cache: "no-store",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
-      body: JSON.stringify({ operationId, assetCount: prepared.assets.length })
+      body: JSON.stringify({ operationId, assetCount: prepared.assets.length, ...(prepared.cloudRef ? { target: { workspaceId: prepared.cloudRef.workspaceId, manualId: prepared.cloudRef.manualId, revisionId: prepared.cloudRef.revisionId, expectedUpdatedAt: prepared.cloudRef.updatedAt } } : {}) })
     });
     let intent = resumeIntentId ? { claimIntentId: resumeIntentId } : null;
     if (intentResponse) { try { intent = await intentResponse.json(); } catch {} }
     if (!intent || (intentResponse && (!intentResponse.ok || typeof intent.claimIntentId !== "string"))) throw new Error(intentResponse?.status === 410 ? "保存準備の期限が切れました。拡張機能からもう一度進めてください。" : "保存準備に失敗しました。元の下書きは拡張機能に残っています。");
-    if (!resumeIntentId && !saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: bootstrapPayload.workspaceId || "", claimStatus: "uploading", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
+    if (!resumeIntentId && !saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: prepared.cloudRef?.workspaceId || bootstrapPayload.workspaceId || "", claimStatus: "uploading", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
     const staged = [];
     for (const asset of prepared.assets) {
       ensureFinalizeWriteAllowed(context);
@@ -478,9 +495,33 @@ export const ONBOARDING_JS = `(() => {
       if (!upload.ok || uploadResult?.status !== "staged") throw new Error(upload.status === 409 ? "同じ保存操作に異なる画像が指定されました。下書きを保持したまま停止しました。" : "画像の保存に失敗しました。下書きは拡張機能に残っています。");
       staged.push({ assetSlot: asset.assetSlot, sha256: start.sha256 });
     }
+    if (prepared.draft.branding) {
+      let logoId = null;
+      if (prepared.draft.branding.hasLogo) {
+        ensureFinalizeWriteAllowed(context);
+        message("この手順書のロゴを安全に加工しています。");
+        const start = await extensionMessage(extensionId, "handoff.logo.start", context);
+        const chunks = [];
+        for (let sequence = 0; sequence < start.totalChunks; sequence += 1) {
+          const chunk = await extensionMessage(extensionId, "handoff.logo.chunk", context, { sequence });
+          if (chunk.sequence !== sequence || typeof chunk.chunk !== "string") throw new Error("CHUNK_SEQUENCE_INVALID");
+          chunks.push(decodeChunk(chunk.chunk));
+        }
+        ensureFinalizeWriteAllowed(context);
+        const upload = await fetch("/api/onboarding/claim-intents/" + encodeURIComponent(intent.claimIntentId) + "/branding/logo", {
+          method: "PUT", credentials: "same-origin", cache: "no-store",
+          headers: { "Content-Type": start.contentType, "X-Requested-With": "XMLHttpRequest", "X-Claim-Operation-Id": operationId, "X-Asset-SHA256": start.sha256, "X-Asset-Byte-Length": String(start.byteLength) },
+          body: new Blob(chunks, { type: start.contentType })
+        });
+        let uploaded = null; try { uploaded = await upload.json(); } catch {}
+        if (!upload.ok || uploaded?.status !== "ready" || typeof uploaded.logoId !== "string") throw new Error("ロゴの保存に失敗しました。色・ロゴ・下書きは拡張機能に残っています。同じ保存操作で再試行してください。");
+        logoId = uploaded.logoId;
+      }
+      manual.branding = { themeColor: prepared.draft.branding.themeColor, logoId };
+    }
     message("手順書を保存しています。");
     ensureFinalizeWriteAllowed(context);
-    const recovery = await extensionMessage(extensionId, "handoff.finalize-pending", context, { operationId, claimIntentId: intent.claimIntentId, draftFingerprint: prepared.draftFingerprint });
+    const recovery = await extensionMessage(extensionId, "handoff.finalize-pending", context, { operationId, claimIntentId: intent.claimIntentId, draftFingerprint: prepared.draftFingerprint, cloudRef: prepared.cloudRef || null });
     if (!recovery?.ok) throw new Error("保存状態を拡張機能へ記録できませんでした。元の下書きは保持されています。");
     if (!saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, claimStatus: "finalize-pending", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
     const claimUrl = "/api/onboarding/claims/" + encodeURIComponent(intent.claimIntentId);
@@ -495,7 +536,7 @@ export const ONBOARDING_JS = `(() => {
     if (!claimResponse.ok || (claim?.status !== "claimed" && claim?.status !== "completed") || typeof claim.manualId !== "string") {
       throw new Error(claimResponse.status === 409 ? "同じ保存操作の内容が変わったため保存を止めました。元の下書きは拡張機能に残っています。" : "手順書の保存結果を確認できませんでした。同じ操作で再試行してください。");
     }
-    return completePending(context, extensionId, claim.manualId);
+    return completePending(context, extensionId, claim.manualId, claim.cloudRef);
   }
   async function bootstrap() {
     let context = currentOperation();

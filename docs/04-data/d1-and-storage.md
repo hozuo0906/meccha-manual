@@ -114,3 +114,21 @@ receipt/workは `received`、lease付き`processing`、`retryable`、`reconcile_
 - version競合、batch途中失敗・全体rollback、再送
 - workspace条件なしqueryの静的検出
 - staging/production bindingの共有検出
+
+## 統一編集器とチーム書式（ADR-0038）
+
+Migration `0006_d1_manual_editor_branding.sql`を追加する。既存migrationの適用済みSQLは書き換えない。
+
+| テーブル／追加列 | 責務 | 境界 |
+|---|---|---|
+| `claim_intents.target_manual_id/target_revision_id/expected_updated_at` | 端末再保存の既存draft target | target不変、同一workspaceのactive owner/admin/editor、current draft CAS |
+| `claim_intents.completed_revision_id/completed_updated_at/completed_content_version` | 確定結果の固定receipt | completed後に書換えない。再送で最新draftへ差し替えない |
+| `manual_edit_assets` | 編集後画像の予約／ready | actor+workspace+manual+operation unique。revision／期待版・object key・checksum不変。単体10MiB、同版合計100MiB、4,000万画素 |
+| `workspace_brand_logos` | private raster logo | workspace+actor+operation unique。チーム用はowner/admin、source_claim_id付きは当該claimのactive writerだけが予約、1MiB・400万画素、外部URL／SVGなし |
+| `workspace_branding_versions` | 不変のテーマ・前景・ロゴ組 | 厳密なhex、前景黒／白、同じworkspace・同じsource_claim_idのready logo。チーム用はowner/admin、固有snapshotは当該claim writerだけが作成 |
+| `workspace_branding` | チームの現在の書式pointer | workspace+versionの複合FK、期待versionによるCAS、source_claim_id付きversionは拒否 |
+| `manual_revisions.branding_version_id` | 手順書の書式snapshot | 同じworkspace、固有snapshotはsource claimの対象manualだけ。公開版・過去版の書換えを拒否 |
+
+編集画像と手順の参照はWorkerとD1 triggerの双方でmanual境界を照合する。共有snapshotは保存済みbranding versionを複製し、共有logoの取得でもgrantの公開revisionを照合する。画像uploadとD1更新の間の失敗は予約を保持する。自動cleanup、R2公開、新規のsecret／認証設定は追加しない。APIは`docs/05-api/unified-editor-storage-api.md`を参照する。
+
+`manual_steps.annotation`はADR-0038の正規化した編集用arrayを保存する。旧`{}`は空レイヤーとして読み替える。migration 0006のformat/schema triggerで64KiB・最大100件・shape/type/strict hex/有限範囲・未知field・重複idを拒否する。`masking`は`{}`だけを許可し、黒マスクの位置を除去可能なcloudレイヤーへ保存しない。共有snapshotはannotation JSONと不可逆に保護済みbase assetを同じ公開revisionへ固定する。
