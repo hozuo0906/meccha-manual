@@ -38,7 +38,7 @@ async function launchFixture(t, html = fixture) {
   t.after(() => { server.closeAllConnections?.(); return new Promise((resolve) => server.close(resolve)); });
   const extensionPath = fileURLToPath(new URL("../apps/extension", import.meta.url));
   const context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true, viewport: null,
-    args: ["--window-size=1366,1000", "--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    args: ["--window-size=1280,1000", "--enable-unsafe-extension-debugging", `--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
   t.after(() => context.close());
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
   const extensionId = new URL(worker.url()).hostname;
@@ -55,6 +55,9 @@ async function launchFixture(t, html = fixture) {
   const tabId = await worker.evaluate(async (url) => (await chrome.tabs.query({ url }))[0].id, url);
   const inject = async (fn, args = []) => (await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
   await page.bringToFront();
+  await page.evaluate(() => document.fonts.ready);
+  await delay(500); // Let the native side panel and headed window finish resizing.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   return { worker, page, command, tabId, inject };
 }
 const rectangles = (page, ids) => page.evaluate((ids) => Object.fromEntries(ids.map((id) => {
@@ -84,14 +87,14 @@ async function pixelCounts(page, dataUrl, boxes) {
 
 test("native capture protects long-label and span-aware table values in pixels and captions", { timeout: 90_000 }, async (t) => {
   const { worker, page, command, tabId } = await launchFixture(t);
-  assert.equal((await command({ type: "capture:start", tabId, mode: "pc" })).ok, true);
   const ids = ["long-value", "column-a", "column-copy", "column-b", "span-name", "ambiguous", "explicit-value", "zero-first", "zero-second", "all-th-explicit", "all-th-implicit"];
   const before = await rectangles(page, ids);
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const originals = await page.locator("body").textContent();
   const beforeImage = `data:image/png;base64,${(await page.screenshot()).toString("base64")}`;
   const unmasked = await pixelCounts(page, beforeImage, before);
-  for (const id of ids) assert.ok(unmasked[id].original > 15, `${id}: synthetic original glyphs must be present before capture`);
+  for (const id of ids) assert.ok(unmasked[id].original > 15, `${id}: synthetic original glyphs must be present before capture (count=${unmasked[id].original})`);
+  assert.equal((await command({ type: "capture:start", tabId, mode: "pc" })).ok, true);
   const state = () => worker.evaluate(async () => (await chrome.storage.session.get("activeCaptureSession")).activeCaptureSession);
   const collect = async (selector) => {
     const previous = (await state()).events.length;

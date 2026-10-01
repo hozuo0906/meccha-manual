@@ -147,6 +147,13 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
     assert.equal(await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true), true, "sidepanel start control should be ready before native click");
+    const rubricDirectory = join(process.cwd(), ".artifacts", "uiux-20261001", "screens");
+    await mkdir(rubricDirectory, { recursive: true });
+    const guestScreenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
+    const guestScreenshotData = guestScreenshot?.data?.value || guestScreenshot?.data || guestScreenshot?.result?.data || guestScreenshot?.result?.result?.data;
+    assert.equal(typeof guestScreenshotData, "string", "native guest start screen should contain PNG data");
+    await writeFile(join(rubricDirectory, "native-guest-start.png"), Buffer.from(guestScreenshotData, "base64"));
+    const guestViewport = await evaluateNative("({ width: innerWidth, height: innerHeight })");
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
@@ -192,6 +199,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const recordingScreenshotData = recordingScreenshot?.data?.value || recordingScreenshot?.data || recordingScreenshot?.result?.data || recordingScreenshot?.result?.result?.data;
     assert.equal(typeof recordingScreenshotData, "string", "native recording screenshot should contain base64 data");
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
+    await writeFile(join(rubricDirectory, "native-recording-two-steps.png"), Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
@@ -265,6 +273,19 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
     await editorPage.screenshot({ path: screenshotPath });
+    await editorPage.screenshot({ path: join(rubricDirectory, "native-recording-finished-editor.png") });
+    await writeFile(join(rubricDirectory, "native-recording-operation.json"), JSON.stringify({
+      candidateCommit: process.env.GITHUB_SHA || null,
+      fixture: "synthetic-business-page-native-MV3",
+      screenshots: ["native-guest-start.png", "native-recording-two-steps.png", "native-recording-finished-editor.png"],
+      viewport: guestViewport,
+      operations: ["extension-action-opens-guest-panel", "start", "click-first-state", "click-second-state", "finish-opens-editor"],
+      recordedSteps: await editorPage.locator("#steps li").count(),
+      distinctStoredImages: imageSources[0] !== imageSources[1],
+      distinctRenderedPixels: imagePixels[0] !== imagePixels[1],
+      progressVisible: progressState.active,
+      progressAboveScrollableList: stickyProgress.bottom <= stickyProgress.listTop
+    }, null, 2) + "\n");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);

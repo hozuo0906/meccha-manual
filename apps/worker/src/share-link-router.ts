@@ -357,6 +357,8 @@ const SHARE_JS = `(() => {
   });
   passcode.addEventListener('keydown', event => { if (event.key === 'Enter' && !submit.disabled) submit.click(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') suspend(); else resume(); });
+  let narrowReader = innerWidth <= 760;
+  addEventListener('resize', () => { const next = innerWidth <= 760; if(next === narrowReader) return; narrowReader = next; const toc = document.querySelector('.reader-toc'); if(toc) toc.open = !next; });
   addEventListener('pagehide', suspend); addEventListener('pageshow', resume); start();
 })();`;
 

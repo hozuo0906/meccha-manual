@@ -24,6 +24,11 @@ const BUTTONS = {
   hiddenFirst: "非表示一", hiddenSecond: "非表示二", visibleFirst: "変更前一", visibleSecond: "変更前二",
   visibleAfter: "変更後", navigationFirst: "遷移前一", navigationSecond: "遷移前二", navigationAfter: "遷移後"
 };
+const SUSTAINED_COUNT = 20;
+const SUSTAINED_INTERVAL_MS = 750; // Below Chrome's maximum of two native captures per second.
+const SUSTAINED_VALUES = ["Synthetic Person Alpha", "sustained-canary@example.test", "1977-04-15"];
+const SUSTAINED_LABELS = Array.from({ length: SUSTAINED_COUNT }, (_, index) => `連続確認 ${index + 1}`);
+const FRAME_COLORS = [[25, 110, 45], [235, 160, 35]];
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 
 function nearColor(actual, expected) {
@@ -58,6 +63,35 @@ function assertComparison(baseline, current) {
   }
 }
 
+function assertSustained(report) {
+  assert.equal(report.attempted, SUSTAINED_COUNT, "Sustained acceptance must exercise exactly 20 operations");
+  assert.equal(report.saved, SUSTAINED_COUNT, "All 20 stable operations need actual useful images");
+  assert.equal(report.terminal, SUSTAINED_COUNT, "Every sustained image state must become terminal");
+  assert.equal(report.useful, SUSTAINED_COUNT, "Every sustained raster must retain context and readable fictional replacements");
+  assert.equal(report.formUnchanged, true, "Capture must not change original form values, selection, focus, or input/change/submit counts");
+  assert.equal(report.recordingUninterrupted, true, "The original recording must remain active across all 20 operations");
+  assert.equal(new Set(report.eventIds).size, SUSTAINED_COUNT, "Sustained operations must have distinct event identities");
+  assert.equal(new Set(report.screenshotIds).size, SUSTAINED_COUNT, "Sustained images must not reuse another event's image identity");
+  assert.equal(report.documentIds.length, SUSTAINED_COUNT);
+  assert.ok(report.documentIds.every((id) => typeof id === "string" && id === report.documentIds[0]), "All sustained events must stay in their exact native document");
+  assert.equal(report.intervalsMs.length, SUSTAINED_COUNT - 1);
+  assert.ok(report.intervalsMs.every((ms) => ms >= SUSTAINED_INTERVAL_MS), "Sustained operations must respect the supported native capture cadence");
+}
+
+function assertUsefulSustainedRaster(raster, frame) {
+  assertRaster(raster, "next");
+  assert.equal(raster.frame.length, 5);
+  for (let bit = 0; bit < 5; bit += 1) {
+    assert.ok(nearColor(raster.frame[bit], FRAME_COLORS[(frame >> bit) & 1]), "Per-operation pixels must match this exact event, never an earlier or later capture");
+  }
+  assert.equal(raster.fields.length, SUSTAINED_VALUES.length);
+  for (const field of raster.fields) {
+    assert.equal(field.original, 0, "Stored pixels must not retain synthetic original-value canary glyphs");
+    assert.ok(field.ink > 10, "Fictional replacement text must be visible, not a blank or solid privacy box");
+    assert.ok(field.light > field.total / 2, "The form must remain useful rather than being covered by a solid dark mask");
+  }
+}
+
 async function until(read, predicate, description, timeout = 15_000) {
   const deadline = Date.now() + timeout;
   let value;
@@ -70,10 +104,20 @@ async function until(read, predicate, description, timeout = 15_000) {
 }
 
 function fixtureHtml(next = false) {
+  // Only original input glyphs use the magenta text-fill canary. The declared
+  // text color is dark, which the real privacy overlay retains for its aliases.
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>合成記録試験</title>
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:rgb(${SCENES[next ? "next" : "original"].join(",")});font:16px system-ui}main{position:absolute;inset:90px 80px auto;padding:20px;background:white}h1{margin:0 0 12px;font-size:20px}.buttons{display:flex;flex-wrap:wrap;gap:8px}button{font:16px system-ui;padding:8px}.marker{position:fixed;width:64px;height:64px}.tl{left:0;top:0;background:rgb(${MARKERS[0]})}.tr{right:0;top:0;background:rgb(${MARKERS[1]})}.bl{left:0;bottom:0;background:rgb(${MARKERS[2]})}.br{right:0;bottom:0;background:rgb(${MARKERS[3]})}#hidden{display:none}</style></head>
 <body><div class="marker tl"></div><div class="marker tr"></div><div class="marker bl"></div><div class="marker br"></div><main><h1>合成データのみの操作画面</h1><div class="buttons">${Object.entries(BUTTONS).map(([id, label]) => `<button id="${id}">${label}</button>`).join("")}</div></main><div id="hidden"><span>非表示の更新</span></div>
-<script>window.fixture={scene:${JSON.stringify(next ? "next" : "original")},hiddenMutations:0,timer:null};window.setFixtureScene=(scene)=>{window.fixture.scene=scene;document.body.style.backgroundColor='rgb('+${JSON.stringify(SCENES)}[scene].join(',')+')'};window.startHiddenChurn=()=>{window.fixture.timer=setInterval(()=>{document.querySelector('#hidden span').firstChild.nodeValue='非表示の更新 '+(++window.fixture.hiddenMutations);if(window.fixture.hiddenMutations===80)clearInterval(window.fixture.timer)},8)};window.stopHiddenChurn=()=>clearInterval(window.fixture.timer);</script></body></html>`;
+<script>window.fixture={scene:${JSON.stringify(next ? "next" : "original")},hiddenMutations:0,timer:null};window.setFixtureScene=(scene)=>{window.fixture.scene=scene;document.body.style.backgroundColor='rgb('+${JSON.stringify(SCENES)}[scene].join(',')+')'};window.startHiddenChurn=()=>{window.fixture.timer=setInterval(()=>{document.querySelector('#hidden span').firstChild.nodeValue='非表示の更新 '+(++window.fixture.hiddenMutations);if(window.fixture.hiddenMutations===80)clearInterval(window.fixture.timer)},8)};window.stopHiddenChurn=()=>clearInterval(window.fixture.timer);
+window.mountSustainedFixture=()=>{
+  document.querySelector('main').innerHTML='<h1>合成データの連続確認</h1><form id="sustainedForm">'+${JSON.stringify(SUSTAINED_VALUES)}.map((value,index)=>'<label style="display:block;margin:12px 0">'+['氏名','メール','生年月日'][index]+'<input id="sustainedField'+index+'" aria-label="'+['氏名','メール','生年月日'][index]+'" value="'+value+'" style="display:block;width:400px;max-width:100%;height:40px;padding:6px;background:white;color:#172b4d;-webkit-text-fill-color:rgb(208,0,127);border:1px solid #777;font:18px Arial"></label>').join('')+'<button type="button" id="sustainedButton">連続確認</button></form>';
+  const strip=document.createElement('div');strip.id='frameIdentity';strip.style.cssText='position:fixed;left:calc(50% - 90px);top:70%;display:flex;gap:8px';strip.innerHTML=Array.from({length:5},()=>'<i style="display:block;width:28px;height:28px"></i>').join('');document.body.append(strip);
+  window.sustainedFormEvents={input:0,change:0,submit:0};for(const name of Object.keys(window.sustainedFormEvents))document.querySelector('#sustainedForm').addEventListener(name,()=>window.sustainedFormEvents[name]++);
+  const field=document.querySelector('#sustainedField0');field.focus();field.setSelectionRange(3,7);
+};
+window.setSustainedFrame=(index)=>{document.querySelector('#sustainedButton').textContent=${JSON.stringify(SUSTAINED_LABELS)}[index];[...document.querySelector('#frameIdentity').children].forEach((cell,bit)=>cell.style.backgroundColor='rgb('+${JSON.stringify(FRAME_COLORS)}[((index+1)>>bit)&1].join(',')+')')};
+</script></body></html>`;
 }
 
 function nativeEvaluator(cdp, sessionId) {
@@ -154,6 +198,20 @@ async function rasterEvidence(worker, image, geometry) {
       const result = { decoded: true, width: bitmap.width, height: bitmap.height, expectedWidth: Math.round(viewport.width * viewport.dpr), expectedHeight: Math.round(viewport.height * viewport.dpr),
         corners: [sample(dx, dy), sample(bitmap.width - dx, dy), sample(dx, bitmap.height - dy), sample(bitmap.width - dx, bitmap.height - dy)],
         scene: sample(bitmap.width / 2, bitmap.height * 0.85) };
+      if (viewport.frame) result.frame = viewport.frame.map((box) => sample((box.x + box.width / 2) * viewport.dpr, (box.y + box.height / 2) * viewport.dpr));
+      if (viewport.fields) result.fields = viewport.fields.map((box) => {
+        const x = Math.ceil((box.x + 3) * viewport.dpr), y = Math.ceil((box.y + 3) * viewport.dpr);
+        const width = Math.floor((box.width - 6) * viewport.dpr), height = Math.floor((box.height - 6) * viewport.dpr);
+        const pixels = ctx.getImageData(x, y, width, height).data;
+        let original = 0, ink = 0, light = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          const [r, g, b] = pixels.subarray(index, index + 3);
+          if (r > 130 && g < 90 && b > 75 && b < 185) original += 1;
+          if (r < 90 && g < 100 && b < 140) ink += 1;
+          if (r > 190 && g > 190 && b > 190) light += 1;
+        }
+        return { original, ink, light, total: width * height };
+      });
       bitmap.close();
       return result;
     } catch { return { decoded: false }; }
@@ -267,27 +325,95 @@ async function runVariant(name, extensionRoot, baseUrl, scratch, report) {
     await settledClick("navigationAfter", "next");
     groups.navigationChanged = { ...pairSummary(navigationFirst, navigationSecond), staleId: navigationSecond.event.eventId, barrier: { status: navigationBarrier.ref.status, leaseActive: navigationBarrier.leaseActive } };
 
+    // This is a separate current-only acceptance workload. It does not enter
+    // the baseline pair denominators or claim a 20-operation baseline gain.
+    if (name === "current") {
+      const sustained = report.sustained = { attempted: 0, saved: 0, terminal: 0, useful: 0, cadenceMs: SUSTAINED_INTERVAL_MS,
+        eventIds: [], screenshotIds: [], documentIds: [], intervalsMs: [], formUnchanged: true, recordingUninterrupted: true,
+        source: "20 paced synthetic button operations in one native document; existing comparison separately covers navigation and invalidation" };
+      await target.evaluate(() => window.mountSustainedFixture());
+      const formState = () => target.evaluate(() => ({
+        fields: Array.from(document.querySelectorAll('#sustainedForm input'), (field) => ({ value: field.value, selectionStart: field.selectionStart, selectionEnd: field.selectionEnd })),
+        focus: document.activeElement?.id, events: window.sustainedFormEvents
+      }));
+      const beforeForm = await formState();
+      assert.equal(beforeForm.fields.every((field, index) => field.value === SUSTAINED_VALUES[index]), true, "The full synthetic source form must exist before the workload");
+      assert.deepEqual(beforeForm.events, { input: 0, change: 0, submit: 0 });
+      const documentId = async () => (await worker.evaluate(async (tabId) => chrome.scripting.executeScript({ target: { tabId }, func: () => true }), initial.tabId))[0].documentId;
+      const originalDocumentId = await documentId();
+      const sustainedGeometry = () => target.evaluate(() => {
+        const boxes = (selector) => Array.from(document.querySelectorAll(selector), (element) => {
+          const { x, y, width, height } = element.getBoundingClientRect(); return { x, y, width, height };
+        });
+        return { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, fields: boxes('#sustainedForm input'), frame: boxes('#frameIdentity i') };
+      });
+      const beforeRaster = await rasterEvidence(worker, { dataUrl: `data:image/png;base64,${(await target.screenshot()).toString("base64")}` }, await sustainedGeometry());
+      assert.ok(beforeRaster.fields.every((field) => field.original > 15), "Unmasked control must prove all synthetic PII canaries are visible before native capture");
+      sustained.unmaskedControlVerified = true; // Never persist the unmasked control bytes.
+      let previousAt;
+      for (let index = 0; index < SUSTAINED_COUNT; index += 1) {
+        // Wait after the preceding terminal result, not just after its click.
+        // No native API, clock, masking code, or recording state is patched.
+        await delay(SUSTAINED_INTERVAL_MS);
+        await target.evaluate(async (frame) => { window.setSustainedFrame(frame); await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); }, index);
+        const viewport = await sustainedGeometry();
+        const nativeDocumentId = await documentId();
+        assert.equal(nativeDocumentId, originalDocumentId, "Sustained fixture must not silently switch native documents");
+        await target.evaluate(() => document.querySelector('#sustainedButton').click());
+        sustained.attempted += 1;
+        const captured = await until(async () => {
+          const session = await readLive(worker);
+          const event = session?.events.find((entry) => entry.label === SUSTAINED_LABELS[index]);
+          const ref = session?.refs.find((entry) => entry.eventId === event?.eventId);
+          return { sessionId: session?.id, phase: session?.phase, event, ref };
+        }, (value) => value.event && TERMINAL.has(value.ref?.status), `Sustained operation ${index + 1} did not reach a terminal image state`);
+        sustained.terminal += 1;
+        sustained.eventIds.push(captured.event.eventId);
+        sustained.documentIds.push(nativeDocumentId);
+        if (previousAt !== undefined) sustained.intervalsMs.push(captured.event.at - previousAt);
+        previousAt = captured.event.at;
+        sustained.recordingUninterrupted &&= captured.sessionId === initial.id && captured.phase === "recording";
+        const unchanged = JSON.stringify(await formState()) === JSON.stringify(beforeForm);
+        sustained.formUnchanged &&= unchanged;
+        assert.equal(unchanged, true, "Native privacy capture must not alter the source form or emit form events");
+        expected.set(`sustained-${index + 1}`, { scene: "next", viewport, frame: index + 1, documentId: nativeDocumentId });
+      }
+    }
+
     const live = await readLive(worker);
     const images = (await readStore(worker, "meccha-manual-capture-live", "step-images")).filter((entry) => entry.sessionId === initial.id);
     const saved = images.filter((entry) => typeof entry.dataUrl === "string" && entry.dataUrl.startsWith("data:image/"));
     assert.equal(new Set(saved.map((entry) => entry.id)).size, saved.length, "Each stored capture must have its own screenshot identity");
+    assert.equal(new Set(saved.map((entry) => entry.eventId)).size, saved.length, "A saved image must belong to one exact recorded event");
     const imageByEvent = new Map(saved.map((entry) => [entry.eventId, entry]));
     const stateByEvent = new Map(live.refs.map((entry) => [entry.eventId, entry]));
     report.invalidRasterCount = 0;
     report.events = [];
     const errors = [];
     for (const [index, event] of live.events.entries()) {
-      const id = Object.keys(BUTTONS).find((key) => BUTTONS[key] === event.label);
+      const sustainedIndex = SUSTAINED_LABELS.indexOf(event.label);
+      const id = sustainedIndex >= 0 ? `sustained-${sustainedIndex + 1}` : Object.keys(BUTTONS).find((key) => BUTTONS[key] === event.label);
       const expectation = id ? expected.get(id) : event.kind === "navigation" ? { scene: "next", viewport: await geometry() } : null;
       assert.ok(expectation, "Every recorded fixture operation must have a known expected scene");
       const image = imageByEvent.get(event.eventId);
-      const evidence = { order: index + 1, fixtureAction: id || "navigation", kind: event.kind, status: stateByEvent.get(event.eventId)?.status, reason: stateByEvent.get(event.eventId)?.reason || null, hasImage: Boolean(image), expectedScene: expectation.scene };
+      const evidence = { order: index + 1, eventId: event.eventId, fixtureAction: id || "navigation", kind: event.kind, status: stateByEvent.get(event.eventId)?.status, reason: stateByEvent.get(event.eventId)?.reason || null, hasImage: Boolean(image), expectedScene: expectation.scene,
+        ...(sustainedIndex >= 0 ? { expectedFrame: expectation.frame, nativeDocumentId: expectation.documentId } : {}) };
+      assert.ok(TERMINAL.has(evidence.status), "Every persisted operation must have an explicit terminal image state");
       if (evidence.status === "ready") assert.ok(image, "Ready status alone is not a saved screenshot");
       if (image) {
         assert.ok(["ready", "protected"].includes(evidence.status), "Unavailable and failed events must not carry image bytes");
         evidence.raster = await rasterEvidence(worker, image, expectation.viewport);
-        try { assertRaster(evidence.raster, expectation.scene); }
+        try {
+          assertRaster(evidence.raster, expectation.scene);
+          if (sustainedIndex >= 0) {
+            assertUsefulSustainedRaster(evidence.raster, expectation.frame);
+            const replacements = image.privacyReview?.replacements || [];
+            for (const kind of ["name", "email", "birthday"]) assert.ok(replacements.some((item) => item.kind === kind && item.text), `Sustained image must retain a useful fictional ${kind} replacement`);
+            report.sustained.useful += 1;
+          }
+        }
         catch (error) { report.invalidRasterCount += 1; errors.push(error.message); }
+        if (sustainedIndex >= 0) { report.sustained.saved += 1; report.sustained.screenshotIds.push(image.id); evidence.screenshotId = image.id; }
         const match = image.dataUrl.match(/^data:image\/(jpeg|png);base64,(.+)$/s);
         assert.ok(match, "Native capture must return actual PNG/JPEG image bytes");
         const bytes = Buffer.from(match[2], "base64");
@@ -314,7 +440,16 @@ async function runVariant(name, extensionRoot, baseUrl, scratch, report) {
       const image = imageByEvent.get(event.eventId);
       assert.ok(step, "Recorded event must survive finish");
       assert.equal(Boolean(step.screenshotId), Boolean(image), "Draft image association must match the original operation");
-      if (image) assert.equal(draft.screenshots.find((entry) => entry.id === step.screenshotId)?.dataUrl, image.dataUrl, "Final draft must keep the exact verified capture, not the last screen");
+      if (image) {
+        assert.equal(step.screenshotId, image.id, "Finish must preserve this event's exact screenshot identity");
+        assert.equal(draft.screenshots.find((entry) => entry.id === step.screenshotId)?.dataUrl, image.dataUrl, "Final draft must keep the exact verified capture, not the last screen");
+      }
+    }
+    if (report.sustained) {
+      const exported = JSON.stringify({ draft, live, local: await worker.evaluate(() => chrome.storage.local.get(null)) });
+      for (const value of SUSTAINED_VALUES) assert.equal(exported.includes(value), false, "Draft, live events, and local storage must not retain original synthetic form values");
+      report.sustained.originalValuesExcluded = true;
+      assertSustained(report.sustained);
     }
     report.draftVerified = true;
     await editor.screenshot({ path: join(artifactDirectory, "saved-editor.png"), fullPage: true });
@@ -360,6 +495,27 @@ test("capture completion fixture unit: corrupt, cropped, stale pixels and reason
   assert.throws(() => assertComparison(baseline, { ...current, navigationChanged: { staleSaved: 1 } }));
   assert.throws(() => assertComparison(baseline, { ...current, rapid: { saved: 2, clickIntervalMs: 600 } }));
   assert.throws(() => assertComparison(baseline, { ...current, draftVerified: false }));
+});
+
+test("capture completion fixture unit: sustained acceptance rejects missing, blank, leaked, swapped, or interrupted results", () => {
+  const report = { attempted: 20, saved: 20, terminal: 20, useful: 20, formUnchanged: true, recordingUninterrupted: true,
+    eventIds: Array.from({ length: 20 }, (_, index) => `event-${index}`), screenshotIds: Array.from({ length: 20 }, (_, index) => `image-${index}`),
+    documentIds: Array(20).fill("native-document"), intervalsMs: Array(19).fill(750) };
+  assert.doesNotThrow(() => assertSustained(report));
+  for (const field of ["attempted", "saved", "terminal", "useful"]) assert.throws(() => assertSustained({ ...report, [field]: 19 }));
+  for (const field of ["formUnchanged", "recordingUninterrupted"]) assert.throws(() => assertSustained({ ...report, [field]: false }));
+  assert.throws(() => assertSustained({ ...report, eventIds: Array(20).fill("same-event") }));
+  assert.throws(() => assertSustained({ ...report, screenshotIds: Array(20).fill("same-image") }));
+  assert.throws(() => assertSustained({ ...report, documentIds: [...report.documentIds.slice(1), "later-document"] }));
+  assert.throws(() => assertSustained({ ...report, documentIds: Array(20).fill(undefined) }));
+  assert.throws(() => assertSustained({ ...report, intervalsMs: Array(19).fill(499) }));
+  const raster = { decoded: true, width: 960, height: 720, expectedWidth: 960, expectedHeight: 720, corners: MARKERS, scene: SCENES.next,
+    frame: Array.from({ length: 5 }, (_, bit) => FRAME_COLORS[(1 >> bit) & 1]), fields: Array.from({ length: 3 }, () => ({ original: 0, ink: 30, light: 900, total: 1000 })) };
+  assert.doesNotThrow(() => assertUsefulSustainedRaster(raster, 1));
+  for (let frame = 2; frame <= SUSTAINED_COUNT; frame += 1) assert.throws(() => assertUsefulSustainedRaster(raster, frame), "Every other event's marker must fail association");
+  assert.throws(() => assertUsefulSustainedRaster({ ...raster, fields: raster.fields.map((field) => ({ ...field, original: 1 })) }, 1));
+  assert.throws(() => assertUsefulSustainedRaster({ ...raster, fields: raster.fields.map((field) => ({ ...field, ink: 0 })) }, 1));
+  assert.throws(() => assertUsefulSustainedRaster({ ...raster, fields: raster.fields.map((field) => ({ ...field, light: 0 })) }, 1));
 });
 
 test("real MV3 capture completion improves over baseline without wrong-frame recovery", { timeout: 180_000 }, async () => {

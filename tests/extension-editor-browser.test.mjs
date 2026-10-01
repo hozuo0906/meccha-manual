@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { stat, readFile, mkdir } from "node:fs/promises";
+import { stat, readFile, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
@@ -7,6 +7,21 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+
+// Synthetic fixtures only. These checkpoints supplement assertions; they do not
+// establish real authentication or remote persistence.
+async function captureEditorEvidence(page, name, observations = {}) {
+  const directory = ".artifacts/unified-editor";
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+  await writeFile(`${directory}/${name}.json`, JSON.stringify({
+    candidateCommit: process.env.GITHUB_SHA || null,
+    fixture: "synthetic-local-editor", screenshot: `${name}.png`,
+    viewport: page.viewportSize(),
+    selectedStep: await page.evaluate(() => document.querySelector(".step-article")?.dataset.stepId || null),
+    observations
+  }, null, 2) + "\n");
+}
 
 function serveExtension({ onboardingConfig = null } = {}) {
   const server = createServer(async (request, response) => {
@@ -341,6 +356,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
+    await captureEditorEvidence(page, "image-save-failed", { operation: "apply-image-text", failure: "synthetic-IDB-write", editorStillOpen: await page.locator("#imageEditorDialog").isVisible() });
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       draftStore.put = globalThis.__originalPut;
@@ -350,6 +366,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     const retried = await readScreenshot(page, draftId);
     assert.equal(retried.annotations.find((item) => item.type === "text")?.text, "保存再試行");
     assert.equal(retried.annotations.find((item) => item.type === "text")?.fontSize, 10);
+    await captureEditorEvidence(page, "image-save-retried", { operation: "retry-same-image-edit", persistedTextMatches: retried.annotations.some((item) => item.type === "text" && item.text === "保存再試行" && item.fontSize === 10) });
 
     await openImageEditor(page);
     const savingRow = page.locator("[data-editor-selection] > div").first();
@@ -374,6 +391,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     assert.ok(await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)), "保存中は編集入力・一覧・保存をdisabledにする");
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "保存中のEscapeでdialogを閉じない");
+    await captureEditorEvidence(page, "image-save-pending", { operation: "delayed-IDB-write-and-Escape", writeCalls: await page.evaluate(() => globalThis.__putCalls), controlsDisabled: await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)) });
     await page.evaluate(async () => {
       const pending = globalThis.__pendingPut;
       await globalThis.__originalPut(pending.candidate);
@@ -1375,6 +1393,7 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
     assert.match(await page.locator("#gateStatus").textContent(), /ログインや接続が必要な場合があります/);
+    await captureEditorEvidence(page, "auth-handoff-interrupted", { operation: "synthetic-registration-timeout", status: await page.locator("#gateStatus").textContent(), explicitResumeVisible: await page.locator("#activateHandoff").isVisible() });
     await page.evaluate(() => { globalThis.__delayActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
     await page.waitForFunction(() => typeof globalThis.__releaseActivationUpdate === "function");
@@ -1399,6 +1418,7 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => /保存の準備に進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
+    await captureEditorEvidence(page, "auth-closed-tab-recovery", { operation: "synthetic-closed-registration-tab", freshHandoffAvailable: !(await page.locator("#startRegistration").isDisabled()), status: await page.locator("#gateStatus").textContent() });
   } finally {
     await context?.close();
     server.closeAllConnections?.();
@@ -1924,12 +1944,14 @@ test("output waits from file decode through IDB and blocks unreviewed or failed 
     await page.locator("#share").click();
     assert.equal(await page.locator("#startShare").isDisabled(), true, "decode開始直後に共有が先行しない");
     assert.match(await page.locator("#outputIssues").textContent(), /手順17/);
+    await captureEditorEvidence(page, "image-decode-pending-share-blocked", { operation: "share-during-delayed-image-decode", shareDisabled: await page.locator("#startShare").isDisabled(), issues: await page.locator("#outputIssues").textContent() });
     await page.locator("#cancelOutput").click();
     assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
     await page.evaluate(() => globalThis.__releaseDecode());
     await page.waitForFunction(() => document.querySelector("#step-step-17 .image-status")?.textContent.includes("確認が必要"));
     await page.locator("#share").click();
     assert.equal(await page.locator("#startShare").isDisabled(), true, "手動画像は明示確認まで共有しない");
+    await captureEditorEvidence(page, "image-needs-review-share-blocked", { operation: "share-before-image-review", shareDisabled: await page.locator("#startShare").isDisabled() });
     await page.locator("#outputIssues button").click();
     await page.getByRole("button", { name: "画像に公開できない情報がないことを確認", exact: true }).click();
     await page.locator("#share").click();
@@ -1940,10 +1962,12 @@ test("output waits from file decode through IDB and blocks unreviewed or failed 
     await page.locator(".image-upload-message[data-state=error]").waitFor();
     await page.locator("#share").click();
     assert.equal(await page.locator("#startShare").isDisabled(), true, "失敗した差し替えを黙って除外しない");
+    await captureEditorEvidence(page, "image-replacement-failed-share-blocked", { operation: "share-after-invalid-image-replacement", shareDisabled: await page.locator("#startShare").isDisabled(), issues: await page.locator("#outputIssues").textContent() });
     await page.locator("#outputIssues button").click();
     await page.getByRole("button", { name: "元の画像を使う", exact: true }).click();
     await page.locator("#share").click();
     await page.locator("#startShare:not([disabled])").waitFor();
     assert.equal(await page.locator("#startShare").isDisabled(), false);
+    await captureEditorEvidence(page, "image-original-restored-share-ready", { operation: "explicitly-keep-original-image-after-replacement-failure", shareDisabled: await page.locator("#startShare").isDisabled() });
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
 });

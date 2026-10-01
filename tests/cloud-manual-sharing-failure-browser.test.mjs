@@ -1,9 +1,24 @@
 import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
+
+// Mask credentials even though this test uses only synthetic values.
+async function captureSharingEvidence(page, name, observations) {
+  const directory = ".artifacts/uiux-20261001/screens";
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true,
+    mask: [page.locator("[data-share-passcode]"), page.locator("input.share-link-value")] });
+  await writeFile(`${directory}/${name}.json`, JSON.stringify({
+    candidateCommit: process.env.GITHUB_SHA || null,
+    fixture: "synthetic-cloud-sharing-mock-API", screenshot: `${name}.png`,
+    viewport: page.viewportSize(), status: await page.locator("#cloud-message").textContent(),
+    observations
+  }, null, 2) + "\n");
+}
 
 test("cloud sharing keeps explicit failures, dirty edits, and stale delayed responses recoverable", { timeout: 60_000 }, async () => {
   const workspaceId = "workspace-share-failure";
@@ -80,14 +95,18 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await fillShareForm();
     await page.locator("#cloud-message.warning").waitFor();
     assert.equal(postBodies.length, 0);
-    const detailReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1` && response.request().method() === "GET" && response.status() === 200);
-    const metadataReloadResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "GET" && response.status() === 200);
-    await page.once("dialog", (dialog) => dialog.accept());
     await page.locator(".manual-share-drawer").getByRole("button",{name:"閉じる",exact:true}).click();
     await page.getByRole("button", {name:"手順書一覧",exact:true}).click();
-    await list.nth(0).click();
-    assert.equal((await detailReloadResponse).status(), 200);
-    assert.equal((await metadataReloadResponse).status(), 200);
+    page.once("dialog", (dialog) => dialog.accept());
+    // Start response clocks at the reload action, not while the drawer/list is
+    // still being operated. Await both together so neither rejects unobserved.
+    const [detailReloadResponse, metadataReloadResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1` && response.request().method() === "GET" && response.status() === 200),
+      page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-1/share-links` && response.request().method() === "GET" && response.status() === 200),
+      list.nth(0).click()
+    ]);
+    assert.equal(detailReloadResponse.status(), 200);
+    assert.equal(metadataReloadResponse.status(), 200);
     await page.waitForFunction(() => document.querySelector('input[aria-label="タイトル"]')?.value === "Manual One" && document.querySelector("[data-share-passcode]")?.isConnected);
 
     await page.getByRole("button",{name:"共有",exact:true}).click();
@@ -102,6 +121,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
       await page.locator("#cloud-message").filter({hasText:`拒否 ${status}`}).waitFor();
       assert.equal(postBodies.at(-1)?.body.confirmed, true);
       assert.equal(await page.locator("input.share-link-value").count(), 0);
+      await captureSharingEvidence(page, `share-create-rejected-${status}`, { operation: "create-rejected", responseStatus: status, exposedLinkCount: await page.locator("input.share-link-value").count() });
     }
 
     delayedManualId = "manual-1";
@@ -155,6 +175,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     const transportFailedShareLinkId = actualTransportRequest.postDataJSON()?.shareLinkId;
     assert.equal(transportFailedShareLinkId, shares.get("manual-2")?.shareLinkId);
+    await captureSharingEvidence(page, "share-revoke-transport-result-unknown", { operation: "revoke-transport-interrupted", linkStillAvailable: (await page.locator("input.share-link-value").inputValue()) === shareLink, retryTargetsSameLink: transportFailedShareLinkId === shares.get("manual-2")?.shareLinkId });
     await page.unroute(shareEndpoint);
 
     revokeFailureStatus = 503;
@@ -166,6 +187,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     assert.equal(await page.locator("input.share-link-value").inputValue(), shareLink);
     const failedShareLinkId = revokeBodies.at(-1)?.body.shareLinkId;
     assert.equal(failedShareLinkId, transportFailedShareLinkId);
+    await captureSharingEvidence(page, "share-revoke-server-result-unknown", { operation: "revoke-503", responseStatus: 503, retryTargetsSameLink: failedShareLinkId === transportFailedShareLinkId });
     const retryResponse = page.waitForResponse((response) => response.url() === `${baseUrl}/api/workspaces/${workspaceId}/manuals/manual-2/share-links` && response.request().method() === "DELETE" && response.status() === 200);
     await page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "共有を停止" }).click();
@@ -174,6 +196,7 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     assert.equal(await page.locator("input.share-link-value").count(), 0);
     assert.equal(failedShareLinkId, transportFailedShareLinkId);
     assert.equal(revokeBodies.at(-1)?.body.shareLinkId, failedShareLinkId);
+    await captureSharingEvidence(page, "share-revoke-retry-completed", { operation: "retry-revoke-same-link", retryTargetsSameLink: revokeBodies.at(-1)?.body.shareLinkId === failedShareLinkId, exposedLinkCount: await page.locator("input.share-link-value").count(), serverSharePresent: shares.has("manual-2") });
   } finally {
     await context?.close();
     server.closeAllConnections?.();

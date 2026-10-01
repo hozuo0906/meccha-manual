@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { generateKeyPairSync, createHash, randomBytes } from 'node:crypto';
-import { chromium } from '@playwright/test';
+import { chromium } from '../tests/support/test-browser.mjs';
 import { exportJWK, SignJWT } from 'jose';
 import worker from '../apps/worker/src/index.ts';
 
@@ -108,7 +108,9 @@ try {
   const page = await context.newPage(); page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(base + '/manuals');
   await page.getByRole('button', { name: '記録した操作の手順書', exact: true }).click();
-  const choices=page.locator('.manual-step-nav li button');assert.equal(await choices.count(),images.length);
+  const choices=page.locator('.manual-step-nav li button');
+  await page.waitForFunction(count => document.querySelectorAll('.manual-step-nav li button').length === count, images.length);
+  assert.equal(await choices.count(),images.length);
   for(let index=0;index<images.length;index++){await choices.nth(index).click();await page.waitForFunction(()=>{const images=[...document.querySelectorAll('img.cloud-step-image')];return images.length===1&&images.every(image=>!image.hidden&&image.complete&&image.naturalWidth>300);});}
   await choices.first().click();await page.waitForFunction(()=>document.querySelector('img.cloud-step-image')?.naturalWidth>300);
   await page.screenshot({ path: join(outputDir, 'chain-cloud.png'), fullPage: true });

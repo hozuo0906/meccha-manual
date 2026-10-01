@@ -64,6 +64,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   const status = dialog.querySelector("[data-editor-status]");
   const textInput = dialog.querySelector("[data-editor-text]");
   const colorInput = dialog.querySelector("[data-editor-color]");
+  const colorHexInput = dialog.querySelector("[data-editor-color-hex]");
   const propertyGroup = dialog.querySelector(".property-group");
   const fontSizeInput = dialog.querySelector("[data-editor-font-size]");
   const saveButton = dialog.querySelector("[data-editor-save]");
@@ -106,6 +107,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (textInput) textInput.disabled = disabled;
     if (fontSizeInput) fontSizeInput.disabled = disabled;
     if (colorInput) colorInput.disabled = disabled;
+    if (colorHexInput) colorHexInput.disabled = disabled;
     selection.querySelectorAll("button").forEach((button) => { button.disabled = disabled; });
     if (saveButton) saveButton.disabled = disabled;
   }
@@ -180,13 +182,16 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (textInput) textInput.value = item?.type === "text" ? item.text : "";
     if (fontSizeInput) fontSizeInput.value = item?.type === "text" ? String(item.fontSize) : "24";
     if (colorInput) colorInput.value = item?.color || "#087f7a";
+    if (colorHexInput) { colorHexInput.value = item?.color || "#087f7a"; colorHexInput.removeAttribute("aria-invalid"); }
   }
   function refreshSelection() {
     const current = itemFor();
+    if (colorHexInput && !current) { colorHexInput.value = "#087f7a"; colorHexInput.removeAttribute("aria-invalid"); }
     if (propertyGroup) propertyGroup.hidden = !current || selected?.kind !== "annotation";
     dialog.querySelectorAll("[data-text-property]").forEach((node) => { node.hidden = current?.type !== "text"; });
     dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation"; });
     if (colorInput && current?.color) colorInput.value = current.color;
+    if (colorHexInput && current?.color && document.activeElement !== colorHexInput) { colorHexInput.value = current.color; colorHexInput.removeAttribute("aria-invalid"); }
     const colorLabel = dialog.querySelector("[data-color-label]"); if(colorLabel)colorLabel.textContent=current?.type==="text"?"文字の色":current?.type==="arrow"?"矢印の色":"枠線の色";
     selection.replaceChildren();
     const entries = [...working.annotations.map((item, index) => ({ ...item, kind: "annotation", label: `${TOOL_LABELS[item.type]} ${index + 1}` })), ...working.masks.map((item, index) => ({ ...item, kind: "mask", label: `黒塗り ${index + 1}` }))];
@@ -259,6 +264,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   }
   async function save() {
     if (disposed || state !== "editing" || !image) return;
+    if(colorHexInput?.getAttribute("aria-invalid")==="true"){setStatus("色のカラーコードを確認してから適用してください。");colorHexInput.focus();return;}
     state = "saving"; onStateChange?.("saving"); setControlsDisabled(true); setStatus("画像を保存しています。");
     try {
       const annotations = cloneAnnotations(previewAnnotations(working.annotations)); if (annotations === null) throw new TypeError("invalid annotations");
@@ -281,7 +287,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function cancel() { if (disposed || state === "saving") return; generation += 1; drag = null; state = "closed"; onStateChange?.("closed"); onCancel?.(); closeEditor("cancel"); restoreFocus?.focus?.(); }
 
   toolButtons.forEach((button) => button.addEventListener("click", () => selectTool(button.dataset.editorTool), { signal }));
-  colorInput?.addEventListener("input", () => { const item = itemFor(); if (isBusy() || !item || selected?.kind !== "annotation") return; if (!/^#[\da-f]{6}$/i.test(colorInput.value)) return; remember(`color:${item.id}`); item.color = colorInput.value; redraw(); }, { signal });
+  function applyColor(value) { const item = itemFor(); if (isBusy() || !item || selected?.kind !== "annotation" || !/^#[\da-f]{6}$/i.test(value)) return; remember(`color:${item.id}`); item.color = value.toLowerCase(); if(colorInput)colorInput.value=item.color; redraw(); }
+  colorInput?.addEventListener("input", () => { applyColor(colorInput.value); if(colorHexInput){colorHexInput.value=colorInput.value;colorHexInput.removeAttribute("aria-invalid");} }, { signal });
+  colorHexInput?.addEventListener("input", () => { const valid=/^#[\da-f]{6}$/i.test(colorHexInput.value);colorHexInput.setAttribute("aria-invalid",String(!valid));if(valid)applyColor(colorHexInput.value);else setStatus("色は # と6桁のカラーコードで入力してください。最後に確認できた色を保持しています。"); }, { signal });
   textInput?.addEventListener("input", handleTextInput, { signal }); textInput?.addEventListener("compositionend", handleTextInput, { signal }); fontSizeInput?.addEventListener("input", handleFontSizeInput, { signal });
   canvas.addEventListener("pointerdown", handlePointerDown, { signal }); canvas.addEventListener("pointermove", handlePointerMove, { signal }); canvas.addEventListener("pointerup", handlePointerUp, { signal }); canvas.addEventListener("pointercancel", handlePointerCancel, { signal });
   dialog.addEventListener("keydown", handleKeydown, { signal }); saveButton?.addEventListener("click", save, { signal }); cancelButtons.forEach((button) => button.addEventListener("click", cancel, { signal }));

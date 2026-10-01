@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { handleExternalCloudClaimMessage } from "../apps/extension/background/cloud-claim.js";
 import { buildContinueUrl, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffStorageKey } from "../apps/extension/editor/handoff.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
+
+// No handoff URLs, tokens, operation IDs or payload bodies are written to evidence.
+async function captureOnboardingEvidence(page, name, observations) {
+  const directory = ".artifacts/uiux-20261001/screens";
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+  await writeFile(`${directory}/${name}.json`, JSON.stringify({
+    candidateCommit: process.env.GITHUB_SHA || null,
+    fixture: "synthetic-onboarding-mocked-service-and-extension", screenshot: `${name}.png`,
+    viewport: page.viewportSize(),
+    status: await page.locator("#status").textContent(),
+    actionLabel: await page.locator("#bootstrap").textContent(),
+    actionDisabled: await page.locator("#bootstrap").isDisabled(),
+    observations
+  }, null, 2) + "\n");
+}
 
 test("onboarding browser retries the same operation after a 503 and rejects expired reload metadata", { timeout: 20_000 }, async () => {
   const calls = [];
@@ -41,6 +58,7 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
     const firstOperation = calls[0]?.operationId;
     assert.match(firstOperation, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(JSON.stringify(calls[0]).includes("title"), false);
+    await captureOnboardingEvidence(page, "onboarding-temporary-failure", { operation: "bootstrap-503", requestCount: calls.length });
     const firstCreatedAt = await page.evaluate(() => { const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")); return value.entries.find((entry) => entry.handoffId === value.activeHandoffId).createdAt; });
 
     await page.goto(`${baseUrl}/onboarding/continue?same=1#handoff=${handoff}`);
@@ -49,6 +67,7 @@ test("onboarding browser retries the same operation after a 503 and rejects expi
     await page.getByText(/保存先の準備が完了しました/).waitFor();
     assert.equal(calls.length, 2);
     assert.equal(calls[1].operationId, firstOperation);
+    await captureOnboardingEvidence(page, "onboarding-same-operation-retried", { operation: "retry-after-reopen", requestCount: calls.length, sameOperation: calls[1].operationId === firstOperation });
 
     await page.evaluate(() => {
       const value = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation"));
@@ -759,12 +778,14 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     assert.ok(messages.every((message) => message.action === "save"), "recovery retains the original action identity even for Share");
     assert.match(await page.locator("#status").textContent(), /元の下書きと新しい編集/);
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "expired");
+    await captureOnboardingEvidence(page, `onboarding-terminal-${requestedAction}`, { operation: "expired-claim-recovery", requestedAction, requestMethods: requests.map(([method]) => method), terminalState: storage.get(handoffStorageKey(metadata.handoffId)).status, recoveryCleared: (await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction)) === null });
     await page.reload();
     await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).waitFor().catch(async error=>{throw new Error(JSON.stringify({button:await page.locator("#bootstrap").textContent(),status:await page.locator("#status").textContent(),requests:requests.map(r=>r[0]),messages:messages.map(m=>m.type)})+"\n"+error.message);});
     assert.equal(await page.getByRole("button", { name: "編集画面からもう一度保存", exact: true }).isDisabled(), true);
     assert.equal(requests.length, 1, "stripped-URL refresh never begins bootstrap or re-finalizes a terminal operation");
     await page.goto(url);await page.waitForFunction(()=>!location.hash&&document.querySelector("#bootstrap")?.textContent==="編集画面からもう一度保存");
     assert.equal(await page.locator("#bootstrap").isDisabled(),true);assert.equal(requests.length,1);
+    await captureOnboardingEvidence(page, `onboarding-terminal-${requestedAction}-reopened`, { operation: "reload-and-reopen-terminal-handoff", requestedAction, requestCount: requests.length, onlyReadRequest: requests.every(([method]) => method === "GET") });
   } finally {
     await context?.close();
     if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;

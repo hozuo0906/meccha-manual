@@ -313,7 +313,7 @@ for (const width of [1366, 1024, 390]) {
       assert.equal(await page.locator('#share-passcode').inputValue(), '');
 
       const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
-      await page.waitForFunction(() => document.visibilityState === 'hidden' && document.querySelector('#share-content').hidden);
+      await page.waitForFunction(() => document.visibilityState === 'hidden' && document.querySelector('#share-content').hidden, undefined, { polling: 50 });
       const before = state.contentGrants.length; state.contentDelayMs = 250;
       await page.bringToFront();
       await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'validating');
@@ -367,7 +367,7 @@ test('reader refuses cached content after tab-return revocation or offline reval
     const launched = await launchPage(); context = launched.context; const page = launched.page;
     await openReader(page, baseUrl); await chooseStep(page, 17);
     const other = await context.newPage(); await other.goto(baseUrl + '/other'); await other.bringToFront();
-    await page.waitForFunction(() => document.visibilityState === 'hidden');
+    await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50 });
     await context.setOffline(true); await page.bringToFront();
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'interrupted');
     assert.equal(await page.locator('.share-step').count(), 0);
@@ -376,7 +376,7 @@ test('reader refuses cached content after tab-return revocation or offline reval
     await context.setOffline(false); await page.locator('.reader-access-retry').click();
     await page.locator('#share-content').waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.querySelector('.reader-current')?.textContent === '17 / 20');
-    await other.bringToFront(); await page.waitForFunction(() => document.visibilityState === 'hidden');
+    await other.bringToFront(); await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { polling: 50 });
     state.contentStatus = 401; await page.bringToFront();
     await page.waitForFunction(() => document.querySelector('#share-content').dataset.accessState === 'unavailable');
     assert.equal(await page.locator('.share-step').count(), 0);

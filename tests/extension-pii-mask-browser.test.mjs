@@ -126,6 +126,8 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const beforeRects = await page.evaluate(() => ["email-one", "email-two", "phone-one", "phone-two", "postal-one", "postal-two"].map((id) => {
       const rect = document.getElementById(id).getBoundingClientRect();
@@ -201,6 +203,8 @@ test("PII split across adjacent rendered text nodes is replaced and restored", a
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const beforeRects = await page.evaluate(() => ["split-email", "split-phone", "split-postal"].map((id) => {
       const rect = document.getElementById(id).getBoundingClientRect();

@@ -375,7 +375,7 @@ async function openImageEditor(step, initialTool = "select") {
   const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
   const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
     inline: true, initialTool,
-    onStateChange: (state) => { if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
+    onStateChange: (state) => { for(const id of ["save","share","mobileShare"]){const action=document.getElementById(id);if(action){action.disabled=state!=="closed";action.title=state!=="closed"?"画像の変更を適用してから保存・共有できます":"";}} if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
     onSave: async (next) => {
       const currentStep = draft.steps.find((entry) => entry.id === step.id);
       const currentScreenshot = screenshotFor(currentStep);
