@@ -907,7 +907,7 @@ export function installSensitiveMasks() {
           textNodes.push(node);
           if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
             state.nodes += 1;
-            state.characters += normalizeMutationNumericFragment(value).length;
+            state.characters += value.length;
             if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
           }
           return;
@@ -998,7 +998,7 @@ export function installSensitiveMasks() {
           const value = String(node.nodeValue ?? "");
           if (mutationNumericFragment(value) || mutationPartialPattern(value)) {
             state.nodes += 1;
-            state.characters += normalizeMutationNumericFragment(value).length;
+            state.characters += value.length;
             if (state.nodes > maxPrivacyAdjacentTextNodes || state.characters > maxPrivacyAdjacentTextCharacters) state.overflow = true;
           }
         }

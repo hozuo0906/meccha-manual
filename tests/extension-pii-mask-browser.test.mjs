@@ -1188,11 +1188,29 @@ test("numeric fragments stay bounded across mutation callbacks", async () => {
       prefix.textContent = "123,";
       document.getElementById("stream").append(prefix);
       const suffix = document.createElement("span");
-      suffix.textContent = "4567";
+      suffix.textContent = "-4567";
       document.getElementById("stream").append(suffix);
     });
     await page.waitForTimeout(25);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true, "a punctuation boundary must not be stripped into an unrelated postal value");
+    await inject(removeSensitiveMasks);
+
+    await page.reload();
+    await page.evaluate(() => {
+      const stream = document.getElementById("stream");
+      const longPrefix = document.createElement("span");
+      longPrefix.textContent = `1${",".repeat(1200)}`;
+      stream.append(longPrefix);
+      const current = document.createElement("span");
+      current.id = "raw-budget-current";
+      current.textContent = "safe";
+      stream.append(current);
+    });
+    ({ inject } = await install());
+    mask = await inject(installSensitiveMasks);
+    await page.evaluate(() => { document.getElementById("raw-budget-current").firstChild.nodeValue = "2"; });
+    await page.waitForTimeout(25);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "raw mutation text length overflow must fail closed");
     await inject(removeSensitiveMasks);
 
     await page.reload();
