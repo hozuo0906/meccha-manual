@@ -67,7 +67,7 @@ button.quiet:hover:not(:disabled) { border-color: var(--accent); background: #ea
 .step-image-status { grid-column: 2; display: block; margin-top: 0; font-size: .8125rem; line-height: 1.6; }
 .step-image-status[data-state="ready"] { color: #06645f; }
 .step-image-status[data-state="failed"], .step-image-status[data-state="unavailable"], .step-image-status[data-state="display_failed"], .live-current-status[data-state="failed"], .live-current-status[data-state="unavailable"], .live-current-status[data-state="display_failed"] { color: #9c3827; }
-.step-image-status[data-state="protected"], .live-current-status[data-state="protected"] { color: #7c4b09; }
+.step-image-status[data-state="protected"], .live-current-status[data-state="protected"], .step-image-status[data-state="read_failed"], .live-current-status[data-state="read_failed"] { color: #7c4b09; }
 .step-card button { background: #fff; border-color: #789099; color: #06645f; }
 .draft-card { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
 .draft-card img { width: 60px; height: 54px; border: 1px solid var(--line); border-radius: 6px; object-fit: cover; background: #fff; }

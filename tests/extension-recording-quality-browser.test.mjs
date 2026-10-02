@@ -150,10 +150,19 @@ for (const surface of ["popup", "sidepanel"]) {
     await checkLayout(page);
     assert.equal(await page.locator('#status').evaluate(el=>{const rect=el.getBoundingClientRect();return rect.top>=0 && rect.bottom<=innerHeight;}),true,'saved-draft recovery message is visible without scrolling');
     await page.screenshot({path:resolve(evidence,`${surface}-saved-editor-unavailable.png`)});
+    for (const width of [280,360]) {
+      await page.setViewportSize({width,height:720});
+      const recoveryAction = surface === 'popup' ? '#openDraft' : '#drafts button';
+      assert.equal(await page.locator(recoveryAction).first().evaluate(el=>{const rect=el.getBoundingClientRect();return rect.top>=0 && rect.bottom<=innerHeight;}),true,'saved-draft recovery action is visible without scrolling');
+      assert.equal(await page.locator('#draftSection').evaluate(el=>el.previousElementSibling?.id==='status'),true,'the visual recovery priority also matches DOM/tab order');
+      await checkLayout(page);
+      await page.screenshot({path:resolve(evidence,`${surface}-${width}-saved-editor-recovery.png`)});
+    }
     for(const width of [320,280]) {
       await page.setViewportSize({width,height:720});
       await page.goto(`${url}?scenario=drafts`);
       await page.waitForFunction(()=>!document.querySelector('#draftSection').hidden);
+      assert.doesNotMatch(await page.locator('#status').textContent(),/状態を確認しています/);
       await checkLayout(page);
       await page.screenshot({path:resolve(evidence,`${surface}-${width}-long-draft.png`)});
     }
@@ -217,7 +226,7 @@ test('sidepanel follows the actual inner scroller, preserves reading position an
   await page.close();
 }));
 
-async function recordingHarness(surface, initialState = {}, {draftsFail = false, imagesFail = false, statusFailsAfterStart = false} = {}) {
+async function recordingHarness(surface, initialState = {}, {draftsFail = false, imagesFail = false, statusFailsAfterStart = false, initialDrafts = []} = {}) {
   const vm = await import('node:vm');
   const source = (await readFile(resolve(root, surface, `${surface}.js`), 'utf8')).replace(/^import .*;\r?\n/gm, '');
   const elements = new Map();
@@ -245,7 +254,7 @@ async function recordingHarness(surface, initialState = {}, {draftsFail = false,
     requestAnimationFrame:callback=>callback(),
     setTimeout:()=>1,clearTimeout(){},
     window:{innerHeight:720,scrollY:0,addEventListener(){},matchMedia:()=>({matches:true}),scrollTo(){},scrollBy(){},close(){}},
-    draftStore:{list:async()=>{if(draftsFail) throw Error('SYNTHETIC_LIST_FAILURE');return [];}},captureLiveStore:{list:async()=>{if(imagesFail) throw Error('SYNTHETIC_IMAGE_LIST_FAILURE');return []; }},
+    draftStore:{list:async()=>{if(draftsFail) throw Error('SYNTHETIC_LIST_FAILURE');return initialDrafts;}},captureLiveStore:{list:async()=>{if(imagesFail) throw Error('SYNTHETIC_IMAGE_LIST_FAILURE');return []; }},
     chrome:{
       runtime:{getURL:path=>`chrome-extension://synthetic/${path}`,sendMessage:async message=>{
         messages.push(message.type);
@@ -337,6 +346,8 @@ test('sidepanel separates capture state from local-list read failures and automa
   await page.evaluate(()=>{fixture.draftsFailure=false;fixture.imagesFailure=true;fixture.setState('recording',2);});
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('画像を読み込めません'));
   assert.equal(await page.locator('#finish').isDisabled(),false);
+  assert.doesNotMatch(await page.locator('#liveSteps').textContent(),/保存できませんでした|取得できませんでした/);
+  assert.match(await page.locator('#liveImageSummary').textContent(),/読み込めず 2/);
   await page.screenshot({path:resolve(evidence,'sidepanel-recording-image-list-unavailable.png')});
   await page.evaluate(()=>{fixture.imagesFailure=false;});
   await page.waitForFunction(()=>document.querySelectorAll('.step-card img').length===2);
@@ -359,4 +370,32 @@ test('unit: sidepanel paused and cancel recovery copy never instructs the user t
     assert.equal(view.elements.get('#liveCurrentStatus').textContent,'手順はまだありません');
     assert.doesNotMatch(view.elements.get('#liveDescription').textContent,/操作を続ける|操作すると/);
   }
+});
+
+
+test('unit: sidepanel distinguishes a temporary image-list read error from missing persisted bytes',async()=>{
+  const vm=await import('node:vm');
+  const source=await readFile(resolve(root,'sidepanel/sidepanel.js'),'utf8');
+  const context={failedDisplayImages:new Set(),liveImagesUnavailable:true};
+  vm.runInNewContext(source.slice(source.indexOf('function imageStateFor('),source.indexOf('function updateLiveLatestVisibility('))+'\nglobalThis.state=imageStateFor;globalThis.label=imageStatusFor;globalThis.summary=imageSummaryFor;',context);
+  const event={eventId:'synthetic-event'};
+  const refs=[{eventId:event.eventId,status:'ready',version:1}];
+  assert.equal(context.state(event,[],refs).status,'read_failed');
+  assert.equal(context.label(event,[],refs),'画像を読み込めませんでした');
+  assert.match(context.summary([event],[],refs),/読み込めず 1/);
+  context.liveImagesUnavailable=false;
+  assert.equal(context.state(event,[],refs).reason,'storage_failed','a successful read with missing persisted bytes retains the original failure boundary');
+});
+
+
+test('unit: sidepanel clears the loading message when a saved draft is ready',async()=>{
+  const view=await recordingHarness('sidepanel',{}, {initialDrafts:[{id:'synthetic-draft',title:'保存済みの手順書',steps:[]}]});
+  assert.equal(view.elements.get('#draftSection').hidden,false);
+  assert.equal(view.elements.get('#status').textContent,'');
+});
+
+test('unit: sidepanel failed finish only offers the available retry action in its guidance',async()=>{
+  const view=await recordingHarness('sidepanel',{phase:'finish_failed'});
+  assert.doesNotMatch(view.elements.get('#liveDescription').textContent,/再開/);
+  assert.match(view.elements.get('#liveDescription').textContent,/終了をもう一度/);
 });

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-6ffd2d22d672ee42";
+export const APP_ASSET_VERSION = "sha256-8783cdac79c851fd";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -976,8 +976,10 @@ a.nav-item:hover {
 }
 /* Shared product identity: calm surfaces and predictable, readable controls. */
 :root{--bg:#f4f7f8;--surface-strong:#eef4f5;--border:#d7e2e5;--text:#183039;--muted:#526671;--primary:#087f7a;--primary-strong:#075e5b;--shadow:0 8px 28px #1830390c}
-.logo-mark{background:#087f7a;box-shadow:none;border-radius:10px}.logo-mark::after{display:none}.login-intro{background:#eef6f6;color:#183039;border-right:1px solid #d7e2e5}.login-copy .eyebrow{color:#087f7a;font-size:14px;letter-spacing:.035em}.login-copy h1{font-size:clamp(32px,4vw,48px);line-height:1.45;letter-spacing:-.035em}.login-copy p:last-child{color:#526671;font-size:17px}.login-panel{padding:clamp(28px,4vw,52px)}.panel-heading h2{font-size:26px;line-height:1.5;letter-spacing:-.025em}.primary-button,.secondary-button{border-radius:8px}.boot{line-height:1.75}.boot h1{font-size:clamp(26px,4vw,34px);line-height:1.45}.boot p{max-width:52ch}.topbar h1{letter-spacing:-.025em}.member-actions button,.member-header-actions button{min-height:44px}
+.logo-mark{background:#087f7a;box-shadow:none;border-radius:10px}.logo-mark::after{display:none}.login-intro{background:#eef6f6;color:#183039;border-right:1px solid #d7e2e5}.login-copy .eyebrow{color:#087f7a;font-size:14px;letter-spacing:.035em}.login-copy h1{font-size:clamp(32px,4vw,48px);line-height:1.45;letter-spacing:-.035em}.login-copy p:last-child{color:#526671;font-size:17px}.login-panel{padding:clamp(28px,4vw,52px)}.panel-heading h2{font-size:26px;line-height:1.5;letter-spacing:-.025em}.primary-button,.secondary-button{border-radius:8px}.boot{line-height:1.75;padding:32px 24px;min-width:0}.boot>*{min-width:0}.boot>.primary-button{width:100%;max-width:320px;justify-self:center}.boot h1{font-size:clamp(26px,4vw,34px);line-height:1.45}.boot p{max-width:52ch}.topbar h1{letter-spacing:-.025em}.member-actions button,.member-header-actions button{min-height:44px}
 @media(max-width:760px){.login-intro{padding:32px 24px;border-right:0;border-bottom:1px solid #d7e2e5}.login-copy h1{font-size:30px}.login-copy p:last-child{font-size:16px}.login-panel{padding:28px 24px}.login-copy .logo-mark{width:44px;height:44px;margin-bottom:16px}}
+
+@media(max-width:900px){.sidebar{gap:12px;padding:16px}.sidebar .brand .logo-mark{width:32px;height:32px}.sidebar .brand{font-size:14px;gap:10px}.sidebar .brand .logo-mark span{font-size:19px}.sidebar .nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.sidebar .nav-item{font-size:13px;min-height:44px;padding:0 8px}.sidebar .user-box{display:flex;align-items:center;gap:12px;font-size:12px}.sidebar .user-box>span{flex:1;min-width:0}.sidebar .user-box>button{flex:none;min-height:44px;padding:8px 12px;font-size:12px}}
 
 `;
 

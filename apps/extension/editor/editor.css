@@ -11,6 +11,7 @@
 
 body:has(.image-editor-dialog[open]) .mobile-actions{display:none!important}#cloudSaveState{font-size:.72rem;white-space:nowrap;max-width:145px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 
+@media(max-width:768px){.editor-header:has(#retrySave:not([hidden])){display:grid;grid-template-columns:minmax(0,1fr) auto}.editor-header:has(#retrySave:not([hidden])) .header-fields,.editor-header:has(#retrySave:not([hidden])) .header-actions{grid-column:1/-1;width:100%}.editor-header:has(#retrySave:not([hidden])) .header-actions{justify-content:space-between}.editor-header:has(#retrySave:not([hidden])) .save-feedback{max-width:none;justify-items:start}.editor-header:has(#retrySave:not([hidden])) .save-state{white-space:nowrap}}
 /* A calm, consistent reading surface, with clear save and step hierarchy. */
 :root{font-size:16px;--border:#d7e2e5;--muted:#526671}
 .editor-header{height:auto;min-height:72px;box-shadow:0 1px 0 #18303904}.brand-mark{width:36px;height:36px}.header-fields{gap:14px}
@@ -44,4 +45,4 @@ button.secondary,input,textarea,.tool-grid button,.selection-group button{border
 
 @media(max-width:760px){.image-editor-actions{flex-wrap:wrap}.image-editor-actions>span{display:block;flex-basis:100%;margin:0;font-size:.78rem}}
 
-@media(max-width:760px){.image-editor-dialog .image-editor-form>header{position:sticky;top:0;z-index:4;background:#fff;border-bottom:1px solid #d7e2e5}}
+@media(max-width:760px){.image-editor-dialog[open]{height:100%;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-form{height:100%;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-form>header{position:static;min-height:58px;padding:8px 12px;background:#fff;border-bottom:1px solid #d7e2e5}.image-editor-dialog .image-editor-workspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(140px,30dvh) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-canvas-wrap{display:flex;flex-direction:column;align-items:center;min-height:0;overflow:auto;padding:10px}.image-editor-dialog #imageEditorCanvas{width:auto;height:auto;min-height:0;max-width:100%;max-height:calc(100% - 24px);flex:none;object-fit:contain}.image-editor-dialog .image-editor-canvas-wrap>.editor-help{flex:none;font-size:12px;margin:2px 0}.image-editor-dialog .image-editor-tools{min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column}.image-editor-dialog .image-editor-actions{position:static;padding:8px 12px;min-height:64px;flex:none}}

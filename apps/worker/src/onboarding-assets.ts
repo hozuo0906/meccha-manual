@@ -3,6 +3,8 @@ export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-a
 body{background:#f2f6f7;color:#183039}main{border:1px solid #d7e2e5;border-top:4px solid #087f7a;border-radius:12px;box-shadow:0 8px 32px #18303909}.brand{margin-bottom:32px;font-size:14px}.brand img{width:36px;height:36px}.eyebrow{font-size:13px;letter-spacing:.04em}h1{font-size:clamp(26px,4vw,34px);line-height:1.4}.intro{font-size:16px;line-height:1.75}.prep{background:transparent;padding:0;border:0;gap:14px}.prep img{width:48px;height:48px;flex-basis:48px}.prep p{font-size:14px;font-weight:600}.flow{gap:8px}.step{background:#f3f7f7;border-radius:8px;font-size:14px;line-height:1.5;padding:12px}.step-number{border-radius:7px;font-variant-numeric:tabular-nums}.boundary{font-size:14px;line-height:1.75}.notice{border-radius:8px;font-size:15px;line-height:1.75}.status-label{font-size:13px}.action-note{font-size:13px;line-height:1.65}button{font:600 16px/1.5 system-ui;border-radius:8px}.actions{gap:12px}.actions>div{width:100%}.actions .notice{margin-bottom:0}@media(max-width:560px){main{border-radius:10px;padding:24px 20px}.brand{margin-bottom:24px}.flow{grid-template-columns:1fr}.step{min-height:44px}.prep{margin-bottom:20px}}
 
 .recovery-guide{padding:20px 0 4px;border-top:1px solid #d7e2e5;line-height:1.75}.recovery-guide h2{font-size:18px;margin:0 0 12px}.recovery-guide ol{margin:0;padding-left:24px;display:grid;gap:12px;font-size:14px;color:#476263}
+
+.notice.warning{background:#fff8e8;border-color:#ddc48c;color:#6b4f00}.onboarding-retry{background:#fff;color:#183039;border:1px solid #789099}.onboarding-retry:hover{background:#edf4f4}
 `;
 
 export const ONBOARDING_JS = `(() => {
@@ -615,7 +617,7 @@ export const ONBOARDING_JS = `(() => {
   }
   for (const image of document.querySelectorAll?.(".brand img,.prep img") || []) { image.addEventListener("error", () => { image.hidden = true; }); if(image.complete && image.naturalWidth === 0) image.hidden = true; }
   const terminalCapturedContext = hasFragment ? initializeCapturedContext() : initializeActiveContext();
-  if (!configured) { message("保存先の準備画面は現在利用できません。元の手順書はこの端末に残っています。"); setButton("保存先は準備中", true); }
+  if (!configured) { message("保存先の準備画面は現在利用できません。保存や共有は開始していません。編集中の下書きがある場合は、そのタブで作業を続けられます。", "warning"); setButton("保存を開始できません", true);const retry=document.createElement("button");retry.type="button";retry.className="onboarding-retry";retry.textContent="もう一度確認する";retry.addEventListener("click",()=>location.reload());button.insertAdjacentElement("afterend",retry); }
   else if (hasTerminalExpiry(terminalCapturedContext)) showExpiredHandoff();
   else if (!getHandoff()) { message("保存を続けるための情報を確認できません。拡張機能の編集画面から、もう一度進んでください。", "error"); setButton("保存を続ける", true); }
   else {

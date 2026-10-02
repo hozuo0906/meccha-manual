@@ -57,3 +57,13 @@ TAPはPII33/33、alias1/1、semantic3/3、mask4/4、editor24/25、native sidepan
 独立pixelレビューは、保存失敗badgeの切断解消、端末17番のrail復帰、横画面headerの縮小、mobile画像操作の一列化を確認。一方、短い横画面の画像文字の縮小、reader rail復帰、popup長い下書きの横はみ出し、記録前エラーの位置、LP日本語の語尾孤立を未完として残す。第2候補で修正・再表示する。
 
 Legacy run `36978549673` ではreader12/12を確認し、4つの古いclaim runtime fixtureが失敗。2つの旧title selector、ADR-0038最終追補より前の注釈metadata/bitmap期待、参照stepのないtransfer画像を現契約へ同期する。mask境界、隠したcanaryのJSON非露出、全mask領域の不透明pixels、元draft保持とtransfer容量検証を維持・強化し、製品guardは変更しない。
+
+## 第2候補の実行と次の証拠
+
+PR head `ea40c22cd39ada399bbf816687410ccae2a1488e` とCI merge `7cb7f54ab92a9f7ce5a65a690af042ea60bb9ad8` は、Gitでtree `960294958d5399888866d785ade0222d10d7a88f` が一致した。公式Chrome run `36980797422`、artifact `11214689796`（ZIP SHA256 `7c1ddb143637e1d47a1f4f6d27dbc63d0ef61861313dc6145720f3ab32d37b65`）に146PNG、一般画面の49状態/幅レコードがある。これも146画面の合格ではない。
+
+PII33/33、alias1/1、semantic3/3、mask4/4、editor25/25、native sidepanel3/3、capture3/3、caption6/6。cloud/追加表示は46/47で、画像拡大dialogの遅延close eventが後続の共有ボタンfocusを奪う不具合が残った。Legacy run `36980797415` のclaim runtimeは7/7で、原文canary非露出・mask全領域・保存原本・容量のassertを通した。
+
+第3候補はfocus race、mobile画像の重なり、reader復帰見出し、空一覧の矛盾、閲覧専用案内、利用不能の状態色/再確認、mobile app navigation、保存失敗・404の語尾孤立を修正する。画像・見出し・設定・footerの非重複をgeometry assertionにする。full-pageとviewportの両PNG寸法、clientWidth/scrollWidthも記録し、scrollbarによる切断と製品overflowを混同しない。
+
+追加の `ui-quality-lab-browser` は同じ公式Chromeのheadless modeで、12画像の合成手順書、1440/390px、各3回のfresh context、local HTTP/CPU未throttle、ja-JP/Asia-Tokyo/reduced-motion条件を固定する。LCP/CLS/long taskはlab値、画像表示までの操作時間はautomation観測値であり、field p75やINPとは呼ばない。DOM/計算済みcontrast/keyboardはhuman screen reader試験と区別する。実A4 PDFを出し、全ページをrenderして別途目視する。field traffic/実SSOを要する項目は不在理由を明記し、内部UI品質の適用範囲と分離する。

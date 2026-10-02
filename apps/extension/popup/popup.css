@@ -45,6 +45,7 @@ button[aria-busy="true"] { opacity: 1; background: var(--accent-dark); color: #f
 .privacy-note { margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
 .privacy-label { display: block; margin-bottom: 4px; color: #183039; font-size: 13px; font-weight: 750; }
 #draftSection { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+#draftSection[data-recovery="true"] { margin-top: 12px; padding-top: 12px; }
 #openDraft { margin-top: 8px; }
 @media (max-width: 319px) { main { padding: 16px; } .recording-setup { padding: 14px; } h1 { font-size: 23px; } }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }

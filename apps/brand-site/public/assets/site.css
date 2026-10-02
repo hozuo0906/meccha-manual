@@ -113,3 +113,5 @@ nav a { min-height: 44px; display: inline-flex; align-items: center; color: #344
 /* Keep Japanese phrases intact instead of stranding a final syllable. */
 .hero-brand h1{font-size:clamp(44px,5.3vw,72px);line-height:1.38;letter-spacing:-.04em}.hero-brand h1 span{display:block;white-space:nowrap}.hero-brand{column-gap:clamp(32px,5vw,72px)}
 @media(max-width:760px){.hero-brand h1{font-size:clamp(36px,9.4vw,62px);line-height:1.4}.hero-brand h1 span:nth-child(2){display:inline}.hero-brand h1 span:last-child{display:block}}
+
+.not-found h1{font-size:clamp(28px,5.4vw,48px);line-height:1.5;text-wrap:balance}.not-found{padding:32px 0}.section-heading h2,.final-cta h2{text-wrap:balance}

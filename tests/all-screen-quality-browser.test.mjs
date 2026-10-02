@@ -17,9 +17,10 @@ const records=[];
 async function checkpoint(page,id,kind='screen'){
   await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.evaluate(()=>[...document.images].filter(image=>image.getBoundingClientRect().width>0).every(image=>image.complete && image.naturalWidth>0)),true,`${id} includes its real brand imagery`);
-  await page.screenshot({path:`${directory}/${id}.png`,fullPage:true});
-  const metrics=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth+1,viewport:{width:innerWidth,height:innerHeight},language:document.documentElement.lang,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches}));
-  records.push({id,kind,...metrics,candidateCommit:process.env.GITHUB_SHA||null,fixture:'synthetic-API-source-render',screenshot:`${id}.png`});
+  const full=await page.screenshot({path:`${directory}/${id}.png`,fullPage:true});
+  const viewportShot=await page.screenshot({path:`${directory}/${id}-viewport.png`});
+  const metrics=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>document.documentElement.clientWidth+1,documentWidth:document.documentElement.clientWidth,scrollWidth:document.documentElement.scrollWidth,bodyWidth:document.body.getBoundingClientRect().width,viewport:{width:innerWidth,height:innerHeight},language:document.documentElement.lang,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches}));
+  records.push({id,kind,...metrics,pngDimensions:{fullPage:{width:full.readUInt32BE(16),height:full.readUInt32BE(20)},viewport:{width:viewportShot.readUInt32BE(16),height:viewportShot.readUInt32BE(20)}},candidateCommit:process.env.GITHUB_SHA||null,fixture:'synthetic-API-source-render',screenshot:`${id}.png`});
   await writeFile(`${directory}/inventory.json`,JSON.stringify(records,null,2)+'\n');
   assert.equal(metrics.overflow,false,`${id} has no horizontal page overflow`);
   assert.equal(metrics.language,'ja');
@@ -74,7 +75,7 @@ test('all-screen source render inventory covers public, library, authentication,
       for(const state of ['library','library-empty','library-error']){mode=state;await page.goto(origin+'/manuals');await page.waitForFunction(()=>!document.querySelector('#cloud-list').hasAttribute('aria-busy'));await checkpoint(page,state+'-'+width);}
       mode='library-loading';await page.goto(origin+'/manuals',{waitUntil:'domcontentloaded'});await page.locator('[aria-busy=true]').waitFor();await checkpoint(page,'library-loading-'+width);mode='library';release?.();await page.getByRole('button',{name:manual.title,exact:true}).waitFor();
       await page.getByRole('searchbox').fill('見つからない検索語');await page.getByText(/一致する手順書がありません/).waitFor();await checkpoint(page,'library-search-empty-'+width);await page.getByRole('searchbox').fill('');
-      await page.getByRole('button',{name:manual.title,exact:true}).click();await page.locator('.cloud-step').waitFor();assert.equal(await page.getByRole('button',{name:'変更を保存',exact:true}).isDisabled(),true);await checkpoint(page,'cloud-readonly-text-step-'+width);
+      await page.getByRole('button',{name:manual.title,exact:true}).click();await page.locator('.cloud-step').waitFor();assert.equal(await page.locator('[data-manual-save]').isDisabled(),true);assert.equal(await page.getByText('閲覧専用',{exact:true}).isVisible(),true);await checkpoint(page,'cloud-readonly-text-step-'+width);
       for(const state of ['setup-unavailable','setup-invalid']){mode=state;await page.goto(origin+'/onboarding/continue');await page.locator('#bootstrap:disabled').waitFor();await checkpoint(page,state+'-'+width);}
       await page.goto(origin+'/s/');await page.getByText(/共有リンク/).first().waitFor();await checkpoint(page,'reader-link-missing-'+width);
       await page.goto(origin+'/s/#token='+'T'.repeat(43));await page.locator('#share-auth:not([hidden])').waitFor();await checkpoint(page,'reader-passcode-'+width);await page.getByRole('button',{name:'手順書を表示'}).click();await checkpoint(page,'reader-passcode-validation-'+width);

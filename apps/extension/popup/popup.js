@@ -15,6 +15,13 @@ let currentCaptureState = {};
 let operationInFlight = false;
 let captureStateAvailable = false;
 
+function syncDraftRecoveryPlacement(recovery = false) {
+  const promote = recovery && !draftSection.hidden;
+  draftSection.setAttribute?.("data-recovery", String(promote));
+  if (promote && draftSection.previousElementSibling !== status) status.insertAdjacentElement?.("afterend", draftSection);
+  else if (!promote && draftSection.previousElementSibling === status) document.querySelector("main")?.append?.(draftSection);
+}
+
 function syncControlAvailability() {
   const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(currentCaptureState.phase);
   mode.disabled = operationInFlight || active || Boolean(currentCaptureState.restorePending) || currentCaptureState.phase === "starting";
@@ -53,6 +60,7 @@ async function send(message) {
 function renderCaptureState(state = {}) {
   currentCaptureState = state;
   captureStateAvailable = true;
+  syncDraftRecoveryPlacement();
   const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase);
   const waitingForRestore = Boolean(state.restorePending || state.phase === "starting");
   const phase = waitingForRestore ? "restore_pending" : state.phase || "idle";
@@ -193,7 +201,9 @@ finish.addEventListener("click", () => withBusy(finish, "記録を保存して�
   } else if (editorOpenError) {
     recordingState.textContent = "編集待ち";
     recordingState.setAttribute?.("data-phase", "editor_failed");
+    if ([...(recentDraft.options || [])].some((option) => option.value === draftId)) recentDraft.value = draftId;
     status.textContent = savedDraftOpenMessage(draftsState);
+    syncDraftRecoveryPlacement(true);
   } else {
     window.close();
   }

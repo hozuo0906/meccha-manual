@@ -1930,6 +1930,7 @@ test("20-step image-first editor keeps selection, undo, image color and responsi
       await page.locator("[data-editor-color]").evaluate((node) => { node.value = "#df4a36"; node.dispatchEvent(new Event("input", { bubbles: true })); });
       await mkdir(".artifacts/unified-editor", { recursive: true });
       if(width>768){const footer=await page.locator(".image-editor-actions").boundingBox(),statusBar=await page.locator("#status").boundingBox();assert.ok(footer.y+footer.height<=statusBar.y+1,"Apply/Cancel remains above the status bar");}
+      if(width===390){const header=await page.locator('.image-editor-form>header').boundingBox(),canvas=await page.locator('#imageEditorCanvas').boundingBox(),tools=await page.locator('.image-editor-tools').boundingBox();assert.ok(canvas.y>=header.y+header.height-1,"画像は編集見出しに隠れない");assert.ok(canvas.y+canvas.height<=tools.y+1,"画像と設定が重ならない");}
       await page.screenshot({ path: `.artifacts/unified-editor/inline-tools-${width}.png` });
       await page.locator("[data-editor-save]").click();
       await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
