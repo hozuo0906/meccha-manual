@@ -58,7 +58,9 @@ jobs:
       - name: Test saved editor and sharing with synthetic data
         id: cloud
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 10m xvfb-run -a node --experimental-strip-types --test --test-reporter=tap --test-concurrency=1 tests/cloud-manual-ui-browser.test.mjs tests/cloud-manual-sharing-ui.test.mjs tests/cloud-manual-sharing-failure-browser.test.mjs tests/cloud-manual-uiux-browser.test.mjs tests/share-viewer-browser.test.mjs tests/cloud-manual-tools-browser.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs
+        run: timeout --signal=TERM --kill-after=10s 10m xvfb-run -a node --experimental-strip-types --test --test-reporter=tap --test-concurrency=1 tests/cloud-manual-ui-browser.test.mjs tests/cloud-manual-sharing-ui.test.mjs tests/cloud-manual-sharing-failure-browser.test.mjs tests/cloud-manual-uiux-browser.test.mjs tests/share-viewer-browser.test.mjs tests/cloud-manual-tools-browser.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs tests/all-screen-quality-browser.test.mjs tests/extension-recording-quality-browser.test.mjs tests/ui-quality-lab-browser.test.mjs
+        env:
+          MECCHA_RECORDING_QUALITY_SCREENSHOTS: .artifacts/all-screen-quality/after/recording
       - name: Preserve synthetic UI evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,6 +72,7 @@ jobs:
             .artifacts/unified-editor/
             .artifacts/experience-repair/*.png
             .artifacts/capture-completion/
+            .artifacts/all-screen-quality/after/
           if-no-files-found: warn
           retention-days: 14
       - name: Require every browser and recording check

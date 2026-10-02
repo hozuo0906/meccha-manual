@@ -42,3 +42,31 @@ Date: 2026-10-01
 - [Emil Kowalski design engineering](https://github.com/emilkowalski/skills): 頻繁な操作は即時に、文脈に合う道具、状態・フォーカス・動きの配慮
 
 参考資料の採用や自動検査の件数だけを品質点として扱わない。
+
+## 2026-10-02 全画面の上位品質基準
+
+今回の全画面改善では旧80点基準を合格判定に使わず、以下を固定する。受賞を保証する基準でも、審査団体の公式採点でもない。
+
+| 観点 | 配点 |
+|---|---:|
+| 視覚階層・文字・製品らしさ | 25 |
+| 日本語・現在地・次の行動 | 15 |
+| 主要作業の速さと操作保持 | 20 |
+| アクセシビリティ | 15 |
+| 画面幅・適用する全状態 | 10 |
+| 目的に合う動き | 5 |
+| 性能・信頼性 | 10 |
+
+各軸を0〜5で採点し、配点×軸点/5を合計する。0は未成立、1は重大な摩擦、2は部分成立、3は機能するが不統一、4は実証された洗練、5は独自性と独立証拠のある高品質。未測定は未確認とし、推定5点を与えない。全画面それぞれ90点以上、全軸4点以上、必須状態の未確認ゼロ、必須安全条件の全成立が合格条件。平均値で弱い画面を相殺しない。
+
+プライバシー条件は元の個人情報・秘密値・原文対応が漏れないこと。意味のある架空氏名・住所等への置換表示は製品価値として維持し、全面白紙や無意味な画像へ退行させない。画像の正確な手順対応、保存→reload→再編集の全項目維持、失敗時の原本保持、キーボード完遂、阻害的runtime errorゼロを点数とは独立に必須とする。
+
+文字4.5:1（大文字3:1）、操作境界3:1、隠れないfocus、touch44px目標、dragのキー代替を検証する。LCP2.5秒/INP200ms/CLS0.1はfield p75の目標であり、field data不在のlab測定から達成を主張しない。motionは120〜180msを基本とし、reduced motionでは不要な移動を止める。
+
+状態の全体は [全画面品質台帳](all-screen-quality-matrix.md) を参照する。AwwwardsのDesign/Usability/Creativity/Content、Webbyの実機能・navigation・accessibility・総合体験、FWAの創造性を参考にするが、受賞可能性の数値へ換算しない。
+
+- [Awwwards evaluation](https://www.awwwards.com/about-evaluation/)
+- [Webby judging criteria](https://www.webbyawards.com/judging-criteria/)
+- [FWA](https://thefwa.com/about/about-fwa/)
+- [WCAG 2.2](https://www.w3.org/TR/WCAG22/)
+- [Web Vitals](https://web.dev/articles/vitals)

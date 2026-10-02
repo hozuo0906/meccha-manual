@@ -561,3 +561,12 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 ### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
 
 同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
+
+### DEC-091: 全画面の独立品質基準と回復表示
+
+- Status: Accepted
+- Date: 2026-10-02
+- Decision: 全画面改善は画面×状態×幅×主要操作の台帳で評価する。旧狭域80点レビューを全画面合格へ流用せず、各画面90/100・各軸4/5・未確認ゼロと必須安全条件を固定する。awardの受賞保証や公式採点は主張しない。
+- Decision: 目次だけの選択位置復帰、可変高さの保存状態、期限切れから原本へ戻る構造化案内、読込失敗の明示的再試行で、状態ごとに次の行動を保つ。空の原本を作って読込失敗を隠さない。
+- Boundary: 元の個人情報保護、架空値置換、クリック対象と画像の対応、保存/claim/共有の契約、実SSO、remoteDB、production、追加機能は変更しない。ローカルbrowser制限を迂回しない。
+- Verification: [全画面品質台帳](../02-ux/all-screen-quality-matrix.md)。合成UI/APIとnative MV3、labとfield、画面previewとPDFを分け、最新SHAの実証でのみ受入する。

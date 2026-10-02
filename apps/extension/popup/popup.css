@@ -1,1 +1,52 @@
-:root{font-family:system-ui,sans-serif;color:#17202a;background:#fff}body{margin:0;width:340px}main{padding:20px}h1{font-size:20px;margin:0 0 12px}.note{font-size:13px;line-height:1.6;background:#f2f6ff;padding:10px;border-radius:8px}label{display:block;font-weight:700;margin:16px 0 6px}select,button{box-sizing:border-box;width:100%;min-height:44px;border-radius:8px;font:inherit}select{padding:8px;border:1px solid #8993a4}button{margin-top:12px;border:0;background:#175cd3;color:#fff;font-weight:700;cursor:pointer}.secondary{background:#137a55}.link{background:transparent;color:#344054;border:1px solid #98a2b3}#status{font-size:13px;line-height:1.5}
+:root {
+  color-scheme: light;
+  font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #183039;
+  background: #f2f6f7;
+  --accent: #087f7a;
+  --accent-dark: #06645f;
+  --muted: #526671;
+  --line: #d7e2e5;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; width: 360px; max-width: 100%; }
+main { padding: 20px; }
+.brand-header { display: flex; align-items: center; gap: 8px; padding-bottom: 20px; }
+.brand-mark { width: 27px; height: 27px; object-fit: contain; }
+.brand-name { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: -.025em; }
+.local-badge { margin-left: auto; color: var(--muted); font-size: 11px; }
+.title-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+h1 { margin: 0; font-size: 25px; letter-spacing: -.04em; line-height: 1.4; }
+.intro-copy { margin: 7px 0 24px; color: var(--muted); }
+.recording-state { flex-shrink: 0; border: 1px solid var(--line); border-radius: 20px; background: #fff; color: var(--muted); padding: 4px 9px; font-size: 12px; font-weight: 750; }
+.recording-state[data-phase="recording"] { background: #e4f4ef; color: #075a53; border-color: #91c8bc; }
+.recording-state[data-phase="recording"]::before { content: ""; display: inline-block; height: 7px; width: 7px; background: currentColor; border-radius: 50%; margin-right: 5px; }
+.recording-state[data-phase="paused"], .recording-state[data-phase$="failed"], .recording-state[data-phase="restore_pending"] { color: #7c4b09; background: #fff3d9; border-color: #dab87c; }
+.recording-setup { padding: 18px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+label { display: block; font-weight: 750; margin-bottom: 8px; }
+select, button { width: 100%; min-height: 44px; border-radius: 8px; font: inherit; }
+select { padding: 10px; color: #183039; background: #fff; border: 1px solid #789099; text-overflow: ellipsis; }
+.note { margin: 10px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.action-stack { display: grid; gap: 8px; }
+button { padding: 11px 12px; border: 1px solid transparent; background: var(--accent); color: #fff; font-weight: 750; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+button:hover:not(:disabled) { background: var(--accent-dark); }
+button.secondary { background: #fff; color: var(--accent-dark); border-color: #789099; }
+button.secondary:hover:not(:disabled) { background: #eaf4f2; border-color: var(--accent); }
+button.link { background: transparent; color: var(--muted); }
+button.link:hover:not(:disabled) { background: #edf2f3; }
+button:disabled, select:disabled { cursor: default; opacity: .6; }
+button[aria-busy="true"] { opacity: 1; background: var(--accent-dark); color: #fff; }
+:focus-visible { outline: 3px solid #155dd1; outline-offset: 3px; }
+#status { margin: 14px 0; padding: 12px; border-left: 3px solid var(--accent); background: #fff; overflow-wrap: anywhere; }
+#status:empty { display: none; }
+.privacy-note { margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.privacy-label { display: block; margin-bottom: 4px; color: #183039; font-size: 13px; font-weight: 750; }
+#draftSection { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+#draftSection[data-recovery="true"] { margin-top: 12px; padding-top: 12px; }
+#openDraft { margin-top: 8px; }
+@media (max-width: 319px) { main { padding: 16px; } .recording-setup { padding: 14px; } h1 { font-size: 23px; } }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+@media (forced-colors: active) { button { border-color: ButtonText; } .recording-state { border-color: CanvasText; } }

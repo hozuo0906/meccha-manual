@@ -328,6 +328,8 @@ for (const width of [1366, 1024, 390]) {
       await other.close(); state.contentDelayMs = 0;
       await page.waitForFunction(() => !document.querySelector('.reader-print').disabled);
       await mkdir('.artifacts/uiux-20261001/screens', { recursive: true });
+      assert.ok(await page.locator('#reader-step-17 h3').evaluate(heading=>heading.getBoundingClientRect().top>=document.querySelector('.reader-navigation').getBoundingClientRect().bottom+8),'restored step heading is fully below the sticky navigation');
+      if(width>760)assert.ok(await page.locator('.reader-toc a[aria-current=step]').evaluate(link=>{const row=link.getBoundingClientRect(),toc=link.closest('.reader-toc').getBoundingClientRect();return row.top>=toc.top&&row.bottom<=toc.bottom;}),'restored reader position is visible in its own rail');
       await page.screenshot({ path: `.artifacts/uiux-20261001/screens/reader-resume-${width}.png` });
 
       const countBeforeReload = state.contentGrants.length;
