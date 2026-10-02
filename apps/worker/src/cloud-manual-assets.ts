@@ -27,8 +27,12 @@ export const CLOUD_MANUAL_CSS = `:root{color-scheme:light;font-family:system-ui,
 
 @media(max-width:760px) and (max-height:560px){
 .is-editing>.cloud-message:not(.error):not(.warning){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0;border:0}
-.manual-toolbar{display:flex;min-height:60px;padding:8px 12px;gap:8px}.manual-toolbar .manual-back{flex:0 0 44px}.manual-toolbar .manual-title{flex:1;min-width:0;width:auto}.manual-toolbar .cloud-save-state{font-size:12px;max-width:90px;white-space:normal;flex:0 1 auto}.manual-toolbar [data-manual-save]{flex:none}.manual-description{padding:2px 16px}.manual-description summary{min-height:24px;padding:0}.manual-step-center{padding:12px 16px}.manual-step-heading{margin-bottom:10px}.manual-step-center .cloud-step-image-card{min-height:0;margin-bottom:14px}.manual-step-center .cloud-step-image-card img{max-height:34dvh}.manual-mobile-actions{min-height:52px;padding:4px 12px}.manual-mobile-actions button{min-height:44px}
+.manual-toolbar{display:flex;min-height:60px;padding:8px 12px;gap:8px}.manual-toolbar .manual-back{flex:0 0 44px}.manual-toolbar .manual-title{flex:1;min-width:0;width:auto}.manual-toolbar .cloud-save-state{font-size:12px;max-width:90px;white-space:normal;flex:0 1 auto}.manual-toolbar [data-manual-save]{flex:none}.manual-description{padding:2px 16px}.manual-description summary{min-height:24px;padding:0}.manual-step-center{padding:12px 16px}.manual-step-heading{margin-bottom:10px}.manual-step-center .cloud-step-image-card{min-height:0;margin-bottom:14px}.manual-step-center .cloud-step-image-card img{max-height:none}.manual-mobile-actions{min-height:52px;padding:4px 12px}.manual-mobile-actions button{min-height:44px}
 }
+
+.cloud-image-expand{align-self:flex-end;margin:8px 12px;font-size:13px;min-height:44px}.cloud-image-inspection{box-sizing:border-box;width:min(1280px,calc(100vw - 24px));height:calc(100dvh - 24px);max-width:none;max-height:none;padding:20px;border:1px solid #789099;border-radius:10px;background:#fff;color:#183039}.cloud-image-inspection[open]{display:flex;flex-direction:column;gap:12px}.cloud-image-inspection::backdrop{background:#10252bbf}.cloud-image-inspection h2{font-size:18px;margin:0}.cloud-inspection-tools{display:flex;gap:8px;flex:none}.cloud-inspection-tools>button:last-child{margin-left:auto}.cloud-inspection-tools [aria-pressed=true]{background:#e7f4f2;border-color:#087f7a}.cloud-inspection-stage{min-height:0;flex:1;overflow:auto;background:#edf1f2;overscroll-behavior:contain}.cloud-inspection-stage>img{display:block!important;max-width:none!important;max-height:none!important;width:auto!important;height:auto!important;margin:0!important;border:0!important;border-radius:0!important}.cloud-inspection-stage[data-fit=true]{display:flex;align-items:center;justify-content:center}.cloud-inspection-stage[data-fit=true]>img{max-width:100%!important;max-height:100%!important;object-fit:contain;width:auto!important;height:auto!important}@media(max-width:560px){.cloud-image-inspection{padding:12px}.cloud-inspection-tools button{font-size:13px;padding:8px}}
+
+.manual-share-drawer .share-feedback:empty{display:none}
 
 `;
 
@@ -98,10 +102,21 @@ export const CLOUD_MANUAL_JS = `(() => {
     const status = make("p", "画像を読み込んでいます。", "cloud-image-status");
     const error = make("p", "画像を読み込めませんでした。", "cloud-image-error"); error.hidden = true;
     const retry = make("button", "画像をもう一度読み込む", "cloud-image-retry"); retry.type = "button"; retry.hidden = true;
+    const expand = make("button", "画像を拡大して確認", "secondary cloud-image-expand"); expand.type="button";expand.hidden=true;
+    const inspection=make("dialog","","cloud-image-inspection");inspection.setAttribute("aria-label","手順画像を拡大して確認");
+    const inspectionHeading=make("h2","手順 "+(index+1)+"の画像");const inspectionTools=make("div","","cloud-inspection-tools");
+    const fit=make("button","全体表示","secondary"),actual=make("button","原寸表示","secondary"),close=make("button","閉じる","secondary");
+    for(const control of [fit,actual,close])control.type="button";
+    const stage=make("div","","cloud-inspection-stage");stage.tabIndex=0;stage.setAttribute("aria-label","拡大画像。矢印キーでスクロールできます");const preview=make("img");preview.alt=image.alt;stage.append(preview);
+    const setFit=value=>{stage.dataset.fit=String(value);fit.setAttribute("aria-pressed",String(value));actual.setAttribute("aria-pressed",String(!value));stage.scrollTop=0;stage.scrollLeft=0;};
+    fit.addEventListener("click",()=>setFit(true));actual.addEventListener("click",()=>setFit(false));close.addEventListener("click",()=>inspection.close());
+    inspection.addEventListener("close",()=>{preview.removeAttribute("src");if(expand.isConnected)expand.focus({preventScroll:true});});
+    inspectionTools.append(fit,actual,close);inspection.append(inspectionHeading,inspectionTools,stage);
+    expand.addEventListener("click",()=>{if(image.hidden||!image.complete||!image.naturalWidth)return;preview.src=image.currentSrc;setFit(true);inspection.showModal();close.focus();});
     const sourceUrl = imageUrl;
     let composited = false;
     const loadImage = () => {
-      composited = false; image.hidden = true; status.hidden = false; error.hidden = true; retry.hidden = true;
+      composited = false; image.hidden = true; expand.hidden=true; status.hidden = false; error.hidden = true; retry.hidden = true;
       image.src = sourceUrl + (sourceUrl.includes("?") ? "&" : "?") + "retry=" + Date.now();
     };
     image.loading = "eager"; image.hidden = true;
@@ -110,11 +125,11 @@ export const CLOUD_MANUAL_JS = `(() => {
         try { const canvas=document.createElement("canvas");canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;imageTools().drawScreenshot(canvas.getContext("2d"),image,{annotations,masks:[]});composited=true;image.src=canvas.toDataURL("image/png");return; }
         catch { status.hidden=true;error.hidden=false;retry.hidden=false;image.hidden=true;return; }
       }
-      status.hidden = true; error.hidden = true; retry.hidden = true; image.hidden = false;
+      status.hidden = true; error.hidden = true; retry.hidden = true; image.hidden = false; expand.hidden=false;
     });
     image.addEventListener("error", () => { status.hidden = true; error.hidden = false; retry.hidden = false; image.hidden = true; });
     retry.addEventListener("click", loadImage);
-    card.append(status, error, retry, image); parent.append(card);
+    card.append(status, error, retry, image, expand, inspection); parent.append(card);
     image.src = imageUrl;
   }
   function markChanged() { dirty = true; editVersion += 1; if (saveState) { saveState.textContent = "クラウドに未保存"; saveState.dataset.state = "dirty"; } }

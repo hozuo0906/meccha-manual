@@ -14,10 +14,15 @@ async function captureEditorEvidence(page, name, observations = {}) {
   const directory = ".artifacts/unified-editor";
   await mkdir(directory, { recursive: true });
   await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+  const fontEvidence=[]; const session=await page.context().newCDPSession(page);
+  try { await session.send("DOM.enable"); await session.send("CSS.enable");const {root}=await session.send("DOM.getDocument");
+    for(const selector of ["#title",".instruction-label textarea",".step-name"]){const {nodeId}=await session.send("DOM.querySelector",{nodeId:root.nodeId,selector});if(nodeId){const {fonts}=await session.send("CSS.getPlatformFontsForNode",{nodeId});fontEvidence.push({selector,computed:await page.locator(selector).first().evaluate(el=>({family:getComputedStyle(el).fontFamily,size:getComputedStyle(el).fontSize,weight:getComputedStyle(el).fontWeight})),fonts});}}
+  } finally {await session.detach();}
+
   await writeFile(`${directory}/${name}.json`, JSON.stringify({
     candidateCommit: process.env.GITHUB_SHA || null,
     fixture: "synthetic-local-editor", screenshot: `${name}.png`,
-    viewport: page.viewportSize(),
+    viewport: page.viewportSize(),fontEvidence,
     selectedStep: await page.evaluate(() => document.querySelector(".step-article")?.dataset.stepId || null),
     observations
   }, null, 2) + "\n");
@@ -356,6 +361,13 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({width, height:900});
+      assert.ok(await page.locator("#saveState").evaluate(node => { const box=node.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }), "保存失敗の状態が画面上端で切れない");
+      assert.ok(await page.locator("#retrySave").evaluate(node => { const box=node.getBoundingClientRect(), header=document.querySelector('.editor-header').getBoundingClientRect(); return box.top >= header.top && box.bottom <= header.bottom; }), "再試行はヘッダー内に収まる");
+      await captureEditorEvidence(page, "image-save-failed-" + width, { failure: "synthetic-IDB-write", stateFullyVisible:true });
+    }
+    await page.setViewportSize({width:1280,height:720});
     await captureEditorEvidence(page, "image-save-failed", { operation: "apply-image-text", failure: "synthetic-IDB-write", editorStillOpen: await page.locator("#imageEditorDialog").isVisible() });
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
@@ -1996,6 +2008,7 @@ test("restored step rail and unavailable draft recovery stay visible without wri
       if (width === 390) await page.locator("#openNavigation").click();
       assert.ok(await page.locator('#steps [aria-current="step"]').evaluate(node => { const row = node.getBoundingClientRect(), rail = document.querySelector('#steps').getBoundingClientRect(); return row.top >= rail.top && row.bottom <= rail.bottom; }), "復帰した手順17が目次内にも見える");
       await captureEditorEvidence(page, "restored-step-rail-" + width, { selectedStep: "step-17", railVisible: true });
+      await page.goto(baseUrl + "/seed.html");
       await page.goto(baseUrl + "/editor/editor.html#missing-quality-draft");
       await page.getByRole("heading", { name: "下書きが見つかりません", exact: true }).waitFor();
       assert.equal(await page.locator("#save").count(), 0); assert.equal(await page.getByRole("button", { name: "もう一度読み込む" }).isVisible(), true);

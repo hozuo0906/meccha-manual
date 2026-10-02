@@ -489,7 +489,8 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
           masks: [{ x: 0.25, y: 0.25, width: 0.25, height: 0.25 }],
           annotations: [
             { id: "annotation-rectangle", type: "rectangle", x: 0.05, y: 0.05, width: 0.15, height: 0.15, color: "#dc2626", strokeWidth: 4 },
-            { id: "annotation-text", type: "text", x: 0.5, y: 0.5, width: 0.2, height: 0.2, text: "A", color: "#087f7a", strokeWidth: 2, fontSize: 24 }
+            { id: "annotation-text", type: "text", x: 0.5, y: 0.5, width: 0.2, height: 0.2, text: "A", color: "#087f7a", strokeWidth: 2, fontSize: 24 },
+            { id: "annotation-private-text", type: "text", x: 0.27, y: 0.27, width: 0.19, height: 0.19, text: "SYNTHETIC_REDACTED_CANARY", color: "#dc2626", strokeWidth: 2, fontSize: 10 }
           ]
         },
         {
@@ -539,8 +540,9 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.equal(prepared.status, "ready");
     assert.equal(prepared.draftFingerprint, draftFingerprint);
     assert.equal(prepared.assets[0].assetSlot, 0);
-    assert.deepEqual(prepared.draft.steps[0].annotations, draft.screenshots[0].annotations);
-    assert.deepEqual(prepared.draft.steps[1].annotations, draft.screenshots[1].annotations);
+    assert.deepEqual(prepared.draft.steps[0].annotations || [], [], "masked images cannot expose editable annotation metadata");
+    assert.deepEqual(prepared.draft.steps[1].annotations || [], []);
+    assert.equal(JSON.stringify(prepared).includes("SYNTHETIC_REDACTED_CANARY"), false, "hidden original text cannot resurface anywhere in the prepared result");
     assert.equal(prepared.draft.steps.some((step) => "masks" in step), false);
     assert.deepEqual(await getDraft(worker, draft.id), sameContentDraft, "prepare must retain the local original");
     assert.equal((await readMetadata(worker, storageKey)).draftUpdatedAt, updatedAt, "prepare must retain the handoff timestamp while allowing unchanged content");
@@ -576,13 +578,17 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.deepEqual(pixels.pixels[1], [17, 24, 39, 255], "mask begins at floor(x * width), floor(y * height)");
     assert.deepEqual(pixels.pixels[2], [5, 6, 240, 255], "mask ends before ceil((x + width) * imageWidth)");
     assert.deepEqual(pixels.pixels[3], [7, 8, 240, 255], "mask end boundary is exclusive");
+    const maskedRegion = await decodePixelRegion(page, encoded, 96, 96, 96, 96);
+    assert.ok(maskedRegion.every(pixel => pixel.every((value, index) => value === [17, 24, 39, 255][index])), "the full masked canary region is irreversibly opaque");
     const sourceEncoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
     const sourceRectanglePixels = await decodePixelRegion(page, sourceEncoded, 12, 12, 80, 80);
     const rectanglePixels = await decodePixelRegion(page, encoded, 12, 12, 80, 80);
-    assert.deepEqual(rectanglePixels, sourceRectanglePixels, "safe base keeps rectangle annotations editable rather than flattening them");
+    assert.notDeepEqual(rectanglePixels, sourceRectanglePixels, "masked export visibly retains the rectangle in its irreversible raster");
+    assert.ok(rectanglePixels.filter(pixel => pixel.every((value, index) => value === [220, 38, 38, 255][index])).length > 20, "export preserves the actual rectangle color, not just arbitrary changed pixels");
     const sourceTextPixels = await decodePixelRegion(page, sourceEncoded, 192, 192, 80, 70);
     const textPixels = await decodePixelRegion(page, encoded, 192, 192, 80, 70);
-    assert.deepEqual(textPixels, sourceTextPixels, "safe base keeps text annotations editable rather than flattening them");
+    assert.notDeepEqual(textPixels, sourceTextPixels, "masked export visibly retains the text in its irreversible raster");
+    assert.ok(textPixels.filter(pixel => pixel.every((value, index) => value === [8, 127, 122, 255][index])).length > 20, "export preserves the actual text color, not just arbitrary changed pixels");
 
     const secondStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 1 });
     assert.equal(secondStarted.ok, true);
@@ -595,10 +601,12 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const secondEncoded = Buffer.concat(secondChunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
     const sourceEllipsePixels = await decodePixelRegion(page, sourceEncoded, 180, 0, 130, 130);
     const ellipsePixels = await decodePixelRegion(page, secondEncoded, 180, 0, 130, 130);
-    assert.deepEqual(ellipsePixels, sourceEllipsePixels, "safe base keeps ellipse annotations editable rather than flattening them");
+    assert.notDeepEqual(ellipsePixels, sourceEllipsePixels, "masked export visibly retains the ellipse in its irreversible raster");
+    assert.ok(ellipsePixels.filter(pixel => pixel.every((value, index) => value === [37, 99, 235, 255][index])).length > 20, "export preserves the actual ellipse color, not just arbitrary changed pixels");
     const sourceArrowPixels = await decodePixelRegion(page, sourceEncoded, 24, 210, 160, 130);
     const arrowPixels = await decodePixelRegion(page, secondEncoded, 24, 210, 160, 130);
-    assert.deepEqual(arrowPixels, sourceArrowPixels, "safe base keeps arrow annotations editable rather than flattening them");
+    assert.notDeepEqual(arrowPixels, sourceArrowPixels, "masked export visibly retains the arrow in its irreversible raster");
+    assert.ok(arrowPixels.filter(pixel => pixel.every((value, index) => value === [220, 38, 38, 255][index])).length > 20, "export preserves the actual arrow color, not just arbitrary changed pixels");
     const artifactPath = resolve(".artifacts/editor-image-workspace/annotated-export-draft.json");
     await mkdir(resolve(".artifacts/editor-image-workspace"), { recursive: true });
     await writeFile(artifactPath, JSON.stringify({
@@ -609,8 +617,8 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
         { id: "step-2", order: 2, instruction: "注釈付き画像2", screenshotId: "asset-2" }
       ],
       screenshots: [
-        { id: "asset-1", dataUrl: `data:image/png;base64,${encoded}`, masks: [], annotations: draft.screenshots[0].annotations },
-        { id: "asset-2", dataUrl: `data:image/png;base64,${secondEncoded}`, masks: [], annotations: draft.screenshots[1].annotations }
+        { id: "asset-1", dataUrl: `data:image/png;base64,${encoded}`, masks: [], annotations: [] },
+        { id: "asset-2", dataUrl: `data:image/png;base64,${secondEncoded}`, masks: [], annotations: [] }
       ]
     }, null, 2), "utf8");
 
@@ -1254,7 +1262,7 @@ test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧�
     await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
     await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
     await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
-    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.getByRole("textbox", { name: "タイトル", exact: true }).inputValue(), draft.title);
     assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
     await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
@@ -1281,7 +1289,7 @@ test("MV3 expired in-flight transfer releases capacity exactly once", { timeout:
       title: "転送期限会計検証",
       description: "合成データのみ",
       updatedAt,
-      steps: [],
+      steps: [{ id: "expiry-step", order: 1, instruction: "転送期限の検証", screenshotId: "asset-0" }],
       screenshots: [{ id: "asset-0", dataUrl, masks: [] }]
     };
     const draftFingerprint = await fingerprintDraft(draft);
@@ -1301,6 +1309,8 @@ test("MV3 expired in-flight transfer releases capacity exactly once", { timeout:
     assert.equal((await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId, action: "save" })).ok, true);
     const prepared = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId, action: "save" });
     assert.equal(prepared.ok, true);
+    assert.deepEqual(prepared.assets, [{ assetSlot: 0, screenshotId: "asset-0" }], "accounting fixture must export the referenced image");
+    assert.equal(prepared.draft.steps[0].screenshotId, "asset-0");
 
     for (let attempt = 0; attempt < 16; attempt += 1) {
       const started = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });

@@ -85,7 +85,10 @@ button.quiet:hover:not(:disabled) { border-color: var(--accent); background: #ea
 .controls:not(:has(button:not([hidden]))) { display: none; }
 .controls #cancel { grid-column: 1 / -1; min-height: 44px; border-color: transparent; color: var(--muted); background: transparent; }
 .controls #cancel:hover:not(:disabled) { background: #f2f6f7; }
-.controls #restore { grid-column: 1 / -1; }
+.controls #restore { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: #fff; }
+.controls #restore:hover:not(:disabled) { background: var(--accent-dark); }
+body:has(#introTitle[data-phase="cancel_failed"]) .controls #cancel { background: var(--accent); color: #fff; }
+body:has(#introTitle[data-phase="cancel_failed"]) .controls #cancel:hover:not(:disabled) { background: var(--accent-dark); }
 .controls:has(#pause[hidden]):has(#resume[hidden]) #finish { grid-column: 1 / -1; }
 body:has(#liveSection:not([hidden])) { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 body:has(#liveSection:not([hidden])) .shell { flex: 1; min-height: 0; padding: 16px 20px 12px; display: flex; flex-direction: column; overflow: hidden; }
@@ -98,7 +101,7 @@ body:has(#liveSection:not([hidden])) .live-progress { position: relative; top: a
 body:has(#liveSection:not([hidden])) #liveSection { flex: 1; min-height: 70px; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 8px; padding: 4px 5px 8px; margin: 0 -5px; }
 body:has(#liveSection:not([hidden])) .controls { position: static; flex: none; }
 body:has(#liveSection:not([hidden])) #draftSection { display: none; }
-body:has(#liveSection:not([hidden])) .status { flex: none; margin-top: 10px; }
+body:has(#liveSection:not([hidden])) .status { order: 10; flex: none; margin-top: 10px; }
 @media (max-width: 319px) { .shell { padding-inline: 16px; } .controls { padding-inline: 16px; } body:has(#liveSection:not([hidden])) .shell { padding-inline: 16px; } }
 @media (max-height: 620px) {
   body:has(#liveSection:not([hidden])) .brand-header { display: none; }

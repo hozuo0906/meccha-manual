@@ -24,6 +24,8 @@
       <span id="modeBadge" class="mode-badge">PC</span>
     </section>
 
+    <p id="status" class="status" tabindex="-1" role="status" aria-live="polite" aria-atomic="true">記録の状態を確認しています…</p>
+
     <section id="startSection" class="start-section" aria-labelledby="startTitle">
       <h2 id="startTitle"><span class="section-number" aria-hidden="true">01</span>記録の準備</h2>
       <label for="mode">記録する画面</label>
@@ -52,7 +54,7 @@
     <section id="liveSection" class="live-section" hidden tabindex="0" aria-labelledby="liveTitle">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">記録中の確認</p>
+          <p class="eyebrow">手順と画像を確認</p>
           <h2 id="liveTitle">記録中の手順</h2>
         </div>
         <span id="liveCount" class="count-badge">0</span>
@@ -78,15 +80,14 @@
       <p>開始したら、対象のタブで操作してください。手順と画像がここに並びます。</p>
     </section>
 
-    <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true">記録の状態を確認しています…</p>
   </main>
 
   <footer class="controls" aria-label="記録の操作">
     <button id="pause" class="quiet" type="button" hidden>一時停止</button>
     <button id="finish" class="success" type="button" hidden>終了して編集</button>
     <button id="resume" class="quiet" type="button" hidden>このタブで再開</button>
-    <button id="cancel" class="quiet" type="button" hidden>キャンセル</button>
     <button id="restore" class="quiet" type="button" hidden>画面をもう一度復元</button>
+    <button id="cancel" class="quiet" type="button" hidden>キャンセル</button>
   </footer>
   <script type="module" src="sidepanel.js"></script>
 </body>

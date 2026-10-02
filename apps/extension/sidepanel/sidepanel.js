@@ -16,6 +16,8 @@ const startSection = document.querySelector("#startSection");
 const liveSection = document.querySelector("#liveSection");
 const liveSteps = document.querySelector("#liveSteps");
 const liveCount = document.querySelector("#liveCount");
+const liveTitle = document.querySelector("#liveTitle");
+const liveProgressLabel = document.querySelector(".live-progress-label");
 const liveDescription = document.querySelector("#liveDescription");
 const liveCurrentStep = document.querySelector("#liveCurrentStep");
 const liveCurrentStatus = document.querySelector("#liveCurrentStatus");
@@ -126,7 +128,14 @@ function imageSummaryFor(events, imageEntries, imageRefs) {
     else if (["unavailable", "failed"].includes(state)) counts.missing += 1;
     else counts.pending += 1;
   }
-  return `画像 完了 ${counts.ready}/${events.length}・準備中 ${counts.pending}・取得できず ${counts.missing}・要確認 ${counts.protected}・説明のみ ${counts.none}${counts.displayFailed ? `・表示できず ${counts.displayFailed}` : ""}`;
+  return [
+    `画像 完了 ${counts.ready}/${events.length}`,
+    counts.pending ? `準備中 ${counts.pending}` : null,
+    counts.missing ? `取得できず ${counts.missing}` : null,
+    counts.protected ? `要確認 ${counts.protected}` : null,
+    counts.none ? `説明のみ ${counts.none}` : null,
+    counts.displayFailed ? `表示できず ${counts.displayFailed}` : null
+  ].filter(Boolean).join("・");
 }
 
 function updateLiveLatestVisibility() {
@@ -273,7 +282,6 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
     }
     liveSteps.append(item);
   }
-  liveDescription.textContent = events.length ? "操作を続けると、手順がここへ追加されます。" : "操作すると、ここに手順が追加されます。";
   const current = events.at(-1);
   liveCurrentStep.textContent = current ? `手順 ${events.length}：${instructionFor(current)}` : "まだありません";
   const currentStatus = current ? imageStatusFor(current, imageEntries, imageRefs) : "操作を待っています";
@@ -405,9 +413,16 @@ function renderDrafts(items = []) {
 function renderStatus(state = {}, imageEntries = []) {
   currentCaptureState = state;
   captureStateAvailable = true;
-  const phase = state.restorePending || state.phase === "starting" ? "restore_pending" : state.phase || "idle";
-  recordingState.textContent = ({ recording: "このタブを記録中", paused: "記録を一時停止中", finish_failed: "終了を再試行してください", reinjection_failed: "記録の再開が必要です", cancel_failed: "キャンセルを再試行", restore_pending: "画面の復元が必要です" })[phase] || "記録の準備ができました";
+  const statePhase = state.restorePending || state.phase === "starting" ? "restore_pending" : state.phase || "idle";
+  const phase = statePhase === "idle" && statusOverride
+    ? statusOverride.includes("記録を開始できません") ? "start_failed"
+      : statusOverride.includes("編集画面") ? "editor_failed" : "action_failed"
+    : statePhase;
+  recordingState.textContent = ({ start_failed: "開始できませんでした", editor_failed: "編集画面を開けませんでした", action_failed: "確認が必要です", recording: "このタブを記録中", paused: "記録を一時停止中", finish_failed: "終了を再試行してください", reinjection_failed: "記録の再開が必要です", cancel_failed: "キャンセルを再試行", restore_pending: "画面の復元が必要です" })[phase] || "記録の準備ができました";
   recordingState.setAttribute?.("data-phase", phase);
+  liveTitle.textContent = state.phase === "recording" ? "記録中の手順" : "ここまでの手順";
+  liveProgressLabel.textContent = state.phase === "recording" ? "現在の手順" : "最後に記録した手順";
+  if (!operationInFlight) cancel.textContent = state.phase === "cancel_failed" ? "もう一度キャンセル" : "キャンセル";
   if (state.sessionId !== liveSessionId) {
     liveSessionId = state.sessionId || null;
     followLiveTail = true;
@@ -442,6 +457,12 @@ function renderStatus(state = {}, imageEntries = []) {
     lastLiveKey = liveKey;
     renderLiveSteps(state.events || [], imageEntries, state.stepImageRefs || []);
   }
+  liveDescription.textContent = state.phase === "recording"
+    ? (state.events?.length ? "操作を続けると、手順がここへ追加されます。" : "操作すると、ここに手順が追加されます。")
+    : state.phase === "paused" ? "再開すると、この続きから記録します。"
+      : state.phase === "cancel_failed" ? "キャンセルが完了するまで、ここまでの記録を保持しています。"
+        : "ここまでの記録は残っています。再開または終了を選んでください。";
+  if (!state.events?.length) liveCurrentStatus.textContent = state.phase === "recording" ? "操作を待っています" : "手順はまだありません";
   if (statusOverride) status.textContent = statusOverride;
   else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に記録を再開できません。対象タブで再開するか、記録を終了して編集してください。";
@@ -452,6 +473,12 @@ function renderStatus(state = {}, imageEntries = []) {
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
   else if (active) status.textContent = "このタブだけを記録しています。終了後に画像と操作文を確認してください。";
   else if (!state.hasDrafts) status.textContent = "";
+  if (!statusOverride && !["finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase) && !waitingForRestore) {
+    if (liveImagesUnavailable) status.textContent = "記録中の画像を読み込めませんでした。記録内容は変更していません。自動で再確認します。";
+    else if (draftListUnavailable) status.textContent = active
+      ? "保存済みの手順書一覧を更新できませんでした。操作の記録は続けられます。"
+      : "保存済みの手順書一覧を読み込めませんでした。端末の下書きは変更していません。自動で再確認します。";
+  }
 }
 
 function finishFailureMessage(state, statusAvailable, draftsState) {
@@ -494,7 +521,20 @@ async function refresh(forceDraftPoll = false) {
     return forceDraftPoll ? refresh(true) : undefined;
   }
   const operation = (async () => {
-    const state = await send({ type: "capture:status" });
+    let state;
+    try {
+      state = await send({ type: "capture:status" });
+      if (!state || typeof state !== "object" || Array.isArray(state)) throw new Error("INVALID_CAPTURE_STATUS");
+    } catch {
+      captureStateAvailable = false;
+      syncControlAvailability();
+      recordingState.textContent = "状態を確認できません";
+      recordingState.setAttribute?.("data-phase", "unavailable");
+      status.textContent = "記録の状態を確認できませんでした。記録内容は変更していません。自動で再確認します。";
+      const error = new Error("CAPTURE_STATUS_UNAVAILABLE");
+      error.captureStatusUnavailable = true;
+      throw error;
+    }
     const nextStatusKey = JSON.stringify({
       sessionId: state.sessionId,
       phase: state.phase,
@@ -503,16 +543,29 @@ async function refresh(forceDraftPoll = false) {
       stepImageRefs: state.stepImageRefs || []
     });
     const statusChanged = nextStatusKey !== lastStatusKey;
-    const shouldPollDrafts = forceDraftPoll || statusChanged || Date.now() - lastDraftPollAt >= DRAFT_POLL_INTERVAL_MS;
-    const nextDrafts = shouldPollDrafts ? await draftStore.list() : localDrafts;
-    const nextLiveImages = statusChanged
-      ? (state.sessionId ? await captureLiveStore.list(state.sessionId) : [])
-      : liveImages;
-    if (statusChanged) {
-      lastStatusKey = nextStatusKey;
-      liveImages = nextLiveImages;
-    }
+    const shouldPollDrafts = forceDraftPoll || draftListUnavailable || statusChanged || Date.now() - lastDraftPollAt >= DRAFT_POLL_INTERVAL_MS;
+    // Local list failures must not turn an acknowledged recording action into
+    // a false failure. Preserve cached data and retry only the unavailable read.
+    let nextDrafts = localDrafts;
     if (shouldPollDrafts) {
+      try {
+        nextDrafts = await draftStore.list();
+        draftListUnavailable = false;
+      } catch {
+        draftListUnavailable = true;
+      }
+    }
+    if (statusChanged || liveImagesUnavailable) {
+      try {
+        liveImages = state.sessionId ? await captureLiveStore.list(state.sessionId) : [];
+        liveImagesUnavailable = false;
+        lastStatusKey = nextStatusKey;
+      } catch {
+        liveImagesUnavailable = true;
+        if (state.sessionId !== liveSessionId) liveImages = [];
+      }
+    }
+    if (shouldPollDrafts && !draftListUnavailable) {
       lastDraftPollAt = Date.now();
       const nextDraftKey = draftRenderKey(nextDrafts);
       if (nextDraftKey !== lastDraftKey) {
@@ -538,8 +591,10 @@ async function refreshDraftsOnly() {
     localDrafts = nextDrafts;
     lastDraftKey = draftRenderKey(nextDrafts);
     renderDrafts(localDrafts);
+    draftListUnavailable = false;
     return { available: true, count: nextDrafts.length };
   } catch {
+    draftListUnavailable = true;
     return { available: false, count: 0 };
   }
 }
@@ -557,8 +612,9 @@ async function showFinishFailureOutcome() {
   statusOverride = finishFailureMessage(current, statusAvailable, draftsState);
   if (statusAvailable) renderStatus({ ...current, hasDrafts: localDrafts.length > 0 }, liveImages);
   else {
+    captureStateAvailable = false;
     finish.hidden = true;
-    finish.disabled = true;
+    syncControlAvailability();
   }
   status.textContent = statusOverride;
 }
@@ -566,7 +622,7 @@ async function showFinishFailureOutcome() {
 function syncControlAvailability() {
   const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(currentCaptureState.phase);
   const unavailable = Boolean(currentCaptureState.restorePending || currentCaptureState.phase === "starting");
-  for (const button of [start, pause, finish, resume, cancel, restore]) button.disabled = operationInFlight;
+  for (const button of [start, pause, finish, resume, cancel, restore]) button.disabled = operationInFlight || !captureStateAvailable;
   start.disabled = operationInFlight || active || unavailable || !captureStateAvailable;
   mode.disabled = operationInFlight || active || unavailable;
 }
@@ -585,10 +641,12 @@ async function withError(action, fallback, button, pendingLabel) {
   statusOverride = "";
   status.textContent = pendingLabel;
   try { await action(); }
-  catch {
-    statusOverride = fallback;
-    await refresh().catch(() => undefined);
-    status.textContent = fallback;
+  catch (error) {
+    if (!error?.captureStatusUnavailable) {
+      statusOverride = fallback;
+      await refresh().catch(() => undefined);
+      status.textContent = fallback;
+    }
   } finally {
     operationInFlight = false;
     if (button) {
@@ -644,7 +702,7 @@ finish.addEventListener("click", async () => {
     }
     const draftsState = refreshError
       ? await refreshDraftsOnly()
-      : { available: true, count: localDrafts.length };
+      : { available: !draftListUnavailable, count: localDrafts.length };
     renderStatus({
       phase: result.restorePending ? "restore_pending" : null,
       restorePending: Boolean(result.restorePending),
@@ -660,6 +718,8 @@ finish.addEventListener("click", async () => {
       status.textContent = statusOverride;
     } else if (editorOpenError) {
       statusOverride = savedDraftOpenMessage(draftsState);
+      recordingState.textContent = "編集画面を開けませんでした";
+      recordingState.setAttribute?.("data-phase", "editor_failed");
       status.textContent = statusOverride;
     } else {
       status.textContent = result.missingImageCount
@@ -679,7 +739,8 @@ finish.addEventListener("click", async () => {
     finish.removeAttribute?.("aria-busy");
     syncControlAvailability();
     if (hadFocus && finish.hidden) {
-      [restore, start, resume, pause].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+      if (statusOverride.includes("編集画面を開けません")) status.focus?.();
+      else [restore, start, resume, pause].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
     }
   }
 });
@@ -714,6 +775,8 @@ let finishInFlight = false;
 let operationInFlight = false;
 let currentCaptureState = {};
 let captureStateAvailable = false;
+let draftListUnavailable = false;
+let liveImagesUnavailable = false;
 let refreshTimer;
 let lastStatusKey = "";
 let lastDraftKey = null;
@@ -750,11 +813,7 @@ for (const eventName of ["wheel", "touchstart", "keydown"]) {
 }
 
 async function startPolling() {
-  await refresh().catch(() => {
-    start.disabled = true;
-    recordingState.textContent = "状態を確認しています";
-    status.textContent = "状態を読み込めませんでした。記録内容は変更していません。自動で再確認します。";
-  });
+  await refresh().catch(() => undefined);
   const poll = async () => {
     await refresh().catch(() => undefined);
     clearTimeout(refreshTimer);

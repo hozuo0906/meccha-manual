@@ -727,7 +727,7 @@ async function openOutput(action) {
   const generation = ++outputGateGeneration; outputIntent = action; closePanels();
   document.querySelector("#outputGateTitle").textContent = action === "share" ? "共有する内容を確認" : "クラウドに保存する内容を確認";
   startRegistration.hidden = action === "share"; startShare.hidden = action !== "share";
-  outputPreflight = true; gateStatus.textContent = "画像と端末の保存状態を確認しています…"; renderOutputSummary();
+  outputPreflight = true; gateStatus.textContent = unresolvedSteps().length ? "上の「手順を確認する」から編集に戻れます。ほかの画像と端末の保存状態は引き続き確認しています。" : "画像と端末の保存状態を確認しています…"; renderOutputSummary();
   if (!outputGate.open) outputGate.showModal();
   if (pendingImages.size) { gateStatus.textContent = "追加した画像を端末に保存しています。完了後、内容を確認できます。"; await Promise.all([...pendingImages.values()].map((entry) => entry.promise)); }
   if (generation !== outputGateGeneration || !outputGate.open) return;

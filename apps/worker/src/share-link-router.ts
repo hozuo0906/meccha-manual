@@ -140,6 +140,11 @@ body{background:#f4f7f8}.share-shell{max-width:1280px;padding:24px 28px 64px;bac
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 @media print{.reader-document{border:0;padding:0;background:white}.share-shell{padding:0!important}}
 
+@media(min-width:761px){.reader-document-header{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:start}.reader-document-header h2{grid-column:1;grid-row:1}.reader-document-header>p:not(.reader-print-note){grid-column:1;grid-row:2;margin-bottom:0}.reader-document-header>.reader-print{grid-column:2;grid-row:1;justify-self:end}.reader-document-header>.reader-print-note{grid-column:2;grid-row:2;max-width:220px;font-size:12px;line-height:1.6}.reader-document-header>.reader-team-logo{grid-column:1/-1;grid-row:1}.reader-document-header:has(.reader-team-logo) h2,.reader-document-header:has(.reader-team-logo)>.reader-print{grid-row:2}.reader-document-header:has(.reader-team-logo)>p{grid-row:3}}
+@media print{.reader-document-header{display:block}}
+
+#share-message[data-kind=ready]{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0!important;margin:0!important}.share-brand{margin-bottom:24px}.reader-navigation{display:flex;justify-content:flex-end;border:0;border-bottom:1px solid #d7e2e5;border-radius:0;padding:8px 0;gap:10px}.reader-current{order:0;margin-right:auto;font-size:14px;color:#526671}.reader-previous{order:1}.reader-next{order:2}.reader-navigation button{min-width:120px}.reader-document-header{padding-top:16px;padding-bottom:16px}.share-step{border-top:0}.reader-document-header>.reader-print-note{font-size:12px}@media(max-width:560px){.share-brand{margin-bottom:16px}.reader-navigation{gap:6px;padding:6px 0}.reader-navigation button{min-width:0;font-size:13px}.reader-current{font-size:13px}.share-step{padding-top:18px}}
+
 `;
 
 const SHARE_JS = `(() => {
@@ -155,7 +160,7 @@ const SHARE_JS = `(() => {
   let renderEpoch = 0, imageController = null, cleanupReader = () => {}, currentIndex = 0, positionKey = '';
   let imagePending = 0, imageFailures = 0, printButton = null;
   const objectUrls = [];
-  const setMessage = (value) => { message.textContent = value; };
+  const setMessage = (value) => { message.textContent = value; message.dataset.kind = value === '共有された手順書を表示しています。' ? 'ready' : ''; };
   const validSecret = (value) => /^[A-Za-z0-9_-]{43}$/.test(value);
   const setState = (value) => { content.dataset.accessState = value; };
   async function request(path, init = {}) {
@@ -236,7 +241,7 @@ const SHARE_JS = `(() => {
     const previous = button('前の手順', 'reader-previous'), next = button('次の手順', 'reader-next');
     const current = document.createElement('span'); current.className = 'reader-current'; current.setAttribute('role', 'status'); current.setAttribute('aria-live', 'polite'); navigation.append(previous, current, next);
     const documentHeader = document.createElement('header'); documentHeader.className = 'reader-document-header';
-    const title = document.createElement('h2'); title.textContent = data.title || '手順書'; documentHeader.append(title); documentBody.append(navigation, documentHeader); layout.append(toc, documentBody); content.append(layout);
+    const title = document.createElement('h2'); title.textContent = data.title || '手順書'; documentHeader.append(title); documentBody.append(documentHeader, navigation); layout.append(toc, documentBody); content.append(layout);
     if (data.branding?.logoId) {
       imagePending++; const logo = document.createElement('img'); logo.className = 'reader-team-logo'; logo.alt = 'チームのロゴ'; logo.hidden = true; documentHeader.prepend(logo);
       fetch('/s/api/logos/' + encodeURIComponent(data.branding.logoId), { headers: { 'X-Share-Grant': grant }, credentials: 'same-origin', cache: 'no-store', signal: imageController.signal }).then(async response => {
@@ -275,7 +280,15 @@ const SHARE_JS = `(() => {
       tocLinks.forEach((link, i) => link.setAttribute('aria-current', i === currentIndex ? 'step' : 'false'));
       try { if (positionKey && steps.length) localStorage.setItem(positionKey, String(currentIndex)); } catch {}
     };
-    const go = (index, focus = false) => { select(index); if (innerWidth <= 760) toc.open = false; const item = items[currentIndex]; if (item) window.scrollTo({ top: Math.max(0, scrollY + item.getBoundingClientRect().top - navigation.offsetHeight - 24), behavior: 'instant' }); if (focus) { const heading = item?.querySelector('h3'); heading?.focus({ preventScroll: true }); } };
+    const revealCurrentLink = () => {
+      if(innerWidth<=760&&!toc.open)return;
+      const link=tocLinks[currentIndex];if(!link||!toc.clientHeight)return;
+      const row=link.getBoundingClientRect(),viewport=toc.getBoundingClientRect();
+      if(row.top<viewport.top+8)toc.scrollTop+=row.top-viewport.top-8;
+      else if(row.bottom>viewport.bottom-8)toc.scrollTop+=row.bottom-viewport.bottom+8;
+    };
+    toc.addEventListener('toggle',()=>{if(toc.open)revealCurrentLink();});
+    const go = (index, focus = false) => { select(index); if (innerWidth <= 760) toc.open = false; const item = items[currentIndex]; if (item) window.scrollTo({ top: Math.max(0, scrollY + item.getBoundingClientRect().top - navigation.offsetHeight - 24), behavior: 'instant' }); if (focus) { const heading = item?.querySelector('h3'); heading?.focus({ preventScroll: true }); } revealCurrentLink(); };
     previous.addEventListener('click', () => go(currentIndex - 1)); next.addEventListener('click', () => go(currentIndex + 1));
     for (const [index, step] of steps.entries()) {
       const item = document.createElement('section'); item.className = 'share-step'; item.setAttribute('aria-labelledby', 'share-step-' + (index + 1)); item.id = 'reader-step-' + (index + 1); item.dataset.index = String(index);

@@ -43,3 +43,5 @@ button.secondary,input,textarea,.tool-grid button,.selection-group button{border
 @media(max-width:1150px) and (min-width:769px){.image-editor-tools .tool-grid{grid-template-columns:repeat(2,minmax(66px,1fr))}}
 
 @media(max-width:760px){.image-editor-actions{flex-wrap:wrap}.image-editor-actions>span{display:block;flex-basis:100%;margin:0;font-size:.78rem}}
+
+@media(max-width:760px){.image-editor-dialog .image-editor-form>header{position:sticky;top:0;z-index:4;background:#fff;border-bottom:1px solid #d7e2e5}}

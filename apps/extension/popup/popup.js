@@ -38,7 +38,8 @@ async function withBusy(button, label, action) {
     button.removeAttribute?.("aria-busy");
     syncControlAvailability();
     if (hadFocus && button.getClientRects?.().length === 0) {
-      [resume, restore, finish, start].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+      if (status.textContent.includes("編集画面を開けません")) status.focus?.();
+      else [resume, restore, finish, start].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
     }
   }
 }
@@ -159,6 +160,8 @@ start.addEventListener("click", () => withBusy(start, "記録を開始してい�
       status.textContent = "画面を元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
       return;
     }
+    recordingState.textContent = "開始できません";
+    recordingState.setAttribute?.("data-phase", "start_failed");
     status.textContent = "記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。";
   }
 }));
@@ -188,6 +191,8 @@ finish.addEventListener("click", () => withBusy(finish, "記録を保存して�
   if (restorePending) {
     return;
   } else if (editorOpenError) {
+    recordingState.textContent = "編集待ち";
+    recordingState.setAttribute?.("data-phase", "editor_failed");
     status.textContent = savedDraftOpenMessage(draftsState);
   } else {
     window.close();

@@ -47,3 +47,13 @@ Date: 2026-10-02
 native visibility fixtureには明示的な `--enable-automation` を追加する。これは隔離テストbrowserのcommand-line取得に必要な試験設定で、製品extension権限・認証・capture privacyは変更しない。以前の4件のsetup失敗と製品動作を分離する。
 
 新規状態台帳の自動出力は `.artifacts/all-screen-quality/after/inventory.json`。候補SHA・幅・locale・操作・実行結果が異なる証拠を混ぜない。保存やPIIの必須境界は既存の実MV3/API試験と合わせて判定し、合成APIの表示検査を実SSO・remote D1/R2の成立へ流用しない。
+
+## 第1候補の実行（2026-10-02）
+
+Draft PR280、head `1480910de07c8751e638eb7d69b58434c0b8a16d`、merge `e87c874949d8b545c37857811b42eb92ea0408f7`、公式Chrome run `36978549645`。artifact `11215065820`、ZIP SHA256 `a0c2aea9bbde6550c5619364a6f8127279f452ba671293b151f13ac9d674aeba`。107PNGは107画面ではなく、比較用の旧main画像も含む。
+
+TAPはPII33/33、alias1/1、semantic3/3、mask4/4、editor24/25、native sidepanel3/3、capture3/3、caption6/6、cloud/追加表示41/42。aggregateは正しく失敗。追加2失敗はfixtureのhash-only navigation（module再実行前提の欠落）と不正なworkspace/user UUIDであり、修正後に実表示を再実行する。ブランドLP画像の不正なfixture routingも修正し、今後は表示中の全画像のload完了をassertする。
+
+独立pixelレビューは、保存失敗badgeの切断解消、端末17番のrail復帰、横画面headerの縮小、mobile画像操作の一列化を確認。一方、短い横画面の画像文字の縮小、reader rail復帰、popup長い下書きの横はみ出し、記録前エラーの位置、LP日本語の語尾孤立を未完として残す。第2候補で修正・再表示する。
+
+Legacy run `36978549673` ではreader12/12を確認し、4つの古いclaim runtime fixtureが失敗。2つの旧title selector、ADR-0038最終追補より前の注釈metadata/bitmap期待、参照stepのないtransfer画像を現契約へ同期する。mask境界、隠したcanaryのJSON非露出、全mask領域の不透明pixels、元draft保持とtransfer容量検証を維持・強化し、製品guardは変更しない。
