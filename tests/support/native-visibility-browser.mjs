@@ -30,7 +30,7 @@ export async function launchNativeVisibilityPage(testContext) {
   const channel = process.platform === "win32" ? "chrome" : "chromium";
   // Retain the normal test launcher, binary, arguments and temporary profile.
   // The launch connection has no default context and never creates any pages.
-  const owner = await chromium.launch({ channel, headless: true, args: ["--remote-debugging-port=0"] });
+  const owner = await chromium.launch({ channel, headless: true, args: ["--enable-automation", "--remote-debugging-port=0"] });
   let attached;
   testContext.after(async () => {
     try { await attached?.close(); } finally { await owner.close(); }

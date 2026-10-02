@@ -18,6 +18,18 @@ export const CLOUD_MANUAL_CSS = `:root{color-scheme:light;font-family:system-ui,
 .manual-context-tools .manual-panel-close,.manual-step-nav .manual-panel-close{display:none}
 @media(max-width:1100px){.manual-context-tools[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog .image-editor-tools{display:flex;flex-direction:column;overflow:auto}.image-editor-dialog .tool-grid{grid-template-columns:repeat(2,minmax(66px,1fr))}.image-editor-dialog .tool-grid button{white-space:nowrap;padding:8px 6px}}
 @media(max-width:760px){.manual-step-nav[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog[open]{height:100%;overflow:auto}.image-editor-dialog .image-editor-form{display:flex;height:auto;min-height:100%;overflow:visible}.image-editor-dialog .image-editor-workspace{display:block;overflow:visible}.image-editor-dialog .image-editor-canvas-wrap{overflow:visible;min-height:0;width:100%;box-sizing:border-box;padding:12px}.image-editor-dialog #imageEditorCanvas{display:block;max-width:100%;width:100%;height:auto;max-height:none;box-sizing:border-box}.image-editor-dialog .image-editor-tools{overflow:visible;display:flex;gap:14px}.image-editor-dialog .tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.image-editor-dialog .image-editor-actions{position:sticky;bottom:0;background:#fff}.image-editor-dialog .selection-group [data-editor-selection]{max-height:none;overflow:visible}}
+/* The same restrained step rail and type rhythm as the local editor. */
+:root{font-size:16px;background:#f5f7f8;color:var(--manual-ink)}button,input,textarea{font:inherit}button{transition:background-color 140ms ease,border-color 140ms ease}button.secondary{border:1px solid #b5c5ca;background:#fff}button.secondary:hover{background:#edf4f4}.primary:hover{filter:brightness(.94)}
+.cloud-shell:not(.is-editing){max-width:1160px;padding:40px 0 64px}.cloud-shell:not(.is-editing) .cloud-header{padding-bottom:28px;margin-bottom:24px;border-bottom:1px solid #d7e2e5}.cloud-brand{gap:16px}.cloud-brand-logo{width:44px;height:44px}.cloud-brand-mascot{width:52px;height:52px;margin-left:auto;align-self:center}.cloud-brand-name{font-size:13px;letter-spacing:.015em}.cloud-header h1{font-size:32px;letter-spacing:-.04em;line-height:1.4}.cloud-header .cloud-note{margin:10px 0 0;font-size:14px}.cloud-header>button{order:2}.cloud-shell:not(.is-editing) .cloud-message{font-size:14px;margin-bottom:24px}.cloud-shell:not(.is-editing) #cloud-list-heading{font-size:16px;margin:0 0 14px;letter-spacing:.02em}.manual-search{max-width:480px;border-color:#8d9da6;margin:0 0 24px;padding:12px 14px;min-height:48px}.cloud-shell:not(.is-editing) .cloud-list{gap:20px}.cloud-shell:not(.is-editing) .cloud-list-button{min-height:170px;border-radius:10px;padding:24px;box-shadow:none;border-top:3px solid #087f7a}.cloud-shell:not(.is-editing) .cloud-list-button:hover{background:#fff;border-color:#087f7a;box-shadow:0 4px 18px #1830390d}.manual-list-kicker{font-size:12px;letter-spacing:.02em}.cloud-list-button strong{font-size:18px;line-height:1.65}.manual-list-meta{font-size:13px;margin-top:auto}.cloud-empty-library,.cloud-loading-library{grid-column:1/-1;padding:36px;border:1px solid #d7e2e5;background:#fff;border-radius:10px;line-height:1.8;color:#526671}.cloud-empty-library h3{margin:0 0 8px;color:#183039;font-size:20px}.cloud-empty-library p{max-width:52ch;margin:0 0 20px}.cloud-empty-library{overflow-wrap:anywhere}.cloud-loading-library{margin:0;border-left:4px solid #087f7a}
+.manual-workspace{grid-template-columns:236px minmax(0,1fr) 248px}.manual-step-nav{display:flex;flex-direction:column;overflow:hidden;background:#fbfcfc;padding:20px 12px}.manual-step-nav h2{flex:none;padding:0 8px;margin-bottom:16px;font-size:15px}.manual-step-nav>button{flex:none}.manual-step-nav ol{display:block;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding:8px}.manual-step-nav li{margin-bottom:6px}.manual-step-nav li button{font-size:14px;min-height:54px;padding:12px;line-height:1.65}.manual-step-nav li button[aria-current=step]{background:#e7f4f2;box-shadow:inset 3px 0 var(--manual-accent)}.manual-context-tools{padding:24px 18px}.manual-context-tools h2{font-size:14px;margin:0 0 12px}.manual-context-tools h2:not(:first-child){margin-top:24px}.manual-context-tools button{font-size:14px}.manual-toolbar .manual-title{font-size:18px;letter-spacing:-.02em}.manual-toolbar .cloud-save-state{font-size:12px}.manual-step-heading>span{font-variant-numeric:tabular-nums;font-size:13px}.manual-step-heading>input{font-size:18px}.manual-step-center textarea{font-size:16px;line-height:1.7;min-height:112px}.manual-step-center .cloud-step-image-card{box-shadow:0 2px 4px #18303905;border-radius:8px}.manual-description summary{min-height:32px;display:list-item;padding-top:4px}.manual-share-drawer h3{font-size:24px;letter-spacing:-.025em}.manual-share-drawer{box-sizing:border-box;max-width:100vw}.manual-share-drawer .share-form>label{line-height:1.65}.manual-share-drawer .share-feedback{padding:14px;background:#f3f7f7;border-radius:8px}
+@media(max-width:1100px){.manual-workspace{grid-template-columns:214px minmax(0,1fr)}}
+@media(max-width:760px){.cloud-shell:not(.is-editing){padding-top:24px}.cloud-shell:not(.is-editing) .cloud-header{display:flex;flex-wrap:wrap;gap:16px;padding-bottom:20px}.cloud-brand{gap:12px}.cloud-brand-logo{width:36px;height:36px}.cloud-header h1{font-size:25px}.cloud-header>button{margin-top:0}.cloud-brand-mascot{display:none}.cloud-shell:not(.is-editing) .cloud-list-button{min-height:146px;padding:20px}.cloud-empty-library,.cloud-loading-library{padding:24px}.manual-workspace{display:block}.manual-step-nav{display:none}.manual-step-nav[data-panel-open=true]{display:flex}.manual-step-nav ol{display:block}.manual-step-center textarea{min-height:120px}.manual-toolbar .manual-title{font-size:16px}.manual-toolbar .cloud-save-state{font-size:12px}.manual-step-heading>span{font-size:12px}.manual-share-drawer{width:100%;padding:20px}.manual-share-drawer h3{font-size:22px}.manual-description summary{min-height:32px}.manual-step-heading>input{font-size:16px}}
+
+@media(max-width:760px) and (max-height:560px){
+.is-editing>.cloud-message:not(.error):not(.warning){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0;border:0}
+.manual-toolbar{display:flex;min-height:60px;padding:8px 12px;gap:8px}.manual-toolbar .manual-back{flex:0 0 44px}.manual-toolbar .manual-title{flex:1;min-width:0;width:auto}.manual-toolbar .cloud-save-state{font-size:12px;max-width:90px;white-space:normal;flex:0 1 auto}.manual-toolbar [data-manual-save]{flex:none}.manual-description{padding:2px 16px}.manual-description summary{min-height:24px;padding:0}.manual-step-center{padding:12px 16px}.manual-step-heading{margin-bottom:10px}.manual-step-center .cloud-step-image-card{min-height:0;margin-bottom:14px}.manual-step-center .cloud-step-image-card img{max-height:34dvh}.manual-mobile-actions{min-height:52px;padding:4px 12px}.manual-mobile-actions button{min-height:44px}
+}
+
 `;
 
 export const CLOUD_MANUAL_JS = `(() => {
@@ -237,7 +249,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     title.addEventListener("input", () => { if (title.__before !== undefined) { const current = editorState.title; editorState.title = title.__before; checkpointEditor(); editorState.title = current; title.__before = undefined; } editorState.title = title.value; markChanged(); });
     saveState = make("span", dirty ? "クラウドに未保存" : "クラウドに保存済み", "cloud-save-state"); saveState.dataset.state = dirty ? "dirty" : "saved"; saveState.setAttribute("role", "status"); saveState.setAttribute("aria-live", "polite");
     const save = make("button", "変更を保存", "primary"); save.type = "button"; save.dataset.manualSave="true"; save.addEventListener("click",()=>saveManual(data.manual.id,save)); save.disabled = !canEdit || saveInFlight;
-    const share = make("button", "共有", "primary manual-share"); share.type = "button"; share.setAttribute("aria-expanded", String(shareOpen));
+    const share = make("button", "共有", "secondary manual-share"); share.type = "button"; share.setAttribute("aria-expanded", String(shareOpen));
     toolbar.append(back, title, saveState, save, share);
     const brandLogo=safeBrandLogoUrl(data.branding?.logoUrl);if(brandLogo){const logo=make("img","","manual-team-logo");logo.src=brandLogo;logo.alt="チームのロゴ";logo.addEventListener("error",()=>logo.remove());toolbar.insertBefore(logo,title);}
     const descriptionDetails = make("details", "", "manual-description"); const descriptionSummary = make("summary", "手順書の説明");
@@ -248,7 +260,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const workspace = make("div", "", "manual-workspace");
     const backdrop=make("button","","manual-panel-backdrop");backdrop.type="button";backdrop.hidden=true;backdrop.setAttribute("aria-label","パネルを閉じる");let panelTrigger=null;
     const closePanels=()=>{for(const panel of [nav,tools])delete panel.dataset.panelOpen;backdrop.hidden=true;panelTrigger?.focus();panelTrigger=null;};
-    const openPanel=(panel,trigger)=>{closePanels();panelTrigger=trigger;panel.dataset.panelOpen="true";backdrop.hidden=false;panel.querySelector(".manual-panel-close")?.focus();};
+    const openPanel=(panel,trigger)=>{closePanels();panelTrigger=trigger;panel.dataset.panelOpen="true";backdrop.hidden=false;panel.querySelector(".manual-panel-close")?.focus();if(panel===nav)revealSelectedStep();};
     backdrop.addEventListener("click",closePanels);
     const nav = make("nav", "", "manual-step-nav"); nav.setAttribute("aria-label", "手順一覧");
     const navHeading = make("h2", "手順"); const navList = make("ol"); const canvas = make("section", "", "manual-step-center"); canvas.setAttribute("aria-label", "選択中の手順");
@@ -261,6 +273,12 @@ export const CLOUD_MANUAL_JS = `(() => {
     const print=make("button","PDF・印刷プレビュー","secondary");print.type="button";print.addEventListener("click",()=>{closePanels();openPrintPreview(print);});
     tools.append(make("h2", "画像を調整"), imageButtons, make("h2", "編集履歴"), undo, redo, reload, make("h2","手順書の設定"),branding,print);
     const add = make("button", "手順を追加", "secondary"); add.dataset.stepAdd = "true"; add.type = "button";
+    function revealSelectedStep() {
+      const current=navList.querySelector('[aria-current="step"]'); if(!current||!navList.clientHeight)return;
+      const row=current.getBoundingClientRect(),viewport=navList.getBoundingClientRect();
+      if(row.top<viewport.top+8)navList.scrollTop+=row.top-viewport.top-8;
+      else if(row.bottom>viewport.bottom-8)navList.scrollTop+=row.bottom-viewport.bottom+8;
+    }
     function renderSteps(focus = false) {
       navList.replaceChildren(); canvas.replaceChildren(); imageButtons.replaceChildren();
       if (!editorState.steps.some((step) => stepKey(step) === selectedStepKey)) selectedStepKey = stepKey(editorState.steps[0] || {});
@@ -300,7 +318,7 @@ export const CLOUD_MANUAL_JS = `(() => {
       });
       if (!editorState.steps.length) canvas.append(make("p", "手順を追加して、説明を書き始めましょう。", "cloud-image-empty"));
       undo.disabled = !canEdit || !undoStack.length || saveInFlight; redo.disabled = !canEdit || !redoStack.length || saveInFlight;
-      navList.querySelector('[aria-current="step"]')?.scrollIntoView({block:"nearest",inline:"nearest"});
+      revealSelectedStep();
     }
     add.addEventListener("click", () => { if (editorState.steps.length >= 200) return; checkpointEditor(); const index = editorState.steps.findIndex((step) => stepKey(step) === selectedStepKey); const step = { type: "action", title: "新しい手順", instruction: "", actionType: null, targetText: null, url: null, clientKey: "local-" + crypto.randomUUID() }; editorState.steps.splice(index + 1, 0, step); selectedStepKey = stepKey(step); markChanged(); renderSteps(true); });
     const closeNav=make("button","閉じる","secondary manual-panel-close");closeNav.type="button";closeNav.addEventListener("click",closePanels);
@@ -418,9 +436,12 @@ export const CLOUD_MANUAL_JS = `(() => {
   async function loadManuals(openId = "", options = {}) {
     const serial = ++requestSerial;
     setMessage("保存した手順書を読み込んでいます…");
+    list.setAttribute("aria-busy","true");
+    if(!manuals.length){list.replaceChildren(make("p","手順書を読み込んでいます…","cloud-loading-library"));}
     try {
       const payload = await json(workspacePath() + "/manuals");
       if (serial !== requestSerial) return;
+      list.removeAttribute("aria-busy");
       manuals = Array.isArray(payload.manuals) ? payload.manuals : [];
       selected = openId ? manuals.find((item) => item.id === openId) || selected : selected && manuals.find((item) => item.id === selected.id) || null;
       renderList();
@@ -429,7 +450,13 @@ export const CLOUD_MANUAL_JS = `(() => {
     } catch (error) {
       if (serial !== requestSerial) return;
       if (error.status === 401 || error.status === 403) clearProtectedEditor();
+      list.removeAttribute("aria-busy");
       renderList();
+      if(!manuals.length){
+        const recovery=make("section","","cloud-empty-library");
+        recovery.append(make("h3","手順書を読み込めませんでした"),make("p","保存済みの手順書は変更していません。接続を確認して、もう一度お試しください。"));
+        const retry=make("button","もう一度読み込む","primary");retry.type="button";retry.addEventListener("click",()=>loadManuals(openId,options));recovery.append(retry);list.replaceChildren(recovery);
+      }
       setMessage(error.status === 401 || error.status === 403 ? "認証または権限を確認できません。画面を更新してください。" : error.message, "error");
     }
   }

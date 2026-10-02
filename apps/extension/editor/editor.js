@@ -7,8 +7,21 @@ import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
 const id = location.hash.slice(1);
-const draft = await draftStore.get(id);
-if (!draft) throw new Error("下書きが見つかりません");
+const loaded = await draftStore.get(id).then(draft => ({ draft, failed: false }), () => ({ draft: null, failed: true }));
+const draft = loaded.draft;
+if (!draft) {
+  // A missing or temporarily unreadable draft must not leave a live-looking,
+  // unusable editor behind. No empty replacement draft is written here.
+  const main = document.querySelector("main");
+  main.className = "editor-unavailable";
+  main.replaceChildren();
+  const logo = document.createElement("img"); logo.src = "../assets/meccha-manual-logo-mark.png"; logo.alt = "めっちゃマニュアル"; logo.width = 44; logo.height = 44;
+  const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "この端末の下書き";
+  const heading = document.createElement("h1"); heading.tabIndex = -1; heading.textContent = loaded.failed ? "下書きを読み込めませんでした" : "下書きが見つかりません";
+  const explanation = document.createElement("p"); explanation.textContent = loaded.failed ? "端末の保存領域を読み込めませんでした。下書きは上書きしていません。時間をおいて、もう一度読み込んでください。" : "このリンクの下書きを確認できません。拡張機能の「最近の下書き」から、開きたい手順書を選び直してください。";
+  const retry = document.createElement("button"); retry.type = "button"; retry.textContent = "もう一度読み込む"; retry.addEventListener("click", () => location.reload());
+  main.append(logo, eyebrow, heading, explanation, retry); heading.focus();
+} else {
 
 const title = document.querySelector("#title");
 const description = document.querySelector("#description");
@@ -135,6 +148,7 @@ function openPanel(name, trigger) {
   panel.dataset.panelOpen = "true"; trigger?.setAttribute("aria-expanded", "true");
   document.querySelector("#panelBackdrop").hidden = false;
   panel.querySelector("button")?.focus({ preventScroll: true });
+  if (name === "navigation") revealSelectedStep();
 }
 
 const previewGenerations = new WeakMap();
@@ -573,6 +587,14 @@ function renderStepArticle(step) {
   const uploadDetails=article.querySelector(".image-file-actions");if(uploadDetails)article.append(uploadDetails);
   updateContextTools(step); updateImageSummary();
 }
+function revealSelectedStep() {
+  const selected = steps.querySelector('[aria-current="step"]');
+  if (!selected || !steps.clientHeight) return;
+  const row = selected.getBoundingClientRect(); const viewport = steps.getBoundingClientRect();
+  // Scroll only the rail: scrollIntoView can move the image work surface or page.
+  if (row.top < viewport.top + 8) steps.scrollTop += row.top - viewport.top - 8;
+  else if (row.bottom > viewport.bottom - 8) steps.scrollTop += row.bottom - viewport.bottom + 8;
+}
 function renderListOnly() {
   const previous = document.activeElement?.closest("#steps button")?.dataset.stepId;
   const scrollTop = steps.scrollTop;
@@ -595,6 +617,7 @@ function renderListOnly() {
   }
   steps.scrollTop = scrollTop;
   if (previous) steps.querySelector(`[data-step-id="${CSS.escape(previous)}"]`)?.focus({ preventScroll: true });
+  revealSelectedStep();
   updateImageSummary();
 }
 function selectStep(stepId) {
@@ -663,7 +686,7 @@ function renderOutputSummary() {
   const unresolved = unresolvedSteps(); const images = draft.steps.filter((step) => step.screenshotId && imageStatus(step) !== "none").length;
   document.querySelector("#outputSummary").textContent = `${draft.steps.length}手順・画像${images}枚${unresolved.length ? `・要確認${unresolved.length}件` : "・画像準備完了"}`;
   const issues = document.querySelector("#outputIssues"); issues.replaceChildren();
-  for (const step of unresolved) issues.append(button(`手順${step.order}：${imageLabel(step)}`, () => { outputGate.close(); selectStep(step.id); }, "secondary"));
+  for (const step of unresolved) issues.append(button(`手順${step.order}を確認する：${imageLabel(step)}`, () => { outputGate.close(); selectStep(step.id); }, "secondary"));
   updateRegistrationAvailability();
 }
 function textFieldsValid() {
@@ -1037,3 +1060,5 @@ notifyEditorReady();
 void refreshCloudReference().catch(() => { if (cloudSaveState) cloudSaveState.textContent = "クラウド保存状態を確認できません"; });
 if (interruptedImages.length) persist("前回の画像準備が完了しませんでした。画像を追加するか、説明だけの手順に変更できます。");
 document.getElementById("editor-heading")?.focus({ preventScroll: true });
+
+}

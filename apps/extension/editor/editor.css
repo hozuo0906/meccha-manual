@@ -11,6 +11,27 @@
 
 body:has(.image-editor-dialog[open]) .mobile-actions{display:none!important}#cloudSaveState{font-size:.72rem;white-space:nowrap;max-width:145px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 
+/* A calm, consistent reading surface, with clear save and step hierarchy. */
+:root{font-size:16px;--border:#d7e2e5;--muted:#526671}
+.editor-header{height:auto;min-height:72px;box-shadow:0 1px 0 #18303904}.brand-mark{width:36px;height:36px}.header-fields{gap:14px}
+#title{font-size:18px;letter-spacing:-.02em}.description-details>summary{font-size:13px}
+.layout{grid-template-columns:236px minmax(0,1fr) 248px}.layout>nav{background:#fbfcfc}
+.section-heading{min-height:76px}.section-heading h2{font-size:15px;letter-spacing:.02em}
+#steps{scroll-padding:8px;overscroll-behavior:contain}.step-number{font-variant-numeric:tabular-nums}
+#steps button{transition:background-color 140ms ease,border-color 140ms ease}
+#steps button[aria-current=step]{background:#e7f4f2;border-color:#087f7a;box-shadow:inset 3px 0 #087f7a}
+.step-name{font-size:14px;font-weight:600}.step-image-status{font-size:12px;line-height:1.5}
+.step-heading h3{font-size:18px;letter-spacing:-.015em}.instruction-label{font-size:14px}.instruction-label textarea{font-size:16px;line-height:1.7}
+.context-tools{padding:24px 18px}.context-tools h2{font-size:14px}.context-tools button{font-size:14px;background:#fff}
+.context-tools .hint,.privacy-footnote{font-size:13px;line-height:1.7}.context-tools .tool-section{padding-top:20px}
+.save-state{font-size:12px}#cloudSaveState{font-size:12px}.image-state-placeholder{line-height:1.7}.hint{line-height:1.65}
+button{transition:background-color 140ms ease,border-color 140ms ease,box-shadow 140ms ease}button:hover{filter:none;background:#075e5b}.secondary:hover{background:#eef5f5}.text-button:hover{background:#eef5f5}
+.editor-unavailable{height:auto;min-height:100dvh;max-width:600px;margin:auto;padding:clamp(28px,8vw,72px) 28px;justify-content:center;align-items:flex-start;gap:18px}
+.editor-unavailable h1{font-size:clamp(24px,4vw,32px);line-height:1.4;letter-spacing:-.03em}.editor-unavailable>p:not(.eyebrow){color:var(--muted);line-height:1.8}.editor-unavailable .eyebrow{font-size:14px;color:var(--teal);font-weight:700}
+@media(max-width:1150px){.layout{grid-template-columns:224px minmax(0,1fr)}.header-fields{gap:4px}}
+@media(max-width:768px){:root{font-size:16px}.layout{display:block}.editor-header{height:auto;min-height:82px;align-items:center}.header-actions>#save{font-size:12px;min-height:44px}.save-feedback{max-width:110px}.save-state,#cloudSaveState{font-size:11px}.header-fields{gap:0}#title{font-size:16px}.description-details>summary{font-size:12px;min-height:28px}.description-popover{top:78px}#panelBackdrop{top:82px}.step-heading h3{font-size:16px}.mobile-actions button{font-size:14px}.step-name{font-size:14px}.instruction-label textarea{min-height:120px}.context-tools{padding:20px}.image-action-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.image-action-row>.image-ready-message,.image-action-row>.image-status{grid-column:1/-1}.zoom-controls{grid-column:1;grid-row:2;justify-self:start;font-size:12px}.image-action-row>.image-edit-button{grid-column:2;grid-row:2;font-size:12px}.image-action-row>p{grid-column:1/-1}.zoom-controls button{padding:4px;min-width:44px}.save-feedback:has(#retrySave:not([hidden])){gap:3px}.save-feedback #retrySave{min-height:44px;font-size:12px}.editor-unavailable{padding:36px 24px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+
 .image-editor-canvas-wrap{position:relative}.image-editor-error{position:absolute;inset:20px;display:grid;align-content:center;justify-items:center;gap:16px;padding:24px;border:1px dashed #bc8d6f;border-radius:10px;background:#fff9f2;text-align:center;color:#713c16}.image-editor-error[hidden]{display:none!important}.image-editor-error button{background:#fff;border-color:#bc8d6f;color:#713c16}
 
 button.secondary,input,textarea,.tool-grid button,.selection-group button{border-color:#789099}.image-action-row button,.zoom-controls button{min-height:44px}.output-gate .save-state{white-space:normal;word-break:keep-all;overflow-wrap:anywhere}

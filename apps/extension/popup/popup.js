@@ -10,6 +10,38 @@ const restore = document.querySelector("#restore");
 const draftSection = document.querySelector("#draftSection");
 const recentDraft = document.querySelector("#recentDraft");
 const openDraft = document.querySelector("#openDraft");
+const recordingState = document.querySelector("#recordingState");
+let currentCaptureState = {};
+let operationInFlight = false;
+let captureStateAvailable = false;
+
+function syncControlAvailability() {
+  const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(currentCaptureState.phase);
+  mode.disabled = operationInFlight || active || Boolean(currentCaptureState.restorePending) || currentCaptureState.phase === "starting";
+  for (const button of [start, finish, resume, cancel, restore, openDraft]) button.disabled = operationInFlight;
+  start.disabled = operationInFlight || !captureStateAvailable;
+}
+
+async function withBusy(button, label, action) {
+  if (operationInFlight) return;
+  operationInFlight = true;
+  const originalLabel = button.textContent;
+  const hadFocus = document.activeElement === button;
+  button.textContent = label;
+  button.setAttribute?.("aria-busy", "true");
+  syncControlAvailability();
+  status.textContent = label;
+  try { await action(); }
+  finally {
+    operationInFlight = false;
+    button.textContent = originalLabel;
+    button.removeAttribute?.("aria-busy");
+    syncControlAvailability();
+    if (hadFocus && button.getClientRects?.().length === 0) {
+      [resume, restore, finish, start].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+    }
+  }
+}
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -18,16 +50,23 @@ async function send(message) {
 }
 
 function renderCaptureState(state = {}) {
-  const active = ["recording", "paused", "finish_failed", "reinjection_failed"].includes(state.phase);
+  currentCaptureState = state;
+  captureStateAvailable = true;
+  const active = ["recording", "paused", "finish_failed", "reinjection_failed", "cancel_failed"].includes(state.phase);
+  const waitingForRestore = Boolean(state.restorePending || state.phase === "starting");
+  const phase = waitingForRestore ? "restore_pending" : state.phase || "idle";
+  recordingState.textContent = ({ recording: "記録中", paused: "一時停止中", finish_failed: "終了できません", reinjection_failed: "再開が必要", cancel_failed: "取消を再試行", restore_pending: "復元が必要" })[phase] || "準備完了";
+  recordingState.setAttribute?.("data-phase", phase);
   if (state.mode) mode.value = state.mode;
-  start.hidden = active || state.restorePending;
-  mode.disabled = active || state.restorePending;
-  finish.hidden = !active;
-  cancel.hidden = !active && !state.restorePending;
-  resume.hidden = state.phase !== "reinjection_failed";
-  restore.hidden = !state.restorePending;
+  start.hidden = active || waitingForRestore;
+  mode.disabled = active || waitingForRestore;
+  finish.hidden = !active || state.phase === "cancel_failed";
+  cancel.hidden = !active && !waitingForRestore;
+  resume.hidden = !["paused", "reinjection_failed"].includes(state.phase) || Boolean(state.captureLimitReached);
+  restore.hidden = !waitingForRestore;
+  syncControlAvailability();
 
-  if (state.restorePending) {
+  if (waitingForRestore) {
     status.textContent = state.finishFailed
       ? "記録内容はこの端末に保持しています。画面サイズを元に戻してから、もう一度終了してください。"
       : "画面サイズを元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
@@ -35,8 +74,12 @@ function renderCaptureState(state = {}) {
     status.textContent = "ページ移動後に記録を再開できませんでした。ここまでの記録は保持しています。対象タブで再開するか、ここまでの操作で記録を終了して、手順書を編集してください。";
   } else if (state.phase === "finish_failed") {
     status.textContent = "終了処理に失敗しましたが、記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
-  } else if (state.recording) {
-    status.textContent = "このタブだけを記録しています。入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があります。";
+  } else if (state.phase === "cancel_failed") {
+    status.textContent = "キャンセルが完了していません。記録データと復元情報は残っています。もう一度キャンセルしてください。";
+  } else if (state.phase === "paused") {
+    status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
+  } else if (state.recording || state.phase === "recording") {
+    status.textContent = "このタブだけを記録しています。操作が終わったら、記録を終了して手順書を編集してください。";
   } else {
     status.textContent = "";
   }
@@ -81,6 +124,8 @@ async function showFinishFailureOutcome() {
   }
   const draftsState = await refreshDrafts();
   renderCaptureState(current);
+  captureStateAvailable = statusAvailable;
+  syncControlAvailability();
   status.textContent = finishFailureMessage(current, statusAvailable, draftsState);
 }
 
@@ -102,10 +147,10 @@ async function refreshDrafts() {
   }
 }
 
-start.addEventListener("click", async () => {
+start.addEventListener("click", () => withBusy(start, "記録を開始しています…", async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    await send({ type: "capture:start", tabId: tab.id, mode: mode.value });
+    await send({ type: "capture:start", tabId: tab?.id, mode: mode.value });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
     const current = await send({ type: "capture:status" }).catch(() => ({}));
@@ -116,9 +161,9 @@ start.addEventListener("click", async () => {
     }
     status.textContent = "記録を開始できませんでした。下書きは変更されていません。対象ページを開いて、もう一度お試しください。";
   }
-});
+}));
 
-finish.addEventListener("click", async () => {
+finish.addEventListener("click", () => withBusy(finish, "記録を保存しています…", async () => {
   let result;
   try {
     result = await send({ type: "capture:finish" });
@@ -147,39 +192,52 @@ finish.addEventListener("click", async () => {
   } else {
     window.close();
   }
-});
+}));
 
-resume.addEventListener("click", async () => {
+resume.addEventListener("click", () => withBusy(resume, "記録を再開しています…", async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    await send({ type: "capture:resume", tabId: tab.id });
+    await send({ type: "capture:resume", tabId: tab?.id });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
     status.textContent = "記録を再開できませんでした。記録内容は保持しています。対象タブを開いて、もう一度お試しください。";
   }
-});
+}));
 
-cancel.addEventListener("click", async () => {
+cancel.addEventListener("click", () => withBusy(cancel, "キャンセルしています…", async () => {
   try {
     const result = await send({ type: "capture:cancel" });
     renderCaptureState({ restorePending: result.restorePending });
   } catch {
     status.textContent = "キャンセルを完了できませんでした。記録データと復元情報は残っています。もう一度お試しください。";
   }
-});
+}));
 
-restore.addEventListener("click", async () => {
-  const result = await send({ type: "capture:restore" });
-  const current = await send({ type: "capture:status" }).catch(() => ({ restorePending: !result.restored }));
-  renderCaptureState(current);
-});
+restore.addEventListener("click", () => withBusy(restore, "画面を復元しています…", async () => {
+  try {
+    const result = await send({ type: "capture:restore" });
+    const current = await send({ type: "capture:status" }).catch(() => ({ restorePending: !result.restored }));
+    renderCaptureState(current);
+  } catch {
+    status.textContent = "画面を復元できませんでした。復元情報は残っています。もう一度復元してください。";
+  }
+}));
 
-openDraft.addEventListener("click", async () => {
+openDraft.addEventListener("click", () => withBusy(openDraft, "下書きを開いています…", async () => {
   if (!recentDraft.value) return;
-  await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${recentDraft.value}`) });
-});
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`editor/editor.html#${encodeURIComponent(recentDraft.value)}`) });
+    status.textContent = "下書きの編集画面を開きました。";
+  } catch {
+    status.textContent = "編集画面を開けませんでした。下書きはこの端末に残っています。もう一度開いてください。";
+  }
+}));
 
 Promise.all([
-  send({ type: "capture:status" }).then(renderCaptureState, () => renderCaptureState()),
+  send({ type: "capture:status" }).then(renderCaptureState, () => {
+    start.disabled = true;
+    recordingState.textContent = "確認できません";
+    status.textContent = "記録の状態を確認できませんでした。記録内容は変更していません。もう一度この画面を開いて確認してください。";
+  }),
   refreshDrafts()
 ]);

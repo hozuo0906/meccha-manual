@@ -164,3 +164,7 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 | ローカル固有の色・ロゴを保存・共有・印刷へ維持 | claim branding snapshot、safe logo chunk、source_claim_id、draft CAS | cloud-manual-c manual branding、onboarding-recovery-actions rasterized branding、share-link-backend local manual branding |
 
 2026-10-01追補: 記録単位の表示値aliasは[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)に従う。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。
+
+## 全画面の品質と状態回復（DEC-091）
+
+FR-004/005/007、MVP-AC-002/004/007/008/009の表示・操作品質を [全画面品質台帳](../02-ux/all-screen-quality-matrix.md) に対応づける。`extension-recording-quality-browser` はpopup/sidepanelの連打・復旧・scroll、`extension-editor-browser` は復帰した選択目次と欠落下書き、`all-screen-quality-browser` はLP/app/認証/一覧の通常・空・読込・失敗・狭幅を実sourceから検証する。capture privacy・画像対応・保存保持は既存native/API試験を引き続き必須にし、画面証拠で代用しない。成果は実ブラウザ再検証待ちで、台帳の未確認を合格へ読み替えない。

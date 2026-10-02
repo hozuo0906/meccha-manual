@@ -3,39 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>操作を記録</title>
+  <title>操作を記録 · めっちゃマニュアル</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
   <main class="shell">
     <header class="brand-header">
-      <img class="brand-mark" src="../assets/meccha-manual-logo-mark.png" alt="めっちゃマニュアル">
+      <img class="brand-mark" src="../assets/meccha-manual-logo-mark.png" alt="">
       <div>
-        <p class="eyebrow">操作を記録</p>
-        <h1>手順書をつくる</h1>
+        <p class="eyebrow">めっちゃマニュアル</p>
+        <h1>操作を記録</h1>
       </div>
     </header>
 
     <section class="intro" aria-labelledby="introTitle">
       <div>
-        <p class="eyebrow" id="introTitle">今のタブだけ</p>
-        <p class="intro-copy">いつもの操作を、見返せる手順にします。</p>
+        <p class="recording-state" id="introTitle">記録の状態を確認中</p>
+        <p class="intro-copy">いつもの操作を、伝わる手順に。</p>
       </div>
       <span id="modeBadge" class="mode-badge">PC</span>
     </section>
 
     <section id="startSection" class="start-section" aria-labelledby="startTitle">
-      <h2 id="startTitle">記録する画面</h2>
-      <label for="mode">表示モード</label>
-      <select id="mode">
+      <h2 id="startTitle"><span class="section-number" aria-hidden="true">01</span>記録の準備</h2>
+      <label for="mode">記録する画面</label>
+      <select id="mode" aria-describedby="modeNote" disabled>
         <option value="pc">PC</option>
         <option value="smartphonePortrait">スマホ（縦）</option>
         <option value="smartphoneLandscape">スマホ（横）</option>
         <option value="tabletPortrait">タブレット（縦）</option>
         <option value="tabletLandscape">タブレット（横）</option>
       </select>
-      <button id="start" class="primary" type="button">記録開始</button>
-      <p class="privacy-note">個人情報は種類に合う架空値へ置換します。保護した領域や置換できなかった画像は、記録後に確認できます。公開前に画像と操作文を確認してください。</p>
+      <p id="modeNote" class="mode-note">スマホ・タブレットはPC版Chromeで画面幅を近づけます。実機を完全再現するものではありません。</p>
+      <button id="start" class="primary" type="button" disabled>記録開始</button>
+      <p class="privacy-note"><strong>このタブだけを記録します</strong>個人情報は種類に合う架空値へ置換します。保護した領域や置換できなかった画像は、記録後に確認できます。公開前に画像と操作文を確認してください。</p>
     </section>
 
     <div id="liveProgress" class="live-progress" aria-live="polite" hidden>
@@ -48,7 +49,7 @@
       <button id="liveLatest" class="live-latest" type="button" hidden>最新の手順を見る</button>
     </div>
 
-    <section id="liveSection" class="live-section" hidden aria-labelledby="liveTitle">
+    <section id="liveSection" class="live-section" hidden tabindex="0" aria-labelledby="liveTitle">
       <div class="section-heading">
         <div>
           <p class="eyebrow">記録中の確認</p>
@@ -72,18 +73,18 @@
     </section>
 
     <section id="emptyState" class="empty-state" aria-live="polite">
-      <img src="../assets/meccha-manual-mascot-me-clear-eyes.png" alt="めっちゃマニュアルのキャラクター">
-      <h2>準備できています</h2>
-      <p>記録開始を押して、いつもの操作をはじめましょう。</p>
+      <img src="../assets/meccha-manual-mascot-me-clear-eyes.png" alt="">
+      <h2>操作が、そのまま手順に</h2>
+      <p>開始したら、対象のタブで操作してください。手順と画像がここに並びます。</p>
     </section>
 
-    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true">記録の状態を確認しています…</p>
   </main>
 
   <footer class="controls" aria-label="記録の操作">
     <button id="pause" class="quiet" type="button" hidden>一時停止</button>
-    <button id="finish" class="success" type="button" hidden>記録を終了</button>
-    <button id="resume" class="success" type="button" hidden>このタブで再開</button>
+    <button id="finish" class="success" type="button" hidden>終了して編集</button>
+    <button id="resume" class="quiet" type="button" hidden>このタブで再開</button>
     <button id="cancel" class="quiet" type="button" hidden>キャンセル</button>
     <button id="restore" class="quiet" type="button" hidden>画面をもう一度復元</button>
   </footer>

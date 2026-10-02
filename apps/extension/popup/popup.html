@@ -1,8 +1,46 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>操作を記録</title><link rel="stylesheet" href="popup.css"></head>
-<body><main><h1>操作を記録</h1><p class="note">スマホ・タブレットはPC版Chromeの画面幅を近づけるレスポンシブ表示です。実機を完全再現するものではありません。</p>
-<label for="mode">表示モード</label><select id="mode"><option value="pc">PC</option><option value="smartphonePortrait">スマホ（縦）</option><option value="smartphoneLandscape">スマホ（横）</option><option value="tabletPortrait">タブレット（縦）</option><option value="tabletLandscape">タブレット（横）</option></select>
-<p class="privacy-note">入力欄の内容は記録せず、画像でも隠します。入力欄以外の機密情報は画像に写る場合があるため、画像編集で黒塗りしてください。</p>
-<button id="start">記録開始</button><button id="finish" class="secondary" hidden>記録を終了して編集</button><button id="resume" class="secondary" hidden>このタブで記録を再開</button><button id="cancel" class="link" hidden>キャンセル</button><button id="restore" class="link" hidden>画面をもう一度復元</button>
-<section id="draftSection" hidden><label for="recentDraft">最近の下書き</label><select id="recentDraft"></select><button id="openDraft" class="link">選択した下書きを開く</button></section>
-<p id="status" role="status" aria-live="polite"></p></main><script type="module" src="popup.js"></script></body></html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>操作を記録 · めっちゃマニュアル</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header class="brand-header">
+      <img class="brand-mark" src="../assets/meccha-manual-logo-mark.png" alt="">
+      <p class="brand-name">めっちゃマニュアル</p>
+      <span class="local-badge">端末に保存</span>
+    </header>
+    <div class="title-row"><h1>操作を記録</h1><span id="recordingState" class="recording-state">確認中</span></div>
+    <p class="intro-copy">いつもの操作を、伝わる手順に。</p>
+    <section class="recording-setup" aria-label="記録の設定">
+      <label for="mode">記録する画面</label>
+      <select id="mode" aria-describedby="modeNote" disabled>
+        <option value="pc">PC</option>
+        <option value="smartphonePortrait">スマホ（縦）</option>
+        <option value="smartphoneLandscape">スマホ（横）</option>
+        <option value="tabletPortrait">タブレット（縦）</option>
+        <option value="tabletLandscape">タブレット（横）</option>
+      </select>
+      <p id="modeNote" class="note">スマホ・タブレットはPC版Chromeで画面幅を近づけます。実機を完全再現するものではありません。</p>
+      <div class="action-stack">
+        <button id="start" type="button" disabled>記録開始</button>
+        <button id="finish" type="button" hidden>記録を終了して編集</button>
+        <button id="resume" class="secondary" type="button" hidden>このタブで記録を再開</button>
+        <button id="restore" class="secondary" type="button" hidden>画面をもう一度復元</button>
+        <button id="cancel" class="link" type="button" hidden>キャンセル</button>
+      </div>
+    </section>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true">記録の状態を確認しています…</p>
+    <aside class="privacy-note"><span class="privacy-label">このタブだけを記録</span>個人情報は種類に合う架空値へ置換します。保護した領域や置換できなかった画像は、記録後に確認できます。公開前に画像と操作文を確認してください。</aside>
+    <section id="draftSection" hidden>
+      <label for="recentDraft">最近の下書き</label>
+      <select id="recentDraft"></select>
+      <button id="openDraft" class="secondary" type="button">選択した下書きを開く</button>
+    </section>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1883,7 +1883,7 @@ test("20-step image-first editor keeps selection, undo, image color and responsi
       const header = await page.locator(".editor-header").boundingBox();
       const preview = await page.locator(".screenshot-preview").boundingBox();
       const caption = await page.locator(".instruction-label textarea").boundingBox();
-      assert.ok(header.height >= 64 && header.height <= 72, "コンパクトな固定ヘッダー");
+      assert.ok(header.height >= 64 && header.height <= 96, "保存状態を収めるコンパクトなヘッダー");
       assert.ok(preview.y < 180 && preview.y + preview.height < 700, "画像が初期画面に収まる");
       assert.ok(caption.y < 760, "画像の下に操作文が見える");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "横方向にはみ出さない");
@@ -1978,4 +1978,30 @@ test("output waits from file decode through IDB and blocks unreviewed or failed 
     assert.equal(await page.locator("#startShare").isDisabled(), false);
     await captureEditorEvidence(page, "image-original-restored-share-ready", { operation: "explicitly-keep-original-image-after-replacement-failure", shareDisabled: await page.locator("#startShare").isDisabled() });
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+
+test("restored step rail and unavailable draft recovery stay visible without writing an empty draft", { timeout: 45_000 }, async () => {
+  const server = serveExtension(); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = "http://127.0.0.1:" + server.address().port; let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true, locale: "ja-JP", reducedMotion: "reduce" });
+    const page = await context.newPage(); const errors = []; page.on("pageerror", error => errors.push(error.message));
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 }); const id = "restored-rail-" + width;
+      await seedImageEditorDraft(page, baseUrl, id, 20); await selectStep(page, "step-17");
+      await page.locator("#step-step-17 textarea").fill("参照をクリックして詳細を開きます");
+      await page.waitForFunction(() => document.querySelector("#saveState")?.textContent === "端末に保存済み");
+      await page.reload(); await page.locator("#step-step-17").waitFor();
+      if (width === 390) await page.locator("#openNavigation").click();
+      assert.ok(await page.locator('#steps [aria-current="step"]').evaluate(node => { const row = node.getBoundingClientRect(), rail = document.querySelector('#steps').getBoundingClientRect(); return row.top >= rail.top && row.bottom <= rail.bottom; }), "復帰した手順17が目次内にも見える");
+      await captureEditorEvidence(page, "restored-step-rail-" + width, { selectedStep: "step-17", railVisible: true });
+      await page.goto(baseUrl + "/editor/editor.html#missing-quality-draft");
+      await page.getByRole("heading", { name: "下書きが見つかりません", exact: true }).waitFor();
+      assert.equal(await page.locator("#save").count(), 0); assert.equal(await page.getByRole("button", { name: "もう一度読み込む" }).isVisible(), true);
+      assert.equal(await page.evaluate(async () => Boolean(await (await import('/storage/draft-store.js')).draftStore.get('missing-quality-draft'))), false);
+      await captureEditorEvidence(page, "local-draft-missing-" + width, { emptyDraftWritten: false });
+    }
+    assert.deepEqual(errors, []);
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); }
 });

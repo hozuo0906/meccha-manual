@@ -794,6 +794,8 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     assert.equal(messages.filter((message) => message.type === "handoff.expired").length, 1);
     assert.ok(messages.every((message) => message.action === "save"), "recovery retains the original action identity even for Share");
     assert.match(await page.locator("#status").textContent(), /元の下書きと新しい編集/);
+    assert.equal(await page.getByRole("heading", { name: "下書きから保存し直せます" }).isVisible(), true);
+    assert.equal(await page.locator(".recovery-guide li").count(), 2);
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "expired");
     await captureOnboardingEvidence(page, `onboarding-terminal-${requestedAction}`, { operation: "expired-claim-recovery", requestedAction, requestMethods: requests.map(([method]) => method), terminalState: storage.get(handoffStorageKey(metadata.handoffId)).status, recoveryCleared: (await findRecoverableHandoff(localDraft.id, await fingerprintDraft(localDraft), local, requestedAction)) === null });
     await page.reload();
