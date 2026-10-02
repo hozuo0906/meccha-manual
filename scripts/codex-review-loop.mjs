@@ -62,7 +62,7 @@ export function buildRepairPrompt({ repository, prNumber, headSha, changedPaths,
     `Line: ${finding.line ?? "not supplied"}`,
     finding.body
   ].join("\n")).join("\n\n");
-  const prompt = `Repository:\n${repository}\n\nPR:\n${prNumber}\n\nCurrent exact HEAD:\n${headSha}\n\nInstruction:\nFix only the trusted unresolved Codex review findings supplied below.\nPreserve the PR's existing scope.\nRead AGENTS.md first.\n\nDo not:\n- broaden Product scope\n- change unrelated files\n- weaken tests\n- weaken branch protection\n- alter external environments\n- change billing\n- publish Chrome Web Store artifacts\n- perform destructive operations\n\nFor every finding:\n- verify it against current exact HEAD\n- fix root cause\n- add or adjust a regression test\n- do not blindly follow stale or outdated thread text\n\nRun required targeted tests and repository checks.\nDo not commit, push, comment, resolve threads, or use GitHub credentials; the trusted runner owns publication.\n\nCurrent PR changed-file scope:\n${scope}\n\nTrusted unresolved Codex findings:\n${trusted}\n`;
+  const prompt = `Repository:\n${repository}\n\nPR:\n${prNumber}\n\nCurrent exact HEAD:\n${headSha}\n\nInstruction:\nFix only the trusted unresolved Codex review findings supplied below.\nPreserve the PR's existing scope.\nRead AGENTS.md first.\n\nThis is a secret-bearing edit-only process. While CODEX_ACCESS_TOKEN is present, do not run dependency lifecycle hooks, package-manager commands, tests, checks, Git hooks, or any executable supplied by the checkout. You may inspect and edit candidate files only. All PR-controlled installation and validation runs later on a separate fresh runner after this process has ended.\n\nDo not:\n- broaden Product scope\n- change unrelated files\n- weaken tests\n- weaken branch protection\n- alter external environments\n- change billing\n- publish Chrome Web Store artifacts\n- perform destructive operations\n\nFor every finding:\n- verify it against current exact HEAD by reading the files, without executing checkout-provided code\n- fix root cause\n- add or adjust a regression test\n- do not blindly follow stale or outdated thread text\n\nDo not install dependencies or run targeted tests or repository checks in this process.\nDo not commit, push, comment, resolve threads, or use GitHub credentials; the trusted runner owns validation and publication.\n\nCurrent PR changed-file scope:\n${scope}\n\nTrusted unresolved Codex findings:\n${trusted}\n`;
   if (prompt.length > MAX_PROMPT_CHARS) throw new Error("Repair prompt exceeds bounded size");
   return prompt;
 }
@@ -127,7 +127,11 @@ async function issueComments(repository, prNumber, token) {
 }
 
 function assertExpectedTarget(metadata) {
-  if (metadata.repository !== process.env.EXPECTED_REPOSITORY || String(metadata.prNumber) !== process.env.EXPECTED_PR_NUMBER) {
+  if (metadata.repository !== process.env.EXPECTED_REPOSITORY ||
+      String(metadata.prNumber) !== process.env.EXPECTED_PR_NUMBER ||
+      metadata.headSha !== process.env.EXPECTED_HEAD_SHA ||
+      metadata.headRef !== process.env.EXPECTED_HEAD_REF ||
+      String(metadata.reviewId) !== process.env.EXPECTED_REVIEW_ID) {
     throw new Error("Repair metadata target mismatch");
   }
 }
@@ -154,6 +158,7 @@ async function inspect() {
   await output("head_sha", pr.head.sha);
   await output("head_ref", pr.head.ref);
   await output("pr_number", pr.number);
+  await output("review_id", review.id);
   if (decision.reason === "round_limit") {
     await githubRequest(`/repos/${repository.full_name}/issues/${pr.number}/comments`, { token, method: "POST", body: { body: `${decision.marker}\nAutomatic Codex review repair reached the ${MAX_REPAIR_ROUNDS}-round limit. The PR remains open for parent PM inspection.` } });
     return;
@@ -170,12 +175,14 @@ async function inspect() {
 async function verifyHead() {
   const metadata = JSON.parse(await readFile(process.env.REPAIR_METADATA_PATH, "utf8"));
   assertExpectedTarget(metadata);
+  const testedTree = process.env.TESTED_TREE;
+  if (!/^[0-9a-f]{40}$/.test(testedTree)) throw new Error("Invalid tested tree identity");
   const token = process.env.GH_TOKEN;
   const pr = await githubRequest(`/repos/${metadata.repository}/pulls/${metadata.prNumber}`, { token });
   let state = "unpublished";
   if (!remoteHeadMatches(metadata.headSha, pr.head.sha)) {
     const commit = await githubRequest(`/repos/${metadata.repository}/git/commits/${pr.head.sha}`, { token });
-    state = publicationState({ reviewedSha: metadata.headSha, currentSha: pr.head.sha, currentParentSha: commit.parents?.[0]?.sha, testedTree: metadata.testedTree, currentTree: commit.tree?.sha });
+    state = publicationState({ reviewedSha: metadata.headSha, currentSha: pr.head.sha, currentParentSha: commit.parents?.[0]?.sha, testedTree, currentTree: commit.tree?.sha });
   }
   await output("publication_state", state);
   await output("new_head_sha", pr.head.sha);

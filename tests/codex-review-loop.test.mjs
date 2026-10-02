@@ -50,11 +50,19 @@ test("P2 trusted thread is included", () => assert.equal(evaluateReviewContext({
 test("resolved thread is excluded", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ resolved: true })] }).reason, "clean_review"));
 test("arbitrary user review comment is excluded from prompt input", () => assert.equal(evaluateReviewContext({ event: event(), threads: [thread({ author: "attacker" })] }).reason, "clean_review"));
 test("reviewed SHA mismatch prevents repair", () => assert.equal(evaluateReviewContext({ event: event({ review: { commit_id: "b".repeat(40) } }), threads: [thread()] }).reason, "reviewed_sha_mismatch"));
+
 test("repair prompt is bounded and contains only supplied trusted findings", () => {
   const prompt = buildRepairPrompt({ repository: "o/r", prNumber: 7, headSha: SHA, changedPaths: ["src/a.js"], findings: [{ severity: "P1", path: "src/a.js", line: 4, body: "trusted finding" }] });
   assert.match(prompt, /trusted finding/);
   assert.doesNotMatch(prompt, /arbitrary user discussion/);
   assert.ok(prompt.length < 24_000);
+});
+test("secret-bearing repair prompt permits edits but forbids all PR-controlled execution", () => {
+  const prompt = buildRepairPrompt({ repository: "o/r", prNumber: 7, headSha: SHA, changedPaths: ["src/a.js"], findings: [{ severity: "P1", body: "fix it" }] });
+  for (const prohibited of ["dependency lifecycle hooks", "package-manager commands", "tests", "checks", "Git hooks", "executable supplied by the checkout"]) assert.match(prompt, new RegExp(prohibited));
+  assert.match(prompt, /inspect and edit candidate files only/);
+  assert.match(prompt, /Do not install dependencies or run targeted tests or repository checks/);
+  assert.doesNotMatch(prompt, /Run required targeted tests and repository checks/);
 });
 test("targeted test selection recognizes extension and D1/auth paths", () => assert.deepEqual(shouldRunTargetedTests(["apps/extension/a.js", "apps/worker/src/infra/d1/a.ts", "apps/worker/src/access-identity.ts"]), { extension: true, d1: true, auth: true }));
 test("trusted publication uses same branch fast-forward syntax and rejects main", () => {
@@ -81,31 +89,134 @@ test("post-push retry accepts only the tested direct-child tree", () => {
 
 test("workflow isolates GitHub credentials from Codex and never pushes before tests", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const codexStep = workflow.slice(workflow.indexOf("Run credential-isolated Codex repair"), workflow.indexOf("Detect repair changes"));
+  const codexStep = workflow.slice(workflow.indexOf("Run credential-isolated Codex repair"), workflow.indexOf("Detect and authorize repair changes"));
   assert.match(codexStep, /GH_TOKEN: ""/);
   assert.match(codexStep, /GITHUB_TOKEN: ""/);
-  assert.match(codexStep, /persist-credentials: false|unset GH_TOKEN GITHUB_TOKEN/);
-  assert.ok(workflow.indexOf("Run repository checks") < workflow.indexOf("Fast-forward existing PR branch"));
-  assert.match(workflow, /git diff --cached --check HEAD[\s\S]*npm run check/);
+  assert.match(codexStep, /unset GH_TOKEN GITHUB_TOKEN/);
+  assert.ok(workflow.indexOf("Run repository checks on isolated copy") < workflow.indexOf("Fast-forward existing PR branch"));
+  assert.match(workflow, /git diff --cached --check HEAD/);
   assert.match(workflow, /push origin/);
   assert.doesNotMatch(workflow, /push[^\n]*--force|push[^\n]*-f\b/);
 });
 
-test("workflow stages new files into the tested patch and uses a CI-triggering isolated publisher token", async () => {
+test("secret-bearing repair runner executes no PR-controlled setup before Codex", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  assert.match(workflow, /git add -A[\s\S]*git diff --cached --name-only/);
+  const repairJob = workflow.slice(workflow.indexOf("  repair:"), workflow.indexOf("  test_repair:"));
+  const beforeCodex = repairJob.slice(0, repairJob.indexOf("Run credential-isolated Codex repair"));
+  assert.doesNotMatch(beforeCodex, /npm ci/);
+  assert.doesNotMatch(beforeCodex, /issue-codex:check/);
+  assert.ok(beforeCodex.indexOf("Install Codex CLI before PR checkout") < beforeCodex.indexOf("Checkout exact reviewed head without credentials"));
+});
+
+test("fresh test job pins a non-writable toolchain and builds a writable isolated candidate copy", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  assert.match(testJob, /TRUSTED_NODE="\$\(command -v node\)"/);
+  assert.match(testJob, /TRUSTED_NPM="\$\(command -v npm\)"/);
+  assert.match(testJob, /chmod -R go-w "\$TRUSTED_NODE_ROOT"/);
+  assert.match(testJob, /useradd -m -s \/bin\/bash codex-test/);
+  assert.match(testJob, /Prepare writable isolated candidate copy/);
+  assert.match(testJob, /git checkout-index --all --force --prefix="\$\{TEST_WORKSPACE\}\/"/);
+  assert.match(testJob, /cp -a \.git "\$TEST_WORKSPACE\/\.git"/);
+  assert.match(testJob, /chown -R codex-test:codex-test "\$TEST_WORKSPACE"/);
+  assert.doesNotMatch(testJob.slice(testJob.indexOf("Prepare writable isolated candidate copy")), /find "\$RUNNER_TOOL_CACHE\/node"/);
+});
+
+test("npm execution ignores user config and pins the script shell against project .npmrc overrides", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  assert.match(testJob, /npm_config_userconfig=\/dev\/null/);
+  assert.match(testJob, /npm_config_script_shell=\/bin\/bash/);
+  assert.match(testJob, /--script-shell=\/bin\/bash/);
+  assert.match(testJob, /--prefix "\$TEST_WORKSPACE"/);
+});
+
+test("PR-controlled checks execute only in the isolated copy as an unprivileged user", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  for (const name of ["Validate automation contract on isolated copy", "Run targeted checks on isolated copy", "Run repository checks on isolated copy"]) {
+    const start = testJob.indexOf(`- name: ${name}`);
+    assert.notEqual(start, -1, `${name} must exist`);
+    const next = testJob.indexOf("\n      - name:", start + 1);
+    const step = testJob.slice(start, next === -1 ? undefined : next);
+    assert.match(step, /sudo -u codex-test \/usr\/bin\/env -i/);
+    assert.match(step, /--prefix "\$TEST_WORKSPACE"/);
+    assert.match(step, /--script-shell=\/bin\/bash/);
+    assert.match(step, /pkill -KILL -u codex-test/);
+    assert.match(step, /BASH_ENV: ""/);
+    assert.match(step, /ENV: ""/);
+  }
+});
+
+test("original candidate identity is revalidated after every sandboxed command", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const testJob = workflow.slice(workflow.indexOf("  test_repair:"), workflow.indexOf("  publish:"));
+  assert.match(workflow, /candidate_tree:.*steps\.candidate\.outputs\.candidate_tree/);
+  assert.match(testJob, /candidate_paths_sha256/);
+  assert.match(testJob, /\/usr\/bin\/git rev-parse HEAD/);
+  assert.match(testJob, /\/usr\/bin\/git write-tree/);
+  assert.match(testJob, /\/usr\/bin\/git diff --quiet/);
+  assert.match(testJob, /--name-only -z HEAD/);
+  for (const command of ["issue-codex:check", "extension:test", "test:d1-workspace", "test:d1-binding", "test:access-identity", "app:auth:test", "run check"]) {
+    const index = testJob.indexOf(command);
+    assert.notEqual(index, -1, `${command} must remain represented in the test job`);
+    assert.match(testJob.slice(index + command.length), /^\s*validate_candidate/m);
+  }
+});
+
+test("publication metadata bypasses the untrusted test artifact and is revalidated by the publisher", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const candidateArtifact = workflow.slice(workflow.indexOf("Store candidate patch for fresh-runner testing"), workflow.indexOf("  test_repair:"));
+  const testedArtifact = workflow.slice(workflow.indexOf("Store tested patch"), workflow.indexOf("  publish:"));
+  const publisher = workflow.slice(workflow.indexOf("  publish:"));
+  assert.doesNotMatch(candidateArtifact, /codex-review-metadata\.json/);
+  assert.doesNotMatch(testedArtifact, /codex-review-metadata\.json/);
+  assert.match(publisher, /Restore trusted publication metadata[\s\S]*codex-review-request-/);
+  for (const identity of ["EXPECTED_REPOSITORY", "EXPECTED_PR_NUMBER", "EXPECTED_HEAD_SHA", "EXPECTED_HEAD_REF", "EXPECTED_REVIEW_ID", "TESTED_TREE"]) assert.match(publisher, new RegExp(identity));
+});
+
+test("workflow stages new files into the candidate patch and enforces trusted repair scope", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  assert.match(workflow, /Capture trusted PR changed-file scope/);
+  assert.match(workflow, /codex-review-scope\.json/);
+  const detect = workflow.slice(workflow.indexOf("Detect and authorize repair changes"), workflow.indexOf("Export bounded candidate patch"));
+  assert.match(detect, /git add -A/);
+  assert.match(detect, /git diff[\s\S]*--cached[\s\S]*--name-only[\s\S]*-z/);
+  assert.match(detect, /trustedScope\.has\(path\)/);
+  assert.match(detect, /path\.startsWith\("tests\/"\)/);
+  assert.match(detect, /!originalTreePaths\.has\(path\)/);
+  assert.match(detect, /Repair changed paths outside the trusted PR scope/);
   assert.match(workflow, /git diff --cached --binary --full-index HEAD/);
-  assert.match(workflow, /git write-tree/);
   assert.match(workflow, /CODEX_REVIEW_PUBLISH_TOKEN/);
   const publisher = workflow.slice(workflow.indexOf("Fast-forward existing PR branch"), workflow.indexOf("Select published head"));
   assert.doesNotMatch(publisher, /github\.token/);
 });
 
-test("workflow fails closed if Codex moves HEAD before exporting the tested patch", async () => {
+test("workflow fails closed if Codex moves HEAD before exporting a candidate patch", async () => {
   const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
-  const detect = workflow.slice(workflow.indexOf("Detect repair changes"), workflow.indexOf("Run targeted checks"));
+  const detect = workflow.slice(workflow.indexOf("Detect and authorize repair changes"), workflow.indexOf("Export bounded candidate patch"));
   assert.match(detect, /REVIEWED_SHA: \$\{\{ needs\.inspect\.outputs\.head_sha \}\}/);
   assert.match(detect, /test "\$\(git rev-parse HEAD\)" = "\$REVIEWED_SHA"/);
   assert.match(detect, /refusing to export a partial or mismatched repair patch/);
   assert.ok(detect.indexOf("git rev-parse HEAD") < detect.indexOf("git add -A"));
+});
+
+test("targeted test selection is derived from the validated staged diff, not mutable runner-temp state", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const targeted = workflow.slice(workflow.indexOf("- name: Run targeted checks on isolated copy"), workflow.indexOf("- name: Run repository checks on isolated copy"));
+  assert.match(targeted, /validate_candidate[\s\S]*changed_paths="\$\(\/usr\/bin\/git diff --cached --name-only HEAD\)"/);
+  assert.match(targeted, /\/usr\/bin\/printf[\s\S]*\/usr\/bin\/grep/);
+  assert.doesNotMatch(targeted, /codex-review-changed-paths\.txt/);
+});
+
+test("publisher stages the downloaded patch and binds it to the exact tested tree before commit", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/codex-review-loop.yml", import.meta.url), "utf8");
+  const applyStep = workflow.slice(workflow.indexOf("- name: Apply tested patch without executing it"), workflow.indexOf("- name: Commit tested repair"));
+  assert.match(applyStep, /TESTED_TREE:/);
+  assert.match(applyStep, /git -c core\.hooksPath=\/dev\/null add -A/);
+  assert.match(applyStep, /applied_tree="\$\(git write-tree\)"/);
+  assert.match(applyStep, /test "\$applied_tree" = "\$TESTED_TREE"/);
+  const commitStep = workflow.slice(workflow.indexOf("- name: Commit tested repair"), workflow.indexOf("- name: Fast-forward existing PR branch"));
+  assert.match(commitStep, /test "\$\(git write-tree\)" = "\$TESTED_TREE"/);
+  assert.doesNotMatch(commitStep, /git -c core\.hooksPath=\/dev\/null add -A/);
 });
