@@ -109,3 +109,15 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 - `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。
 
 これらが確認できるまで、現行Access/D1運用と本番設定を変更せず、実環境のprovider有効化、remote migration適用、secret bindingは行わない。実装済みの検証用UI・callbackは合成providerテストの範囲に限定する。
+
+## staging接続準備のread-only確認（2026-10-03）
+
+今回の対象は既定の`wrangler.jsonc`ではなく、オンボーディングWorkerの`wrangler.onboarding.jsonc --env staging`です。ローカル設定では、Worker名は`meccha-manual-staging`、entrypointは`apps/worker/src/index.ts`、`APP_BASE_URL`は`https://meccha-manual-staging.meccha-iiyatsu.com`です。D1の`DB`、R2の`MANUAL_ASSETS`、`ONBOARDING_RATE_LIMITER`／`SHARE_AUTH_RATE_LIMITER`がこのstaging環境に定義されています。これらはローカル設定の確認であり、Cloudflare上の反映状態を示すものではありません。
+
+CLIのread-only確認は、すべて`--config wrangler.onboarding.jsonc --env staging`を明示して実行しました。`wrangler whoami`は未認証（`wrangler login`または非対話用の認証設定が必要）でした。デプロイ一覧、secret名一覧、D1 migration一覧（`meccha-manual-d1-staging`、`--remote`）は、非対話実行に必要な`CLOUDFLARE_API_TOKEN`が利用できず、対象の遠隔状態を取得できませんでした。secretの値は取得・表示していません。したがって、Workerの実version、Google／SIWCのsecret binding名と値、0006/0007/0008のremote適用状態、Access外周のproduct入口・health保護は未確認です。ログインやtokenを追加せず、deploy、migration apply、Access変更も行っていません。
+
+次のstaging反映前確認は、運用承認済みの非対話認証を用いて同じ明示的なconfig／envを指定し、(1) versionとsecret名だけを取得する、(2) D1で0006/0007/0008の適用状態を確認する、(3) `APP_BASE_URL`とOAuth callbackの完全一致、Googleの登録済みsecret binding、`OPENAI_SIWC_ENABLED`の明示的なfalse／未登録状態を確認する、(4) Access service actorを要求するhealthと、製品cookieで利用する製品APIを分離して確認する、の順に行います。SIWCは商用client登録と適格性が確認されるまで有効化しません。反映後は、同一workspaceの手順書・関連画像の取得、別workspace拒否、失敗時の再試行、rollbackをstagingで確認します。新しい環境変数・schema・依存・remote変更をこの設計メモから導入しません。
+
+CLIの代替経路として既存workflowもread-onlyで確認しました。`.github/workflows/deploy-staging.yml`はGitHubの`staging` Environmentを要求しますが、`main`上の候補SHA検証、`npm run check`、証跡artifact作成までで、`wrangler.onboarding.jsonc --env staging`のdeployやmigration適用は行いません。`.github/workflows/cloudflare-config-audit.yml`にはCloudflare account／API token secretを渡す手動監査がありますが、既定対象は`meccha-manual`で、オンボーディングstaging設定を指定する処理はありません。`.github/workflows/deployment-gates.yml`もstaging／productionのcheckと通知だけです。したがって、既存workflowに対象stagingの実認証・deploy経路があること、GitHub `staging` Environmentのsecret／承認設定、対象Workerのversion・migration・Access状態は、リポジトリからは未確認です。workflow dispatchやdeployは実行していません。
+
+実環境へ進む場合の順序は、対象Worker名・staging origin・staging専用D1/R2 binding・Access applicationをread-onlyで照合し、対象SHAを固定した後、0006・0007・0008の適用履歴を確認することです。その後にstaging専用のGoogle secret bindingと`APP_BASE_URL`を登録し、configured boolean、Google／ChatGPTの未登録時非表示、製品cookieとAccess healthの分離、workspace／manual／R2 tenant拒否を確認します。反映はversion upload後にstagingだけで行い、migration失敗、callback失敗、health未認証、foreign workspace、logout失敗のいずれかで旧versionへ戻せるよう、対象version・migration順・binding差分を一つのrollback記録に残します。production、課金、外部ユーザー招待、ChatGPT商用client有効化はこの確認では承認しません。
