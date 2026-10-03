@@ -592,7 +592,7 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 
 ## Issue #283 / PR #284 auth P2修正チェックポイント（2026-10-04T02:29:10+09:00）
 
-- 対象branchは `codex/manual-auth-office-integration-283`、開始時source HEADは `494af4cbaa42d5d9c81cc1f559734a577f43749b`。現在はproduct OAuthのlegacy cookie境界とtransaction cookie並行分離を、Worker source、unit/browser回帰、API/D1/ADR/traceability/decision-logと同期したローカルWIPとして確認中で、commit・push前である。
+- 対象branchは `codex/manual-auth-office-integration-283`、開始時source HEADは `494af4cbaa42d5d9c81cc1f559734a577f43749b`。product OAuthのlegacy cookie境界とtransaction cookie並行分離を、Worker source、unit/browser回帰、API/D1/ADR/traceability/decision-logと同期し、commit `8f9e15bde02a65b9f197e82a56a6391184b18236` としてpush済みである。
 - Google/ChatGPTの成功callbackは既存の `clearSessionCookies()` で `__Host-mm_access` / `__Host-mm_refresh` を消去し、失敗・cancel・不正stateではlegacy cookieを消去しない。transaction cookieはproviderとstateのSHA-256に結び付け、callback/errorは該当transactionだけを消去する。D1 schema、migration、remote Supabase logout、provider secretは変更しない。
 - unit実測は app-auth/product-auth 138/138、skip 0、exit 0で、未知・不正stateとlegacy cookie付き失敗時の保持を含む。CFT Chromium browser実測はローカルsession `86926`、5/5、skip 0、exit 0（約22.1秒）。browserではGoogle/ChatGPTの同一provider二tab、成功順 `[0,1]`／`[1,0]`、cancel順 `[0,1]`／`[1,0]`、legacy cookie付き成功、product logout後reloadを確認した。実ユーザーのcredentialやsecretは使用していない。
-- 次の1マイルストーンは差分・typecheck・docs/encoding/workflow検査を再確認し、修正をcommit・pushしてremote branch SHAを照合すること。CI、Codex Review、review thread解決、staging/production反映は最新remote SHAで親PMが別途確認する。
+- 次の1マイルストーンは、remote SHA `8f9e15bde02a65b9f197e82a56a6391184b18236` に対するCI、Codex Review、review thread解決を親PMが確認することである。staging/production反映は未実施のまま維持する。
