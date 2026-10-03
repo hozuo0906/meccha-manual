@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { cleanDraft, handleExternalCloudClaimMessage, safeMessage } from "../apps/extension/background/cloud-claim.js";
-import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, legacyFingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, legacyFingerprintDraft, pruneExpiredHandoffs, withHandoffDraftLock } from "../apps/extension/editor/handoff.js";
 
 const validMessage = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.prepare", handoffId: "A".repeat(43), action: "save" };
 
@@ -104,6 +104,147 @@ test("share output keeps an explicit action through handoff recovery", async () 
   assert.equal(safeMessage({ ...validMessage, action: "share" }, "handoff.prepare"), true);
 });
 
+test("Office output carries a required format through the auth handoff", async () => {
+  const fingerprint = "c".repeat(64);
+  const office = createHandoffMetadata("draft-office", "office", Date.now(), "c".repeat(32), "2026-09-23T00:00:00.000Z", fingerprint, "docx");
+  assert.equal(office.officeFormat, "docx");
+  const url = new URL(buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", office.handoffId, office.extensionId, null, "office", "d".repeat(43), "docx"));
+  assert.equal(url.hash.includes("action=office"), true);
+  assert.equal(new URLSearchParams(url.hash.slice(1)).get("officeFormat"), "docx");
+  assert.equal(safeMessage({ ...validMessage, type: "handoff.prepare", action: "office", officeFormat: "docx" }, "handoff.prepare"), true);
+  assert.throws(() => createHandoffMetadata("draft-office", "office", Date.now(), "c".repeat(32), undefined, fingerprint), /office format/);
+  assert.throws(() => buildContinueUrl("https://meccha-manual-staging.meccha-iiyatsu.com", office.handoffId, office.extensionId, null, "office", null, "xlsx"), /INVALID_OFFICE_FORMAT/);
+});
+
+test("Office output never adopts a pending save claim", async () => {
+  const storage = {
+    async get() { return {
+      "meccha-manual:handoff:save": {
+        handoffId: "E".repeat(43), draftId: "draft-office", draftFingerprint: "d".repeat(64), outputAction: "save",
+        status: "finalize-pending", operationId: "P".repeat(43), claimIntentId: "00000000-0000-4000-8000-000000000000"
+      },
+      "meccha-manual:handoff:office": {
+        handoffId: "F".repeat(43), draftId: "draft-office", draftFingerprint: "d".repeat(64), outputAction: "office", officeFormat: "pptx",
+        status: "finalize-pending", operationId: "Q".repeat(43), claimIntentId: "11111111-1111-4111-8111-111111111111"
+      }
+    }; }
+  };
+  const selected = await findRecoverableHandoff("draft-office", "d".repeat(64), storage, "office", "pptx");
+  assert.equal(selected.handoffId, "F".repeat(43));
+  assert.equal(await findRecoverableHandoff("draft-office", "d".repeat(64), storage, "office", "docx"), null);
+});
+
+test("Office completion requires the authenticated claim identity and matching cloud receipt", async () => {
+  const handoffId = "G".repeat(43);
+  const manualId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue" };
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = { storage: { local: { async get() { return {}; } } } };
+  try {
+    const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "office", officeFormat: "docx", manualId,
+      cloudRef: { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "a".repeat(32), savedFingerprint: "a".repeat(64) } };
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_IDENTITY_REQUIRED" });
+  } finally {
+    if (previousChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = previousChrome;
+  }
+});
+
+test("Office completion rejects an active handoff even with a matching coordinator receipt", async () => {
+  const handoffId = "H".repeat(43);
+  const launchId = "L".repeat(43);
+  const operationId = "O".repeat(43);
+  const claimIntentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const manualId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const draftFingerprint = "b".repeat(64);
+  const metadata = {
+    handoffId, draftId: "draft-office-active", outputAction: "office", officeFormat: "pptx", status: "active",
+    expiresAt, draftUpdatedAt: "2026-10-03T00:00:00.000Z", draftFingerprint, operationId, claimIntentId
+  };
+  const ready = { handoffId, launchId, tabId: 7, activationPolicy: "active", expiresAt };
+  const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue", frameId: 0, tab: { id: 7 } };
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = { storage: { local: { async get(key) {
+    return key === handoffStorageKey(handoffId) ? { [key]: metadata } : { [key]: ready };
+  } } } };
+  try {
+    const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "office", officeFormat: "pptx", launchId,
+      manualId, operationId, claimIntentId, draftFingerprint,
+      cloudRef: { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "c".repeat(32) } };
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_MISMATCH" });
+  } finally {
+    if (previousChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = previousChrome;
+  }
+});
+
+test("Office completion accepts the Worker cloudRef shape and adds the local fingerprint receipt", async () => {
+  const handoffId = "J".repeat(43);
+  const launchId = "K".repeat(43);
+  const operationId = "L".repeat(43);
+  const claimIntentId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const manualId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const draftFingerprint = "d".repeat(64);
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const metadata = {
+    handoffId, draftId: "draft-office-worker-shape", outputAction: "office", officeFormat: "docx", status: "finalize-pending",
+    expiresAt, draftUpdatedAt: "2026-10-03T00:00:00.000Z", draftFingerprint, operationId, claimIntentId, sourceCloudRef: null
+  };
+  const ready = { handoffId, launchId, tabId: 11, activationPolicy: "active", expiresAt };
+  const cloudRef = { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "e".repeat(32) };
+  const records = new Map([[handoffStorageKey(handoffId), metadata], [handoffReadyStorageKey(handoffId, launchId), ready]]);
+  const previousChrome = globalThis.chrome;
+  const previousIndexedDB = globalThis.indexedDB;
+  const storedKeys = [];
+  globalThis.chrome = { storage: { local: {
+    async get(key) {
+      if (key === null) return Object.fromEntries(records);
+      if (typeof key === "string") return records.has(key) ? { [key]: records.get(key) } : {};
+      return {};
+    },
+    async set(values) { for (const [key, value] of Object.entries(values)) { records.set(key, value); storedKeys.push(key); } }
+  } } };
+  globalThis.indexedDB = { open() {
+    const request = {};
+    const transaction = {
+      oncomplete: null,
+      onerror: null,
+      onabort: null,
+      objectStore() {
+        return {
+          get() {
+            const read = { result: { id: metadata.draftId } };
+            queueMicrotask(() => { read.onsuccess?.(); queueMicrotask(() => transaction.oncomplete?.()); });
+            return read;
+          },
+          put() {}
+        };
+      }
+    };
+    request.result = { transaction() { return transaction; }, close() {} };
+    queueMicrotask(() => request.onsuccess?.());
+    return request;
+  } };
+  try {
+    const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue", frameId: 0, tab: { id: 11 } };
+    const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "office", officeFormat: "docx", launchId,
+      manualId, operationId, claimIntentId, draftFingerprint, cloudRef };
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: true, status: "completed" });
+    const saved = records.get("meccha-manual:cloud-ref:" + metadata.draftId);
+    assert.equal(saved.savedFingerprint, draftFingerprint);
+    assert.equal("savedFingerprint" in cloudRef, false, "the Worker response does not carry the local receipt field");
+    assert.ok(storedKeys.includes(handoffStorageKey(handoffId)));
+    const mismatch = await handleExternalCloudClaimMessage({ ...message, draftFingerprint: "f".repeat(64) }, sender);
+    assert.deepEqual(mismatch, { ok: false, error: "RECOVERY_MISMATCH" });
+  } finally {
+    if (previousChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = previousChrome;
+    if (previousIndexedDB === undefined) delete globalThis.indexedDB;
+    else globalThis.indexedDB = previousIndexedDB;
+  }
+});
+
 test("guest claim rejects mismatched messages but recovers a pending draft across output actions", async () => {
   const handoffId = "A".repeat(43);
   const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue" };
@@ -195,6 +336,20 @@ test("output prunes orphan screenshots but rejects referenced pending privacy re
   assert.equal(cleanDraft({ ...draft, steps: [{ ...step, privacyReview: { reviewRequired: true } }] }), null);
   assert.equal(cleanDraft({ ...draft, screenshots: [{ ...image, privacyReview: { reviewRequired: true } }] }), null);
   assert.deepEqual(cleanDraft({ ...draft, steps: [{ id: "s1", order: 1, instruction: "説明のみ", imageState: { status: "none", version: 2 } }] }).screenshots, []);
+});
+
+test("raw capture review blocks cloud output until confirmation while retaining the same image bytes", () => {
+  const review = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+  const image = { id: "raw-image", dataUrl: "data:image/jpeg;base64,AA==", masks: [], privacyReview: review };
+  const step = { id: "raw-step", order: 1, instruction: "確認する", screenshotId: image.id, imageState: { status: "protected", reason: null, version: 1 }, privacyReview: review };
+  const raw = { title: "手順書", description: "", steps: [step], screenshots: [image] };
+  assert.equal(cleanDraft(raw), null, "未確認raw画像はcloud claimを拒否する");
+  const originalDataUrl = raw.screenshots[0].dataUrl;
+  const confirmedReview = { ...review, reviewRequired: false };
+  const confirmed = { ...raw, steps: [{ ...step, imageState: { ...step.imageState, status: "ready" }, privacyReview: confirmedReview }], screenshots: [{ ...image, privacyReview: confirmedReview }] };
+  const clean = cleanDraft(confirmed);
+  assert.ok(clean, "利用者確認後はcloud claimできる");
+  assert.equal(confirmed.screenshots[0].dataUrl, originalDataUrl, "確認は画像bytesを加工・差替えしない");
 });
 
 

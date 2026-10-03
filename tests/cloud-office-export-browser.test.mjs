@@ -78,6 +78,28 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     await page.locator(".manual-title").fill("編集中のタイトル");
     await page.locator("#cloud-message").filter({ hasText: "編集中の内容が変わったため" }).waitFor();
     assetDelayMs = 0;
+
+    let oversizedArrayBufferCalls = 0;
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      window.__restoreCloudOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
+      HTMLCanvasElement.prototype.toBlob = function oversizedToBlob(callback) {
+        callback({ size: 64 * 1024 * 1024 + 1, arrayBuffer: async () => { window.__oversizedArrayBufferCalls = (window.__oversizedArrayBufferCalls || 0) + 1; throw new Error("arrayBuffer must not run"); } });
+      };
+      window.__oversizedArrayBufferCalls = 0;
+    });
+    let oversizedDownloads = 0;
+    const countOversizedDownload = () => { oversizedDownloads += 1; };
+    page.on("download", countOversizedDownload);
+    await word.click();
+    await page.locator("#cloud-message").filter({ hasText: "画像容量が大きいため" }).waitFor();
+    assert.equal(oversizedDownloads, 0, "oversized rendered images do not trigger a cloud download");
+    oversizedArrayBufferCalls = await page.evaluate(() => window.__oversizedArrayBufferCalls);
+    assert.equal(oversizedArrayBufferCalls, 0, "cloud oversized rendered images fail before arrayBuffer");
+    page.off("download", countOversizedDownload);
+    await page.evaluate(() => window.__restoreCloudOfficeToBlob?.());
+    const recoveredDownload = await Promise.all([page.waitForEvent("download"), word.click()]);
+    assert.equal((await readFile(await recoveredDownload[0].path())).subarray(0, 2).toString(), "PK", "cloud Office export can be retried after a capacity failure");
     await page.close();
   } finally {
     await browser?.close();

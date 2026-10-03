@@ -228,6 +228,16 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const stepButtons = editorPage.locator("#steps li button");
     const imageSources = [];
     const imagePixels = [];
+    const readStoredDraft = () => editorPage.evaluate(async () => new Promise((resolve) => {
+      const request = indexedDB.open("meccha-manual-guest", 1);
+      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const transaction = request.result.transaction("drafts", "readonly");
+        const getAll = transaction.objectStore("drafts").getAll();
+        getAll.onsuccess = () => resolve(getAll.result.find((draft) => draft.steps?.length >= 2) || null);
+        getAll.onerror = () => resolve(null);
+      };
+    }));
     for (const index of [0, 1]) {
       const stepButton = stepButtons.nth(index);
       const instruction = await stepButton.locator(".step-name").textContent();
@@ -251,6 +261,32 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       assert.ok(imageState.width > 0 && imageState.height > 0, "selected step canvas should have rendered dimensions");
       imageSources.push(imageState.dataUrl);
       imagePixels.push(imageState.pixelHash);
+      const stepId = articleId.replace(/^step-/, "");
+      const beforeDraft = await readStoredDraft();
+      const beforeStep = beforeDraft?.steps?.find((step) => step.id === stepId);
+      const beforeImage = beforeDraft?.screenshots?.find((screenshot) => screenshot.id === beforeStep?.screenshotId);
+      assert.equal(beforeStep?.privacyReview?.reviewRequired, true, "raw screenshot must wait for explicit image confirmation");
+      assert.ok(beforeImage?.dataUrl, "raw screenshot bytes must be stored before confirmation");
+      const reviewButton = article.locator('.image-state-actions button').filter({ hasText: "画像を確認しました" });
+      assert.equal(await reviewButton.count(), 1, "each raw screenshot must expose an explicit confirmation action");
+      await reviewButton.click();
+      await editorPage.waitForFunction(({ articleId }) => document.querySelector(`[id="${articleId}"] .image-status`)?.textContent === "画像の準備ができました", { articleId });
+      await editorPage.waitForFunction(async (stepId) => new Promise((resolve) => {
+        const request = indexedDB.open("meccha-manual-guest", 1);
+        request.onerror = () => resolve(false);
+        request.onsuccess = () => {
+          const transaction = request.result.transaction("drafts", "readonly");
+          const getAll = transaction.objectStore("drafts").getAll();
+          getAll.onsuccess = () => resolve(Boolean(getAll.result.find((draft) => draft.steps?.some((step) => step.id === stepId && step.privacyReview?.reviewRequired === false))));
+          getAll.onerror = () => resolve(false);
+        };
+      }), stepId);
+      const afterDraft = await readStoredDraft();
+      const afterStep = afterDraft?.steps?.find((step) => step.id === stepId);
+      const afterImage = afterDraft?.screenshots?.find((screenshot) => screenshot.id === afterStep?.screenshotId);
+      assert.equal(afterStep?.privacyReview?.reviewRequired, false, "only the explicit confirmation may clear image review");
+      assert.equal(afterImage?.privacyReview?.reviewRequired, false, "screenshot review state must follow the confirmed step");
+      assert.equal(afterImage?.dataUrl, beforeImage.dataUrl, "confirmation must retain the same screenshot bytes");
     }
     assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
     assert.notEqual(imagePixels[0], imagePixels[1], "each selected step canvas should contain different pixels");

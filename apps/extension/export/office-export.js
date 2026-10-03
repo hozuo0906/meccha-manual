@@ -23,6 +23,11 @@ const REL_DOCX_NUMBERING = "http://schemas.openxmlformats.org/officeDocument/200
 const REL_DOCX_STYLES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
 const EMU_PER_INCH = 914400;
 const EMU_PER_PIXEL = EMU_PER_INCH / 96;
+export const OFFICE_IMAGE_BYTES_LIMIT = 64 * 1024 * 1024;
+export const OFFICE_ARCHIVE_BYTES_LIMIT = 80 * 1024 * 1024;
+const ZIP32_MAX = 0xffffffff;
+const ZIP16_MAX = 0xffff;
+const OFFICE_SIZE_ERROR_MESSAGE = "画像容量が大きいため、画像を小さくするか手順書を分けて再試行してください。";
 
 const MIME_EXTENSIONS = new Map([
   ["image/png", "png"],
@@ -57,6 +62,43 @@ function xmlText(value) {
   return xml(normalized);
 }
 
+function officeSizeError(code = "office-image-budget") {
+  const error = new RangeError(OFFICE_SIZE_ERROR_MESSAGE);
+  error.code = code;
+  error.userMessage = OFFICE_SIZE_ERROR_MESSAGE;
+  return error;
+}
+
+export function assertOfficeImageBudget(size, used = 0) {
+  if (!Number.isSafeInteger(size) || size < 0 || !Number.isSafeInteger(used) || used < 0 || size > OFFICE_IMAGE_BYTES_LIMIT || used > OFFICE_IMAGE_BYTES_LIMIT - size) {
+    throw officeSizeError("office-image-budget");
+  }
+  return used + size;
+}
+
+export function assertOfficeArchiveBudget(size) {
+  if (!Number.isSafeInteger(size) || size < 0 || size > OFFICE_ARCHIVE_BYTES_LIMIT) throw officeSizeError("office-archive-budget");
+  return size;
+}
+
+export function assertOfficeZip32(value) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > ZIP32_MAX) throw officeSizeError("office-zip32-overflow");
+  return value;
+}
+
+export function assertOfficeZipEntryCount(count) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > ZIP16_MAX) throw officeSizeError("office-zip-entry-count");
+  return count;
+}
+
+function dataUrlByteLength(value) {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=_-]+)$/u.exec(value);
+  if (!match) throw new TypeError("Edited image dataUrl must be base64 encoded");
+  const encoded = match[2].replaceAll("-", "+").replaceAll("_", "/");
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor(encoded.length * 3 / 4) - padding);
+}
+
 function ensureTitle(value) {
   const result = text(value).trim();
   if (!result) throw new TypeError("Office export requires a title");
@@ -67,6 +109,7 @@ function ensureSteps(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 200) {
     throw new TypeError("Office export requires one to 200 steps");
   }
+  const imageBudget = { used: 0 };
   return value.map((step, index) => {
     if (!step || typeof step !== "object" || Array.isArray(step)) throw new TypeError(`Invalid step at index ${index}`);
     const instruction = text(step.instruction ?? step.body).trim();
@@ -76,7 +119,7 @@ function ensureSteps(value) {
       number: Number.isInteger(step.number) && step.number > 0 ? step.number : index + 1,
       title: text(step.title).trim(),
       instruction,
-      image: image ? normalizeEditedImage(image, index + 1) : null
+      image: image ? normalizeEditedImage(image, index + 1, imageBudget) : null
     };
   });
 }
@@ -126,11 +169,13 @@ function imageSize(bytes, mimeType) {
   return null;
 }
 
-function normalizeEditedImage(value, stepNumber) {
+function normalizeEditedImage(value, stepNumber, imageBudget = { used: 0 }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`Invalid edited image on step ${stepNumber}`);
   if (value.kind !== "edited" || value.original === true || value.source === "original") {
     throw new TypeError(`Step ${stepNumber} image must be an edited render`);
   }
+  const declaredSize = value.dataUrl ? dataUrlByteLength(value.dataUrl) : value.bytes instanceof ArrayBuffer ? value.bytes.byteLength : ArrayBuffer.isView(value.bytes) ? value.bytes.byteLength : null;
+  if (declaredSize !== null) imageBudget.used = assertOfficeImageBudget(declaredSize, imageBudget.used);
   const provided = value.dataUrl ? bytesFromDataUrl(value.dataUrl) : bytesFromValue(value.bytes);
   const mimeType = text(value.mimeType || provided.mimeType).toLowerCase();
   if (!MIME_EXTENSIONS.has(mimeType)) throw new TypeError(`Step ${stepNumber} image must be PNG or JPEG`);
@@ -139,6 +184,7 @@ function normalizeEditedImage(value, stepNumber) {
   const width = Number(value.width || parsed?.width);
   const height = Number(value.height || parsed?.height);
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) throw new TypeError(`Step ${stepNumber} image dimensions are invalid`);
+  if (declaredSize === null) imageBudget.used = assertOfficeImageBudget(provided.bytes.length, imageBudget.used);
   return { kind: "edited", bytes: provided.bytes, mimeType, width, height };
 }
 
@@ -152,11 +198,13 @@ export function normalizeOfficeManual(value) {
 }
 
 function u16(value) {
-  return new Uint8Array([value & 0xff, (value >>> 8) & 0xff]);
+  if (!Number.isSafeInteger(value) || value < 0 || value > ZIP16_MAX) throw officeSizeError("office-zip16-overflow");
+  return new Uint8Array([value & 0xff, Math.floor(value / 0x100) & 0xff]);
 }
 
 function u32(value) {
-  return new Uint8Array([value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff]);
+  assertOfficeZip32(value);
+  return new Uint8Array([value & 0xff, Math.floor(value / 0x100) & 0xff, Math.floor(value / 0x10000) & 0xff, Math.floor(value / 0x1000000) & 0xff]);
 }
 
 function joinBytes(...chunks) {
@@ -179,23 +227,36 @@ function crc32(bytes) {
 }
 
 function zip(entries) {
+  assertOfficeZipEntryCount(entries.length);
   const local = [];
   const central = [];
-  let offset = 0;
+  let localSize = 0;
+  let centralSize = 0;
   const date = new Date();
   const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
   const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
   for (const entry of entries) {
     const name = utf8(entry.name);
+    if (name.length > ZIP16_MAX) throw officeSizeError("office-zip16-overflow");
     const body = entry.bytes instanceof Uint8Array ? entry.bytes : utf8(entry.bytes);
+    assertOfficeZip32(body.length);
+    const localLength = 30 + name.length + body.length;
+    const centralLength = 46 + name.length;
+    const nextLocalSize = localSize + localLength;
+    const nextCentralSize = centralSize + centralLength;
+    assertOfficeZip32(nextLocalSize);
+    assertOfficeZip32(nextCentralSize);
+    assertOfficeArchiveBudget(nextLocalSize + nextCentralSize + 22);
     const checksum = crc32(body);
     const header = joinBytes(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(dosTime), u16(dosDate), u32(checksum), u32(body.length), u32(body.length), u16(name.length), u16(0), name, body);
     local.push(header);
-    central.push(joinBytes(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(dosTime), u16(dosDate), u32(checksum), u32(body.length), u32(body.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name));
-    offset += header.length;
+    central.push(joinBytes(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(dosTime), u16(dosDate), u32(checksum), u32(body.length), u32(body.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(localSize), name));
+    localSize = nextLocalSize;
+    centralSize = nextCentralSize;
   }
   const localBytes = joinBytes(...local);
   const centralBytes = joinBytes(...central);
+  assertOfficeArchiveBudget(localBytes.length + centralBytes.length + 22);
   return joinBytes(localBytes, centralBytes, u32(0x06054b50), u16(0), u16(0), u16(entries.length), u16(entries.length), u32(centralBytes.length), u32(localBytes.length), u16(0));
 }
 
@@ -246,7 +307,7 @@ function docxDocument(manual, imageIds) {
 }
 
 function docxStyles() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos" w:eastAsia="Yu Gothic"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Subtitle"/><w:rPr><w:b/><w:color w:val="087F7A"/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Normal"/><w:rPr><w:color w:val="52666A"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:keepNext/><w:rPr><w:b/><w:color w:val="126B5C"/><w:sz w:val="28"/></w:rPr></w:style></w:styles>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos" w:eastAsia="Yu Gothic"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Subtitle"/><w:rPr><w:b/><w:color w:val="087F7A"/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Normal"/><w:rPr><w:color w:val="52666A"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:b/><w:color w:val="126B5C"/><w:sz w:val="28"/></w:rPr></w:style></w:styles>`;
 }
 
 export function buildDocx(value) {
@@ -308,7 +369,7 @@ function pptContentTypes(manual) {
 }
 
 function pptPresentation(manual) {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${manual.steps.map((_, index) => `<p:sldId id="${255 + index}" r:id="rId${index + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="screen16x9"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${manual.steps.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="screen16x9"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`;
 }
 
 function pptMaster() {

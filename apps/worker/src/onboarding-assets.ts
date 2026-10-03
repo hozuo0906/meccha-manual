@@ -32,16 +32,25 @@ export const ONBOARDING_JS = `(() => {
   const claimIntentValues = fragmentParams.getAll("claimIntentId");
   const fingerprintValues = fragmentParams.getAll("draftFingerprint");
   const actionValues = fragmentParams.getAll("action");
+  const officeFormatValues = fragmentParams.getAll("officeFormat");
   const requestedActionValues = fragmentParams.getAll("requestedAction");
+  const requestedOfficeFormatValues = fragmentParams.getAll("requestedOfficeFormat");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   const fragmentLaunchId = !hasFragment ? undefined : launchValues.length === 1 ? launchValues[0] : null;
   const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
   const fragmentAction = !hasFragment ? undefined : actionValues.length === 1 ? actionValues[0] : actionValues.length === 0 ? "save" : null;
+  const fragmentOfficeFormat = !hasFragment ? undefined : officeFormatValues.length === 1 ? officeFormatValues[0] : officeFormatValues.length === 0 ? undefined : null;
   const fragmentRequestedAction = requestedActionValues.length === 0 ? fragmentAction : requestedActionValues.length === 1 ? requestedActionValues[0] : null;
+  const fragmentRequestedOfficeFormat = requestedOfficeFormatValues.length === 0 ? fragmentOfficeFormat : requestedOfficeFormatValues.length === 1 ? requestedOfficeFormatValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
   let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
+  if (fragmentRequestedAction === "office" && validOfficeFormat(fragmentRequestedOfficeFormat)) {
+    document.querySelector("h1")?.replaceChildren((fragmentRequestedOfficeFormat === "docx" ? "Word" : "PowerPoint") + "Office出力の準備");
+    document.querySelector(".intro")?.replaceChildren("ログインを確認したあと、ワークスペースを準備してから編集画面へ戻ります。");
+    document.querySelector(".eyebrow")?.replaceChildren("Office出力");
+  }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   function validLaunchId(value) { return validHandoff(value); }
@@ -51,7 +60,9 @@ export const ONBOARDING_JS = `(() => {
   function validOperationId(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   function validClaimIntentId(value) { return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value || ""); }
   function validDraftFingerprint(value) { return /^[a-f0-9]{64}$/.test(value || ""); }
-  function validOutputAction(value) { return value === "save" || value === "share"; }
+  function validOfficeFormat(value) { return value === "docx" || value === "pptx"; }
+  function validOutputAction(value) { return value === "save" || value === "share" || value === "office"; }
+  function validOutputIntent(action, officeFormat) { return validOutputAction(action) && (action === "office" ? validOfficeFormat(officeFormat) : officeFormat === undefined); }
   function hasRecoveryIdentity(value) { return (value?.claimStatus === "finalize-pending" || value?.claimStatus === "completion-pending" || value?.claimStatus === "completed") && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
   function hasTerminalExpiry(value) { return value?.claimStatus === "expired" && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
   function recoveryFresh(value, now = Date.now()) { const expiresAt = Date.parse(value?.recoveryExpiresAt || ""); return Number.isFinite(expiresAt) && expiresAt > now; }
@@ -87,7 +98,8 @@ export const ONBOARDING_JS = `(() => {
     let needsWrite = value.entries.some((entry) => entry.outputAction === undefined);
     for (const entry of state.entries) {
       if (entry.requestedAction !== undefined && !validOutputAction(entry.requestedAction)) return { ok: false, state: null, needsWrite: false };
-      if (!validOutputAction(entry.outputAction)) return { ok: false, state: null, needsWrite: false };
+      if (!validOutputIntent(entry.outputAction, entry.officeFormat)) return { ok: false, state: null, needsWrite: false };
+      if (entry.requestedAction !== undefined && !validOutputIntent(entry.requestedAction, entry.requestedOfficeFormat)) return { ok: false, state: null, needsWrite: false };
       if (entry.state === "active" && !operationFresh(entry, now)) { entry.state = hasRecoveryIdentity(entry) ? "recovery" : "expired"; needsWrite = true; }
     }
     return { ok: true, state, needsWrite };
@@ -113,7 +125,7 @@ export const ONBOARDING_JS = `(() => {
       return capturedContext;
     }
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff) || !validOutputAction(fragmentRequestedAction) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || !validOutputIntent(fragmentRequestedAction, fragmentRequestedOfficeFormat) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputIntent(fragmentAction, fragmentOfficeFormat))) || (officeFormatValues.length > 1 || (officeFormatValues.length === 1 && !validOfficeFormat(fragmentOfficeFormat))) || (requestedOfficeFormatValues.length > 1 || (requestedOfficeFormatValues.length === 1 && !validOfficeFormat(fragmentRequestedOfficeFormat))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -122,7 +134,7 @@ export const ONBOARDING_JS = `(() => {
       try {
         const now = Date.now();
         const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, requestedAction: fragmentRequestedAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, ...(fragmentAction === "office" ? { officeFormat: fragmentOfficeFormat } : {}), requestedAction: fragmentRequestedAction, ...(fragmentRequestedAction === "office" ? { requestedOfficeFormat: fragmentRequestedOfficeFormat } : {}), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -131,9 +143,10 @@ export const ONBOARDING_JS = `(() => {
     }
     const existing = state.entries.find((entry) => entry.handoffId === fragmentHandoff);
     if (existing) {
-      if ((existing.outputAction || "save") !== fragmentAction) return null;
-      if (existing.requestedAction !== fragmentRequestedAction) {
+      if ((existing.outputAction || "save") !== fragmentAction || (existing.outputAction === "office" && (existing.officeFormat !== fragmentOfficeFormat || fragmentRequestedAction !== "office" || fragmentRequestedOfficeFormat !== fragmentOfficeFormat))) return null;
+      if (existing.requestedAction !== fragmentRequestedAction || existing.requestedOfficeFormat !== fragmentRequestedOfficeFormat) {
         existing.requestedAction = fragmentRequestedAction;
+        if (fragmentRequestedAction === "office") existing.requestedOfficeFormat = fragmentRequestedOfficeFormat;
         if (!persistState(state)) return null;
       }
       if (hasTerminalExpiry(existing)) { capturedContext = existing; return capturedContext; }
@@ -167,7 +180,7 @@ export const ONBOARDING_JS = `(() => {
     try {
       const now = Date.now();
       const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, requestedAction: fragmentRequestedAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, ...(fragmentAction === "office" ? { officeFormat: fragmentOfficeFormat } : {}), requestedAction: fragmentRequestedAction, ...(fragmentRequestedAction === "office" ? { requestedOfficeFormat: fragmentRequestedOfficeFormat } : {}), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -250,11 +263,11 @@ export const ONBOARDING_JS = `(() => {
     if (!globalThis.chrome?.runtime?.sendMessage) return false;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId: fragmentHandoff, launchId: fragmentLaunchId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId: fragmentHandoff, launchId: fragmentLaunchId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}) });
     } catch {
       return false;
     }
-    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status)) return false;
+    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status) || (context.outputAction === "office" && reply.officeFormat !== context.officeFormat) || (context.outputAction !== "office" && reply.officeFormat !== undefined)) return false;
     const saved = readSaved();
     const matching = saved.ok ? saved.state?.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId) : null;
     if (!matching || !validDraftFingerprint(reply.draftFingerprint) || !validCreatedAt(reply.expiresAt) || !validExtensionId(reply.extensionId)) return false;
@@ -266,7 +279,7 @@ export const ONBOARDING_JS = `(() => {
   async function signalAccessReturn(context) {
     if (!configured || hasFragment || !context || !validHandoff(context.handoffId) || !validLaunchId(context.launchId) || !validExtensionId(context.extensionId) || !validOperationId(context.operationId) || !validDraftFingerprint(context.draftFingerprint) || !validCreatedAt(context.expiresAt) || !globalThis.chrome?.runtime?.sendMessage) return false;
     try {
-      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
+      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}), draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
       return reply?.ok === true && ["restored", "recovery"].includes(reply.status);
     } catch {
       return false;
@@ -277,10 +290,11 @@ export const ONBOARDING_JS = `(() => {
     if (!context || context.state !== "active") return context;
     const extensionId = extensionIdFor(context);
     if (!extensionId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
     if (!reply?.ok || !["active", "expired"].includes(reply.status) || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
     const saved = readSaved();
@@ -301,8 +315,9 @@ export const ONBOARDING_JS = `(() => {
   }
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
-    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...extra });
+    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}), ...(context.outputAction === "office" && context.launchId ? { launchId: context.launchId } : {}), ...extra });
     if (!reply?.ok) {
       const guidance = {
         DRAFT_CLAIM_PENDING: "前の保存結果を確認する必要があります。編集画面からもう一度進んでください。下書きはこの端末に残っています。",
@@ -317,9 +332,10 @@ export const ONBOARDING_JS = `(() => {
   async function recoverExtensionContext(context) {
     const extensionId = extensionIdFor(context);
     if (!extensionId || !globalThis.chrome?.runtime?.sendMessage || !context?.handoffId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) return context;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch {
       context.state = "recovery-probe";
       const saved = readSaved();
@@ -406,7 +422,25 @@ export const ONBOARDING_JS = `(() => {
     return { title: String(prepared.draft.title || ""), description: String(prepared.draft.description || ""), steps };
   }
   function showClaimSuccess(context, manualId) {
+    const isOffice = (context?.requestedAction || context?.outputAction) === "office";
     const isShare = (context?.requestedAction || context?.outputAction) === "share";
+    if (isOffice) {
+      message((context?.officeFormat === "docx" ? "Word" : "PowerPoint") + "出力の認証と保存先の確認が完了しました。編集画面に戻るとファイルを作成します。", "success");
+      button.removeEventListener("click", bootstrap);
+      setButton("編集画面を開く", false);
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          const reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId: context.handoffId, launchId: context.launchId, officeFormat: context.officeFormat });
+          if (!reply?.ok) throw new Error("OFFICE_RETURN_REJECTED");
+          message("編集画面を開きました。Officeファイルの作成結果を確認できます。", "success");
+        } catch {
+          message("編集画面を開けませんでした。元の編集画面へ戻って、Office出力をもう一度選んでください。", "error");
+          button.disabled = false;
+        }
+      };
+      return Boolean(manualId);
+    }
     message("手順書を保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
     if (isShare) message("共有用の保存が完了しました。共有設定を開いて共有リンクを作成してください。", "success");

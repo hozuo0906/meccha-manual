@@ -48,6 +48,20 @@ async function liveImages(worker, sessionId) {
   }), sessionId);
 }
 
+async function savedDraft(worker, draftId) {
+  return worker.evaluate((id) => new Promise((resolve, reject) => {
+    const request = indexedDB.open("meccha-manual-guest", 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction("drafts", "readonly");
+      const get = transaction.objectStore("drafts").get(id);
+      transaction.oncomplete = () => { db.close(); resolve(get.result ?? null); };
+      transaction.onerror = () => { db.close(); reject(transaction.error); };
+    };
+  }), draftId);
+}
+
 async function evaluateWorker(context, worker, expression, arg) {
   let lastError;
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -137,11 +151,13 @@ test("native recording keeps raw pixels, excludes input values, rejects inactive
   }
   const final = await liveSession(worker);
   assert.equal(final.phase, "recording");
-  assert.ok(final.stepImageRefs.filter((entry) => entry.status === "ready").length >= OPERATIONS, `stable native operations must keep their images: ${JSON.stringify(final.stepImageRefs)}`);
+  assert.ok(final.stepImageRefs.filter((entry) => entry.status === "protected").length >= OPERATIONS, `stable native operations must retain protected images: ${JSON.stringify(final.stepImageRefs)}`);
   assert.doesNotMatch(JSON.stringify(final), /Synthetic Input Value/, "worker state must exclude input values");
   const images = await liveImages(worker, session.id);
-  assert.ok(images.filter((entry) => entry.status === "ready" && entry.dataUrl).length >= OPERATIONS, "native screenshots must be persisted as useful image bytes");
-  assert.ok(images.every((entry) => entry.status !== "ready" || /^data:image\/(jpeg|png);base64,/.test(entry.dataUrl)), "stored image bytes must remain native data URLs");
+  const protectedImages = images.filter((entry) => entry.status === "protected" && entry.dataUrl);
+  assert.ok(protectedImages.length >= OPERATIONS, "native screenshots must be persisted as protected image bytes");
+  assert.ok(protectedImages.every((entry) => entry.privacyReview?.reviewRequired === true && entry.privacyReview.reasonCodes?.includes("manual_image_review")), "protected native screenshots must require explicit manual image review");
+  assert.ok(images.every((entry) => !["ready", "protected"].includes(entry.status) || /^data:image\/(jpeg|png);base64,/.test(entry.dataUrl)), "stored image bytes must remain native data URLs");
   const rawPixelCounts = await worker.evaluate(async (dataUrls) => {
     const counts = [];
     for (const dataUrl of dataUrls.slice(0, 3)) {
@@ -155,9 +171,33 @@ test("native recording keeps raw pixels, excludes input values, rejects inactive
       bitmap.close(); counts.push(magenta);
     }
     return counts;
-  }, images.filter((entry) => entry.status === "ready" && entry.dataUrl).map((entry) => entry.dataUrl));
+  }, protectedImages.map((entry) => entry.dataUrl));
   assert.ok(rawPixelCounts.some((count) => count > 5), `native recording must preserve the fixture pixels without automatic replacement: ${JSON.stringify(rawPixelCounts)}`);
 
   const finished = await command({ type: "capture:finish" });
   assert.equal(finished.ok, true, "native recording must finish after navigation and inactive target rejection");
+  assert.ok(finished.value?.draftId, "finish must return the saved draft identity");
+  assert.ok(finished.value.reviewImageCount >= OPERATIONS, "finish must retain protected image review count");
+  const draft = await savedDraft(worker, finished.value.draftId);
+  assert.ok(draft, "finish must persist a local draft");
+  const persistedProtected = draft.steps.filter((step) => step.imageState?.status === "protected");
+  assert.ok(persistedProtected.length >= OPERATIONS, "finished draft must retain protected image states");
+  assert.ok(persistedProtected.every((step) => step.privacyReview?.reviewRequired === true && step.privacyReview.reasonCodes?.includes("manual_image_review")), "finished draft must retain explicit manual image review metadata");
+  const persistedDataUrls = persistedProtected.map((step) => draft.screenshots.find((image) => image.id === step.screenshotId)?.dataUrl);
+  assert.ok(persistedDataUrls.every((dataUrl) => /^data:image\/(jpeg|png);base64,/.test(dataUrl || "")), "finished draft must retain native image bytes for protected steps");
+  const persistedRawPixelCounts = await worker.evaluate(async (dataUrls) => {
+    const counts = [];
+    for (const dataUrl of dataUrls.slice(0, 3)) {
+      const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(bitmap, 0, 0);
+      const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      let magenta = 0;
+      for (let index = 0; index < pixels.length; index += 4) if (pixels[index] > 130 && pixels[index + 1] < 100 && pixels[index + 2] > 75 && pixels[index + 2] < 185) magenta += 1;
+      bitmap.close(); counts.push(magenta);
+    }
+    return counts;
+  }, persistedDataUrls);
+  assert.ok(persistedRawPixelCounts.some((count) => count > 5), `finished draft must retain native pixels: ${JSON.stringify(persistedRawPixelCounts)}`);
 });

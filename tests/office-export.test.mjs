@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { posix } from "node:path";
 
-import { buildDocx, buildPptx, normalizeOfficeManual, OFFICE_EXPORT_MIME_TYPES } from "../apps/extension/export/office-export.js";
+import { assertOfficeArchiveBudget, assertOfficeImageBudget, assertOfficeZip32, assertOfficeZipEntryCount, buildDocx, buildPptx, normalizeOfficeManual, OFFICE_ARCHIVE_BYTES_LIMIT, OFFICE_IMAGE_BYTES_LIMIT, OFFICE_EXPORT_MIME_TYPES } from "../apps/extension/export/office-export.js";
 
 const PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
 
@@ -68,6 +68,13 @@ function imageWithDimensions(width, height, mimeType = "image/png") {
   return { kind: "edited", bytes, mimeType, width, height };
 }
 
+class DeclaredSizeBytes extends Uint8Array {
+  constructor(bytes, declaredSize) {
+    super(bytes);
+    Object.defineProperty(this, "byteLength", { value: declaredSize });
+  }
+}
+
 function manual() {
   return {
     title: "売上確認の手順",
@@ -103,6 +110,30 @@ test("office exports reject XML 1.0 noncharacters U+FFFE and U+FFFF", () => {
   assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], instruction: `invalid\u{ffff}instruction` }] }), /unsupported XML characters/);
 });
 
+test("Office image, archive, and ZIP32 guards reject overflow without allocating giant fixtures", () => {
+  assert.equal(assertOfficeImageBudget(OFFICE_IMAGE_BYTES_LIMIT), OFFICE_IMAGE_BYTES_LIMIT);
+  assert.throws(() => assertOfficeImageBudget(1, OFFICE_IMAGE_BYTES_LIMIT), /画像容量が大きいため/u);
+  assert.equal(assertOfficeArchiveBudget(OFFICE_ARCHIVE_BYTES_LIMIT), OFFICE_ARCHIVE_BYTES_LIMIT);
+  assert.throws(() => assertOfficeArchiveBudget(OFFICE_ARCHIVE_BYTES_LIMIT + 1), /画像容量が大きいため/u);
+  assert.equal(assertOfficeZip32(0xffffffff), 0xffffffff);
+  assert.throws(() => assertOfficeZip32(0x100000000), /画像容量が大きいため/u);
+  assert.equal(assertOfficeZipEntryCount(0xffff), 0xffff);
+  assert.throws(() => assertOfficeZipEntryCount(0x10000), /画像容量が大きいため/u);
+});
+
+test("real DOCX/PPTX builds reject cumulative image overflow before copying the next image", () => {
+  const oversizedManual = {
+    title: "容量超過の実build",
+    steps: [1, 2].map((number) => ({
+      number,
+      instruction: `手順${number}`,
+      image: { ...imageWithDimensions(320, 180), bytes: new DeclaredSizeBytes(PNG, Math.floor(OFFICE_IMAGE_BYTES_LIMIT / 2) + 1) }
+    }))
+  };
+  assert.throws(() => buildDocx(oversizedManual), /画像容量が大きいため/u);
+  assert.throws(() => buildPptx(oversizedManual), /画像容量が大きいため/u);
+});
+
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {
   const packageEntries = zipEntries(buildDocx(manual()));
   assertRelationshipTargets(packageEntries);
@@ -135,6 +166,41 @@ test("PPTX is a real OOXML package with one slide per step and edited image", ()
   assert.match(slide, /手順 1/);
   assert.match(slide, /一覧を開きます/);
   assert.match(slide, /r:embed="rId2"/);
+});
+
+test("PPTX uses valid ordered slide IDs and preserves relationship order", () => {
+  const value = {
+    title: "識別子境界の確認",
+    steps: Array.from({ length: 200 }, (_, index) => ({
+      number: index + 1,
+      instruction: `手順 ${index + 1}`,
+      image: index === 0 ? imageWithDimensions(320, 180) : undefined
+    }))
+  };
+  const packageEntries = zipEntries(buildPptx(value));
+  const presentation = entryText(packageEntries, "ppt/presentation.xml");
+  const slideIds = [...presentation.matchAll(/<p:sldId id="(\d+)" r:id="(rId\d+)"\/>/gu)].map((match) => ({ id: Number(match[1]), relationshipId: match[2] }));
+  assert.equal(slideIds.length, 200);
+  assert.equal(slideIds[0].id, 256);
+  assert.equal(slideIds.at(-1).id, 455);
+  assert.equal(new Set(slideIds.map((item) => item.id)).size, slideIds.length);
+  assert.ok(slideIds.every((item, index) => item.id >= 256 && item.id <= 2147483647 && item.id === 256 + index));
+  assert.deepEqual(slideIds.map((item) => item.relationshipId), Array.from({ length: 200 }, (_, index) => `rId${index + 2}`));
+  assert.match(presentation, /<p:sldMasterId id="2147483648" r:id="rId1"\/>/);
+
+  const presentationRelationships = entryText(packageEntries, "ppt/_rels/presentation.xml.rels");
+  const slideRelationships = [...presentationRelationships.matchAll(/<Relationship Id="(rId\d+)" Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/slide" Target="slides\/slide(\d+)\.xml"\/>/gu)].map((match) => ({ relationshipId: match[1], slide: Number(match[2]) }));
+  assert.deepEqual(slideRelationships, Array.from({ length: 200 }, (_, index) => ({ relationshipId: `rId${index + 2}`, slide: index + 1 })));
+
+  const firstSlide = entryText(packageEntries, "ppt/slides/slide1.xml");
+  const firstShapeIds = [...firstSlide.matchAll(/<p:cNvPr id="(\d+)"/gu)].map((match) => Number(match[1]));
+  assert.deepEqual(firstShapeIds, [1, 2, 3, 4, 5]);
+  assert.equal(new Set(firstShapeIds).size, firstShapeIds.length);
+  const lastSlide = entryText(packageEntries, "ppt/slides/slide200.xml");
+  const lastShapeIds = [...lastSlide.matchAll(/<p:cNvPr id="(\d+)"/gu)].map((match) => Number(match[1]));
+  assert.deepEqual(lastShapeIds, [1, 2, 3, 4]);
+  assert.equal(new Set(lastShapeIds).size, lastShapeIds.length);
+  assert.match(entryText(packageEntries, "ppt/slideMasters/slideMaster1.xml"), /<p:sldLayoutId id="2147483649" r:id="rId1"\/>/);
 });
 
 test("PPTX theme has the required three style entries and long Japanese body uses autofit", () => {
@@ -205,7 +271,10 @@ test("OOXML keeps styles relationships and converts source newlines to Office br
   const docxEntries = zipEntries(buildDocx(value));
   const docx = entryText(docxEntries, "word/document.xml");
   const docxRels = entryText(docxEntries, "word/_rels/document.xml.rels");
+  const styles = entryText(docxEntries, "word/styles.xml");
   assert.match(docxRels, /Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/styles" Target="styles\.xml"/);
+  assert.match(styles, /<w:style[^>]+w:styleId="Heading1"[\s\S]*?<w:pPr><w:keepNext\/><\/w:pPr>[\s\S]*?<\/w:style>/u);
+  assert.doesNotMatch(styles, /<w:style[^>]+w:styleId="Heading1"[^>]*>[^<]*<w:name[^>]*\/><w:basedOn[^>]*\/><w:keepNext\/>/u);
   assert.match(docx, /<w:t xml:space="preserve">タイトル<\/w:t><w:br\/><w:t xml:space="preserve">次の行<\/w:t>/);
   assert.ok(!docx.includes("タイトル\n次の行"));
 

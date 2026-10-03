@@ -7,10 +7,21 @@ const HANDOFF_KEY_PREFIX = "meccha-manual:handoff:";
 const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const CLAIM_INTENT_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const OUTPUT_ACTIONS = new Set(["save", "share"]);
+const OUTPUT_ACTIONS = new Set(["save", "share", "office"]);
+const OFFICE_FORMATS = new Set(["docx", "pptx"]);
 
-function validOutputAction(value) {
+export function validOutputAction(value) {
   return OUTPUT_ACTIONS.has(value);
+}
+
+export function validOfficeFormat(value) {
+  return OFFICE_FORMATS.has(value);
+}
+
+function validateActionFormat(outputAction, officeFormat) {
+  if (!validOutputAction(outputAction)) throw new TypeError("unsupported output action");
+  if (outputAction === "office" && !validOfficeFormat(officeFormat)) throw new TypeError("office format is required");
+  if (outputAction !== "office" && officeFormat !== undefined && officeFormat !== null) throw new TypeError("office format is unsupported");
 }
 
 function canonicalScreenshot(screenshot) {
@@ -84,9 +95,9 @@ export function validateExtensionId(extensionId) {
   return extensionId;
 }
 
-export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined, draftFingerprint = undefined) {
+export function createHandoffMetadata(draftId, outputAction = "save", now = Date.now(), extensionId = globalThis.chrome?.runtime?.id, draftUpdatedAt = undefined, draftFingerprint = undefined, officeFormat = undefined) {
   if (typeof draftId !== "string" || !draftId) throw new TypeError("draft id is required");
-  if (!validOutputAction(outputAction)) throw new TypeError("unsupported output action");
+  validateActionFormat(outputAction, officeFormat);
   validateExtensionId(extensionId);
   const handoffId = createHandoffId();
   return {
@@ -96,6 +107,7 @@ export function createHandoffMetadata(draftId, outputAction = "save", now = Date
     extensionId,
     ...(typeof draftUpdatedAt === "string" ? { draftUpdatedAt } : {}),
     ...(typeof draftFingerprint === "string" && /^[a-f0-9]{64}$/.test(draftFingerprint) ? { draftFingerprint } : {}),
+    ...(outputAction === "office" ? { officeFormat } : {}),
     expiresAt: new Date(now + HANDOFF_TTL_MS).toISOString()
   };
 }
@@ -119,9 +131,9 @@ export async function pruneExpiredHandoffs(storage = globalThis.chrome?.storage?
   if (expired.length > 0) await storage.remove(expired);
 }
 
-export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local, outputAction = "save") {
+export async function findRecoverableHandoff(draftId, draftFingerprint, storage = globalThis.chrome?.storage?.local, outputAction = "save", officeFormat = undefined) {
   if (typeof draftId !== "string" || !draftId || !/^[a-f0-9]{64}$/.test(draftFingerprint || "") || !storage?.get) return null;
-  if (!validOutputAction(outputAction)) return null;
+  try { validateActionFormat(outputAction, officeFormat); } catch { return null; }
   const entries = await storage.get(null);
   const handoffs = Object.values(entries || {}).filter((value) =>
     validOutputAction(value?.outputAction) &&
@@ -134,9 +146,18 @@ export async function findRecoverableHandoff(draftId, draftFingerprint, storage 
     /^[A-Za-z0-9_-]{16,128}$/.test(value.operationId || "") &&
     CLAIM_INTENT_ID_PATTERN.test(value.claimIntentId || "")
   );
-  if (pending.length > 0) return pending.find((value) => value.draftFingerprint === draftFingerprint) || pending[0];
+  if (pending.length > 0) {
+    const matchingIntent = pending.find((value) => value.draftFingerprint === draftFingerprint && value.outputAction === outputAction && (outputAction !== "office" ? value.officeFormat === undefined : value.officeFormat === officeFormat));
+    // An Office request must never adopt a pending save/share claim. That
+    // would return metadata with the wrong intent and could resume the wrong
+    // output after authentication. Existing save/share recovery keeps its
+    // historical fallback behavior.
+    if (matchingIntent || outputAction === "office") return matchingIntent || null;
+    return pending.find((value) => value.draftFingerprint === draftFingerprint) || pending[0];
+  }
   return handoffs.find((value) =>
     value.outputAction === outputAction &&
+    (outputAction !== "office" ? value.officeFormat === undefined : value.officeFormat === officeFormat) &&
     value.status === undefined &&
     value.draftFingerprint === draftFingerprint &&
     Number.isFinite(Date.parse(value.expiresAt || "")) &&
@@ -154,11 +175,23 @@ export async function withHandoffDraftLock(draftId, callback, navigatorLike = gl
   });
 }
 
-export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save", launchId = null) {
+export async function resumeCompletedOfficeStartup(metadata, callbacks = {}) {
+  if (metadata?.status !== "completed") return "ignored";
+  if (metadata.officeReturnReceipt) {
+    if (typeof callbacks.resume !== "function") throw new TypeError("office resume callback is required");
+    await callbacks.resume(metadata);
+    return "resume";
+  }
+  if (typeof callbacks.clear !== "function") throw new TypeError("office clear callback is required");
+  await callbacks.clear(metadata);
+  return "warning";
+}
+
+export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save", launchId = null, officeFormat = undefined) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
   validateExtensionId(extensionId);
-  if (!validOutputAction(outputAction)) throw new Error("UNSUPPORTED_OUTPUT_ACTION");
+  try { validateActionFormat(outputAction, officeFormat); } catch { throw new Error(outputAction === "office" ? "INVALID_OFFICE_FORMAT" : "UNSUPPORTED_OUTPUT_ACTION"); }
   if (launchId !== null && !/^[A-Za-z0-9_-]{43}$/.test(launchId)) throw new Error("INVALID_LAUNCH_ID");
   const recoveryParams = recovery && /^[A-Za-z0-9_-]{16,128}$/.test(recovery.operationId || "") &&
     CLAIM_INTENT_ID_PATTERN.test(recovery.claimIntentId || "") &&
@@ -168,10 +201,14 @@ export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chr
   // Claim authorization uses the original action. A different requested destination
   // is UI intent only; it must never create a second in-flight claim.
   const claimAction = validOutputAction(recovery?.outputAction) ? recovery.outputAction : outputAction;
-  const actionParam = claimAction === "share" ? "&action=share" : "";
+  const claimOfficeFormat = claimAction === "office" ? (validOfficeFormat(recovery?.officeFormat) ? recovery.officeFormat : officeFormat) : undefined;
+  try { validateActionFormat(claimAction, claimOfficeFormat); } catch { throw new Error("INVALID_OFFICE_FORMAT"); }
+  if (outputAction === "office" && (claimAction !== "office" || claimOfficeFormat !== officeFormat)) throw new Error("INVALID_OFFICE_FORMAT");
+  const actionParam = claimAction === "share" ? "&action=share" : claimAction === "office" ? `&action=office&officeFormat=${encodeURIComponent(claimOfficeFormat)}` : "";
   const requestedActionParam = outputAction !== claimAction ? `&requestedAction=${outputAction}` : "";
+  const requestedOfficeFormatParam = outputAction === "office" && claimAction === "office" && officeFormat !== claimOfficeFormat ? `&requestedOfficeFormat=${encodeURIComponent(officeFormat)}` : "";
   const launchParam = launchId ? `&launchId=${encodeURIComponent(launchId)}` : "";
-  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${requestedActionParam}${recoveryParams}${launchParam}`;
+  return `${origin}/onboarding/continue#handoff=${encodeURIComponent(handoffId)}&extensionId=${encodeURIComponent(extensionId)}${actionParam}${requestedActionParam}${requestedOfficeFormatParam}${recoveryParams}${launchParam}`;
 }
 
 export async function withHandoffReadyLock(handoffId, callback, navigatorLike = globalThis.navigator) {

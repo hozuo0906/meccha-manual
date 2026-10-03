@@ -117,7 +117,11 @@ async function captureEvidence(page, name) {
 
 async function downloadBytes(page, button) {
   try {
-    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), button.click({ timeout: 30_000 })]);
+    await button.click({ timeout: 30_000 });
+    await page.locator("#outputGate").waitFor({ state: "visible", timeout: 30_000 });
+    const action = page.locator("#startRegistration");
+    assert.match(await action.textContent(), /ログインして(?:Word|PowerPoint)を書き出す/u);
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), action.click({ timeout: 30_000 })]);
     return readFile(await download.path());
   } catch (error) {
     const diagnostic = await page.evaluate(() => ({
@@ -128,6 +132,12 @@ async function downloadBytes(page, button) {
     })).catch(() => ({}));
     throw new Error(`Office download failed: ${error.message}; diagnostic=${JSON.stringify(diagnostic)}`);
   }
+}
+
+async function startAuthenticatedExport(page, button) {
+  await button.click({ timeout: 30_000 });
+  await page.locator("#outputGate").waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator("#startRegistration").click({ timeout: 30_000 });
 }
 
 async function pixelAt(page, bytes, xRatio, yRatio) {
@@ -150,7 +160,7 @@ async function pixelAt(page, bytes, xRatio, yRatio) {
   }, { values: [...bytes], xRatio, yRatio });
 }
 
-test("local extension editor downloads 20 edited images to Word and PowerPoint without SSO", { timeout: 180_000 }, async () => {
+test("local extension editor requires the auth gate before downloading 20 edited images", { timeout: 180_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -159,6 +169,70 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
   let context;
   try {
     context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 }, locale: "ja-JP" });
+    await context.addInitScript(() => {
+      const values = new Map();
+      const listeners = [];
+      const readyPrefix = "meccha-manual:handoff-ready:";
+      const handoffPrefix = "meccha-manual:handoff:";
+      const emit = (changes) => listeners.forEach((listener) => { try { listener(changes, "local"); } catch {} });
+      const local = {
+        async get(key = null) {
+          if (key === null) return Object.fromEntries(values.entries());
+          if (Array.isArray(key)) return Object.fromEntries(key.filter((name) => values.has(name)).map((name) => [name, values.get(name)]));
+          return values.has(key) ? { [key]: values.get(key) } : {};
+        },
+        async set(items) {
+          const changes = {};
+          for (const [key, value] of Object.entries(items || {})) {
+            const next = key.startsWith(readyPrefix) && value && value.pageReadyAt === null
+              ? { ...value, pageReadyAt: new Date().toISOString() }
+              : value;
+            changes[key] = { oldValue: values.get(key), newValue: next };
+            values.set(key, next);
+          }
+          if (Object.keys(changes).length) emit(changes);
+        },
+        async remove(key) {
+          const keys = Array.isArray(key) ? key : [key];
+          const changes = {};
+          for (const name of keys) if (values.has(name)) { changes[name] = { oldValue: values.get(name) }; values.delete(name); }
+          if (Object.keys(changes).length) emit(changes);
+        }
+      };
+      let nextTabId = 100;
+      const tabs = new Map();
+      const completeAuthClaim = async (url) => {
+        try {
+          const parsed = new URL(url);
+          const params = new URLSearchParams(parsed.hash.slice(1));
+          const handoffId = params.get("handoff");
+          const metadataKey = handoffPrefix + handoffId;
+          const metadata = (await local.get(metadataKey))[metadataKey];
+          if (!metadata || params.get("action") !== "office" || params.get("officeFormat") !== metadata.officeFormat) return;
+          const claim = {
+            operationId: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+            claimIntentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            draftFingerprint: metadata.draftFingerprint,
+            completedManualId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+          };
+          // Model the server coordinator's durable ordering: finalize-pending
+          // is recorded before the completed receipt reaches the editor.
+          await local.set({ [metadataKey]: { ...metadata, ...claim, status: "finalize-pending" } });
+          await local.set({ [metadataKey]: { ...metadata, ...claim, status: "completed" } });
+        } catch {}
+      };
+      const runtime = { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", async sendMessage() { return { ok: true }; } };
+      const chromeApi = globalThis.chrome || {};
+      chromeApi.runtime = runtime;
+      chromeApi.storage = { local, onChanged: { addListener(listener) { listeners.push(listener); } } };
+      chromeApi.tabs = {
+        async create(details) { const id = nextTabId++; tabs.set(id, { id, url: details?.url || "about:blank" }); return { id, url: details?.url || "about:blank" }; },
+        async get(id) { return tabs.get(id) || null; },
+        async remove(id) { tabs.delete(id); },
+        async update(id, details) { const tab = tabs.get(id) || { id }; Object.assign(tab, details || {}); tabs.set(id, tab); if (details?.url) await completeAuthClaim(details.url); return tab; }
+      };
+      globalThis.chrome = chromeApi;
+    });
     const page = await context.newPage();
     page.setDefaultTimeout(8_000);
     const { sourceDataUrl } = await seedDraft(page, baseUrl, draftId);
@@ -179,6 +253,15 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
 
     // Exercise the real image editor before export so at least one output pixel
     // is changed through the editor path, while all twenty references remain.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await page.locator("#step-step-1 .image-edit-button").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+      assert.equal(await page.locator('[data-replacement-action="add"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="help"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="add"]').getAttribute("aria-describedby"), await page.locator('[data-replacement-action="help"]').getAttribute("id"));
+      await page.locator("[data-editor-cancel]").first().click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    }
     await page.locator("#step-step-1 .image-edit-button").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
     await captureEvidence(page, "office-extension-image-editor-1366");
@@ -210,7 +293,7 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     const powerpoint = page.locator("#exportPowerPoint");
     assert.equal(await word.isVisible(), true);
     assert.equal(await powerpoint.isVisible(), true);
-    assert.equal(await page.locator("#outputGate").isVisible(), false, "local Office output must not open the cloud gate");
+    assert.equal(await page.locator("#outputGate").isVisible(), false, "Office actions start from the editor without an open gate");
 
     const wordBytes = await downloadBytes(page, word);
     const wordEntries = zipEntries(wordBytes);
@@ -246,10 +329,12 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     const countUnreadyDownload = () => { unreadyDownloads += 1; };
     page.on("download", countUnreadyDownload);
     await page.locator("#exportWord").click();
-    await page.locator("#officeExportStatus[data-state=warning]").waitFor();
-    assert.match(await page.locator("#officeExportStatus").textContent(), /準備中|要確認/u);
-    assert.equal(unreadyDownloads, 0, "unready images do not trigger a download");
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "unready images keep the authenticated Office gate disabled");
+    assert.notEqual((await page.locator("#gateStatus").textContent()).trim(), "");
     page.off("download", countUnreadyDownload);
+    await page.locator("#cancelOutput").click();
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
 
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
@@ -270,7 +355,7 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     let delayedImportDownloads = 0;
     const countDelayedImportDownload = () => { delayedImportDownloads += 1; };
     page.on("download", countDelayedImportDownload);
-    await page.locator("#exportWord").click();
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
     await page.waitForFunction(() => document.querySelector("#officeExportStatus")?.textContent?.includes("作成") === true);
     await page.locator("#title").fill("dynamic import待機中の変更");
     await page.locator("#officeExportStatus[data-state=warning]").waitFor();
@@ -298,7 +383,7 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     let digestDownloads = 0;
     const countDigestDownload = () => { digestDownloads += 1; };
     page.on("download", countDigestDownload);
-    await page.locator("#exportWord").click();
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
     await page.waitForFunction(() => window.__officeDigestReady === true);
     await page.locator("#title").fill("final digest待機中の変更");
     await page.evaluate(() => window.__releaseOfficeDigest?.());
@@ -307,20 +392,28 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     page.off("download", countDigestDownload);
     await page.evaluate(() => window.__restoreOfficeDigest?.());
 
-    // Delay the real canvas encoding, mutate the title during export, and verify
-    // the snapshot guard refuses the stale package before a retry succeeds.
+    // Hold the first real canvas encoding, mutate the title while export is
+    // definitely in flight, then release the encoder. A wall-clock delay is
+    // too weak here because the export may finish before the mutation.
     await page.locator(".office-actions").evaluate((details) => { details.open = true; });
     await page.evaluate(() => {
       const original = HTMLCanvasElement.prototype.toBlob;
-      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
-      HTMLCanvasElement.prototype.toBlob = function delayedToBlob(...args) { setTimeout(() => original.apply(this, args), 25); };
+      let held = null;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; held = null; };
+      window.__releaseOfficeToBlob = () => { const pending = held; held = null; if (pending) original.apply(pending.canvas, pending.args); };
+      window.__officeToBlobStarted = false;
+      HTMLCanvasElement.prototype.toBlob = function heldToBlob(...args) {
+        if (!held) { held = { canvas: this, args }; window.__officeToBlobStarted = true; return; }
+        return original.apply(this, args);
+      };
     });
     let changedDownloads = 0;
     const countChangedDownload = () => { changedDownloads += 1; };
     page.on("download", countChangedDownload);
-    await page.locator("#exportWord").click();
-    await page.waitForFunction(() => document.querySelector("#officeExportStatus")?.textContent?.includes("作成") === true);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.waitForFunction(() => window.__officeToBlobStarted === true);
     await page.locator("#title").fill("編集中に変更したタイトル");
+    await page.evaluate(() => window.__releaseOfficeToBlob?.());
     await page.locator("#officeExportStatus[data-state=warning]").waitFor();
     assert.match(await page.locator("#officeExportStatus").textContent(), /内容が変わった|中止/u);
     assert.equal(changedDownloads, 0, "changed snapshots do not trigger a download");
@@ -329,6 +422,30 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
 
     const retryBytes = await downloadBytes(page, page.locator("#exportWord"));
     assert.equal(zipEntries(retryBytes).get("word/media/image20.png")?.length > 0, true, "retry exports the final image");
+
+    // A rendered Blob over the image budget must fail before arrayBuffer and
+    // download, then recover after the encoder is restored.
+    let oversizedArrayBufferCalls = 0;
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
+      HTMLCanvasElement.prototype.toBlob = function oversizedToBlob(callback) {
+        callback({ size: 64 * 1024 * 1024 + 1, arrayBuffer: async () => { window.__oversizedArrayBufferCalls = (window.__oversizedArrayBufferCalls || 0) + 1; throw new Error("arrayBuffer must not run"); } });
+      };
+      window.__oversizedArrayBufferCalls = 0;
+    });
+    let oversizedDownloads = 0;
+    const countOversizedDownload = () => { oversizedDownloads += 1; };
+    page.on("download", countOversizedDownload);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.locator("#officeExportStatus").filter({ hasText: "画像容量が大きいため" }).waitFor();
+    assert.equal(oversizedDownloads, 0, "oversized rendered images do not trigger a download");
+    oversizedArrayBufferCalls = await page.evaluate(() => window.__oversizedArrayBufferCalls);
+    assert.equal(oversizedArrayBufferCalls, 0, "oversized rendered images fail before arrayBuffer");
+    page.off("download", countOversizedDownload);
+    await page.evaluate(() => window.__restoreOfficeToBlob?.());
+    const recoveredBytes = await downloadBytes(page, page.locator("#exportWord"));
+    assert.equal(zipEntries(recoveredBytes).get("word/media/image20.png")?.length > 0, true, "Office export can be retried after a capacity failure");
   } finally {
     await context?.close();
     server.closeAllConnections?.();

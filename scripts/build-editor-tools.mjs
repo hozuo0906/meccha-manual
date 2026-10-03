@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { readFile, writeFile } from "node:fs/promises";
-const entry = `export {createImageEditor} from './apps/extension/editor/image-editor.js';export {normalizeUploadedImage,dataUrlBytes,assertImageDimensions} from './apps/extension/editor/image-import.js';export {drawScreenshot,cloudImageLayers} from './apps/extension/editor/image-renderer.js';export {buildDocx,buildPptx,normalizeOfficeManual,OFFICE_EXPORT_MIME_TYPES} from './apps/extension/export/office-export.js';`;
+const entry = `export {createImageEditor} from './apps/extension/editor/image-editor.js';export {normalizeUploadedImage,dataUrlBytes,assertImageDimensions} from './apps/extension/editor/image-import.js';export {drawScreenshot,cloudImageLayers} from './apps/extension/editor/image-renderer.js';export {buildDocx,buildPptx,normalizeOfficeManual,OFFICE_EXPORT_MIME_TYPES,assertOfficeImageBudget,assertOfficeArchiveBudget,assertOfficeZip32,assertOfficeZipEntryCount,OFFICE_IMAGE_BYTES_LIMIT,OFFICE_ARCHIVE_BYTES_LIMIT} from './apps/extension/export/office-export.js';`;
 const result=await build({stdin:{contents:entry,resolveDir:process.cwd(),sourcefile:"shared-editor-tools.js"},bundle:true,format:"iife",globalName:"MecchaImageTools",write:false,target:"es2022",minify:false,legalComments:"none"});
 const html=await readFile("apps/extension/editor/editor.html","utf8");
 const dialog=html.match(/<dialog id="imageEditorDialog"[\s\S]*?<\/dialog>/)?.[0];

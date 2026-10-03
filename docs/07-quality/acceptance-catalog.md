@@ -55,5 +55,5 @@ Status: Accepted
 | AC-062 | 同じworkspaceでPersonalとTeamの購入を並行開始する | 両方のSession作成とWebhookを順不同で処理する | subscription用の支払い可能Sessionは1件だけとなり、対象自身を競合扱いせず、別契約へ二重entitlementを付与しない |
 | AC-063 | DBへ照合できないsubscription modeの決済が成功する | draft/open/paid invoiceのWebhookを重複・順不同で再送する | entitlementを付与せず、subscription cancelと状態別のdelete/void/refundが冪等に完了して継続請求を残さない |
 | AC-060 | AI feature flagがOFF | 手順書を作る | 外部AI APIが呼ばれない |
-| AC-064 | 0.1.9のローカル下書きにタイトル、本文、確認済み画像、注釈、置換、手動maskがある | 「Wordで書き出す」または「PowerPointで書き出す」を押す | ログインやcloud APIなしでsnapshotからOfficeファイルをダウンロードし、本文と全画像を最新のedited renderとして含める。生成中に編集が変わった場合は古いファイルを作らず再試行を案内する |
-| AC-065 | Office出力対象に処理中、失敗、要確認画像がある | Office出力を開始する | 画像を黙って省略せず日本語の確認・再試行案内を表示し、PDFの認証output gate、公開OFF、共有cloud認証を変更しない |
+| AC-064 | 0.1.9のローカル下書きにタイトル、本文、利用者が内容を確認した画像、注釈、置換、手動maskがある | 「Wordで書き出す」または「PowerPointで書き出す」を押し、未認証ならログインを完了する | output gateから認証済みworkspace claimを一度だけ行い、元の形式へ戻ってsnapshotからOfficeファイルをダウンロードする。認証済みsessionでは再ログインを要求せず、本文と全画像を最新のedited renderとして含める。閉じたeditorの復帰は認証成功画面の明示クリックで発行された同一handoff／launch／fingerprint／形式の短期receiptを一度だけ消費し、completedやcloudRef単独では生成しない。 |
+| AC-065 | Office出力対象に処理中、失敗、raw captureを含む要確認画像がある、または認証・claimが途中失敗する | Office出力を開始する | 画像を黙って省略せず、日本語で画像確認・明示操作・再試行を案内する。raw captureは利用者の確認までOffice/cloudを拒否し、確認後は同じ画像bytesを含める。認証途中のlocal draftと選択形式を保持し、PDFの認証output gate、公開OFF、共有cloud認証を変更しない |

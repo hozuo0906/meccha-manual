@@ -347,7 +347,7 @@ test("rapid sequential events wait for a safe capture slot rather than losing th
   const second = await capture.event({ kind: "click", at: 11, eventId: "click:2", target: { tagName: "button" } });
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
-  assert.equal(capture.session().stepImageRefs.find((ref) => ref.eventId === "click:2")?.status, "ready");
+  assert.equal(capture.session().stepImageRefs.find((ref) => ref.eventId === "click:2")?.status, "protected");
   assert.equal(capture.liveImages().length, 2);
   assert.ok(capture.screenshotTimes[1] - capture.screenshotTimes[0] >= 500);
 });
@@ -359,7 +359,7 @@ test("event arriving during screenshot capture cannot receive the earlier screen
   await Promise.all([first, second]);
   assert.equal(capture.liveImages().filter((entry) => entry.dataUrl).length, 1);
   assert.equal(capture.liveImages().find((entry) => entry.dataUrl).eventId, "click:2");
-  assert.equal(capture.session().stepImageRefs.map((ref) => ref.status).join(","), "unavailable,ready");
+  assert.equal(capture.session().stepImageRefs.map((ref) => ref.status).join(","), "unavailable,protected");
   assert.equal(capture.session().stepImageRefs[0].reason, "screen_changed");
 });
 
@@ -387,12 +387,13 @@ test("activation during capture invalidates the image generation before persiste
   assert.equal(ref?.version, 1);
 });
 
-test("finish cover capture keeps an activation away-and-back from becoming an old image", async () => {
+test("finish cover capture ignores an unrelated window activation round trip", async () => {
   const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
-  await assert.rejects(capture.finish());
-  assert.equal(capture.session().phase, "finish_failed");
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
   assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
-  assert.equal(capture.draft(), undefined);
+  assert.equal(capture.draft().screenshots.length, 1);
 });
 
 test("activation notification from another window does not invalidate the visible target", async () => {
@@ -401,8 +402,37 @@ test("activation notification from another window does not invalidate the visibl
   const response = await capture.event({ kind: "click", at: 10, eventId: "unrelated-window:1", target: { tagName: "button" } });
   assert.equal(response.ok, true);
   const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "unrelated-window:1");
-  assert.equal(ref?.status, "ready");
+  assert.equal(ref?.status, "protected");
   assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before ignoring unrelated activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateUnrelatedWindow: true });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-unrelated-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-unrelated-window:1");
+  assert.equal(ref?.status, "protected");
+  assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before invalidating same-window activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateDuringCapture: true, screenshotDelayMs: 5 });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-same-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-same-window:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "screen_changed");
+});
+
+test("worker restart keeps an unrelated window activation round trip usable", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
+  await capture.restart();
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.draft().screenshots.length, 1);
 });
 
 test("cancel clears live images without touching an existing draft", async () => {
@@ -807,7 +837,7 @@ test("failed and unavailable images do not consume the image cap before the 200-
     assert.equal(response.value.accepted, true, `event ${index} was rejected: ${JSON.stringify(response)}`);
   }
   assert.equal(capture.session().events.length, 200);
-  assert.equal(capture.session().stepImageRefs.filter((ref) => ref.status === "ready").length, 1);
+  assert.equal(capture.session().stepImageRefs.filter((ref) => ["ready", "protected"].includes(ref.status)).length, 1);
   assert.equal((await capture.status()).captureLimitReached, undefined);
   await capture.finish();
   assert.equal(capture.draft().steps.length, 200);
@@ -874,7 +904,7 @@ test("a burst coalesces only image work and keeps every operation with an explic
   await capture.finish();
   assert.equal(capture.draft().steps.length, 20);
   assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "screen_changed").length, 19);
-  assert.equal(capture.draft().steps.at(-1).imageState.status, "ready");
+  assert.equal(capture.draft().steps.at(-1).imageState.status, "protected");
 });
 
 test("three failed images among twenty operations survive finish without losing steps", async () => {
@@ -917,7 +947,7 @@ test("navigation invalidates in-flight capture before its serialized handler run
   await capture.navigate("complete");
   await capture.finish();
   assert.equal(capture.draft().steps[0].imageState.reason, "navigation_changed");
-  assert.equal(capture.draft().steps[1].imageState.status, "ready");
+  assert.equal(capture.draft().steps[1].imageState.status, "protected");
 });
 
 test("capture status reports pending work while finish waits for its final state", async () => {
@@ -928,7 +958,7 @@ test("capture status reports pending work while finish waits for its final state
   const finish = capture.finishQueued();
   await event;
   assert.equal((await finish).ok, true);
-  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.equal(capture.draft().steps[0].imageState.status, "protected");
 });
 
 test("Chrome capture interval survives a service worker restart", async () => {
@@ -968,16 +998,82 @@ test("image persistence failure leaves the step and a storage reason in the fina
   assert.equal(capture.draft().screenshots.length, 0);
 });
 
-test("native image is ready without review metadata or automatic replacement", async () => {
+test("protected image bytes loss becomes a storage failure instead of a reviewable image", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const event = { kind: "click", at: 1, eventId: "protected-missing:1", target: { tagName: "button" } };
+  capture.session().events = [event];
+  capture.session().stepImageRefs = [{ eventId: event.eventId, status: "protected", reason: null, attempts: 1, version: 1 }];
+  capture.seedLiveImages([{ id: "protected-missing-image", sessionId: "capture-1", eventId: event.eventId, status: "protected", version: 1 }]);
+  const result = await capture.finish();
+  assert.equal(result.missingImageCount, 1);
+  assert.equal(capture.draft().steps[0].imageState.status, "failed");
+  assert.equal(capture.draft().steps[0].imageState.reason, "storage_failed");
+  assert.equal(capture.draft().steps[0].screenshotId, undefined);
+  assert.equal(capture.draft().screenshots.length, 0);
+});
+
+for (const status of ["ready", "protected"]) {
+  test(`stale ${status} bytes do not satisfy a newer image state`, async () => {
+    const capture = await harness({ pendingEvents: [] });
+    const event = { kind: "click", at: 1, eventId: `stale-${status}:1`, target: { tagName: "button" } };
+    const originalBytes = "data:image/jpeg;base64,stale";
+    capture.session().events = [event];
+    capture.session().stepImageRefs = [{ eventId: event.eventId, status, reason: null, attempts: 2, version: 2 }];
+    capture.seedLiveImages([{ id: `stale-${status}-image`, sessionId: "capture-1", eventId: event.eventId, status, dataUrl: originalBytes, version: 1 }]);
+    assert.equal(capture.liveImages()[0].dataUrl, originalBytes);
+    const result = await capture.finish();
+    assert.equal(result.imageCount, 0);
+    assert.equal(result.missingImageCount, 1);
+    assert.equal(result.reviewImageCount, 0);
+    assert.equal(capture.draft().steps[0].imageState.status, "failed");
+    assert.equal(capture.draft().steps[0].imageState.reason, "storage_failed");
+    assert.equal(capture.draft().steps[0].screenshotId, undefined);
+    assert.equal(capture.draft().screenshots.length, 0);
+  });
+}
+
+test("native raw image is retained but waits for explicit privacy review", async () => {
   const capture = await harness({ pendingEvents: [] });
   await capture.event({ kind: "click", at: 1, eventId: "protected:1", target: { tagName: "button" } });
   const result = await capture.finish();
-  assert.equal(result.reviewImageCount, 0);
-  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.equal(result.reviewImageCount, 1);
+  assert.equal(capture.draft().steps[0].imageState.status, "protected");
   assert.equal(capture.draft().steps[0].imageState.reason, null);
-  assert.equal(capture.draft().screenshots[0].privacyReview, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(capture.draft().steps[0].privacyReview)), {
+    replacementCount: 0,
+    protectedRegionCount: 0,
+    reviewRequired: true,
+    reasonCodes: ["manual_image_review"],
+    replacements: []
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(capture.draft().screenshots[0].privacyReview)), JSON.parse(JSON.stringify(capture.draft().steps[0].privacyReview)));
   assert.equal(Array.isArray(capture.draft().screenshots[0].masks), true);
   assert.equal(capture.draft().screenshots[0].masks.length, 0);
+});
+
+test("zero-event cover image is retained behind the manual review gate", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps.length, 0);
+  assert.equal(capture.draft().screenshots.length, 1);
+  assert.equal(capture.draft().screenshots[0].privacyReview.reviewRequired, true);
+  assert.deepEqual(Array.from(capture.draft().screenshots[0].privacyReview.reasonCodes), ["manual_image_review"]);
+});
+
+test("finish honors an explicitly reviewed live image as ready", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const event = { kind: "click", at: 1, eventId: "reviewed:1", target: { tagName: "button" } };
+  const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: false, reasonCodes: [], replacements: [] };
+  capture.session().events = [event];
+  capture.session().stepImageRefs = [{ eventId: event.eventId, status: "protected", reason: null, attempts: 1, version: 1 }];
+  capture.seedLiveImages([{ id: "reviewed-image", sessionId: "capture-1", eventId: event.eventId, status: "protected", dataUrl: "data:image/jpeg;base64,AA", version: 1, privacyReview }]);
+  const result = await capture.finish();
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.deepEqual(capture.draft().steps[0].privacyReview, privacyReview);
+  assert.deepEqual(capture.draft().screenshots[0].privacyReview, privacyReview);
 });
 
 test("newer intentional no-image state wins over an older completed image", async () => {
@@ -1035,7 +1131,7 @@ test("duplicate delivery does not invalidate a current image or add another capt
   await Promise.all([first, capture.event(event)]);
   assert.equal(capture.screenshotTimes.length, 1);
   assert.equal(capture.session().events.length, 1);
-  assert.equal(capture.session().stepImageRefs[0].status, "ready");
+  assert.equal(capture.session().stepImageRefs[0].status, "protected");
 });
 
 test("bounded scene lease fails on mutation, interaction or document change and always cleans up", () => {

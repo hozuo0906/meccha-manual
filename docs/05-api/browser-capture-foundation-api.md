@@ -32,16 +32,20 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 ## スクリーンショット個人情報境界
 
+### 旧契約（0.1.8以前。Superseded by ADR-0040）
+
 スクリーンショット直前のDOM個人情報候補は、表示viewportと交差する高信頼な候補だけを固定ダミーoverlayへ置換する。1回のcaptureで生成するoverlayは最大64件とし、65件目の候補を検出した場合は画像を保存せずfail closedにする。初期・再検証の候補集合、shadow root snapshot、属性変更時のcomposed-tree候補確認を含む各DOM走査は、light DOM・open shadow root・extensionが検査できるprivileged shadow rootをまたいで最大4096 DOM nodeの単一予算で数え、rootごとにリセットしない。上限を超えて走査が完了しない場合も画像を保存しない。extension自身が作成したoverlay要素はこの候補走査からidentityで除外し、ページが同じclass名を付けた要素は除外しない。これにより、PII候補を含まない64件超の子nodeに対する無関係な属性変更を許容しつつ、候補数超過と走査不完了を成功扱いにしない。
 
 paint後のcapture前およびcapture後に候補集合、overlayの接続・幾何・不透明性、document identityを検証する。追加・除去・文字列・属性変更で個人情報が一時的に出現した場合、変更後に値が消えていても検証を失敗させる。元DOM、候補文字列、入力値はevent、ログ、handoff metadata、D1/R2へ保存しない。対象外の文字は利用者が編集画面で手動黒塗りする。
+
+上記は0.1.8以前の自動overlay契約の履歴であり、ADR-0040により現行契約から置き換えられている。0.1.9以降は撮影時に自動alias・自動mask・自動overlayを保証せず、取得画像を端末下書きへ保持する。画像に表示値が含まれる場合は、利用者が画像編集で置換または黒塗りを明示適用して確認した画像だけを出力・cloud保存する。入力値、DOM本文、Cookie、Authorizationは操作event、操作文、handoff metadataへ保存しない。
 
 ## 決定的draft生成
 
 正規化eventは外部AI APIを使わず、日本語のmanual step候補へ変換する。
 
 - click: `{target}をクリックします。`
-- input completion: `{target}への入力を完了します。入力値は手順書に保存されません。`
+- input completion: `{target}に入力します。`
 - navigation: URLを含まない「次のページへ移動」の汎用step
 - 連続する同方向scroll: 1件のnoteへ集約
 
@@ -58,6 +62,8 @@ Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateよ
 ## Chrome拡張の画像結果の保持（2026-10-01）
 
 DEC-090に従い、ローカルstepにimageState {status, reason, attempts, version}を持つ。statusはqueued/capturing/ready/unavailable/failed/protected/none。ready/protectedのみscreenshotIdを持ち得る。noneは利用者が「説明のみ」を選んだ状態であり、取得失敗から自動変換しない。
+
+新規captureで取得したraw screenshotは、画像bytesを保持したまま`status: "protected"`と`privacyReview: {reviewRequired: true, reasonCodes: ["manual_image_review"]}`をscreenshotと対応stepへ付与する。これは自動検出・自動maskを意味せず、editorの既存「画像に公開できない情報がないことを確認」操作（`confirmImage()`）で利用者が確認するまでOffice出力・cloud claimを拒否する。確認後は同じ画像bytesを使い、注釈・置換・maskの明示編集だけを反映する。
 
 reasonはscreen_changed/navigation_changed/tab_not_visible/tab_unavailable/mask_failed/mask_invalidated/paint_timeout/paint_unavailable/capture_failed/privacy_budget_exceeded/storage_failed/capture_interrupted/capture_not_requested等の固定コードに限定し、下位例外・ページ本文・URLを含めない。0.1.9以降は撮影時の自動alias／自動maskを新規記録へ適用せず、画像を端末下書きへ保持する。入力値、DOM本文、mapping、Cookie、Authorizationはevent・操作文・metadataへ保存しない。置換・黒塗りは利用者が画像編集で明示適用し、出力時は最新のannotation・replacement・maskをflattenする。[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md) と [端末Office出力契約](manual-local-office-export-api.md)を正とする。旧alias形状は[recording-value-alias-contract](recording-value-alias-contract.md)とADR-0039へ履歴として残す。
 

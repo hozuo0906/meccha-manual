@@ -79,17 +79,25 @@ function imageStateFor(event, imageEntries, imageRefs) {
   const state = ref && (ref.version || 1) > (image?.version || 1) ? ref : image || ref;
   const currentBytes = image?.dataUrl && (image.version || 1) >= (state?.version || 1);
   if (["ready", "protected"].includes(state?.status) && currentBytes && failedDisplayImages.has(image.id)) return { ...state, status: "display_failed", reason: "display_failed" };
-  if (state?.status === "ready" && !currentBytes) return { status: "failed", reason: "storage_failed" };
+  if (["ready", "protected"].includes(state?.status) && !currentBytes) return { status: "failed", reason: "storage_failed" };
   return state || { status: "queued" };
 }
 
 function imageStatusFor(event, imageEntries, imageRefs) {
+  const state = imageStateFor(event, imageEntries, imageRefs);
+  const image = imageEntries.find((entry) => entry?.eventId === event?.eventId);
+  if (state.status === "protected" && image?.privacyReview?.reasonCodes?.includes("manual_image_review")) return "画像の確認が必要です";
   return ({
     ready: "保存済み", queued: "画像を準備しています", capturing: "画像を確認しています",
     unavailable: "この操作の画像を取得できませんでした", failed: "この操作の画像を取得できませんでした",
     protected: "保護した領域の確認が必要です", none: "説明のみの手順",
     display_failed: "保存済みの画像を読み込めませんでした"
-  })[imageStateFor(event, imageEntries, imageRefs).status] || "画像を準備しています";
+  })[state.status] || "画像を準備しています";
+}
+
+function imageReviewText(image, state) {
+  if (state?.status === "protected" && image?.privacyReview?.reasonCodes?.includes("manual_image_review")) return "画像を表示しています。内容を確認し、必要なら画像編集で黒塗りや置換を適用してください。";
+  return imageReasonText(state?.reason);
 }
 
 function imageReasonText(reason) {
@@ -237,7 +245,7 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
       if (currentImageState.status === "protected") {
         const review = document.createElement("p");
         review.className = "image-state";
-        review.textContent = imageReasonText(currentImageState.reason);
+        review.textContent = imageReviewText(imageEntry, currentImageState);
         item.append(review);
       }
     } else {

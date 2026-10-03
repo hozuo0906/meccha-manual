@@ -367,6 +367,15 @@ test("draft model can add, edit, delete, reorder steps and manage normalized mas
   assert.equal(draft.steps.some((step) => step.id === "b"), false);
 });
 
+test("adding a step assigns an unassigned image's manual review gate", () => {
+  const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+  const draft = { steps: [], screenshots: [{ id: "cover", dataUrl: "data:image/png;base64,AA", masks: [], privacyReview }] };
+  const added = addStep(draft, "表紙の手順");
+  assert.equal(added.screenshotId, "cover");
+  assert.equal(added.imageState.status, "protected");
+  assert.deepEqual(added.privacyReview, privacyReview);
+});
+
 test("event merging is deduplicated and chronological", () => {
   const session = { events: [{ kind: "click", at: 20, eventId: "b", label: "ボタン" }] };
   const merged = mergeCaptureEvents(session, [

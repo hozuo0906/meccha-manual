@@ -40,7 +40,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
 | FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035, ADR-0036, ADR-0038 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示、注釈焼き込み・raw注釈非送信回帰 | MVP / Extension MVP |
 | FR-023 | Markdown / HTML export | export APIs after auth+claim | exports / entitlements when enabled | ADR-0033 | 形式別export tests when enabled | NEXT / EPIC-08 |
-| FR-024 | Chrome Extension editor / Office出力 | local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、端末downloadのみ | ADR-0040、`manual-local-office-export-api` | AC-064、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、SSOなしChrome download回帰（実Word／PowerPointアプリの読込・描画は未実行） | MVP / Extension 0.1.9 |
+| FR-024 | Chrome Extension editor / Office出力 | output gate → authenticated workspace claim → local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、認証済みhandoff metadata、端末download | ADR-0040、`manual-local-office-export-api` | AC-064、AC-065、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、認証後のWord/PPT復帰 | MVP / Extension 0.1.9 |
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
@@ -74,7 +74,7 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
-スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。inline要素（空またはdisplay:contentsの可視inline要素を含む）で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre-lineでは空白・タブをcollapseするが改行は保持し、pre／pre-wrapの改行は保持して連結しない。MutationObserverの一時候補も各text nodeのwhite-space規則を使って同じrender boundaryへ写像し、PIIの不確かな境界や継続が予算を超えた場合はfail closedにする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とする。単一text nodeの既存検出はこの連結予算とは別に維持する。候補overlayは1回につき64件まで、候補確認のcomposed-tree走査は4096 DOM nodeまでとし、65件目の候補または走査上限超過はfail closedにする。overlay件数と走査node数の予算を分離し、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許容する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、同一mutation batchで追加・除去された可視text nodeのboundedなsplit PIIをrecord targetが空になった後もnode自身から確認し、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+0.1.9以降の画像保護はADR-0040を正とする。撮影時の自動alias・自動mask・自動overlayは保証せず、取得画像を端末下書きへ保持する。入力値、Cookie、Authorization、DOM本文、対応表は操作event・操作文・handoff metadataへ保存しない。画面に表示された値が画像へ含まれる場合は、利用者が画像編集で置換または黒塗りを明示適用して確認した画像だけを出力・cloud保存する。OCR、画像内文字、cross-origin iframeは対象外で、手動編集による確認を案内する。旧自動overlay詳細は0.1.8以前の履歴（Superseded by ADR-0040）として保持する。
 
 
 
@@ -154,6 +154,7 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 - DEC-090: 通常入力欄の架空値表示、content-visibility:hidden除外、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gate
 - 実装: apps/extension/capture/screenshot.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
 - 検査: tests/extension-pii-mask-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
+- raw captureは同じ画像bytesを端末draftへ保持し、`manual_image_review`の明示確認まで`protected`としてOffice/cloudを拒否する。確認後の同一bytes出力と未確認拒否は、`extension-finish-recovery.test.mjs`、`extension-cloud-claim.test.mjs`、`extension-capture-completion-browser.test.mjs`で追跡する。
 - 実画面受入: docs/02-ux/manual-editor-review-rubric.md。各独立評価者80点以上と安全条件の両方が必要。未実行は合格扱いにしない
 
 ## 統一編集器の継続保存・チーム書式（2026-10-01）
@@ -173,4 +174,4 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 
 | ローカル固有の色・ロゴを保存・共有・印刷へ維持 | claim branding snapshot、safe logo chunk、source_claim_id、draft CAS | cloud-manual-c manual branding、onboarding-recovery-actions rasterized branding、share-link-backend local manual branding |
 
-2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、Office local-only出力を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
+2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、認証・workspace claim後の端末Office生成を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
