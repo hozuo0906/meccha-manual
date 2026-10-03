@@ -2144,6 +2144,7 @@ test("Office selection rejects empty and blank steps before opening the auth gat
     await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
     await page.locator("#exportWord").click();
     await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "valid steps should resume the normal Office gate");
     await page.locator("#cancelOutput").click();
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
