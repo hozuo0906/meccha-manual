@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { posix } from "node:path";
 
 import { buildDocx, buildPptx, normalizeOfficeManual, OFFICE_EXPORT_MIME_TYPES } from "../apps/extension/export/office-export.js";
 
@@ -15,10 +16,13 @@ function zipEntries(bytes) {
       const nameLength = view.getUint16(cursor + 26, true);
       const extraLength = view.getUint16(cursor + 28, true);
       const compressedLength = view.getUint32(cursor + 18, true);
+      const checksum = view.getUint32(cursor + 14, true);
       const nameStart = cursor + 30;
       const name = new TextDecoder().decode(bytes.subarray(nameStart, nameStart + nameLength));
       const bodyStart = nameStart + nameLength + extraLength;
-      entries.set(name, bytes.slice(bodyStart, bodyStart + compressedLength));
+      const body = bytes.slice(bodyStart, bodyStart + compressedLength);
+      assert.equal(crc32(body), checksum, `CRC mismatch for ${name}`);
+      entries.set(name, body);
       cursor = bodyStart + compressedLength;
       continue;
     }
@@ -30,6 +34,28 @@ function zipEntries(bytes) {
 
 function entryText(entries, name) {
   return new TextDecoder().decode(entries.get(name));
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function assertRelationshipTargets(entries) {
+  for (const name of entries.keys()) {
+    if (!name.endsWith(".rels")) continue;
+    const ownerDirectory = name.includes("/_rels/") ? name.slice(0, name.indexOf("/_rels/")) : "";
+    const relationships = entryText(entries, name);
+    for (const match of relationships.matchAll(/Target="([^"]+)"/gu)) {
+      if (/^[a-z][a-z0-9+.-]*:/iu.test(match[1])) continue;
+      const target = posix.normalize(posix.join(ownerDirectory, match[1]));
+      assert.ok(entries.has(target), `${name} points to missing ${target}`);
+    }
+  }
 }
 
 function imageWithDimensions(width, height, mimeType = "image/png") {
@@ -74,6 +100,7 @@ test("office exports reject XML 1.0 control characters and unpaired surrogates",
 
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {
   const packageEntries = zipEntries(buildDocx(manual()));
+  assertRelationshipTargets(packageEntries);
   assert.equal(OFFICE_EXPORT_MIME_TYPES.docx, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   for (const name of ["[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml", "word/_rels/document.xml.rels", "word/media/image1.png"]) {
     assert.ok(packageEntries.has(name), `missing ${name}`);
@@ -91,6 +118,7 @@ test("DOCX is a real OOXML package with text, page breaks, and edited image rela
 
 test("PPTX is a real OOXML package with one slide per step and edited image", () => {
   const packageEntries = zipEntries(buildPptx(manual()));
+  assertRelationshipTargets(packageEntries);
   assert.equal(OFFICE_EXPORT_MIME_TYPES.pptx, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
   for (const name of ["[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels", "ppt/slides/slide1.xml", "ppt/slides/slide2.xml", "ppt/slides/_rels/slide1.xml.rels", "ppt/media/image1.png"]) {
     assert.ok(packageEntries.has(name), `missing ${name}`);
@@ -132,6 +160,7 @@ test("DOCX and PPTX fit every image orientation in EMU bounds and keep multiple 
     }))
   };
   const docxEntries = zipEntries(buildDocx(value));
+  assertRelationshipTargets(docxEntries);
   const docx = entryText(docxEntries, "word/document.xml");
   const docxExtents = [...docx.matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/gu)].map((match) => [Number(match[1]), Number(match[2])]);
   assert.equal(docxExtents.length, dimensions.length);
@@ -146,6 +175,7 @@ test("DOCX and PPTX fit every image orientation in EMU bounds and keep multiple 
   }
 
   const pptxEntries = zipEntries(buildPptx(value));
+  assertRelationshipTargets(pptxEntries);
   for (let index = 1; index <= dimensions.length; index += 1) {
     const slide = entryText(pptxEntries, `ppt/slides/slide${index}.xml`);
     const picture = slide.match(/<p:pic>[\s\S]*?<a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>[\s\S]*?<\/p:pic>/u);
@@ -159,6 +189,25 @@ test("DOCX and PPTX fit every image orientation in EMU bounds and keep multiple 
     if (index === 3) assert.deepEqual([width, height], [3048000, 1714500]);
     assert.ok(pptxEntries.has(`ppt/media/image${index}.png`));
   }
+});
+
+test("OOXML keeps styles relationships and converts source newlines to Office breaks", () => {
+  const value = {
+    title: "タイトル\n次の行",
+    description: "説明の一行目\n説明の二行目",
+    steps: [{ title: "手順\n補足", instruction: "本文の一行目\n本文の二行目" }]
+  };
+  const docxEntries = zipEntries(buildDocx(value));
+  const docx = entryText(docxEntries, "word/document.xml");
+  const docxRels = entryText(docxEntries, "word/_rels/document.xml.rels");
+  assert.match(docxRels, /Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/styles" Target="styles\.xml"/);
+  assert.match(docx, /<w:t xml:space="preserve">タイトル<\/w:t><w:br\/><w:t xml:space="preserve">次の行<\/w:t>/);
+  assert.ok(!docx.includes("タイトル\n次の行"));
+
+  const pptxEntries = zipEntries(buildPptx(value));
+  const slide = entryText(pptxEntries, "ppt/slides/slide1.xml");
+  assert.match(slide, /<a:t>タイトル<\/a:t><\/a:r><a:br\/><a:r>[\s\S]*?<a:t>次の行/);
+  assert.ok(!slide.includes("タイトル\n次の行"));
 });
 
 test("data URL rendered image can be exported without cloud login", () => {

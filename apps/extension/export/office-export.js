@@ -20,6 +20,7 @@ const REL_THEME = "http://schemas.openxmlformats.org/officeDocument/2006/relatio
 const REL_HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 const REL_PACKAGE = "http://schemas.openxmlformats.org/package/2006/relationships";
 const REL_DOCX_NUMBERING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
+const REL_DOCX_STYLES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
 const EMU_PER_INCH = 914400;
 const EMU_PER_PIXEL = EMU_PER_INCH / 96;
 
@@ -200,7 +201,8 @@ function relsXml(relationships) {
 
 function paragraph(value, style = "Normal", extra = "") {
   const properties = extra || `<w:pPr><w:pStyle w:val="${xml(style)}"/></w:pPr>`;
-  return `<w:p>${properties}<w:r><w:t xml:space="preserve">${xmlText(value)}</w:t></w:r></w:p>`;
+  const runs = xmlText(value).split("\n").map((line, index) => `${index ? "<w:br/>" : ""}<w:t xml:space="preserve">${line}</w:t>`).join("");
+  return `<w:p>${properties}<w:r>${runs}</w:r></w:p>`;
 }
 
 function imageParagraph(image, relationshipId) {
@@ -261,7 +263,7 @@ export function buildDocx(value) {
     { name: "_rels/.rels", bytes: utf8(relsXml([{ id: "rId1", type: REL_OFFICE_DOCUMENT, target: "word/document.xml" }])) },
     { name: "word/document.xml", bytes: utf8(docxDocument(manual, imageIds)) },
     { name: "word/styles.xml", bytes: utf8(docxStyles()) },
-    { name: "word/_rels/document.xml.rels", bytes: utf8(relsXml(imageRelationships)) }
+    { name: "word/_rels/document.xml.rels", bytes: utf8(relsXml([{ id: "rIdStyles", type: REL_DOCX_STYLES, target: "styles.xml" }, ...imageRelationships])) }
   );
   return zip(entries);
 }
@@ -272,7 +274,8 @@ function pptTextShape(id, x, y, width, height, value, options = {}) {
   // normAutofit is required for long Japanese instructions: PowerPoint may
   // otherwise clip text at the fixed shape height instead of reducing the
   // font size to fit the allocated text box.
-  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"><a:normAutofit/></a:bodyPr><a:lstStyle/><a:p><a:pPr algn="${options.align || "l"}"/><a:r><a:rPr lang="ja-JP" sz="${fontSize}" b="${options.bold ? 1 : 0}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xmlText(value)}</a:t></a:r><a:endParaRPr lang="ja-JP"/></a:p></p:txBody></p:sp>`;
+  const runs = xmlText(value).split("\n").map((line, index) => `${index ? "<a:br/>" : ""}<a:r><a:rPr lang="ja-JP" sz="${fontSize}" b="${options.bold ? 1 : 0}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${line}</a:t></a:r>`).join("");
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"><a:normAutofit/></a:bodyPr><a:lstStyle/><a:p><a:pPr algn="${options.align || "l"}"/>${runs}<a:endParaRPr lang="ja-JP"/></a:p></p:txBody></p:sp>`;
 }
 
 function pptImageShape(id, image, relationshipId) {
