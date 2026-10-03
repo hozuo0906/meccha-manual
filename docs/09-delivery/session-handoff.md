@@ -1,5 +1,20 @@
 # セッション引き継ぎ運用
 
+## Issue #281 / Draft PR #282 現在checkpoint
+
+Status: Accepted
+
+確認時点: 2026-10-03T13:28:38+09:00（Asia/Tokyo）／source head d19065cf7fbe4259f4160b25ebc5db6c0aa56dab、branch codex/manual-explicit-privacy-office-019。既存の引き継ぎ履歴は保持する。
+
+- User 0.1.8 ZIP（全33ファイル）は a44dde8d21066f8657fa11b4143ccfdf87f2f0e2。base Draft PR #279を保持する。
+- 実装方針は、自動PIIマスク／値置換を停止し、明示した画像個人情報modeだけを扱う。同一の架空人物について氏名とカナをそろえ、Word／PPTはローカル20画像exportとする。remote API writeは行わない。
+- 親のcapture関連検証は865 native 1/20 operations、ccc188 unit、dd817 Office 2 browser／20 images／XML reader（実Office描画未実施）。f6 latest worker 74／Office 13／UI390はtestpassだが、親source修正直後の再検証中である。
+- CI 865にはasset hash mismatchとOfficeDL 8s timeoutが残り、修正候補を進行中である。全体成功・完成とは扱わない。
+- Cloudflare管理UIの読み取り確認（2026-10-03T13:26+09:00、Asia/Tokyo）では、対象owner stagingappはCloudflare IdPのみ、OTP未登録、owner emailのallowは1件だった。設定変更、production、DB migration、deployは実施していない。OTP設定追加／対象app切替案は停止・不採用とし、CF accountを用意させない普通メール登録／ログイン、Google／ChatGPTログインを新製品authの設計条件とする。
+- OpenAI公式のSIWC資料（https://developers.openai.com/siwc/quickstart、https://developers.openai.com/siwc/token-sharing-open-source）に基づくidentity／利用枠scope、commercial remoteの限定trial／waitlist、OSS localの一般対象は、auth migrationの別bounded単位で設計する。AI利用枠は初期OFFとし、未登録client／未承認commercialを完成扱いにしない。 関連するAPI／DB／auth契約移行はIssue #283の別bounded単位とする。
+- PR #279 migration 0006／0007は未承認・未適用、商用公開は未確認、main mergeの自動実行は禁止する。
+- 次の1マイルストーンは、最新exact full SHAに対するCI／Codex Review／UI検証、限定0.1.9 ZIPの確認である。残る未確認環境を明記し、auth migrationは別Issueのbounded設計として切り出す。
+
 Status: Accepted
 
 ## Issue #272 / PR #278 現時点snapshot
