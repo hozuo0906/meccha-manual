@@ -98,6 +98,11 @@ test("office exports reject XML 1.0 control characters and unpaired surrogates",
   assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], instruction: "不正\ud800文字" }] }), /unsupported XML characters/);
 });
 
+test("office exports reject XML 1.0 noncharacters U+FFFE and U+FFFF", () => {
+  assert.throws(() => buildDocx({ ...manual(), title: `invalid\u{fffe}title` }), /unsupported XML characters/);
+  assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], instruction: `invalid\u{ffff}instruction` }] }), /unsupported XML characters/);
+});
+
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {
   const packageEntries = zipEntries(buildDocx(manual()));
   assertRelationshipTargets(packageEntries);
