@@ -2,6 +2,8 @@
 
 Status: Proposed
 
+Google CloudのprojectとOAuth clientはまだ作成されておらず、登録作業が必要である。現時点でGoogleログインの設定済み・利用可能とは扱わない。
+
 Date: 2026-10-03
 
 ## 目的
