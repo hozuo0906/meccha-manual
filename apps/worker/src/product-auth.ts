@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, customFetch, jwtVerify, type JWTPayload } from "jose";
 import { D1OnboardingRepository } from "./infra/d1/onboarding-repository.ts";
+import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAppRuntimeConfig, inspectProductAuthConfig, resolveProductAuthProviderConfig, type AppRuntimeBindings, type ProductAuthBindings } from "./server-config.ts";
 
@@ -214,7 +215,20 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
   const transaction = await readTransaction(env.DB, provider, state, transactionId, verifier);
   if ((await hash(nonce)) !== transaction.nonce_hash) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
   const identity = await exchangeAndVerify(request, env, provider, code, verifier, nonce, transaction);
-  await new D1OnboardingRepository(env.DB).bootstrap({ kind: "product_user", issuer: identity.issuer, subject: identity.subject }, `oauth-${crypto.randomUUID().replaceAll("-", "")}`);
+  try {
+    await new D1OnboardingRepository(env.DB).bootstrap({ kind: "product_user", issuer: identity.issuer, subject: identity.subject }, `oauth-${crypto.randomUUID().replaceAll("-", "")}`);
+  } catch (error) {
+    if (error instanceof D1RepositoryError) {
+      if (error.code === "actor_forbidden") {
+        throw new ProductAuthError(403, "AUTH_IDENTITY_FORBIDDEN", "このログイン情報は現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
+      }
+      if (error.code === "personal_workspace_unavailable") {
+        throw new ProductAuthError(403, "AUTH_WORKSPACE_UNAVAILABLE", "個人ワークスペースは現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
+      }
+      throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
+    }
+    throw error;
+  }
   const token = randomValue(32);
   const now = new Date();
   const result = await env.DB.prepare(`INSERT INTO auth_sessions (id, application_id, token_hash, auth_method, issued_at, expires_at)
@@ -232,9 +246,14 @@ export async function getProductSession(request: Request, env: Env): Promise<{ a
   if (!token || !env.DB) return null;
   const runtime = inspectAppRuntimeConfig(env).config;
   if (!runtime || new URL(request.url).origin !== runtime.baseUrl) return null;
-  const row = await env.DB.prepare(`SELECT s.application_id, i.issuer, i.subject, s.expires_at, s.revoked_at, s.auth_method
-    FROM auth_sessions s JOIN identities i ON i.application_id = s.application_id
-    WHERE s.token_hash = ? AND i.status = 'active'`).bind(await hash(token)).first<SessionRow>();
+  let row: SessionRow | null;
+  try {
+    row = await env.DB.prepare(`SELECT s.application_id, i.issuer, i.subject, s.expires_at, s.revoked_at, s.auth_method
+      FROM auth_sessions s JOIN identities i ON i.application_id = s.application_id
+      WHERE s.token_hash = ? AND i.status = 'active'`).bind(await hash(token)).first<SessionRow>();
+  } catch {
+    throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を確認できません。時間をおいて再度お試しください。");
+  }
   const expiresAt = Date.parse(row?.expires_at ?? "");
   if (!row || row.revoked_at || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
   return { applicationId: row.application_id, issuer: row.issuer, subject: row.subject, authMethod: row.auth_method };

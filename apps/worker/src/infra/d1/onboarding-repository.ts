@@ -57,7 +57,9 @@ export class D1OnboardingRepository {
             WHERE m.workspace_id = w.id AND m.application_id = w.created_by)`, now),
         bind(`INSERT INTO audit_logs(id, actor_application_id, workspace_id, target_application_id, action, metadata_json, created_at)
           SELECT ?3, w.created_by, w.id, NULL, 'workspace.created', '{}', ?4 FROM workspaces w
-          WHERE w.id = ?5 AND w.id = (${authorized})`, `bootstrap-${workspaceId}`, now, workspaceId),
+          WHERE w.id = ?5 AND w.created_at = ?4 AND w.id = (${authorized})
+            AND NOT EXISTS (SELECT 1 FROM audit_logs existing
+              WHERE existing.workspace_id = w.id AND existing.action = 'workspace.created')`, `bootstrap-${workspaceId}`, now, workspaceId),
         bind(`INSERT INTO onboarding_bootstrap_operations(application_id, operation_id, workspace_id, created_identity, created_at)
           SELECT (${identity}), ?3, (${authorized}), CASE WHEN (${identity}) = ?4 THEN 1 ELSE 0 END, ?5
           WHERE NOT EXISTS (SELECT 1 FROM onboarding_bootstrap_operations

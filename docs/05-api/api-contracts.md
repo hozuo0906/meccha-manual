@@ -10,6 +10,8 @@ Status: Accepted
 
 callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返し、ブラウザのHTML要求には秘密値や外部戻り先を含めず、再試行できる日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合も一時OAuth cookieを消去し、`no-store`を指定する。
 
+callback後のD1 bootstrap拒否は、disabled identityなら`403 AUTH_IDENTITY_FORBIDDEN`、停止・削除済みPersonal Workspaceなら`403 AUTH_WORKSPACE_UNAVAILABLE`として理由と管理者への状態確認を日本語で案内する。いずれもsessionを発行せず、D1の一時障害は`503 AUTH_STORAGE_UNAVAILABLE`として時間をおいた再試行を案内する。
+
 本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
 ## 共通

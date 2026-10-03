@@ -127,7 +127,14 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     const secondCallback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=second-code&state=${encodeURIComponent(secondRedirect.searchParams.get("state"))}`, { headers: { cookie: secondStart.headers.get("set-cookie").split(";")[0] } }), env, {});
     assert.equal(secondCallback.status, 302);
     tokenSubject = "google-subject";
+    const thirdStart = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2F`), env, {});
+    const thirdRedirect = new URL(thirdStart.headers.get("location"));
+    nonce = thirdRedirect.searchParams.get("nonce");
+    expectedChallenge = thirdRedirect.searchParams.get("code_challenge");
+    const thirdCallback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=third-code&state=${encodeURIComponent(thirdRedirect.searchParams.get("state"))}`, { headers: { cookie: thirdStart.headers.get("set-cookie").split(";")[0] } }), env, {});
+    assert.equal(thirdCallback.status, 302);
     assert.equal(database.prepare("SELECT count(*) AS total FROM identities WHERE issuer = 'https://accounts.google.com'").get().total, 2, "same email claim must not auto-link distinct provider subjects");
+    assert.equal(database.prepare("SELECT count(*) AS total FROM audit_logs WHERE action = 'workspace.created'").get().total, 2, "re-login must not append a workspace.created audit");
     database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('other-tenant-user', 'https://other.example', 'other-subject', 'active', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run();
     const foreignWorkspace = "00000000-0000-4000-8000-000000000099";
     database.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind) VALUES (?, 'Other workspace', 'other-workspace', 'active', 'other-tenant-user', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z', 'standard')").run(foreignWorkspace);
@@ -397,6 +404,73 @@ test("logout does not report success when session revocation storage fails", asy
     const response = await worker.fetch(new Request("https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/logout", { method: "POST", headers: { origin: "https://meccha-manual-staging.meccha-iiyatsu.com", cookie: "__Host-mm_product=known-session", "content-type": "application/json" }, body: "{}" }), { APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", DB: failingDb }, {});
     assert.equal(response.status, 503);
   } finally { database.close(); }
+});
+
+test("session read storage failure is a retryable Japanese logout error", async () => {
+  const { database, binding } = await authDatabase();
+  const failingDb = {
+    prepare(sql) {
+      if (sql.startsWith("SELECT s.application_id")) {
+        return { bind() { return { first: async () => { throw new Error("synthetic D1 read failure"); } }; } };
+      }
+      return binding.prepare(sql);
+    }
+  };
+  try {
+    const response = await worker.fetch(new Request("https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/logout", { method: "POST", headers: { origin: "https://meccha-manual-staging.meccha-iiyatsu.com", cookie: "__Host-mm_product=known-session", "content-type": "application/json" }, body: "{}" }), { APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", DB: failingDb }, {});
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.code, "AUTH_STORAGE_UNAVAILABLE");
+    assert.match(body.message, /時間をおいて再度お試しください/u);
+  } finally { database.close(); }
+});
+
+test("callback refuses disabled identity and suspended workspace with Japanese next steps", async () => {
+  const { database, binding } = await authDatabase();
+  const { privateKey, publicKey } = await generateKeyPair("RS256");
+  const publicJwk = { ...await exportJWK(publicKey), kid: "product-auth-boundary", alg: "RS256", use: "sig" };
+  const originalFetch = globalThis.fetch;
+  const subject = "callback-boundary-subject";
+  let nonce = "";
+  const env = { APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", GOOGLE_OIDC_CLIENT_ID: "google-boundary-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret", ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }, DB: binding };
+  globalThis.fetch = async (input, init = {}) => {
+    const target = String(input);
+    if (target === "https://oauth2.googleapis.com/token") {
+      const token = await new SignJWT({ sub: subject, email: "boundary@example.test", email_verified: true, nonce })
+        .setProtectedHeader({ alg: "RS256", kid: "product-auth-boundary" }).setIssuer("https://accounts.google.com").setAudience("google-boundary-client").setIssuedAt().setExpirationTime("5m").sign(privateKey);
+      return Response.json({ id_token: token });
+    }
+    if (target === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [publicJwk] });
+    throw new Error(`unexpected external request: ${target}`);
+  };
+  async function callback(code) {
+    const start = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+    const redirect = new URL(start.headers.get("location"));
+    nonce = redirect.searchParams.get("nonce");
+    return worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=${code}&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: start.headers.get("set-cookie").split(";")[0] } }), env, {});
+  }
+  try {
+    database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('boundary-user', 'https://accounts.google.com', ?, 'disabled', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run(subject);
+    const disabled = await callback("disabled-code");
+    assert.equal(disabled.status, 403);
+    const disabledBody = await disabled.json();
+    assert.equal(disabledBody.code, "AUTH_IDENTITY_FORBIDDEN");
+    assert.match(disabledBody.message, /管理者に状態確認/u);
+    assert.equal(database.prepare("SELECT count(*) AS total FROM auth_sessions").get().total, 0);
+
+    database.prepare("UPDATE identities SET status='active' WHERE application_id='boundary-user'").run();
+    database.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind) VALUES ('boundary-workspace', 'Boundary Workspace', 'boundary-workspace', 'suspended', 'boundary-user', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z', 'personal')").run();
+    database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('boundary-workspace', 'boundary-user', 'owner', 'active', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run();
+    const suspended = await callback("suspended-code");
+    assert.equal(suspended.status, 403);
+    const suspendedBody = await suspended.json();
+    assert.equal(suspendedBody.code, "AUTH_WORKSPACE_UNAVAILABLE");
+    assert.match(suspendedBody.message, /個人ワークスペースは現在利用できません/u);
+    assert.equal(database.prepare("SELECT count(*) AS total FROM auth_sessions").get().total, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
 });
 
 test("provider response bodies over the bounded limit fail closed", async () => {
