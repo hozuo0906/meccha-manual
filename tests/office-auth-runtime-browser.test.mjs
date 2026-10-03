@@ -525,7 +525,11 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           }));
           assert.equal(cancelledState.hasLoginReturn, false, "cancelled Office login must consume the return marker only after restoring the saved operation");
           assert.match(cancelledState.operation || "", new RegExp(officeFormat));
-          await stagingPage.goto(`${STAGING_ORIGIN}/?return=${encodeURIComponent("/onboarding/continue")}`, { waitUntil: "domcontentloaded" });
+          const retryBootstrapButton = stagingPage.locator("#bootstrap");
+          await retryBootstrapButton.waitFor({ state: "visible", timeout: 15_000 });
+          await stagingPage.locator("#bootstrap:not([disabled])").waitFor({ state: "visible", timeout: 15_000 });
+          await retryBootstrapButton.click();
+          await stagingPage.waitForURL((url) => url.pathname === "/" && url.searchParams.get("return") === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });
           await stagingPage.waitForSelector(providerSelector, { timeout: 15_000 });
           const successCallbackPromise = stagingPage.waitForURL((url) => url.pathname === `/api/auth/${provider}/callback` && url.searchParams.get("code") === "synthetic-office-code", { waitUntil: "commit", timeout: 15_000 });
           const successReturnPromise = stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });

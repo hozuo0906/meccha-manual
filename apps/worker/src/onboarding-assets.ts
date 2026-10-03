@@ -8,12 +8,13 @@ export const ONBOARDING_JS = `(() => {
   const STORAGE_VERSION = 2;
   const configured = root?.dataset.bootstrapEnabled === "true";
   const LOGIN_RETURN_KEY = "meccha-manual:product-login-return";
-  const initialHash = location.hash;
+  let initialHash = location.hash;
   if (!location.hash) {
     try {
       const savedLogin = JSON.parse(sessionStorage.getItem(LOGIN_RETURN_KEY) || "null");
       if (savedLogin && typeof savedLogin.hash === "string" && savedLogin.hash.startsWith("#") && savedLogin.hash.length <= 4096 && Number.isFinite(savedLogin.createdAt) && Date.now() - savedLogin.createdAt < 15 * 60 * 1000) {
         history.replaceState(null, "", location.pathname + location.search + savedLogin.hash);
+        initialHash = location.hash;
         sessionStorage.removeItem(LOGIN_RETURN_KEY);
       }
     } catch {}
