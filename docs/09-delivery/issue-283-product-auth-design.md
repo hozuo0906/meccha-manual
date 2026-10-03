@@ -112,6 +112,10 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 
 `tests/office-auth-runtime-browser.test.mjs` の生成editor経路は、2026-10-03の親取得（実行ID `session55529`）でGoogle／ChatGPT × DOCX／PPTXの2/2、skip 0、exit 0を確認した。これは合成provider、実ブラウザ、local Worker、SQLite D1 adapter、memory R2による検証であり、実provider SSO、remote D1／R2、staging deploy、secret binding、Access外周の成功を示さない。
 
+## 認証テストの実行境界
+
+認証のunit/API回帰は `npm run app:auth:unit` として通常の `npm run check` およびChromiumを導入しないCIで実行する。実ブラウザの製品ログイン回帰は `npm run app:auth:browser` に分離し、Chromium導入済みのPhase 1 readinessおよび公式Chrome for Testingを導入するExtension Privacy CIで実行する。両方の経路を省略せず、browserテストの追加によって全CI jobへブラウザ導入を広げない。
+
 ## staging接続準備のread-only確認（2026-10-03）
 
 今回の対象は既定の`wrangler.jsonc`ではなく、オンボーディングWorkerの`wrangler.onboarding.jsonc --env staging`です。ローカル設定では、Worker名は`meccha-manual-staging`、entrypointは`apps/worker/src/index.ts`、`APP_BASE_URL`は`https://meccha-manual-staging.meccha-iiyatsu.com`です。D1の`DB`、R2の`MANUAL_ASSETS`、`ONBOARDING_RATE_LIMITER`／`SHARE_AUTH_RATE_LIMITER`がこのstaging環境に定義されています。これらはローカル設定の確認であり、Cloudflare上の反映状態を示すものではありません。
