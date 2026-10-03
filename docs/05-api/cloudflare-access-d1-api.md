@@ -151,3 +151,5 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 - Access modeの`POST /api/auth/logout`はAccess JWTの検証だけで完了し、D1のapplication identity解決には依存しない。
 - Access modeの`GET /api/session`は`members.status: "migration"`も返し、メンバー管理UIをmember APIの移行完了まで無効化する。
 - capture/mobile-previewはAccess modeでも、Access JWT、D1 application identity、same-origin、workspace roleの認可確認を先に行う。認証済みowner/admin/editorに限り`503 BROWSER_EGRESS_NOT_VERIFIED`を返し、未認証・権限外の要求は認証・認可エラーを返す。legacy sessionへfallbackしない。
+
+製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。

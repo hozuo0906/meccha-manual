@@ -554,3 +554,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 親の最新source認証／Access単体は142/142・skip0。公式CFT実行 `session11521` は実editor Office/auth2件とprovider／logout／期限切れbrowser4件の合計6/6・skip0・exit0。合成provider、local Worker、SQLite D1、memory R2の検証で、実SSOやnative Office描画ではない。担当worker71/71等の証跡も回収。最新文書headのCI／Codex Reviewと新3thread解決は待ち。旧3threadは074c789最新レビュー・CI・回帰根拠返信後に解決確認済み。
 - 運営IABログインを確認し、staging Workerのlive version cc830546 100%、DB/R2とrate limiter1001/1002一致をread-only取得。runtime変数はAccess3項目とAPP_BASE_URL／APP_ENVの5項目で、Google／SIWC未接続。Accessはowner hostname（path空欄）とWorker全URLスコープ、/s/*別viewer bypass。D1の移行名SELECTは0001〜0005のみで0006/7/8未適用。秘密値取得、遠隔設定変更、migration、deployは実施していない。CLI未認証とIAB取得を区別する。
 - 次の1マイルストーンは最新品質ゲート。その後staging専用のDB移行・Google接続・製品入口と運営health保護分離を具体案として提示。SIWCは申請氏名／会社名／公開URL回答待ち、商用client未発行のため無効。AI OFF。production・課金・一般公開未実施、監視未登録。
+## OAuth privacy・ストレージ失敗の親回帰（2026-10-04T00:41:13+09:00）
+
+- source `a259a0d0bfd4471e171cde2104b3f4d0e3b3ca11` はlocal／PR #284 head一致、cleanを親確認。callback成功とJSON／HTMLエラーにno-referrer、D1例外と保存失敗をretryable503、consume CAS競合を409として維持。DEC-096と契約／traceabilityを同期。
+- 親単体145/145・skip0、公式CFT実行session46819はOffice/auth2＋provider／logout／期限切れ4の計6/6・skip0・exit0。callbackの成功復帰・エラーリンク復帰でReferer無しを確認。合成provider／local Worker／SQLite D1／memory R2であり、実SSO・remote変更・native Office描画ではない。
+- 前head211f4f3はDocs111231185336のnpm ci/fullcheck、Privacy111231185305の実browser成功ログ取得。正式botレビュー5401430990の新P2二件をa259a0dで修正。旧transition3threadは解決確認済み、新2threadは最終文書headのCI／Codex Review照合後に解決する。
+- 次の1マイルストーンは最終品質ゲート、次にstaging接続の具体案。SIWC申請氏名／会社名／公開URL回答待ち、商用client未発行。Google資格情報は暗号化保管済み・remote未接続。DB0006〜8未適用、Access全URLの旧保護はread-only確認済み。remote変更・merge・production・課金・一般公開未実施、監視未登録。
