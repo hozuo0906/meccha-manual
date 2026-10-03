@@ -168,6 +168,41 @@ test("PPTX is a real OOXML package with one slide per step and edited image", ()
   assert.match(slide, /r:embed="rId2"/);
 });
 
+test("PPTX uses valid ordered slide IDs and preserves relationship order", () => {
+  const value = {
+    title: "識別子境界の確認",
+    steps: Array.from({ length: 200 }, (_, index) => ({
+      number: index + 1,
+      instruction: `手順 ${index + 1}`,
+      image: index === 0 ? imageWithDimensions(320, 180) : undefined
+    }))
+  };
+  const packageEntries = zipEntries(buildPptx(value));
+  const presentation = entryText(packageEntries, "ppt/presentation.xml");
+  const slideIds = [...presentation.matchAll(/<p:sldId id="(\d+)" r:id="(rId\d+)"\/>/gu)].map((match) => ({ id: Number(match[1]), relationshipId: match[2] }));
+  assert.equal(slideIds.length, 200);
+  assert.equal(slideIds[0].id, 256);
+  assert.equal(slideIds.at(-1).id, 455);
+  assert.equal(new Set(slideIds.map((item) => item.id)).size, slideIds.length);
+  assert.ok(slideIds.every((item, index) => item.id >= 256 && item.id <= 2147483647 && item.id === 256 + index));
+  assert.deepEqual(slideIds.map((item) => item.relationshipId), Array.from({ length: 200 }, (_, index) => `rId${index + 2}`));
+  assert.match(presentation, /<p:sldMasterId id="2147483648" r:id="rId1"\/>/);
+
+  const presentationRelationships = entryText(packageEntries, "ppt/_rels/presentation.xml.rels");
+  const slideRelationships = [...presentationRelationships.matchAll(/<Relationship Id="(rId\d+)" Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/slide" Target="slides\/slide(\d+)\.xml"\/>/gu)].map((match) => ({ relationshipId: match[1], slide: Number(match[2]) }));
+  assert.deepEqual(slideRelationships, Array.from({ length: 200 }, (_, index) => ({ relationshipId: `rId${index + 2}`, slide: index + 1 })));
+
+  const firstSlide = entryText(packageEntries, "ppt/slides/slide1.xml");
+  const firstShapeIds = [...firstSlide.matchAll(/<p:cNvPr id="(\d+)"/gu)].map((match) => Number(match[1]));
+  assert.deepEqual(firstShapeIds, [1, 2, 3, 4, 5]);
+  assert.equal(new Set(firstShapeIds).size, firstShapeIds.length);
+  const lastSlide = entryText(packageEntries, "ppt/slides/slide200.xml");
+  const lastShapeIds = [...lastSlide.matchAll(/<p:cNvPr id="(\d+)"/gu)].map((match) => Number(match[1]));
+  assert.deepEqual(lastShapeIds, [1, 2, 3, 4]);
+  assert.equal(new Set(lastShapeIds).size, lastShapeIds.length);
+  assert.match(entryText(packageEntries, "ppt/slideMasters/slideMaster1.xml"), /<p:sldLayoutId id="2147483649" r:id="rId1"\/>/);
+});
+
 test("PPTX theme has the required three style entries and long Japanese body uses autofit", () => {
   const longInstruction = "\u64cd\u4f5c\u3092\u8a18\u9332\u3057\u305f\u624b\u9806\u306e\u8a73\u7d30\u3092\u78ba\u8a8d\u3057\u3001\u5fc5\u8981\u306a\u9805\u76ee\u3092\u5165\u529b\u3057\u3066\u304b\u3089\u4fdd\u5b58\u3092\u30af\u30ea\u30c3\u30af\u3057\u307e\u3059\u3002".repeat(24);
   const packageEntries = zipEntries(buildPptx({ title: "\u9577\u6587\u5b57\u30ec\u30a4\u30a2\u30a6\u30c8", steps: [{ instruction: longInstruction, image: { kind: "edited", bytes: PNG, mimeType: "image/png", width: 1600, height: 900 } }] }));

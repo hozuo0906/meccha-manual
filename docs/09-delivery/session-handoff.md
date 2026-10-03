@@ -501,3 +501,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - Google project／IAB構成は作成済みだがOAuth clientは未作成で、課金accountもない。auth文書は別branchのremote SHA `87457fe` に保存済みである。
 
 次の1マイルストーンは、この最新SHAに対するCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。完了までは配布・native Office描画・remote SSOを完了扱いにしない。
+
+## Office PresentationML slide ID P1 correction checkpoint（2026-10-03T14:24:19+09:00）
+
+- dcc90acの未配布候補に対するCodex Reviewで、`ppt/presentation.xml` の最初の `p:sldId` が255になるP1を確認した。MicrosoftのPresentationML例およびST_SlideIdの `minInclusive=256` に照合し、first255はOffice互換境界を満たさないため妥当な指摘と判定した。dcc90ac由来のZIPは配布せず、履歴として保持する。
+- boundedな修正では、slide IDを `256 + index` とし、200手順で256〜455の単調増加・一意ID、presentation relationshipのrId／slide順、master/layout ID（2147483648／2147483649）、slide内shape IDと画像relationshipを回帰確認した。生成editor bundleと `APP_ASSET_VERSION` も同じ変更で同期する。
+- この単位では追加のOffice native描画・remote SSO・限定ZIP配布は未確認である。次の1マイルストーンは修正後最新SHAへのCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。
