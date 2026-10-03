@@ -330,6 +330,10 @@ function useProductD1Routes(env: Env, request?: Request): boolean {
   return Boolean(env.DB) && (providers.google || providers.chatgpt || (request ? hasProductSessionCookie(request) : false));
 }
 
+function hasAccessAssertion(request: Request): boolean {
+  return Boolean(request.headers.get("Cf-Access-Jwt-Assertion")?.trim());
+}
+
 function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
   return useAccessD1Routes(env) || useProductD1Routes(env, request);
 }
@@ -354,7 +358,7 @@ async function authenticateD1User(request: Request, env: Env): Promise<D1RouteCo
     return { actorId: productSession.applicationId, repository: new D1WorkspaceRepository(env.DB) };
   }
   if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
-  if (!useAccessD1Routes(env) && useProductD1Routes(env, request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
+  if (useProductD1Routes(env, request) && !hasAccessAssertion(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
   let auth;
   try {
     auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
@@ -401,7 +405,7 @@ async function bootstrapOnboarding(request: Request, env: Env): Promise<Response
     actor = { kind: "product_user" as const, issuer: productSession.issuer, subject: productSession.subject };
   } else {
     if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
-    if (!useAccessD1Routes(env) && useProductD1Routes(env, request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
+    if (useProductD1Routes(env, request) && !hasAccessAssertion(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
     try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
     catch (error) { throw mapAccessIdentityError(error); }
   }

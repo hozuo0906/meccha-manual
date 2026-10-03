@@ -132,6 +132,9 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     const accessConfigured = { ...env, ACCESS_JWT_ISSUER: "https://access.example", ACCESS_JWT_AUDIENCE: "audience", ACCESS_JWT_JWKS_URL: "https://access.example/jwks" };
     const malformedWithAccess = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: "__Host-mm_product=%zz", authorization: "Bearer invalid" } }), accessConfigured, {});
     assert.equal(malformedWithAccess.status, 401);
+    const productLoginWithAccessConfig = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`), accessConfigured, {});
+    assert.equal(productLoginWithAccessConfig.status, 401);
+    assert.equal((await productLoginWithAccessConfig.json()).code, "SESSION_REQUIRED");
     const misleadingCookie = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: "x__Host-mm_product=other", authorization: "Bearer invalid" } }), accessConfigured, {});
     assert.equal(misleadingCookie.status, 401);
     database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('disabled-user', 'https://accounts.google.com', 'disabled-subject', 'disabled', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run();
