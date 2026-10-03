@@ -79,17 +79,25 @@ function imageStateFor(event, imageEntries, imageRefs) {
   const state = ref && (ref.version || 1) > (image?.version || 1) ? ref : image || ref;
   const currentBytes = image?.dataUrl && (image.version || 1) >= (state?.version || 1);
   if (["ready", "protected"].includes(state?.status) && currentBytes && failedDisplayImages.has(image.id)) return { ...state, status: "display_failed", reason: "display_failed" };
-  if (state?.status === "ready" && !currentBytes) return { status: "failed", reason: "storage_failed" };
+  if (["ready", "protected"].includes(state?.status) && !currentBytes) return { status: "failed", reason: "storage_failed" };
   return state || { status: "queued" };
 }
 
 function imageStatusFor(event, imageEntries, imageRefs) {
+  const state = imageStateFor(event, imageEntries, imageRefs);
+  const image = imageEntries.find((entry) => entry?.eventId === event?.eventId);
+  if (state.status === "protected" && image?.privacyReview?.reasonCodes?.includes("manual_image_review")) return "画像の確認が必要です";
   return ({
-    ready: "保存済み", queued: "画像を準備しています", capturing: "個人情報を置換しています",
+    ready: "保存済み", queued: "画像を準備しています", capturing: "画像を確認しています",
     unavailable: "この操作の画像を取得できませんでした", failed: "この操作の画像を取得できませんでした",
     protected: "保護した領域の確認が必要です", none: "説明のみの手順",
     display_failed: "保存済みの画像を読み込めませんでした"
-  })[imageStateFor(event, imageEntries, imageRefs).status] || "画像を準備しています";
+  })[state.status] || "画像を準備しています";
+}
+
+function imageReviewText(image, state) {
+  if (state?.status === "protected" && image?.privacyReview?.reasonCodes?.includes("manual_image_review")) return "画像を表示しています。内容を確認し、必要なら画像編集で黒塗りや置換を適用してください。";
+  return imageReasonText(state?.reason);
 }
 
 function imageReasonText(reason) {
@@ -98,8 +106,8 @@ function imageReasonText(reason) {
     navigation_changed: "ページが移動したため、移動前の画面を取得できませんでした。",
     tab_not_visible: "記録対象のタブが表示されていませんでした。",
     tab_unavailable: "記録対象のタブを確認できませんでした。",
-    mask_failed: "個人情報の置換を完了できませんでした。",
-    mask_invalidated: "処理中に画面が変わり、個人情報の保護を確認できませんでした。",
+    mask_failed: "画像の保護を確認できませんでした。",
+    mask_invalidated: "処理中に画面が変わり、画像の保護を確認できませんでした。",
     paint_timeout: "画面の描画を確認できるまでに時間がかかりました。",
     paint_unavailable: "画面の描画を確認できませんでした。",
     privacy_budget_exceeded: "安全に確認できる範囲を超えたため、画像を保存していません。",
@@ -107,8 +115,8 @@ function imageReasonText(reason) {
     capture_not_requested: "終了・一時停止時に操作文だけを回収しました。",
     capture_interrupted: "画像の処理が中断されました。",
     unsupported_editable: "この編集領域だけを保護しました。ほかの画面は記録されています。",
-    unsupported_canvas: "描画領域は架空値へ置換できないため保護しました。",
-    unsupported_iframe: "埋め込み領域は架空値へ置換できないため保護しました。",
+    unsupported_canvas: "描画領域を自動で確認できないため保護しました。画像編集で確認してください。",
+    unsupported_iframe: "埋め込み領域を自動で確認できないため保護しました。画像編集で確認してください。",
     unsupported_closed_shadow: "安全に読み取れない領域を保護しました。",
     unknown_field_semantics: "入力欄の種類を確認できないため保護しました。",
     protection_too_broad: "保護した範囲が広く、操作を確認できません。",
@@ -237,7 +245,7 @@ function renderLiveSteps(events = [], imageEntries = [], imageRefs = []) {
       if (currentImageState.status === "protected") {
         const review = document.createElement("p");
         review.className = "image-state";
-        review.textContent = imageReasonText(currentImageState.reason);
+        review.textContent = imageReviewText(imageEntry, currentImageState);
         item.append(review);
       }
     } else {
@@ -426,7 +434,7 @@ function renderStatus(state = {}, imageEntries = []) {
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
-  else if (active) status.textContent = "このタブだけを記録しています。個人情報は種類に合う架空値へ置換します。保護した領域や置換できない画像は要確認として残します。";
+  else if (active) status.textContent = "このタブだけを記録しています。画像は加工せず端末へ保持し、入力値そのものは操作文へ保存しません。置換・黒塗りは記録後に画像編集で明示的に適用します。";
   else if (!state.hasDrafts) status.textContent = "";
 }
 

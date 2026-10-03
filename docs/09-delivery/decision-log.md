@@ -561,3 +561,18 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 ### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
 
 同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
+
+### 2026-10-03: 0.1.9の明示画像保護と端末Office出力
+
+- Status: Accepted
+- Decision: ADR-0039と`recording-value-alias-contract`をSupersededとし、新規記録は撮影時に画像を加工せず端末へ保持する。入力値そのものは操作文・eventへ保存せず、置換と黒塗りは利用者が画像編集で明示適用する。手動maskは継続し、Office出力は最新のannotation・replacement・maskをflattenしたedited画像だけを使う。
+- Boundary: Word／PowerPointはログインなしのlocal-only downloadとする。snapshot変更、画像decode、flatten、生成失敗は古い生成物や画像欠落を成功扱いにせず日本語で再試行を案内する。PDFはFR-014の認証・claim後output gate、公開OFF、共有cloud認証を維持する。
+- Evidence: `apps/extension/editor/editor.js`、`apps/extension/editor/editor.html`、`apps/extension/sidepanel/sidepanel.html`、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、`tests/cloud-office-export-browser.test.mjs`、`tests/office-export.test.mjs`、`docs/05-api/manual-local-office-export-api.md`。SSOなしChromeでのlocal downloadとfixtureへのcloud POSTなしを確認し、実Word／PowerPointアプリの読込・描画は未実行と記録する。
+
+### 2026-10-03: Office出力を認証済みhandoff後に限定
+
+- Status: Accepted
+- Decision: ユーザーの明示回答により、Word／PowerPointも既存のoutput gateを通す。guestには作成・編集を許可し、形式選択時は `outputAction=office` と `officeFormat=docx|pptx` をhandoffへ固定して、ログイン・Personal Workspace claim後に同じ形式へ戻る。認証済みsessionでは再ログインを要求しない。Office completionは既存の `finalize-pending` の operation／claim intent／draft fingerprint／cloudRef、固定staging origin・continue path・top-level tab・launch recordを照合した通知だけを受理し、一度だけlocal snapshotから生成する。料金は既存plan契約の確認に限り、Stripe／paywallは追加しない。
+- Supersedes: 2026-10-03のOffice local-only no-login境界（履歴として保持）。
+- Boundary: 認証前のlocal draftとキャンセル復帰、共有リンク自動OFF、画像の明示置換・黒塗り、既存PDF認証境界を維持する。暗号proofや新DB／envは追加しない。
+- Evidence: `apps/extension/editor/handoff.js`、`apps/extension/editor/editor.js`、`apps/extension/background/cloud-claim.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、`tests/extension-cloud-claim.test.mjs`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/09-delivery/open-questions.md`。

@@ -9,7 +9,7 @@ import { VIEWPORTS } from "../apps/extension/responsive/viewports.js";
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, screenshotError = "SCREENSHOT_MASK_FAILED", privacyReview, sceneValid = true, currentTarget = null, livePutFails = false, virtualTime = true, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, screenshotError = "SCREENSHOT_MASK_FAILED", privacyReview, sceneValid = true, currentTarget = null, livePutFails = false, switchDuringStorage = false, activateDuringCapture = false, switchDuringEmptyFinish = false, activateUnrelatedWindow = false, virtualTime = true, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let clock = 1000;
   let lastCaptureAt;
   const screenshotTimes = [];
@@ -45,7 +45,10 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let localRemoveFailure = localRemoveFails;
   let onRemoved;
   let onUpdated;
+  let onActivated;
   let onMessage;
+  let targetActive = true;
+  const documentIdentity = { href: "https://synthetic.invalid/target", timeOrigin: 1, readyState: "complete", visibilityState: "visible" };
   const injections = [];
   let context;
   const createContext = () => ({
@@ -67,18 +70,18 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     },
     chrome: {
       storage: {
-        session: { get: async () => ({ activeCaptureSession: session, captureScreenshotAt: lastCaptureAt }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); if ("captureScreenshotAt" in value) lastCaptureAt = value.captureScreenshotAt; else session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
+        session: { get: async () => ({ activeCaptureSession: session, captureScreenshotAt: lastCaptureAt }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); if ("captureScreenshotAt" in value) { lastCaptureAt = value.captureScreenshotAt; if (switchDuringStorage && value.captureScreenshotAt?.pending) targetActive = false; } else session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
         local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
       },
-      scripting: { executeScript: async (options) => { if (options.func?.toString().includes("click-target")) return [{ result: currentTarget }]; if (options.func?.name === "removeSensitiveMasks") return [{ result: true }]; if (options.func?.name === "screenshotSceneLease") return [{ result: options.args[0] === "begin" || sceneValid }]; if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
+      scripting: { executeScript: async (options) => { if (options.func?.name === "captureDocumentIdentity") return [{ result: { ...documentIdentity, visibilityState: targetActive ? "visible" : "hidden" } }]; if (options.func?.toString().includes("document.visibilityState")) return [{ result: { ready: targetActive, reason: targetActive ? null : "TARGET_TAB_NOT_VISIBLE" } }]; if (options.func?.toString().includes("click-target")) return [{ result: currentTarget }]; if (options.func?.name === "removeSensitiveMasks") return [{ result: true }]; if (options.func?.name === "screenshotSceneLease") return [{ result: options.args[0] === "begin" || sceneValid }]; if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
-      tabs: { get: async () => ({ active: true, windowId: 2 }), captureVisibleTab: async () => { screenshotTimes.push(CaptureDate.now()); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; }, onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
+      tabs: { get: async () => ({ active: targetActive, windowId: 2 }), captureVisibleTab: async () => { screenshotTimes.push(CaptureDate.now()); if (activateDuringCapture) { targetActive = false; onActivated?.({ tabId: 2, windowId: 2 }); } if (switchDuringEmptyFinish) { targetActive = false; onActivated?.({ tabId: 99, windowId: 9 }); targetActive = true; onActivated?.({ tabId: 1, windowId: 2 }); } if (activateUnrelatedWindow) onActivated?.({ tabId: 99, windowId: 9 }); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; }, onActivated: { addListener(callback) { onActivated = callback; } }, onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
   });
   const restart = async () => {
     context = createContext();
-    vm.runInNewContext(source + "\nglobalThis.start = startCapture; globalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.cancel = cancelCapture; globalThis.settle = () => sessionOperation; globalThis.status = captureStatus; globalThis.restore = retryRestore;", context);
+    vm.runInNewContext(source + "\nglobalThis.start = startCapture; globalThis.finish = finishCapture; globalThis.pause = pauseCapture; globalThis.resume = resumeCapture; globalThis.cancel = cancelCapture; globalThis.settle = () => sessionOperation; globalThis.status = captureStatus; globalThis.restore = retryRestore; globalThis.seedCaptureTargetWindow = () => captureTargetWindows.set(1, 2);", context);
     await context.settle();
   };
   await restart();
@@ -96,7 +99,9 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     finishQueued: async () => new Promise((resolve) => onMessage({ type: "capture:finish" }, {}, resolve)),
     navigate: async (status = "complete") => { onUpdated(1, { status }); await context.settle(); },
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
-    close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); } };
+    close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); },
+    setTargetActive: (value) => { targetActive = value; }, seedCaptureTargetWindow: () => context.seedCaptureTargetWindow(),
+    activateOtherTab: async () => { targetActive = false; onActivated?.({ tabId: 2, windowId: 2 }); await context.settle(); } };
 }
 
 test("local journal failure does not discard the first drained batch when session storage works", async () => {
@@ -342,7 +347,7 @@ test("rapid sequential events wait for a safe capture slot rather than losing th
   const second = await capture.event({ kind: "click", at: 11, eventId: "click:2", target: { tagName: "button" } });
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
-  assert.equal(capture.session().stepImageRefs.find((ref) => ref.eventId === "click:2")?.status, "ready");
+  assert.equal(capture.session().stepImageRefs.find((ref) => ref.eventId === "click:2")?.status, "protected");
   assert.equal(capture.liveImages().length, 2);
   assert.ok(capture.screenshotTimes[1] - capture.screenshotTimes[0] >= 500);
 });
@@ -354,8 +359,80 @@ test("event arriving during screenshot capture cannot receive the earlier screen
   await Promise.all([first, second]);
   assert.equal(capture.liveImages().filter((entry) => entry.dataUrl).length, 1);
   assert.equal(capture.liveImages().find((entry) => entry.dataUrl).eventId, "click:2");
-  assert.equal(capture.session().stepImageRefs.map((ref) => ref.status).join(","), "unavailable,ready");
+  assert.equal(capture.session().stepImageRefs.map((ref) => ref.status).join(","), "unavailable,protected");
   assert.equal(capture.session().stepImageRefs[0].reason, "screen_changed");
+});
+
+test("target activation is checked again after screenshot timing storage", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringStorage: true });
+  const response = await capture.event({ kind: "click", at: 10, eventId: "switch-after-storage:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "switch-after-storage:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "tab_not_visible");
+  assert.equal(ref?.attempts, 1);
+  assert.equal(ref?.version, 1);
+});
+
+test("activation during capture invalidates the image generation before persistence", async () => {
+  const capture = await harness({ pendingEvents: [], activateDuringCapture: true, screenshotDelayMs: 5 });
+  const response = await capture.event({ kind: "click", at: 10, eventId: "switch-during-capture:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "switch-during-capture:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "screen_changed");
+  assert.equal(ref?.attempts, 1);
+  assert.equal(ref?.version, 1);
+});
+
+test("finish cover capture ignores an unrelated window activation round trip", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
+  assert.equal(capture.draft().screenshots.length, 1);
+});
+
+test("activation notification from another window does not invalidate the visible target", async () => {
+  const capture = await harness({ pendingEvents: [], activateUnrelatedWindow: true });
+  capture.seedCaptureTargetWindow();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "unrelated-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "unrelated-window:1");
+  assert.equal(ref?.status, "protected");
+  assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before ignoring unrelated activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateUnrelatedWindow: true });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-unrelated-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-unrelated-window:1");
+  assert.equal(ref?.status, "protected");
+  assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before invalidating same-window activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateDuringCapture: true, screenshotDelayMs: 5 });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-same-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-same-window:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "screen_changed");
+});
+
+test("worker restart keeps an unrelated window activation round trip usable", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
+  await capture.restart();
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.draft().screenshots.length, 1);
 });
 
 test("cancel clears live images without touching an existing draft", async () => {
@@ -755,12 +832,12 @@ test("a step-limited session can still save all 200 recorded steps", async () =>
 test("failed and unavailable images do not consume the image cap before the 200-step limit", async () => {
   const capture = await harness({ pendingEvents: [] });
   for (let index = 0; index < 200; index += 1) {
-    if (index === 1) capture.setScreenshotFails(true);
+    if (index === 1) capture.setTargetActive(false);
     const response = await capture.event({ kind: "click", at: index + 1, eventId: `mixed:${index}`, target: { tagName: "button" } });
-    assert.equal(response.value.accepted, true);
+    assert.equal(response.value.accepted, true, `event ${index} was rejected: ${JSON.stringify(response)}`);
   }
   assert.equal(capture.session().events.length, 200);
-  assert.equal(capture.session().stepImageRefs.filter((ref) => ref.status === "ready").length, 1);
+  assert.equal(capture.session().stepImageRefs.filter((ref) => ["ready", "protected"].includes(ref.status)).length, 1);
   assert.equal((await capture.status()).captureLimitReached, undefined);
   await capture.finish();
   assert.equal(capture.draft().steps.length, 200);
@@ -827,20 +904,20 @@ test("a burst coalesces only image work and keeps every operation with an explic
   await capture.finish();
   assert.equal(capture.draft().steps.length, 20);
   assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "screen_changed").length, 19);
-  assert.equal(capture.draft().steps.at(-1).imageState.status, "ready");
+  assert.equal(capture.draft().steps.at(-1).imageState.status, "protected");
 });
 
 test("three failed images among twenty operations survive finish without losing steps", async () => {
   const capture = await harness({ pendingEvents: [] });
   for (let index = 0; index < 20; index += 1) {
-    capture.setScreenshotFails([3, 7, 15].includes(index));
+    capture.setTargetActive(![3, 7, 15].includes(index));
     await capture.event({ kind: "click", at: index + 1, eventId: `partial:${index}`, target: { tagName: "button" } });
   }
   const result = await capture.finish();
   assert.equal(result.imageCount, 17);
   assert.equal(result.missingImageCount, 3);
   assert.equal(capture.draft().steps.length, 20);
-  assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "mask_failed").length, 3);
+  assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "tab_not_visible").length, 3);
   for (const step of capture.draft().steps) {
     assert.equal(step.imageState.attempts, 1);
     assert.equal(step.imageState.version, 1);
@@ -870,7 +947,7 @@ test("navigation invalidates in-flight capture before its serialized handler run
   await capture.navigate("complete");
   await capture.finish();
   assert.equal(capture.draft().steps[0].imageState.reason, "navigation_changed");
-  assert.equal(capture.draft().steps[1].imageState.status, "ready");
+  assert.equal(capture.draft().steps[1].imageState.status, "protected");
 });
 
 test("capture status reports pending work while finish waits for its final state", async () => {
@@ -881,7 +958,7 @@ test("capture status reports pending work while finish waits for its final state
   const finish = capture.finishQueued();
   await event;
   assert.equal((await finish).ok, true);
-  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.equal(capture.draft().steps[0].imageState.status, "protected");
 });
 
 test("Chrome capture interval survives a service worker restart", async () => {
@@ -893,18 +970,12 @@ test("Chrome capture interval survives a service worker restart", async () => {
   assert.ok(capture.screenshotTimes[1] - capture.screenshotTimes[0] >= 500);
 });
 
-for (const [error, expectedStatus, reason] of [
-  ["SCREENSHOT_MASK_FAILED", "failed", "mask_failed"],
-  ["SCREENSHOT_MASK_INVALIDATED", "failed", "mask_invalidated"],
-  ["SCREENSHOT_PAINT_TIMEOUT", "failed", "paint_timeout"],
-  ["SCREENSHOT_PAINT_UNAVAILABLE", "failed", "paint_unavailable"],
-  ["TARGET_TAB_NOT_VISIBLE", "unavailable", "tab_not_visible"],
-  ["TARGET_TAB_UNAVAILABLE", "unavailable", "tab_unavailable"],
-  ["SCREENSHOT_BUDGET_EXCEEDED", "protected", "privacy_budget_exceeded"],
-  ["private page error text must not be saved", "failed", "capture_failed"]
+for (const [name, options, expectedStatus, reason] of [
+  ["inactive target", { switchDuringStorage: true }, "unavailable", "tab_not_visible"],
+  ["activation during capture", { activateDuringCapture: true }, "unavailable", "screen_changed"]
 ]) {
-  test(`finished draft keeps safe reason ${reason}`, async () => {
-    const capture = await harness({ pendingEvents: [], screenshotFails: true, screenshotError: error });
+  test(`finished draft keeps native reason ${reason} (${name})`, async () => {
+    const capture = await harness({ pendingEvents: [], ...options });
     await capture.event({ kind: "click", at: 1, eventId: "reason:1", target: { tagName: "button" } });
     await capture.restart();
     await capture.finish();
@@ -927,14 +998,81 @@ test("image persistence failure leaves the step and a storage reason in the fina
   assert.equal(capture.draft().screenshots.length, 0);
 });
 
-test("protected image keeps its review metadata and cannot count as normal success", async () => {
-  const privacyReview = { replacementCount: 3, protectedRegionCount: 1, reviewRequired: true, reasonCodes: ["unsupported_canvas"] };
-  const capture = await harness({ pendingEvents: [], privacyReview });
+test("protected image bytes loss becomes a storage failure instead of a reviewable image", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const event = { kind: "click", at: 1, eventId: "protected-missing:1", target: { tagName: "button" } };
+  capture.session().events = [event];
+  capture.session().stepImageRefs = [{ eventId: event.eventId, status: "protected", reason: null, attempts: 1, version: 1 }];
+  capture.seedLiveImages([{ id: "protected-missing-image", sessionId: "capture-1", eventId: event.eventId, status: "protected", version: 1 }]);
+  const result = await capture.finish();
+  assert.equal(result.missingImageCount, 1);
+  assert.equal(capture.draft().steps[0].imageState.status, "failed");
+  assert.equal(capture.draft().steps[0].imageState.reason, "storage_failed");
+  assert.equal(capture.draft().steps[0].screenshotId, undefined);
+  assert.equal(capture.draft().screenshots.length, 0);
+});
+
+for (const status of ["ready", "protected"]) {
+  test(`stale ${status} bytes do not satisfy a newer image state`, async () => {
+    const capture = await harness({ pendingEvents: [] });
+    const event = { kind: "click", at: 1, eventId: `stale-${status}:1`, target: { tagName: "button" } };
+    const originalBytes = "data:image/jpeg;base64,stale";
+    capture.session().events = [event];
+    capture.session().stepImageRefs = [{ eventId: event.eventId, status, reason: null, attempts: 2, version: 2 }];
+    capture.seedLiveImages([{ id: `stale-${status}-image`, sessionId: "capture-1", eventId: event.eventId, status, dataUrl: originalBytes, version: 1 }]);
+    assert.equal(capture.liveImages()[0].dataUrl, originalBytes);
+    const result = await capture.finish();
+    assert.equal(result.imageCount, 0);
+    assert.equal(result.missingImageCount, 1);
+    assert.equal(result.reviewImageCount, 0);
+    assert.equal(capture.draft().steps[0].imageState.status, "failed");
+    assert.equal(capture.draft().steps[0].imageState.reason, "storage_failed");
+    assert.equal(capture.draft().steps[0].screenshotId, undefined);
+    assert.equal(capture.draft().screenshots.length, 0);
+  });
+}
+
+test("native raw image is retained but waits for explicit privacy review", async () => {
+  const capture = await harness({ pendingEvents: [] });
   await capture.event({ kind: "click", at: 1, eventId: "protected:1", target: { tagName: "button" } });
   const result = await capture.finish();
   assert.equal(result.reviewImageCount, 1);
   assert.equal(capture.draft().steps[0].imageState.status, "protected");
-  assert.equal(capture.draft().steps[0].imageState.reason, "unsupported_canvas");
+  assert.equal(capture.draft().steps[0].imageState.reason, null);
+  assert.deepEqual(JSON.parse(JSON.stringify(capture.draft().steps[0].privacyReview)), {
+    replacementCount: 0,
+    protectedRegionCount: 0,
+    reviewRequired: true,
+    reasonCodes: ["manual_image_review"],
+    replacements: []
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(capture.draft().screenshots[0].privacyReview)), JSON.parse(JSON.stringify(capture.draft().steps[0].privacyReview)));
+  assert.equal(Array.isArray(capture.draft().screenshots[0].masks), true);
+  assert.equal(capture.draft().screenshots[0].masks.length, 0);
+});
+
+test("zero-event cover image is retained behind the manual review gate", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps.length, 0);
+  assert.equal(capture.draft().screenshots.length, 1);
+  assert.equal(capture.draft().screenshots[0].privacyReview.reviewRequired, true);
+  assert.deepEqual(Array.from(capture.draft().screenshots[0].privacyReview.reasonCodes), ["manual_image_review"]);
+});
+
+test("finish honors an explicitly reviewed live image as ready", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const event = { kind: "click", at: 1, eventId: "reviewed:1", target: { tagName: "button" } };
+  const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: false, reasonCodes: [], replacements: [] };
+  capture.session().events = [event];
+  capture.session().stepImageRefs = [{ eventId: event.eventId, status: "protected", reason: null, attempts: 1, version: 1 }];
+  capture.seedLiveImages([{ id: "reviewed-image", sessionId: "capture-1", eventId: event.eventId, status: "protected", dataUrl: "data:image/jpeg;base64,AA", version: 1, privacyReview }]);
+  const result = await capture.finish();
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.deepEqual(capture.draft().steps[0].privacyReview, privacyReview);
   assert.deepEqual(capture.draft().screenshots[0].privacyReview, privacyReview);
 });
 
@@ -993,7 +1131,7 @@ test("duplicate delivery does not invalidate a current image or add another capt
   await Promise.all([first, capture.event(event)]);
   assert.equal(capture.screenshotTimes.length, 1);
   assert.equal(capture.session().events.length, 1);
-  assert.equal(capture.session().stepImageRefs[0].status, "ready");
+  assert.equal(capture.session().stepImageRefs[0].status, "protected");
 });
 
 test("bounded scene lease fails on mutation, interaction or document change and always cleans up", () => {

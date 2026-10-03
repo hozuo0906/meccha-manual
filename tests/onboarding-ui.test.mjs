@@ -77,6 +77,10 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /HANDOFF_TTL_MS/);
   assert.match(ONBOARDING_JS, /handoff\.page-ready/);
   assert.match(ONBOARDING_JS, /handoff\.access-return/);
+  assert.match(ONBOARDING_JS, /type: "handoff\.begin"[\s\S]*?officeFormat: context\.officeFormat, launchId: context\.launchId/u);
+  assert.match(ONBOARDING_JS, /type: "handoff\.recovery"[\s\S]*?officeFormat: context\.officeFormat, launchId: context\.launchId/u);
+  assert.match(ONBOARDING_JS, /handoff\.office-return/);
+  assert.match(ONBOARDING_JS, /編集画面を開く/u);
   assert.match(ONBOARDING_JS, /resumeAccessReturn/);
   assert.match(ONBOARDING_JS, /保存を再開する/);
   assert.match(ONBOARDING_JS, /保存状況を確認する/);

@@ -1,6 +1,8 @@
 # 記録単位の架空値対応契約
 
-Status: Accepted
+Status: Superseded
+
+この契約は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)で更新した。以下は旧alias契約の履歴であり、0.1.9以降の新規記録に適用しない。
 
 ## 対象
 

@@ -14,7 +14,7 @@ export const CLOUD_MANUAL_CSS = `:root{color-scheme:light;font-family:system-ui,
 .is-editing.cloud-shell{height:100dvh;display:flex;flex-direction:column;overflow:hidden}.is-editing>.cloud-grid{flex:1;min-height:0}.is-editing .cloud-panel:has(#cloud-detail),#cloud-detail,.manual-editor{height:100%;min-height:0}.manual-editor{display:flex;flex-direction:column}.manual-toolbar,.manual-description{flex:none}.manual-workspace{flex:1;min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr)}.manual-step-nav{position:relative;grid-row:1;top:0;max-height:none;overflow:auto}.manual-step-center,.manual-context-tools{overflow:auto}.manual-step-center{scroll-padding-top:16px}.manual-mobile-actions,.manual-tools-toggle,.manual-panel-close{display:none}.manual-panel-backdrop{position:fixed;inset:0;z-index:14;background:#18303955;border:0;border-radius:0}.manual-share-drawer{z-index:20}.manual-context-tools h2{margin-top:12px}.manual-context-tools .manual-panel-close{margin-left:auto;width:auto}
 @media(max-width:1100px){.manual-workspace{grid-template-columns:200px minmax(0,1fr)}.manual-tools-toggle{display:block}.manual-context-tools{display:none}.manual-context-tools[data-panel-open=true]{display:flex;flex-direction:column;position:fixed;right:0;top:0;bottom:0;width:280px;z-index:15;background:#fff;padding:20px;border-left:1px solid var(--manual-line)}.manual-panel-close{display:block;min-height:44px}.manual-context-tools button{width:100%;flex:none}.image-editor-dialog{grid-column:2;min-height:0}}
 @media(max-width:760px){.manual-toolbar .manual-tools-toggle{display:none}.manual-workspace{display:block}.manual-step-center{height:100%;box-sizing:border-box}.manual-step-nav{display:none}.manual-step-nav[data-panel-open=true]{display:flex;flex-direction:column;position:fixed;inset:20% 0 0;max-height:none;width:auto;z-index:15;border-radius:18px 18px 0 0;padding:16px}.manual-step-nav ol{display:grid;overflow:auto;flex:1}.manual-step-nav li{flex:none}.manual-step-nav>button{width:auto;align-self:flex-start}.manual-step-nav .manual-panel-close{position:absolute;right:16px;top:16px}.manual-context-tools[data-panel-open=true]{inset:22% 0 0;width:auto;border-radius:18px 18px 0 0}.manual-mobile-actions{flex:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:#fff;border-top:1px solid var(--manual-line);padding:8px 12px;min-height:60px;box-sizing:border-box}.manual-mobile-actions button{min-height:44px}.manual-toolbar .manual-share{display:none}.manual-toolbar .manual-title{grid-column:2/4}.manual-toolbar [data-manual-save]{grid-column:3;grid-row:2}.manual-step-heading input{min-width:0}.image-editor-dialog[open]{height:100%;overflow:auto}.manual-editor:has(.image-editor-dialog[open]) .manual-mobile-actions{display:none}}
-.share-feedback[data-kind=error]{color:#a3362b}.share-feedback[data-kind=success]{color:#067647}.share-feedback[data-kind=warning]{color:#8c5600}.expiry-preview{font-size:14px;font-weight:400;color:var(--manual-muted)}.cloud-field input,.cloud-field textarea,.cloud-step input,.cloud-step textarea,.share-form input,button.secondary,.tool-grid button{border-color:#789099}.manual-share-drawer .share-form input[type=text],.manual-share-drawer .share-form input[type=password],.manual-share-drawer .share-form input[type=datetime-local]{border-color:#789099}.manual-share-drawer .cloud-note{overflow-wrap:anywhere;word-break:keep-all}.cloud-image-retry{min-height:44px}
+ .share-feedback[data-kind=error]{color:#a3362b}.share-feedback[data-kind=success]{color:#067647}.share-feedback[data-kind=warning]{color:#8c5600}.expiry-preview{font-size:14px;font-weight:400;color:var(--manual-muted)}.cloud-field input,.cloud-field textarea,.cloud-step input,.cloud-step textarea,.share-form input,button.secondary,.tool-grid button{border-color:#789099}.manual-share-drawer .share-form input[type=text],.manual-share-drawer .share-form input[type=password],.manual-share-drawer .share-form input[type=datetime-local]{border-color:#789099}.manual-share-drawer .cloud-note{overflow-wrap:anywhere;word-break:keep-all}.cloud-image-retry{min-height:44px}.cloud-office-export{margin-top:18px;padding-top:16px;border-top:1px solid var(--manual-line)}.cloud-office-export h2{margin-top:0}.cloud-office-export .cloud-note{font-size:13px;margin:0 0 10px}.cloud-office-export-actions{display:grid;gap:8px}.cloud-office-export-actions button{width:100%}
 .manual-context-tools .manual-panel-close,.manual-step-nav .manual-panel-close{display:none}
 @media(max-width:1100px){.manual-context-tools[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog .image-editor-tools{display:flex;flex-direction:column;overflow:auto}.image-editor-dialog .tool-grid{grid-template-columns:repeat(2,minmax(66px,1fr))}.image-editor-dialog .tool-grid button{white-space:nowrap;padding:8px 6px}}
 @media(max-width:760px){.manual-step-nav[data-panel-open=true] .manual-panel-close{display:block}.image-editor-dialog[open]{height:100%;overflow:auto}.image-editor-dialog .image-editor-form{display:flex;height:auto;min-height:100%;overflow:visible}.image-editor-dialog .image-editor-workspace{display:block;overflow:visible}.image-editor-dialog .image-editor-canvas-wrap{overflow:visible;min-height:0;width:100%;box-sizing:border-box;padding:12px}.image-editor-dialog #imageEditorCanvas{display:block;max-width:100%;width:100%;height:auto;max-height:none;box-sizing:border-box}.image-editor-dialog .image-editor-tools{overflow:visible;display:flex;gap:14px}.image-editor-dialog .tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.image-editor-dialog .image-editor-actions{position:sticky;bottom:0;background:#fff}.image-editor-dialog .selection-group [data-editor-selection]{max-height:none;overflow:visible}}
@@ -156,9 +156,65 @@ export const CLOUD_MANUAL_JS = `(() => {
   let activeCloudImageEditor = null;
   const pendingImageJobs = new Map();
   let cloudImageBusy = false;
+  let officeExportBusy = false;
   ${MANUAL_BRANDING_JS}
   ${MANUAL_PRINT_JS}
   function imageTools() { if (!globalThis.MecchaImageTools) throw new Error("画像編集を準備できませんでした。再読み込みしてください。"); return globalThis.MecchaImageTools; }
+  function officeTools() { const tools = imageTools(); if (typeof tools.buildDocx !== "function" || typeof tools.buildPptx !== "function" || typeof tools.assertOfficeImageBudget !== "function") throw new Error("Office出力を準備できませんでした。画面を更新してください。"); return tools; }
+  function officeFileName(title, extension) { const safe = String(title || "手順書").trim().replace(/[\\/:*?\"<>|\u0000-\u001f]/gu, "_").replace(/[. ]+$/u, "").slice(0, 80) || "手順書"; return safe + "." + extension; }
+  function downloadOfficeBytes(bytes, fileName, mimeType) { const blob = new Blob([bytes], { type: mimeType }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = fileName; link.rel = "noopener"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0); }
+  function officeImageError(index) { const error = new Error("office-image-failed"); error.code = "office-image-failed"; error.stepIndex = index; return error; }
+  function officeExportChanged() { const error = new Error("office-export-changed"); error.code = "office-export-changed"; return error; }
+  async function renderOfficeImage(step, index, imageBudget, tools) {
+    if (!step?.assetId) return null;
+    const source = imageUrlFor(step);
+    if (!source) throw officeImageError(index);
+    let response;
+    try { response = await fetch(source, { credentials: "same-origin", cache: "no-store" }); } catch { throw officeImageError(index); }
+    if (!response.ok) throw officeImageError(index);
+    const sourceBlob = await response.blob();
+    const sourceUrl = URL.createObjectURL(sourceBlob);
+    try {
+      const image = new Image(); image.src = sourceUrl; await image.decode();
+      imageTools().assertImageDimensions(image.naturalWidth, image.naturalHeight);
+      const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+      imageTools().drawScreenshot(canvas.getContext("2d"), image, { annotations: Array.isArray(step.annotations) ? step.annotations : [], masks: [] });
+      const rendered = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(officeImageError(index)), "image/png"));
+      imageBudget.used = tools.assertOfficeImageBudget(rendered.size, imageBudget.used);
+      return { kind: "edited", bytes: new Uint8Array(await rendered.arrayBuffer()), mimeType: "image/png", width: image.naturalWidth, height: image.naturalHeight };
+    } catch (error) {
+      if (error?.code === "office-image-failed" || error?.code === "office-image-budget") throw error;
+      throw officeImageError(index);
+    } finally { URL.revokeObjectURL(sourceUrl); }
+  }
+  async function exportOffice(format, button) {
+    if (officeExportBusy || saveInFlight) return;
+    if (!detailData || !editorState) { setMessage("\u5148\u306b\u624b\u9806\u66f8\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning"); return; }
+    if (activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size) { setMessage("\u753b\u50cf\u306e\u7de8\u96c6\u30fb\u4fdd\u5b58\u3092\u5b8c\u4e86\u3057\u3066\u304b\u3089Office\u51fa\u529b\u3092\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning"); return; }
+    const exportSnapshot = { manualId: detailData.manual.id, requestSerial, editVersion, title: String(editorState.title || ""), description: String(editorState.description || ""), steps: clone(editorState.steps) };
+    officeExportBusy = true; if (button) button.disabled = true; setMessage((format === "docx" ? "Word" : "PowerPoint") + "\u30d5\u30a1\u30a4\u30eb\u3092\u4f5c\u6210\u3057\u3066\u3044\u307e\u3059\u3002");
+    try {
+      const tools = officeTools();
+      const imageBudget = { used: 0 };
+      const steps = [];
+      for (const [index, step] of exportSnapshot.steps.entries()) {
+        if (requestSerial !== exportSnapshot.requestSerial || editVersion !== exportSnapshot.editVersion || detailData?.manual?.id !== exportSnapshot.manualId) throw officeExportChanged();
+        steps.push({ number: index + 1, title: String(step.title || "").trim(), instruction: String(step.instruction || ""), image: await renderOfficeImage(step, index, imageBudget, tools) });
+      }
+      if (requestSerial !== exportSnapshot.requestSerial || editVersion !== exportSnapshot.editVersion || detailData?.manual?.id !== exportSnapshot.manualId) throw officeExportChanged();
+      const value = { title: exportSnapshot.title, description: exportSnapshot.description, steps };
+      const bytes = format === "docx" ? tools.buildDocx(value) : tools.buildPptx(value);
+      const mime = format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+      downloadOfficeBytes(bytes, officeFileName(exportSnapshot.title, format === "docx" ? "docx" : "pptx"), mime);
+      setMessage((format === "docx" ? "Word" : "PowerPoint") + "\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u3057\u307e\u3057\u305f\u3002\u30af\u30e9\u30a6\u30c9\u306e\u5185\u5bb9\u3084\u5171\u6709\u8a2d\u5b9a\u306f\u5909\u66f4\u3057\u3066\u3044\u307e\u305b\u3093\u3002", "success");
+    } catch (error) {
+      if (error?.code === "office-export-changed") setMessage("\u7de8\u96c6\u4e2d\u306e\u5185\u5bb9\u304c\u5909\u308f\u3063\u305f\u305f\u3081\u3001Office\u30d5\u30a1\u30a4\u30eb\u306e\u66f8\u304d\u51fa\u3057\u3092\u4e2d\u6b62\u3057\u307e\u3057\u305f\u3002\u6700\u65b0\u306e\u5185\u5bb9\u3067\u518d\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning");
+      else if (error?.code === "office-image-failed") setMessage("\u753b\u50cf\u3092\u8aad\u307f\u8fbc\u3081\u306a\u3044\u624b\u9806\u304c\u3042\u308b\u305f\u3081\u3001Office\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u3057\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u753b\u50cf\u3092\u78ba\u8a8d\u3057\u3066\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "error");
+      else if (["office-image-budget", "office-archive-budget", "office-zip32-overflow", "office-zip16-overflow", "office-zip-entry-count"].includes(error?.code)) setMessage(error.userMessage || "\u753b\u50cf\u5bb9\u91cf\u304c\u5927\u304d\u305f\u3081\u3001\u753b\u50cf\u3092\u5c0f\u3055\u304f\u3059\u308b\u304b\u624b\u9806\u66f8\u3092\u5206\u3051\u3066\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "error");
+      else setMessage("Office\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u305b\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30bf\u30a4\u30c8\u30eb\u3084\u672c\u6587\u3092\u78ba\u8a8d\u3057\u3066\u518d\u7de8\u96c6\u3057\u3066\u304b\u3089\u3001\u3082\u3046\u4e00\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002", "error");
+    }
+    finally { officeExportBusy = false; if (button) button.disabled = false; }
+  }
   async function encodeBaseImage(dataUrl, masks, annotations = []) {
     const image = new Image(); image.src = dataUrl; await image.decode();
     imageTools().assertImageDimensions(image.naturalWidth, image.naturalHeight);
@@ -259,7 +315,13 @@ export const CLOUD_MANUAL_JS = `(() => {
     const imageButtons = make("div", "", "cloud-image-tools");
     const branding=make("button","チームの見た目","secondary");branding.type="button";branding.addEventListener("click",()=>{closePanels();openBrandingSettings(branding);});
     const print=make("button","PDF・印刷プレビュー","secondary");print.type="button";print.addEventListener("click",()=>{closePanels();openPrintPreview(print);});
-    tools.append(make("h2", "画像を調整"), imageButtons, make("h2", "編集履歴"), undo, redo, reload, make("h2","手順書の設定"),branding,print);
+    const office = make("section", "", "cloud-office-export");
+    const officeHeading = make("h2", "Officeで書き出す"); office.append(officeHeading, make("p", "現在表示している編集内容を、WordまたはPowerPointとしてダウンロードします。クラウド更新や共有リンクの作成は行いません。", "cloud-note"));
+    const officeActions = make("div", "", "cloud-office-export-actions");
+    const wordExport = make("button", "Wordで書き出す", "secondary"); wordExport.type = "button"; wordExport.disabled = !editorState.steps.length; wordExport.addEventListener("click", () => exportOffice("docx", wordExport));
+    const powerpointExport = make("button", "PowerPointで書き出す", "secondary"); powerpointExport.type = "button"; powerpointExport.disabled = !editorState.steps.length; powerpointExport.addEventListener("click", () => exportOffice("pptx", powerpointExport));
+    officeActions.append(wordExport, powerpointExport); office.append(officeActions);
+    tools.append(make("h2", "画像を調整"), imageButtons, make("h2", "編集履歴"), undo, redo, reload, make("h2","手順書の設定"),branding,print,office);
     const add = make("button", "手順を追加", "secondary"); add.dataset.stepAdd = "true"; add.type = "button";
     function renderSteps(focus = false) {
       navList.replaceChildren(); canvas.replaceChildren(); imageButtons.replaceChildren();

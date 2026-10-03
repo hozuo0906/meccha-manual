@@ -1,6 +1,7 @@
 export const MAX_ANNOTATIONS = 100;
 export const MAX_ANNOTATION_TEXT = 500;
-export const ANNOTATION_TYPES = new Set(["text", "rectangle", "ellipse", "arrow"]);
+export const ANNOTATION_TYPES = new Set(["text", "rectangle", "ellipse", "arrow", "replacement"]);
+export const PERSONAL_INFO_TYPES = new Set(["name", "kana", "phone", "email", "postal", "address"]);
 
 function finite(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -52,12 +53,16 @@ export function normalizeAnnotation(value) {
   const height = dimension(value.height, y ?? 1);
   if (x === null || y === null || width === null || height === null) return null;
   const result = { id: idFor(value.id), type: value.type, x, y, width, height, color, strokeWidth };
-  if (value.type === "text") {
+  if (value.type === "text" || value.type === "replacement") {
     if (typeof value.text !== "string" || value.text.length === 0 || Array.from(value.text).length > MAX_ANNOTATION_TEXT) return null;
     const fontSize = normalizedFontSize(value.fontSize);
     if (fontSize === null) return null;
     result.text = value.text;
     result.fontSize = fontSize;
+  }
+  if (value.type === "replacement") {
+    if (!PERSONAL_INFO_TYPES.has(value.category)) return null;
+    result.category = value.category;
   }
   return result;
 }

@@ -1,0 +1,458 @@
+import assert from "node:assert/strict";
+import { mkdir, stat, readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { resolve, sep } from "node:path";
+import test from "node:test";
+import { chromium } from "./support/test-browser.mjs";
+
+const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+
+function serveExtension() {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const pathname = new URL(request.url || "/", "http://127.0.0.1").pathname;
+    requests.push({ method: request.method, pathname });
+    if (pathname === "/seed.html") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><meta charset='utf-8'><title>seed</title>");
+      return;
+    }
+    const relativePath = decodeURIComponent(pathname.replace(/^\/+/, ""));
+    const filePath = resolve(extensionRoot, relativePath);
+    if (filePath !== extensionRoot && !filePath.startsWith(`${extensionRoot}${sep}`)) {
+      response.writeHead(404).end();
+      return;
+    }
+    try {
+      const info = await stat(filePath);
+      if (!info.isFile()) throw new Error("not a file");
+      const body = await readFile(filePath);
+      if (relativePath.replaceAll("\\", "/") === "export/office-export.js" && server.officeModuleDelayMs) {
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, server.officeModuleDelayMs));
+      }
+      const contentType = filePath.endsWith(".html")
+        ? "text/html; charset=utf-8"
+        : filePath.endsWith(".js")
+          ? "text/javascript; charset=utf-8"
+          : filePath.endsWith(".css")
+            ? "text/css; charset=utf-8"
+            : "application/octet-stream";
+      response.writeHead(200, { "content-type": contentType });
+      response.end(body);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  server.requests = requests;
+  server.officeModuleDelayMs = 0;
+  return server;
+}
+
+function zipEntries(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const entries = new Map();
+  let cursor = 0;
+  while (cursor + 4 <= bytes.length) {
+    const signature = view.getUint32(cursor, true);
+    if (signature === 0x04034b50) {
+      const compressedLength = view.getUint32(cursor + 18, true);
+      const nameLength = view.getUint16(cursor + 26, true);
+      const extraLength = view.getUint16(cursor + 28, true);
+      const nameStart = cursor + 30;
+      const name = new TextDecoder().decode(bytes.subarray(nameStart, nameStart + nameLength));
+      const bodyStart = nameStart + nameLength + extraLength;
+      entries.set(name, bytes.subarray(bodyStart, bodyStart + compressedLength));
+      cursor = bodyStart + compressedLength;
+      continue;
+    }
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    throw new Error(`unexpected ZIP signature 0x${signature.toString(16)}`);
+  }
+  return entries;
+}
+
+function entryText(entries, name) {
+  return new TextDecoder().decode(entries.get(name));
+}
+
+async function seedDraft(page, baseUrl, draftId) {
+  await page.goto(`${baseUrl}/seed.html`);
+  return page.evaluate(async (id) => {
+    const screenshots = [];
+    const steps = [];
+    for (let index = 1; index <= 20; index += 1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = index % 2 ? 1200 : 660;
+      canvas.height = index % 2 ? 660 : 1200;
+      const context = canvas.getContext("2d");
+      context.fillStyle = index % 2 ? "#e9f6f7" : "#f4f0fa";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#173d46";
+      context.font = "bold 32px sans-serif";
+      context.fillText(`操作手順 ${index}（架空）`, 32, 56);
+      context.font = "24px sans-serif";
+      context.fillText("顧客名: 山田花子（架空）", 32, 102);
+      context.fillText(`受付番号: DEMO-${String(index).padStart(3, "0")}`, 32, 140);
+      context.fillStyle = "#087f7a";
+      context.fillRect(canvas.width * 0.62, canvas.height * 0.18, canvas.width * 0.2, canvas.height * 0.12);
+      screenshots.push({
+        id: `image-${index}`,
+        dataUrl: canvas.toDataURL("image/png"),
+        masks: [{ id: `mask-${index}`, x: 0.6, y: 0.16, width: 0.24, height: 0.16 }]
+      });
+      steps.push({ id: `step-${index}`, order: index, instruction: `手順 ${index} の操作を確認して保存します。`, screenshotId: `image-${index}` });
+    }
+    const { draftStore } = await import("/storage/draft-store.js");
+    await draftStore.put({ id, title: "ローカルOffice出力の確認", description: "20手順の編集済み画像を端末へ保存します。", steps, screenshots });
+    return { sourceDataUrl: screenshots[0].dataUrl };
+  }, draftId);
+}
+
+async function captureEvidence(page, name) {
+  const directory = ".artifacts/unified-editor";
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+}
+
+async function downloadBytes(page, button) {
+  try {
+    await button.click({ timeout: 30_000 });
+    await page.locator("#outputGate").waitFor({ state: "visible", timeout: 30_000 });
+    const action = page.locator("#startRegistration");
+    assert.match(await action.textContent(), /ログインして(?:Word|PowerPoint)を書き出す/u);
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), action.click({ timeout: 30_000 })]);
+    return readFile(await download.path());
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      status: document.querySelector("#officeExportStatus")?.textContent || "",
+      state: document.querySelector("#officeExportStatus")?.dataset.state || "",
+      wordDisabled: Boolean(document.querySelector("#exportWord")?.disabled),
+      powerpointDisabled: Boolean(document.querySelector("#exportPowerPoint")?.disabled)
+    })).catch(() => ({}));
+    throw new Error(`Office download failed: ${error.message}; diagnostic=${JSON.stringify(diagnostic)}`);
+  }
+}
+
+async function startAuthenticatedExport(page, button) {
+  await button.click({ timeout: 30_000 });
+  await page.locator("#outputGate").waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator("#startRegistration").click({ timeout: 30_000 });
+}
+
+async function pixelAt(page, bytes, xRatio, yRatio) {
+  return page.evaluate(async ({ values, xRatio: x, yRatio: y }) => {
+    const blob = new Blob([Uint8Array.from(values)], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.getContext("2d").drawImage(image, 0, 0);
+      const point = canvas.getContext("2d").getImageData(Math.floor(canvas.width * x), Math.floor(canvas.height * y), 1, 1).data;
+      return [...point];
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }, { values: [...bytes], xRatio, yRatio });
+}
+
+test("local extension editor requires the auth gate before downloading 20 edited images", { timeout: 180_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const draftId = "extension-office-browser-fixture";
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 }, locale: "ja-JP" });
+    await context.addInitScript(() => {
+      const values = new Map();
+      const listeners = [];
+      const readyPrefix = "meccha-manual:handoff-ready:";
+      const handoffPrefix = "meccha-manual:handoff:";
+      const emit = (changes) => listeners.forEach((listener) => { try { listener(changes, "local"); } catch {} });
+      const local = {
+        async get(key = null) {
+          if (key === null) return Object.fromEntries(values.entries());
+          if (Array.isArray(key)) return Object.fromEntries(key.filter((name) => values.has(name)).map((name) => [name, values.get(name)]));
+          return values.has(key) ? { [key]: values.get(key) } : {};
+        },
+        async set(items) {
+          const changes = {};
+          for (const [key, value] of Object.entries(items || {})) {
+            const next = key.startsWith(readyPrefix) && value && value.pageReadyAt === null
+              ? { ...value, pageReadyAt: new Date().toISOString() }
+              : value;
+            changes[key] = { oldValue: values.get(key), newValue: next };
+            values.set(key, next);
+          }
+          if (Object.keys(changes).length) emit(changes);
+        },
+        async remove(key) {
+          const keys = Array.isArray(key) ? key : [key];
+          const changes = {};
+          for (const name of keys) if (values.has(name)) { changes[name] = { oldValue: values.get(name) }; values.delete(name); }
+          if (Object.keys(changes).length) emit(changes);
+        }
+      };
+      let nextTabId = 100;
+      const tabs = new Map();
+      const completeAuthClaim = async (url) => {
+        try {
+          const parsed = new URL(url);
+          const params = new URLSearchParams(parsed.hash.slice(1));
+          const handoffId = params.get("handoff");
+          const metadataKey = handoffPrefix + handoffId;
+          const metadata = (await local.get(metadataKey))[metadataKey];
+          if (!metadata || params.get("action") !== "office" || params.get("officeFormat") !== metadata.officeFormat) return;
+          const claim = {
+            operationId: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+            claimIntentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            draftFingerprint: metadata.draftFingerprint,
+            completedManualId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+          };
+          // Model the server coordinator's durable ordering: finalize-pending
+          // is recorded before the completed receipt reaches the editor.
+          await local.set({ [metadataKey]: { ...metadata, ...claim, status: "finalize-pending" } });
+          await local.set({ [metadataKey]: { ...metadata, ...claim, status: "completed" } });
+        } catch {}
+      };
+      const runtime = { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", async sendMessage() { return { ok: true }; } };
+      const chromeApi = globalThis.chrome || {};
+      chromeApi.runtime = runtime;
+      chromeApi.storage = { local, onChanged: { addListener(listener) { listeners.push(listener); } } };
+      chromeApi.tabs = {
+        async create(details) { const id = nextTabId++; tabs.set(id, { id, url: details?.url || "about:blank" }); return { id, url: details?.url || "about:blank" }; },
+        async get(id) { return tabs.get(id) || null; },
+        async remove(id) { tabs.delete(id); },
+        async update(id, details) { const tab = tabs.get(id) || { id }; Object.assign(tab, details || {}); tabs.set(id, tab); if (details?.url) await completeAuthClaim(details.url); return tab; }
+      };
+      globalThis.chrome = chromeApi;
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(8_000);
+    const { sourceDataUrl } = await seedDraft(page, baseUrl, draftId);
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.waitForFunction(() => document.querySelectorAll('.step-image-status[data-state="ready"]').length === 20);
+    await captureEvidence(page, "office-extension-editor-1366");
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    await captureEvidence(page, "office-extension-header-menu-1366");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const headerMenu = page.locator(".header-office-menu");
+    const headerSummary = page.locator(".office-actions > summary");
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    const headerMenuBox = await headerMenu.boundingBox();
+    assert.ok(headerMenuBox && headerMenuBox.x >= 0 && headerMenuBox.y >= 0 && headerMenuBox.x + headerMenuBox.width <= 390 && headerMenuBox.y + headerMenuBox.height <= 844, "390pxの書き出しメニューが画面内に収まる");
+    await captureEvidence(page, "office-extension-header-menu-390");
+    await page.locator(".office-actions").evaluate((details) => { details.open = false; });
+    await page.setViewportSize({ width: 1366, height: 900 });
+
+    // Exercise the real image editor before export so at least one output pixel
+    // is changed through the editor path, while all twenty references remain.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await page.locator("#step-step-1 .image-edit-button").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+      assert.equal(await page.locator('[data-replacement-action="add"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="help"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="add"]').getAttribute("aria-describedby"), await page.locator('[data-replacement-action="help"]').getAttribute("id"));
+      await page.locator("[data-editor-cancel]").first().click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    }
+    await page.locator("#step-step-1 .image-edit-button").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+    await captureEvidence(page, "office-extension-image-editor-1366");
+    await page.locator('[data-editor-tool="replacement"]').click();
+    await page.keyboard.press("Enter");
+    await page.locator('[data-editor-selection] button').first().waitFor({ state: "visible" });
+    await captureEvidence(page, "office-extension-replacement-1366");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await captureEvidence(page, "office-extension-replacement-390");
+    await page.locator('[data-replacement-action="add"]').evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.locator('[data-replacement-action="add"]').focus();
+    const replacementGeometry = await page.locator('[data-replacement-action="add"]').evaluate((element) => {
+      const button = element.getBoundingClientRect();
+      const footer = document.querySelector(".image-editor-actions").getBoundingClientRect();
+      const probe = document.elementFromPoint(button.left + button.width / 2, button.top + button.height / 2);
+      return { button, footer, probeIsButton: probe === element || element.contains(probe) };
+    });
+    assert.ok(replacementGeometry.button.bottom <= replacementGeometry.footer.top + 1 || replacementGeometry.button.top >= replacementGeometry.footer.bottom - 1, "390px replacement controls must not overlap the apply footer");
+    assert.equal(replacementGeometry.probeIsButton, true, "keyboard-focused replacement control must remain hit-testable");
+    await captureEvidence(page, "office-extension-replacement-390-controls");
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    // Image editing invalidates the prior review. Confirm the edited image
+    // through the same user-facing action before the twenty-image export.
+    await page.locator("#step-step-1 .image-state-actions button").first().click();
+    await page.waitForFunction(async () => (await (await import("/storage/draft-store.js")).draftStore.get("extension-office-browser-fixture"))?.steps?.[0]?.privacyReview?.reviewRequired === false);
+    await page.waitForFunction(() => document.querySelectorAll('.step-image-status[data-state="ready"]').length === 20);
+
+    const officeDetails = page.locator(".office-actions");
+    await officeDetails.locator("summary").click();
+    const word = page.locator("#exportWord");
+    const powerpoint = page.locator("#exportPowerPoint");
+    assert.equal(await word.isVisible(), true);
+    assert.equal(await powerpoint.isVisible(), true);
+    assert.equal(await page.locator("#outputGate").isVisible(), false, "Office actions start from the editor without an open gate");
+
+    const wordBytes = await downloadBytes(page, word);
+    const wordEntries = zipEntries(wordBytes);
+    const wordImages = [...wordEntries.keys()].filter((name) => /^word\/media\/image\d+\.(png|jpeg)$/u.test(name));
+    assert.equal(wordImages.length, 20, "Word keeps every referenced image");
+    assert.match(entryText(wordEntries, "word/document.xml"), /20手順/u);
+    assert.match(entryText(wordEntries, "word/document.xml"), /手順 20/u);
+    assert.notDeepEqual([...wordEntries.get("word/media/image1.png")], [...Buffer.from(sourceDataUrl.split(",")[1], "base64")], "Word receives pixels different from the original capture");
+    const wordMaskPixel = await pixelAt(page, wordEntries.get("word/media/image1.png"), 0.7, 0.22);
+    assert.deepEqual(wordMaskPixel.slice(0, 3), [17, 24, 39], "Word receives the flattened mask pixel");
+
+    const powerpointBytes = await downloadBytes(page, powerpoint);
+    const powerpointEntries = zipEntries(powerpointBytes);
+    const powerpointImages = [...powerpointEntries.keys()].filter((name) => /^ppt\/media\/image\d+\.(png|jpeg)$/u.test(name));
+    assert.equal(powerpointImages.length, 20, "PowerPoint keeps every referenced image");
+    assert.match(entryText(powerpointEntries, "ppt/slides/slide20.xml"), /手順 20/u);
+    const powerpointMaskPixel = await pixelAt(page, powerpointEntries.get("ppt/media/image1.png"), 0.7, 0.22);
+    assert.deepEqual(powerpointMaskPixel.slice(0, 3), [17, 24, 39], "PowerPoint receives the flattened mask pixel");
+    assert.equal(server.requests.some(({ method }) => method !== "GET"), false, "local Office export does not issue writes");
+    assert.equal(server.requests.some(({ pathname }) => pathname.startsWith("/api/")), false, "local Office export does not call cloud APIs");
+
+    // An image that is still being prepared blocks output with a retryable message.
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get("extension-office-browser-fixture");
+      draft.steps[19].imageState = { status: "queued", reason: null, attempts: 1, version: 1 };
+      await draftStore.put(draft);
+    });
+    await page.reload();
+    await page.waitForFunction(async () => (await (await import("/storage/draft-store.js")).draftStore.get("extension-office-browser-fixture"))?.steps?.[19]?.imageState?.status === "unavailable");
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    let unreadyDownloads = 0;
+    const countUnreadyDownload = () => { unreadyDownloads += 1; };
+    page.on("download", countUnreadyDownload);
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "unready images keep the authenticated Office gate disabled");
+    assert.notEqual((await page.locator("#gateStatus").textContent()).trim(), "");
+    page.off("download", countUnreadyDownload);
+    await page.locator("#cancelOutput").click();
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
+
+    await page.evaluate(async () => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get("extension-office-browser-fixture");
+      delete draft.steps[19].imageState;
+      await draftStore.put(draft);
+    });
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll('.step-image-status[data-state="ready"]').length === 20);
+
+    // Changing the title while the first dynamic Office module load is pending
+    // must be rejected before any stale package is downloaded.
+    await page.locator(".office-actions > summary").click();
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll('.step-image-status[data-state="ready"]').length === 20);
+    await page.locator(".office-actions > summary").click();
+    server.officeModuleDelayMs = 300;
+    let delayedImportDownloads = 0;
+    const countDelayedImportDownload = () => { delayedImportDownloads += 1; };
+    page.on("download", countDelayedImportDownload);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.waitForFunction(() => document.querySelector("#officeExportStatus")?.textContent?.includes("作成") === true);
+    await page.locator("#title").fill("dynamic import待機中の変更");
+    await page.locator("#officeExportStatus[data-state=warning]").waitFor();
+    assert.equal(delayedImportDownloads, 0, "async import待機中の変更はダウンロードしない");
+    page.off("download", countDelayedImportDownload);
+    server.officeModuleDelayMs = 0;
+
+    // Mutating the title while the final fingerprint digest is pending must
+    // still be rejected before the synchronous Office build/download.
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    await page.evaluate(() => {
+      const subtle = crypto.subtle;
+      const original = subtle.digest.bind(subtle);
+      let calls = 0;
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      Object.defineProperty(subtle, "digest", { configurable: true, value: async (...args) => {
+        calls += 1;
+        if (calls === 23) { window.__officeDigestReady = true; await gate; }
+        return original(...args);
+      } });
+      window.__releaseOfficeDigest = release;
+      window.__restoreOfficeDigest = () => Object.defineProperty(subtle, "digest", { configurable: true, value: original });
+    });
+    let digestDownloads = 0;
+    const countDigestDownload = () => { digestDownloads += 1; };
+    page.on("download", countDigestDownload);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.waitForFunction(() => window.__officeDigestReady === true);
+    await page.locator("#title").fill("final digest待機中の変更");
+    await page.evaluate(() => window.__releaseOfficeDigest?.());
+    await page.locator("#officeExportStatus[data-state=warning]").waitFor();
+    assert.equal(digestDownloads, 0, "final fingerprint changes do not trigger a download");
+    page.off("download", countDigestDownload);
+    await page.evaluate(() => window.__restoreOfficeDigest?.());
+
+    // Hold the first real canvas encoding, mutate the title while export is
+    // definitely in flight, then release the encoder. A wall-clock delay is
+    // too weak here because the export may finish before the mutation.
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      let held = null;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; held = null; };
+      window.__releaseOfficeToBlob = () => { const pending = held; held = null; if (pending) original.apply(pending.canvas, pending.args); };
+      window.__officeToBlobStarted = false;
+      HTMLCanvasElement.prototype.toBlob = function heldToBlob(...args) {
+        if (!held) { held = { canvas: this, args }; window.__officeToBlobStarted = true; return; }
+        return original.apply(this, args);
+      };
+    });
+    let changedDownloads = 0;
+    const countChangedDownload = () => { changedDownloads += 1; };
+    page.on("download", countChangedDownload);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.waitForFunction(() => window.__officeToBlobStarted === true);
+    await page.locator("#title").fill("編集中に変更したタイトル");
+    await page.evaluate(() => window.__releaseOfficeToBlob?.());
+    await page.locator("#officeExportStatus[data-state=warning]").waitFor();
+    assert.match(await page.locator("#officeExportStatus").textContent(), /内容が変わった|中止/u);
+    assert.equal(changedDownloads, 0, "changed snapshots do not trigger a download");
+    page.off("download", countChangedDownload);
+    await page.evaluate(() => window.__restoreOfficeToBlob?.());
+
+    const retryBytes = await downloadBytes(page, page.locator("#exportWord"));
+    assert.equal(zipEntries(retryBytes).get("word/media/image20.png")?.length > 0, true, "retry exports the final image");
+
+    // A rendered Blob over the image budget must fail before arrayBuffer and
+    // download, then recover after the encoder is restored.
+    let oversizedArrayBufferCalls = 0;
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
+      HTMLCanvasElement.prototype.toBlob = function oversizedToBlob(callback) {
+        callback({ size: 64 * 1024 * 1024 + 1, arrayBuffer: async () => { window.__oversizedArrayBufferCalls = (window.__oversizedArrayBufferCalls || 0) + 1; throw new Error("arrayBuffer must not run"); } });
+      };
+      window.__oversizedArrayBufferCalls = 0;
+    });
+    let oversizedDownloads = 0;
+    const countOversizedDownload = () => { oversizedDownloads += 1; };
+    page.on("download", countOversizedDownload);
+    await startAuthenticatedExport(page, page.locator("#exportWord"));
+    await page.locator("#officeExportStatus").filter({ hasText: "画像容量が大きいため" }).waitFor();
+    assert.equal(oversizedDownloads, 0, "oversized rendered images do not trigger a download");
+    oversizedArrayBufferCalls = await page.evaluate(() => window.__oversizedArrayBufferCalls);
+    assert.equal(oversizedArrayBufferCalls, 0, "oversized rendered images fail before arrayBuffer");
+    page.off("download", countOversizedDownload);
+    await page.evaluate(() => window.__restoreOfficeToBlob?.());
+    const recoveredBytes = await downloadBytes(page, page.locator("#exportWord"));
+    assert.equal(zipEntries(recoveredBytes).get("word/media/image20.png")?.length > 0, true, "Office export can be retried after a capacity failure");
+  } finally {
+    await context?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolveServer) => server.close(resolveServer));
+  }
+});

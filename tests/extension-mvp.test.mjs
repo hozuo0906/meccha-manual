@@ -367,6 +367,15 @@ test("draft model can add, edit, delete, reorder steps and manage normalized mas
   assert.equal(draft.steps.some((step) => step.id === "b"), false);
 });
 
+test("adding a step assigns an unassigned image's manual review gate", () => {
+  const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+  const draft = { steps: [], screenshots: [{ id: "cover", dataUrl: "data:image/png;base64,AA", masks: [], privacyReview }] };
+  const added = addStep(draft, "表紙の手順");
+  assert.equal(added.screenshotId, "cover");
+  assert.equal(added.imageState.status, "protected");
+  assert.deepEqual(added.privacyReview, privacyReview);
+});
+
 test("event merging is deduplicated and chronological", () => {
   const session = { events: [{ kind: "click", at: 20, eventId: "b", label: "ボタン" }] };
   const merged = mergeCaptureEvents(session, [
@@ -436,12 +445,13 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.doesNotMatch(source, /Array\.from\(element\.innerText/);
 });
 
-test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
+test("service worker keeps durable recovery, native capture and independent reinjection", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
   assert.match(source, /persistRecoveryJournal\(session\.id, acceptedPendingEvents\)/);
-  assert.match(source, /verifySensitiveMasks/);
+  assert.match(source, /captureVisibleTab/);
+  assert.doesNotMatch(source, /verifySensitiveMasks|takeMaskedScreenshot|captureWithMaskBoundary/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);

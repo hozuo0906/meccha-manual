@@ -1,5 +1,4 @@
 import { normalizeCaptureEvent } from "../capture/privacy.js";
-import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../capture/screenshot.js";
 import { VIEWPORTS } from "../responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../responsive/window-lifecycle.js";
 import { draftStore } from "../storage/draft-store.js";
@@ -9,18 +8,18 @@ import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
 import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
-import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
+import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, validOfficeFormat, validOutputAction, withHandoffDraftLock, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 const SCREENSHOT_TIMING_KEY = "captureScreenshotAt";
-const PRIVACY_ALIAS_KEY = "capturePrivacyAliases";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
 let lastStepScreenshotAt = 0;
 const captureEventGenerations = new Map();
 const captureEventIds = new Map();
+const captureTargetWindows = new Map();
 const MIN_STEP_SCREENSHOT_INTERVAL_MS = 500;
 const captureLiveStore = importedCaptureLiveStore;
 const MAX_CAPTURE_STEPS = 200;
@@ -36,6 +35,19 @@ function navigationFallbackEvents(sessionId, event) {
 
 function clearReinjectionFailureMarker(sessionId) {
   if (sessionId && sessionId === reinjectionFailureSessionId) reinjectionFailureSessionId = null;
+}
+
+function rememberCaptureTargetWindow(session) {
+  if (Number.isInteger(session?.tabId) && Number.isInteger(session?.windowId)) captureTargetWindows.set(session.tabId, session.windowId);
+}
+
+async function restoreCaptureTargetWindow(tabId) {
+  const known = captureTargetWindows.get(tabId);
+  if (Number.isInteger(known)) return known;
+  const session = await getSession();
+  if (session?.tabId !== tabId || !Number.isInteger(session.windowId)) return undefined;
+  captureTargetWindows.set(tabId, session.windowId);
+  return session.windowId;
 }
 
 function serializeSessionOperation(task) {
@@ -118,6 +130,7 @@ async function getSession() {
     clearNavigationFallback();
     return null;
   }
+  rememberCaptureTargetWindow(session);
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
   if (recovery?.sessionId === session.id) {
     session = mergeCaptureEvents(session, recovery.events || []);
@@ -141,7 +154,7 @@ async function setSession(session) {
     clearNavigationFallback(session.id);
     if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
   } else {
-    await chrome.storage.session.remove([SESSION_KEY, PRIVACY_ALIAS_KEY]);
+    await chrome.storage.session.remove(SESSION_KEY);
     clearNavigationFallback();
     clearReinjectionFailureMarker(reinjectionFailureSessionId);
   }
@@ -270,8 +283,8 @@ async function startCapture(tabId, mode) {
   };
   captureEventIds.delete(tabId);
   captureEventGenerations.delete(tabId);
+  rememberCaptureTargetWindow(session);
   await clearRecoveryJournal();
-  await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
   await setSession(session);
   try {
     if (mode !== "pc") await applyResponsiveViewport({ windowId: tab.windowId, tabId, viewport, windowsApi: chrome.windows, measure: measureViewport });
@@ -294,6 +307,31 @@ async function visibleCaptureTab(session) {
   return tab;
 }
 
+function captureDocumentIdentity() {
+  return {
+    href: String(globalThis.location?.href || document.URL || ""),
+    timeOrigin: Number.isFinite(globalThis.performance?.timeOrigin) ? globalThis.performance.timeOrigin : null,
+    readyState: document.readyState,
+    visibilityState: document.visibilityState
+  };
+}
+
+async function assertCaptureTarget(session, expectedIdentity = null) {
+  await visibleCaptureTab(session);
+  let current;
+  try {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: captureDocumentIdentity });
+    current = result?.result;
+  } catch {
+    throw new Error("TARGET_TAB_UNAVAILABLE");
+  }
+  if (!current || current.visibilityState === "hidden") throw new Error("TARGET_TAB_NOT_VISIBLE");
+  if (expectedIdentity && (current.href !== expectedIdentity.href || current.timeOrigin !== expectedIdentity.timeOrigin)) {
+    throw new Error("CAPTURE_NAVIGATION_CHANGED");
+  }
+  return current;
+}
+
 async function currentClickTarget(session, event) {
   if (event?.kind !== "click" || event.clickTarget?.topFrame !== true) return null;
   try {
@@ -305,135 +343,68 @@ async function currentClickTarget(session, event) {
   } catch { return null; }
 }
 
-// This key is separate from the public capture session/status and is never
-// copied into a draft, recovery journal, event, image, handoff or network body.
-// storage.session remains at Chrome's default TRUSTED_CONTEXTS access level.
-async function readCapturePrivacyAliases(session) {
-  const existing = (await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY];
-  if (existing) {
-    if (existing.recordId !== session.id || existing.version !== 1 || !/^[a-f0-9]{64}$/.test(existing.secret)) throw new Error("SCREENSHOT_MASK_FAILED");
-    return existing;
-  }
-  const state = { version: 1, recordId: session.id, namespace: crypto.randomUUID(),
-    secret: Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    allocations: [], next: 0 };
-  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: state });
-  return state;
-}
-
-async function persistCapturePrivacyAliases(state, result) {
-  const next = result?.privateAliasAllocations;
-  if (!next || next.namespace !== state.namespace || !Array.isArray(next.allocations) || next.allocations.length > 512
-    || next.next !== next.allocations.length || next.next < state.next
-    || next.allocations.some((entry, index) => !Array.isArray(entry) || entry.length !== 2
-      || !/^[a-f0-9]{64}$/.test(entry[0]) || entry[1] !== index + 1
-      || (index < state.next && (entry[0] !== state.allocations[index][0] || entry[1] !== state.allocations[index][1])))
-    || new Set(next.allocations.map(([key]) => key)).size !== next.allocations.length) throw new Error("SCREENSHOT_MASK_FAILED");
-  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: { ...state, allocations: next.allocations, next: next.next } });
-}
-
-async function clearCapturePrivacy(session) {
-  if ((await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY]) await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
-  if (!Number.isInteger(session?.tabId)) return;
-  await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks, args: [{ endRecord: true }] }).catch(() => undefined);
-}
-
-async function takeMaskedScreenshot(session, assertCurrent = () => undefined, event) {
+async function takeScreenshot(session, assertCurrent = () => undefined, event) {
+  rememberCaptureTargetWindow(session);
+  // The finish path can request a cover screenshot before any event has
+  // established a generation. Register one here so an activation away and
+  // back during the capture cannot make an old image look current.
+  const captureGeneration = captureEventGenerations.get(session.tabId)
+    || nextCaptureEventGeneration(session.tabId, undefined, "screen_changed");
+  const assertCaptureCurrent = () => {
+    assertCurrent();
+    assertCaptureGeneration(session.tabId, captureGeneration);
+  };
   let clickTarget = null;
-  const result = await captureWithMaskBoundary({
-    includePrivacyMetadata: true,
-    applyMasks: async () => {
-      assertCurrent();
-      let privateAliasState;
-      let mask;
-      try {
-        privateAliasState = await readCapturePrivacyAliases(session);
-        mask = (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, world: "ISOLATED",
-          func: installSensitiveMasks, args: [{ recordId: session.id, privateAliasState }] }))[0]?.result;
-      } catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
-      // A navigation or newer scene has its own safe reason code. Do not
-      // relabel it as a mask failure after waiting for isolated-world crypto.
-      assertCurrent();
-      if (mask?.applied && !mask.reason) {
-        try { await persistCapturePrivacyAliases(privateAliasState, mask); }
-        catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
-      }
-      // Explicit allowlist keeps HMAC keys and allocation state inside the
-      // trusted worker, including when capture later fails or is retried.
-      return mask && { applied: mask.applied, count: mask.count, privacyMaskedCount: mask.privacyMaskedCount,
-        privacyReview: mask.privacyReview, token: mask.token, ...(mask.reason ? { reason: mask.reason } : {}) };
-    },
-    waitForPaint: async () => {
-      await visibleCaptureTab(session);
-      let paintResult;
-      try {
-        [paintResult] = await chrome.scripting.executeScript({
-          target: { tabId: session.tabId },
-          func: () => new Promise((resolve) => {
-            if (document.visibilityState === "hidden") {
-              resolve({ ready: false, reason: "TARGET_TAB_NOT_VISIBLE" });
-              return;
-            }
-            let settled = false;
-            const finish = (reason = null) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeout);
-              resolve({ ready: !reason, reason });
-            };
-            const timeout = setTimeout(() => finish("SCREENSHOT_PAINT_TIMEOUT"), 1000);
-            if (typeof requestAnimationFrame !== "function") {
-              finish("SCREENSHOT_PAINT_UNAVAILABLE");
-              return;
-            }
-            try {
-              requestAnimationFrame(() => {
-                try { requestAnimationFrame(() => finish()); }
-                catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
-              });
-            } catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
-          })
-        });
-      } catch { throw new Error("SCREENSHOT_PAINT_UNAVAILABLE"); }
-      if (paintResult?.result?.ready !== true) {
-        const reason = paintResult?.result?.reason;
-        throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
-      }
-    },
-    capture: async () => {
-      assertCurrent();
-      await visibleCaptureTab(session);
-      assertCurrent();
-      clickTarget = await currentClickTarget(session, event);
-      assertCurrent();
-      try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
-      catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
-      assertCurrent();
-      lastStepScreenshotAt = Date.now();
-      try {
-        return await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 });
-      } finally {
-        // A completed-call timestamp also protects the quota across MV3 restarts.
-        // A pending marker forces a fresh interval when completion is unknown.
-        try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
-        catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
-      }
-    },
-    verifyMasks: async (token) => {
-      try { return Boolean((await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: verifySensitiveMasks, args: [token] }))[0]?.result); }
-      catch { throw new Error("SCREENSHOT_MASK_INVALIDATED"); }
-    },
-    removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks }).catch(() => undefined); }
-  });
+  const initialIdentity = await assertCaptureTarget(session);
+  assertCaptureCurrent();
+  let paintResult;
+  try {
+    [paintResult] = await chrome.scripting.executeScript({
+      target: { tabId: session.tabId },
+      func: () => new Promise((resolve) => {
+        if (document.visibilityState === "hidden") { resolve({ ready: false, reason: "TARGET_TAB_NOT_VISIBLE" }); return; }
+        let settled = false;
+        const finish = (reason = null) => { if (settled) return; settled = true; clearTimeout(timeout); resolve({ ready: !reason, reason }); };
+        const timeout = setTimeout(() => finish("SCREENSHOT_PAINT_TIMEOUT"), 1000);
+        if (typeof requestAnimationFrame !== "function") { finish("SCREENSHOT_PAINT_UNAVAILABLE"); return; }
+        try { requestAnimationFrame(() => { try { requestAnimationFrame(() => finish()); } catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); } }); }
+        catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
+      })
+    });
+  } catch { throw new Error("SCREENSHOT_PAINT_UNAVAILABLE"); }
+  if (paintResult?.result?.ready !== true) {
+    const reason = paintResult?.result?.reason;
+    throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
+  }
+  assertCaptureCurrent();
+  await assertCaptureTarget(session, initialIdentity);
+  assertCaptureCurrent();
+  clickTarget = await currentClickTarget(session, event);
+  assertCaptureCurrent();
+  try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
+  catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+  assertCaptureCurrent();
+  await assertCaptureTarget(session, initialIdentity);
+  assertCaptureCurrent();
+  lastStepScreenshotAt = Date.now();
+  let dataUrl;
+  try { dataUrl = await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 }); }
+  finally {
+    try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
+    catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+  }
+  assertCaptureCurrent();
+  await assertCaptureTarget(session, initialIdentity);
+  assertCaptureCurrent();
   if (clickTarget && await currentClickTarget(session, event)) {
     const annotation = {
       id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
       y: clickTarget.y / clickTarget.viewportHeight, width: clickTarget.width / clickTarget.viewportWidth,
       height: clickTarget.height / clickTarget.viewportHeight, color: "#dc2626", strokeWidth: 3
     };
-    return { ...(typeof result === "string" ? { dataUrl: result } : result), annotations: [annotation] };
+    return { dataUrl, annotations: [annotation] };
   }
-  return result;
+  return dataUrl;
 }
 
 function instructionFor(event) {
@@ -499,15 +470,12 @@ async function finishCapture() {
       const screenshots = session.events
         .map((event) => imageByEventId.get(event.eventId))
         .filter(Boolean)
-        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [],
-          ...(image.privacyReview ? { privacyReview: image.privacyReview } : {}),
-          ...(image.annotations ? { annotations: image.annotations } : {})
-        }));
+        .map((image) => { const review = imageReviewState(image); return { id: image.id, dataUrl: image.dataUrl, masks: [], ...(image.annotations ? { annotations: image.annotations } : {}), privacyReview: review.privacyReview }; });
       if (!session.events.length) {
         await waitForScreenshotSlot(session);
-        const result = await takeMaskedScreenshot(session);
+        const result = await takeScreenshot(session);
         const dataUrl = typeof result === "string" ? result : result.dataUrl;
-        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [], ...(result.privacyReview ? { privacyReview: result.privacyReview } : {}) });
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [], privacyReview: manualImageReview() });
       }
       const draft = {
         id: session.id,
@@ -521,8 +489,11 @@ async function finishCapture() {
           order: index + 1,
           instruction: instructionFor(event),
           ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
+          ...(imageByEventId.has(event.eventId) ? { privacyReview: imageReviewState(imageByEventId.get(event.eventId)).privacyReview } : {}),
           ...event,
-          imageState: finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId))
+          imageState: imageByEventId.has(event.eventId)
+            ? { ...finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId)), status: imageReviewState(imageByEventId.get(event.eventId)).status, reason: null }
+            : finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId))
         })),
         screenshots
       };
@@ -534,7 +505,6 @@ async function finishCapture() {
     }
     await captureLiveStore.clear(session.id);
     await stopRecorder(session.tabId, "release");
-    await clearCapturePrivacy(session);
   } catch {
     const retryBase = readyImageCountKnown && drainedPendingEvents !== undefined ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
@@ -559,7 +529,6 @@ async function cancelCapture() {
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
   if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
-  await clearCapturePrivacy(session);
   const shouldRestore = session.mode !== "pc"
     && await windowStillExists(session.windowId);
   const restored = shouldRestore ? await attemptRestore(cancelSession) : true;
@@ -630,17 +599,28 @@ function imageStateFor(value, fallbackStatus = "unavailable") {
   const status = IMAGE_STATES.has(value?.status) ? value.status : fallbackStatus;
   return {
     status,
-    reason: IMAGE_REASONS.has(value?.reason) ? value.reason : ["ready", "none", "queued", "capturing"].includes(status) ? null : "capture_interrupted",
+    reason: IMAGE_REASONS.has(value?.reason) ? value.reason : ["ready", "protected", "none", "queued", "capturing"].includes(status) ? null : "capture_interrupted",
     attempts: Number.isSafeInteger(value?.attempts) && value.attempts >= 0 ? value.attempts : 0,
     version: Number.isSafeInteger(value?.version) && value.version > 0 ? value.version : 1
   };
+}
+
+function manualImageReview() {
+  return { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+}
+
+function imageReviewState(image) {
+  const privacyReview = image?.privacyReview && typeof image.privacyReview === "object" ? image.privacyReview : manualImageReview();
+  return { privacyReview, status: privacyReview.reviewRequired === false ? "ready" : "protected" };
 }
 
 function finalStepImageState(stored, ref) {
   const source = ref && (ref.version || 1) > (stored?.version || 1) ? ref : stored || ref;
   const state = imageStateFor(source);
   if (["queued", "capturing"].includes(state.status)) return { ...state, status: "unavailable", reason: "capture_interrupted" };
-  if (state.status === "ready" && !stored?.dataUrl) return { ...state, status: "failed", reason: "storage_failed" };
+  const sourceVersion = source?.version || 1;
+  const storedBytesMatch = Boolean(stored?.dataUrl) && (stored?.version || 1) >= sourceVersion;
+  if (["ready", "protected"].includes(state.status) && !storedBytesMatch) return { ...state, status: "failed", reason: "storage_failed" };
   return state;
 }
 
@@ -833,14 +813,11 @@ async function recordStepImage(session, eventId, eventGeneration = captureEventG
     attempts += 1;
     pendingSession = imageRefsWithStatus(pendingSession, eventId, "capturing", { attempts });
     await setSession(pendingSession).catch(() => undefined);
-    const result = await takeMaskedScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
+    const result = await takeScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
     assertCurrent();
     const dataUrl = typeof result === "string" ? result : result.dataUrl;
-    const privacyReview = typeof result === "object" ? result.privacyReview : undefined;
-    const status = privacyReview?.reviewRequired ? "protected" : "ready";
-    const reason = status === "protected" ? privacyReview.reasonCodes?.find((code) => IMAGE_REASONS.has(code)) || "protected_region" : null;
-    state = { status, reason };
-    image = { id: crypto.randomUUID(), dataUrl, ...(privacyReview ? { privacyReview } : {}), ...(result.annotations ? { annotations: result.annotations } : {}) };
+    state = { status: "protected", reason: null };
+    image = { id: crypto.randomUUID(), dataUrl, ...(result.annotations ? { annotations: result.annotations } : {}), privacyReview: manualImageReview() };
   } catch (error) {
     // A later screen is never used to silently retry an earlier operation.
     state = captureFailureState(error);
@@ -945,13 +922,89 @@ if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
 
 const HANDOFF_PAGE_READY_SCHEMA = "meccha-manual/cloud-claim-v1";
-const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
+const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share", "office"]);
 const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
 const HANDOFF_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const HANDOFF_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
+const OFFICE_RETURN_RECEIPT_TTL_MS = 30_000;
 const handoffExternalOperations = new Map();
+
+function validHandoffIntent(action, officeFormat) {
+  return validOutputAction(action) && (action === "office" ? validOfficeFormat(officeFormat) : officeFormat === undefined);
+}
+
+function sameHandoffIntent(left, right) {
+  return left?.outputAction === right?.action && (right?.action === "office" ? left.officeFormat === right.officeFormat : left?.officeFormat === undefined && right?.officeFormat === undefined);
+}
+
+function validOfficeReturnReceipt(receipt, metadata, expectedLaunchId = null, now = Date.now()) {
+  if (!receipt || typeof receipt !== "object" || receipt.handoffId !== metadata?.handoffId ||
+    (!expectedLaunchId ? !HANDOFF_PAGE_READY_PATTERN.test(receipt.launchId || "") : receipt.launchId !== expectedLaunchId) ||
+    receipt.officeFormat !== metadata?.officeFormat || receipt.draftFingerprint !== metadata?.draftFingerprint) return false;
+  const issuedAt = Date.parse(receipt.issuedAt || "");
+  const expiresAt = Date.parse(receipt.expiresAt || "");
+  const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+  return Number.isFinite(issuedAt) && Number.isFinite(expiresAt) && Number.isFinite(metadataExpiresAt) &&
+    issuedAt <= now && expiresAt > now && expiresAt <= metadataExpiresAt && expiresAt - issuedAt <= OFFICE_RETURN_RECEIPT_TTL_MS;
+}
+
+async function handleOfficeReturn(message, sender) {
+  const validMessage = message?.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.office-return" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") && validOfficeFormat(message.officeFormat) &&
+    Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "officeFormat"].includes(key));
+  if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+  const key = handoffReadyStorageKey(message.handoffId, message.launchId);
+  const metadataKey = handoffStorageKey(message.handoffId);
+  const initial = await chrome.storage.local.get([key, metadataKey]);
+  const initialMetadata = initial?.[metadataKey];
+  if (!initialMetadata?.draftId) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+  let editorUrl = chrome.runtime.getURL(`editor/editor.html#${initialMetadata.draftId}`);
+  const result = await withHandoffDraftLock(initialMetadata.draftId, async () => {
+    const values = await chrome.storage.local.get([key, metadataKey]);
+    const ready = values?.[key];
+    const metadata = values?.[metadataKey];
+    if (!ready || !metadata || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id || ready.activationPolicy === "cancelled" ||
+      metadata.status !== "completed" || !validHandoffIntent(metadata.outputAction, metadata.officeFormat) || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.expiresAt !== ready.expiresAt || !Number.isFinite(Date.parse(metadata.expiresAt || "")) || Date.parse(metadata.expiresAt) <= Date.now()) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+    editorUrl = chrome.runtime.getURL(`editor/editor.html#${metadata.draftId}`);
+    const intentKey = `meccha-manual:office-intent:${metadata.draftId}`;
+    const intent = (await chrome.storage.local.get(intentKey))?.[intentKey];
+    const pendingIntent = intent?.draftId === metadata.draftId && intent.handoffId === metadata.handoffId && intent.officeFormat === metadata.officeFormat && intent.draftFingerprint === metadata.draftFingerprint && intent.expiresAt === metadata.expiresAt;
+    if (pendingIntent && !validOfficeReturnReceipt(metadata.officeReturnReceipt, metadata, message.launchId)) {
+      const now = Date.now();
+      const expiresAt = new Date(Math.min(Date.parse(metadata.expiresAt), now + OFFICE_RETURN_RECEIPT_TTL_MS)).toISOString();
+      await chrome.storage.local.set({ [metadataKey]: { ...metadata, officeReturnReceipt: { handoffId: metadata.handoffId, launchId: message.launchId, officeFormat: metadata.officeFormat, draftFingerprint: metadata.draftFingerprint, issuedAt: new Date(now).toISOString(), expiresAt } } });
+    }
+    return { ok: true, status: "editor-opened" };
+  });
+  if (!result.ok) return result;
+  const tabs = typeof chrome.tabs?.query === "function" ? await chrome.tabs.query({}) : [];
+  const existing = tabs.find((tab) => tab?.url === editorUrl);
+  if (Number.isInteger(existing?.id)) await chrome.tabs.update(existing.id, { active: true });
+  else await chrome.tabs.create({ url: editorUrl, active: true });
+  return result;
+}
+
+async function handleOfficeReturnConsume(message, sender) {
+  const validMessage = message?.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.office-return-consume" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") && validOfficeFormat(message.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
+    Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "officeFormat", "draftFingerprint"].includes(key));
+  if (!validMessage) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+  const metadataKey = handoffStorageKey(message.handoffId);
+  const first = (await chrome.storage.local.get(metadataKey))?.[metadataKey];
+  const editorUrl = first?.draftId ? chrome.runtime.getURL(`editor/editor.html#${first.draftId}`) : "";
+  if (!editorUrl || sender?.frameId !== 0 || !Number.isInteger(sender?.tab?.id) || (sender.url !== editorUrl && sender.tab?.url !== editorUrl)) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+  return withHandoffDraftLock(first.draftId, async () => {
+    const metadata = (await chrome.storage.local.get(metadataKey))?.[metadataKey];
+    if (!metadata || metadata.status !== "completed" || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.handoffId !== message.handoffId || metadata.draftFingerprint !== message.draftFingerprint || !validOfficeReturnReceipt(metadata.officeReturnReceipt, metadata, message.launchId)) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+    const receipt = metadata.officeReturnReceipt;
+    const next = { ...metadata };
+    delete next.officeReturnReceipt;
+    await chrome.storage.local.set({ [metadataKey]: next });
+    return { ok: true, status: "receipt-consumed", handoffId: receipt.handoffId, launchId: receipt.launchId, officeFormat: receipt.officeFormat, draftFingerprint: receipt.draftFingerprint, expiresAt: receipt.expiresAt };
+  });
+}
 
 function recoveryMetadataForHandoff(metadata) {
   if (!metadata || typeof metadata !== "object") return null;
@@ -989,14 +1042,15 @@ async function handleInitialHandoffAccessReturn(sender, locked = false) {
   const pendingRecovery = metadata?.status === "finalize-pending" || metadata?.status === "completion-pending";
   const validIdentity = !metadata?.operationId || /^[A-Za-z0-9_-]{16,128}$/.test(metadata.operationId);
   const validMetadata = metadata?.handoffId === ready.handoffId && HANDOFF_EXTENSION_ID_PATTERN.test(metadata.extensionId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
+    validHandoffIntent(metadata.outputAction, metadata.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
     Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt &&
     validIdentity && metadata.status !== "completed" &&
     (pendingRecovery ? recoveryMetadataForHandoff(metadata) !== null : metadataExpiresAt > Date.now());
   if (!validMetadata) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  if ((ready.requestedAction ?? metadata.outputAction) === "office" && (ready.requestedOfficeFormat ?? metadata.officeFormat) !== metadata.officeFormat) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   let pendingUrl;
   try {
-    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, ready.launchId);
+    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, ready.launchId, ready.requestedOfficeFormat ?? metadata.officeFormat);
   } catch {
     return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   }
@@ -1018,8 +1072,8 @@ async function handleHandoffAccessReturn(message, sender) {
     message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
     HANDOFF_EXTENSION_ID_PATTERN.test(message.extensionId || "") && HANDOFF_OPERATION_ID_PATTERN.test(message.operationId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(message.action) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
-    typeof message.expiresAt === "string" && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "extensionId", "operationId", "action", "draftFingerprint", "expiresAt"].includes(key));
+    validHandoffIntent(message.action, message.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
+    typeof message.expiresAt === "string" && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "extensionId", "operationId", "action", "officeFormat", "draftFingerprint", "expiresAt"].includes(key));
   if (!validMessage || !validHandoffAccessReturnSender(sender)) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   const handoffId = message.handoffId;
   const readyKey = handoffReadyStorageKey(handoffId, message.launchId);
@@ -1034,11 +1088,12 @@ async function handleHandoffAccessReturn(message, sender) {
     const validExpiry = Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt && metadata.expiresAt === message.expiresAt;
     const validIdentity = !metadata?.operationId || metadata.operationId === message.operationId;
     if (!ready || ready.tabId !== sender.tab.id || ready.handoffId !== handoffId || ready.launchId !== message.launchId || ready.activationPolicy === "cancelled" || Number(ready.restoreAttempts || 0) >= 3 ||
-      !metadata || metadata.handoffId !== handoffId || metadata.extensionId !== message.extensionId || metadata.outputAction !== message.action || metadata.draftFingerprint !== message.draftFingerprint || !validExpiry || !validIdentity || metadata.status === "completed" ||
+      !metadata || metadata.handoffId !== handoffId || metadata.extensionId !== message.extensionId || !sameHandoffIntent(metadata, message) || metadata.draftFingerprint !== message.draftFingerprint || !validExpiry || !validIdentity || metadata.status === "completed" ||
       (!pendingRecovery && metadataExpiresAt <= Date.now())) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+    if ((ready.requestedAction ?? metadata.outputAction) === "office" && (ready.requestedOfficeFormat ?? metadata.officeFormat) !== metadata.officeFormat) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     let pendingUrl;
     try {
-      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, message.launchId);
+      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, message.launchId, ready.requestedOfficeFormat ?? metadata.officeFormat);
     } catch {
       return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     }
@@ -1080,7 +1135,7 @@ async function handleHandoffPageReady(message, sender) {
   const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
     message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.page-ready" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(message.action) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action"].includes(key));
+    validHandoffIntent(message.action, message.officeFormat) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action", "officeFormat"].includes(key));
   if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
   const key = handoffStorageKey(message.handoffId);
   const readyKey = handoffReadyStorageKey(message.handoffId, message.launchId);
@@ -1088,20 +1143,20 @@ async function handleHandoffPageReady(message, sender) {
     const stored = (await chrome.storage.local.get(key))?.[key];
     const ready = (await chrome.storage.local.get(readyKey))?.[readyKey];
     const expiresAt = Date.parse(stored?.expiresAt || "");
-    if (!stored || stored.handoffId !== message.handoffId || stored.outputAction !== message.action || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!stored || stored.handoffId !== message.handoffId || !sameHandoffIntent(stored, message) || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!ready || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
     if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
-    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
+    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
     const latest = (await chrome.storage.local.get(key))?.[key];
     const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
-    if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!latest || latest.handoffId !== message.handoffId || !sameHandoffIntent(latest, message)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const readyAt = new Date().toISOString();
     await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: null } });
-    return { ok: true, status: "ready", extensionId: latest.extensionId, draftFingerprint: latest.draftFingerprint, expiresAt: latest.expiresAt };
+    return { ok: true, status: "ready", extensionId: latest.extensionId, draftFingerprint: latest.draftFingerprint, expiresAt: latest.expiresAt, ...(latest.outputAction === "office" ? { officeFormat: latest.officeFormat } : {}) };
   });
 }
 
@@ -1109,6 +1164,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
     if (message?.schema === HANDOFF_PAGE_READY_SCHEMA && message?.type === "handoff.access-return") return handleHandoffAccessReturn(message, sender);
+    if (message?.type === "handoff.office-return-consume" && fromExtensionPage) return handleOfficeReturnConsume(message, sender);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
     if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());
@@ -1135,9 +1191,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
-  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : handleExternalCloudClaimMessage;
+  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : message?.type === "handoff.office-return" ? handleOfficeReturn : handleExternalCloudClaimMessage;
   queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
+});
+
+chrome.tabs.onActivated?.addListener((activeInfo) => {
+  // A same-window tab switch changes the scene. Activations in another window
+  // do not affect captureVisibleTab for the persisted target window.
+  for (const tabId of captureEventGenerations.keys()) {
+    const targetWindowId = captureTargetWindows.get(tabId);
+    const handleActivation = (restoredWindowId) => {
+      if (!Number.isInteger(restoredWindowId)) return;
+      if (activeInfo?.windowId !== restoredWindowId) {
+        return;
+      }
+      if (tabId !== activeInfo?.tabId) nextCaptureEventGeneration(tabId, undefined, "screen_changed");
+    };
+    if (Number.isInteger(targetWindowId)) handleActivation(targetWindowId);
+    else void restoreCaptureTargetWindow(tabId).then(handleActivation).catch(() => undefined);
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -1209,6 +1282,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   nextCaptureEventGeneration(tabId, undefined, "navigation_changed");
   captureEventIds.delete(tabId);
+  captureTargetWindows.delete(tabId);
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;

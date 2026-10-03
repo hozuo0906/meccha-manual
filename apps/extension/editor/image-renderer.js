@@ -35,6 +35,31 @@ function drawText(context, annotation, width, height) {
   lines.slice(0, maxLines).forEach((line, index) => context.fillText(line, annotation.x * width, annotation.y * height + index * lineHeight, maxWidth));
 }
 
+function drawReplacement(context, annotation, width, height) {
+  const left = Math.floor(annotation.x * width);
+  const top = Math.floor(annotation.y * height);
+  const right = Math.ceil((annotation.x + annotation.width) * width);
+  const bottom = Math.ceil((annotation.y + annotation.height) * height);
+  const boxWidth = Math.max(1, right - left);
+  const boxHeight = Math.max(1, bottom - top);
+  context.save();
+  context.fillStyle = "#ffffff";
+  context.fillRect(left, top, boxWidth, boxHeight);
+  context.fillStyle = "#111827";
+  const padding = Math.min(4, Math.floor(boxWidth / 8));
+  const text = String(annotation.text || "");
+  let fontSize = Math.max(8, Math.min(Number(annotation.fontSize) || 24, boxHeight - padding * 2));
+  while (fontSize > 8) {
+    context.font = `${fontSize}px sans-serif`;
+    if (context.measureText(text).width <= Math.max(1, boxWidth - padding * 2)) break;
+    fontSize -= 1;
+  }
+  context.font = `${fontSize}px sans-serif`;
+  context.textBaseline = "top";
+  context.fillText(text, left + padding, top + Math.max(0, Math.floor((boxHeight - fontSize) / 2)), Math.max(1, boxWidth - padding * 2));
+  context.restore();
+}
+
 export function drawAnnotations(context, annotations, width, height) {
   const valid = normalizeAnnotations(annotations);
   if (valid === null) throw new TypeError("invalid annotations");
@@ -46,7 +71,9 @@ export function drawAnnotations(context, annotations, width, height) {
     context.strokeStyle = color;
     context.fillStyle = color;
     context.lineWidth = annotation.strokeWidth;
-    if (annotation.type === "text") {
+    if (annotation.type === "replacement") {
+      drawReplacement(context, annotation, width, height);
+    } else if (annotation.type === "text") {
       context.font = `${annotation.fontSize}px sans-serif`;
       drawText(context, annotation, width, height);
     } else if (annotation.type === "rectangle") {
@@ -82,7 +109,8 @@ export function cloudImageLayers(screenshot) {
   const annotations = normalizeAnnotations(screenshot?.annotations);
   const masks = normalizedMasks(screenshot?.masks);
   if (annotations === null) throw new TypeError("invalid annotations");
-  return masks.length ? { baseAnnotations: annotations, annotations: [], masks } : { baseAnnotations: [], annotations, masks };
+  const hasReplacement = annotations.some((annotation) => annotation.type === "replacement");
+  return masks.length || hasReplacement ? { baseAnnotations: annotations, annotations: [], masks } : { baseAnnotations: [], annotations, masks };
 }
 
 export function drawScreenshot(context, image, screenshot) {

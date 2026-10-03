@@ -9,8 +9,10 @@ import {
   resizeAnnotation
 } from "./image-annotations.js";
 import { drawScreenshot } from "./image-renderer.js";
+import { createPersonalInfoValue, createSyntheticPerson, isSyntheticPersonalInfoValue, syntheticPersonForReplacementAnnotations, syntheticPersonIndex, SYNTHETIC_PEOPLE, PERSONAL_INFO_TYPES } from "./personal-info-replacement.js";
 
-const TOOL_LABELS = { select: "選択", text: "文字", rectangle: "四角", ellipse: "丸", arrow: "矢印", mask: "黒塗り", crop: "切り抜き" };
+const TOOL_LABELS = { select: "選択", text: "文字", rectangle: "四角", ellipse: "丸", arrow: "矢印", mask: "黒塗り", crop: "切り抜き", replacement: "個人情報置換" };
+const REPLACEMENT_LABELS = { name: "氏名", kana: "カナ", phone: "電話", email: "メール", postal: "郵便", address: "住所" };
 const MIN_DRAG_SIZE = 0.01;
 const HANDLE_SIZE = 0.045;
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
@@ -58,7 +60,7 @@ export function cropReviewRegions(review, crop) {
   return next;
 }
 
-export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, onStateChange, inline = false, initialTool = "select" }) {
+export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, onStateChange, inline = false, initialTool = "select", syntheticPerson: providedSyntheticPerson = null }) {
   const controller = new AbortController();
   const { signal } = controller;
   const status = dialog.querySelector("[data-editor-status]");
@@ -67,9 +69,41 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   const colorHexInput = dialog.querySelector("[data-editor-color-hex]");
   const propertyGroup = dialog.querySelector(".property-group");
   const fontSizeInput = dialog.querySelector("[data-editor-font-size]");
+  let replacementTypeInput = dialog.querySelector("[data-editor-replacement-type]");
   const saveButton = dialog.querySelector("[data-editor-save]");
   const cancelButtons = [...dialog.querySelectorAll("[data-editor-cancel]")];
-  const toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
+  let toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
+  if (!dialog.querySelector('[data-editor-tool="replacement"]')) {
+    const button = document.createElement("button"); button.type = "button"; button.dataset.editorTool = "replacement"; button.setAttribute("aria-pressed", "false"); button.setAttribute("aria-label", "個人情報を置き換える"); button.title = "個人情報を置き換える"; button.textContent = "個人情報";
+    const group = document.createElement("div"); group.className = "tool-grid"; group.setAttribute("aria-label", "個人情報の編集"); group.append(button);
+    dialog.querySelector(".tool-group")?.append(group);
+    toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
+  }
+  if (!replacementTypeInput) {
+    replacementTypeInput = document.createElement("select"); replacementTypeInput.dataset.editorReplacementType = "";
+    for (const type of PERSONAL_INFO_TYPES) { const option = document.createElement("option"); option.value = type; option.textContent = REPLACEMENT_LABELS[type]; replacementTypeInput.append(option); }
+    const label = document.createElement("label"); label.dataset.replacementProperty = ""; label.textContent = "置き換える種別"; label.append(replacementTypeInput); propertyGroup?.append(label);
+  }
+  let replacementPersonInput = dialog.querySelector("[data-editor-replacement-person]");
+  if (!replacementPersonInput) {
+    replacementPersonInput = document.createElement("select"); replacementPersonInput.dataset.editorReplacementPerson = "";
+    SYNTHETIC_PEOPLE.forEach((person, index) => { const option = document.createElement("option"); option.value = String(index); option.textContent = `${person.name}（${person.kana}）`; replacementPersonInput.append(option); });
+    const label = document.createElement("label"); label.dataset.replacementProperty = ""; label.textContent = "架空人物"; label.append(replacementPersonInput); propertyGroup?.append(label);
+  }
+  let replacementAddButton = propertyGroup?.querySelector('[data-replacement-action="add"]');
+  if (!replacementAddButton) {
+    replacementAddButton = document.createElement("button"); replacementAddButton.type = "button"; replacementAddButton.className = "secondary"; replacementAddButton.dataset.replacementAction = "add"; replacementAddButton.textContent = "範囲を追加";
+    propertyGroup?.append(replacementAddButton);
+  }
+  let replacementKeyboardHelp = propertyGroup?.querySelector('[data-replacement-action="help"]');
+  if (!replacementKeyboardHelp) {
+    replacementKeyboardHelp = document.createElement("p"); replacementKeyboardHelp.className = "editor-help"; replacementKeyboardHelp.dataset.replacementAction = "help";
+    propertyGroup?.append(replacementKeyboardHelp);
+  }
+  replacementKeyboardHelp.id = "replacementKeyboardHelp";
+  replacementKeyboardHelp.textContent = "範囲を追加後、選択した範囲を矢印キーで移動できます。元の画像の文字は表示せず、選んだ種別の架空値を表示します。";
+  replacementKeyboardHelp.textContent += "画像に焼き込まれた架空人物は自動判定できないため、見えている氏名・カナに合う架空人物を選んでください。";
+  replacementAddButton.setAttribute("aria-describedby", replacementKeyboardHelp.id);
   const errorPanel = document.createElement("div"); errorPanel.className = "image-editor-error"; errorPanel.hidden = true;
   const errorText = document.createElement("p"); errorText.textContent = "画像を表示できませんでした。元の画像は保持しています。";
   const retryImage = document.createElement("button"); retryImage.type = "button"; retryImage.textContent = "画像をもう一度読み込む"; retryImage.dataset.editorRetry = "true";
@@ -91,6 +125,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   let loadingFocusTarget = null;
   let focusMovedDuringLoad = false;
   let working = { annotations: [], masks: [] };
+  let syntheticPerson = providedSyntheticPerson && typeof providedSyntheticPerson === "object"
+    ? { name: String(providedSyntheticPerson.name || ""), kana: String(providedSyntheticPerson.kana || "") }
+    : syntheticPersonForReplacementAnnotations(screenshot.annotations, createSyntheticPerson());
   let crop = null;
   const undo = [], redo = [];
   let editGroup = null;
@@ -106,10 +143,26 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     toolButtons.forEach((button) => { button.disabled = disabled; });
     if (textInput) textInput.disabled = disabled;
     if (fontSizeInput) fontSizeInput.disabled = disabled;
+    if (replacementTypeInput) replacementTypeInput.disabled = disabled;
+    if (replacementPersonInput) replacementPersonInput.disabled = disabled;
     if (colorInput) colorInput.disabled = disabled;
     if (colorHexInput) colorHexInput.disabled = disabled;
     selection.querySelectorAll("button").forEach((button) => { button.disabled = disabled; });
     if (saveButton) saveButton.disabled = disabled;
+  }
+  function alignReplacementAnnotations(knownOnly = false) {
+    working.annotations = working.annotations.map((item) => {
+      if (item.type !== "replacement" || !["name", "kana"].includes(item.category)) return item;
+      if (knownOnly && !isSyntheticPersonalInfoValue(item.category, item.text)) return item;
+      return { ...item, text: createPersonalInfoValue(item.category, syntheticPerson) };
+    });
+  }
+  function setSyntheticPerson(index, knownOnly = false) {
+    const person = SYNTHETIC_PEOPLE[index];
+    if (!person) return;
+    syntheticPerson = { ...person };
+    if (replacementPersonInput) replacementPersonInput.value = String(index);
+    alignReplacementAnnotations(knownOnly);
   }
   function itemFor(selectionValue = selected) {
     if (!selectionValue) return null;
@@ -126,6 +179,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     }
     if (drag.operation === "new-mask" || drag.operation === "crop") {
       return { id: "preview-mask", x: Math.min(drag.start.x, drag.current.x), y: Math.min(drag.start.y, drag.current.y), width: Math.abs(drag.current.x - drag.start.x), height: Math.abs(drag.current.y - drag.start.y) };
+    }
+    if (drag.operation === "new-replacement") {
+      return { type: "replacement", category: replacementTypeInput?.value || "name", text: drag.text, x: Math.min(drag.start.x, drag.current.x), y: Math.min(drag.start.y, drag.current.y), width: Math.abs(drag.current.x - drag.start.x), height: Math.abs(drag.current.y - drag.start.y), color: "#111827", fontSize: 24 };
     }
     if (drag.operation === "move") {
       const dx = drag.current.x - drag.start.x; const dy = drag.current.y - drag.start.y;
@@ -149,7 +205,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function redraw() {
     if (!image || disposed) return false;
     const annotations = previewAnnotations(working.annotations); const masks = working.masks.slice(); const transient = previewItem();
-    if (drag?.operation === "new" && transient && working.annotations.length < MAX_ANNOTATIONS) {
+    if (["new", "new-replacement"].includes(drag?.operation) && transient && working.annotations.length < MAX_ANNOTATIONS) {
       const normalized = normalizeAnnotation(transient);
       if (normalized) annotations.push(normalized);
     }
@@ -175,7 +231,8 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
 
   function selectTool(next) {
     if (disposed || isBusy()) return;
-    editGroup = null; tool = next; toolButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.editorTool === next))); setStatus(`${TOOL_LABELS[next]}を選択中`);
+    editGroup = null; tool = next; toolButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.editorTool === next))); setStatus(`${TOOL_LABELS[next]}を選択中`); refreshSelection();
+    if (next === "replacement") replacementAddButton.focus({ preventScroll: true });
   }
   function selectItem(kind, id) {
     selected = { kind, id }; const item = itemFor();
@@ -183,18 +240,22 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (fontSizeInput) fontSizeInput.value = item?.type === "text" ? String(item.fontSize) : "24";
     if (colorInput) colorInput.value = item?.color || "#087f7a";
     if (colorHexInput) { colorHexInput.value = item?.color || "#087f7a"; colorHexInput.removeAttribute("aria-invalid"); }
+    if (replacementTypeInput) replacementTypeInput.value = item?.type === "replacement" ? item.category : "name";
+    if (replacementPersonInput) replacementPersonInput.value = String(Math.max(0, syntheticPersonIndex(syntheticPerson)));
   }
   function refreshSelection() {
     const current = itemFor();
     if (colorHexInput && !current) { colorHexInput.value = "#087f7a"; colorHexInput.removeAttribute("aria-invalid"); }
-    if (propertyGroup) propertyGroup.hidden = !current || selected?.kind !== "annotation";
+    if (propertyGroup) propertyGroup.hidden = (!current || selected?.kind !== "annotation") && tool !== "replacement";
     dialog.querySelectorAll("[data-text-property]").forEach((node) => { node.hidden = current?.type !== "text"; });
-    dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation"; });
+    dialog.querySelectorAll("[data-replacement-property]").forEach((node) => { node.hidden = current?.type !== "replacement" && tool !== "replacement"; });
+    dialog.querySelectorAll("[data-replacement-action]").forEach((node) => { node.hidden = tool !== "replacement"; });
+    dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation" || tool === "replacement"; });
     if (colorInput && current?.color) colorInput.value = current.color;
     if (colorHexInput && current?.color && document.activeElement !== colorHexInput) { colorHexInput.value = current.color; colorHexInput.removeAttribute("aria-invalid"); }
     const colorLabel = dialog.querySelector("[data-color-label]"); if(colorLabel)colorLabel.textContent=current?.type==="text"?"文字の色":current?.type==="arrow"?"矢印の色":"枠線の色";
     selection.replaceChildren();
-    const entries = [...working.annotations.map((item, index) => ({ ...item, kind: "annotation", label: `${TOOL_LABELS[item.type]} ${index + 1}` })), ...working.masks.map((item, index) => ({ ...item, kind: "mask", label: `黒塗り ${index + 1}` }))];
+    const entries = [...working.annotations.map((item, index) => ({ ...item, kind: "annotation", label: `${TOOL_LABELS[item.type]}${item.type === "replacement" ? `（${REPLACEMENT_LABELS[item.category] || "個人情報"}）` : ""} ${index + 1}` })), ...working.masks.map((item, index) => ({ ...item, kind: "mask", label: `黒塗り ${index + 1}` }))];
     entries.forEach((entry) => {
       const row = document.createElement("div"); const choose = document.createElement("button"); choose.type = "button"; choose.textContent = entry.label; choose.setAttribute("aria-pressed", String(selected?.id === entry.id));
       choose.addEventListener("click", () => { if (isBusy()) return; selectItem(entry.kind, entry.id); refreshSelection(); redraw(); }, { signal });
@@ -209,6 +270,21 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     const width = 0.35; const height = 0.12; const annotation = normalizeAnnotation({ type: "text", x: clamp(point.x, 0, 1 - width), y: clamp(point.y, 0, 1 - height), width, height, text: textInput?.value || "文字を入力", color: "#087f7a", fontSize: 24 });
     if (!annotation) return; working.annotations.push(annotation); selectItem("annotation", annotation.id); refreshSelection(); redraw(); textInput?.focus();
   }
+  function createReplacementAt(point, region = {}) {
+    if (working.annotations.length >= MAX_ANNOTATIONS) { setStatus(`追加できる要素は${MAX_ANNOTATIONS}件までです。`); return; }
+    const category = replacementTypeInput?.value || "name";
+    const width = clamp(region.width || 0.28, MIN_DRAG_SIZE, 1); const height = clamp(region.height || 0.1, MIN_DRAG_SIZE, 1);
+    const replacement = normalizeAnnotation({ type: "replacement", category, x: clamp(region.x ?? point.x, 0, 1 - width), y: clamp(region.y ?? point.y, 0, 1 - height), width, height, text: createPersonalInfoValue(category, syntheticPerson), color: "#111827", fontSize: 24 });
+    if (!replacement) return;
+    working.annotations.push(replacement); selectItem("annotation", replacement.id); refreshSelection(); redraw();
+  }
+  function addKeyboardReplacement() {
+    if (isBusy() || tool !== "replacement") return;
+    remember("replacement:add");
+    createReplacementAt({ x: 0.36, y: 0.42 }, { x: 0.36, y: 0.42, width: 0.28, height: 0.12 });
+    replacementAddButton.focus({ preventScroll: true });
+    setStatus("置換範囲を追加しました。矢印キーで移動し、適用または取消を選べます。");
+  }
   function findTarget(point) {
     const mask = [...working.masks].reverse().find((candidate) => point.x >= candidate.x && point.x <= candidate.x + candidate.width && point.y >= candidate.y && point.y <= candidate.y + candidate.height);
     if (mask) return { targetKind: "mask", id: mask.id, original: { ...mask } };
@@ -219,6 +295,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (!image || state !== "editing") return;
     remember(); const start = pointerPoint(event, canvas); canvas.setPointerCapture?.(event.pointerId);
     if (tool === "text") { createTextAt(start); return; }
+    if (tool === "replacement") { drag = { operation: "new-replacement", start, current: start, text: createPersonalInfoValue(replacementTypeInput?.value || "name", syntheticPerson) }; redraw(); return; }
     if (tool === "crop" || tool === "mask" || ["rectangle", "ellipse", "arrow"].includes(tool)) { drag = { operation: tool === "crop" ? "crop" : tool === "mask" ? "new-mask" : "new", type: tool, start, current: start }; redraw(); return; }
     const target = findTarget(start); if (!target) return;
     selectItem(target.targetKind, target.id); const bounds = boundsFor(target.targetKind, target.original); const operation = isNearResizeHandle(start, bounds) ? "resize" : "move";
@@ -230,6 +307,8 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (!drag || !image || disposed) return;
     drag.current = pointerPoint(event, canvas); const currentDrag = drag; const preview = previewItem(); drag = null;
     if (currentDrag.operation === "crop" && preview?.width > MIN_DRAG_SIZE && preview.height > MIN_DRAG_SIZE) { crop = preview; setStatus("切り抜く範囲を選択しました。変更を適用すると出力画像も切り抜かれます。");
+    } else if (currentDrag.operation === "new-replacement" && preview) {
+      createReplacementAt(currentDrag.start, { x: preview.x, y: preview.y, width: preview.width > MIN_DRAG_SIZE ? preview.width : 0.28, height: preview.height > MIN_DRAG_SIZE ? preview.height : 0.1 });
     } else if (currentDrag.operation === "new" && preview) {
       const drawable = currentDrag.type === "arrow" ? Math.hypot(currentDrag.current.x - currentDrag.start.x, currentDrag.current.y - currentDrag.start.y) > MIN_DRAG_SIZE : preview.width > MIN_DRAG_SIZE && preview.height > MIN_DRAG_SIZE;
       const annotation = drawable ? normalizeAnnotation(preview) : null;
@@ -252,9 +331,23 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     redraw();
   }
   function handleFontSizeInput() { if (isBusy()) return; const item = itemFor(); if (item?.type !== "text") return; const value = Number(fontSizeInput.value); if (!fontSizeInput.value.trim() || !Number.isFinite(value) || value < 10 || value > 96) return; remember(`font:${item.id}`); item.fontSize = value; redraw(); }
+  function handleReplacementTypeInput() {
+    if (isBusy()) return;
+    const item = itemFor();
+    if (item?.type !== "replacement" || !PERSONAL_INFO_TYPES.includes(replacementTypeInput?.value)) return;
+    remember(`replacement:${item.id}`); item.category = replacementTypeInput.value; item.text = createPersonalInfoValue(item.category, syntheticPerson); refreshSelection(); redraw();
+  }
+  function handleReplacementPersonInput() {
+    if (isBusy()) return;
+    const index = Number(replacementPersonInput?.value);
+    if (!Number.isInteger(index) || !SYNTHETIC_PEOPLE[index]) return;
+    remember("replacement:person"); setSyntheticPerson(index); refreshSelection(); redraw();
+    setStatus(`架空人物を${SYNTHETIC_PEOPLE[index].name}（${SYNTHETIC_PEOPLE[index].kana}）に変更しました。`);
+  }
   function handleKeydown(event) {
     if (event.key === "Escape" && inline) { event.preventDefault(); if (state !== "saving") cancel(); return; }
     if (state !== "editing") return;
+    if (event.key === "Enter" && tool === "replacement" && !selected && !event.target.closest("input, textarea, select, button")) { event.preventDefault(); addKeyboardReplacement(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.stopPropagation(); restoreHistory(event.shiftKey ? redo : undo, event.shiftKey ? undo : redo); return; }
     if (event.target.closest("input, textarea, select")) return;
     if (event.key === "Delete" && selected) { remember(); if (selected.kind === "annotation") working.annotations = working.annotations.filter((item) => item.id !== selected.id); else working.masks = working.masks.filter((item) => item.id !== selected.id); selected = null; refreshSelection(); redraw(); return; }
@@ -290,7 +383,8 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function applyColor(value) { const item = itemFor(); if (isBusy() || !item || selected?.kind !== "annotation" || !/^#[\da-f]{6}$/i.test(value)) return; remember(`color:${item.id}`); item.color = value.toLowerCase(); if(colorInput)colorInput.value=item.color; redraw(); }
   colorInput?.addEventListener("input", () => { applyColor(colorInput.value); if(colorHexInput){colorHexInput.value=colorInput.value;colorHexInput.removeAttribute("aria-invalid");} }, { signal });
   colorHexInput?.addEventListener("input", () => { const valid=/^#[\da-f]{6}$/i.test(colorHexInput.value);colorHexInput.setAttribute("aria-invalid",String(!valid));if(valid)applyColor(colorHexInput.value);else setStatus("色は # と6桁のカラーコードで入力してください。最後に確認できた色を保持しています。"); }, { signal });
-  textInput?.addEventListener("input", handleTextInput, { signal }); textInput?.addEventListener("compositionend", handleTextInput, { signal }); fontSizeInput?.addEventListener("input", handleFontSizeInput, { signal });
+  textInput?.addEventListener("input", handleTextInput, { signal }); textInput?.addEventListener("compositionend", handleTextInput, { signal }); fontSizeInput?.addEventListener("input", handleFontSizeInput, { signal }); replacementTypeInput?.addEventListener("change", handleReplacementTypeInput, { signal }); replacementPersonInput?.addEventListener("change", handleReplacementPersonInput, { signal });
+  replacementAddButton.addEventListener("click", addKeyboardReplacement, { signal });
   canvas.addEventListener("pointerdown", handlePointerDown, { signal }); canvas.addEventListener("pointermove", handlePointerMove, { signal }); canvas.addEventListener("pointerup", handlePointerUp, { signal }); canvas.addEventListener("pointercancel", handlePointerCancel, { signal });
   dialog.addEventListener("keydown", handleKeydown, { signal }); saveButton?.addEventListener("click", save, { signal }); cancelButtons.forEach((button) => button.addEventListener("click", cancel, { signal }));
   dialog.querySelector("form")?.addEventListener("submit", (event) => event.preventDefault(), { signal });
@@ -314,7 +408,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
       try {
         const cloned = cloneAnnotations(screenshot.annotations === undefined ? [] : screenshot.annotations);
         if (cloned === null) throw new TypeError("invalid annotations");
-        if (!preserveWorking) working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setStatus("画像を準備しています。");
+        if (!preserveWorking) { working = { annotations: cloned, masks: copyMasks(screenshot.masks) }; setSyntheticPerson(syntheticPersonIndex(syntheticPerson), true); } setStatus("画像を準備しています。");
         const loaded = new Image(); loaded.src = screenshot.dataUrl; if (typeof loaded.decode === "function") await loaded.decode(); if (disposed || currentGeneration !== generation) return false;
         image = loaded;
         if (!image.width || !image.height || image.width > 12_000 || image.height > 12_000 || image.width * image.height > 40_000_000) throw new RangeError("IMAGE_PIXELS_TOO_LARGE");

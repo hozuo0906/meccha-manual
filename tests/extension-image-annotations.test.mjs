@@ -10,7 +10,7 @@ import {
   normalizeAnnotations,
   resizeAnnotation
 } from "../apps/extension/editor/image-annotations.js";
-import { drawAnnotations, drawMasks, drawScreenshot } from "../apps/extension/editor/image-renderer.js";
+import { cloudImageLayers, drawAnnotations, drawMasks, drawScreenshot } from "../apps/extension/editor/image-renderer.js";
 
 const rectangle = (overrides = {}) => ({ id: "r1", type: "rectangle", x: 0.1, y: 0.2, width: 0.3, height: 0.2, color: "#dc2626", strokeWidth: 3, ...overrides });
 
@@ -83,6 +83,18 @@ test("renderer validates all layers before drawing and composites annotations be
     masks: [{ x: 0.5, y: 0.5, width: 0.2, height: 0.2 }]
   });
   assert.deepEqual(calls.filter((call) => ["image", "rectangle", "text", "mask"].includes(call)), ["image", "rectangle", "text", "mask"]);
+});
+
+test("replacement annotations are flattened for cloud output and cover their full selected region", () => {
+  const replacement = { id: "pii", type: "replacement", category: "email", x: 0.101, y: 0.201, width: 0.209, height: 0.109, text: "manual-12345678@example.invalid", color: "#111827", fontSize: 24 };
+  const layers = cloudImageLayers({ annotations: [replacement], masks: [] });
+  assert.deepEqual(layers.annotations, []);
+  assert.equal(layers.baseAnnotations.length, 1);
+  assert.equal(layers.baseAnnotations[0].id, replacement.id);
+  assert.equal(layers.baseAnnotations[0].category, replacement.category);
+  const { context, calls } = contextSpy();
+  drawScreenshot(context, { width: 101, height: 101 }, { annotations: layers.baseAnnotations, masks: layers.masks });
+  assert.deepEqual(calls.filter((call) => ["image", "text", "mask"].includes(call)), ["image", "mask", "text"]);
 });
 
 test("manual instruction limits count Unicode code points without splitting surrogate pairs", async () => {

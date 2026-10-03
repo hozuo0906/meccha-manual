@@ -11,11 +11,22 @@ function firstUnassignedScreenshotId(draft) {
 
 export function addStep(draft, instruction = "新しい手順") {
   const screenshotId = firstUnassignedScreenshotId(draft);
+  const screenshot = screenshotId ? (draft.screenshots || []).find((candidate) => candidate.id === screenshotId) : null;
+  const privacyReview = screenshot?.privacyReview;
   const step = {
     id: crypto.randomUUID(),
     order: draft.steps.length + 1,
     instruction: Array.from(String(instruction)).slice(0, 500).join(""),
-    ...(screenshotId ? { screenshotId } : {})
+    ...(screenshotId ? { screenshotId } : {}),
+    ...(privacyReview ? {
+      privacyReview,
+      imageState: {
+        status: privacyReview.reviewRequired === false ? "ready" : "protected",
+        reason: null,
+        attempts: 0,
+        version: 1
+      }
+    } : {})
   };
   draft.steps.push(step);
   touch(draft);

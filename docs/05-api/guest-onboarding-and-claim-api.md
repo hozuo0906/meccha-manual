@@ -12,7 +12,7 @@ Status: Accepted
 
 スクリーンショット取得前に、既存の入力欄等のmaskと高信頼DOM個人情報の一時ダミーoverlayを適用する。claimへ渡せる画像はoverlay描画後に取得し、元DOM文字列・入力値・検出候補・画像原本をhandoff metadata、event、ログ、API payloadへ含めない。open shadow root内の通常テキストも候補境界内で対象とし、closed shadow rootは既存のhost全体maskで保護する。`aria-hidden`は視覚的な非表示を表さないため、表示中の値は候補に含める。祖先`opacity: 0`の値は候補にせず、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界でMutationObserver、初期shadow root snapshot、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する追加・除去・文字列・属性変更、overlayの不透明性・位置・接続・document identityのいずれかを確認できない場合は画像をclaimへ渡さずfail closedにする。legacy `clip`を含むCSS paintも不透明な矩形へ固定し、時計や無関係なclass変更は保護候補に関係しない限り無効化しない。メールアドレス・電話番号・郵便番号の明確な形式と意味ラベル付き表示値以外は自動置換を保証せず、画像OCRやcross-origin iframeも対象外とするため、編集画面で手動マスクを確認する。
 
-サーバーAPIを使い始めるのは、利用者が `保存 / 共有 / PDF出力` 等を選び、Cloudflare Accessでhuman actorとして認証された後とする。
+サーバーAPIを使い始めるのは、利用者が `保存 / 共有 / PDF出力 / Word出力 / PowerPoint出力` 等を選び、Cloudflare Accessでhuman actorとして認証された後とする。
 
 Access JWT、Access cookie、OTP等のcredentialをChrome拡張へ渡さない。business write APIは認証済みWebアプリoriginからのみ呼び出す。
 
@@ -267,8 +267,9 @@ clientはoutput gateを開いた時点で、ユーザーが選んだactionをext
 - `save`
 - `share`
 - `export_pdf`
+- `office`
 
-bootstrap + claim成功後にWebアプリ側で同じactionを再開する。認証完了後に利用者へ最初から作り直させない。
+bootstrap + claim成功後にWebアプリ側または拡張機能側で同じactionとOffice形式を再開する。認証完了後に利用者へ最初から作り直させない。Officeは `officeFormat=docx|pptx` を必須とし、未知形式、actionとの不一致、形式の差し替えを拒否する。
 
 `share` はADR-0008の期限・パスコード・権限範囲を必須とする。
 
@@ -317,7 +318,7 @@ bootstrap + claim成功後にWebアプリ側で同じactionを再開する。認
 
 ## B登録UIのclient実装境界
 
-Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoffId>`へ遷移する画面と、認証済みWebアプリからのbootstrap呼び出しまでを対象とする。拡張機能はhandoff metadata（draft ID、選択済みaction、有効期限）をlocal領域へ保持し、本文・画像・credentialを送信しない。
+Bの限定配布版は、output gateから`/onboarding/continue#handoff=<handoffId>`へ遷移する画面と、認証済みWebアプリからのbootstrap呼び出しまでを対象とする。拡張機能はhandoff metadata（draft ID、選択済みaction、有効期限、Office時の `officeFormat`、準備済みtabの `launchId`）をlocal領域へ保持し、本文・画像・credentialを送信しない。
 
 Web画面はfragmentを読み取った直後にURLから除去し、`handoffId`と`operationId`のmetadataだけを同一タブの`sessionStorage`へ保持する。再読込または応答消失では保存済みの同じ`operationId`を再利用する。bootstrap成功時もguest本文は未保存であり、local原本を削除しない。
 
