@@ -2051,3 +2051,61 @@ test("raw native image confirmation keeps bytes and reopens Office and cloud out
     await page.locator("#cancelOutput").click();
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
 });
+
+test("an unassigned zero-event cover stays gated after add-step until the same image is confirmed", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "zero-event-cover-add-step-gate";
+  const rawDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await page.goto(baseUrl + "/seed.html");
+    await page.evaluate(async ({ draftId: id, dataUrl }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id,
+        title: "撮影画像の確認",
+        description: "",
+        steps: [],
+        screenshots: [{ id: "cover", dataUrl, masks: [], privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] } }]
+      });
+    }, { draftId, dataUrl: rawDataUrl });
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.locator("#addStep").click();
+    await page.locator(".step-article").first().waitFor();
+    const assigned = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(assigned.steps.length, 1);
+    assert.equal(assigned.steps[0].screenshotId, "cover");
+    assert.equal(assigned.steps[0].imageState.status, "protected");
+    assert.equal(assigned.steps[0].privacyReview.reviewRequired, true);
+    const stepId = assigned.steps[0].id;
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "an unreviewed orphan cover must block Office output");
+    await page.locator("#outputIssues button").click();
+    await page.locator(`#step-${stepId} .image-state-actions button`).first().click();
+    await page.waitForFunction(async (id) => {
+      const draft = await (await import("/storage/draft-store.js")).draftStore.get(id);
+      return draft?.steps?.[0]?.imageState?.status === "ready" && draft.steps[0].privacyReview?.reviewRequired === false;
+    }, draftId);
+    const confirmed = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(confirmed.screenshots[0].dataUrl, rawDataUrl, "confirmation must keep the cover bytes");
+    assert.equal(confirmed.screenshots[0].privacyReview.reviewRequired, false);
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
+    await page.locator("#cancelOutput").click();
+    await page.locator("#share").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startShare:not([disabled])").waitFor();
+    await page.locator("#cancelOutput").click();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});

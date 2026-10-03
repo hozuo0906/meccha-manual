@@ -475,7 +475,7 @@ async function finishCapture() {
         await waitForScreenshotSlot(session);
         const result = await takeScreenshot(session);
         const dataUrl = typeof result === "string" ? result : result.dataUrl;
-        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [], privacyReview: manualImageReview() });
       }
       const draft = {
         id: session.id,

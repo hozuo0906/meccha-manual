@@ -1051,6 +1051,17 @@ test("native raw image is retained but waits for explicit privacy review", async
   assert.equal(capture.draft().screenshots[0].masks.length, 0);
 });
 
+test("zero-event cover image is retained behind the manual review gate", async () => {
+  const capture = await harness({ pendingEvents: [] });
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps.length, 0);
+  assert.equal(capture.draft().screenshots.length, 1);
+  assert.equal(capture.draft().screenshots[0].privacyReview.reviewRequired, true);
+  assert.deepEqual(Array.from(capture.draft().screenshots[0].privacyReview.reasonCodes), ["manual_image_review"]);
+});
+
 test("finish honors an explicitly reviewed live image as ready", async () => {
   const capture = await harness({ pendingEvents: [] });
   const event = { kind: "click", at: 1, eventId: "reviewed:1", target: { tagName: "button" } };
