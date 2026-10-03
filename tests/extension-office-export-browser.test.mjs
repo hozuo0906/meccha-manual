@@ -392,20 +392,28 @@ test("local extension editor requires the auth gate before downloading 20 edited
     page.off("download", countDigestDownload);
     await page.evaluate(() => window.__restoreOfficeDigest?.());
 
-    // Delay the real canvas encoding, mutate the title during export, and verify
-    // the snapshot guard refuses the stale package before a retry succeeds.
+    // Hold the first real canvas encoding, mutate the title while export is
+    // definitely in flight, then release the encoder. A wall-clock delay is
+    // too weak here because the export may finish before the mutation.
     await page.locator(".office-actions").evaluate((details) => { details.open = true; });
     await page.evaluate(() => {
       const original = HTMLCanvasElement.prototype.toBlob;
-      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
-      HTMLCanvasElement.prototype.toBlob = function delayedToBlob(...args) { setTimeout(() => original.apply(this, args), 25); };
+      let held = null;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; held = null; };
+      window.__releaseOfficeToBlob = () => { const pending = held; held = null; if (pending) original.apply(pending.canvas, pending.args); };
+      window.__officeToBlobStarted = false;
+      HTMLCanvasElement.prototype.toBlob = function heldToBlob(...args) {
+        if (!held) { held = { canvas: this, args }; window.__officeToBlobStarted = true; return; }
+        return original.apply(this, args);
+      };
     });
     let changedDownloads = 0;
     const countChangedDownload = () => { changedDownloads += 1; };
     page.on("download", countChangedDownload);
     await startAuthenticatedExport(page, page.locator("#exportWord"));
-    await page.waitForFunction(() => document.querySelector("#officeExportStatus")?.textContent?.includes("作成") === true);
+    await page.waitForFunction(() => window.__officeToBlobStarted === true);
     await page.locator("#title").fill("編集中に変更したタイトル");
+    await page.evaluate(() => window.__releaseOfficeToBlob?.());
     await page.locator("#officeExportStatus[data-state=warning]").waitFor();
     assert.match(await page.locator("#officeExportStatus").textContent(), /内容が変わった|中止/u);
     assert.equal(changedDownloads, 0, "changed snapshots do not trigger a download");
