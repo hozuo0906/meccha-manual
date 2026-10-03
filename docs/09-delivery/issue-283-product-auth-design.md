@@ -109,3 +109,11 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 - `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。
 
 これらが確認できるまで、現行Access/D1運用と本番設定を変更せず、実環境のprovider有効化、remote migration適用、secret bindingは行わない。実装済みの検証用UI・callbackは合成providerテストの範囲に限定する。
+
+## staging接続準備のread-only確認（2026-10-03）
+
+ローカルの`wrangler.jsonc`を実読した結果、`APP_ENV`は`staging`ですが、`APP_BASE_URL`は`https://meccha-manual.tattoo-studio-crm.workers.dev`で、`main`は`apps/worker/src/index-phase2.ts`です。D1、`MANUAL_ASSETS`を含むR2、Google／SIWCのproduct auth secret bindingはこの設定にありません。設定済みsecret名として宣言されているのは既存の`DISCORD_PUBLIC_KEY`と`GITHUB_ISSUE_TOKEN`だけです。これはIssue 283が定めるstaging origin・D1・R2・product auth bindingの実環境設定とは一致しません。
+
+Wrangler CLIの`whoami`は終了コード0で認証済みシグナルを返しましたが、アカウント名やメールは保存・表示していません。`deployments list`と`secret list`は、この環境のWranglerがログ出力先へのEPERMまたはCLI終了異常で終了し、Worker version、remote secret名、D1 migration履歴を取得できませんでした。したがって、stagingの現行version、`APP_ENV`／provider configured boolean、0006・0007・0008のremote適用状況、Access外周の実設定は未確認です。remote write、deploy、secret取得、migration適用、Access変更は行っていません。
+
+実環境へ進む場合の順序は、対象Worker名・staging origin・staging専用D1/R2 binding・Access applicationをread-onlyで照合し、対象SHAを固定した後、0006・0007・0008の適用履歴を確認することです。その後にstaging専用のGoogle secret bindingと`APP_BASE_URL`を登録し、configured boolean、Google／ChatGPTの未登録時非表示、製品cookieとAccess healthの分離、workspace／manual／R2 tenant拒否を確認します。反映はversion upload後にstagingだけで行い、migration失敗、callback失敗、health未認証、foreign workspace、logout失敗のいずれかで旧versionへ戻せるよう、対象version・migration順・binding差分を一つのrollback記録に残します。production、課金、外部ユーザー招待、ChatGPT商用client有効化はこの確認では承認しません。
