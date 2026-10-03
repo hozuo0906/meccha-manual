@@ -3,7 +3,7 @@ import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
 import { createSyntheticPerson, syntheticPersonForReplacementAnnotations } from "./personal-info-replacement.js";
 import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
-import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, validOfficeFormat, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, resumeCompletedOfficeStartup, saveHandoffMetadata, validOfficeFormat, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -1231,10 +1231,13 @@ void (async () => {
   // A persisted completed record is only a recovery hint. It does not prove
   // that the current browser session is still authenticated after reload or
   // logout, so require a fresh Office output handoff instead of downloading.
-  if (metadata?.status === "completed" && !metadata.officeReturnReceipt) {
-    await clearOfficeIntent();
-    setOfficeExportStatus("認証済みセッションを確認するため、Office出力をもう一度選択してください。", "warning");
-  }
+  await resumeCompletedOfficeStartup(metadata, {
+    resume: resumeOfficeAfterClaim,
+    clear: async () => {
+      await clearOfficeIntent();
+      setOfficeExportStatus("認証済みセッションを確認するため、Office出力をもう一度選択してください。", "warning");
+    }
+  });
 })();
 if (interruptedImages.length) persist("前回の画像準備が完了しませんでした。画像を追加するか、説明だけの手順に変更できます。");
 document.getElementById("editor-heading")?.focus({ preventScroll: true });

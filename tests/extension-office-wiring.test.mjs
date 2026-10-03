@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { resumeCompletedOfficeStartup } from "../apps/extension/editor/handoff.js";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -64,10 +65,26 @@ test("closed-editor Office recovery requires a one-time verified return receipt"
   assert.match(serviceWorker, /delete next\.officeReturnReceipt/u);
   assert.match(editor, /consumeOfficeReturnReceipt\(metadata, intent\)/u);
   assert.match(editor, /metadata\.officeReturnReceipt \? \(async \(\) =>/u);
-  assert.match(editor, /metadata\?\.status === "completed" && !metadata\.officeReturnReceipt/u);
+  assert.match(editor, /resumeCompletedOfficeStartup\(metadata, \{/u);
   assert.match(api, /completed.*cloudRef.*だけを生成許可の根拠にしない/u);
   assert.match(adr, /30秒以内の一回限りreceipt/u);
   assert.match(acceptance, /completedやcloudRef単独では生成しない/u);
+});
+
+test("editor startup executes receipt resume and keeps legacy completed recovery as a warning", async () => {
+  const calls = [];
+  const receipt = { handoffId: "h", launchId: "l", officeFormat: "docx", draftFingerprint: "f".repeat(64) };
+  assert.equal(await resumeCompletedOfficeStartup({ status: "completed", officeReturnReceipt: receipt }, {
+    resume: async (metadata) => calls.push(["resume", metadata.officeReturnReceipt]),
+    clear: async () => calls.push(["clear"])
+  }), "resume");
+  assert.deepEqual(calls, [["resume", receipt]]);
+  calls.length = 0;
+  assert.equal(await resumeCompletedOfficeStartup({ status: "completed" }, {
+    resume: async () => calls.push(["resume"]),
+    clear: async () => calls.push(["clear"])
+  }), "warning");
+  assert.deepEqual(calls, [["clear"]]);
 });
 
 test("guest onboarding output action enum includes the authenticated Office action", async () => {

@@ -175,6 +175,18 @@ export async function withHandoffDraftLock(draftId, callback, navigatorLike = gl
   });
 }
 
+export async function resumeCompletedOfficeStartup(metadata, callbacks = {}) {
+  if (metadata?.status !== "completed") return "ignored";
+  if (metadata.officeReturnReceipt) {
+    if (typeof callbacks.resume !== "function") throw new TypeError("office resume callback is required");
+    await callbacks.resume(metadata);
+    return "resume";
+  }
+  if (typeof callbacks.clear !== "function") throw new TypeError("office clear callback is required");
+  await callbacks.clear(metadata);
+  return "warning";
+}
+
 export function buildContinueUrl(origin, handoffId, extensionId = globalThis.chrome?.runtime?.id, recovery = null, outputAction = "save", launchId = null, officeFormat = undefined) {
   if (origin !== STAGING_ONBOARDING_ORIGIN) throw new Error("ONBOARDING_ORIGIN_NOT_ALLOWED");
   if (!/^[A-Za-z0-9_-]{43}$/.test(handoffId)) throw new Error("INVALID_HANDOFF_ID");
