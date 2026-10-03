@@ -10,6 +10,20 @@ Status: Accepted
 
 `created_identity = 1` のoperationは、identityの `created_at` と同じauthoritative `created_at` に限り、partial unique indexでidentityごとのidentity作成operationを一意にする。異なる時刻、active Personal Workspaceでないworkspace、identityと一致しないowner membershipからの直接insertはD1 triggerで拒否する。既存identityの作成時刻を知るDB writerによる歴史的な直接insertまでをこの境界だけで識別するものではなく、productionのDB writer権限は信頼境界の外へ公開しない。検査は `tests/onboarding-bootstrap.test.mjs` と `tests/onboarding-bootstrap-mutation.test.mjs` が担う。
 
+## 製品認証セッション追加schema（ADR-0041）
+
+認証方式を保存するのは`auth_sessions.auth_method`（`google | chatgpt`）であり、`identities`自体へ方式用のdiscriminator列は追加しない。callbackからbootstrapへ渡すactorの型上の`kind`は`product_user`で、repositoryの入力境界にだけ存在しD1へ保存しない。
+
+`migrations/0008_product_auth_sessions.sql`は、既存`identities(application_id, issuer, subject)`へ製品ログインを接続する`auth_sessions`と`oauth_transactions`を追加する。製品ログインはGoogle／ChatGPTの検証済み`issuer + subject`をapplication identityへ解決し、email一致だけのlink・統合・復活は行わない。Googleは検証時に公式の`https://accounts.google.com`とlegacyの`accounts.google.com`を受け付けるが保存値はcanonical issuerへ統一し、verified emailを使う。ChatGPT（SIWC）は登録済みconfidential clientの`client_secret_basic`でtokenを交換し、登録済みclient IDとtoken subjectの組をSHA-256した`siwc:`付きsubjectを使う。同じtoken subjectでもclient IDが違えば別identityであり、`identities`自体へ認証方式用の別discriminator列は追加しない。callbackからbootstrapへ渡すactorの型上の`kind`は`product_user`で、repositoryの入力境界にだけ存在しD1へ保存しない。
+
+`auth_sessions`は`id`（主キー）、`application_id`（`identities.application_id`外部キー、`ON DELETE RESTRICT`）、`token_hash`（64文字の小文字hex、unique）、`auth_method`（`google | chatgpt`）、`issued_at`、`expires_at`、`revoked_at`を持つ。`expires_at > issued_at`、`revoked_at`のnullまたはissued以降をCHECKで強制し、`(token_hash, expires_at, revoked_at)`のindexを持つ。`id`、`application_id`、`issued_at`はtriggerで不変とする。`oauth_transactions`は`id`、`provider`（`google | chatgpt`）、`state_hash`（64文字の小文字hex、unique）、`nonce_hash`、`verifier_hash`（64文字の小文字hex）、`redirect_uri`、`return_path`、`created_at`、`expires_at`、`consumed_at`を持つ。`expires_at > created_at`、`consumed_at`のnullまたはcreated以降をCHECKで強制し、`(state_hash, expires_at, consumed_at)`のindexを持つ。`id`、`provider`、`state_hash`、`created_at`はtriggerで不変とする。
+
+平文のbrowser session token、PKCE verifier、nonce、OAuth token、credential、secretはD1、R2、ログへ保存しない。session cookieはSecure・HttpOnly・SameSite=Laxとし、session読取はtoken hash、期限、revocation、active identityを照合する。logoutのrevocationは`revoked_at IS NULL`条件の更新で失効させ、同じcookieの再送は状態を変えず成功として扱う。OAuth callbackはstate、provider、cookie binding、期限、nonceを確認し、`consumed_at IS NULL`条件の一回更新と変更件数1件の確認でtransaction消費をCASとして確定してから、provider tokenの署名、audience、issuerを検証する。`return_path`はWorker側で同一originの固定pathだけを許可する。
+
+`/api/session`は`authMode: "product" | "access"`を返す。製品sessionは解決済み`application_id`でPersonal Workspace bootstrapと既存workspace固定queryへ進み、Accessのservice tokenや管理用`/health/config`へfallbackしない。Accessは検証済み`issuer + subject`のhuman actorとactive identity・membershipを必要とし、service actorはmachine専用経路に限定する。製品・Accessいずれの業務repositoryも`actorId`と`workspaceId`を受け、active identity、workspace、membership、role、statusを同じSQL条件で再確認する。
+
+この追加migrationはrepositoryへ存在するschemaとlocal testの対象であり、remote D1への適用済み状態を示さない。`tests/product-auth.test.mjs`はprovider検証、identity mapping、transaction一回消費、session期限・失効、disabled identity／Personal Workspace境界、storage failureを確認する。
+
 ## Tables
 
 ```mermaid
@@ -24,7 +38,7 @@ erDiagram
   identities ||--o{ audit_logs : targets
 ```
 
-- `identities`は検証済みAccessの`issuer + subject`を正本とする。subjectは前後空白を除去して空でないことだけを検査し、保存・lookupには原文字列を使う。`UNIQUE(issuer, subject)`とactive/disabled CHECKを持つ。最後の有効ownerを失わせるidentityのdisabled化もDB triggerで拒否する。有効ownerはactive identityとactive owner membershipの両方を満たす者とし、disabled identityを代替ownerに数えない。
+- `identities`は検証済みAccessまたは製品providerの`issuer + subject`を正本とする。subjectは前後空白を除去して空でないことだけを検査し、保存・lookupには原文字列を使う。`UNIQUE(issuer, subject)`とactive/disabled CHECKを持つ。最後の有効ownerを失わせるidentityのdisabled化もDB triggerで拒否する。有効ownerはactive identityとactive owner membershipの両方を満たす者とし、disabled identityを代替ownerに数えない。
 - `profiles`はidentityと1対1で、表示名・locale・timezoneだけを保持する。email、JWT、Access tokenは保存しない。
 - `workspaces`はnameをtrim後Unicode code pointで1–64、slugをtrim・小文字化後ASCIIの3–63文字へ正規化する。`workspace_kind`は`standard | personal`の明示値で、既存rowは安全側の`standard`へbackfillし、created_byからpersonalを推測しない。id、created_by、created_at、workspace_kindは更新しないtriggerを持つ。active slugだけをpartial unique indexで一意にする。
 - `workspace_kind = 'personal'`はstatusに関係なく`created_by`ごとに最大1rowとするpartial unique indexを持つ。activeならbootstrap再送は同じworkspaceIdへ収束し、suspended／deletedなら2件目を作らず`PERSONAL_WORKSPACE_UNAVAILABLE`でfail closedにする。通常workspace APIは常に`standard`を作成し、kindの変更APIを提供しない。

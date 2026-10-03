@@ -560,3 +560,13 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 親単体145/145・skip0、公式CFT実行session46819はOffice/auth2＋provider／logout／期限切れ4の計6/6・skip0・exit0。callbackの成功復帰・エラーリンク復帰でReferer無しを確認。合成provider／local Worker／SQLite D1／memory R2であり、実SSO・remote変更・native Office描画ではない。
 - 前head211f4f3はDocs111231185336のnpm ci/fullcheck、Privacy111231185305の実browser成功ログ取得。正式botレビュー5401430990の新P2二件をa259a0dで修正。旧transition3threadは解決確認済み、新2threadは最終文書headのCI／Codex Review照合後に解決する。
 - 次の1マイルストーンは最終品質ゲート、次にstaging接続の具体案。SIWC申請氏名／会社名／公開URL回答待ち、商用client未発行。Google資格情報は暗号化保管済み・remote未接続。DB0006〜8未適用、Access全URLの旧保護はread-only確認済み。remote変更・merge・production・課金・一般公開未実施、監視未登録。
+
+## 製品認証D1正本同期（2026-10-04T01:15:52+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`、検証基準source HEAD `d5ad2e54c559786fa9c29ee983b651da17078feb`。今回の変更は`docs/04-data/d1-and-storage.md`、`docs/04-data/d1-workspace-schema.md`、`docs/09-delivery/open-questions.md`、本引き継ぎの正本同期だけで、Worker、types、migration `0008`は変更していない。
+- `auth_sessions`／`oauth_transactions`の列、CHECK、unique／lookup index、identity immutable trigger、hash・期限・失効・consume CAS、Google／SIWCのissuer+subject mapping、`product_user` repository actor入力、`authMode: "product" | "access"`、Access human／service actorとworkspace固定query境界を、Accepted ADR-0041および実sourceへ同期した。remote D1の0006／0007／0008適用済みとは扱わない。
+- OQ-033〜036はADR-0041 Accepted後の状態へ更新した。メールprovider／remote Google binding・稼働、SIWC商用client・資格、本人による明示identity linkと旧Access identity移行・復旧は未決・未確認のまま保持する。SIWCの申請回答待ちと商用client未発行も継続する。
+- 初期確認はsource HEAD、関連migration/source/types、ADR-0041、decision-log、要件、既存D1文書、OQを照合し、ソース不変を確認する。docs差分、D1 schema記載、`git diff --check`、関連文書／migration検査をこの作業単位で実行し、PR最新headのCI／Codex Reviewは親のrelease gateで再取得する。
+- 2026-10-04T01:15:52+09:00（Asia/Tokyo）に`docs:check`（143 files）、`migrations:check`（11 SQL）、`migration:safety:check`（11 SQL）、`app:auth:unit`（133/133、skip 0）、`encoding:check`（377 files）、`git diff --check`を実行し、すべてexit 0を確認した。親が同source基準で行った`wrangler.onboarding.jsonc --env staging` deploy dry-runもexit 0で、remote変更なし。今回source差分は0件である。
+
+次の1マイルストーンは、今回の文書同期を含む最新headへCI／Codex Reviewとreview thread解決を照合し、その後にstaging接続の具体案（remote migration、Google binding、製品入口と運営health保護分離）を確定することである。remote migration、secret取得・変更、Access設定、実provider SSO、production反映は未実施である。
