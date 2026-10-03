@@ -6,7 +6,7 @@ Status: Accepted
 
 このADRのAccepted範囲は、first-partyのGoogle／SIWC認証基盤、D1の`auth_sessions`・`oauth_transactions`、既存`identities(issuer, subject)`とPersonal Workspace bootstrapへの接続である。Googleは`GET /api/auth/google/start`と`/callback`、ChatGPTは同形式のrouteを持つ。設定未完了のproviderは設定booleanだけを返し、UIとstartをfail closedにする。
 
-PKCE verifierとnonceは短命のSecure・HttpOnly・SameSite=Lax cookieに結び、D1にはhashだけを保存する。callbackはstate、cookie binding、期限、一回消費、issuer、audience、署名、nonceを検証し、Googleだけverified emailを必須とする。SIWCは`client_secret_basic`とissuer・audience・nonce・subjectを正本にし、`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectとしてprovider/client IDを含むidentity衝突を防ぐ。同じsubでもclient IDが変われば別identityとなり、本人確認を伴う明示linkが将来必要になる。平文token、credential、secretはD1/R2/logへ保存しない。
+PKCE verifierとnonceはproviderとSHA-256(state)から導出したtransaction固有名のSecure・HttpOnly・SameSite=Lax cookieに結び、D1にはhashだけを保存する。同じproviderの並行startでもcallback/errorはstateに対応するcookieだけを読み書きし、形式不正・未知stateでは他のpending cookieを消去しない。callbackはstate、cookie binding、期限、一回消費、issuer、audience、署名、nonceを検証し、Googleだけverified emailを必須とする。SIWCは`client_secret_basic`とissuer・audience・nonce・subjectを正本にし、`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectとしてprovider/client IDを含むidentity衝突を防ぐ。同じsubでもclient IDが変われば別identityとなり、本人確認を伴う明示linkが将来必要になる。平文token、credential、secretはD1/R2/logへ保存しない。
 
 Accessのservice token、`/health/config`、D1/R2の固定workspace query、tenant越境拒否は製品sessionから分離して維持する。失効・不正な製品cookieをAccessへ暗黙fallbackしない。メール確認と明示的identity link、ChatGPT plan usage permission、remote migration・provider secret bindingは別unitの未完了事項である。
 
@@ -29,7 +29,7 @@ Date: 2026-10-03
 - 検証済みproviderのissuerとsubjectをD1 identityへ写像する。email一致だけで既存provider identityや旧Access identityを自動link・統合・復活させない。linkが必要な場合は、既存アカウントへ本人がログインした後の明示操作として実装する。
 - 既存のAccess identityは移行完了まで保持し、旧issuer+subjectの履歴をemailだけで置換しない。既存workspace、membership、role、manual、R2 assetのtenant境界を認証provider変更で緩めない。
 - セッションはサーバー側にtoken hashだけを保存し、expiry、明示logout、revocation、必要なrotation、CSRF防御を持つ。セッションの平文token、メール確認コード、OIDC token、ChatGPT credentialをD1、R2、ログへ保存しない。
-- `/api/session`は認証方式を`authMode: "product" | "access"`として返し、ブラウザはこの値だけで製品ログインとCloudflare Access再認証を分岐する。`manuals.status`や`members.status`は機能移行状態であり、認証方式の代替マーカーにしない。明示password login成功時は競合する製品sessionをserver-side revokeし、製品cookieを削除してlegacy sessionへ遷移する。
+- `/api/session`は認証方式を`authMode: "product" | "access"`として返し、ブラウザはこの値だけで製品ログインとCloudflare Access再認証を分岐する。`manuals.status`や`members.status`は機能移行状態であり、認証方式の代替マーカーにしない。明示password login成功時は競合する製品sessionをserver-side revokeし、製品cookieを削除してlegacy sessionへ遷移する。製品OAuth成功時は競合するlegacy access／refresh cookieを端末から消去してproduct sessionへ遷移し、Supabase remote logoutは追加しない。
 - メール確認challengeは短命・一回使用・試行回数上限・再送制限・並行消費防止を必須にする。期限切れ、使用済み、回数超過、送信失敗を区別しつつ、アカウント存在の列挙を許さない。
 - guestのlocal draftとoutput選択はログイン途中でも保持し、認証後に同じhandoffとdraft fingerprintを再検証して元のoutputへ戻す。認証失敗やキャンセルでlocal原本を削除しない。
 

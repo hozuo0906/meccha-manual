@@ -2,14 +2,14 @@
 
 Status: Accepted
 
-Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は移行状態であり、認証方式判定には使わない。password login成功時の製品session revoke/clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。
+Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は移行状態であり、認証方式判定には使わない。password login成功時の製品session revoke/clear、product OAuth成功時のlegacy access／refresh cookie clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。OAuthの同一provider並行start、callback順序、cancel、未知／不正stateはtransaction固有cookieのunit回帰で確認する。
 
 ### Issue #283 製品認証の実装対応
 
 | 要求 | 実装／検証 | 状態 |
 |---|---|---|
 | first-party Google／ChatGPT認証とD1 membership | `apps/worker/src/product-auth.ts`、既存`D1OnboardingRepository`、`migrations/0008_product_auth_sessions.sql` | 実装済み（provider外部登録・secret bindingは未完了） |
-| session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止 | 実装済み |
+| session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止、OAuth transactionごとのcookie分離 | 実装済み |
 | OIDC検証 | Google verified email、SIWC client_secret_basic、issuer/audience/signature/nonce、SIWC subject scope、callback失敗時の許可済み戻り先と再試行、limiter拒否と不明結果の429/503分類 | `tests/product-auth.test.mjs` のunit/API、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs` で確認済み |
 | tenant／管理境界 | 既存D1固定workspace query、Access service token・health分離 | 既存契約を維持、回帰確認対象 |
 

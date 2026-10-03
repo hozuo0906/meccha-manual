@@ -11,7 +11,7 @@ import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./o
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { handleShareLinkRoute } from "./share-link-router.ts";
-import { beginProductAuth, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, revokeProductSession } from "./product-auth.ts";
+import { beginProductAuth, clearProductAuthTransactionCookie, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, revokeProductSession } from "./product-auth.ts";
 import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectProductAuthConfig, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings, ProductAuthBindings {
@@ -275,7 +275,12 @@ function errorResponse(error: unknown): Response {
 
 async function productAuthCallbackRoute(request: Request, env: Env, provider: "google" | "chatgpt"): Promise<Response> {
   try {
-    return await finishProductAuth(request, env, provider);
+    const response = await finishProductAuth(request, env, provider);
+    // A successful product login is an explicit authentication transition.
+    // Clear competing legacy credentials so a later reload cannot resurrect
+    // the previous Supabase account. Callback failures preserve them.
+    for (const sessionCookie of clearSessionCookies()) response.headers.append("set-cookie", sessionCookie);
+    return response;
   } catch (error) {
     const json = errorResponse(error);
     const status = json.status;
@@ -290,7 +295,9 @@ async function productAuthCallbackRoute(request: Request, env: Env, provider: "g
       ? new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを完了できませんでした</title><main><h1>ログインを完了できませんでした</h1><p>${escapedMessage}</p><a href="${safeReturn ?? "/"}">${safeReturn ? "元の操作へ戻って再試行" : "ログイン画面へ戻る"}</a></main></html>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } })
       : json;
     response.headers.set("referrer-policy", "no-referrer");
-    response.headers.append("set-cookie", `__Host-mm_oauth_${provider}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`);
+    const state = new URL(request.url).searchParams.get("state") ?? "";
+    const transactionCookie = await clearProductAuthTransactionCookie(provider, state);
+    if (transactionCookie) response.headers.append("set-cookie", transactionCookie);
     return response;
   }
 }

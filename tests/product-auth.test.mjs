@@ -51,7 +51,7 @@ test("OIDC provider endpoints and cookie binding stay fixed and raw verifier is 
   assert.match(source, /api\/accounts\/authorize/u);
   assert.match(source, /api\/accounts\/oauth\/token/u);
   assert.match(source, /SameSite=Lax/u);
-  assert.match(source, /cookie\(`\$\{OAUTH_COOKIE_PREFIX\}\$\{provider\}`,[^\n]*\)/u);
+  assert.match(source, /oauthTransactionCookieName\(provider, await hash\(state\)\)/u);
   assert.match(source, /verifier_hash/u);
 });
 
@@ -74,6 +74,14 @@ async function authDatabase() {
   const database = new DatabaseSync(":memory:");
   for (const name of migrationNames) database.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   return { database, binding: new D1Adapter(database) };
+}
+
+function firstCookie(response) {
+  return response.headers.get("set-cookie").split(";")[0];
+}
+
+function cookieName(cookie) {
+  return cookie.slice(0, cookie.indexOf("="));
 }
 
 function rejectingBinding(binding, sqlPrefix, operation) {
@@ -160,9 +168,11 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     const setCookie = start.headers.get("set-cookie");
     assert.match(setCookie, /Path=\//u);
     assert.match(setCookie, /HttpOnly/u);
-    const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: setCookie.split(";")[0] } }), env, {});
+    const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: `${setCookie.split(";")[0]}; __Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh` } }), env, {});
     assert.equal(callback.status, 302);
     assert.equal(callback.headers.get("referrer-policy"), "no-referrer");
+    assert.match(callback.headers.get("set-cookie") ?? "", /__Host-mm_access=;[^\r\n]*Max-Age=0/u);
+    assert.match(callback.headers.get("set-cookie") ?? "", /__Host-mm_refresh=;[^\r\n]*Max-Age=0/u);
     const replay = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: setCookie.split(";")[0] } }), env, {});
     assert.equal(replay.status, 401);
     assert.equal(replay.headers.get("referrer-policy"), "no-referrer");
@@ -247,6 +257,132 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
+  }
+});
+
+test("providerごとのOAuth transaction cookieは並行開始とcallback順序を独立して保持する", async () => {
+  for (const provider of ["google", "chatgpt"]) {
+    for (const firstAction of ["success", "cancel"]) {
+      for (const callbackOrder of [["first", "second"], ["second", "first"]]) {
+        const { database, binding } = await authDatabase();
+        const { privateKey, publicKey } = await generateKeyPair("RS256");
+        const clientId = provider === "google" ? "parallel-google-client" : "parallel-chatgpt-client";
+        const env = {
+          APP_ENV: "staging",
+          APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+          ...(provider === "google"
+            ? { GOOGLE_OIDC_CLIENT_ID: clientId, GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret" }
+            : { OPENAI_SIWC_CLIENT_ID: clientId, OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }),
+          ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+          DB: binding
+        };
+        const publicJwk = { ...await exportJWK(publicKey), kid: `parallel-${provider}`, alg: "RS256", use: "sig" };
+        const nonces = new Map();
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (input, init = {}) => {
+          const target = String(input);
+          const tokenEndpoint = provider === "google" ? "https://oauth2.googleapis.com/token" : "https://auth.openai.com/api/accounts/oauth/token";
+          const jwksEndpoint = provider === "google" ? "https://www.googleapis.com/oauth2/v3/certs" : "https://auth.openai.com/.well-known/jwks.json";
+          if (target === tokenEndpoint) {
+            const params = new URLSearchParams(init.body);
+            const code = params.get("code");
+            const nonce = nonces.get(code);
+            assert.ok(nonce, `nonce for ${code}`);
+            const claims = { sub: `parallel-${provider}-${code}`, nonce, ...(provider === "google" ? { email_verified: true, email: `${code}@example.test` } : {}) };
+            const token = await new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: `parallel-${provider}` }).setIssuer(provider === "google" ? "https://accounts.google.com" : "https://auth.openai.com").setAudience(clientId).setIssuedAt().setExpirationTime("5m").sign(privateKey);
+            return Response.json({ id_token: token });
+          }
+          if (target === jwksEndpoint) return Response.json({ keys: [publicJwk] });
+          throw new Error(`unexpected external request: ${target}`);
+        };
+        try {
+          const start = async (label) => {
+            const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/start`), env, {});
+            assert.equal(response.status, 302);
+            const redirect = new URL(response.headers.get("location"));
+            nonces.set(label === "first" ? "first-code" : "second-code", redirect.searchParams.get("nonce"));
+            return { state: redirect.searchParams.get("state"), cookie: firstCookie(response) };
+          };
+          const first = await start("first");
+          const second = await start("second");
+          const browserCookies = `${first.cookie}; ${second.cookie}`;
+          const callback = async (entry, code, cookies = browserCookies) => worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?code=${code}&state=${encodeURIComponent(entry.state)}`, { headers: { cookie: cookies } }), env, {});
+          const callbacks = { first: () => firstAction === "cancel" ? worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?error=access_denied&state=${encodeURIComponent(first.state)}`, { headers: { accept: "text/html", cookie: browserCookies } }), env, {}) : callback(first, "first-code"), second: () => callback(second, "second-code") };
+          const firstResponse = await callbacks[callbackOrder[0]]();
+          assert.equal(firstResponse.status, firstAction === "cancel" && callbackOrder[0] === "first" ? 401 : 302, `${provider}/${firstAction}/${callbackOrder.join(",")}`);
+          const clearedName = callbackOrder[0] === "first" ? cookieName(first.cookie) : cookieName(second.cookie);
+          const untouchedName = callbackOrder[0] === "first" ? cookieName(second.cookie) : cookieName(first.cookie);
+          assert.match(firstResponse.headers.get("set-cookie") ?? "", new RegExp(`${clearedName}=; Max-Age=0`, "u"));
+          assert.doesNotMatch(firstResponse.headers.get("set-cookie") ?? "", new RegExp(`${untouchedName}=; Max-Age=0`, "u"));
+          const secondResponse = await callbacks[callbackOrder[1]]();
+          assert.equal(secondResponse.status, firstAction === "cancel" && callbackOrder[1] === "first" ? 401 : 302, `${provider}/${firstAction}/${callbackOrder.join(",")}/second`);
+          if (firstAction === "cancel") {
+            const successResponse = callbackOrder[0] === "first" ? secondResponse : firstResponse;
+            assert.equal(successResponse.status, 302);
+          }
+          assert.equal(database.prepare("SELECT count(*) AS total FROM auth_sessions").get().total, firstAction === "cancel" ? 1 : 2);
+        } finally {
+          globalThis.fetch = originalFetch;
+          database.close();
+        }
+      }
+    }
+  }
+});
+
+test("未知stateや不正stateのcallbackは有効な並行transaction cookieを消去しない", async () => {
+  for (const provider of ["google", "chatgpt"]) {
+    const { database, binding } = await authDatabase();
+    const env = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      ...(provider === "google"
+        ? { GOOGLE_OIDC_CLIENT_ID: "unknown-state-google", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret" }
+        : { OPENAI_SIWC_CLIENT_ID: "unknown-state-chatgpt", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }),
+      ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      DB: binding
+    };
+    const originalFetch = globalThis.fetch;
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const clientId = provider === "google" ? env.GOOGLE_OIDC_CLIENT_ID : env.OPENAI_SIWC_CLIENT_ID;
+    const nonces = new Map();
+    globalThis.fetch = async (input, init = {}) => {
+      const target = String(input);
+      const tokenEndpoint = provider === "google" ? "https://oauth2.googleapis.com/token" : "https://auth.openai.com/api/accounts/oauth/token";
+      const jwksEndpoint = provider === "google" ? "https://www.googleapis.com/oauth2/v3/certs" : "https://auth.openai.com/.well-known/jwks.json";
+      if (target === tokenEndpoint) {
+        const params = new URLSearchParams(init.body);
+        const nonce = nonces.get(params.get("code"));
+        const claims = { sub: `unknown-state-${provider}`, nonce, ...(provider === "google" ? { email_verified: true } : {}) };
+        const token = await new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: `unknown-state-${provider}` }).setIssuer(provider === "google" ? "https://accounts.google.com" : "https://auth.openai.com").setAudience(clientId).setIssuedAt().setExpirationTime("5m").sign(privateKey);
+        return Response.json({ id_token: token });
+      }
+      if (target === jwksEndpoint) return Response.json({ keys: [{ ...await exportJWK(publicKey), kid: `unknown-state-${provider}`, alg: "RS256", use: "sig" }] });
+      throw new Error(`unexpected external request: ${target}`);
+    };
+    try {
+      const begin = async (code) => {
+        const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/start`), env, {});
+        const redirect = new URL(response.headers.get("location"));
+        nonces.set(code, redirect.searchParams.get("nonce"));
+        return { state: redirect.searchParams.get("state"), cookie: firstCookie(response) };
+      };
+      const first = await begin("first-code");
+      const second = await begin("second-code");
+      const browserCookies = `${first.cookie}; ${second.cookie}`;
+      const unknown = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?state=${"x".repeat(43)}`, { headers: { cookie: browserCookies } }), env, {});
+      assert.equal(unknown.status, 401);
+      assert.doesNotMatch(unknown.headers.get("set-cookie") ?? "", new RegExp(`${cookieName(first.cookie)}=; Max-Age=0`, "u"));
+      assert.doesNotMatch(unknown.headers.get("set-cookie") ?? "", new RegExp(`${cookieName(second.cookie)}=; Max-Age=0`, "u"));
+      const invalid = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?state=bad`, { headers: { cookie: browserCookies } }), env, {});
+      assert.equal(invalid.status, 401);
+      assert.equal(invalid.headers.get("set-cookie"), null);
+      const success = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?code=second-code&state=${encodeURIComponent(second.state)}`, { headers: { cookie: browserCookies } }), env, {});
+      assert.equal(success.status, 302);
+    } finally {
+      globalThis.fetch = originalFetch;
+      database.close();
+    }
   }
 });
 
@@ -422,12 +558,14 @@ test("cancelled callback returns to the transaction return path and permits a fr
     const redirect = new URL(start.headers.get("location"));
     const oauthCookie = start.headers.get("set-cookie").split(";")[0];
     const cancelled = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?error=access_denied&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, {
-      headers: { accept: "text/html", cookie: oauthCookie }
+      headers: { accept: "text/html", cookie: `${oauthCookie}; __Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh` }
     }), env, {});
     assert.equal(cancelled.status, 401);
     assert.equal(cancelled.headers.get("referrer-policy"), "no-referrer");
     assert.match(await cancelled.text(), /href="\/onboarding\/continue"/u);
-    assert.match(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
+    assert.match(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google_[0-9a-f]{64}=; Max-Age=0/u);
+    assert.doesNotMatch(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_access=;[^\r\n]*Max-Age=0/u);
+    assert.doesNotMatch(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_refresh=;[^\r\n]*Max-Age=0/u);
     const retry = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
     assert.equal(retry.status, 302);
     assert.equal(new URL(retry.headers.get("location")).searchParams.get("return"), null);
@@ -690,7 +828,7 @@ test("nonce binding failure after transaction consume preserves only the verifie
     }), env, {});
     assert.equal(response.status, 401);
     assert.match(await response.text(), /href="\/onboarding\/continue"/u);
-    assert.match(response.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
+    assert.match(response.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google_[0-9a-f]{64}=; Max-Age=0/u);
     assert.ok(database.prepare("SELECT consumed_at FROM oauth_transactions WHERE id=?").get(transactionId).consumed_at);
   } finally {
     database.close();
@@ -746,7 +884,7 @@ test("invalid transaction and session timestamps fail closed", async () => {
     database.prepare("UPDATE oauth_transactions SET expires_at='invalid-future' WHERE id=?").run(transactionId);
     const expired = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=x&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: start.headers.get("set-cookie").split(";")[0] } }), env, {});
     assert.equal(expired.status, 401);
-    assert.match(expired.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0; Path=\//u);
+    assert.match(expired.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google_[0-9a-f]{64}=; Max-Age=0; Path=\//u);
 
     database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('timestamp-user', 'https://accounts.google.com', 'timestamp-subject', 'active', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run();
     const token = "timestamp-session";
@@ -871,7 +1009,7 @@ test("provider response bodies over the bounded limit fail closed", async () => 
     const redirect = new URL(start.headers.get("location"));
     const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=x&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: start.headers.get("set-cookie").split(";")[0] } }), env, {});
     assert.equal(response.status, 502);
-    assert.match(response.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
+    assert.match(response.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google_[0-9a-f]{64}=; Max-Age=0/u);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

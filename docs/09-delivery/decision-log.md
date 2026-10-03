@@ -610,3 +610,16 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Supersedes: 2026-10-03のOffice local-only no-login境界（履歴として保持）。
 - Boundary: 認証前のlocal draftとキャンセル復帰、共有リンク自動OFF、画像の明示置換・黒塗り、既存PDF認証境界を維持する。暗号proofや新DB／envは追加しない。
 - Evidence: `apps/extension/editor/handoff.js`、`apps/extension/editor/editor.js`、`apps/extension/background/cloud-claim.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、`tests/extension-cloud-claim.test.mjs`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/09-delivery/open-questions.md`。
+
+## DEC-098: 製品OAuthのtransaction cookieを並行開始ごとに分離する
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - Google／ChatGPTの各startは、providerとboundedなstateのSHA-256から導出したtransaction固有のSecure・HttpOnly・SameSite=Lax cookie名へPKCE verifier／nonceをbindする。同じproviderの二つのpending startがあっても、callbackはstateに対応するcookieだけを読む。
+  - callback／errorは、そのstateから導出できるtransaction cookieだけを消去する。形式不正・未知stateでは別pending transactionのcookieを消去せず、既存のstate hash、PKCE verifier／nonce hash、consume CAS、期限、provider token検証の境界を維持する。
+  - product OAuth成功時は競合するlegacy Supabase access／refresh cookieを端末から消去する。Supabase remote logoutは追加せず、成功後のproduct logoutはD1 product sessionの失効とproduct cookieの消去を既存契約どおり行う。callback失敗ではlegacy cookieを消去しない。
+- Reason: 固定provider cookieの上書きで別tabのpending loginを壊したり、先行callbackのerror cleanupで後続loginを壊したりする経路を閉じる。product logout後のreloadで旧legacy accountへ戻らない状態遷移を、provider remote状態に依存せず端末cookie境界で保証する。
+- Boundary: D1 schema／migration、provider登録、remote Supabase／Google／ChatGPT logout、production secret binding、実provider SSOは変更しない。state／verifier／nonce／legacy credentialのraw valueはログやD1へ保存せず、文書にも記録しない。
+- Evidence: `apps/worker/src/product-auth.ts`、`apps/worker/src/index.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`、`docs/04-data/d1-and-storage.md`、`docs/04-data/d1-workspace-schema.md`、`docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`。

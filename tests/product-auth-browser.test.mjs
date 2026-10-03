@@ -39,10 +39,12 @@ async function createFixture(provider = "google") {
   for (const name of migrations) database.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const publicJwk = { ...await exportJWK(publicKey), kid: "product-auth-browser-test", alg: "RS256", use: "sig" };
-  let nonce = "";
+  const noncesByCode = new Map();
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init = {}) => {
     const target = String(input);
+    const code = new URLSearchParams(init.body).get("code") ?? "synthetic-browser-code";
+    const nonce = noncesByCode.get(code) ?? "";
     if (target === "https://oauth2.googleapis.com/token") {
       const token = await new SignJWT({ sub: "synthetic-browser-subject", email: "synthetic@example.test", email_verified: true, name: "Synthetic Browser User", nonce })
         .setProtectedHeader({ alg: "RS256", kid: "product-auth-browser-test" })
@@ -81,7 +83,7 @@ async function createFixture(provider = "google") {
       DB: new D1Adapter(database),
       ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }
     },
-    setNonce(value) { nonce = value; },
+    setNonce(value, code = "synthetic-browser-code") { noncesByCode.set(code, value); },
     restoreFetch() { globalThis.fetch = originalFetch; database.close(); }
   };
 }
@@ -349,8 +351,119 @@ async function runProviderBrowser(provider) {
   }
 }
 
+async function runParallelProviderBrowser(provider) {
+  const fixture = await createFixture(provider);
+  const providerConfig = provider === "google"
+    ? { origin: GOOGLE_AUTH_ORIGIN, authorizationPath: "/o/oauth2/v2/auth", callbackPath: "/api/auth/google/callback" }
+    : { origin: CHATGPT_AUTH_ORIGIN, authorizationPath: "/api/accounts/authorize", callbackPath: "/api/auth/chatgpt/callback" };
+  const context = await chromium.launchPersistentContext("", {
+    channel: process.platform === "win32" ? "chrome" : "chromium",
+    headless: true,
+    ignoreHTTPSErrors: true
+  });
+  const pages = [await context.newPage(), await context.newPage()];
+  const pending = new WeakMap();
+  const callbackStatuses = [];
+  let sequence = 0;
+  await context.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin === providerConfig.origin && url.pathname === providerConfig.authorizationPath) {
+      const page = route.request().frame().page();
+      const state = url.searchParams.get("state") ?? "";
+      const code = `parallel-browser-${provider}-${sequence++}`;
+      fixture.setNonce(url.searchParams.get("nonce") ?? "", code);
+      pending.set(page, { state, code });
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>provider fixture</title>" });
+      return;
+    }
+    if (url.origin !== STAGING_ORIGIN) {
+      await route.abort();
+      return;
+    }
+    const response = await worker.fetch(browserRequest(route), fixture.env, {});
+    const headers = Object.fromEntries(response.headers.entries());
+    const setCookies = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];
+    for (const setCookie of setCookies) {
+      const [nameValue, ...attributes] = setCookie.split(";");
+      const separator = nameValue.indexOf("=");
+      if (separator < 1) continue;
+      const name = nameValue.slice(0, separator);
+      const value = nameValue.slice(separator + 1);
+      const maxAge = attributes.find((attribute) => /^\s*Max-Age=/iu.test(attribute))?.split("=")[1]?.trim();
+      if (maxAge === "0") await context.clearCookies({ name });
+      else await context.addCookies([{ name, value: decodeURIComponent(value), domain: new URL(STAGING_ORIGIN).hostname, path: "/", secure: true, httpOnly: true, sameSite: "Lax" }]);
+    }
+    if (url.pathname === `/api/auth/${provider}/start` && response.status === 302) {
+      const location = response.headers.get("location");
+      await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: `<!doctype html><script>location.replace(${JSON.stringify(location ?? "")})</script>` });
+      return;
+    }
+    if (url.pathname === providerConfig.callbackPath) {
+      callbackStatuses.push({ code: url.searchParams.get("code"), error: url.searchParams.get("error"), status: response.status });
+      if (response.status === 302) {
+        const returnLocation = response.headers.get("location");
+        const returned = returnLocation ? await worker.fetch(new Request(returnLocation), fixture.env, {}) : new Response(null, { status: 200 });
+        const returnedHeaders = Object.fromEntries(returned.headers.entries());
+        await route.fulfill({ status: 200, headers: returnedHeaders, body: Buffer.from(await returned.arrayBuffer()) });
+        return;
+      }
+    }
+    await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
+  });
+  const start = async (page) => {
+    await page.goto(`${STAGING_ORIGIN}/api/auth/${provider}/start?return=%2F`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    const transaction = pending.get(page);
+    assert.ok(transaction, `${provider} start must reach its provider fixture`);
+    return transaction;
+  };
+  const callback = async (page, transaction, action) => {
+    const query = action === "cancel" ? `error=access_denied&state=${encodeURIComponent(transaction.state)}` : `code=${encodeURIComponent(transaction.code)}&state=${encodeURIComponent(transaction.state)}`;
+    await page.goto(`${STAGING_ORIGIN}${providerConfig.callbackPath}?${query}`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    return callbackStatuses.at(-1);
+  };
+  try {
+    for (const [firstAction, order] of [["success", [0, 1]], ["success", [1, 0]], ["cancel", [0, 1]], ["cancel", [1, 0]]]) {
+      const first = await start(pages[0]);
+      const second = await start(pages[1]);
+      const transactions = [first, second];
+      const firstResult = await callback(pages[order[0]], transactions[order[0]], firstAction === "cancel" && order[0] === 0 ? "cancel" : "success");
+      assert.equal(firstResult.status, firstAction === "cancel" && order[0] === 0 ? 401 : 302, `${provider}/${firstAction}/${order.join(",")}`);
+      const secondResult = await callback(pages[order[1]], transactions[order[1]], firstAction === "cancel" && order[1] === 0 ? "cancel" : "success");
+      assert.equal(secondResult.status, firstAction === "cancel" && order[1] === 0 ? 401 : 302, `${provider}/${firstAction}/${order.join(",")}/second`);
+      assert.equal((await context.cookies(STAGING_ORIGIN)).filter((cookie) => cookie.name.startsWith("__Host-mm_oauth_")).length, 0, `${provider} callbacks must clear only their completed transaction cookie`);
+    }
+    await context.addCookies([
+      { name: "__Host-mm_access", value: "legacy-browser-access", domain: new URL(STAGING_ORIGIN).hostname, path: "/", secure: true, httpOnly: true, sameSite: "Lax" },
+      { name: "__Host-mm_refresh", value: "legacy-browser-refresh", domain: new URL(STAGING_ORIGIN).hostname, path: "/", secure: true, httpOnly: true, sameSite: "Lax" }
+    ]);
+    const legacyFirst = await start(pages[0]);
+    const legacySecond = await start(pages[1]);
+    await callback(pages[0], legacyFirst, "success");
+    const afterProductLogin = await context.cookies(STAGING_ORIGIN);
+    assert.equal(afterProductLogin.some((cookie) => cookie.name === "__Host-mm_access"), false, `${provider} product success must clear legacy access cookie`);
+    assert.equal(afterProductLogin.some((cookie) => cookie.name === "__Host-mm_refresh"), false, `${provider} product success must clear legacy refresh cookie`);
+    const productCookie = afterProductLogin.find((cookie) => cookie.name === "__Host-mm_product");
+    assert.ok(productCookie, `${provider} product success must issue product cookie`);
+    const logout = await pages[0].evaluate(async () => (await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status);
+    assert.equal(logout, 200);
+    await pages[0].goto(`${STAGING_ORIGIN}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    await pages[0].waitForSelector("#login-form", { timeout: 10_000 });
+    assert.equal((await context.cookies(STAGING_ORIGIN)).some((cookie) => cookie.name === "__Host-mm_product"), false, `${provider} product logout must clear product cookie before reload`);
+    await callback(pages[1], legacySecond, "success");
+  } finally {
+    await Promise.all(pages.map((page) => page.close()));
+    await context.close();
+    fixture.restoreFetch();
+  }
+}
+
 test("product auth browser uses a synthetic Google callback, a first-party HttpOnly session, and preserves the handoff", { timeout: 60_000 }, async () => {
   await runProviderBrowser("google");
+});
+
+test("product auth browser keeps parallel transaction cookies and clears legacy credentials for Google and ChatGPT", { timeout: 120_000 }, async () => {
+  await runParallelProviderBrowser("google");
+  await runParallelProviderBrowser("chatgpt");
 });
 
 test("configured synthetic ChatGPT browser provider creates the same session and preserves the handoff", { timeout: 60_000 }, async () => {
