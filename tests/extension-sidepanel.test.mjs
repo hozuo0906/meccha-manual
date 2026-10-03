@@ -8,6 +8,8 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   const html = await readFile(new URL("../apps/extension/sidepanel/sidepanel.html", import.meta.url), "utf8");
   const source = await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/sidepanel/sidepanel.css", import.meta.url), "utf8");
+  const popupHtml = await readFile(new URL("../apps/extension/popup/popup.html", import.meta.url), "utf8");
+  const privacyNote = "入力した文字は手順の説明に記録しませんが、画像に写る場合があります。個人情報は、記録後に画像を編集して隠してください。";
   assert.equal(manifest.version, "0.1.9");
   assert.equal(manifest.permissions.includes("sidePanel"), true);
   assert.equal(manifest.action.default_popup, undefined);
@@ -53,6 +55,8 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(html, /id="draftSection"/);
   assert.match(html, /id="finish"/);
   assert.match(html, /id="pause"/);
+  assert.ok(html.includes(`<p class="privacy-note">${privacyNote}</p>`));
+  assert.ok(popupHtml.includes(`<p class="privacy-note">${privacyNote}</p>`));
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.live-progress \{[^}]*position: sticky/);
 });
