@@ -84,6 +84,7 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
   let nonce;
   let expectedChallenge;
   let tokenSubject = "google-subject";
+  let accessJwksCalls = 0;
   globalThis.fetch = async (input, init = {}) => {
     const target = String(input);
     if (target === "https://oauth2.googleapis.com/token") {
@@ -98,7 +99,10 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
       return Response.json({ id_token: token });
     }
     if (target === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [publicJwk] });
-    if (target === "https://access.example/jwks") return Response.json({ keys: [publicJwk] });
+    if (target === "https://access.example/jwks") {
+      accessJwksCalls += 1;
+      return Response.json({ keys: [publicJwk] });
+    }
     throw new Error(`unexpected external request: ${target}`);
   };
   const env = { APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", GOOGLE_OIDC_CLIENT_ID: "google-test-client", GOOGLE_OIDC_CLIENT_SECRET: "secret-not-logged", ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }, DB: binding };
@@ -141,10 +145,18 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     assert.equal((await productLoginWithAccessConfig.json()).code, "SESSION_REQUIRED");
     database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('access-user', 'https://access.example', 'access-subject', 'active', '2026-10-03T00:00:00.000Z', '2026-10-03T00:00:00.000Z')").run();
     const accessAssertion = await new SignJWT({ type: "app", sub: "access-subject" }).setProtectedHeader({ alg: "RS256", kid: "product-auth-test" }).setIssuer("https://access.example").setAudience("audience").setIssuedAt().setExpirationTime("5m").sign(privateKey);
+    const accessControl = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { "Cf-Access-Jwt-Assertion": accessAssertion } }), accessConfigured, {});
+    assert.equal(accessControl.status, 200, "valid Access assertion must remain on the Access route");
+    assert.equal((await accessControl.json()).user.id, "access-user");
+    assert.equal(accessJwksCalls, 1);
+    const accessJwksCallsBeforeMalformed = accessJwksCalls;
     const malformedWithAccess = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: "__Host-mm_product=%zz", "Cf-Access-Jwt-Assertion": accessAssertion } }), accessConfigured, {});
     assert.equal(malformedWithAccess.status, 401);
+    assert.equal((await malformedWithAccess.json()).code, "SESSION_REQUIRED");
+    assert.equal(accessJwksCalls, accessJwksCallsBeforeMalformed, "malformed product cookie must be rejected before Access JWKS fallback");
     const healthWithProductCookie = await worker.fetch(new Request(`${env.APP_BASE_URL}/health/config`, { headers: { cookie: sessionCookie } }), accessConfigured, {});
     assert.equal(healthWithProductCookie.status, 401, "product session must not authorize the Access health route");
+    assert.equal((await healthWithProductCookie.json()).code, "ACCESS_JWT_REQUIRED");
     const foreignOrigin = await worker.fetch(new Request("https://other.example/api/session", { headers: { cookie: sessionCookie } }), env, {});
     assert.equal(foreignOrigin.status, 401);
     const invalidCookie = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: "__Host-mm_product=malformed" } }), env, {});
