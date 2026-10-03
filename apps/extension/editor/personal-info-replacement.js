@@ -5,6 +5,8 @@ const NAMES = ["高橋一郎", "佐藤直子", "鈴木健太", "田中美咲", "
 const KANAS = ["タカハシイチロウ", "サトウナオコ", "スズキケンタ", "タナカミサキ", "イトウタクヤ"];
 const PREFECTURES = ["東京都", "大阪府", "愛知県", "福岡県", "宮城県"];
 
+export const SYNTHETIC_PEOPLE = Object.freeze(NAMES.map((name, index) => Object.freeze({ name, kana: KANAS[index] })));
+
 function randomIndex(size, random = globalThis.crypto) {
   if (!size) return 0;
   const bytes = new Uint32Array(1);
@@ -42,6 +44,29 @@ export function createPersonalInfoValue(type, person = {}, random = globalThis.c
 
 export function createSyntheticPerson(random = globalThis.crypto) {
   const index = randomIndex(NAMES.length, random);
-  return { name: NAMES[index], kana: KANAS[index] };
+  return { ...SYNTHETIC_PEOPLE[index] };
 }
 
+export function syntheticPersonIndex(person) {
+  if (!person || typeof person !== "object") return -1;
+  return SYNTHETIC_PEOPLE.findIndex((candidate) => candidate.name === person.name && candidate.kana === person.kana);
+}
+
+export function syntheticPersonForReplacementAnnotations(annotations, fallback = createSyntheticPerson()) {
+  const matches = [];
+  for (const annotation of Array.isArray(annotations) ? annotations : []) {
+    if (annotation?.type !== "replacement" || typeof annotation.text !== "string") continue;
+    const index = annotation.category === "name"
+      ? NAMES.indexOf(annotation.text)
+      : annotation.category === "kana"
+        ? KANAS.indexOf(annotation.text)
+        : -1;
+    if (index >= 0) matches.push(index);
+  }
+  const index = matches[0] ?? syntheticPersonIndex(fallback);
+  return { ...(SYNTHETIC_PEOPLE[index >= 0 ? index : 0] || fallback) };
+}
+
+export function isSyntheticPersonalInfoValue(type, value) {
+  return SYNTHETIC_PEOPLE.some((person) => createPersonalInfoValue(type, person) === value);
+}

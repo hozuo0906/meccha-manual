@@ -1,7 +1,7 @@
 import { addStep, deleteStep, moveStep, updateStepInstruction } from "./draft-model.js";
 import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
-import { createSyntheticPerson } from "./personal-info-replacement.js";
+import { createSyntheticPerson, syntheticPersonForReplacementAnnotations } from "./personal-info-replacement.js";
 import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
@@ -387,7 +387,7 @@ async function openImageEditor(step, initialTool = "select") {
   if (!screenshot || pendingImages.has(step.id) || displayFailures.has(step.id)) return;
   closePanels(); activeImageEditor?.dispose();
   const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
-  const syntheticPerson = replacementPeople.get(screenshot.id) || createSyntheticPerson();
+  const syntheticPerson = replacementPeople.get(screenshot.id) || syntheticPersonForReplacementAnnotations(screenshot.annotations, createSyntheticPerson());
   replacementPeople.set(screenshot.id, syntheticPerson);
   const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
     inline: true, initialTool, syntheticPerson,
