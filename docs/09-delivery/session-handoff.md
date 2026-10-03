@@ -2,14 +2,11 @@
 
 Status: Accepted
 
-確認時点: 2026-10-03T14:56:52+09:00（Asia/Tokyo）
-
-- 現行source HEADは `16d76947067ab7e6801d5c0e996884311a0ca65a`、branchは `codex/manual-explicit-privacy-office-019`。MV3 service worker再起動後にpersisted sessionの対象windowを復元し、別window activationによる誤った `screen_changed` を防止した。同一windowの別tab切替は失効を維持した。
-- capture回帰（`extension-finish-recovery`、`extension-mvp`、`extension-release-blockers`）は 140/140 pass、skip 0。commitはlocalのみで未push、親によるpush待ち。
-- Office OQ037の回答待ちで、Office側のP1は未解決。latest `13ea29f1dad66121696fd40e80e192a1978fa3b7` のfull CI passは過去sourceの証跡であり、今回HEADのCI/reviewへ流用しない。
-- User 0.1.8 ZIPは未配布。Auth #874 branchは保存済みだが、client作成・請求は未実施。実user Chromeは禁止し、isolated synthetic/IAB検証を維持する。
-- 次のゲートは今回HEADに対するCI・Codex Review・OQ037回答確認。未確認事項を完成扱いにしない。
-
+確認日時: 2026-10-03T17:13:25+09:00 (Asia/Tokyo)
+- 対象source HEADは `e95fbf85e40cde33532a4cc19359ea6ad7ef0ad8`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。実装はローカルcommit済みで、GitHub refとPR #282 headへ反映済み（e95fbf85e40cde33532a4cc19359ea6ad7ef0ad8と一致）。release検証は未完了。
+- Office unitは33/33 pass（skip 0）、Office＋cloudのsynthetic browserは2/2 pass（skip 0）。実MV3 runtimeは別担当が確認中。実SSOとnative Office描画は未確認。
+- Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。
+- 次の1マイルストーンは、最新headでMV3 runtime、CI、reviewを照合すること。
 # セッション引き継ぎ運用
 
 ## Issue #281 / Draft PR #282 現在checkpoint
