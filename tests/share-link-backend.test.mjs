@@ -16,7 +16,7 @@ const migrationNames = [
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
   "0005_d1_share_links.sql",
-  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
 ];
 const NOW = "2026-09-26T00:00:00.000Z";
 const HTTP_BASE_URL = "https://meccha-manual-staging.meccha-iiyatsu.com";
@@ -108,6 +108,62 @@ async function database({ mutateShareScope = false, mutateGrantExpiry = false } 
   `);
   return db;
 }
+
+test("製品session cookieが自然消去されたshare管理routeはAccess設定不足へfallbackせずログインへ戻す", async () => {
+  const fixture = await httpFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { assert.equal(String(url), HTTP_JWKS_URL); return Response.json({ keys: [httpPublicJwk] }); };
+  const productEnv = {
+    APP_ENV: "staging",
+    APP_BASE_URL: HTTP_BASE_URL,
+    ACCESS_ISSUER: HTTP_ISSUER,
+    ACCESS_AUDIENCE: HTTP_AUDIENCE,
+    ACCESS_JWKS_URL: HTTP_JWKS_URL,
+    GOOGLE_OIDC_CLIENT_ID: "synthetic-google-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    DB: new HttpD1(fixture.raw),
+    MANUAL_ASSETS: {}
+  };
+  const providerEnvs = [
+    productEnv,
+    { ...productEnv, GOOGLE_OIDC_CLIENT_ID: undefined, GOOGLE_OIDC_CLIENT_SECRET: undefined, OPENAI_SIWC_CLIENT_ID: "synthetic-chatgpt-client", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }
+  ];
+  const makeRequest = (headers = {}) => new Request(`${HTTP_BASE_URL}/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "GET", headers: { origin: HTTP_BASE_URL, ...headers } });
+  try {
+    for (const providerEnv of providerEnvs) {
+      const noAccessEnv = { ...providerEnv, ACCESS_ISSUER: undefined, ACCESS_AUDIENCE: undefined, ACCESS_JWKS_URL: undefined };
+      const response = await handleShareLinkRoute(makeRequest(), noAccessEnv);
+      assert.equal(response?.status, 401);
+      assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+    }
+
+    let response = await handleShareLinkRoute(makeRequest({ cookie: "__Host-mm_product=invalid-product-token" }), productEnv);
+    assert.equal(response?.status, 401);
+    assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+
+    response = await handleShareLinkRoute(makeRequest(), { ...productEnv, DB: undefined });
+    assert.equal(response?.status, 503);
+    assert.equal((await response?.json()).code, "SHARE_MIGRATION_IN_PROGRESS");
+
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": "invalid.jwt" }), productEnv);
+    assert.equal(response?.status, 401);
+    assert.equal((await response?.json()).code, "ACCESS_JWT_INVALID");
+
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": await accessToken() }), productEnv);
+    assert.equal(response?.status, 200);
+
+    const issued = Math.floor(Date.now() / 1000);
+    const serviceToken = await new SignJWT({ type: "app", sub: "", common_name: "runner.example" })
+      .setProtectedHeader({ alg: "RS256", kid: httpPublicJwk.kid })
+      .setIssuer(HTTP_ISSUER).setAudience(HTTP_AUDIENCE).setIssuedAt(issued).setExpirationTime(issued + 300).sign(httpPrivateKey);
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": serviceToken }), productEnv);
+    assert.equal(response?.status, 403);
+    assert.equal((await response?.json()).code, "ACCESS_ACTOR_FORBIDDEN");
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.raw.close();
+  }
+});
 
 function addViewerShareFixture(db) {
   db.prepare("INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('published', 'workspace', 'manual', 2, 'published', 'Manual', 'Description', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', ?, ?)").run(NOW, NOW);

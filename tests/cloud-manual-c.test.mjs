@@ -23,7 +23,7 @@ const migrationNames = [
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
-  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
 ];
 
 class LocalStatement {
@@ -267,6 +267,46 @@ async function digest(bytes) {
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+test("製品session cookieが自然消去された業務routeはAccess設定不足へfallbackせずログインへ戻す", async () => {
+  const productEnv = { ...env, GOOGLE_OIDC_CLIENT_ID: "synthetic-google-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret" };
+  const providerEnvs = [
+    productEnv,
+    { ...env, OPENAI_SIWC_CLIENT_ID: "synthetic-chatgpt-client", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }
+  ];
+  const makeRequest = async (headers = {}) => new Request(`${BASE_URL}/api/onboarding/claim-intents`, {
+    method: "POST",
+    headers: { origin: BASE_URL, "content-type": "application/json", ...headers },
+    body: JSON.stringify({ operationId: "product-boundary-0001", assetCount: 0 })
+  });
+
+  for (const providerEnv of providerEnvs) {
+    const noAccessEnv = { ...providerEnv, ACCESS_ISSUER: undefined, ACCESS_AUDIENCE: undefined, ACCESS_JWKS_URL: undefined };
+    const response = await handleCloudManualRoute(await makeRequest(), noAccessEnv);
+    assert.equal(response?.status, 401);
+    assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+  }
+
+  let response = await handleCloudManualRoute(await makeRequest({ cookie: "__Host-mm_product=invalid-product-token" }), productEnv);
+  assert.equal(response?.status, 401);
+  assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+
+  response = await handleCloudManualRoute(await makeRequest(), { ...productEnv, DB: undefined });
+  assert.equal(response?.status, 503);
+  assert.equal((await response?.json()).code, "D1_UNAVAILABLE");
+
+  response = await handleCloudManualRoute(await makeRequest({ "Cf-Access-Jwt-Assertion": "invalid.jwt" }), productEnv);
+  assert.equal(response?.status, 401);
+  assert.equal((await response?.json()).code, "ACCESS_JWT_INVALID");
+
+  await bootstrap();
+  response = await handleCloudManualRoute(await makeRequest({ "Cf-Access-Jwt-Assertion": await accessToken() }), productEnv);
+  assert.equal(response?.status, 201, await response?.clone().text());
+
+  response = await handleCloudManualRoute(await makeRequest({ "Cf-Access-Jwt-Assertion": await accessToken(OWNER_SUBJECT, { sub: "", common_name: "runner.example" }) }), productEnv);
+  assert.equal(response?.status, 403);
+  assert.equal((await response?.json()).code, "ACCESS_ACTOR_FORBIDDEN");
+});
 
 function claimBody(staged, { title = "最初の手順", description = "画像を含む手順書", steps = undefined } = {}) {
   return {

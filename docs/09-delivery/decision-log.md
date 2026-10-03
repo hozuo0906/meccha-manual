@@ -29,6 +29,13 @@ Status: Accepted
 - Reason: quota拒否とlimiter利用不能を区別し、consume済みtransactionのreplay保護を維持しながら、改変されたtransaction dataを信頼せずOffice／onboardingの再試行contextを保持するため。
 - Evidence: `apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
 
+### DEC-099: 製品provider設定時の業務route認証境界
+
+- Date: 2026-10-04 / Issue #283
+- Decision: `cloud-manual-router.ts` と `share-link-router.ts` は、製品sessionが解決できず製品cookieも存在しない場合、製品provider設定済みかつAccess assertionなしならAccess検証へfallbackせず`401 SESSION_REQUIRED`を返す。自然期限切れでブラウザからcookieが消えた場合も同じ境界とする。Access assertionがある場合は従来どおりJWT、service主体、identity、D1の検証へ進める。不正・失効した製品cookieは引き続きAccessへfallbackしない。
+- Reason: 製品ログインの期限切れをAccess設定不足の`503 ACCESS_CONFIG_UNAVAILABLE`へ誤分類せず、製品ログインを再開できる状態へ戻しながら、明示されたAccess認証と業務のtenant・service主体境界を維持するため。
+- Evidence: `apps/worker/src/cloud-manual-router.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`、`docs/05-api/api-contracts.md`
+
 ### DEC-095: Product auth route and callback return boundaries
 
 - Date: 2026-10-03 / Issue #283 / PR #284

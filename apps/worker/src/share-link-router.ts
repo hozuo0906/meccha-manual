@@ -7,7 +7,7 @@ import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import { changed, type D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAppRuntimeConfig, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings } from "./server-config.ts";
 import { derivePasscodeHash, nowIso, randomSecret, sha256Hex, validatePasscode, validateSecret, verifyPasscode, PASSCODE_MAX_LENGTH, PASSCODE_MIN_LENGTH, SHARE_GRANT_BYTES, SHARE_TOKEN_BYTES } from "./share-link-crypto.ts";
-import { getProductSession, hasProductSessionCookie } from "./product-auth.ts";
+import { configuredProductProviders, getProductSession, hasProductSessionCookie } from "./product-auth.ts";
 
 export interface ShareLinkEnv extends AccessBindings, AppRuntimeBindings, ProductAuthBindings {
   DB?: D1DatabaseLike;
@@ -100,11 +100,19 @@ function assertSameOrigin(request: Request, env: ShareLinkEnv): void {
   if (!origin || !config || origin !== config.baseUrl || new URL(request.url).origin !== config.baseUrl) throw new ShareError(403, "ORIGIN_MISMATCH", "同一サイトからの操作だけを受け付けます。");
 }
 
+function requireProductOrAccessSession(request: Request, env: ShareLinkEnv): void {
+  const providers = configuredProductProviders(env);
+  if ((providers.google || providers.chatgpt) && !request.headers.get("Cf-Access-Jwt-Assertion")?.trim()) {
+    throw new ShareError(401, "SESSION_REQUIRED", "ログインしてください。");
+  }
+}
+
 async function actor(request: Request, env: ShareLinkEnv): Promise<{ actorId: string; database: D1DatabaseLike }> {
   const database = db(env);
   const productSession = await getProductSession(request, env);
   if (productSession) return { actorId: productSession.applicationId, database };
   if (hasProductSessionCookie(request)) throw new ShareError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+  requireProductOrAccessSession(request, env);
   let auth;
   try { auth = await authenticateApplicationRequest(request, env, new D1IdentityRepository(database) as ApplicationIdentityRepository); } catch (error) {
     if (error instanceof AccessIdentityError) throw error;
