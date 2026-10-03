@@ -9,6 +9,7 @@ import { chromium } from "./support/test-browser.mjs";
 
 const STAGING_ORIGIN = "https://meccha-manual-staging.meccha-iiyatsu.com";
 const GOOGLE_AUTH_ORIGIN = "https://accounts.google.com";
+const CHATGPT_AUTH_ORIGIN = "https://auth.openai.com";
 const migrations = [
   "0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql",
@@ -33,7 +34,7 @@ class D1Adapter {
   async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
 }
 
-async function createFixture() {
+async function createFixture(provider = "google") {
   const database = new DatabaseSync(":memory:");
   for (const name of migrations) database.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -53,18 +54,30 @@ async function createFixture() {
       return Response.json({ id_token: token });
     }
     if (target === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [publicJwk] });
+    if (target === "https://auth.openai.com/api/accounts/oauth/token") {
+      const token = await new SignJWT({ sub: "synthetic-siwc-subject", name: "Synthetic SIWC User", nonce })
+        .setProtectedHeader({ alg: "RS256", kid: "product-auth-browser-test" })
+        .setIssuer("https://auth.openai.com")
+        .setAudience("synthetic-siwc-client")
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(privateKey);
+      return Response.json({ id_token: token });
+    }
+    if (target === "https://auth.openai.com/.well-known/jwks.json") return Response.json({ keys: [publicJwk] });
     throw new Error(`unexpected external request: ${target}`);
   };
+  const isGoogle = provider === "google";
   return {
     database,
     env: {
       APP_ENV: "staging",
       APP_BASE_URL: STAGING_ORIGIN,
-      GOOGLE_OIDC_CLIENT_ID: "google-browser-test-client",
-      GOOGLE_OIDC_CLIENT_SECRET: "synthetic-client-secret",
-      OPENAI_SIWC_CLIENT_ID: "unregistered-siwc-client",
-      OPENAI_SIWC_CLIENT_SECRET: "",
-      OPENAI_SIWC_ENABLED: "false",
+      GOOGLE_OIDC_CLIENT_ID: isGoogle ? "google-browser-test-client" : "",
+      GOOGLE_OIDC_CLIENT_SECRET: isGoogle ? "synthetic-client-secret" : "",
+      OPENAI_SIWC_CLIENT_ID: isGoogle ? "unregistered-siwc-client" : "synthetic-siwc-client",
+      OPENAI_SIWC_CLIENT_SECRET: isGoogle ? "" : "synthetic-siwc-secret",
+      OPENAI_SIWC_ENABLED: isGoogle ? "false" : "true",
       DB: new D1Adapter(database),
       ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) }
     },
@@ -84,8 +97,11 @@ function browserRequest(route) {
   });
 }
 
-test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnly session, and no unregistered SIWC action", { timeout: 60_000 }, async () => {
-  const fixture = await createFixture();
+async function runProviderBrowser(provider) {
+  const fixture = await createFixture(provider);
+  const providerConfig = provider === "google"
+    ? { origin: GOOGLE_AUTH_ORIGIN, authorizationPath: "/o/oauth2/v2/auth", callbackPath: "/api/auth/google/callback", clientId: "google-browser-test-client", subject: "synthetic-browser-subject", issuer: "https://accounts.google.com" }
+    : { origin: CHATGPT_AUTH_ORIGIN, authorizationPath: "/api/accounts/authorize", callbackPath: "/api/auth/chatgpt/callback", clientId: "synthetic-siwc-client", subject: "synthetic-siwc-subject", issuer: "https://auth.openai.com" };
   const context = await chromium.launchPersistentContext("", {
     channel: process.platform === "win32" ? "chrome" : "chromium",
     headless: true,
@@ -97,10 +113,10 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
   await page.route("**/*", async (route) => {
     const requestUrl = new URL(route.request().url());
     routeTrace.push(`${route.request().method()} ${requestUrl.origin}${requestUrl.pathname}`);
-    if (requestUrl.origin === GOOGLE_AUTH_ORIGIN && requestUrl.pathname === "/o/oauth2/v2/auth") {
+    if (requestUrl.origin === providerConfig.origin && requestUrl.pathname === providerConfig.authorizationPath) {
       browserExternalRequests.push({ origin: requestUrl.origin, pathname: requestUrl.pathname, synthetic: true });
       fixture.setNonce(requestUrl.searchParams.get("nonce") ?? "");
-      const callback = new URL(`${STAGING_ORIGIN}/api/auth/google/callback`);
+      const callback = new URL(`${STAGING_ORIGIN}${providerConfig.callbackPath}`);
       callback.searchParams.set("code", "synthetic-browser-code");
       callback.searchParams.set("state", requestUrl.searchParams.get("state") ?? "");
       await route.fulfill({
@@ -121,7 +137,7 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
       routeTrace.push(`worker-done-${response.status}`);
       const body = Buffer.from(await response.arrayBuffer());
       routeTrace.push(`body-${body.length}`);
-      if (requestUrl.pathname === "/api/auth/google/start" && response.status === 302) {
+      if (requestUrl.pathname === `/api/auth/${provider}/start` && response.status === 302) {
         const providerLocation = response.headers.get("location");
         assert.ok(providerLocation);
         const headers = Object.fromEntries(response.headers.entries());
@@ -135,7 +151,7 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
         routeTrace.push("start-as-provider-page");
         return;
       }
-      if (requestUrl.pathname === "/api/auth/google/callback" && response.status === 302) {
+      if (requestUrl.pathname === providerConfig.callbackPath && response.status === 302) {
         const returnLocation = response.headers.get("location");
         assert.ok(returnLocation);
         const setCookie = response.headers.get("set-cookie") ?? "";
@@ -183,12 +199,15 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
     await page.waitForSelector("#bootstrap", { timeout: 10_000 });
     assert.notEqual((await page.locator("#status").textContent())?.trim(), "", "initial onboarding page must expose a status notice");
     await page.locator("#bootstrap").click();
-    await page.waitForSelector("#product-auth-buttons a[href^=\"/api/auth/google/start\"]", { timeout: 10_000 });
+    const providerSelector = `#product-auth-buttons a[href^="/api/auth/${provider}/start"]`;
+    const otherProvider = provider === "google" ? "chatgpt" : "google";
+    const otherProviderSelector = `#product-auth-buttons a[href^="/api/auth/${otherProvider}/start"]`;
+    await page.waitForSelector(providerSelector, { timeout: 10_000 });
     assert.equal(await page.locator("#login-form").getAttribute("aria-hidden"), "true");
-    assert.equal(await page.locator("#product-auth-buttons a[href^=\"/api/auth/chatgpt/start\"]").count(), 0, "unregistered SIWC must not expose a login action");
-    const googleStartHref = await page.locator("#product-auth-buttons a[href^=\"/api/auth/google/start\"]").getAttribute("href");
-    assert.equal(new URL(googleStartHref, STAGING_ORIGIN).searchParams.get("return"), "/onboarding/continue");
-    await page.locator("#product-auth-buttons a[href^=\"/api/auth/google/start\"]").click();
+    assert.equal(await page.locator(otherProviderSelector).count(), 0, `${otherProvider} must not expose an unconfigured login action`);
+    const providerStartHref = await page.locator(providerSelector).getAttribute("href");
+    assert.equal(new URL(providerStartHref, STAGING_ORIGIN).searchParams.get("return"), "/onboarding/continue");
+    await page.locator(providerSelector).click();
     await page.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { timeout: 10_000 }).catch((error) => {
       throw new Error(`${error.message}; routeTrace=${routeTrace.join(" | ")}`);
     });
@@ -217,7 +236,10 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
     assert.equal(operation.entries[0].state, "active");
     assert.match(operation.entries[0].operationId, /^[A-Za-z0-9_-]{43}$/u);
     assert.ok(Number.isFinite(Date.parse(operation.entries[0].createdAt)));
-    assert.deepEqual(await page.evaluate(async () => (await fetch("/api/auth/providers", { credentials: "same-origin" })).json()), { providers: { google: true, chatgpt: false }, password: false });
+    assert.deepEqual(await page.evaluate(async () => (await fetch("/api/auth/providers", { credentials: "same-origin" })).json()), {
+      providers: { google: provider === "google", chatgpt: provider === "chatgpt" },
+      password: false
+    });
 
     const cookies = await context.cookies(STAGING_ORIGIN);
     const sessionCookie = cookies.find((cookie) => cookie.name === "__Host-mm_product");
@@ -233,16 +255,26 @@ test("product auth browser uses a synthetic OIDC callback, a first-party HttpOnl
       return { status: response.status, body: await response.json() };
     });
     assert.equal(sessionResponse.status, 200);
-    const identity = fixture.database.prepare("SELECT application_id, issuer, subject FROM identities WHERE issuer = ? AND subject = ?").get("https://accounts.google.com", "synthetic-browser-subject");
+    const identity = fixture.database.prepare("SELECT application_id, issuer, subject FROM identities WHERE issuer = ?").get(providerConfig.issuer);
     assert.equal(sessionResponse.body.user.id, identity.application_id);
-    assert.equal(identity.issuer, "https://accounts.google.com");
-    assert.equal(identity.subject, "synthetic-browser-subject");
+    assert.equal(identity.issuer, providerConfig.issuer);
+    if (provider === "google") assert.equal(identity.subject, providerConfig.subject);
+    else assert.match(identity.subject, /^siwc:[0-9a-f]{64}$/u);
+    assert.equal(fixture.database.prepare("SELECT auth_method FROM auth_sessions WHERE application_id = ?").get(identity.application_id).auth_method, provider);
     assert.equal(sessionResponse.body.workspaces.length, 1);
     assert.equal(await page.evaluate(() => location.pathname), "/onboarding/continue");
-    assert.deepEqual(browserExternalRequests, [{ origin: GOOGLE_AUTH_ORIGIN, pathname: "/o/oauth2/v2/auth", synthetic: true }]);
+    assert.deepEqual(browserExternalRequests, [{ origin: providerConfig.origin, pathname: providerConfig.authorizationPath, synthetic: true }]);
   } finally {
     await page.close();
     await context.close();
     fixture.restoreFetch();
   }
+}
+
+test("product auth browser uses a synthetic Google callback, a first-party HttpOnly session, and preserves the handoff", { timeout: 60_000 }, async () => {
+  await runProviderBrowser("google");
+});
+
+test("configured synthetic ChatGPT browser provider creates the same session and preserves the handoff", { timeout: 60_000 }, async () => {
+  await runProviderBrowser("chatgpt");
 });
