@@ -779,6 +779,7 @@ async function exportOffice(format, button) {
     const tools = await import("../export/office-export.js");
     if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
+    if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
     if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
     downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。クラウド保存・共有設定は変更していません。`, "success");

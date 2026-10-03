@@ -278,6 +278,35 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     page.off("download", countDelayedImportDownload);
     server.officeModuleDelayMs = 0;
 
+    // Mutating the title while the final fingerprint digest is pending must
+    // still be rejected before the synchronous Office build/download.
+    await page.locator(".office-actions").evaluate((details) => { details.open = true; });
+    await page.evaluate(() => {
+      const subtle = crypto.subtle;
+      const original = subtle.digest.bind(subtle);
+      let calls = 0;
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      Object.defineProperty(subtle, "digest", { configurable: true, value: async (...args) => {
+        calls += 1;
+        if (calls === 23) { window.__officeDigestReady = true; await gate; }
+        return original(...args);
+      } });
+      window.__releaseOfficeDigest = release;
+      window.__restoreOfficeDigest = () => Object.defineProperty(subtle, "digest", { configurable: true, value: original });
+    });
+    let digestDownloads = 0;
+    const countDigestDownload = () => { digestDownloads += 1; };
+    page.on("download", countDigestDownload);
+    await page.locator("#exportWord").click();
+    await page.waitForFunction(() => window.__officeDigestReady === true);
+    await page.locator("#title").fill("final digest待機中の変更");
+    await page.evaluate(() => window.__releaseOfficeDigest?.());
+    await page.locator("#officeExportStatus[data-state=warning]").waitFor();
+    assert.equal(digestDownloads, 0, "final fingerprint changes do not trigger a download");
+    page.off("download", countDigestDownload);
+    await page.evaluate(() => window.__restoreOfficeDigest?.());
+
     // Delay the real canvas encoding, mutate the title during export, and verify
     // the snapshot guard refuses the stale package before a retry succeeds.
     await page.locator(".office-actions").evaluate((details) => { details.open = true; });
