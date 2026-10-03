@@ -1,0 +1,97 @@
+# Issue #283 設計メモ: 製品認証の移行案
+
+Status: Proposed
+
+Date: 2026-10-03
+
+## 目的
+
+Cloudflareアカウントへのログインを製品利用者へ要求せず、めっちゃマニュアル自身のメール登録・ログインとGoogleログインを提供する。ChatGPTログインは、商用client登録と利用資格が確認できるまでユーザーへ表示しない。管理者・運用のCloudflare Access、D1/R2、workspace認可は別境界として維持する。
+
+このメモはADR-0041の設計候補を具体化する。現行Accepted文書を遡って書き換えず、実装開始前にprovider、schema、session、移行の未決を解消する。
+
+## 製品ログイン画面の仕様案
+
+画面名は「めっちゃマニュアルにログイン」とする。説明は「手順書を保存・共有するにはアカウントが必要です。ログイン前の下書きはこの端末に残ります。」とし、Cloudflare、issuer、provider内部名は表示しない。
+
+初期表示には次の操作を置く。
+
+- 「メールで登録／ログイン」
+- 「Googleで続ける」
+- 認証を中断して下書きへ戻る操作
+
+ChatGPTの操作は商用client登録と利用資格が確認できるまで表示しない。利用者へ準備中の内部事情を説明する必要がある場合は、「このログイン方法は現在利用できません」とだけ表示する。
+
+メールを選ぶと、メールアドレス入力と「確認コードを送る」を表示する。送信後は同じ画面で確認コード入力、「確認する」、「コードを再送する」を表示する。再送は待機時間と残り回数を示す。成功後は元のhandoffに戻り、認証前に選択した保存・共有・PDF等のoutputを続行する。
+
+送信結果は、登録済みか未登録かを判別できない共通文言にする。「確認コードを送信しました。届かない場合は、入力内容を確認して再送してください。」と表示する。期限切れ、使用済み、試行回数超過、送信失敗、通信断は日本語で次の操作を案内し、入力中のメールアドレスとlocal draftを失わない。
+
+Googleでは遷移中に「Googleで認証しています」と表示し、キャンセル・拒否・callback不一致・検証失敗・通信断を区別して再試行を案内する。Googleのverified emailを確認できない場合は製品アカウントを作成しない。Google identityと既存アカウントをemailだけで自動統合しない。
+
+ログイン途中でlocal draftを再読み込みしても、認証用handoffの有効期限とdraft fingerprintを照合できる間は同じ下書きへ戻す。別の利用者のsession、別handoff、期限切れhandoff、変更されたdraftは復帰させず、元のlocal下書きを保持したまま再開方法を示す。
+
+## provider別の処理境界
+
+### メール確認コード
+
+候補providerから送信providerを選び、送信元domain、rate limit、失敗時の再送、staging/production分離を決める。provider未選定またはcredential未設定の環境では、メール認証を有効化しない。パスワードhashや確認コードの平文は保存しない。
+
+### Google
+
+OIDC Authorization Code + PKCE、state、nonceをサーバー側で生成し、登録済みcallback URLへ限定する。issuer、audience、署名、期限、nonce、state、verified emailを検証し、検証済みのissuer+subjectをidentityとして扱う。client secretはserver-side secret managerだけに置く。secret名を追加する場合も候補として設計に記載し、実装unitで承認するまで追加しない。
+
+### ChatGPT / SIWC
+
+identity scopeとChatGPT plan usage permissionを別々に扱う。identityだけを許可しても、ChatGPT plan利用を許可したことにはしない。plan利用は将来の本人同意画面、token保護、利用停止・失効処理を含む別unitとする。商用client登録が未確認の間はボタン、callback、設定を有効化しない。OSS向けdynamic registrationやlocal loopbackの仕組みを、遠隔商用SaaSの認証・AI利用の迂回に使わない。
+
+## データ、session、tenant
+
+既存D1の `identities(issuer, subject)` はprovider identityの正本候補として再利用できる。ただし、メール・Google・SIWCを同一製品アカウントへまとめるためのaccount/link主体は現行schemaにない。次のどちらを採用するかを先に決める。
+
+- `accounts`相当の製品主体を追加し、provider identityを明示linkする。
+- provider identityごとに別application identityを作り、利用者が明示操作でlinkするまで別アカウントとして扱う。
+
+いずれもemail一致だけの自動linkを禁止する。旧Access identityはissuer+subjectを保持したまま移行対象として残し、本人が旧経路と新経路の両方で認証した明示linkだけを許可する。disabled・retired identityを自動復活させない。
+
+実装候補のschema名は次のとおりだが、採用は未決である。
+
+- `auth_sessions`: session token hash、application identityまたはaccount ID、issued_at、expires_at、revoked_at、last_seen_at、session version
+- `auth_challenges`: challenge hash、purpose、期限、試行回数、消費時刻、送信回数、operation ID
+- `account_identity_links`または`accounts`: 複数provider identityの明示link境界
+
+sessionの平文token、OIDC token、ChatGPT credential、メール確認コード、provider secretはD1/R2/logへ保存しない。CookieはSecure・HttpOnly・適切なSameSiteを設定し、状態変更APIはCSRF tokenまたは同等のorigin/session bindingを検証する。logoutはcookie削除だけを成功扱いにせず、server-side revocationを確定する。
+
+全business queryは従来どおりapplication identity、workspace ID、active membership、role、resource workspaceを同時に検証する。provider callbackやlogin成功だけでworkspace権限を付与しない。D1/R2のtenant境界、owner制約、negative/mutation testは維持する。
+
+## 設定・依存の候補
+
+現リポジトリでGoogle、メール送信、SIWCのclient設定が確認できていないため、以下は候補名であり未登録である。
+
+- Google候補: `GOOGLE_OIDC_CLIENT_ID`、`GOOGLE_OIDC_CLIENT_SECRET`、環境別redirect URI
+- メール候補: `EMAIL_CODE_PROVIDER`、送信元名、provider secret
+- SIWC候補: `OPENAI_SIWC_CLIENT_ID`、必要なclient secret、環境別redirect URI
+- 診断: secret値を返さず、providerごとのconfigured booleanだけを管理者経路へ表示する
+
+既存のJWT検証依存を再利用できるかを先に確認し、新しいOAuthライブラリ、メールSDK、環境変数、共通moduleは承認なしに追加しない。D1とR2のbindingは変更しない。
+
+## 次の認証実装unitの受入条件
+
+- メール確認コードの正常、期限切れ、使用済み、試行超過、再送制限、parallel request、送信失敗、通信断を確認できる。
+- 登録済み／未登録を応答差分、文言、時間差で列挙できない。
+- Googleのstate、PKCE、nonce、issuer、audience、signature、verified email、callback URIを検証し、拒否時にsession・workspace・membershipを作成しない。
+- SIWCが未登録・未eligibleの環境ではログインUIとcallbackが無効で、AI APIもOFFのままである。
+- session cookieがJavaScript、拡張、URL、ログへ漏れず、expiry、logout、revocation、CSRF、再認証を確認できる。
+- email一致だけでは旧Access identity、Google identity、SIWC identityをlinkしない。明示本人linkと拒否系を確認する。
+- login途中のguest handoff、local draft、選択済みoutputを保持し、成功後に同じdraft fingerprintを確認して復帰する。
+- provider callback、session、workspace、manual、R2 assetの各経路でtenant越境・権限不足・disabled identity・結果不明を拒否する。
+- secret値、token、確認コード、実メールアドレスをテストログ、Issue、Markdownへ出さない。
+
+## 必要な外部操作と未決事項
+
+- メール送信providerの選定、送信元domain、staging/production credential、rate limitと失敗時運用の承認。
+- Google Cloud側のOAuth client、環境別callback URL、issuer/audience、同意画面、verified email運用の登録。
+- OpenAI側のSIWC商用client登録・利用資格、identity scopeとplan usage scopeの可否、callbackとtoken endpointの登録。
+- 既存Access identityを新provider identityへ明示linkする本人確認手順と、link解除・アカウント復旧方針。
+- `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。
+
+これらが確認できるまで、現行Access/D1運用を変更せず、製品認証の新UI・callback・migrationを実装しない。
