@@ -34,7 +34,7 @@ test("0.1.9 editor exposes Office actions behind the authenticated cloud gate", 
   assert.match(editor, /officeDraftContent\(draft, title\.value, description\.value\) !== exportContent/u);
   assert.match(editor, /office-image-failed/u);
   assert.match(editor, /手順\$\{step\[1\]\}の説明を入力してから再試行してください/u);
-  assert.match(editor, /手順は200件以内にしてから再試行してください/u);
+  assert.match(editor, /手順を1件以上、200件以内にしてから再試行してください/u);
   assert.match(editor, /認証済みワークスペースへの保存を確認しました。共有設定は変更していません/u);
 });
 
