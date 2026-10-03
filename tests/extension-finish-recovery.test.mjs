@@ -1012,6 +1012,26 @@ test("protected image bytes loss becomes a storage failure instead of a reviewab
   assert.equal(capture.draft().screenshots.length, 0);
 });
 
+for (const status of ["ready", "protected"]) {
+  test(`stale ${status} bytes do not satisfy a newer image state`, async () => {
+    const capture = await harness({ pendingEvents: [] });
+    const event = { kind: "click", at: 1, eventId: `stale-${status}:1`, target: { tagName: "button" } };
+    const originalBytes = "data:image/jpeg;base64,stale";
+    capture.session().events = [event];
+    capture.session().stepImageRefs = [{ eventId: event.eventId, status, reason: null, attempts: 2, version: 2 }];
+    capture.seedLiveImages([{ id: `stale-${status}-image`, sessionId: "capture-1", eventId: event.eventId, status, dataUrl: originalBytes, version: 1 }]);
+    assert.equal(capture.liveImages()[0].dataUrl, originalBytes);
+    const result = await capture.finish();
+    assert.equal(result.imageCount, 0);
+    assert.equal(result.missingImageCount, 1);
+    assert.equal(result.reviewImageCount, 0);
+    assert.equal(capture.draft().steps[0].imageState.status, "failed");
+    assert.equal(capture.draft().steps[0].imageState.reason, "storage_failed");
+    assert.equal(capture.draft().steps[0].screenshotId, undefined);
+    assert.equal(capture.draft().screenshots.length, 0);
+  });
+}
+
 test("native raw image is retained but waits for explicit privacy review", async () => {
   const capture = await harness({ pendingEvents: [] });
   await capture.event({ kind: "click", at: 1, eventId: "protected:1", target: { tagName: "button" } });

@@ -618,7 +618,9 @@ function finalStepImageState(stored, ref) {
   const source = ref && (ref.version || 1) > (stored?.version || 1) ? ref : stored || ref;
   const state = imageStateFor(source);
   if (["queued", "capturing"].includes(state.status)) return { ...state, status: "unavailable", reason: "capture_interrupted" };
-  if (["ready", "protected"].includes(state.status) && !stored?.dataUrl) return { ...state, status: "failed", reason: "storage_failed" };
+  const sourceVersion = source?.version || 1;
+  const storedBytesMatch = Boolean(stored?.dataUrl) && (stored?.version || 1) >= sourceVersion;
+  if (["ready", "protected"].includes(state.status) && !storedBytesMatch) return { ...state, status: "failed", reason: "storage_failed" };
   return state;
 }
 
