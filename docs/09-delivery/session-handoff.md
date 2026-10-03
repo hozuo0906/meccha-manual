@@ -596,3 +596,12 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - Google/ChatGPTの成功callbackは既存の `clearSessionCookies()` で `__Host-mm_access` / `__Host-mm_refresh` を消去し、失敗・cancel・不正stateではlegacy cookieを消去しない。transaction cookieはproviderとstateのSHA-256に結び付け、callback/errorは該当transactionだけを消去する。D1 schema、migration、remote Supabase logout、provider secretは変更しない。
 - unit実測は app-auth/product-auth 138/138、skip 0、exit 0で、未知・不正stateとlegacy cookie付き失敗時の保持を含む。CFT Chromium browser実測はローカルsession `86926`、5/5、skip 0、exit 0（約22.1秒）。browserではGoogle/ChatGPTの同一provider二tab、成功順 `[0,1]`／`[1,0]`、cancel順 `[0,1]`／`[1,0]`、legacy cookie付き成功、product logout後reloadを確認した。実ユーザーのcredentialやsecretは使用していない。
 - 次の1マイルストーンは、実行時に取得した最新PR head・local・origin一致SHAに対するCI、Codex Review、review thread解決を親PMが確認することである。staging/production反映は未実施のまま維持する。
+
+## 製品認証とOffice出力の親検証チェックポイント（2026-10-04T03:28:14+09:00）
+
+- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`。source修正は `1802c6fa2cf207b963c222246b509bac73091956` と `017a026ea110b0402df1a6cccd0df340c4eeaed0` でremote保存済み、親がlocal／PR head一致とcleanを取得した。180は自然期限切れでcookieが消えたmanual／share APIを401 SESSION_REQUIREDへ分類し、017はDB bindingがなくても製品routeをdispatchしてstorage障害へ到達させる。cookieがあるDB欠落は期限切れと断定せず503 AUTH_STORAGE_UNAVAILABLEを返す。DEC-099／DEC-100とAPI・traceability・ACを同期した。
+- 親が017に対して関連unit（cloud-manual-c／share-link-backend／app-auth／product-auth／m3-http-d1）203/203、skip0、exit0を取得。Google／ChatGPT configured、Access設定なし、cookie有無、DB有無を実Worker.fetchで検証し、legacy password選択、Access有効／不正／service拒否、tenant・share negative/mutationを維持した。docs143／encoding377／git diff --checkも成功した。
+- 180の親CFT実行session62025は7件中6件成功、1件は実editorのChatGPTログインボタン表示待ち15秒timeout。単独再実行session85667は1/1、skip0、exit0。同headのLinux Privacy job111260503524ではOffice5/5・provider5/5成功を親がログ確認した。初回失敗を全成功に書き換えず、ローカルタイミングの原因は未特定として残す。017の最新CI／レビューは別取得し、180の結果を最新headへ流用しない。
+- 017の `wrangler.onboarding.jsonc --env staging` dry-runはexit0、830.52KiB。対象staging専用DB／R2／rate bindingsとentrypointを確認したローカルビルドであり、実deploy・remote migration・secret bindingの証跡ではない。実Google／ChatGPT SSO、remote D1／R2、native Word／PowerPoint描画は未確認。
+- 運営IABログインとremote read-only照合は完了。Google資格情報は暗号化保管済み・remote未接続、SIWC申請の氏名／会社名／公開URLは回答待ち、商用client未発行で有効化しない。D1の0006／0007／0008は未適用、製品hostname／Worker全URLのAccess保護も未変更。production、課金、AI API、mergeは実施していない。DB rollbackや旧version互換を未検証のまま保証しない。
+- 次の1マイルストーンは、実行時に取得した最新local／origin／PR head一致SHAについて通常CI、正式Codex Review、既知指摘への根拠返信とfresh未解決thread0、latest-review品質ゲートを照合すること。その後、候補のstaging接続を具体化し、外部設定の実行承認とSIWC申請必須情報を確認する。自動監視・無人継続は登録していない。
