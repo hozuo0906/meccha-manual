@@ -19,6 +19,7 @@ let navigationFallback = null;
 let lastStepScreenshotAt = 0;
 const captureEventGenerations = new Map();
 const captureEventIds = new Map();
+const captureTargetWindows = new Map();
 const MIN_STEP_SCREENSHOT_INTERVAL_MS = 500;
 const captureLiveStore = importedCaptureLiveStore;
 const MAX_CAPTURE_STEPS = 200;
@@ -268,6 +269,7 @@ async function startCapture(tabId, mode) {
   };
   captureEventIds.delete(tabId);
   captureEventGenerations.delete(tabId);
+  captureTargetWindows.set(tabId, tab.windowId);
   await clearRecoveryJournal();
   await setSession(session);
   try {
@@ -328,9 +330,18 @@ async function currentClickTarget(session, event) {
 }
 
 async function takeScreenshot(session, assertCurrent = () => undefined, event) {
+  // The finish path can request a cover screenshot before any event has
+  // established a generation. Register one here so an activation away and
+  // back during the capture cannot make an old image look current.
+  const captureGeneration = captureEventGenerations.get(session.tabId)
+    || nextCaptureEventGeneration(session.tabId, undefined, "screen_changed");
+  const assertCaptureCurrent = () => {
+    assertCurrent();
+    assertCaptureGeneration(session.tabId, captureGeneration);
+  };
   let clickTarget = null;
   const initialIdentity = await assertCaptureTarget(session);
-  assertCurrent();
+  assertCaptureCurrent();
   let paintResult;
   try {
     [paintResult] = await chrome.scripting.executeScript({
@@ -350,16 +361,16 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     const reason = paintResult?.result?.reason;
     throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
   }
-  assertCurrent();
+  assertCaptureCurrent();
   await assertCaptureTarget(session, initialIdentity);
-  assertCurrent();
+  assertCaptureCurrent();
   clickTarget = await currentClickTarget(session, event);
-  assertCurrent();
+  assertCaptureCurrent();
   try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
   catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
-  assertCurrent();
+  assertCaptureCurrent();
   await assertCaptureTarget(session, initialIdentity);
-  assertCurrent();
+  assertCaptureCurrent();
   lastStepScreenshotAt = Date.now();
   let dataUrl;
   try { dataUrl = await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 }); }
@@ -367,9 +378,9 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
     catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
   }
-  assertCurrent();
+  assertCaptureCurrent();
   await assertCaptureTarget(session, initialIdentity);
-  assertCurrent();
+  assertCaptureCurrent();
   if (clickTarget && await currentClickTarget(session, event)) {
     const annotation = {
       id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
@@ -1082,6 +1093,7 @@ chrome.tabs.onActivated?.addListener((activeInfo) => {
   // activated again. Invalidate every known capture target left behind by the
   // switch so an in-flight capture cannot claim pixels from another tab.
   for (const tabId of captureEventGenerations.keys()) {
+    if (captureTargetWindows.get(tabId) !== undefined && activeInfo?.windowId !== captureTargetWindows.get(tabId)) continue;
     if (tabId !== activeInfo?.tabId) nextCaptureEventGeneration(tabId, undefined, "screen_changed");
   }
 });
@@ -1155,6 +1167,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   nextCaptureEventGeneration(tabId, undefined, "navigation_changed");
   captureEventIds.delete(tabId);
+  captureTargetWindows.delete(tabId);
   serializeSessionOperation(async () => {
     const session = await getSession();
     if (session?.tabId !== tabId) return;
