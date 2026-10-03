@@ -32,6 +32,16 @@ function entryText(entries, name) {
   return new TextDecoder().decode(entries.get(name));
 }
 
+function imageWithDimensions(width, height, mimeType = "image/png") {
+  const bytes = Uint8Array.from(PNG);
+  if (mimeType === "image/png") {
+    const view = new DataView(bytes.buffer);
+    view.setUint32(16, width);
+    view.setUint32(20, height);
+  }
+  return { kind: "edited", bytes, mimeType, width, height };
+}
+
 function manual() {
   return {
     title: "売上確認の手順",
@@ -55,6 +65,11 @@ test("office exports reject original pixels and unmarked images", () => {
   assert.throws(() => buildDocx({ ...manual(), steps: [{ ...manual().steps[0], image: { kind: "original", bytes: PNG, mimeType: "image/png" } }] }), /edited render/);
   assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], image: { bytes: PNG, mimeType: "image/png" } }] }), /edited render/);
   assert.throws(() => buildDocx({ ...manual(), steps: [{ ...manual().steps[0], image: { kind: "edited", bytes: new Uint8Array(), mimeType: "image/png", width: 1, height: 1 } }] }), /empty/);
+});
+
+test("office exports reject XML 1.0 control characters and unpaired surrogates", () => {
+  assert.throws(() => buildDocx({ ...manual(), title: "不正\u0000文字" }), /unsupported XML characters/);
+  assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], instruction: "不正\ud800文字" }] }), /unsupported XML characters/);
 });
 
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {
@@ -102,6 +117,48 @@ test("PPTX theme has the required three style entries and long Japanese body use
   assert.match(slide, /<a:normAutofit\/>/);
   assert.match(slide, /cy="3200000"/);
   assert.match(slide, /\u64cd\u4f5c\u3092\u8a18\u9332/);
+});
+
+test("DOCX and PPTX fit every image orientation in EMU bounds and keep multiple images", () => {
+  const dimensions = [[1600, 900], [900, 1600], [320, 180], [4000, 1000]];
+  const value = {
+    title: "画像寸法の確認",
+    description: "長い本文でも画像と手順を保持します。".repeat(8),
+    steps: dimensions.map(([width, height], index) => ({
+      number: index + 1,
+      title: `画像 ${index + 1}`,
+      instruction: `日本語の手順本文 ${index + 1}。`,
+      image: imageWithDimensions(width, height)
+    }))
+  };
+  const docxEntries = zipEntries(buildDocx(value));
+  const docx = entryText(docxEntries, "word/document.xml");
+  const docxExtents = [...docx.matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/gu)].map((match) => [Number(match[1]), Number(match[2])]);
+  assert.equal(docxExtents.length, dimensions.length);
+  assert.deepEqual(docxExtents[0], [5760720, 3240405], "1600x900 is fitted to the DOCX width");
+  assert.deepEqual(docxExtents[2], [3048000, 1714500], "normal 320x180 keeps 96dpi pixel proportions without upscaling");
+  for (const [width, height] of docxExtents) {
+    assert.ok(width > 0 && height > 0);
+    assert.ok(width <= 6.3 * 914400 && height <= 7.6 * 914400);
+  }
+  for (let index = 1; index <= dimensions.length; index += 1) {
+    assert.ok(docxEntries.has(`word/media/image${index}.png`));
+  }
+
+  const pptxEntries = zipEntries(buildPptx(value));
+  for (let index = 1; index <= dimensions.length; index += 1) {
+    const slide = entryText(pptxEntries, `ppt/slides/slide${index}.xml`);
+    const picture = slide.match(/<p:pic>[\s\S]*?<a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>[\s\S]*?<\/p:pic>/u);
+    assert.ok(picture, `missing picture transform on slide ${index}`);
+    const [, x, y, width, height] = picture.map(Number);
+    assert.ok(x >= 0 && y >= 0);
+    assert.ok(width > 0 && height > 0);
+    assert.ok(x + width <= 12192000 && y + height <= 6858000);
+    assert.ok(width <= 6.55 * 914400 && height <= 5.3 * 914400);
+    if (index === 1) assert.deepEqual([x, y, width, height], [5602680, 2215504, 5989320, 3368993]);
+    if (index === 3) assert.deepEqual([width, height], [3048000, 1714500]);
+    assert.ok(pptxEntries.has(`ppt/media/image${index}.png`));
+  }
 });
 
 test("data URL rendered image can be exported without cloud login", () => {

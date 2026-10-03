@@ -20,6 +20,8 @@ const REL_THEME = "http://schemas.openxmlformats.org/officeDocument/2006/relatio
 const REL_HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 const REL_PACKAGE = "http://schemas.openxmlformats.org/package/2006/relationships";
 const REL_DOCX_NUMBERING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
+const EMU_PER_INCH = 914400;
+const EMU_PER_PIXEL = EMU_PER_INCH / 96;
 
 const MIME_EXTENSIONS = new Map([
   ["image/png", "png"],
@@ -40,7 +42,14 @@ function xml(value) {
 }
 
 function xmlText(value) {
-  return xml(text(value)).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const normalized = text(value).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  for (const character of normalized) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== 0x09 && codePoint !== 0x0a && codePoint !== 0x0d && (codePoint < 0x20 || codePoint > 0xd7ff && codePoint < 0xe000 || codePoint > 0x10ffff)) {
+      throw new TypeError("Office export text contains unsupported XML characters");
+    }
+  }
+  return xml(normalized);
 }
 
 function ensureTitle(value) {
@@ -195,12 +204,23 @@ function paragraph(value, style = "Normal", extra = "") {
 }
 
 function imageParagraph(image, relationshipId) {
-  const maxWidth = 6.3 * 914400;
-  const maxHeight = 7.6 * 914400;
-  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
-  const cx = Math.max(1, Math.round(image.width * scale * 914400));
-  const cy = Math.max(1, Math.round(image.height * scale * 914400));
+  const { width: cx, height: cy } = fitImageDimensions(image, 6.3, 7.6);
   return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${relationshipId.replace(/\D/gu, "") || "1"}" name="Edited step image"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${relationshipId.replace(/\D/gu, "") || "1"}" name="Edited step image"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${xml(relationshipId)}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+}
+
+function fitImageDimensions(image, maxWidthInches, maxHeightInches) {
+  // Images use the standard 96dpi CSS pixel density while OOXML extents use
+  // English Metric Units. Compare like-for-like before fitting; otherwise a
+  // 1600px image is mistakenly treated as 1600 EMU and overflows the document.
+  const maxWidth = maxWidthInches * EMU_PER_INCH;
+  const maxHeight = maxHeightInches * EMU_PER_INCH;
+  const sourceWidth = image.width * EMU_PER_PIXEL;
+  const sourceHeight = image.height * EMU_PER_PIXEL;
+  const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight, 1);
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale))
+  };
 }
 
 function docxContentTypes(images) {
@@ -256,11 +276,7 @@ function pptTextShape(id, x, y, width, height, value, options = {}) {
 }
 
 function pptImageShape(id, image, relationshipId) {
-  const maxWidth = 6.55 * 914400;
-  const maxHeight = 5.3 * 914400;
-  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
-  const width = Math.max(1, Math.round(image.width * scale * 914400));
-  const height = Math.max(1, Math.round(image.height * scale * 914400));
+  const { width, height } = fitImageDimensions(image, 6.55, 5.3);
   const x = 12192000 - 600000 - width;
   const y = 1400000 + Math.round((5000000 - height) / 2);
   return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Edited step image"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${xml(relationshipId)}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
