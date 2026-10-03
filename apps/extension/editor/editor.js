@@ -6,6 +6,7 @@ import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dat
 import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, resumeCompletedOfficeStartup, saveHandoffMetadata, validOfficeFormat, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
+import { normalizeOfficeManual } from "../export/office-export.js";
 
 const id = location.hash.slice(1);
 const draft = await draftStore.get(id);
@@ -823,8 +824,26 @@ function officeExportMessage(error) {
   const message = String(error?.message || "");
   const step = message.match(/^Step (\d+) requires body text$/u);
   if (step) return `手順${step[1]}の説明を入力してから再試行してください。`;
-  if (message === "Office export requires one to 200 steps") return "手順は200件以内にしてから再試行してください。";
+  if (message === "Office export requires one to 200 steps") return "手順を1件以上、200件以内にしてから再試行してください。";
   return error?.userMessage || "Officeファイルを書き出せませんでした。内容を確認して再試行してください。";
+}
+function validateOfficeDraftForOutput() {
+  try {
+    normalizeOfficeManual({ title: title.value, description: description.value, steps: draft.steps.map((step) => ({ instruction: step.instruction })) });
+    return true;
+  } catch (error) {
+    const message = officeExportMessage(error);
+    const stepNumber = Number(String(error?.message || "").match(/^Step (\d+) requires body text$/u)?.[1]);
+    const invalidStep = Number.isInteger(stepNumber) && stepNumber > 0 ? draft.steps[stepNumber - 1] : null;
+    if (invalidStep) {
+      selectedStepId = invalidStep.id;
+      render();
+      detail.querySelector("textarea")?.focus();
+    }
+    setOfficeExportStatus(message, "error");
+    status.textContent = message;
+    return false;
+  }
 }
 function officeDraftContent(draft, titleValue, descriptionValue) {
   const canonical = JSON.parse(canonicalDraftJson({ ...draft, title: titleValue, description: descriptionValue }));
@@ -868,6 +887,7 @@ async function openOutput(action, officeFormat = undefined) {
   if (action !== "office") officeFormat = undefined;
   if(imageDialog.open){status.textContent="画像の変更を適用するか、閉じてから保存・共有へ進んでください。";return;}
   if (!textFieldsValid()) { status.textContent = title.validationMessage || description.validationMessage; title.reportValidity(); description.reportValidity(); return; }
+  if (action === "office" && !validateOfficeDraftForOutput()) return;
   if (imageDialog.open) { status.textContent = "画像の変更を適用するか、閉じてから保存・共有してください。"; return; }
   const generation = ++outputGateGeneration; outputIntent = action; outputOfficeFormat = officeFormat || null; closePanels();
   document.querySelector("#outputGateTitle").textContent = action === "share" ? "共有する内容を確認" : action === "office" ? `${officeFormat === "docx" ? "Word" : "PowerPoint"}を書き出す準備` : "クラウドに保存する内容を確認";

@@ -2109,3 +2109,42 @@ test("an unassigned zero-event cover stays gated after add-step until the same i
     await page.locator("#cancelOutput").click();
   } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
 });
+
+test("Office selection rejects empty and blank steps before opening the auth gate", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "office-step-validation-before-gate";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await page.goto(baseUrl + "/seed.html");
+    await page.evaluate(async (id) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id, title: "手順の検証", description: "", steps: [], screenshots: [] });
+    }, draftId);
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "zero steps must be rejected before the auth gate");
+    assert.match(await page.locator("#officeExportStatus").textContent(), /手順を1件以上、200件以内/u);
+
+    await page.locator("#addStep").click();
+    const instruction = page.locator("#detail textarea");
+    await instruction.fill("");
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "blank instruction must be rejected before the auth gate");
+    assert.match(await page.locator("#officeExportStatus").textContent(), /手順1の説明を入力/u);
+    assert.equal(await instruction.evaluate((element) => document.activeElement === element), true, "invalid instruction should receive focus");
+
+    await instruction.fill("確認して保存します。");
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), false, "valid steps should resume the normal Office gate");
+    await page.locator("#cancelOutput").click();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
