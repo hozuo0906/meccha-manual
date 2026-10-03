@@ -26,5 +26,5 @@ button.secondary,input,textarea,.tool-grid button,.selection-group button{border
 @media(max-width:1150px) and (min-width:769px){.image-editor-tools .tool-grid{grid-template-columns:repeat(2,minmax(66px,1fr))}}
 
 @media(max-width:760px){.image-editor-actions{flex-wrap:wrap}.image-editor-actions>span{display:block;flex-basis:100%;margin:0;font-size:.78rem}}
-@media(max-width:768px){.image-editor-canvas-wrap{min-height:120px}}
+@media(max-width:768px){.image-editor-dialog{height:100%;overflow:hidden}.image-editor-form{height:100%;min-height:0}.image-editor-workspace{display:block;min-height:0;overflow:auto}.image-editor-canvas-wrap{min-height:120px;overflow:visible}.image-editor-tools{overflow:visible}.image-editor-actions{position:static}}
 .image-editor-tools [data-editor-replacement-type]{min-height:44px}

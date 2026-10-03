@@ -28,7 +28,7 @@ function serveExtension() {
       const info = await stat(filePath);
       if (!info.isFile()) throw new Error("not a file");
       const body = await readFile(filePath);
-      if (filePath.endsWith("apps\\extension\\export\\office-export.js") && server.officeModuleDelayMs) {
+      if (relativePath.replaceAll("\\", "/") === "export/office-export.js" && server.officeModuleDelayMs) {
         await new Promise((resolveDelay) => setTimeout(resolveDelay, server.officeModuleDelayMs));
       }
       const contentType = filePath.endsWith(".html")
@@ -116,8 +116,18 @@ async function captureEvidence(page, name) {
 }
 
 async function downloadBytes(page, button) {
-  const [download] = await Promise.all([page.waitForEvent("download"), button.click()]);
-  return readFile(await download.path());
+  try {
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), button.click({ timeout: 30_000 })]);
+    return readFile(await download.path());
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      status: document.querySelector("#officeExportStatus")?.textContent || "",
+      state: document.querySelector("#officeExportStatus")?.dataset.state || "",
+      wordDisabled: Boolean(document.querySelector("#exportWord")?.disabled),
+      powerpointDisabled: Boolean(document.querySelector("#exportPowerPoint")?.disabled)
+    })).catch(() => ({}));
+    throw new Error(`Office download failed: ${error.message}; diagnostic=${JSON.stringify(diagnostic)}`);
+  }
 }
 
 async function pixelAt(page, bytes, xRatio, yRatio) {
@@ -179,6 +189,15 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
     await page.setViewportSize({ width: 390, height: 844 });
     await captureEvidence(page, "office-extension-replacement-390");
     await page.locator('[data-replacement-action="add"]').evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.locator('[data-replacement-action="add"]').focus();
+    const replacementGeometry = await page.locator('[data-replacement-action="add"]').evaluate((element) => {
+      const button = element.getBoundingClientRect();
+      const footer = document.querySelector(".image-editor-actions").getBoundingClientRect();
+      const probe = document.elementFromPoint(button.left + button.width / 2, button.top + button.height / 2);
+      return { button, footer, probeIsButton: probe === element || element.contains(probe) };
+    });
+    assert.ok(replacementGeometry.button.bottom <= replacementGeometry.footer.top + 1 || replacementGeometry.button.top >= replacementGeometry.footer.bottom - 1, "390px replacement controls must not overlap the apply footer");
+    assert.equal(replacementGeometry.probeIsButton, true, "keyboard-focused replacement control must remain hit-testable");
     await captureEvidence(page, "office-extension-replacement-390-controls");
     await page.setViewportSize({ width: 1366, height: 900 });
     await page.locator("[data-editor-save]").click();

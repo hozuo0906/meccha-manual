@@ -3,7 +3,7 @@ import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
 import { createSyntheticPerson, syntheticPersonForReplacementAnnotations } from "./personal-info-replacement.js";
 import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
-import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -751,6 +751,11 @@ function officeExportMessage(error) {
   if (message === "Office export requires one to 200 steps") return "手順は200件以内にしてから再試行してください。";
   return error?.userMessage || "Officeファイルを書き出せませんでした。内容を確認して再試行してください。";
 }
+function officeDraftContent(draft, titleValue, descriptionValue) {
+  const canonical = JSON.parse(canonicalDraftJson({ ...draft, title: titleValue, description: descriptionValue }));
+  delete canonical.updatedAt;
+  return JSON.stringify(canonical);
+}
 async function exportOffice(format, button) {
   if (officeExportInFlight || imageDialog.open) return;
   if (!textFieldsValid()) { setOfficeExportStatus(title.validationMessage || description.validationMessage, "error"); title.reportValidity(); description.reportValidity(); return; }
@@ -760,7 +765,9 @@ async function exportOffice(format, button) {
   officeExportInFlight = true; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = true; }); if (button) button.setAttribute("aria-busy", "true");
   setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを作成しています…`);
   try {
+    const exportContent = officeDraftContent(draft, title.value, description.value);
     const exportFingerprint = await fingerprintDraft(draft);
+    if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const exportSnapshot = { title: title.value, description: description.value, steps: draft.steps.map((step) => ({ id: step.id, instruction: step.instruction, screenshotId: step.screenshotId })) };
     const steps = [];
     for (const [index, step] of exportSnapshot.steps.entries()) {
@@ -768,8 +775,9 @@ async function exportOffice(format, button) {
       const current = draft.steps.find((item) => item.id === step.id); if (!current) throw officeError("office-export-changed", "手順が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
       steps.push({ number: index + 1, instruction: String(step.instruction || ""), image: step.screenshotId ? await editedOfficeImage(current, index) : null });
     }
-    if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
+    if (officeDraftContent(draft, title.value, description.value) !== exportContent || await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const tools = await import("../export/office-export.js");
+    if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
     if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
