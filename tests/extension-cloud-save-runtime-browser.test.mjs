@@ -152,6 +152,10 @@ async function watchOfficeReturnReceipt(worker, handoffId) {
   }, handoffId);
 }
 
+async function sendExternalMessage(page, extensionId, message) {
+  return page.evaluate(async ({ id, payload }) => chrome.runtime.sendMessage(id, payload), { id: extensionId, payload: message });
+}
+
 async function tabIdForPage(worker, page) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const id = await worker.evaluate((url) => new Promise((resolve, reject) => {
@@ -255,6 +259,25 @@ test("actual MV3 coordinator completes authenticated Office docx and pptx claims
         assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM manuals").get().count, index + 1);
         assert.equal([...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png").length, index + 1);
         await watchOfficeReturnReceipt(worker, handoffId);
+        const wrongFormat = officeFormat === "docx" ? "pptx" : "docx";
+        const wrongFormatReply = await sendExternalMessage(page, extensionId, {
+          schema: "meccha-manual/cloud-claim-v1",
+          type: "handoff.office-return",
+          handoffId,
+          launchId,
+          officeFormat: wrongFormat
+        });
+        assert.deepEqual(wrongFormatReply, { ok: false, error: "OFFICE_RETURN_REJECTED" }, "a return for another Office format must be rejected");
+        const wrongLaunchReply = await sendExternalMessage(page, extensionId, {
+          schema: "meccha-manual/cloud-claim-v1",
+          type: "handoff.office-return",
+          handoffId,
+          launchId: "Z".repeat(43),
+          officeFormat
+        });
+        assert.deepEqual(wrongLaunchReply, { ok: false, error: "OFFICE_RETURN_REJECTED" }, "a return for another launch must be rejected");
+        assert.deepEqual(await worker.evaluate(() => globalThis.__officeReturnReceiptEvents || []), [], "rejected returns must not issue an Office receipt");
+        assert.equal((await getStorage(worker, handoffStorageKey(handoffId)))?.officeReturnReceipt, undefined, "rejected returns must not persist an Office receipt");
         let resolveDownload;
         const downloadPromise = new Promise((resolve) => { resolveDownload = resolve; });
         const downloadListener = (candidate) => resolveDownload(candidate);
@@ -280,6 +303,18 @@ test("actual MV3 coordinator completes authenticated Office docx and pptx claims
           assert.ok(receipts.some((receipt) => receipt.handoffId === handoffId && receipt.launchId === launchId && receipt.officeFormat === officeFormat && receipt.draftFingerprint === draftFingerprint), "editor return must use a real SW-issued Office receipt");
           assert.equal(await getStorage(worker, officeIntentStorageKey(draft.id)), null, "Office intent must be consumed after the download");
           assert.equal((await getStorage(worker, handoffStorageKey(handoffId)))?.officeReturnReceipt, undefined, "Office return receipt must be consumed by the resumed editor");
+          let duplicateDownloads = 0;
+          editorPage.on("download", () => { duplicateDownloads += 1; });
+          const duplicateReply = await editorPage.evaluate(async ({ hid, lid, format, fingerprint }) => chrome.runtime.sendMessage({
+            schema: "meccha-manual/cloud-claim-v1",
+            type: "handoff.office-return-consume",
+            handoffId: hid,
+            launchId: lid,
+            officeFormat: format,
+            draftFingerprint: fingerprint
+          }), { hid: handoffId, lid: launchId, format: officeFormat, fingerprint: draftFingerprint });
+          assert.deepEqual(duplicateReply, { ok: true, value: { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" } }, "a consumed receipt must reject a second editor return");
+          assert.equal(duplicateDownloads, 0, "a rejected second editor return must not download again");
         } finally {
           context.off("page", pageListener);
         }

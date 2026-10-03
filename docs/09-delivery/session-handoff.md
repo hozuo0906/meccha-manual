@@ -2,11 +2,14 @@
 
 Status: Accepted
 
-確認日時: 2026-10-03T17:13:25+09:00 (Asia/Tokyo)
-- 対象source HEADは `e95fbf85e40cde33532a4cc19359ea6ad7ef0ad8`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。実装はローカルcommit済みで、GitHub refとPR #282 headへ反映済み（e95fbf85e40cde33532a4cc19359ea6ad7ef0ad8と一致）。release検証は未完了。
-- Office unitは33/33 pass（skip 0）、Office＋cloudのsynthetic browserは2/2 pass（skip 0）。実MV3 runtimeは別担当が確認中。実SSOとnative Office描画は未確認。
-- Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。
-- 次の1マイルストーンは、最新headでMV3 runtime、CI、reviewを照合すること。
+確認日時: 2026-10-03T18:36:09+09:00 (Asia/Tokyo)
+- 対象source HEADは `dc119d18e6548f9fb05a3bb34ec55fcb686d2b17`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。closed-editor復帰receiptの実装は `af6f107` + `0510bcd`、Office snapshot browser回帰は `dc119d1` に反映済み。release検証は未完了。
+- 親が実MV3のclosed-editor復帰→Word/PPT両形式ダウンロード、別形式/別launch拒否・receipt未発行、二回目consume拒否・重複downloadなしを1/1、skip 0、exit 0で確認（source `dc119d1`、今回のruntimeテスト差分）。Office関連unit37/37 pass、component browserは `dc119d1` で1/1 pass、skip 0。npm ciは親で成功。Windows `npm run check` は docs/brand/worker/editor-tools/typecheck 通過後、既存 `wrangler.cmd` の `spawnSync ... EINVAL` で停止。一方、`dc119d1` のLinux Docs CI run37113055230/job111174537678でnpm ci/fullcheck成功をログ照合済み、Privacy run37113055312のOffice stepも成功。今回の新headのCIとCodex Reviewは別途必要で、旧SHAの成功を流用しない。
+- Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。実SSOとnative Office描画は未確認。
+- P2 triage（今回ソース変更なし）: handoff期限後にclaim結果をGET回収できても、期限切れhandoffはterminalで旧Office出力を再開せず、編集画面から新しい認証・形式選択へ戻す。これは古い認証・操作を黙って再利用しない意図的な安全境界で、原本・新しい編集・既存cloudRefは保持される。最低限この境界を維持し、後続で「もう一度Word/PowerPointを書き出す」と明示する再選択案内を検討する（親PM担当、2026-10-08）。
+- P2 triage（今回ソース変更なし）: 外部editor更新によるstale cloudRefの409は、対象版をlatestへ自動差替えせず、元のlocal draftとcloudRefを保持してfail-closedする契約。409で上書きを拒否する境界は維持するが、同じ古い参照で再試行を繰り返すしかない導線はUX上の欠陥として保留する（影響: 外部更新後の当該下書きではOffice出力とクラウド更新を継続できない。担当: 親PM、期限: 2026-10-08）。安全な最新版確認・差分確認・明示選択の設計が必要なため、今回の自動出力修正へ混在させない。後続修正では409後に利用者が最新版を確認して明示選択した場合だけ新しいoperation/claimを作り、同じ参照を自動再利用しない。期限後結果回収とstale参照のいずれも、このmilestoneでは自動再出力・silent revision substitutionを追加しない。
+- 次の1マイルストーンは、最新headでMV3 runtime、CI、Codex Reviewを照合し、上記P2の再選択・明示選択導線を別bounded unitで判断すること。
+
 # セッション引き継ぎ運用
 
 ## Issue #281 / Draft PR #282 現在checkpoint
