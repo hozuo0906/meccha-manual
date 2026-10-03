@@ -42,6 +42,10 @@ export function hasProductSessionCookie(request: Request): boolean {
   });
 }
 
+function productAuthStorageError(message = "ログイン状態を保存できません。時間をおいて再度お試しください。"): ProductAuthError {
+  return new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", message);
+}
+
 interface Env extends AppRuntimeBindings, ProductAuthBindings { DB?: D1DatabaseLike; ONBOARDING_RATE_LIMITER?: RateLimit; }
 interface TransactionRow { id: string; provider: Provider; state_hash: string; nonce_hash: string; verifier_hash: string; redirect_uri: string; return_path: string; expires_at: string; consumed_at: string | null; }
 interface SessionRow { application_id: string; issuer: string; subject: string; expires_at: string; revoked_at: string | null; auth_method: Provider; }
@@ -165,10 +169,15 @@ export async function beginProductAuth(request: Request, env: Env, provider: Pro
   const transactionId = crypto.randomUUID();
   const now = new Date();
   const expires = new Date(now.getTime() + TRANSACTION_SECONDS * 1000).toISOString();
-  const result = await env.DB.prepare(`INSERT INTO oauth_transactions
+  let result: { success: boolean };
+  try {
+    result = await env.DB.prepare(`INSERT INTO oauth_transactions
     (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(transactionId, provider, await hash(state), await hash(nonce), await hash(verifier), redirectUri, returnPath, now.toISOString(), expires).run();
+  } catch {
+    throw productAuthStorageError();
+  }
   if (!result.success) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "openid email profile", state, nonce, code_challenge: bytesToBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)))), code_challenge_method: "S256" });
   const response = new Response(null, { status: 302, headers: { location: `${spec.authorizationEndpoint}?${params}`, "cache-control": "no-store" } });
@@ -177,10 +186,21 @@ export async function beginProductAuth(request: Request, env: Env, provider: Pro
 }
 
 async function readTransaction(db: D1DatabaseLike, provider: Provider, state: string, transactionId: string, verifier: string): Promise<TransactionRow> {
-  const row = await db.prepare(`SELECT id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, expires_at, consumed_at FROM oauth_transactions WHERE id = ? AND provider = ? AND state_hash = ?`).bind(transactionId, provider, await hash(state)).first<TransactionRow>();
+  let row: TransactionRow | null;
+  try {
+    row = await db.prepare(`SELECT id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, expires_at, consumed_at FROM oauth_transactions WHERE id = ? AND provider = ? AND state_hash = ?`).bind(transactionId, provider, await hash(state)).first<TransactionRow>();
+  } catch {
+    throw productAuthStorageError("ログイン状態を確認できません。時間をおいて再度お試しください。");
+  }
   const expiresAt = Date.parse(row?.expires_at ?? "");
   if (!row || row.consumed_at || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || row.verifier_hash !== await hash(verifier)) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
-  const consumed = await db.prepare("UPDATE oauth_transactions SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL").bind(new Date().toISOString(), row.id).run();
+  let consumed: { success: boolean; meta?: { changes?: number } };
+  try {
+    consumed = await db.prepare("UPDATE oauth_transactions SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL").bind(new Date().toISOString(), row.id).run();
+    if (!consumed.success) throw productAuthStorageError("ログイン状態を確認できません。時間をおいて再度お試しください。");
+  } catch {
+    throw productAuthStorageError("ログイン状態を確認できません。時間をおいて再度お試しください。");
+  }
   if (!consumed.success || (consumed.meta?.changes ?? 0) !== 1) throw new ProductAuthError(409, "AUTH_TRANSACTION_REPLAYED", "このログイン操作はすでに使用されています。ログインをやり直してください。");
   return row;
 }
@@ -250,7 +270,7 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
     SELECT ?, application_id, ?, ?, ?, ? FROM identities WHERE issuer = ? AND subject = ? AND status = 'active'`)
       .bind(crypto.randomUUID(), await hash(token), identity.method, now.toISOString(), new Date(now.getTime() + SESSION_SECONDS * 1000).toISOString(), identity.issuer, identity.subject).run();
     if (!result.success || (result.meta?.changes ?? 0) !== 1) throw new ProductAuthError(503, "AUTH_SESSION_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて、もう一度お試しください。");
-    const response = new Response(null, { status: 302, headers: { location: new URL(transaction.return_path, runtimeBaseUrl(env)).toString(), "cache-control": "no-store" } });
+    const response = new Response(null, { status: 302, headers: { location: new URL(transaction.return_path, runtimeBaseUrl(env)).toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
     response.headers.append("set-cookie", cookie(PRODUCT_SESSION_COOKIE, token, SESSION_SECONDS));
     response.headers.append("set-cookie", clearCookie(`${OAUTH_COOKIE_PREFIX}${provider}`));
     return response;
@@ -285,7 +305,12 @@ export async function revokeProductSession(request: Request, env: Env): Promise<
   const token = cookies(request).get(PRODUCT_SESSION_COOKIE);
   if (token && !env.DB) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログアウト状態を保存できません。時間をおいて再度お試しください。");
   if (token && env.DB) {
-    const result = await env.DB.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL").bind(new Date().toISOString(), await hash(token)).run();
+    let result: { success: boolean };
+    try {
+      result = await env.DB.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL").bind(new Date().toISOString(), await hash(token)).run();
+    } catch {
+      throw productAuthStorageError("ログアウト状態を保存できません。時間をおいて再度お試しください。");
+    }
     if (!result.success) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログアウト状態を保存できません。時間をおいて再度お試しください。");
   }
   return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json; charset=utf-8", "set-cookie": clearCookie(PRODUCT_SESSION_COOKIE), "cache-control": "no-store" } });

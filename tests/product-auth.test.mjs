@@ -76,6 +76,51 @@ async function authDatabase() {
   return { database, binding: new D1Adapter(database) };
 }
 
+function rejectingBinding(binding, sqlPrefix, operation) {
+  return {
+    prepare(sql) {
+      if (!sql.startsWith(sqlPrefix)) return binding.prepare(sql);
+      if (operation === "prepare") throw new Error("synthetic storage rejection");
+      const statement = binding.prepare(sql);
+      return {
+        bind(...values) {
+          if (operation === "bind") throw new Error("synthetic storage rejection");
+          const bound = statement.bind(...values);
+          return {
+            run: operation === "run" ? async () => { throw new Error("synthetic storage rejection"); } : operation === "run-false" ? async () => ({ success: false, meta: { changes: 0 } }) : bound.run,
+            first: operation === "first" ? async () => { throw new Error("synthetic storage rejection"); } : bound.first,
+            all: bound.all
+          };
+        }
+      };
+    }
+  };
+}
+
+test("OAuth transaction storage rejections at prepare, bind, and run fail closed", async () => {
+  for (const operation of ["prepare", "bind", "run"]) {
+    const { database, binding } = await authDatabase();
+    const env = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      GOOGLE_OIDC_CLIENT_ID: "google-storage-boundary-client",
+      GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+      ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      DB: rejectingBinding(binding, "INSERT INTO oauth_transactions", operation)
+    };
+    try {
+      const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+      assert.equal(response.status, 503, operation);
+      assert.equal((await response.json()).code, "AUTH_STORAGE_UNAVAILABLE", operation);
+      assert.equal(response.headers.get("location"), null, operation);
+      assert.equal(response.headers.get("set-cookie"), null, operation);
+      assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 0, operation);
+    } finally {
+      database.close();
+    }
+  }
+});
+
 test("Google OIDC start→callback→D1 session→logout uses the product session boundary", async () => {
   const { database, binding } = await authDatabase();
   const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -117,8 +162,10 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     assert.match(setCookie, /HttpOnly/u);
     const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: setCookie.split(";")[0] } }), env, {});
     assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get("referrer-policy"), "no-referrer");
     const replay = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: setCookie.split(";")[0] } }), env, {});
     assert.equal(replay.status, 401);
+    assert.equal(replay.headers.get("referrer-policy"), "no-referrer");
     const secondStart = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2F`), env, {});
     const secondRedirect = new URL(secondStart.headers.get("location"));
     nonce = secondRedirect.searchParams.get("nonce");
@@ -378,6 +425,7 @@ test("cancelled callback returns to the transaction return path and permits a fr
       headers: { accept: "text/html", cookie: oauthCookie }
     }), env, {});
     assert.equal(cancelled.status, 401);
+    assert.equal(cancelled.headers.get("referrer-policy"), "no-referrer");
     assert.match(await cancelled.text(), /href="\/onboarding\/continue"/u);
     assert.match(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
     const retry = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
@@ -386,6 +434,50 @@ test("cancelled callback returns to the transaction return path and permits a fr
     assert.equal(database.prepare("SELECT count(*) AS total FROM oauth_transactions").get().total, 2);
   } finally {
     database.close();
+  }
+});
+
+test("callback transaction read and consume storage rejections return retryable errors without a session", async () => {
+  for (const [sqlPrefix, operation] of [["SELECT id, provider", "first"], ["UPDATE oauth_transactions", "run"], ["UPDATE oauth_transactions", "run-false"]]) {
+    const { database, binding } = await authDatabase();
+    const baseEnv = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      GOOGLE_OIDC_CLIENT_ID: "google-callback-storage-client",
+      GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+      ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      DB: binding
+    };
+    try {
+      const start = await worker.fetch(new Request(`${baseEnv.APP_BASE_URL}/api/auth/google/start`), baseEnv, {});
+      const redirect = new URL(start.headers.get("location"));
+      const response = await worker.fetch(new Request(`${baseEnv.APP_BASE_URL}/api/auth/google/callback?code=synthetic-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: start.headers.get("set-cookie").split(";")[0] } }), { ...baseEnv, DB: rejectingBinding(binding, sqlPrefix, operation) }, {});
+      assert.equal(response.status, 503, `${sqlPrefix}/${operation}`);
+      assert.equal((await response.json()).code, "AUTH_STORAGE_UNAVAILABLE", `${sqlPrefix}/${operation}`);
+      assert.equal(response.headers.get("location"), null, `${sqlPrefix}/${operation}`);
+      assert.equal(database.prepare("SELECT count(*) AS count FROM auth_sessions").get().count, 0, `${sqlPrefix}/${operation}`);
+    } finally {
+      database.close();
+    }
+  }
+});
+
+test("logout storage rejections at prepare, bind, and run do not return success", async () => {
+  for (const operation of ["prepare", "bind", "run"]) {
+    const { database, binding } = await authDatabase();
+    const env = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      DB: rejectingBinding(binding, "UPDATE auth_sessions", operation)
+    };
+    try {
+      const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/logout`, { method: "POST", headers: { origin: env.APP_BASE_URL, cookie: "__Host-mm_product=synthetic-session", "content-type": "application/json" }, body: "{}" }), env, {});
+      assert.equal(response.status, 503, operation);
+      assert.equal((await response.json()).code, "AUTH_STORAGE_UNAVAILABLE", operation);
+      assert.equal(response.headers.get("set-cookie"), null, operation);
+    } finally {
+      database.close();
+    }
   }
 });
 

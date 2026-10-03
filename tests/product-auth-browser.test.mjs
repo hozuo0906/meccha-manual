@@ -229,6 +229,7 @@ async function runProviderBrowser(provider) {
         return;
       }
       if (requestUrl.pathname === providerConfig.callbackPath && response.status === 302) {
+        assert.equal(response.headers.get("referrer-policy"), "no-referrer", "successful callback must prevent callback URL referrer leakage");
         const returnLocation = response.headers.get("location");
         assert.ok(returnLocation);
         const setCookie = response.headers.get("set-cookie") ?? "";

@@ -217,6 +217,9 @@ async function installStagingRoutes(context, fixture, provider, options = {}) {
   let authAttempts = 0;
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
+    if (url.origin === STAGING_ORIGIN && url.pathname === "/onboarding/continue" && options.onboardingReferers) {
+      options.onboardingReferers.push({ callbackCount: options.callbackCount ?? 0, referer: route.request().headers().referer ?? null });
+    }
     if (url.origin === providerConfig.origin && url.pathname === providerConfig.authorizationPath) {
       authAttempts += 1;
       fixture.setNonce(url.searchParams.get("nonce") || "");
@@ -232,15 +235,19 @@ async function installStagingRoutes(context, fixture, provider, options = {}) {
     const response = url.pathname === "/onboarding/continue"
       ? await cloudWorker.fetch(new Request(url, { headers: { cookie: request.headers().cookie || "" } }), fixture.env, {})
       : await cloudWorker.fetch(browserRequest(request), fixture.env, {});
+    if (url.pathname === providerConfig.callbackPath) options.callbackCount = (options.callbackCount ?? 0) + 1;
     if (url.pathname === "/onboarding/continue" && response.status !== 200) console.error("generated-onboarding-response", response.status, response.headers.has("location"));
     if (url.pathname === providerConfig.callbackPath && response.status === 302) {
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer", "successful callback must prevent callback URL referrer leakage");
       const returnLocation = response.headers.get("location"); assert.ok(returnLocation);
       assert.equal(new URL(returnLocation, STAGING_ORIGIN).origin, STAGING_ORIGIN, "product auth callback must return to the staging onboarding origin");
       const cookieHeader = response.headers.get("set-cookie");
       const cookie = sessionCookieFromResponse(cookieHeader, url.hostname);
       await context.addCookies([cookie]);
+      const callbackHeaders = Object.fromEntries(response.headers.entries()); delete callbackHeaders.location;
       await route.fulfill({
         status: 200,
+        headers: callbackHeaders,
         contentType: "text/html; charset=utf-8",
         body: `<!doctype html><script>location.replace(${JSON.stringify(new URL(returnLocation, STAGING_ORIGIN).toString())})</script>`
       }); return;
@@ -440,7 +447,8 @@ test("editor startRegistration creates the real Office handoff for both syntheti
         let context;
         try {
           ({ context } = await openExtension(profile));
-          await installStagingRoutes(context, fixture, provider, { cancelFirst: true });
+          const onboardingReferers = [];
+          await installStagingRoutes(context, fixture, provider, { cancelFirst: true, onboardingReferers });
           const worker = context.serviceWorkers()[0];
           const extensionId = new URL(worker.url()).hostname;
           const draftId = `office-generated-${provider}-${officeFormat}`;
@@ -512,6 +520,7 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           assert.equal(await safeReturn.getAttribute("href"), "/onboarding/continue", "cancelled callback must expose only the verified same-origin return path");
           await safeReturn.click();
           await stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });
+          assert.ok(onboardingReferers.some((entry) => entry.callbackCount === 1 && entry.referer === null), "callback error return must navigate without a Referer header");
           await stagingPage.locator("#bootstrap").waitFor({ state: "visible", timeout: 15_000 });
           await stagingPage.waitForFunction((format) => {
             try {
@@ -536,6 +545,7 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           await stagingPage.locator(providerSelector).click();
           await successCallbackPromise;
           await successReturnPromise;
+          assert.ok(onboardingReferers.some((entry) => entry.callbackCount === 2 && entry.referer === null), "successful callback return must navigate without a Referer header");
           await stagingPage.waitForFunction((format) => {
             try {
               const state = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null");

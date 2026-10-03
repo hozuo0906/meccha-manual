@@ -15,6 +15,13 @@ Status: Accepted
 - Reason: Preserve fail-closed identity and workspace boundaries while giving callback and logout callers an actionable response, and keep provisioning audit logs idempotent across re-login.
 - Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/infra/d1/onboarding-repository.ts`, `tests/product-auth.test.mjs`
 
+### DEC-096: Product auth callback referrer and storage failure boundaries
+
+- Date: 2026-10-04 / Issue #283 / PR #284
+- Decision: Product auth success redirects and callback JSON/HTML errors send `Referrer-Policy: no-referrer`. OAuth transaction and session storage `prepare`/`bind`/`run` failures map to `503 AUTH_STORAGE_UNAVAILABLE` without issuing a redirect or session; validation and replay responses remain unchanged.
+- Reason: Prevent callback `code`/`state` values from entering a later same-origin `Referer` header and keep transient D1 failures retryable without leaking implementation errors.
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`
+
 ### DEC-095: Product auth route and callback return boundaries
 
 - Date: 2026-10-03 / Issue #283 / PR #284
