@@ -24,43 +24,25 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Install official Chrome for Testing
         run: node scripts/install-test-chrome.mjs
-      - id: privacy
-        continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-pii-mask-browser.test.mjs
-      - id: aliases
-        continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-record-alias-browser.test.mjs
-      - id: semantics
-        continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-semantic-context-browser.test.mjs
-      - id: masks
-        continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 2m xvfb-run -a node --test --test-reporter=tap tests/extension-mask-browser.test.mjs
+      - id: native-recording
+        run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --test --test-reporter=tap tests/extension-native-recording-browser.test.mjs
       - id: editor
-        continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-editor-browser.test.mjs
       - id: office
         continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --test --test-reporter=tap tests/extension-office-export-browser.test.mjs tests/cloud-office-export-browser.test.mjs
       - id: sidepanel
-        continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-sidepanel-browser.test.mjs
         env:
           MECCHA_SIDEPANEL_DRAFT: .artifacts/experience-repair/captured-synthetic-draft.json
-      - id: completeness
-        continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-capture-completion-browser.test.mjs
       - id: captions
-        continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-caption-browser.test.mjs
       - id: recorded
-        continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --experimental-strip-types scripts/verify-recorded-workflow.mjs
         env:
           MECCHA_RECORDED_WORKFLOW_DRAFT: .artifacts/experience-repair/captured-synthetic-draft.json
       - name: Test saved editor and sharing with synthetic data
         id: cloud
-        continue-on-error: true
         run: timeout --signal=TERM --kill-after=10s 10m xvfb-run -a node --experimental-strip-types --test --test-reporter=tap --test-concurrency=1 tests/cloud-manual-ui-browser.test.mjs tests/cloud-manual-sharing-ui.test.mjs tests/cloud-manual-sharing-failure-browser.test.mjs tests/cloud-manual-uiux-browser.test.mjs tests/share-viewer-browser.test.mjs tests/cloud-manual-tools-browser.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs
       - name: Preserve synthetic UI evidence
         if: always()
@@ -78,7 +60,7 @@ jobs:
       - name: Require every browser and recording check
         if: always()
         env:
-          RESULTS: ${{ steps.privacy.outcome }} ${{ steps.aliases.outcome }} ${{ steps.semantics.outcome }} ${{ steps.masks.outcome }} ${{ steps.editor.outcome }} ${{ steps.office.outcome }} ${{ steps.sidepanel.outcome }} ${{ steps.captions.outcome }} ${{ steps.completeness.outcome }} ${{ steps.recorded.outcome }} ${{ steps.cloud.outcome }}
+          RESULTS: ${{ steps.native-recording.outcome }} ${{ steps.editor.outcome }} ${{ steps.office.outcome }} ${{ steps.sidepanel.outcome }} ${{ steps.captions.outcome }} ${{ steps.recorded.outcome }} ${{ steps.cloud.outcome }}
         run: |
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then

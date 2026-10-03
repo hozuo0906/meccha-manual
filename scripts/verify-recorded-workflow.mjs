@@ -9,6 +9,8 @@ import worker from '../apps/worker/src/index.ts';
 
 // Replays an exported extension draft through the actual Worker route, D1 schema,
 // and R2 adapter used by the local integration harness. It does not use remote I/O.
+// Recorded screenshots are native pixels: this verifier rejects automatic
+// replacement metadata while retaining the input-value non-collection check.
 const root = new URL('../', import.meta.url);
 const base = 'https://meccha-manual-staging.meccha-iiyatsu.com';
 const issuer = 'https://access.example.invalid';
@@ -72,9 +74,15 @@ try {
   const draft = JSON.parse(await readFile(draftPath, 'utf8'));
   assert.ok(Array.isArray(draft.steps) && draft.steps.length >= 2);
   assert.ok(Array.isArray(draft.screenshots) && draft.screenshots.length >= 2);
+  const serializedDraft = JSON.stringify(draft);
+  assert.doesNotMatch(serializedDraft, /Synthetic Input Value|sustained-canary@example\.test/, 'recorded input values must never enter the exported draft');
+  assert.doesNotMatch(serializedDraft, /privacyReview|replacementCount|aliasOrdinal|capturePrivacyAliases/, 'native recording must not export automatic replacement metadata');
   const images = draft.screenshots.map((image) => {
     const match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(image.dataUrl);
     assert.ok(match, 'draft screenshots must contain exported JPEG or PNG bytes');
+    assert.ok(!image.privacyReview, 'native screenshots must not carry automatic privacy replacement metadata');
+    assert.ok(!image.replacements, 'native screenshots must not carry replacement records');
+    assert.ok(!image.masks || image.masks.length === 0, 'native screenshots must not contain automatic masks');
     return { id: image.id, type: match[1], bytes: Buffer.from(match[2], 'base64') };
   });
   assert.equal(new Set(images.map((image) => digest(image.bytes))).size, images.length, 'step images must differ');

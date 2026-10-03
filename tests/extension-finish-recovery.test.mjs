@@ -9,7 +9,7 @@ import { VIEWPORTS } from "../apps/extension/responsive/viewports.js";
 
 const source = (await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8")).replace(/^import .*;\r?$/gm, "");
 
-async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, screenshotError = "SCREENSHOT_MASK_FAILED", privacyReview, sceneValid = true, currentTarget = null, livePutFails = false, virtualTime = true, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
+async function harness({ screenshotFails = false, draftPutFails = false, initialDraft, localFails = true, sessionFails = false, sessionRemoveFails = false, localRemoveFails = false, sessionFailsAfterLivePut = false, injectionFails = false, mode = "pc", restoreSucceeds = true, windowExists = false, clearFails = false, listFails = false, countFails = false, failBothAfterStop = false, releaseFails = false, releaseMissingAck = false, releaseEmptyResults = false, retainFails = false, retainMissingAck = false, retainEmptyResults = false, retainMissingEvents = false, retainFailsAfter = 0, screenshotDelayMs = 0, screenshotError = "SCREENSHOT_MASK_FAILED", privacyReview, sceneValid = true, currentTarget = null, livePutFails = false, switchDuringStorage = false, activateDuringCapture = false, virtualTime = true, pendingEvents = [{ kind: "input", at: 2, eventId: "document:1", target: { tagName: "input" } }] } = {}) {
   let clock = 1000;
   let lastCaptureAt;
   const screenshotTimes = [];
@@ -45,7 +45,10 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
   let localRemoveFailure = localRemoveFails;
   let onRemoved;
   let onUpdated;
+  let onActivated;
   let onMessage;
+  let targetActive = true;
+  const documentIdentity = { href: "https://synthetic.invalid/target", timeOrigin: 1, readyState: "complete", visibilityState: "visible" };
   const injections = [];
   let context;
   const createContext = () => ({
@@ -67,12 +70,12 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     },
     chrome: {
       storage: {
-        session: { get: async () => ({ activeCaptureSession: session, captureScreenshotAt: lastCaptureAt }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); if ("captureScreenshotAt" in value) lastCaptureAt = value.captureScreenshotAt; else session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
+        session: { get: async () => ({ activeCaptureSession: session, captureScreenshotAt: lastCaptureAt }), set: async (value) => { if (sessionStorageFailure) throw new Error("session unavailable"); if ("captureScreenshotAt" in value) { lastCaptureAt = value.captureScreenshotAt; if (switchDuringStorage && value.captureScreenshotAt?.pending) targetActive = false; } else session = value.activeCaptureSession; }, remove: async () => { if (sessionRemoveFailure) throw new Error("session remove unavailable"); session = null; } },
         local: { get: async () => ({ captureRecoveryJournal: journal }), set: async (value) => { if (localStorageFailure) throw new Error("local storage unavailable"); journal = value.captureRecoveryJournal; }, remove: async () => { if (localRemoveFailure) throw new Error("local remove unavailable"); journal = null; } }
       },
-      scripting: { executeScript: async (options) => { if (options.func?.toString().includes("click-target")) return [{ result: currentTarget }]; if (options.func?.name === "removeSensitiveMasks") return [{ result: true }]; if (options.func?.name === "screenshotSceneLease") return [{ result: options.args[0] === "begin" || sceneValid }]; if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
+      scripting: { executeScript: async (options) => { if (options.func?.name === "captureDocumentIdentity") return [{ result: { ...documentIdentity, visibilityState: targetActive ? "visible" : "hidden" } }]; if (options.func?.toString().includes("document.visibilityState")) return [{ result: { ready: targetActive, reason: targetActive ? null : "TARGET_TAB_NOT_VISIBLE" } }]; if (options.func?.toString().includes("click-target")) return [{ result: currentTarget }]; if (options.func?.name === "removeSensitiveMasks") return [{ result: true }]; if (options.func?.name === "screenshotSceneLease") return [{ result: options.args[0] === "begin" || sceneValid }]; if (options.files) { injections.push(...options.files); if (injectionFailure) throw new Error("injection denied"); return []; } recorderStopCalls += 1; const command = options.args?.[0] || "drain"; if (command === "retain") { if (recorderRetainFailure || (recorderRetainFailureAfter > 0 && recorderStopCalls > recorderRetainFailureAfter)) throw new Error("recorder retain unavailable"); if (recorderRetainEmptyResults) return []; if (recorderRetainMissingAck) return [{ result: { events: [] } }]; if (recorderRetainMissingEvents) return [{ result: { retainAck: true } }]; if (!retainedPendingEvents && !drained) retainedPendingEvents = pendingEvents.slice(); drained = true; if (failBothAfterStop && recorderStopCalls === 1) { sessionStorageFailure = true; localStorageFailure = true; } return [{ result: { retainAck: true, recorderPresent: true, events: (retainedPendingEvents || []).slice() } }]; } if (command === "release") { recorderReleaseCalls += 1; if (recorderReleaseFailure) throw new Error("recorder release unavailable"); if (recorderReleaseMissingAck) return [{ result: { releaseAck: false } }]; if (recorderReleaseEmptyResults) return []; retainedPendingEvents = null; return [{ result: { releaseAck: true, result: [] } }]; } const result = retainedPendingEvents ? retainedPendingEvents.slice() : (drained ? [] : pendingEvents); retainedPendingEvents = null; drained = true; return [{ result }]; } },
       runtime: { onMessage: { addListener(callback) { onMessage = callback; } } },
-      tabs: { get: async () => ({ active: true, windowId: 2 }), captureVisibleTab: async () => { screenshotTimes.push(CaptureDate.now()); if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; }, onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
+      tabs: { get: async () => ({ active: targetActive, windowId: 2 }), captureVisibleTab: async () => { screenshotTimes.push(CaptureDate.now()); if (activateDuringCapture) { targetActive = false; onActivated?.({ tabId: 2, windowId: 2 }); } if (screenshotDelayMs) await new Promise((resolve) => setTimeout(resolve, screenshotDelayMs)); return "data:image/jpeg;base64,AA"; }, onActivated: { addListener(callback) { onActivated = callback; } }, onUpdated: { addListener(callback) { onUpdated = callback; } }, onRemoved: { addListener(callback) { onRemoved = callback; } }, query: async () => windowExists ? [{ id: 2 }] : [] },
       windows: { get: async () => { if (windowExists) return {}; throw new Error("window is gone"); } }
     }
   });
@@ -96,7 +99,9 @@ async function harness({ screenshotFails = false, draftPutFails = false, initial
     finishQueued: async () => new Promise((resolve) => onMessage({ type: "capture:finish" }, {}, resolve)),
     navigate: async (status = "complete") => { onUpdated(1, { status }); await context.settle(); },
     event: async (event) => new Promise((resolve) => onMessage({ type: "capture:event", event }, { tab: { id: 1 } }, async (response) => { await context.settle(); resolve(response); })),
-    close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); } };
+    close: async (isWindowClosing = true) => { session.mode = "tabletPortrait"; onRemoved(1, { isWindowClosing }); await context.settle(); },
+    setTargetActive: (value) => { targetActive = value; },
+    activateOtherTab: async () => { targetActive = false; onActivated?.({ tabId: 2, windowId: 2 }); await context.settle(); } };
 }
 
 test("local journal failure does not discard the first drained batch when session storage works", async () => {
@@ -356,6 +361,30 @@ test("event arriving during screenshot capture cannot receive the earlier screen
   assert.equal(capture.liveImages().find((entry) => entry.dataUrl).eventId, "click:2");
   assert.equal(capture.session().stepImageRefs.map((ref) => ref.status).join(","), "unavailable,ready");
   assert.equal(capture.session().stepImageRefs[0].reason, "screen_changed");
+});
+
+test("target activation is checked again after screenshot timing storage", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringStorage: true });
+  const response = await capture.event({ kind: "click", at: 10, eventId: "switch-after-storage:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "switch-after-storage:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "tab_not_visible");
+  assert.equal(ref?.attempts, 1);
+  assert.equal(ref?.version, 1);
+});
+
+test("activation during capture invalidates the image generation before persistence", async () => {
+  const capture = await harness({ pendingEvents: [], activateDuringCapture: true, screenshotDelayMs: 5 });
+  const response = await capture.event({ kind: "click", at: 10, eventId: "switch-during-capture:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "switch-during-capture:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "screen_changed");
+  assert.equal(ref?.attempts, 1);
+  assert.equal(ref?.version, 1);
 });
 
 test("cancel clears live images without touching an existing draft", async () => {
