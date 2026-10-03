@@ -32,16 +32,20 @@ repo-sideの正規化境界が受理するeventは`click`、`input_complete`、`
 
 ## スクリーンショット個人情報境界
 
+### 旧契約（0.1.8以前。Superseded by ADR-0040）
+
 スクリーンショット直前のDOM個人情報候補は、表示viewportと交差する高信頼な候補だけを固定ダミーoverlayへ置換する。1回のcaptureで生成するoverlayは最大64件とし、65件目の候補を検出した場合は画像を保存せずfail closedにする。初期・再検証の候補集合、shadow root snapshot、属性変更時のcomposed-tree候補確認を含む各DOM走査は、light DOM・open shadow root・extensionが検査できるprivileged shadow rootをまたいで最大4096 DOM nodeの単一予算で数え、rootごとにリセットしない。上限を超えて走査が完了しない場合も画像を保存しない。extension自身が作成したoverlay要素はこの候補走査からidentityで除外し、ページが同じclass名を付けた要素は除外しない。これにより、PII候補を含まない64件超の子nodeに対する無関係な属性変更を許容しつつ、候補数超過と走査不完了を成功扱いにしない。
 
 paint後のcapture前およびcapture後に候補集合、overlayの接続・幾何・不透明性、document identityを検証する。追加・除去・文字列・属性変更で個人情報が一時的に出現した場合、変更後に値が消えていても検証を失敗させる。元DOM、候補文字列、入力値はevent、ログ、handoff metadata、D1/R2へ保存しない。対象外の文字は利用者が編集画面で手動黒塗りする。
+
+上記は0.1.8以前の自動overlay契約の履歴であり、ADR-0040により現行契約から置き換えられている。0.1.9以降は撮影時に自動alias・自動mask・自動overlayを保証せず、取得画像を端末下書きへ保持する。画像に表示値が含まれる場合は、利用者が画像編集で置換または黒塗りを明示適用して確認した画像だけを出力・cloud保存する。入力値、DOM本文、Cookie、Authorizationは操作event、操作文、handoff metadataへ保存しない。
 
 ## 決定的draft生成
 
 正規化eventは外部AI APIを使わず、日本語のmanual step候補へ変換する。
 
 - click: `{target}をクリックします。`
-- input completion: `{target}への入力を完了します。入力値は手順書に保存されません。`
+- input completion: `{target}への入力を完了します。入力値は操作記録や手順説明には含めません。画面に表示された値の画像への映り込みは画像編集で確認します。`
 - navigation: URLを含まない「次のページへ移動」の汎用step
 - 連続する同方向scroll: 1件のnoteへ集約
 
