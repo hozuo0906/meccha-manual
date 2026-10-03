@@ -13,7 +13,6 @@ import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandof
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
 const SCREENSHOT_TIMING_KEY = "captureScreenshotAt";
-const PRIVACY_ALIAS_KEY = "capturePrivacyAliases";
 let sessionOperation = Promise.resolve();
 let reinjectionFailureSessionId = null;
 let navigationFallback = null;
@@ -140,7 +139,7 @@ async function setSession(session) {
     clearNavigationFallback(session.id);
     if (session.phase !== "reinjection_failed") clearReinjectionFailureMarker(session.id);
   } else {
-    await chrome.storage.session.remove([SESSION_KEY, PRIVACY_ALIAS_KEY]);
+    await chrome.storage.session.remove(SESSION_KEY);
     clearNavigationFallback();
     clearReinjectionFailureMarker(reinjectionFailureSessionId);
   }
@@ -270,7 +269,6 @@ async function startCapture(tabId, mode) {
   captureEventIds.delete(tabId);
   captureEventGenerations.delete(tabId);
   await clearRecoveryJournal();
-  await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
   await setSession(session);
   try {
     if (mode !== "pc") await applyResponsiveViewport({ windowId: tab.windowId, tabId, viewport, windowsApi: chrome.windows, measure: measureViewport });
@@ -302,37 +300,6 @@ async function currentClickTarget(session, event) {
     const keys = ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "devicePixelRatio", "scrollX", "scrollY", "topFrame"];
     return current && keys.every((key) => current[key] === event.clickTarget[key]) ? current : null;
   } catch { return null; }
-}
-
-// This key is separate from the public capture session/status and is never
-// copied into a draft, recovery journal, event, image, handoff or network body.
-// storage.session remains at Chrome's default TRUSTED_CONTEXTS access level.
-async function readCapturePrivacyAliases(session) {
-  const existing = (await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY];
-  if (existing) {
-    if (existing.recordId !== session.id || existing.version !== 1 || !/^[a-f0-9]{64}$/.test(existing.secret)) throw new Error("SCREENSHOT_MASK_FAILED");
-    return existing;
-  }
-  const state = { version: 1, recordId: session.id, namespace: crypto.randomUUID(),
-    secret: Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    allocations: [], next: 0 };
-  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: state });
-  return state;
-}
-
-async function persistCapturePrivacyAliases(state, result) {
-  const next = result?.privateAliasAllocations;
-  if (!next || next.namespace !== state.namespace || !Array.isArray(next.allocations) || next.allocations.length > 512
-    || next.next !== next.allocations.length || next.next < state.next
-    || next.allocations.some((entry, index) => !Array.isArray(entry) || entry.length !== 2
-      || !/^[a-f0-9]{64}$/.test(entry[0]) || entry[1] !== index + 1
-      || (index < state.next && (entry[0] !== state.allocations[index][0] || entry[1] !== state.allocations[index][1])))
-    || new Set(next.allocations.map(([key]) => key)).size !== next.allocations.length) throw new Error("SCREENSHOT_MASK_FAILED");
-  await chrome.storage.session.set({ [PRIVACY_ALIAS_KEY]: { ...state, allocations: next.allocations, next: next.next } });
-}
-
-async function clearCapturePrivacy(session) {
-  if ((await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY]) await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
 }
 
 async function takeScreenshot(session, assertCurrent = () => undefined, event) {
@@ -373,6 +340,7 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
     catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
   }
+  assertCurrent();
   if (clickTarget && await currentClickTarget(session, event)) {
     const annotation = {
       id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
@@ -382,72 +350,6 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     return { dataUrl, annotations: [annotation] };
   }
   return dataUrl;
-  /* Previous automatic DOM masking implementation intentionally removed. */
-  /*
-    return legacyCaptureBoundary({
-      waitForPaint: async () => {
-      await visibleCaptureTab(session);
-      let paintResult;
-      try {
-        [paintResult] = await chrome.scripting.executeScript({
-          target: { tabId: session.tabId },
-          func: () => new Promise((resolve) => {
-            if (document.visibilityState === "hidden") {
-              resolve({ ready: false, reason: "TARGET_TAB_NOT_VISIBLE" });
-              return;
-            }
-            let settled = false;
-            const finish = (reason = null) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeout);
-              resolve({ ready: !reason, reason });
-            };
-            const timeout = setTimeout(() => finish("SCREENSHOT_PAINT_TIMEOUT"), 1000);
-            if (typeof requestAnimationFrame !== "function") {
-              finish("SCREENSHOT_PAINT_UNAVAILABLE");
-              return;
-            }
-            try {
-              requestAnimationFrame(() => {
-                try { requestAnimationFrame(() => finish()); }
-                catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
-              });
-            } catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
-          })
-        });
-      } catch { throw new Error("SCREENSHOT_PAINT_UNAVAILABLE"); }
-      if (paintResult?.result?.ready !== true) {
-        const reason = paintResult?.result?.reason;
-        throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
-      }
-    },
-    capture: async () => {
-      assertCurrent();
-      await visibleCaptureTab(session);
-      assertCurrent();
-      clickTarget = await currentClickTarget(session, event);
-      assertCurrent();
-      try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
-      catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
-      assertCurrent();
-      lastStepScreenshotAt = Date.now();
-      try {
-        return await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 });
-      } finally {
-        // A completed-call timestamp also protects the quota across MV3 restarts.
-        // A pending marker forces a fresh interval when completion is unknown.
-        try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
-        catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
-      }
-    },
-    verifyMasks: async (token) => {
-      try { return Boolean((await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: legacyVerifyMasks, args: [token] }))[0]?.result); }
-      catch { throw new Error("SCREENSHOT_MASK_INVALIDATED"); }
-    },
-    removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: legacyRemoveMasks }).catch(() => undefined); }
-      });
-  */
 }
 
 function instructionFor(event) {
@@ -545,7 +447,6 @@ async function finishCapture() {
     }
     await captureLiveStore.clear(session.id);
     await stopRecorder(session.tabId, "release");
-    await clearCapturePrivacy(session);
   } catch {
     const retryBase = readyImageCountKnown && drainedPendingEvents !== undefined ? mergePendingEventsWithoutImages(session, drainedPendingEvents) : session;
     const retrySession = { ...retryBase, phase: "finish_failed", finishFailed: true, failureCategory: "draft_finish_failed" };
@@ -570,7 +471,6 @@ async function cancelCapture() {
   const cancelSession = { ...session, finishFailed: false, failureCategory: "cancel" };
   await retainCancelFailure({ ...cancelSession, restorePending: session.mode !== "pc" || Boolean(session.restorePending) });
   if (Number.isInteger(session.tabId)) await stopRecorder(session.tabId);
-  await clearCapturePrivacy(session);
   const shouldRestore = session.mode !== "pc"
     && await windowStillExists(session.windowId);
   const restored = shouldRestore ? await attemptRestore(cancelSession) : true;

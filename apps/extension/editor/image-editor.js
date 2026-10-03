@@ -60,7 +60,7 @@ export function cropReviewRegions(review, crop) {
   return next;
 }
 
-export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, onStateChange, inline = false, initialTool = "select" }) {
+export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel, onClose, onStateChange, inline = false, initialTool = "select", syntheticPerson: providedSyntheticPerson = null }) {
   const controller = new AbortController();
   const { signal } = controller;
   const status = dialog.querySelector("[data-editor-status]");
@@ -74,8 +74,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   const cancelButtons = [...dialog.querySelectorAll("[data-editor-cancel]")];
   let toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
   if (!dialog.querySelector('[data-editor-tool="replacement"]')) {
-    const button = document.createElement("button"); button.type = "button"; button.dataset.editorTool = "replacement"; button.setAttribute("aria-pressed", "false"); button.textContent = "個人情報を置き換える";
-    dialog.querySelector(".advanced-tools .tool-grid")?.append(button);
+    const button = document.createElement("button"); button.type = "button"; button.dataset.editorTool = "replacement"; button.setAttribute("aria-pressed", "false"); button.setAttribute("aria-label", "個人情報を置き換える"); button.title = "個人情報を置き換える"; button.textContent = "個人情報";
+    const group = document.createElement("div"); group.className = "tool-grid"; group.setAttribute("aria-label", "個人情報の編集"); group.append(button);
+    dialog.querySelector(".tool-group")?.append(group);
     toolButtons = [...dialog.querySelectorAll("[data-editor-tool]")];
   }
   if (!replacementTypeInput) {
@@ -104,7 +105,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   let loadingFocusTarget = null;
   let focusMovedDuringLoad = false;
   let working = { annotations: [], masks: [] };
-  const syntheticPerson = createSyntheticPerson();
+  const syntheticPerson = providedSyntheticPerson && typeof providedSyntheticPerson === "object"
+    ? { name: String(providedSyntheticPerson.name || ""), kana: String(providedSyntheticPerson.kana || "") }
+    : createSyntheticPerson();
   let crop = null;
   const undo = [], redo = [];
   let editGroup = null;
@@ -193,7 +196,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
 
   function selectTool(next) {
     if (disposed || isBusy()) return;
-    editGroup = null; tool = next; toolButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.editorTool === next))); setStatus(`${TOOL_LABELS[next]}を選択中`);
+    editGroup = null; tool = next; toolButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.editorTool === next))); setStatus(`${TOOL_LABELS[next]}を選択中`); refreshSelection();
   }
   function selectItem(kind, id) {
     selected = { kind, id }; const item = itemFor();
@@ -206,9 +209,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function refreshSelection() {
     const current = itemFor();
     if (colorHexInput && !current) { colorHexInput.value = "#087f7a"; colorHexInput.removeAttribute("aria-invalid"); }
-    if (propertyGroup) propertyGroup.hidden = !current || selected?.kind !== "annotation";
+    if (propertyGroup) propertyGroup.hidden = (!current || selected?.kind !== "annotation") && tool !== "replacement";
     dialog.querySelectorAll("[data-text-property]").forEach((node) => { node.hidden = current?.type !== "text"; });
-    dialog.querySelectorAll("[data-replacement-property]").forEach((node) => { node.hidden = current?.type !== "replacement"; });
+    dialog.querySelectorAll("[data-replacement-property]").forEach((node) => { node.hidden = current?.type !== "replacement" && tool !== "replacement"; });
     dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation"; });
     if (colorInput && current?.color) colorInput.value = current.color;
     if (colorHexInput && current?.color && document.activeElement !== colorHexInput) { colorHexInput.value = current.color; colorHexInput.removeAttribute("aria-invalid"); }

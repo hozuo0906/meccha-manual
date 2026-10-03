@@ -1639,7 +1639,10 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true, "画像は再エンコードしたdata URLとして保存する");
     await page.locator("#step-manual-step .image-edit-button").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
-    assert.equal(await page.locator("[data-editor-tool]").count(), 7);
+    assert.equal(await page.locator("[data-editor-tool]").count(), 8);
+    assert.equal(await page.locator('[data-editor-tool="replacement"]').textContent(), "個人情報");
+    await page.locator('[data-editor-tool="replacement"]').click();
+    assert.equal(await page.locator("[data-editor-replacement-type]").isVisible(), true);
     await page.locator("[data-editor-cancel]").first().click();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
   } finally {

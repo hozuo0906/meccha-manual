@@ -1,6 +1,7 @@
 import { addStep, deleteStep, moveStep, updateStepInstruction } from "./draft-model.js";
 import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
+import { createSyntheticPerson } from "./personal-info-replacement.js";
 import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
@@ -17,6 +18,9 @@ const detail = document.querySelector("#detail");
 const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
+document.querySelectorAll(".privacy-note").forEach((node) => {
+  node.textContent = "画像は表示されたまま記録します。必要な個人情報は画像編集で範囲と種別を選んで置き換えるか、黒塗りしてください。クラウド保存・共有は内容を確認してから行います。";
+});
 const cancelOutput = document.querySelector("#cancelOutput");
 const startRegistration = document.querySelector("#startRegistration");
 const startShare = document.querySelector("#startShare");
@@ -41,6 +45,10 @@ const displayFailures = new Set();
 const editorViewStates = new Map();
 const uploadFailures = new Map();
 const shownReplacements = new Set();
+// Keep the generated name/kana pair stable for this image while the editor is
+// reopened. The pair is ephemeral UI state; original values are never read or
+// persisted.
+const replacementPeople = new Map();
 const undoStack = [];
 const redoStack = [];
 let outputIntent = "save";
@@ -375,8 +383,10 @@ async function openImageEditor(step, initialTool = "select") {
   if (!screenshot || pendingImages.has(step.id) || displayFailures.has(step.id)) return;
   closePanels(); activeImageEditor?.dispose();
   const editorBitmap = { id: screenshot.id, dataUrl: screenshot.dataUrl };
+  const syntheticPerson = replacementPeople.get(screenshot.id) || createSyntheticPerson();
+  replacementPeople.set(screenshot.id, syntheticPerson);
   const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
-    inline: true, initialTool,
+    inline: true, initialTool, syntheticPerson,
     onStateChange: (state) => { for(const id of ["save","share","mobileShare"]){const action=document.getElementById(id);if(action){action.disabled=state!=="closed";action.title=state!=="closed"?"画像の変更を適用してから保存・共有できます":"";}} if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
     onSave: async (next) => {
       const currentStep = draft.steps.find((entry) => entry.id === step.id);
