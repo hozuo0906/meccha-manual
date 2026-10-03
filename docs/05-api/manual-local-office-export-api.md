@@ -39,6 +39,7 @@ flatten後に保持する編集済み画像の合計は64 MiB以下、生成す�
 ## 出力と認証境界
 
 `buildDocx`／`buildPptx`は生成した`Uint8Array`を返す。ブラウザはOffice MIME typeのBlobを一度だけdownloadし、生成bytes・入力画像・元画像をcloud API、Access、workspace、analyticsへ送信しない。Word／PowerPointボタンは既存output gateから認証・workspace claimへ進み、完了後に選択した形式へ戻る。認証済みsessionでは再ログインを要求しない。
+閉じたeditorを復帰させる場合は、claimの`completed`やcloudRefだけを生成許可の根拠にしない。認証成功画面の復帰ボタンで発行された、同じhandoff／launch／draft fingerprint／形式に固定した30秒以内の一回限りreceiptをeditorがdraft lock内で消費した場合だけ元の生成を再開する。receiptがない、期限切れ、形式・fingerprint不一致、別senderからのconsumeは拒否する。既にOffice出力済みでpending intentがない復帰操作はeditorを開くだけで再ダウンロードしない。
 
 PDFはFR-014の認証・bootstrap・claim後output gateを維持する。Office生成の成功だけでcloud保存、公開、共有リンク作成、公開権限変更を行わない。認証済みhandoffの形式・fingerprint・期限・送信元を照合し、一度だけ同じ下書きから生成する。共有リンクはデフォルトOFFを維持する。
 

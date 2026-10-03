@@ -48,6 +48,34 @@ test("editor Office wiring refuses silent image loss and guards a changed snapsh
   assert.match(editor, /current\?\.handoffId === run\.handoffId/u);
 });
 
+test("closed-editor Office recovery requires a one-time verified return receipt", async () => {
+  const [editor, serviceWorker, api, adr, acceptance] = await Promise.all([
+    read("apps/extension/editor/editor.js"),
+    read("apps/extension/background/service-worker.js"),
+    read("docs/05-api/manual-local-office-export-api.md"),
+    read("docs/03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md"),
+    read("docs/07-quality/acceptance-catalog.md")
+  ]);
+  assert.match(serviceWorker, /OFFICE_RETURN_RECEIPT_TTL_MS = 30_000/u);
+  assert.match(serviceWorker, /meccha-manual:office-intent:\$\{metadata\.draftId\}/u);
+  assert.match(serviceWorker, /type === "handoff\.office-return-consume"/u);
+  assert.match(serviceWorker, /sender\.url !== editorUrl && sender\.tab\?\.url !== editorUrl/u);
+  assert.match(serviceWorker, /withHandoffDraftLock\(first\.draftId/u);
+  assert.match(serviceWorker, /delete next\.officeReturnReceipt/u);
+  assert.match(editor, /consumeOfficeReturnReceipt\(metadata, intent\)/u);
+  assert.match(editor, /metadata\.officeReturnReceipt \? \(async \(\) =>/u);
+  assert.match(editor, /metadata\?\.status === "completed" && !metadata\.officeReturnReceipt/u);
+  assert.match(api, /completed.*cloudRef.*だけを生成許可の根拠にしない/u);
+  assert.match(adr, /30秒以内の一回限りreceipt/u);
+  assert.match(acceptance, /completedやcloudRef単独では生成しない/u);
+});
+
+test("guest onboarding output action enum includes the authenticated Office action", async () => {
+  const contract = await read("docs/05-api/guest-onboarding-and-claim-api.md");
+  assert.match(contract, /- `save`[\s\S]*- `share`[\s\S]*- `export_pdf`[\s\S]*- `office`/u);
+  assert.match(contract, /Officeは `officeFormat=docx\|pptx` を必須/u);
+});
+
 test("replacement mode has a keyboard range action and keeps synthetic text guidance visible", async () => {
   const editor = await read("apps/extension/editor/image-editor.js");
   assert.match(editor, /textContent = "範囲を追加"/u);

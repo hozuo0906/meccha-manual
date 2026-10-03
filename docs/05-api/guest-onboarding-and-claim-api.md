@@ -267,6 +267,7 @@ clientはoutput gateを開いた時点で、ユーザーが選んだactionをext
 - `save`
 - `share`
 - `export_pdf`
+- `office`
 
 bootstrap + claim成功後にWebアプリ側または拡張機能側で同じactionとOffice形式を再開する。認証完了後に利用者へ最初から作り直させない。Officeは `officeFormat=docx|pptx` を必須とし、未知形式、actionとの不一致、形式の差し替えを拒否する。
 

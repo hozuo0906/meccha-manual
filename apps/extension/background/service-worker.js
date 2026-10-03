@@ -8,7 +8,7 @@ import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
 import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
-import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, validOfficeFormat, validOutputAction, withHandoffReadyLock } from "../editor/handoff.js";
+import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, validOfficeFormat, validOutputAction, withHandoffDraftLock, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
@@ -914,6 +914,7 @@ const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
 const HANDOFF_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const HANDOFF_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
+const OFFICE_RETURN_RECEIPT_TTL_MS = 30_000;
 const handoffExternalOperations = new Map();
 
 function validHandoffIntent(action, officeFormat) {
@@ -924,22 +925,71 @@ function sameHandoffIntent(left, right) {
   return left?.outputAction === right?.action && (right?.action === "office" ? left.officeFormat === right.officeFormat : left?.officeFormat === undefined && right?.officeFormat === undefined);
 }
 
+function validOfficeReturnReceipt(receipt, metadata, expectedLaunchId = null, now = Date.now()) {
+  if (!receipt || typeof receipt !== "object" || receipt.handoffId !== metadata?.handoffId ||
+    (!expectedLaunchId ? !HANDOFF_PAGE_READY_PATTERN.test(receipt.launchId || "") : receipt.launchId !== expectedLaunchId) ||
+    receipt.officeFormat !== metadata?.officeFormat || receipt.draftFingerprint !== metadata?.draftFingerprint) return false;
+  const issuedAt = Date.parse(receipt.issuedAt || "");
+  const expiresAt = Date.parse(receipt.expiresAt || "");
+  const metadataExpiresAt = Date.parse(metadata?.expiresAt || "");
+  return Number.isFinite(issuedAt) && Number.isFinite(expiresAt) && Number.isFinite(metadataExpiresAt) &&
+    issuedAt <= now && expiresAt > now && expiresAt <= metadataExpiresAt && expiresAt - issuedAt <= OFFICE_RETURN_RECEIPT_TTL_MS;
+}
+
 async function handleOfficeReturn(message, sender) {
   const validMessage = message?.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.office-return" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") && validOfficeFormat(message.officeFormat) &&
     Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "officeFormat"].includes(key));
   if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
   const key = handoffReadyStorageKey(message.handoffId, message.launchId);
-  const ready = (await chrome.storage.local.get(key))?.[key];
-  const metadata = (await chrome.storage.local.get(handoffStorageKey(message.handoffId)))?.[handoffStorageKey(message.handoffId)];
-  if (!ready || !metadata || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id || ready.activationPolicy === "cancelled" ||
-    metadata.status !== "completed" || !validHandoffIntent(metadata.outputAction, metadata.officeFormat) || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.expiresAt !== ready.expiresAt || !Number.isFinite(Date.parse(metadata.expiresAt || "")) || Date.parse(metadata.expiresAt) <= Date.now()) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
-  const editorUrl = chrome.runtime.getURL(`editor/editor.html#${metadata.draftId}`);
+  const metadataKey = handoffStorageKey(message.handoffId);
+  const initial = await chrome.storage.local.get([key, metadataKey]);
+  const initialMetadata = initial?.[metadataKey];
+  if (!initialMetadata?.draftId) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+  let editorUrl = chrome.runtime.getURL(`editor/editor.html#${initialMetadata.draftId}`);
+  const result = await withHandoffDraftLock(initialMetadata.draftId, async () => {
+    const values = await chrome.storage.local.get([key, metadataKey]);
+    const ready = values?.[key];
+    const metadata = values?.[metadataKey];
+    if (!ready || !metadata || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id || ready.activationPolicy === "cancelled" ||
+      metadata.status !== "completed" || !validHandoffIntent(metadata.outputAction, metadata.officeFormat) || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.expiresAt !== ready.expiresAt || !Number.isFinite(Date.parse(metadata.expiresAt || "")) || Date.parse(metadata.expiresAt) <= Date.now()) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+    editorUrl = chrome.runtime.getURL(`editor/editor.html#${metadata.draftId}`);
+    const intentKey = `meccha-manual:office-intent:${metadata.draftId}`;
+    const intent = (await chrome.storage.local.get(intentKey))?.[intentKey];
+    const pendingIntent = intent?.draftId === metadata.draftId && intent.handoffId === metadata.handoffId && intent.officeFormat === metadata.officeFormat && intent.draftFingerprint === metadata.draftFingerprint && intent.expiresAt === metadata.expiresAt;
+    if (pendingIntent && !validOfficeReturnReceipt(metadata.officeReturnReceipt, metadata, message.launchId)) {
+      const now = Date.now();
+      const expiresAt = new Date(Math.min(Date.parse(metadata.expiresAt), now + OFFICE_RETURN_RECEIPT_TTL_MS)).toISOString();
+      await chrome.storage.local.set({ [metadataKey]: { ...metadata, officeReturnReceipt: { handoffId: metadata.handoffId, launchId: message.launchId, officeFormat: metadata.officeFormat, draftFingerprint: metadata.draftFingerprint, issuedAt: new Date(now).toISOString(), expiresAt } } });
+    }
+    return { ok: true, status: "editor-opened" };
+  });
+  if (!result.ok) return result;
   const tabs = typeof chrome.tabs?.query === "function" ? await chrome.tabs.query({}) : [];
   const existing = tabs.find((tab) => tab?.url === editorUrl);
   if (Number.isInteger(existing?.id)) await chrome.tabs.update(existing.id, { active: true });
   else await chrome.tabs.create({ url: editorUrl, active: true });
-  return { ok: true, status: "editor-opened" };
+  return result;
+}
+
+async function handleOfficeReturnConsume(message, sender) {
+  const validMessage = message?.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.office-return-consume" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") && validOfficeFormat(message.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
+    Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "officeFormat", "draftFingerprint"].includes(key));
+  if (!validMessage) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+  const metadataKey = handoffStorageKey(message.handoffId);
+  const first = (await chrome.storage.local.get(metadataKey))?.[metadataKey];
+  const editorUrl = first?.draftId ? chrome.runtime.getURL(`editor/editor.html#${first.draftId}`) : "";
+  if (!editorUrl || sender?.frameId !== 0 || !Number.isInteger(sender?.tab?.id) || (sender.url !== editorUrl && sender.tab?.url !== editorUrl)) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+  return withHandoffDraftLock(first.draftId, async () => {
+    const metadata = (await chrome.storage.local.get(metadataKey))?.[metadataKey];
+    if (!metadata || metadata.status !== "completed" || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.handoffId !== message.handoffId || metadata.draftFingerprint !== message.draftFingerprint || !validOfficeReturnReceipt(metadata.officeReturnReceipt, metadata, message.launchId)) return { ok: false, error: "OFFICE_RETURN_CONSUME_REJECTED" };
+    const receipt = metadata.officeReturnReceipt;
+    const next = { ...metadata };
+    delete next.officeReturnReceipt;
+    await chrome.storage.local.set({ [metadataKey]: next });
+    return { ok: true, status: "receipt-consumed", handoffId: receipt.handoffId, launchId: receipt.launchId, officeFormat: receipt.officeFormat, draftFingerprint: receipt.draftFingerprint, expiresAt: receipt.expiresAt };
+  });
 }
 
 function recoveryMetadataForHandoff(metadata) {
@@ -1100,6 +1150,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const fromExtensionPage = !sender.tab || sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
     if (message?.schema === HANDOFF_PAGE_READY_SCHEMA && message?.type === "handoff.access-return") return handleHandoffAccessReturn(message, sender);
+    if (message?.type === "handoff.office-return-consume" && fromExtensionPage) return handleOfficeReturnConsume(message, sender);
     if (message?.type === "capture:start" && fromExtensionPage) return serializeSessionOperation(() => startCapture(message.tabId, message.mode));
     if (message?.type === "capture:finish" && fromExtensionPage) return serializeSessionOperation(() => finishCapture());
     if (message?.type === "capture:pause" && fromExtensionPage) return serializeSessionOperation(() => pauseCapture());

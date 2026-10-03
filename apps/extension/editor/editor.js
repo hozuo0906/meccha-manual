@@ -218,9 +218,22 @@ async function clearOfficeIntent() {
   if (chrome.storage?.local?.remove) await chrome.storage.local.remove(officeIntentKey);
 }
 
+async function consumeOfficeReturnReceipt(metadata, intent) {
+  if (!metadata?.officeReturnReceipt || !intent || typeof chrome.runtime?.sendMessage !== "function") return null;
+  const reply = await chrome.runtime.sendMessage({
+    schema: "meccha-manual/cloud-claim-v1",
+    type: "handoff.office-return-consume",
+    handoffId: intent.handoffId,
+    launchId: metadata.officeReturnReceipt.launchId,
+    officeFormat: intent.officeFormat,
+    draftFingerprint: intent.draftFingerprint
+  });
+  return reply?.ok && reply.value?.ok ? reply.value : null;
+}
+
 async function resumeOfficeAfterClaim(metadata) {
   if (officeResumePromise || !pendingOfficeResume || metadata?.outputAction !== "office" || metadata.officeFormat !== pendingOfficeResume.officeFormat || metadata.handoffId !== pendingOfficeResume.handoffId || metadata.status !== "completed" || metadata.draftFingerprint !== pendingOfficeResume.draftFingerprint) return;
-  officeResumePromise = withHandoffDraftLock(draft.id, async () => {
+  const resumeWithLock = () => withHandoffDraftLock(draft.id, async () => {
     // Re-read and consume the intent while holding the shared draft lock. Two
     // editor tabs can observe the same completed handoff; only one may start
     // the download.
@@ -235,7 +248,15 @@ async function resumeOfficeAfterClaim(metadata) {
     await clearOfficeIntent();
     setOfficeExportStatus("認証と保存先の確認が完了しました。Officeファイルを作成しています。", "saving");
     await exportOffice(format, null);
-  }).catch(() => {
+  });
+  const resume = metadata.officeReturnReceipt ? (async () => {
+    const intent = await readOfficeIntent();
+    if (!intent || intent.handoffId !== metadata.handoffId || intent.officeFormat !== metadata.officeFormat || intent.draftFingerprint !== metadata.draftFingerprint) return;
+    const consumed = await consumeOfficeReturnReceipt(metadata, intent);
+    if (!consumed) return;
+    return resumeWithLock();
+  })() : resumeWithLock();
+  officeResumePromise = Promise.resolve(resume).catch(() => {
     setOfficeExportStatus("認証後のOfficeファイル作成に失敗しました。もう一度Office出力を選んでください。", "error");
   }).finally(() => { officeResumePromise = null; });
   await officeResumePromise;
@@ -1210,7 +1231,7 @@ void (async () => {
   // A persisted completed record is only a recovery hint. It does not prove
   // that the current browser session is still authenticated after reload or
   // logout, so require a fresh Office output handoff instead of downloading.
-  if (metadata?.status === "completed") {
+  if (metadata?.status === "completed" && !metadata.officeReturnReceipt) {
     await clearOfficeIntent();
     setOfficeExportStatus("認証済みセッションを確認するため、Office出力をもう一度選択してください。", "warning");
   }
