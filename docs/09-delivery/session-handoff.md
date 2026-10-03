@@ -491,3 +491,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 記録境界: 秘密値・個人情報・実ユーザー文章や画像は記録していない。stage／productionへの反映、配布、merge、PR／Issueへの追記は親PMのrelease gate範囲であり、このcheckpointでは実行しない。
 
 次の1マイルストーンは、PR #269の最終SHAから作成する限定配布版の受入確認である。ReviewGate、PR状態、配布結果を実取得できるまで、今回の日本語UI改善を完了扱いにしない。
+
+
+## Issue #283 Product Authentication and Office Export Current State (2026-10-03T20:40+09:00)
+
+- 対象branchは `codex/manual-product-auth-283`、この引継ぎ更新時のlocal HEADは `253e108900d354944f385bc12fffe944ce4d1107` で、staging接続準備のdocs commitは親がpush済みである。Google／ChatGPTのproduct auth source、session、start/callback、D1 migration `0008` は実装済みで、親が11件の認証unitと2件のbrowser回帰を確認した。これは合成fixture／local Workerを含む証跡であり、実provider SSO成功、remote migration適用、secret binding、Access外周の実設定を示さない。
+- Office側は、integration branch `c4c5776` からGoogle／ChatGPT×DOCX／PPTXのfixture handoff test 1件がpassした報告を受けているが、親による再検証は未実施である。完全なeditor生成経路（編集中の手順・画像を確定してから認証へ進み、元の形式を固定して出力する一連の経路）は担当修正中で、完了扱いにしない。
+- 未完了の外部境界は、実Google／ChatGPT SSO、staging remote D1 migration、Google secret binding、Access product入口／health分離の実設定である。SIWCは申請の氏名・会社名回答待ちで、商用clientは未発行のため有効化しない。これらの未確認事項をlocal testやfixture passで代替しない。
+- 次の1 milestoneは、合成editorからの完全生成、認証、Personal Workspace claim、同一workspaceの手順書・関連画像を含むDOCX／PPTX downloadまでを同一browser経路で検証し、取消・期限・編集後変更・別形式・別editor・古いcloud参照を拒否すること。その後、対象SHAを固定して `wrangler.onboarding.jsonc --env staging` のversion、0006/0007/0008、secret名、Access外周をread-only照合する staging 接続案へ進む。実stagingへのdeploy、migration apply、secret取得、Access変更は別承認境界として実行しない。
