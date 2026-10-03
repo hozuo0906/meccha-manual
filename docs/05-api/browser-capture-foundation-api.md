@@ -63,7 +63,7 @@ Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateよ
 
 DEC-090に従い、ローカルstepにimageState {status, reason, attempts, version}を持つ。statusはqueued/capturing/ready/unavailable/failed/protected/none。ready/protectedのみscreenshotIdを持ち得る。noneは利用者が「説明のみ」を選んだ状態であり、取得失敗から自動変換しない。
 
-新規captureで取得したraw screenshotは、画像bytesを保持したまま`status: "protected"`と`privacyReview: {reviewRequired: true, reasonCodes: ["manual_image_review"]}`をscreenshotと対応stepへ付与する。これは自動検出・自動maskを意味せず、editorの既存「画像に公開できない情報がないことを確認」操作（`confirmImage()`）で利用者が確認するまでOffice出力・cloud claimを拒否する。確認後は同じ画像bytesを使い、注釈・置換・maskの明示編集だけを反映する。
+新規captureで取得したraw screenshotは、画像bytesを保持したまま`status: "protected"`と`privacyReview: {reviewRequired: true, reasonCodes: ["manual_image_review"]}`をscreenshotと対応stepへ付与する。これは自動検出・自動maskを意味せず、editorの既存「画像に公開できない情報がないことを確認」操作（`confirmImage()`）で利用者が確認するまでOffice出力・cloud claimを拒否する。確認後は同じ画像bytesを使い、注釈・置換・maskの明示編集だけを反映する。確認済み画像を編集した場合は、編集済み画像と同じscreenshotを参照する全stepを再び`protected`へ戻し、`confirmImage()`で再確認するまで出力・cloud claimを拒否する。no-op保存と取消しは確認状態を変更しない。
 
 reasonはscreen_changed/navigation_changed/tab_not_visible/tab_unavailable/mask_failed/mask_invalidated/paint_timeout/paint_unavailable/capture_failed/privacy_budget_exceeded/storage_failed/capture_interrupted/capture_not_requested等の固定コードに限定し、下位例外・ページ本文・URLを含めない。0.1.9以降は撮影時の自動alias／自動maskを新規記録へ適用せず、画像を端末下書きへ保持する。入力値、DOM本文、mapping、Cookie、Authorizationはevent・操作文・metadataへ保存しない。置換・黒塗りは利用者が画像編集で明示適用し、出力時は最新のannotation・replacement・maskをflattenする。[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md) と [端末Office出力契約](manual-local-office-export-api.md)を正とする。旧alias形状は[recording-value-alias-contract](recording-value-alias-contract.md)とADR-0039へ履歴として残す。
 

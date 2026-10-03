@@ -109,6 +109,15 @@ function imageStatus(step) {
   if (step.privacyReview?.reviewRequired || screenshotFor(step)?.privacyReview?.reviewRequired) return "protected";
   return step.imageState?.status || (screenshotFor(step) ? "ready" : "unavailable");
 }
+function manualImageReview() {
+  return { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+}
+function reviewAfterImageChange(review) {
+  const next = review && typeof review === "object" ? structuredClone(review) : manualImageReview();
+  const reasonCodes = Array.isArray(next.reasonCodes) ? [...next.reasonCodes] : [];
+  if (!reasonCodes.includes("manual_image_review")) reasonCodes.push("manual_image_review");
+  return { ...next, reviewRequired: true, reasonCodes };
+}
 function replacementRegions(step) {
   const metadata = screenshotFor(step)?.privacyReview || step?.privacyReview;
   return (Array.isArray(metadata?.replacements) ? metadata.replacements : []).slice(0, 64).filter((region) => region && typeof region.id === "string" && typeof region.text === "string" && Array.from(region.text).length <= 160 && [region.x, region.y, region.width, region.height].every((value) => typeof value === "number" && Number.isFinite(value)) && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0 && region.x + region.width <= 1 && region.y + region.height <= 1);
@@ -474,8 +483,20 @@ async function openImageEditor(step, initialTool = "select") {
         const candidate = structuredClone(draft);
         const candidateScreenshot = candidate.screenshots.find((item) => item.id === editorBitmap.id);
         if (!candidateScreenshot || candidateScreenshot.dataUrl !== editorBitmap.dataUrl) throw new Error("IMAGE_EDITOR_STALE");
+        const previousAnnotations = candidateScreenshot.annotations || [];
+        const previousMasks = candidateScreenshot.masks || [];
         candidateScreenshot.annotations = next.annotations; candidateScreenshot.masks = next.masks;
         if (next.dataUrl) { if (dataUrlBytes(next.dataUrl) > MAX_IMAGE_BYTES) throw new RangeError("IMAGE_OUTPUT_TOO_LARGE"); assertImageCapacity(candidate, next.dataUrl, candidateScreenshot.id); candidateScreenshot.dataUrl = next.dataUrl; if (next.privacyReview) { candidateScreenshot.privacyReview = next.privacyReview; candidate.steps.filter((entry) => entry.screenshotId === candidateScreenshot.id && entry.privacyReview).forEach((entry) => { entry.privacyReview = next.privacyReview; }); } }
+        const imageChanged = (next.dataUrl && next.dataUrl !== editorBitmap.dataUrl)
+          || JSON.stringify(previousAnnotations) !== JSON.stringify(next.annotations)
+          || JSON.stringify(previousMasks) !== JSON.stringify(next.masks);
+        if (imageChanged) {
+          candidateScreenshot.privacyReview = reviewAfterImageChange(candidateScreenshot.privacyReview);
+          candidate.steps.filter((entry) => entry.screenshotId === candidateScreenshot.id).forEach((entry) => {
+            entry.privacyReview = structuredClone(candidateScreenshot.privacyReview);
+            entry.imageState = { ...(entry.imageState || {}), status: "protected", reason: null, attempts: entry.imageState?.attempts || 0, version: (entry.imageState?.version || 0) + 1 };
+          });
+        }
         return candidate;
       }, "画像を更新して、この端末に保存しました。");
       if (!result.ok) return false;
@@ -576,7 +597,7 @@ function createUploadPanel(step, screenshot) {
           const target = candidate.screenshots.find((item) => item.id === targetStep.screenshotId);
           const shared = target && candidate.steps.some((entry) => entry.id !== step.id && entry.screenshotId === target.id);
           assertImageCapacity(candidate, normalized.dataUrl, target && !shared ? target.id : null);
-          const next = { id: target && !shared ? target.id : crypto.randomUUID(), dataUrl: normalized.dataUrl, annotations: [], masks: [], privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"] } };
+          const next = { id: target && !shared ? target.id : crypto.randomUUID(), dataUrl: normalized.dataUrl, annotations: [], masks: [], privacyReview: manualImageReview() };
           if (target && !shared) candidate.screenshots[candidate.screenshots.indexOf(target)] = next; else candidate.screenshots.push(next);
           targetStep.screenshotId = next.id; targetStep.imageState = { status: "protected", reason: null, attempts: targetStep.imageState.attempts, version }; targetStep.privacyReview = next.privacyReview;
           return candidate;
@@ -622,8 +643,12 @@ async function confirmImage(step) {
   if (failure) { step.imageState = failure.priorState || { status: screenshot ? "ready" : "unavailable", reason: null, attempts: 0, version: 1 }; uploadFailures.delete(step.id); renderStepArticle(step); renderListOnly(); await persist(); return; }
   uploadFailures.delete(step.id); displayFailures.delete(step.id);
   if (screenshot?.privacyReview) screenshot.privacyReview.reviewRequired = false;
-  if (step.privacyReview) step.privacyReview.reviewRequired = false;
-  setImageState(step, "ready"); renderStepArticle(step); renderListOnly(); await persist();
+  const linkedSteps = screenshot ? draft.steps.filter((entry) => entry.screenshotId === screenshot.id) : [step];
+  for (const linkedStep of linkedSteps) {
+    if (linkedStep.privacyReview) linkedStep.privacyReview.reviewRequired = false;
+    setImageState(linkedStep, "ready");
+  }
+  renderStepArticle(step); renderListOnly(); await persist();
 }
 async function makeTextOnly(step) {
   if (pendingImages.has(step.id)) return;
