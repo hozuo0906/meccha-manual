@@ -30,7 +30,7 @@ jobs:
         run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-editor-browser.test.mjs
       - id: office
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --experimental-strip-types --test --test-reporter=tap tests/extension-office-export-browser.test.mjs tests/cloud-office-export-browser.test.mjs tests/extension-cloud-save-runtime-browser.test.mjs
+        run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --experimental-transform-types --test --test-reporter=tap tests/extension-office-export-browser.test.mjs tests/cloud-office-export-browser.test.mjs tests/extension-cloud-save-runtime-browser.test.mjs tests/office-auth-runtime-browser.test.mjs
       - id: sidepanel
         run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-sidepanel-browser.test.mjs
         env:
