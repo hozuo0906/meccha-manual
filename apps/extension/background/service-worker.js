@@ -291,6 +291,31 @@ async function visibleCaptureTab(session) {
   return tab;
 }
 
+function captureDocumentIdentity() {
+  return {
+    href: String(globalThis.location?.href || document.URL || ""),
+    timeOrigin: Number.isFinite(globalThis.performance?.timeOrigin) ? globalThis.performance.timeOrigin : null,
+    readyState: document.readyState,
+    visibilityState: document.visibilityState
+  };
+}
+
+async function assertCaptureTarget(session, expectedIdentity = null) {
+  await visibleCaptureTab(session);
+  let current;
+  try {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: captureDocumentIdentity });
+    current = result?.result;
+  } catch {
+    throw new Error("TARGET_TAB_UNAVAILABLE");
+  }
+  if (!current || current.visibilityState === "hidden") throw new Error("TARGET_TAB_NOT_VISIBLE");
+  if (expectedIdentity && (current.href !== expectedIdentity.href || current.timeOrigin !== expectedIdentity.timeOrigin)) {
+    throw new Error("CAPTURE_NAVIGATION_CHANGED");
+  }
+  return current;
+}
+
 async function currentClickTarget(session, event) {
   if (event?.kind !== "click" || event.clickTarget?.topFrame !== true) return null;
   try {
@@ -304,7 +329,7 @@ async function currentClickTarget(session, event) {
 
 async function takeScreenshot(session, assertCurrent = () => undefined, event) {
   let clickTarget = null;
-  await visibleCaptureTab(session);
+  const initialIdentity = await assertCaptureTarget(session);
   assertCurrent();
   let paintResult;
   try {
@@ -326,12 +351,14 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
   }
   assertCurrent();
-  await visibleCaptureTab(session);
+  await assertCaptureTarget(session, initialIdentity);
   assertCurrent();
   clickTarget = await currentClickTarget(session, event);
   assertCurrent();
   try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
   catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+  assertCurrent();
+  await assertCaptureTarget(session, initialIdentity);
   assertCurrent();
   lastStepScreenshotAt = Date.now();
   let dataUrl;
@@ -340,6 +367,8 @@ async function takeScreenshot(session, assertCurrent = () => undefined, event) {
     try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
     catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
   }
+  assertCurrent();
+  await assertCaptureTarget(session, initialIdentity);
   assertCurrent();
   if (clickTarget && await currentClickTarget(session, event)) {
     const annotation = {
@@ -1046,6 +1075,15 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
   const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : handleExternalCloudClaimMessage;
   queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
+});
+
+chrome.tabs.onActivated?.addListener((activeInfo) => {
+  // Activation changes the visible scene even when the target tab is later
+  // activated again. Invalidate every known capture target left behind by the
+  // switch so an in-flight capture cannot claim pixels from another tab.
+  for (const tabId of captureEventGenerations.keys()) {
+    if (tabId !== activeInfo?.tabId) nextCaptureEventGeneration(tabId, undefined, "screen_changed");
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
