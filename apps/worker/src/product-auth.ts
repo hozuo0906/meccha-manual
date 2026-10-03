@@ -330,7 +330,8 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
 
 export async function getProductSession(request: Request, env: Env): Promise<{ applicationId: string; issuer: string; subject: string; authMethod: Provider } | null> {
   const token = cookies(request).get(PRODUCT_SESSION_COOKIE);
-  if (!token || !env.DB) return null;
+  if (!token) return null;
+  if (!env.DB) throw productAuthStorageError("ログイン状態を確認できません。時間をおいて、もう一度お試しください。");
   const runtime = inspectAppRuntimeConfig(env).config;
   if (!runtime || new URL(request.url).origin !== runtime.baseUrl) return null;
   let row: SessionRow | null;

@@ -36,6 +36,13 @@ Status: Accepted
 - Reason: 製品ログインの期限切れをAccess設定不足の`503 ACCESS_CONFIG_UNAVAILABLE`へ誤分類せず、製品ログインを再開できる状態へ戻しながら、明示されたAccess認証と業務のtenant・service主体境界を維持するため。
 - Evidence: `apps/worker/src/cloud-manual-router.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`、`docs/05-api/api-contracts.md`
 
+### DEC-100: 製品provider設定時の業務route dispatchとD1欠落境界
+
+- Date: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5402031810
+- Decision: 製品providerが設定されたmanual／share業務routeは、D1 bindingの有無から独立してdispatchする。D1が欠落した場合はmanual helperの`503 D1_UNAVAILABLE`、share helperの`503 SHARE_MIGRATION_IN_PROGRESS`へ到達させ、製品cookieの期限切れ401へ誤分類しない。request credentialの優先順、legacy password cookieのSupabase route、Accessのservice／machine／tenant境界は維持する。
+- Reason: provider設定済みの製品専用環境でDB bindingが一時的または移行中に欠落しても、業務APIを404へ変換せず、既存helperが定義したstorage障害として利用者へ返すため。認証方式の選択をDB availabilityに結び付けないことで、legacy／Accessの既存境界も変えない。
+- Evidence: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
+
 ### DEC-095: Product auth route and callback return boundaries
 
 - Date: 2026-10-03 / Issue #283 / PR #284

@@ -9,7 +9,7 @@ Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" |
 | 要求 | 実装／検証 | 状態 |
 |---|---|---|
 | first-party Google／ChatGPT認証とD1 membership | `apps/worker/src/product-auth.ts`、既存`D1OnboardingRepository`、`migrations/0008_product_auth_sessions.sql` | 実装済み（provider外部登録・secret bindingは未完了） |
-| session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止、provider設定時のcookie自然消去・Access assertionなしを`401 SESSION_REQUIRED`へ固定、OAuth transactionごとのcookie分離 | `tests/product-auth.test.mjs`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs` で確認済み |
+| session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止、provider設定時のcookie自然消去・Access assertionなしを`401 SESSION_REQUIRED`へ固定、OAuth transactionごとのcookie分離、D1欠落時もmanual／share dispatchを維持してstorage境界へ分類 | `tests/product-auth.test.mjs`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs` で確認済み |
 | OIDC検証 | Google verified email、SIWC client_secret_basic、issuer/audience/signature/nonce、SIWC subject scope、callback失敗時の許可済み戻り先と再試行、limiter拒否と不明結果の429/503分類 | `tests/product-auth.test.mjs` のunit/API、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs` で確認済み |
 | tenant／管理境界 | 既存D1固定workspace query、Access service token・health分離 | 既存契約を維持、回帰確認対象 |
 

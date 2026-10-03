@@ -338,7 +338,6 @@ function useAccessD1Routes(env: Env): boolean {
 
 function useProductD1Routes(env: Env, request?: Request): boolean {
   const providers = configuredProductProviders(env);
-  if (!env.DB) return false;
 
   // Route selection follows the credential present on this request. A legacy
   // Supabase session must stay on the password route even while a product OIDC

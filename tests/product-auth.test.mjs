@@ -260,6 +260,64 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
   }
 });
 
+test("provider route dispatch stays enabled without D1 and preserves storage/auth boundaries", async () => {
+  const workspaceId = "00000000-0000-4000-8000-000000000001";
+  const manualId = "00000000-0000-4000-8000-000000000002";
+  const providerEnvs = [
+    { GOOGLE_OIDC_CLIENT_ID: "google-dispatch-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret" },
+    { OPENAI_SIWC_CLIENT_ID: "chatgpt-dispatch-client", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }
+  ];
+
+  for (const provider of providerEnvs) {
+    const base = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      MANUAL_ASSETS: {},
+      ...provider
+    };
+    const manualPath = `/api/workspaces/${workspaceId}/manuals/${manualId}`;
+    const sharePath = `${manualPath}/share-links`;
+    const request = (path, headers = {}) => new Request(`${base.APP_BASE_URL}${path}`, { headers: { origin: base.APP_BASE_URL, ...headers } });
+
+    const missingDbManual = await worker.fetch(request(manualPath), base, {});
+    assert.equal(missingDbManual.status, 503);
+    assert.equal((await missingDbManual.json()).code, "D1_UNAVAILABLE");
+    const missingDbShare = await worker.fetch(request(sharePath), base, {});
+    assert.equal(missingDbShare.status, 503);
+    assert.equal((await missingDbShare.json()).code, "SHARE_MIGRATION_IN_PROGRESS");
+    const missingDbProductCookie = await worker.fetch(request(manualPath, { cookie: "__Host-mm_product=expired-product-session" }), base, {});
+    assert.equal(missingDbProductCookie.status, 503);
+    assert.equal((await missingDbProductCookie.json()).code, "D1_UNAVAILABLE");
+    const missingDbShareProductCookie = await worker.fetch(request(sharePath, { cookie: "__Host-mm_product=expired-product-session" }), base, {});
+    assert.equal(missingDbShareProductCookie.status, 503);
+    assert.equal((await missingDbShareProductCookie.json()).code, "SHARE_MIGRATION_IN_PROGRESS");
+    for (const path of ["/api/session", "/api/workspaces"]) {
+      const missingDbSession = await worker.fetch(request(path, { cookie: "__Host-mm_product=expired-product-session" }), base, {});
+      assert.equal(missingDbSession.status, 503, path);
+      assert.equal((await missingDbSession.json()).code, "AUTH_STORAGE_UNAVAILABLE", path);
+      const missingDbUnauthenticated = await worker.fetch(request(path), base, {});
+      assert.equal(missingDbUnauthenticated.status, 401, path);
+      assert.equal((await missingDbUnauthenticated.json()).code, "SESSION_REQUIRED", path);
+    }
+
+    const { database, binding } = await authDatabase();
+    try {
+      const configured = { ...base, DB: binding };
+      const unauthenticatedManual = await worker.fetch(request(manualPath), configured, {});
+      assert.equal(unauthenticatedManual.status, 401);
+      assert.equal((await unauthenticatedManual.json()).code, "SESSION_REQUIRED");
+      const unauthenticatedShare = await worker.fetch(request(sharePath), configured, {});
+      assert.equal(unauthenticatedShare.status, 401);
+      assert.equal((await unauthenticatedShare.json()).code, "SESSION_REQUIRED");
+      const expiredProductCookie = await worker.fetch(request(manualPath, { cookie: "__Host-mm_product=expired-product-session" }), configured, {});
+      assert.equal(expiredProductCookie.status, 401);
+      assert.equal((await expiredProductCookie.json()).code, "SESSION_REQUIRED");
+    } finally {
+      database.close();
+    }
+  }
+});
+
 test("providerごとのOAuth transaction cookieは並行開始とcallback順序を独立して保持する", async () => {
   for (const provider of ["google", "chatgpt"]) {
     for (const firstAction of ["success", "cancel"]) {

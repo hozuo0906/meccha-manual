@@ -8,6 +8,7 @@ Status: Accepted
 - Googleはstart→callback→D1 Personal Workspace→`/api/session`→logoutを一度だけ完了し、replay・期限切れ・署名・issuer/audience・nonce不一致を拒否する。
 - ChatGPTはconfidential `client_secret_basic`でtoken交換し、client IDを含むsubject scopeでidentity衝突を防ぐ。plan usageは別permissionとして初期OFFを維持する。
 - 製品cookieが不正・失効・別originの場合、Access service actorやhealthへ暗黙切替しない。workspaceとmanualの固定tenant queryを維持する。
+- GoogleまたはChatGPT provider設定時にD1 bindingが欠落してもmanual／share業務routeを404にせず、manualは`503 D1_UNAVAILABLE`、share管理は`503 SHARE_MIGRATION_IN_PROGRESS`へ分類する。DB欠落をcookie期限切れ401へ分類せず、legacy password cookie、Access service token、tenant境界を維持する。
 
 | ID | Given | When | Then |
 |---|---|---|---|
