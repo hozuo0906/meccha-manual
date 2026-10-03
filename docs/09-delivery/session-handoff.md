@@ -491,3 +491,13 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 記録境界: 秘密値・個人情報・実ユーザー文章や画像は記録していない。stage／productionへの反映、配布、merge、PR／Issueへの追記は親PMのrelease gate範囲であり、このcheckpointでは実行しない。
 
 次の1マイルストーンは、PR #269の最終SHAから作成する限定配布版の受入確認である。ReviewGate、PR状態、配布結果を実取得できるまで、今回の日本語UI改善を完了扱いにしない。
+
+## Office容量・privacy handoff checkpoint（2026-10-03T14:11:35+09:00）
+
+- 現行製品sourceの正本は `88e9c2f37f7a47a1ebd5785c2abc05573a8a1494`（branch `codex/manual-explicit-privacy-office-019`）。220dd84で実装したOffice画像64 MiB累積・archive 80 MiB・ZIP32範囲検査、local/cloudの容量拒否・再試行、Heading1のOOXML配置、入力caption同期を88e9c2fで実caller回帰とAPP_ASSET_VERSION同期まで確認した。このcheckpointの変更はhandoff文書だけで、pushは親PMの保存工程で行う。
+- 88e9c2fに対する確認結果は、capture actor unit 12/12、local/cloud browser 2/2、worker runtime 71/71、対象ゲート合計85/85、skip 0。P0/P1は確認されていない。旧d34のCI/fullcheck証跡は現行SHAへ流用しない。220で発生したAPP_ASSET_VERSION不一致は88で解消済みである。
+- P2候補として、`bytes:string` のdecode後に容量検査するための一時メモリ増加と、XML生成前のarchive guardがある。いずれも現行の実callerおよびAPIの `Uint8Array` 契約外であり、今回の修正対象には含めない。utilityを直接呼ぶ場合の一時メモリ増加を影響として親PMが管理し、2026-10-08までにboundedな契約整理を行う。
+- 検証境界は、実OfficeのWord／PowerPoint描画、remote SSO、実Chromeでの追加操作を未確認とする。local/cloudの分離ブラウザ検証を実施し、実Chromeの追加操作は禁止した。Windowsではesbuildの昇格済みdirect Node検査とwranglerのdirect CLI bundleを成功として確認したが、通常の `wrangler.cmd` 経路は `spawnSync ... EINVAL` のため未確認として区別する。
+- Google project／IAB構成は作成済みだがOAuth clientは未作成で、課金accountもない。auth文書は別branchのremote SHA `87457fe` に保存済みである。
+
+次の1マイルストーンは、この最新SHAに対するCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。完了までは配布・native Office描画・remote SSOを完了扱いにしない。
