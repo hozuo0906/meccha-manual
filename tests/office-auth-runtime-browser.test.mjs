@@ -235,14 +235,10 @@ async function installStagingRoutes(context, fixture, provider) {
       const cookieHeader = response.headers.get("set-cookie");
       const cookie = sessionCookieFromResponse(cookieHeader, url.hostname);
       await context.addCookies([cookie]);
-      const onboarding = await cloudWorker.fetch(new Request(returnLocation, { headers: { cookie: `${cookie.name}=${encodeURIComponent(cookie.value)}` } }), fixture.env, {});
-      const onboardingBody = Buffer.from(await onboarding.arrayBuffer()).toString("utf8");
-      const callbackHeaders = Object.fromEntries(response.headers.entries());
-      delete callbackHeaders.location;
       await route.fulfill({
         status: 200,
-        headers: { ...callbackHeaders, "content-type": "text/html; charset=utf-8" },
-        body: `<script>history.replaceState(null, "", ${JSON.stringify(new URL(returnLocation).pathname)})</script>${onboardingBody}`
+        contentType: "text/html; charset=utf-8",
+        body: `<!doctype html><script>location.replace(${JSON.stringify(new URL(returnLocation, STAGING_ORIGIN).toString())})</script>`
       }); return;
     }
     const headers = Object.fromEntries(response.headers.entries()); delete headers.location;
@@ -268,7 +264,17 @@ async function waitForCompleted(worker, key) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const latest = await new Promise((resolve, reject) => chrome.storage.local.get(storageKey, (result) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(result?.[storageKey] ?? null)));
-    throw new Error(`handoff did not reach completed: ${JSON.stringify(latest)}`);
+    const summary = latest && typeof latest === "object" ? {
+      status: latest.status || null,
+      outputAction: latest.outputAction || null,
+      officeFormat: latest.officeFormat || null,
+      hasOperationId: typeof latest.operationId === "string",
+      operationIdLength: typeof latest.operationId === "string" ? latest.operationId.length : 0,
+      hasClaimIntentId: typeof latest.claimIntentId === "string",
+      hasDraftFingerprint: typeof latest.draftFingerprint === "string",
+      hasCloudRef: Boolean(latest.cloudRef)
+    } : null;
+    throw new Error(`handoff did not reach completed: ${JSON.stringify(summary)}`);
   }, key);
 }
 
@@ -495,10 +501,12 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           });
           assert.equal(preProviderState.hasLoginReturn, true, "initial unauthenticated bootstrap must preserve the generated return context");
           assert.ok(preProviderState.activeEntries >= 1, "generated handoff must remain active through product login");
+          const fragmentReturnPromise = stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue" && url.hash.includes("handoff="), { timeout: 30_000 });
           await stagingPage.locator(providerSelector).click();
-          await stagingPage.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { timeout: 15_000 });
+          await stagingPage.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { waitUntil: "commit", timeout: 15_000 });
+          await fragmentReturnPromise;
           try {
-            await stagingPage.waitForFunction(() => !sessionStorage.getItem("meccha-manual:product-login-return") && document.querySelector("#bootstrap")?.textContent !== "保存先を準備する", null, { timeout: 15_000 });
+            await stagingPage.waitForFunction(() => !sessionStorage.getItem("meccha-manual:product-login-return"), null, { timeout: 15_000 });
           } catch (error) {
             const diagnostic = await stagingPage.evaluate(() => {
               let saved = null;
@@ -517,7 +525,29 @@ test("editor startRegistration creates the real Office handoff for both syntheti
             console.error("generated-return-diagnostic", diagnostic);
             throw error;
           }
-          await stagingPage.locator("#bootstrap").click();
+          const restoredState = await stagingPage.evaluate(() => ({
+            pathname: location.pathname,
+            hasHash: Boolean(location.hash),
+            hasLoginReturn: sessionStorage.getItem("meccha-manual:product-login-return") !== null,
+            bootstrapText: document.querySelector("#bootstrap")?.textContent || "",
+            statusText: document.querySelector("#status")?.textContent || ""
+          }));
+          assert.equal(restoredState.pathname, "/onboarding/continue");
+          assert.equal(restoredState.hasHash, false, "product-auth return must scrub the handoff fragment");
+          assert.equal(restoredState.hasLoginReturn, false, "product-auth return context must be consumed once");
+          const bootstrapButton = stagingPage.locator("#bootstrap");
+          await bootstrapButton.waitFor({ state: "visible", timeout: 15_000 });
+          await stagingPage.locator("#bootstrap:not([disabled])").waitFor({ state: "visible", timeout: 15_000 });
+          const initialBootstrapText = (await bootstrapButton.textContent())?.trim() || "";
+          const downloadPromise = editor.waitForEvent("download", { timeout: 0 });
+          await bootstrapButton.click();
+          if (initialBootstrapText !== "保存先を準備する") {
+            await stagingPage.waitForFunction((previousText) => {
+              const button = document.querySelector("#bootstrap");
+              return button && !button.disabled && button.textContent?.trim() !== previousText;
+            }, initialBootstrapText, { timeout: 15_000 });
+            await bootstrapButton.click();
+          }
           await registrationClick;
           await waitForCompleted(worker, handoffStorageKey(handoffId));
           const completed = await getStorage(worker, handoffStorageKey(handoffId));
@@ -529,18 +559,19 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM manuals").get().count, index + 1);
           assert.equal([...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png").length, index + 1);
 
-          const wrongFormat = officeFormat === "docx" ? "pptx" : "docx";
-          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId, officeFormat: wrongFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
-          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId: "Z".repeat(43), officeFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
-          assert.equal((await getStorage(worker, handoffStorageKey(handoffId))).officeReturnReceipt, undefined);
-
-          const downloadPromise = editor.waitForEvent("download", { timeout: 30_000 });
-          await stagingPage.locator("#bootstrap").click();
-          const download = await downloadPromise;
+          const download = await Promise.race([
+            downloadPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Office download did not start while the editor remained open")), 30_000))
+          ]);
           const downloadedPath = await download.path();
           assert.ok(downloadedPath);
           assert.deepEqual([...(await readFile(downloadedPath)).subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
           assert.match(await download.suggestedFilename(), new RegExp(`\\.${officeFormat}$`));
+
+          const wrongFormat = officeFormat === "docx" ? "pptx" : "docx";
+          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId, officeFormat: wrongFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
+          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId: "Z".repeat(43), officeFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
+          assert.equal((await getStorage(worker, handoffStorageKey(handoffId))).officeReturnReceipt, undefined);
           assert.equal(await getStorage(worker, officeIntentStorageKey(draftId)), null);
           assert.equal((await getStorage(worker, handoffStorageKey(handoffId))).officeReturnReceipt, undefined);
         } finally {
