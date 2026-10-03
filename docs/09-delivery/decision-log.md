@@ -22,12 +22,12 @@ Status: Accepted
 - Reason: Prevent callback `code`/`state` values from entering a later same-origin `Referer` header and keep transient D1 failures retryable without leaking implementation errors.
 - Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`
 
-### DEC-097: Product auth limiter and consumed callback return boundaries
+### DEC-097: 製品認証limiterとconsume済みcallback戻り境界
 
 - Date: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5401676113
-- Decision: Product auth start maps only an explicit limiter result of `success: false` to `429 AUTH_RATE_LIMITED`. A missing binding, limiter exception, or malformed/unknown result maps to retryable `503 AUTH_RATE_LIMIT_UNAVAILABLE` before OAuth transaction creation. After a transaction is verified and consumed, nonce binding failures and other callback errors inherit only a revalidated fixed `return_path`; invalid or external stored paths are discarded and never rendered or redirected.
-- Reason: Keep quota refusal distinct from limiter availability failures, preserve consumed-transaction replay protection, and retain Office/onboarding retry context without trusting tampered transaction data.
-- Evidence: `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `docs/05-api/api-contracts.md`
+- Decision: 製品認証開始ではlimiter結果が明示的に`success: false`の場合だけ`429 AUTH_RATE_LIMITED`へ分類する。binding欠落、limiter例外、不正または不明な結果は、OAuth transactionを作成する前に再試行可能な`503 AUTH_RATE_LIMIT_UNAVAILABLE`へ分類する。transactionを検証してconsumeした後のnonce binding失敗などcallbackエラーは、再検証済みの固定`return_path`だけを引き継ぎ、不正または外部の保存pathは破棄して表示・redirectしない。
+- Reason: quota拒否とlimiter利用不能を区別し、consume済みtransactionのreplay保護を維持しながら、改変されたtransaction dataを信頼せずOffice／onboardingの再試行contextを保持するため。
+- Evidence: `apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
 
 ### DEC-095: Product auth route and callback return boundaries
 

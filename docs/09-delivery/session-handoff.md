@@ -577,3 +577,15 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。limiterは明示的な`success: false`だけを`429 AUTH_RATE_LIMITED`へ写像し、binding欠落・呼出し例外・不明／不正結果は`503 AUTH_RATE_LIMIT_UNAVAILABLE`としてOAuth transaction作成前に停止する。nonce不一致を含むconsume後callback errorは、再検証した固定`return_path`だけを引き継ぎ、改変された外部pathは利用しない。
 - `app:auth:unit`は136/136、`docs:check`は143 files、`worker:check`、worker typecheck、`encoding:check`は377 files、`git diff --check`をexit 0で確認した。追加回帰はlimiterの拒否／例外／malformed、nonce mismatch後のconsume済み、外部return pathのHTML不出力を含む。Office export test／workflowは変更していない。
 - この時点の差分はlocal未commitであり、commit・push・PR head／CI／Codex Reviewの再取得は未確認。実provider SSO、remote migration、secret binding、production反映は未実施である。
+
+## Office/authブラウザCI逐次実行ゲート（2026-10-04T01:50:28+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。source基準HEADは`dce841475ee49a9b02d6a99388bf9a7c1cf5d8a6`で、今回の変更は`.github/workflows/extension-privacy.yml`、本引き継ぎ、`docs/09-delivery/decision-log.md`の現行決定DEC-097日本語同期だけである。Worker、source、tests、migrationは変更していない。
+- Extension PrivacyのOffice stepで、`extension-office-export-browser.test.mjs`、`cloud-office-export-browser.test.mjs`、`extension-cloud-save-runtime-browser.test.mjs`、`office-auth-runtime-browser.test.mjs`をNodeの`--test-concurrency=1`で逐次実行する。既存の4ファイル、6分timeout、TERM／kill-after、`continue-on-error`と最終結果集約、期待値・skip条件は維持する。
+- 並列実行による公式Chrome for Testingのbrowser CPU競合を避ける根拠として、独立担当`office_large_export_ci_diagnosis`の診断報告では対象単体が21.418秒、4ファイル合成は初回65.234秒・2回目20.601秒で、いずれも全5件passだった。CI job `111243391617`はdownload待ち30秒timeoutのstatus生成中であり、これだけでは恒常hangとは判定しない。timeout延長や期待値・skip緩和は行わない。
+- 親の公式CFT実行`session18991`は、実Word／PowerPointの20画像case 1/1、skip 0、exit 0、test 21.715秒（全体22.213秒）の取得報告である。実provider SSO、remote migration／secret binding、native Office描画の完了証跡とは分離する。
+- source基準`dce841475ee49a9b02d6a99388bf9a7c1cf5d8a6`に対する親の公式CFT実行`session90974`は、認証単体148/148、browser 6/6、skip 0、exit 0、browser 70.767秒で、Google／ChatGPTから同形式Office出力、cancel後の実bootstrap retry、logout、expired 401を確認した取得報告である。これは合成provider／local Worker等の検証であり、実provider SSO・remote変更・native Officeアプリ描画とは分離する。
+- この作業単位で`check-workflows.mjs`（29 files）、`check-docs.mjs`（143 files）、`check-encoding.mjs`（377 files）、`git diff --check`を実行し、workflow／文書／encoding／差分検査はすべてexit 0を確認した。未追跡の`.artifacts/unified-editor/`は既存の検証生成物として変更・削除・commit対象にしない。
+- PRゲートの`npm ci`は`node_modules/.package-lock.json`のunlinkでWindows `EPERM`となり未完了で、ロック解除のための停止・削除・強制操作は行っていない。既存依存で実行した`npm run check`はdocs／brand／worker検査を通過した後、worktree sandboxのesbuildが`../../../..`を読めず`editor-tools:check`で停止したため、全check成功とは扱わない。認証unitは`app:auth:unit` 136/136、skip 0、exit 0を確認した。
+
+次の1マイルストーンは、この修正を含むcommitをpushし、remote／PR head SHA一致、同SHAのCI、Codex Review、未解決review threadを親がrelease gateで再取得することである。CI成功だけで完成扱いにせず、実provider SSO、remote変更、production反映は未実施のまま維持する。
