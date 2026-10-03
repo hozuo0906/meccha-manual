@@ -2,6 +2,13 @@
 
 Status: Accepted
 
+### AC-283: 製品認証とworkspace接続
+
+- provider未設定時はGoogle／ChatGPTを表示せず、startはD1 transactionやtoken交換を開始しない。
+- Googleはstart→callback→D1 Personal Workspace→`/api/session`→logoutを一度だけ完了し、replay・期限切れ・署名・issuer/audience・nonce不一致を拒否する。
+- ChatGPTはconfidential `client_secret_basic`でtoken交換し、client IDを含むsubject scopeでidentity衝突を防ぐ。plan usageは別permissionとして初期OFFを維持する。
+- 製品cookieが不正・失効・別originの場合、Access service actorやhealthへ暗黙切替しない。workspaceとmanualの固定tenant queryを維持する。
+
 | ID | Given | When | Then |
 |---|---|---|---|
 | AC-001 | ログイン済みユーザー | ログアウトする | 保護画面にアクセスできない |

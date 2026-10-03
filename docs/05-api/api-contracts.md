@@ -2,6 +2,14 @@
 
 Status: Accepted
 
+### 製品認証（Issue #283 / ADR-0041）
+
+`GET /api/auth/providers` はGoogleとChatGPTの利用可否booleanだけを返す。`GET /api/auth/{google|chatgpt}/start?return=/` は許可した同一originの戻り先だけを受け、Authorization Code + PKCEを開始する。callbackはstate・nonce・期限・一回消費・issuer・audience・署名を検証し、Googleはverified emailを必須とする。SIWCは登録済みconfidential clientの`client_secret_basic`だけを使い、未登録・未有効化なら503で非表示とする。
+
+認証成功時は既存D1 `identities(issuer, subject)` を再利用またはPersonal Workspace bootstrapし、平文tokenは返さずSecure・HttpOnly・SameSite=Laxの製品session cookieを発行する。Googleは検証済みtokenのsubをsubjectに使い、SIWCは`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectに使うため、同じsubでもclient IDが異なれば別identityとなる。メール一致による自動linkは行わない。D1の`auth_sessions`はtoken hash・期限・revocationだけ、`oauth_transactions`はstate／nonce／verifier hashだけを保持する。`GET /api/session`、workspace、manual、shareの製品経路はこのsessionを使うが、Access service tokenと`/health/config`にはfallbackしない。不正・失効cookie、期限切れ、別origin、tenant越境は拒否する。
+
+callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返し、ブラウザのHTML要求には秘密値や外部戻り先を含めず、再試行できる日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合も一時OAuth cookieを消去し、`no-store`を指定する。
+
 本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
 ## 共通

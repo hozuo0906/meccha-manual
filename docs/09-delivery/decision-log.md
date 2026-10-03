@@ -2,6 +2,12 @@
 
 Status: Accepted
 
+### DEC-091: Product auth first-party session foundation
+
+- Date: 2026-10-03 / Issue #283 / ADR-0041
+- Decision: GoogleとSIWCを同じfirst-party session境界へ接続し、既存`identities(issuer, subject)`とD1 Personal Workspace bootstrapを再利用する。`auth_sessions`と`oauth_transactions`はhash・期限・一回消費だけを保存し、Access service token／healthを製品cookieから分離する。Googleはverified email、SIWCはconfidential `client_secret_basic`とclient ID scoped subjectを使う。メール確認、明示的link、SIWC商用client登録・plan usage、remote migrationとsecret bindingは次unitとする。
+- Evidence: `apps/worker/src/product-auth.ts`, `migrations/0008_product_auth_sessions.sql`, `tests/product-auth.test.mjs`
+
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
 | DEC-093 | 2026-10-01 | 初回Access復帰でfragment再付与後の旧document由来の遅着`hashchange`は、`event.newURL`のfragmentと現在の`location.hash`が一致しない場合に無視する。現在のfragmentと一致するhash-only遷移は従来どおりCTAを無効化して再読込し、遷移先を再検証する | `history.replaceState`後の遅着イベントがhashless画面を再読込すると、初回復帰のbootstrapではなくresume経路が選択され、保存操作が失敗し得るため。stale eventの副作用を0回にし、通常のfragment遷移の安全境界を維持する |

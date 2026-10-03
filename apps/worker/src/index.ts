@@ -11,9 +11,10 @@ import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./o
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { handleShareLinkRoute } from "./share-link-router.ts";
-import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
+import { beginProductAuth, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, revokeProductSession } from "./product-auth.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectProductAuthConfig, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings, type SupabaseBindings } from "./server-config.ts";
 
-interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
+interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings, ProductAuthBindings {
   DB?: D1DatabaseLike;
   ONBOARDING_RATE_LIMITER?: RateLimit;
   SHARE_AUTH_RATE_LIMITER?: RateLimit;
@@ -44,6 +45,10 @@ interface ConfigHealthResponse extends HealthResponse {
       hasUrl: boolean;
       hasAnonKey: boolean;
       projectRef: string | null;
+    };
+    productAuth: {
+      googleConfigured: boolean;
+      chatgptConfigured: boolean;
     };
     discord: {
       issueBridgeConfigured: boolean;
@@ -258,10 +263,32 @@ function errorResponse(error: unknown): Response {
     }, { status: error.status }, error.responseCookies);
   }
 
+  if (error instanceof ProductAuthError) {
+    return jsonResponse({ code: error.code, message: error.message }, { status: error.status });
+  }
+
   return jsonResponse({
     code: "INTERNAL_ERROR",
     message: "予期しないエラーが発生しました。"
   }, { status: 500 });
+}
+
+async function productAuthCallbackRoute(request: Request, env: Env, provider: "google" | "chatgpt"): Promise<Response> {
+  try {
+    return await finishProductAuth(request, env, provider);
+  } catch (error) {
+    const json = errorResponse(error);
+    const status = json.status;
+    const message = error instanceof ProductAuthError
+      ? error.message
+      : "ログインを完了できませんでした。時間をおいて、もう一度お試しください。";
+    const acceptsHtml = (request.headers.get("accept") ?? "").includes("text/html");
+    const response = acceptsHtml
+      ? new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを完了できませんでした</title><main><h1>ログインを完了できませんでした</h1><p>${message.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value))}</p><a href="/">ログイン画面へ戻る</a></main></html>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } })
+      : json;
+    response.headers.append("set-cookie", `__Host-mm_oauth_${provider}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`);
+    return response;
+  }
 }
 
 function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code"): AppError {
@@ -298,6 +325,15 @@ function useAccessD1Routes(env: Env): boolean {
   return access.hasIssuer || access.hasAudience || access.hasJwksUrl;
 }
 
+function useProductD1Routes(env: Env, request?: Request): boolean {
+  const providers = configuredProductProviders(env);
+  return Boolean(env.DB) && (providers.google || providers.chatgpt || (request ? hasProductSessionCookie(request) : false));
+}
+
+function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
+  return useAccessD1Routes(env) || useProductD1Routes(env, request);
+}
+
 interface D1RouteContext {
   actorId: string;
   repository: D1WorkspaceRepository;
@@ -313,6 +349,12 @@ function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
 }
 
 async function authenticateD1User(request: Request, env: Env): Promise<D1RouteContext> {
+  const productSession = await getProductSession(request, env);
+  if (productSession && env.DB) {
+    return { actorId: productSession.applicationId, repository: new D1WorkspaceRepository(env.DB) };
+  }
+  if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+  if (!useAccessD1Routes(env) && useProductD1Routes(env, request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
   let auth;
   try {
     auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
@@ -353,9 +395,16 @@ async function bootstrapOnboarding(request: Request, env: Env): Promise<Response
   if (!isConfiguredOnboardingOrigin(new URL(request.url).origin, env)) {
     throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存先の準備が完了していません。時間をおいて、もう一度お試しください。");
   }
+  const productSession = await getProductSession(request, env);
   let actor;
-  try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
-  catch (error) { throw mapAccessIdentityError(error); }
+  if (productSession) {
+    actor = { kind: "product_user" as const, issuer: productSession.issuer, subject: productSession.subject };
+  } else {
+    if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+    if (!useAccessD1Routes(env) && useProductD1Routes(env, request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
+    try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
+    catch (error) { throw mapAccessIdentityError(error); }
+  }
   const body = await readJsonBody<{ operationId?: unknown }>(request);
   if (Object.keys(body).some((key) => key !== "operationId") || typeof body.operationId !== "string"
     || !/^[A-Za-z0-9_-]{16,128}$/.test(body.operationId)) {
@@ -2190,6 +2239,7 @@ async function configHealth(request: Request, env: Env): Promise<Response> {
       throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
     }
   }
+
   const supabase = inspectSupabaseConfig(env);
   const { hasUrl, hasAnonKey } = supabase;
   const hasAllowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS).size > 0;
@@ -2213,6 +2263,10 @@ async function configHealth(request: Request, env: Env): Promise<Response> {
         hasUrl,
         hasAnonKey,
         projectRef: supabase.projectRef
+      },
+      productAuth: {
+        googleConfigured: configuredProductProviders(env).google,
+        chatgptConfigured: configuredProductProviders(env).chatgpt
       },
       discord: {
         issueBridgeConfigured: discordIssueBridgeConfigured,
@@ -2300,19 +2354,27 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const brandAsset = await brandAssetResponse(request, env);
   if (brandAsset) return brandAsset;
 
-  if (useAccessD1Routes(env)) {
+  if (useD1ApplicationRoutes(env, request)) {
     const shareResponse = await handleShareLinkRoute(request, env);
     if (shareResponse) return shareResponse;
     const cloudManualResponse = await handleCloudManualRoute(request, env);
     if (cloudManualResponse) return cloudManualResponse;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/auth/providers") {
+    return jsonResponse({ providers: configuredProductProviders(env), password: inspectSupabaseConfig(env).configured });
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/google/start") return beginProductAuth(request, env, "google");
+  if (request.method === "GET" && url.pathname === "/api/auth/google/callback") return productAuthCallbackRoute(request, env, "google");
+  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/start") return beginProductAuth(request, env, "chatgpt");
+  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/callback") return productAuthCallbackRoute(request, env, "chatgpt");
+
   verifySameOriginWrite(request);
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/onboarding/continue") {
     const bootstrapEnabled = isConfiguredOnboardingOrigin(url.origin, env)
-      && inspectAccessConfig(env).configured && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
+      && (inspectAccessConfig(env).configured || useProductD1Routes(env, request)) && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
     return htmlResponse(renderOnboardingContinuePage({ bootstrapEnabled }));
   }
   if (request.method === "GET" && url.pathname === "/assets/onboarding.css") {
@@ -2321,23 +2383,23 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
     return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/editor-tools.js") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/editor-tools.js") {
     if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return assetResponse(EDITOR_TOOLS_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
     return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/manuals") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/manuals") {
     if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return cloudManualPage(request, env);
   }
@@ -2351,23 +2413,24 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/health") return basicHealth();
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(request, env);
   if (request.method === "GET" && url.pathname === "/api/session") {
-    return useAccessD1Routes(env) ? getD1Session(request, env) : getSession(request, env);
+    return useD1ApplicationRoutes(env, request) ? getD1Session(request, env) : getSession(request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+    if ((await getProductSession(request, env)) || hasProductSessionCookie(request)) return revokeProductSession(request, env);
     return useAccessD1Routes(env) ? accessLogout(request, env) : logout(request, env);
   }
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
-    if (useAccessD1Routes(env)) return listD1Workspaces(request, env);
+    if (useD1ApplicationRoutes(env, request)) return listD1Workspaces(request, env);
     const session = await requireSession(request, env);
     return jsonResponse({ workspaces: await fetchWorkspaces(env, session.accessToken) }, undefined, session.responseCookies);
   }
   if (request.method === "POST" && url.pathname === "/api/workspaces") {
-    return useAccessD1Routes(env) ? createD1Workspace(request, env) : createWorkspace(request, env);
+    return useD1ApplicationRoutes(env, request) ? createD1Workspace(request, env) : createWorkspace(request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/member-join-code") {
-    return useAccessD1Routes(env) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
+    return useD1ApplicationRoutes(env, request) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
   }
   if (request.method === "GET" && workspaceMembersMatch?.[1]) {
     return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);

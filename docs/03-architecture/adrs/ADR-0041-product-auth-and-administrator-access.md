@@ -1,8 +1,16 @@
 # ADR-0041: 製品認証と管理者Cloudflare Accessの分離
 
-Status: Proposed
+Status: Accepted
 
-専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意、OAuthの構成作成、OAuth client作成が完了している。請求先アカウントはなく、client資格情報はrepo外で保護済みである。ただしcallback/startのsource実装、schema、bindingは未実装のため、Googleログインは未稼働として扱う。
+## 実装対象の受入れ（2026-10-03）
+
+このADRのAccepted範囲は、first-partyのGoogle／SIWC認証基盤、D1の`auth_sessions`・`oauth_transactions`、既存`identities(issuer, subject)`とPersonal Workspace bootstrapへの接続である。Googleは`GET /api/auth/google/start`と`/callback`、ChatGPTは同形式のrouteを持つ。設定未完了のproviderは設定booleanだけを返し、UIとstartをfail closedにする。
+
+PKCE verifierとnonceは短命のSecure・HttpOnly・SameSite=Lax cookieに結び、D1にはhashだけを保存する。callbackはstate、cookie binding、期限、一回消費、issuer、audience、署名、nonceを検証し、Googleだけverified emailを必須とする。SIWCは`client_secret_basic`とissuer・audience・nonce・subjectを正本にし、`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectとしてprovider/client IDを含むidentity衝突を防ぐ。同じsubでもclient IDが変われば別identityとなり、本人確認を伴う明示linkが将来必要になる。平文token、credential、secretはD1/R2/logへ保存しない。
+
+Accessのservice token、`/health/config`、D1/R2の固定workspace query、tenant越境拒否は製品sessionから分離して維持する。失効・不正な製品cookieをAccessへ暗黙fallbackしない。メール確認と明示的identity link、ChatGPT plan usage permission、remote migration・provider secret bindingは別unitの未完了事項である。
+
+専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意、OAuthの構成作成、OAuth client作成が完了している。請求先アカウントはなく、client資格情報はrepo外で保護済みである。callback/startのsource、D1 schema、設定値の読み取り窓口とconfigured booleanの実装は完了しているが、remote migration適用と本番secret bindingが未完了のため、Googleログインは未稼働として扱う。
 
 Date: 2026-10-03
 
@@ -25,10 +33,10 @@ Date: 2026-10-03
 - guestのlocal draftとoutput選択はログイン途中でも保持し、認証後に同じhandoffとdraft fingerprintを再検証して元のoutputへ戻す。認証失敗やキャンセルでlocal原本を削除しない。
 
 ## 境界
-- 次のGoogle実装unitの候補は、同一staging origin `https://meccha-manual-staging.meccha-iiyatsu.com` の `GET /api/auth/google/start` と `GET /api/auth/google/callback` である。scopeは`openid email profile`、server secret候補は`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`とし、`APP_ENV`と`APP_BASE_URL`を再利用する。これらのrouteは現時点で未実装であり、既存route・契約として扱わない。
+- 実装済みのGoogle routeは、同一staging origin `https://meccha-manual-staging.meccha-iiyatsu.com` の `GET /api/auth/google/start` と `GET /api/auth/google/callback` である。scopeは`openid email profile`、server secretは`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`、`APP_ENV`と`APP_BASE_URL`を再利用する。remote migration適用、実環境secret binding、外部providerを使った本番稼働は別のrelease作業である。
 - Word／PowerPoint出力は、保存処理を開始する直前に製品sessionを必須とする。guestの下書きと出力選択はログイン途中も保持し、製品session確立後に同じ出力を再開する。Cloudflare Accessの管理者・運用sessionとは別境界にする。
 
-この提案は、現行Access application、production policy、Cloudflare管理設定、Google client、メール送信provider、OpenAI client、D1 migration、session実装を変更しない。新しい環境変数、依存package、schema、秘密値をこのADRだけで追加しない。
+このADRの実装は、現行Access application、production policy、Cloudflare管理設定、Google client、メール送信provider、OpenAI clientの実環境設定を変更しない。D1 migrationとsession実装は本ADRのAccepted範囲に含めるが、remote D1への適用は別releaseで行う。新しい環境変数、依存package、秘密値をこのADRだけで追加しない。
 
 管理者・運用用のCloudflare Accessとservice tokenは、製品利用者のログインとは別の認証経路として残す。`GET /health/config`等の管理経路を製品sessionへ置き換えない。D1/R2のbindingとworkspace固定認可queryも変更しない。
 
@@ -50,4 +58,4 @@ Date: 2026-10-03
 
 ## 状態
 
-本ADRは設計候補であり、productionの認証方式、Cloudflare設定、provider登録、D1/R2 migrationを承認するものではない。
+本ADRはAcceptedであり、記載した実装範囲を承認する。ただしproductionの認証方式の切替、Cloudflare設定、実環境provider有効化、remote D1 migrationは別release承認とする。

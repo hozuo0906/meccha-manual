@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-3139d856777f2bef";
+export const APP_ASSET_VERSION = "sha256-3c738b56cffd7166";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -274,6 +274,24 @@ h1 {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
+}
+
+.product-auth-buttons {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.product-auth-buttons .secondary-button {
+  width: 100%;
+  text-decoration: none;
+}
+
+.auth-divider {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .danger-button {
@@ -1675,6 +1693,7 @@ function renderLogin(message = "") {
           '<h2>ログイン</h2>' +
           '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
         '</div>' +
+        '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite"></div>' +
         '<form id="login-form" class="form" novalidate>' +
           '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
@@ -1721,6 +1740,25 @@ function renderLogin(message = "") {
       event.currentTarget.removeAttribute("aria-busy");
     }
   });
+  setTimeout(() => fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+    const providers = payload?.providers;
+    const buttons = document.getElementById("product-auth-buttons");
+    if (!buttons || !providers) return;
+    const requestedReturn = new URLSearchParams(window.location.search).get("return");
+    const returnPath = encodeURIComponent(requestedReturn || window.location.pathname || "/");
+    const links = [];
+    if (providers.google === true) links.push('<a class="secondary-button" href="/api/auth/google/start?return=' + returnPath + '">Googleでログイン</a>');
+    if (providers.chatgpt === true) links.push('<a class="secondary-button" href="/api/auth/chatgpt/start?return=' + returnPath + '">ChatGPTでログイン</a>');
+    if (links.length) {
+      buttons.innerHTML = '<p class="auth-divider">または</p>' + links.join("");
+      if (payload.password === false) {
+        const form = document.getElementById("login-form");
+        const heading = document.querySelector(".panel-heading p");
+        if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
+        if (heading) heading.textContent = "GoogleまたはChatGPTでログインしてください。";
+      }
+    }
+  }).catch(() => undefined), 0);
   for (const field of [document.getElementById("email"), document.getElementById("password")]) {
     field.addEventListener("input", () => clearLoginFieldError(field));
   }

@@ -2,7 +2,11 @@
 
 Status: Proposed
 
-専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意、OAuthの構成作成、OAuth client作成が完了している。請求先アカウントはなく、client資格情報はrepo外で保護済みである。ただしcallback/startのsource実装、schema、bindingは未実装のため、Googleログインは未稼働として扱う。
+実装unit（2026-10-03）では、GoogleとSIWCの共通first-party session、provider start/callback、D1接続を実装した。`migrations/0008_product_auth_sessions.sql`のremote適用、secret binding、メール確認、明示的identity link、ChatGPT商用client登録・plan usageは未完了であり、外部ログイン稼働済みとは扱わない。
+
+PKCE verifier/nonceはSecure・HttpOnly cookie binding、D1はstate／nonce／verifier hashだけを保持する。Googleはverified email、SIWCはclient_secret_basicとissuer・audience・nonce・subjectを検証し、SIWC subjectは`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) でscopeする。同じsubでもclient IDが異なれば別identityとし、email一致による自動linkは行わない。Access service tokenとhealthは製品cookieから分離する。
+
+専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意、OAuthの構成作成、OAuth client作成が完了している。請求先アカウントはなく、client資格情報はrepo外で保護済みである。callback/startのsource、D1 schema、設定値の読み取り窓口とconfigured booleanの実装は完了しているが、remote migration適用と本番secret bindingが未完了のため、Googleログインは未稼働として扱う。
 
 Date: 2026-10-03
 
@@ -44,9 +48,9 @@ Word／PowerPoint出力は、ファイル保存を開始する直前に製品ses
 
 ### Google
 
-次の実装unitで作成するroute候補は、`GET /api/auth/google/start` と `GET /api/auth/google/callback` である。どちらも現行source・契約には存在せず、Google OAuth client作成前の準備候補として扱う。server secret候補は`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`、origin設定は既存の`APP_ENV`と`APP_BASE_URL`を再利用する。
+実装済みrouteは、`GET /api/auth/google/start` と `GET /api/auth/google/callback` である。server secretは`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`、origin設定は既存の`APP_ENV`と`APP_BASE_URL`を再利用する。remote migration適用と実環境secret bindingが完了するまで本番では有効化しない。
 
-scopeはidentity確認に必要な最小候補として`openid email profile`を使う。現行sourceと契約で確認できるstaging originは`https://meccha-manual-staging.meccha-iiyatsu.com`である。既存の`/onboarding/continue`はguest handoff用のrouteであり、Google callbackではない。Google callback routeは現行source・契約に未実装のため、OAuth client作成時のredirect URIとして登録せず、認証実装unitでrouteと契約を確定してから登録する。
+scopeはidentity確認に必要な最小候補として`openid email profile`を使う。現行sourceと契約で確認できるstaging originは`https://meccha-manual-staging.meccha-iiyatsu.com`である。既存の`/onboarding/continue`はguest handoff用のrouteであり、Google callbackではない。Google callbackは`/api/auth/google/callback`として実装し、OAuth clientにも登録済みである。
 
 OIDC Authorization Code + PKCE、state、nonceをサーバー側で生成し、登録済みcallback URLへ限定する。issuer、audience、署名、期限、nonce、state、verified emailを検証し、検証済みのissuer+subjectをidentityとして扱う。client secretはserver-side secret managerだけに置く。secret名を追加する場合も候補として設計に記載し、実装unitで承認するまで追加しない。
 
@@ -75,9 +79,9 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 
 ## 設定・依存の候補
 
-現リポジトリでGoogleのcredential binding、callback/start実装、schema、メール送信、SIWCのclient設定が確認できていないため、以下は実装候補名である。Google OAuth clientは作成済みでclient資格情報はrepo外で保護済みだが、請求先アカウントはない。
+メール送信とSIWC商用client設定は未完了だが、Googleのcredential binding、callback/start実装、product auth schemaは実装済みである。Google OAuth clientは作成済みでclient資格情報はrepo外で保護済みだが、請求先アカウントはない。
 
-- Google候補: `GOOGLE_OIDC_CLIENT_ID`、`GOOGLE_OIDC_CLIENT_SECRET`、環境別redirect URI
+- Google設定: `GOOGLE_OIDC_CLIENT_ID`、`GOOGLE_OIDC_CLIENT_SECRET`、環境別redirect URI
 - メール候補: `EMAIL_CODE_PROVIDER`、送信元名、provider secret
 - SIWC候補: `OPENAI_SIWC_CLIENT_ID`、必要なclient secret、環境別redirect URI
 - 診断: secret値を返さず、providerごとのconfigured booleanだけを管理者経路へ表示する
@@ -99,9 +103,9 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 ## 必要な外部操作と未決事項
 
 - メール送信providerの選定、送信元domain、staging/production credential、rate limitと失敗時運用の承認。
-- Google Cloud側の請求先アカウント、作成済みclientの環境別callback URL、issuer/audience、verified email運用の登録。OAuthの構成作成、Google API policyへの同意、client作成は完了済みだが、source実装とbindingは未実装である。
+- Google Cloud側の作成済みclientの環境別callback URL、issuer/audience、verified email運用の登録。OAuthの構成作成、Google API policyへの同意、client作成、source実装、設定bindingは完了済みだが、remote migration適用と実環境secret bindingは未完了である。
 - OpenAI側のSIWC商用client登録・利用資格、identity scopeとplan usage scopeの可否、callbackとtoken endpointの登録。
 - 既存Access identityを新provider identityへ明示linkする本人確認手順と、link解除・アカウント復旧方針。
 - `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。
 
-これらが確認できるまで、現行Access/D1運用を変更せず、製品認証の新UI・callback・migrationを実装しない。
+これらが確認できるまで、現行Access/D1運用と本番設定を変更せず、実環境のprovider有効化、remote migration適用、secret bindingは行わない。実装済みの検証用UI・callbackは合成providerテストの範囲に限定する。
