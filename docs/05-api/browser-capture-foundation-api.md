@@ -59,7 +59,7 @@ Access modeでもcapture/mobile-previewの要求は、Browser Run egress gateよ
 
 DEC-090に従い、ローカルstepにimageState {status, reason, attempts, version}を持つ。statusはqueued/capturing/ready/unavailable/failed/protected/none。ready/protectedのみscreenshotIdを持ち得る。noneは利用者が「説明のみ」を選んだ状態であり、取得失敗から自動変換しない。
 
-reasonはscreen_changed/navigation_changed/tab_not_visible/tab_unavailable/mask_failed/mask_invalidated/paint_timeout/paint_unavailable/capture_failed/privacy_budget_exceeded/storage_failed/capture_interrupted/capture_not_requested等の固定コードに限定し、下位例外・ページ本文・URLを含めない。privacyReviewはreplacementCount/protectedRegionCount/reviewRequired/reasonCodesと、架空値だけのreplacements（id/kind/text/x/y/width/height、正規化矩形、最大64件）を返す。元の値・DOM・mapping hashを返さない。idは同一recording・種類・正確な表示値の架空aliasを識別し、navigationとService Worker再起動をまたいで一貫させる。人物同一性は推定しない。[recording-value-alias-contract](recording-value-alias-contract.md) と ADR-0039を正とする。
+reasonはscreen_changed/navigation_changed/tab_not_visible/tab_unavailable/mask_failed/mask_invalidated/paint_timeout/paint_unavailable/capture_failed/privacy_budget_exceeded/storage_failed/capture_interrupted/capture_not_requested等の固定コードに限定し、下位例外・ページ本文・URLを含めない。0.1.9以降は撮影時の自動alias／自動maskを新規記録へ適用せず、画像を端末下書きへ保持する。入力値、DOM本文、mapping、Cookie、Authorizationはevent・操作文・metadataへ保存しない。置換・黒塗りは利用者が画像編集で明示適用し、出力時は最新のannotation・replacement・maskをflattenする。[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md) と [端末Office出力契約](manual-local-office-export-api.md)を正とする。旧alias形状は[recording-value-alias-contract](recording-value-alias-contract.md)とADR-0039へ履歴として残す。
 
 撮影の予約・実行はevent世代とbounded scene leaseを照合する。撮影中のnavigationや新しい操作の画像を古い手順に結び付けない。終了処理は予約された撮影を確定してから全手順をdraftへ写し、失敗状態も保存する。画像上限には画像を持つ結果だけを数え、失敗metadataのために後続の撮影枠を失わせない。
 

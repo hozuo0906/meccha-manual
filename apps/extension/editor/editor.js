@@ -19,13 +19,16 @@ const status = document.querySelector("#status");
 const addStepButton = document.querySelector("#addStep");
 const outputGate = document.querySelector("#outputGate");
 document.querySelectorAll(".privacy-note").forEach((node) => {
-  node.textContent = "画像は表示されたまま記録します。必要な個人情報は画像編集で範囲と種別を選んで置き換えるか、黒塗りしてください。クラウド保存・共有は内容を確認してから行います。";
+  node.textContent = "撮影時は画像を加工せず端末に保持し、操作文へ入力値を保存しません。必要な置換・黒塗りは画像編集で明示的に適用し、クラウド保存・共有の前に画像と操作文を確認してください。";
 });
 const cancelOutput = document.querySelector("#cancelOutput");
 const startRegistration = document.querySelector("#startRegistration");
 const startShare = document.querySelector("#startShare");
 const activateHandoff = document.querySelector("#activateHandoff");
 const gateStatus = document.querySelector("#gateStatus");
+const exportWord = document.querySelector("#exportWord");
+const exportPowerPoint = document.querySelector("#exportPowerPoint");
+const officeExportStatus = document.querySelector("#officeExportStatus");
 const saveState = document.querySelector("#saveState");
 const cloudSaveState = document.querySelector("#cloudSaveState");
 let cloudStateVersion = 0;
@@ -54,6 +57,7 @@ const redoStack = [];
 let outputIntent = "save";
 let outputGateGeneration = 0;
 let outputPreflight = false;
+let officeExportInFlight = false;
 let historyGroup = null;
 let localWriteFailed = false;
 let panelTrigger = null;
@@ -387,7 +391,7 @@ async function openImageEditor(step, initialTool = "select") {
   replacementPeople.set(screenshot.id, syntheticPerson);
   const editor = createImageEditor({ dialog: imageDialog, canvas: document.querySelector("#imageEditorCanvas"), screenshot,
     inline: true, initialTool, syntheticPerson,
-    onStateChange: (state) => { for(const id of ["save","share","mobileShare"]){const action=document.getElementById(id);if(action){action.disabled=state!=="closed";action.title=state!=="closed"?"画像の変更を適用してから保存・共有できます":"";}} if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
+    onStateChange: (state) => { for(const id of ["save","share","mobileShare","exportWord","exportPowerPoint"]){const action=document.getElementById(id);if(action){action.disabled=state!=="closed";action.title=state!=="closed"?"画像の変更を適用してから保存・共有・Office出力へ進めます":"";}} if(state==="closed")editorViewStates.delete(step.id);else editorViewStates.set(step.id,state);renderListOnly(); },
     onSave: async (next) => {
       const currentStep = draft.steps.find((entry) => entry.id === step.id);
       const currentScreenshot = screenshotFor(currentStep);
@@ -707,6 +711,62 @@ async function verifyOutputImages(generation) {
     finally { clearTimeout(timeout); }
   }
 }
+function officeFileName(value, extension) {
+  const safe = String(value || "手順書").trim().replace(/[\\/:*?"<>|\u0000-\u001f]/gu, "_").replace(/[. ]+$/u, "").slice(0, 80) || "手順書";
+  return `${safe}.${extension}`;
+}
+function officeError(code, message, step = null) {
+  const error = new Error(code); error.code = code; error.step = step; error.userMessage = message; return error;
+}
+function setOfficeExportStatus(message, state = "") {
+  if (!officeExportStatus) return;
+  officeExportStatus.textContent = message; officeExportStatus.dataset.state = state;
+}
+async function editedOfficeImage(step, index) {
+  const screenshot = screenshotFor(step);
+  if (!screenshot?.dataUrl || imageStatus(step) !== "ready") throw officeError("office-image-failed", `手順${index + 1}の画像を確認できないため、Officeファイルを作成できません。画像を確認してから再試行してください。`, step);
+  let timer;
+  try {
+    const image = new Image(); image.src = screenshot.dataUrl;
+    await Promise.race([image.decode(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("IMAGE_DECODE_TIMEOUT")), 8_000); })]);
+    assertImageDimensions(image.naturalWidth || image.width, image.naturalHeight || image.height);
+    const canvas = document.createElement("canvas"); drawScreenshot(canvas.getContext("2d"), image, screenshot);
+    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("IMAGE_ENCODE_FAILED")), "image/png"));
+    const bytes = new Uint8Array(await blob.arrayBuffer()); if (!bytes.length) throw new Error("IMAGE_ENCODE_EMPTY");
+    return { kind: "edited", bytes, mimeType: "image/png", width: canvas.width, height: canvas.height };
+  } catch (error) {
+    if (error?.code === "office-image-failed") throw error;
+    throw officeError("office-image-failed", `手順${index + 1}の画像を読み込めませんでした。画像を確認してから再試行してください。`, step);
+  } finally { clearTimeout(timer); }
+}
+function downloadOffice(bytes, titleValue, format) {
+  const mimeType = format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  const blob = new Blob([bytes], { type: mimeType }); const url = URL.createObjectURL(blob); const link = document.createElement("a");
+  link.href = url; link.download = officeFileName(titleValue, format === "docx" ? "docx" : "pptx"); link.rel = "noopener"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+async function exportOffice(format, button) {
+  if (officeExportInFlight || imageDialog.open) return;
+  if (!textFieldsValid()) { setOfficeExportStatus(title.validationMessage || description.validationMessage, "error"); title.reportValidity(); description.reportValidity(); return; }
+  if (pendingImages.size || unresolvedSteps().length) { setOfficeExportStatus("準備中または要確認の画像があります。各手順の画像を確認するか、説明だけの手順にしてから再試行してください。", "warning"); return; }
+  const exportFingerprint = await fingerprintDraft(draft);
+  const exportSnapshot = { title: title.value, description: description.value, steps: draft.steps.map((step) => ({ id: step.id, instruction: step.instruction, screenshotId: step.screenshotId })) };
+  officeExportInFlight = true; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = true; }); if (button) button.setAttribute("aria-busy", "true");
+  setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを作成しています…`);
+  try {
+    const steps = [];
+    for (const [index, step] of exportSnapshot.steps.entries()) {
+      if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
+      const current = draft.steps.find((item) => item.id === step.id); if (!current) throw officeError("office-export-changed", "手順が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
+      steps.push({ number: index + 1, instruction: String(step.instruction || ""), image: step.screenshotId ? await editedOfficeImage(current, index) : null });
+    }
+    if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
+    const tools = await import("../export/office-export.js");
+    const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
+    if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
+    downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。クラウド保存・共有設定は変更していません。`, "success");
+  } catch (error) { setOfficeExportStatus(error?.userMessage || "Officeファイルを書き出せませんでした。内容を確認して再試行してください。", error?.code === "office-export-changed" ? "warning" : "error"); }
+  finally { officeExportInFlight = false; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = false; }); if (button) button.removeAttribute("aria-busy"); updateImageSummary(); }
+}
 async function openOutput(action) {
   if(imageDialog.open){status.textContent="画像の変更を適用するか、閉じてから保存・共有へ進んでください。";return;}
   if (!textFieldsValid()) { status.textContent = title.validationMessage || description.validationMessage; title.reportValidity(); description.reportValidity(); return; }
@@ -727,6 +787,8 @@ async function openOutput(action) {
 document.querySelector("#save").addEventListener("click", () => openOutput("save"));
 document.querySelector("#share").addEventListener("click", () => openOutput("share"));
 document.querySelector("#mobileShare").addEventListener("click", () => openOutput("share"));
+exportWord?.addEventListener("click", () => exportOffice("docx", exportWord));
+exportPowerPoint?.addEventListener("click", () => exportOffice("pptx", exportPowerPoint));
 
 function applyBranding() {
   const color = /^#[\da-f]{6}$/i.test(draft.branding?.themeColor || "") ? draft.branding.themeColor : "#087f7a";

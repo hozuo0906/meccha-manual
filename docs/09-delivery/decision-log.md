@@ -561,3 +561,10 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 ### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
 
 同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
+
+### 2026-10-03: 0.1.9の明示画像保護と端末Office出力
+
+- Status: Accepted
+- Decision: ADR-0039と`recording-value-alias-contract`をSupersededとし、新規記録は撮影時に画像を加工せず端末へ保持する。入力値そのものは操作文・eventへ保存せず、置換と黒塗りは利用者が画像編集で明示適用する。手動maskは継続し、Office出力は最新のannotation・replacement・maskをflattenしたedited画像だけを使う。
+- Boundary: Word／PowerPointはログインなしのlocal-only downloadとする。snapshot変更、画像decode、flatten、生成失敗は古い生成物や画像欠落を成功扱いにせず日本語で再試行を案内する。PDFはFR-014の認証・claim後output gate、公開OFF、共有cloud認証を維持する。
+- Evidence: `apps/extension/editor/editor.js`、`apps/extension/editor/editor.html`、`apps/extension/sidepanel/sidepanel.html`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`。

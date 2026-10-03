@@ -1643,6 +1643,19 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     assert.equal(await page.locator('[data-editor-tool="replacement"]').textContent(), "個人情報");
     await page.locator('[data-editor-tool="replacement"]').click();
     assert.equal(await page.locator("[data-editor-replacement-type]").isVisible(), true);
+    const replacementAdd = page.locator('[data-replacement-action="add"]');
+    assert.equal(await replacementAdd.isVisible(), true);
+    assert.equal(await replacementAdd.evaluate((element) => document.activeElement === element), true, "置換モード開始時は範囲追加へフォーカスを移す");
+    await page.keyboard.press("Enter");
+    await page.locator('[data-editor-selection] button').first().waitFor({ state: "visible" });
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator('[data-editor-save]').isVisible(), true);
+    assert.equal(await page.locator('[data-editor-cancel]').first().isVisible(), true);
+    await captureEditorEvidence(page, "replacement-keyboard-1024", { operation: "replacement-add-enter-and-arrow", addButtonFocused: true, sourceTextHidden: true });
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await captureEditorEvidence(page, "replacement-keyboard-1366", { operation: "replacement-mode-responsive", sourceTextHidden: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await captureEditorEvidence(page, "replacement-keyboard-390", { operation: "replacement-mode-responsive", sourceTextHidden: true });
     await page.locator("[data-editor-cancel]").first().click();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
   } finally {

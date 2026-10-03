@@ -8,7 +8,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   const html = await readFile(new URL("../apps/extension/sidepanel/sidepanel.html", import.meta.url), "utf8");
   const source = await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/sidepanel/sidepanel.css", import.meta.url), "utf8");
-  assert.equal(manifest.version, "0.1.8");
+  assert.equal(manifest.version, "0.1.9");
   assert.equal(manifest.permissions.includes("sidePanel"), true);
   assert.equal(manifest.action.default_popup, undefined);
   assert.equal(manifest.action.default_icon["128"], "assets/meccha-manual-logo-mark.png");

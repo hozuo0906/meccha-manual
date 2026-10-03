@@ -84,6 +84,9 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     for (const type of PERSONAL_INFO_TYPES) { const option = document.createElement("option"); option.value = type; option.textContent = REPLACEMENT_LABELS[type]; replacementTypeInput.append(option); }
     const label = document.createElement("label"); label.dataset.replacementProperty = ""; label.textContent = "置き換える種別"; label.append(replacementTypeInput); propertyGroup?.append(label);
   }
+  const replacementAddButton = document.createElement("button"); replacementAddButton.type = "button"; replacementAddButton.className = "secondary"; replacementAddButton.dataset.replacementAction = "add"; replacementAddButton.textContent = "範囲を追加"; replacementAddButton.setAttribute("aria-describedby", "replacementKeyboardHelp");
+  const replacementKeyboardHelp = document.createElement("p"); replacementKeyboardHelp.id = "replacementKeyboardHelp"; replacementKeyboardHelp.className = "editor-help"; replacementKeyboardHelp.dataset.replacementAction = "help"; replacementKeyboardHelp.textContent = "範囲を追加後、選択した範囲を矢印キーで移動できます。元の画像の文字は表示せず、選んだ種別の架空値を表示します。";
+  propertyGroup?.append(replacementAddButton, replacementKeyboardHelp);
   const errorPanel = document.createElement("div"); errorPanel.className = "image-editor-error"; errorPanel.hidden = true;
   const errorText = document.createElement("p"); errorText.textContent = "画像を表示できませんでした。元の画像は保持しています。";
   const retryImage = document.createElement("button"); retryImage.type = "button"; retryImage.textContent = "画像をもう一度読み込む"; retryImage.dataset.editorRetry = "true";
@@ -197,6 +200,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function selectTool(next) {
     if (disposed || isBusy()) return;
     editGroup = null; tool = next; toolButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.editorTool === next))); setStatus(`${TOOL_LABELS[next]}を選択中`); refreshSelection();
+    if (next === "replacement") replacementAddButton.focus({ preventScroll: true });
   }
   function selectItem(kind, id) {
     selected = { kind, id }; const item = itemFor();
@@ -212,7 +216,8 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     if (propertyGroup) propertyGroup.hidden = (!current || selected?.kind !== "annotation") && tool !== "replacement";
     dialog.querySelectorAll("[data-text-property]").forEach((node) => { node.hidden = current?.type !== "text"; });
     dialog.querySelectorAll("[data-replacement-property]").forEach((node) => { node.hidden = current?.type !== "replacement" && tool !== "replacement"; });
-    dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation"; });
+    dialog.querySelectorAll("[data-replacement-action]").forEach((node) => { node.hidden = tool !== "replacement"; });
+    dialog.querySelectorAll("[data-color-property]").forEach((node) => { node.hidden = selected?.kind !== "annotation" || tool === "replacement"; });
     if (colorInput && current?.color) colorInput.value = current.color;
     if (colorHexInput && current?.color && document.activeElement !== colorHexInput) { colorHexInput.value = current.color; colorHexInput.removeAttribute("aria-invalid"); }
     const colorLabel = dialog.querySelector("[data-color-label]"); if(colorLabel)colorLabel.textContent=current?.type==="text"?"文字の色":current?.type==="arrow"?"矢印の色":"枠線の色";
@@ -239,6 +244,13 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     const replacement = normalizeAnnotation({ type: "replacement", category, x: clamp(region.x ?? point.x, 0, 1 - width), y: clamp(region.y ?? point.y, 0, 1 - height), width, height, text: createPersonalInfoValue(category, syntheticPerson), color: "#111827", fontSize: 24 });
     if (!replacement) return;
     working.annotations.push(replacement); selectItem("annotation", replacement.id); refreshSelection(); redraw();
+  }
+  function addKeyboardReplacement() {
+    if (isBusy() || tool !== "replacement") return;
+    remember("replacement:add");
+    createReplacementAt({ x: 0.36, y: 0.42 }, { x: 0.36, y: 0.42, width: 0.28, height: 0.12 });
+    replacementAddButton.focus({ preventScroll: true });
+    setStatus("置換範囲を追加しました。矢印キーで移動し、適用または取消を選べます。");
   }
   function findTarget(point) {
     const mask = [...working.masks].reverse().find((candidate) => point.x >= candidate.x && point.x <= candidate.x + candidate.width && point.y >= candidate.y && point.y <= candidate.y + candidate.height);
@@ -295,6 +307,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   function handleKeydown(event) {
     if (event.key === "Escape" && inline) { event.preventDefault(); if (state !== "saving") cancel(); return; }
     if (state !== "editing") return;
+    if (event.key === "Enter" && tool === "replacement" && !selected && !event.target.closest("input, textarea, select, button")) { event.preventDefault(); addKeyboardReplacement(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.stopPropagation(); restoreHistory(event.shiftKey ? redo : undo, event.shiftKey ? undo : redo); return; }
     if (event.target.closest("input, textarea, select")) return;
     if (event.key === "Delete" && selected) { remember(); if (selected.kind === "annotation") working.annotations = working.annotations.filter((item) => item.id !== selected.id); else working.masks = working.masks.filter((item) => item.id !== selected.id); selected = null; refreshSelection(); redraw(); return; }
@@ -331,6 +344,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
   colorInput?.addEventListener("input", () => { applyColor(colorInput.value); if(colorHexInput){colorHexInput.value=colorInput.value;colorHexInput.removeAttribute("aria-invalid");} }, { signal });
   colorHexInput?.addEventListener("input", () => { const valid=/^#[\da-f]{6}$/i.test(colorHexInput.value);colorHexInput.setAttribute("aria-invalid",String(!valid));if(valid)applyColor(colorHexInput.value);else setStatus("色は # と6桁のカラーコードで入力してください。最後に確認できた色を保持しています。"); }, { signal });
   textInput?.addEventListener("input", handleTextInput, { signal }); textInput?.addEventListener("compositionend", handleTextInput, { signal }); fontSizeInput?.addEventListener("input", handleFontSizeInput, { signal }); replacementTypeInput?.addEventListener("change", handleReplacementTypeInput, { signal });
+  replacementAddButton.addEventListener("click", addKeyboardReplacement, { signal });
   canvas.addEventListener("pointerdown", handlePointerDown, { signal }); canvas.addEventListener("pointermove", handlePointerMove, { signal }); canvas.addEventListener("pointerup", handlePointerUp, { signal }); canvas.addEventListener("pointercancel", handlePointerCancel, { signal });
   dialog.addEventListener("keydown", handleKeydown, { signal }); saveButton?.addEventListener("click", save, { signal }); cancelButtons.forEach((button) => button.addEventListener("click", cancel, { signal }));
   dialog.querySelector("form")?.addEventListener("submit", (event) => event.preventDefault(), { signal });

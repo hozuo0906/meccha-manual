@@ -19,6 +19,7 @@ Status: Accepted
 7. [Value-first Guest Onboarding ADR](03-architecture/adrs/ADR-0032-value-first-guest-onboarding.md) — セルフサーブ登録とguest claim。
 8. [料金簡素化ADR](03-architecture/adrs/ADR-0033-extension-first-pricing-simplification.md) — Free / Pro / Teamとcapture時間非課金。
 9. [Guest onboarding / claim API](05-api/guest-onboarding-and-claim-api.md) — bootstrap、claim、output resume。
+10. [端末Office出力契約](05-api/manual-local-office-export-api.md) — 認証不要のWord／PowerPoint出力とedited画像境界。
 10. [Product Event契約](05-api/product-events.md) — Activation / TTFV等の計測正本。
 11. [Chrome拡張first MVP受入条件](07-quality/mvp-product-acceptance.md) — 現行MVPの合格条件。
 12. [Issue分解](09-delivery/issue-map.md) — Product最優先と技術依存レーン。

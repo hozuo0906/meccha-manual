@@ -1,8 +1,10 @@
 # ADR-0039: 記録をまたがない値単位の架空値対応
 
-Status: Accepted
+Status: Superseded
 
 Date: 2026-10-01
+
+この決定は[ADR-0040](ADR-0040-explicit-image-privacy-and-local-office-export.md)で更新した。記録時の自動aliasを現行の利用者明示による画像保護契約の正本として扱わない。履歴として参照できるが、0.1.9以降の新規導線・出力判定には適用しない。
 
 ## 背景
 
