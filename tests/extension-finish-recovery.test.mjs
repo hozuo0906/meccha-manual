@@ -387,12 +387,13 @@ test("activation during capture invalidates the image generation before persiste
   assert.equal(ref?.version, 1);
 });
 
-test("finish cover capture keeps an activation away-and-back from becoming an old image", async () => {
+test("finish cover capture ignores an unrelated window activation round trip", async () => {
   const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
-  await assert.rejects(capture.finish());
-  assert.equal(capture.session().phase, "finish_failed");
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
   assert.equal(capture.liveImages().some((entry) => entry.dataUrl), false);
-  assert.equal(capture.draft(), undefined);
+  assert.equal(capture.draft().screenshots.length, 1);
 });
 
 test("activation notification from another window does not invalidate the visible target", async () => {
@@ -403,6 +404,35 @@ test("activation notification from another window does not invalidate the visibl
   const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "unrelated-window:1");
   assert.equal(ref?.status, "ready");
   assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before ignoring unrelated activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateUnrelatedWindow: true });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-unrelated-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-unrelated-window:1");
+  assert.equal(ref?.status, "ready");
+  assert.equal(ref?.reason, null);
+});
+
+test("worker restart restores the target window before invalidating same-window activation", async () => {
+  const capture = await harness({ pendingEvents: [], activateDuringCapture: true, screenshotDelayMs: 5 });
+  await capture.restart();
+  const response = await capture.event({ kind: "click", at: 10, eventId: "restart-same-window:1", target: { tagName: "button" } });
+  assert.equal(response.ok, true);
+  const ref = capture.session().stepImageRefs.find((entry) => entry.eventId === "restart-same-window:1");
+  assert.equal(ref?.status, "unavailable");
+  assert.equal(ref?.reason, "screen_changed");
+});
+
+test("worker restart keeps an unrelated window activation round trip usable", async () => {
+  const capture = await harness({ pendingEvents: [], switchDuringEmptyFinish: true });
+  await capture.restart();
+  const result = await capture.finish();
+  assert.equal(result.imageCount, 1);
+  assert.equal(capture.session(), null);
+  assert.equal(capture.draft().screenshots.length, 1);
 });
 
 test("cancel clears live images without touching an existing draft", async () => {

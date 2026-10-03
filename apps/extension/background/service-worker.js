@@ -37,6 +37,19 @@ function clearReinjectionFailureMarker(sessionId) {
   if (sessionId && sessionId === reinjectionFailureSessionId) reinjectionFailureSessionId = null;
 }
 
+function rememberCaptureTargetWindow(session) {
+  if (Number.isInteger(session?.tabId) && Number.isInteger(session?.windowId)) captureTargetWindows.set(session.tabId, session.windowId);
+}
+
+async function restoreCaptureTargetWindow(tabId) {
+  const known = captureTargetWindows.get(tabId);
+  if (Number.isInteger(known)) return known;
+  const session = await getSession();
+  if (session?.tabId !== tabId || !Number.isInteger(session.windowId)) return undefined;
+  captureTargetWindows.set(tabId, session.windowId);
+  return session.windowId;
+}
+
 function serializeSessionOperation(task) {
   const run = sessionOperation.then(task, task);
   sessionOperation = run.catch(() => undefined);
@@ -117,6 +130,7 @@ async function getSession() {
     clearNavigationFallback();
     return null;
   }
+  rememberCaptureTargetWindow(session);
   if (session.id === reinjectionFailureSessionId) session = { ...session, phase: "reinjection_failed", reinjectionFailed: true };
   if (recovery?.sessionId === session.id) {
     session = mergeCaptureEvents(session, recovery.events || []);
@@ -269,7 +283,7 @@ async function startCapture(tabId, mode) {
   };
   captureEventIds.delete(tabId);
   captureEventGenerations.delete(tabId);
-  captureTargetWindows.set(tabId, tab.windowId);
+  rememberCaptureTargetWindow(session);
   await clearRecoveryJournal();
   await setSession(session);
   try {
@@ -330,6 +344,7 @@ async function currentClickTarget(session, event) {
 }
 
 async function takeScreenshot(session, assertCurrent = () => undefined, event) {
+  rememberCaptureTargetWindow(session);
   // The finish path can request a cover screenshot before any event has
   // established a generation. Register one here so an activation away and
   // back during the capture cannot make an old image look current.
@@ -1089,12 +1104,19 @@ chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) =>
 });
 
 chrome.tabs.onActivated?.addListener((activeInfo) => {
-  // Activation changes the visible scene even when the target tab is later
-  // activated again. Invalidate every known capture target left behind by the
-  // switch so an in-flight capture cannot claim pixels from another tab.
+  // A same-window tab switch changes the scene. Activations in another window
+  // do not affect captureVisibleTab for the persisted target window.
   for (const tabId of captureEventGenerations.keys()) {
-    if (captureTargetWindows.get(tabId) !== undefined && activeInfo?.windowId !== captureTargetWindows.get(tabId)) continue;
-    if (tabId !== activeInfo?.tabId) nextCaptureEventGeneration(tabId, undefined, "screen_changed");
+    const targetWindowId = captureTargetWindows.get(tabId);
+    const handleActivation = (restoredWindowId) => {
+      if (!Number.isInteger(restoredWindowId)) return;
+      if (activeInfo?.windowId !== restoredWindowId) {
+        return;
+      }
+      if (tabId !== activeInfo?.tabId) nextCaptureEventGeneration(tabId, undefined, "screen_changed");
+    };
+    if (Number.isInteger(targetWindowId)) handleActivation(targetWindowId);
+    else void restoreCaptureTargetWindow(tabId).then(handleActivation).catch(() => undefined);
   }
 });
 
