@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-00c10277e5637d02";
+export const APP_ASSET_VERSION = "sha256-9653c526f953ef3e";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1016,8 +1016,7 @@ let manualMutationInFlight = false;
 let manualReadingPreview = null;
 
 function isAccessModeSession(session = currentSession) {
-  // M3のAccess session marker。M4でsession契約を更新するときに再評価する。
-  return Boolean(session?.manuals?.status === "migration" || session?.members?.status === "migration");
+  return session?.authMode === "access";
 }
 
 function manualMigrationInProgress(session = currentSession) {

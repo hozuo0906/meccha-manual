@@ -10,6 +10,10 @@ PKCE verifier/nonceはSecure・HttpOnly cookie binding、D1はstate／nonce／ve
 
 Date: 2026-10-03
 
+## 認証方式のsession契約
+
+`GET /api/session`は`authMode: "product" | "access"`を返し、画面はこの明示値で製品ログインとCloudflare Access再認証を分岐する。`manuals.status`と`members.status`は機能移行状態であり、認証方式の判定へ流用しない。password login成功時は旧製品sessionをserver-side revokeして製品cookieを削除し、明示的にlegacy sessionへ遷移する。product sessionの期限切れ401は製品ログインへ戻し、無効な製品cookieをAccessやSupabaseへ暗黙fallbackしない。product logoutは既存APP_JSのJSON成功契約に合わせて`200 {"status":"ok"}`を返す。
+
 ## 目的
 
 Cloudflareアカウントへのログインを製品利用者へ要求せず、めっちゃマニュアル自身のメール登録・ログインとGoogleログインを提供する。ChatGPTログインは、商用client登録と利用資格が確認できるまでユーザーへ表示しない。管理者・運用のCloudflare Access、D1/R2、workspace認可は別境界として維持する。

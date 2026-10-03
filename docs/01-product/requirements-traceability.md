@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は移行状態であり、認証方式判定には使わない。password login成功時の製品session revoke/clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。
+
 ### Issue #283 製品認証の実装対応
 
 | 要求 | 実装／検証 | 状態 |

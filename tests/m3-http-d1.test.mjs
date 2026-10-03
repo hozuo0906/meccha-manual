@@ -104,7 +104,8 @@ test("Access userからD1 profile/workspacesへ解決する", async () => {
     profile: { id: "app-user-1", display_name: "テスト利用者", locale: "ja-JP", timezone: "Asia/Tokyo" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   });
 });
 

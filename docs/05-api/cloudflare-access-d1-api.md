@@ -72,7 +72,7 @@ Access modeのsession応答は、`MANUAL_ASSETS` bindingが利用できる環境
 - 上流鍵取得またはD1障害: 503
 - 内部JWT、subject、email、binding情報をエラーへ含めない
 
-ブラウザの保護API呼出しには`X-Requested-With: XMLHttpRequest`を付ける。Cloudflare AccessのAJAX session-management仕様では、期限切れsubrequestは401として扱い、画面の再入場または期限切れ案内へ遷移する。Access modeで認証済みだった画面が401（JSON／非JSON）を受けた場合、ブラウザは旧workspace・手順書・進行中応答を破棄し、保護対象アプリの`/`へ再入場する「ログインし直す」導線を表示する。固定のAccess内部endpointをアプリ契約へ埋め込まない。M3のAccess mode判定はsessionの`manuals.status`または`members.status`が`migration`であることに依存し、M4でsession契約を更新する際に再評価する。legacy session modeの非JSON 401はAccess再認証へ正規化しない。仕様根拠: [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)。
+ブラウザの保護API呼出しには`X-Requested-With: XMLHttpRequest`を付ける。Cloudflare AccessのAJAX session-management仕様では、期限切れsubrequestは401として扱い、画面の再入場または期限切れ案内へ遷移する。session応答の`authMode`（`access`または`product`）を認証方式の正本とし、`manuals.status`や`members.status`を認証方式の判定に使わない。Access modeで認証済みだった画面が401（JSON／非JSON）を受けた場合、ブラウザは旧workspace・手順書・進行中応答を破棄し、保護対象アプリの`/`へ再入場する「ログインし直す」導線を表示する。product modeで期限切れ401を受けた場合は製品ログイン画面へ戻る。固定のAccess内部endpointをアプリ契約へ埋め込まない。legacy session modeの非JSON 401はAccess再認証へ正規化しない。仕様根拠: [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)。
 
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
 

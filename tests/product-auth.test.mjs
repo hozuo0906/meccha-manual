@@ -193,7 +193,8 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     const disabled = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: `__Host-mm_product=${disabledToken}` } }), env, {});
     assert.equal(disabled.status, 401);
     const logout = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/logout`, { method: "POST", headers: { origin: env.APP_BASE_URL, cookie: sessionCookie, "content-type": "application/json" }, body: "{}" }), env, {});
-    assert.equal(logout.status, 204);
+    assert.equal(logout.status, 200);
+    assert.deepEqual(await logout.json(), { status: "ok" });
     const afterLogout = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: sessionCookie } }), env, {});
     assert.equal(afterLogout.status, 401);
   } finally {
@@ -238,6 +239,121 @@ test("configured Google provider keeps a valid password session on Supabase and 
     assert.equal(mixedInvalid.status, 401);
     assert.equal((await mixedInvalid.json()).code, "SESSION_REQUIRED");
     assert.equal(calls.length, beforeInvalidProduct, "invalid product cookies must not fall back to Supabase password or Access");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("password login revokes a competing product session and issues the new Supabase session", async () => {
+  const { database, binding } = await authDatabase();
+  const staleToken = "stale-product-session";
+  const now = new Date();
+  const issuedAt = new Date(now.getTime() - 120_000);
+  const expiredAt = new Date(now.getTime() - 60_000);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(staleToken));
+  const staleHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('product-user', 'https://accounts.google.com', 'product-subject', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
+  database.prepare("INSERT INTO auth_sessions(id, application_id, token_hash, auth_method, issued_at, expires_at) VALUES ('stale-session', 'product-user', ?, 'google', ?, ?)").run(staleHash, issuedAt.toISOString(), expiredAt.toISOString());
+  const originalFetch = globalThis.fetch;
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-login-transition-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    SUPABASE_URL: "https://supabase.example.test",
+    SUPABASE_ANON_KEY: "synthetic-anon-key",
+    DB: binding
+  };
+  globalThis.fetch = async (input) => {
+    const target = String(input);
+    if (target.endsWith("/auth/v1/user")) return Response.json({ id: "password-user", email: "password@example.test" });
+    if (target.includes("/rest/v1/profiles?")) return Response.json([{ id: "password-user", display_name: "Password User", locale: "ja", timezone: "Asia/Tokyo" }]);
+    if (target.includes("/rest/v1/workspaces?")) return new Response(JSON.stringify([]), { status: 200, headers: { "content-range": "*/0" } });
+    assert.equal(target, "https://supabase.example.test/auth/v1/token?grant_type=password");
+    return Response.json({
+      access_token: "new-password-access",
+      refresh_token: "new-password-refresh",
+      expires_in: 3600,
+      user: { id: "password-user", email: "password@example.test" }
+    });
+  };
+  try {
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        origin: env.APP_BASE_URL,
+        "content-type": "application/json",
+        cookie: `__Host-mm_product=${staleToken}`
+      },
+      body: JSON.stringify({ email: "password@example.test", password: "synthetic-password" })
+    }), env, {});
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { user: { id: "password-user", email: "password@example.test" } });
+    const setCookie = response.headers.get("set-cookie") || "";
+    assert.match(setCookie, /__Host-mm_access=new-password-access/u);
+    assert.match(setCookie, /__Host-mm_refresh=new-password-refresh/u);
+    assert.match(setCookie, /__Host-mm_product=; Max-Age=0; Path=\/; HttpOnly; Secure; SameSite=Lax/u);
+    assert.ok(database.prepare("SELECT revoked_at FROM auth_sessions WHERE id = 'stale-session'").get().revoked_at);
+    const accessCookie = setCookie.match(/__Host-mm_access=([^;]+)/u)?.[1];
+    assert.ok(accessCookie);
+    delete env.GOOGLE_OIDC_CLIENT_ID;
+    delete env.GOOGLE_OIDC_CLIENT_SECRET;
+    const newSession = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie: `__Host-mm_access=${accessCookie}` } }), env, {});
+    assert.equal(newSession.status, 200);
+    assert.equal((await newSession.json()).user.id, "password-user");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("password login does not issue Supabase cookies when competing product-session revocation fails", async () => {
+  const { database, binding } = await authDatabase();
+  const staleToken = "product-session-revoke-failure";
+  const now = new Date();
+  const issuedAt = new Date(now.getTime() - 120_000);
+  const expiresAt = new Date(now.getTime() + 60 * 60_000);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(staleToken));
+  const staleHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('product-user', 'https://accounts.google.com', 'product-subject', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
+  database.prepare("INSERT INTO auth_sessions(id, application_id, token_hash, auth_method, issued_at, expires_at) VALUES ('failure-session', 'product-user', ?, 'google', ?, ?)").run(staleHash, issuedAt.toISOString(), expiresAt.toISOString());
+  const originalPrepare = binding.prepare.bind(binding);
+  binding.prepare = (sql) => {
+    if (sql.startsWith("UPDATE auth_sessions SET revoked_at")) {
+      return { bind() { return { async run() { return { success: false }; } }; } };
+    }
+    return originalPrepare(sql);
+  };
+  const originalFetch = globalThis.fetch;
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-login-transition-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    SUPABASE_URL: "https://supabase.example.test",
+    SUPABASE_ANON_KEY: "synthetic-anon-key",
+    DB: binding
+  };
+  globalThis.fetch = async () => Response.json({
+    access_token: "must-not-be-issued",
+    refresh_token: "must-not-be-issued",
+    expires_in: 3600,
+    user: { id: "password-user", email: "password@example.test" }
+  });
+  try {
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        origin: env.APP_BASE_URL,
+        "content-type": "application/json",
+        cookie: `__Host-mm_product=${staleToken}`
+      },
+      body: JSON.stringify({ email: "password@example.test", password: "synthetic-password" })
+    }), env, {});
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "AUTH_STORAGE_UNAVAILABLE");
+    assert.equal(response.headers.get("set-cookie"), null);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

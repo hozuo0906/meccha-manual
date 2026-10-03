@@ -288,5 +288,5 @@ export async function revokeProductSession(request: Request, env: Env): Promise<
     const result = await env.DB.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL").bind(new Date().toISOString(), await hash(token)).run();
     if (!result.success) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログアウト状態を保存できません。時間をおいて再度お試しください。");
   }
-  return new Response(null, { status: 204, headers: { "set-cookie": clearCookie(PRODUCT_SESSION_COOKIE), "cache-control": "no-store" } });
+  return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json; charset=utf-8", "set-cookie": clearCookie(PRODUCT_SESSION_COOKIE), "cache-control": "no-store" } });
 }

@@ -358,6 +358,7 @@ function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
 interface D1RouteContext {
   actorId: string;
   repository: D1WorkspaceRepository;
+  authMode: "product" | "access";
 }
 
 function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
@@ -372,7 +373,7 @@ function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
 async function authenticateD1User(request: Request, env: Env): Promise<D1RouteContext> {
   const productSession = await getProductSession(request, env);
   if (productSession && env.DB) {
-    return { actorId: productSession.applicationId, repository: new D1WorkspaceRepository(env.DB) };
+    return { actorId: productSession.applicationId, repository: new D1WorkspaceRepository(env.DB), authMode: "product" };
   }
   if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
   if (useProductD1Routes(env, request) && !hasAccessAssertion(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
@@ -389,7 +390,7 @@ async function authenticateD1User(request: Request, env: Env): Promise<D1RouteCo
   if (!env.DB) {
     throw new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   }
-  return { actorId: auth.identity.applicationId, repository: new D1WorkspaceRepository(env.DB) };
+  return { actorId: auth.identity.applicationId, repository: new D1WorkspaceRepository(env.DB), authMode: "access" };
 }
 
 function apiWorkspaceSummary(workspace: Awaited<ReturnType<D1WorkspaceRepository["listWorkspaces"]>>[number]): WorkspaceSummary {
@@ -508,7 +509,7 @@ async function onboardingRateLimitKey(namespace: "actor" | "connection", value: 
 }
 
 async function getD1Session(request: Request, env: Env): Promise<Response> {
-  const { actorId, repository } = await authenticateD1User(request, env);
+  const { actorId, repository, authMode } = await authenticateD1User(request, env);
   try {
     const [profile, workspaces] = await Promise.all([
       repository.getProfile(actorId),
@@ -516,6 +517,7 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
     ]);
     return jsonResponse({
       user: { id: actorId },
+      authMode,
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
       manuals: { status: env.MANUAL_ASSETS ? "ready" : "migration" },
@@ -1602,6 +1604,17 @@ async function login(request: Request, env: Env): Promise<Response> {
     sessionCookie(COOKIE_ACCESS_TOKEN, auth.access_token, auth.expires_in),
     sessionCookie(COOKIE_REFRESH_TOKEN, auth.refresh_token, 60 * 60 * 24 * 30)
   ];
+
+  // A successful explicit password login is an authentication transition. If
+  // an older product session cookie is still present, revoke that server-side
+  // session and clear the competing credential before the new legacy session
+  // can be used. An invalid product cookie still fails closed on protected
+  // requests; this transition never treats it as a silent fallback.
+  if (hasProductSessionCookie(request)) {
+    const productLogout = await revokeProductSession(request, env);
+    const productCookie = productLogout.headers.get("set-cookie");
+    if (productCookie) cookies.push(productCookie);
+  }
 
   return jsonResponse({ user: sanitizeUser(auth.user) }, undefined, cookies);
 }

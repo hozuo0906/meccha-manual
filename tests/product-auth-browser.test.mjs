@@ -97,6 +97,83 @@ function browserRequest(route) {
   });
 }
 
+async function seedProductBrowserSession(fixture, { expired }) {
+  const token = expired ? "expired-product-browser-token" : "active-product-browser-token";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const now = new Date();
+  const issuedAt = new Date(now.getTime() - (expired ? 120_000 : 0));
+  const expiresAt = expired ? new Date(now.getTime() - 60_000) : new Date(now.getTime() + 60 * 60_000);
+  fixture.database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('browser-product-user', 'https://accounts.google.com', 'browser-product-subject', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('browser-product-user', 'ブラウザ試験利用者', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind) VALUES ('00000000-0000-4000-8000-000000000201', 'ブラウザ試験ワークスペース', 'browser-product', 'active', 'browser-product-user', ?, ?, 'standard')").run(issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('00000000-0000-4000-8000-000000000201', 'browser-product-user', 'owner', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO auth_sessions(id, application_id, token_hash, auth_method, issued_at, expires_at) VALUES ('browser-product-session', 'browser-product-user', ?, 'google', ?, ?)").run(tokenHash, issuedAt.toISOString(), expiresAt.toISOString());
+  return token;
+}
+
+async function runProductSessionBrowser({ expired }) {
+  const fixture = await createFixture("google");
+  const token = await seedProductBrowserSession(fixture, { expired });
+  const context = await chromium.launchPersistentContext("", {
+    channel: process.platform === "win32" ? "chrome" : "chromium",
+    headless: true,
+    ignoreHTTPSErrors: true
+  });
+  const page = await context.newPage();
+  await context.addCookies([{
+    name: "__Host-mm_product",
+    value: token,
+    domain: new URL(STAGING_ORIGIN).hostname,
+    path: "/",
+    secure: true,
+    httpOnly: true,
+    sameSite: "Lax"
+  }]);
+  const routeTrace = [];
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== STAGING_ORIGIN) {
+      await route.abort();
+      return;
+    }
+    try {
+      const response = await worker.fetch(browserRequest(route), fixture.env, {});
+      routeTrace.push(`${route.request().method()} ${url.pathname} ${response.status}`);
+      await route.fulfill({
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: Buffer.from(await response.arrayBuffer())
+      });
+    } catch (error) {
+      await route.abort("failed");
+      throw error;
+    }
+  });
+  try {
+    await page.goto(`${STAGING_ORIGIN}/`, { waitUntil: "networkidle", timeout: 15_000 });
+    if (expired) {
+      await page.waitForSelector("#login-form", { timeout: 10_000 });
+      assert.equal(await page.locator("#logout-button").count(), 0);
+      assert.ok(routeTrace.some((entry) => entry.endsWith("/api/session 401")), routeTrace.join(" | "));
+      assert.equal(fixture.database.prepare("SELECT revoked_at FROM auth_sessions WHERE id = 'browser-product-session'").get().revoked_at, null);
+    } else {
+      await page.waitForSelector("#logout-button", { timeout: 10_000 });
+      await page.locator("#logout-button").click();
+      await page.waitForSelector("#login-form", { timeout: 10_000 });
+      for (let attempt = 0; attempt < 100 && !routeTrace.some((entry) => entry.endsWith("/api/auth/logout 200")); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      assert.equal(fixture.database.prepare("SELECT revoked_at IS NOT NULL AS revoked FROM auth_sessions WHERE id = 'browser-product-session'").get().revoked, 1, routeTrace.join(" | "));
+      assert.ok(routeTrace.some((entry) => entry.endsWith("/api/auth/logout 200")), routeTrace.join(" | "));
+    }
+  } finally {
+    await page.close();
+    await context.close();
+    fixture.restoreFetch();
+  }
+}
+
 async function runProviderBrowser(provider) {
   const fixture = await createFixture(provider);
   const providerConfig = provider === "google"
@@ -277,4 +354,12 @@ test("product auth browser uses a synthetic Google callback, a first-party HttpO
 
 test("configured synthetic ChatGPT browser provider creates the same session and preserves the handoff", { timeout: 60_000 }, async () => {
   await runProviderBrowser("chatgpt");
+});
+
+test("browser product logout revokes the first-party session and returns to the password login UI", { timeout: 60_000 }, async () => {
+  await runProductSessionBrowser({ expired: false });
+});
+
+test("expired browser product session receives 401 and renders the password login UI", { timeout: 60_000 }, async () => {
+  await runProductSessionBrowser({ expired: true });
 });
