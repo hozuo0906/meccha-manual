@@ -273,10 +273,11 @@ export const ONBOARDING_JS = `(() => {
     if (!context || context.state !== "active") return context;
     const extensionId = extensionIdFor(context);
     if (!extensionId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}) });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
     if (!reply?.ok || !["active", "expired"].includes(reply.status) || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
     const saved = readSaved();
@@ -297,6 +298,7 @@ export const ONBOARDING_JS = `(() => {
   }
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
     const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}), ...(context.outputAction === "office" && context.launchId ? { launchId: context.launchId } : {}), ...extra });
     if (!reply?.ok) {
@@ -313,9 +315,10 @@ export const ONBOARDING_JS = `(() => {
   async function recoverExtensionContext(context) {
     const extensionId = extensionIdFor(context);
     if (!extensionId || !globalThis.chrome?.runtime?.sendMessage || !context?.handoffId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) return context;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}) });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch {
       context.state = "recovery-probe";
       const saved = readSaved();
