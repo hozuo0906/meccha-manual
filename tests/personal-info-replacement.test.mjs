@@ -31,4 +31,3 @@ test("置換注釈は種別と合成値だけを保存できる", () => {
   });
   assert.equal(normalizeAnnotation({ ...annotation, category: "not-supported" }), null);
 });
-

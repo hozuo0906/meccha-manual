@@ -748,11 +748,13 @@ async function exportOffice(format, button) {
   if (officeExportInFlight || imageDialog.open) return;
   if (!textFieldsValid()) { setOfficeExportStatus(title.validationMessage || description.validationMessage, "error"); title.reportValidity(); description.reportValidity(); return; }
   if (pendingImages.size || unresolvedSteps().length) { setOfficeExportStatus("準備中または要確認の画像があります。各手順の画像を確認するか、説明だけの手順にしてから再試行してください。", "warning"); return; }
-  const exportFingerprint = await fingerprintDraft(draft);
-  const exportSnapshot = { title: title.value, description: description.value, steps: draft.steps.map((step) => ({ id: step.id, instruction: step.instruction, screenshotId: step.screenshotId })) };
+  // Claim the export slot before any asynchronous fingerprint work so a
+  // second click cannot start a concurrent snapshot.
   officeExportInFlight = true; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = true; }); if (button) button.setAttribute("aria-busy", "true");
   setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを作成しています…`);
   try {
+    const exportFingerprint = await fingerprintDraft(draft);
+    const exportSnapshot = { title: title.value, description: description.value, steps: draft.steps.map((step) => ({ id: step.id, instruction: step.instruction, screenshotId: step.screenshotId })) };
     const steps = [];
     for (const [index, step] of exportSnapshot.steps.entries()) {
       if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
@@ -761,6 +763,7 @@ async function exportOffice(format, button) {
     }
     if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const tools = await import("../export/office-export.js");
+    if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
     if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
     downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。クラウド保存・共有設定は変更していません。`, "success");

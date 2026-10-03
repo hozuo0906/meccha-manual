@@ -28,6 +28,8 @@ Status: Accepted
 }
 ```
 
+`steps`は1〜200件とし、各`instruction`は空文字にしない。入力契約に違反した場合は生成器がOfficeファイルを作らず、画面は「手順Nの説明を入力してください」または「手順は200件以内にしてください」と示し、該当手順または手順一覧を修正してから再試行できるようにする。
+
 `title`は空にせず、`instruction`は各手順で必須とする。画像を参照する手順は、現在の下書きに保存されたdata URLをdecodeし、最新のannotation・mask・replacementを`drawScreenshot`でflattenしてからPNG bytesへ変換する。原画像、URL、元画像へのfallback、処理中・失敗・要確認画像の省略は許可しない。画像なしを意図した`none`状態だけ`image: null`を許可する。
 
 ## 出力と認証境界
@@ -42,4 +44,4 @@ PDFはFR-014の認証・bootstrap・claim後のoutput gateを維持する。Offi
 
 ## 確認
 
-`tests/extension-office-wiring.test.mjs`でUIのlocal-only導線、edited画像契約、snapshot変更と画像欠落の拒否を確認する。生成器自身のOOXML、複数画像、長文、native Word／PowerPoint読込は生成器の専用testとbrowser証跡で確認し、editor配線の確認と混同しない。
+`tests/extension-office-wiring.test.mjs`でUIのlocal-only導線、edited画像契約、snapshot変更と画像欠落の拒否を確認する。生成器自身のOOXML、複数画像、長文は専用testで確認し、editor配線はSSOなしのChrome browser download証跡で確認する。実際のWord／PowerPointアプリでの読込・描画は今回の検証範囲外で未実行と記録する。

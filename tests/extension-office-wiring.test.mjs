@@ -12,6 +12,9 @@ test("0.1.9 editor exposes local Office actions without changing the cloud gate"
     read("apps/extension/editor/editor.html")
   ]);
   assert.equal(manifest.version, "0.1.9");
+  assert.match(html, /header-office-actions/u);
+  assert.match(html, /Word・PowerPointファイルをこの端末に保存/u);
+  assert.doesNotMatch(html, /<aside id="contextTools"[\s\S]*office-actions/u, "全体出力は画像調整パネルの内側に置かない");
   assert.match(html, /id="exportWord"[^>]*>Wordで書き出す/u);
   assert.match(html, /id="exportPowerPoint"[^>]*>PowerPointで書き出す/u);
   assert.match(editor, /await import\("\.\.\/export\/office-export\.js"\)/u);

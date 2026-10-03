@@ -31,7 +31,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
 | FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035, ADR-0036, ADR-0038 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示、注釈焼き込み・raw注釈非送信回帰 | MVP / Extension MVP |
 | FR-023 | Markdown / HTML export | export APIs after auth+claim | exports / entitlements when enabled | ADR-0033 | 形式別export tests when enabled | NEXT / EPIC-08 |
-| FR-024 | Chrome Extension editor / Office出力 | local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、端末downloadのみ | ADR-0040、`manual-local-office-export-api` | AC-064、`tests/extension-office-wiring.test.mjs`、Office生成器のOOXML／複数画像／長文／native reader回帰 | MVP / Extension 0.1.9 |
+| FR-024 | Chrome Extension editor / Office出力 | local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、端末downloadのみ | ADR-0040、`manual-local-office-export-api` | AC-064、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、SSOなしChrome download回帰（実Word／PowerPointアプリの読込・描画は未実行） | MVP / Extension 0.1.9 |
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
