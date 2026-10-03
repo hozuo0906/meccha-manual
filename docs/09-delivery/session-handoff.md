@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-確認日時: 2026-10-03T19:18:47+09:00 (Asia/Tokyo)
+確認日時: 2026-10-03T22:07:44+09:00 (Asia/Tokyo)
 - source baseは `92e37627bc699acd5886b6ff27ed90203baa8080`。最新Review5400080256の新P1（raw画像の利用者確認欠落、thread PRRT_kwDOTpNknc6omG6p）を修正した今回の差分はcommit前。写真のbytesを保持し、既存manual_image_review・確認ボタンを使って保存・出力前に確認を求める。自動PII検出・黒塗り・架空値への置換は再導入しない。確認済みと未確認を区別し、protected画像のbytes欠落はstorage_failedとして復旧を案内する。
 - 親が今回のnpm ci、119/119 unit・skip 0、docs141・秘密値444・diffを確認。担当の公式CFTによる実記録1/1、実editor確認2/2、実sidepanel3/3と既存Worker/D1/R2記録連携（2手順・2画像、保存/共有画像bytes一致、共有失効拒否）の結果・対象差分を回収。外部Google/ChatGPT認証やremote D1/R2の成功証跡ではない。新commitのCI・Codex Reviewは未実行で、P1 threadは検証後に解決する。
 - ユーザーの追加指示はGoogle・ChatGPTログインからworkspace・保存・Office出力までの一貫実装。別checkoutの認証branch `codex/manual-product-auth-283`、base `fb5dca7fcdd8c575f940548229526aead6cbc294` で共通session/OIDC/D1認可の実装差分を実確認した。製品ログインは未稼働。ChatGPT商用websiteは公式の限定trial/client登録が必要で、IAB申請フォームの本人必須表記を質問中、申請は未送信。identityとAI利用枠の許可は別で、AI初期OFF。remote migration/deploy/Access/billing変更なし。
@@ -11,6 +11,7 @@ Status: Accepted
 - Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。実SSOとnative Office描画は未確認。
 - P2 triage（今回ソース変更なし）: handoff期限後にclaim結果をGET回収できても、期限切れhandoffはterminalで旧Office出力を再開せず、編集画面から新しい認証・形式選択へ戻す。これは古い認証・操作を黙って再利用しない意図的な安全境界で、原本・新しい編集・既存cloudRefは保持される。最低限この境界を維持し、後続で「もう一度Word/PowerPointを書き出す」と明示する再選択案内を検討する（親PM担当、2026-10-08）。
 - P2 triage（今回ソース変更なし）: 外部editor更新によるstale cloudRefの409は、対象版をlatestへ自動差替えせず、元のlocal draftとcloudRefを保持してfail-closedする契約。409で上書きを拒否する境界は維持するが、同じ古い参照で再試行を繰り返すしかない導線はUX上の欠陥として保留する（影響: 外部更新後の当該下書きではOffice出力とクラウド更新を継続できない。担当: 親PM、期限: 2026-10-08）。安全な最新版確認・差分確認・明示選択の設計が必要なため、今回の自動出力修正へ混在させない。後続修正では409後に利用者が最新版を確認して明示選択した場合だけ新しいoperation/claimを作り、同じ参照を自動再利用しない。期限後結果回収とstale参照のいずれも、このmilestoneでは自動再出力・silent revision substitutionを追加しない。
+- P2修正（review4173032863 / thread `PRRT_kwDOTpNknc6onN7S`）: `persistCandidate` が `draft.steps` をcloneして置換した後も、画像編集・確認ボタンのclosureが古いstepを描画し、確認済み画像が選択中パネルで要確認のまま残る経路を修正した。保存後・確認後は現行`draft.steps`の対象stepを再取得して描画する。二回目の画像編集後に明示確認し、選択パネルが即時に確認済みへ切り替わる実browser回帰を追加し、editor browser suite 28/28、`node --check`、`git diff --check`を確認済み。対象commitは親回収・保存待ち、未release、最新headに対するCI／Codex Review／thread解決は未確認である。
 - 次の1マイルストーンは、最新headでMV3 runtime、CI、Codex Reviewを照合し、上記P2の再選択・明示選択導線を別bounded unitで判断すること。
 
 # セッション引き継ぎ運用

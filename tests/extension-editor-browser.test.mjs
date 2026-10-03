@@ -2200,6 +2200,15 @@ test("editing a confirmed image requires a fresh review before output", { timeou
     assert.equal(edited.steps[0].imageState.status, "protected");
     assert.equal(edited.steps[1].imageState.status, "protected");
 
+    // A second edit starts from the protected step object. The save replaces
+    // draft.steps with a clone, so confirmation must render the current step
+    // rather than the stale object captured by the editor button closure.
+    await openImageEditor(page, "step-1");
+    await page.locator('[data-editor-tool="rectangle"]').click();
+    await dragCanvas(page, page.locator("#imageEditorCanvas"), .5, .2, .7, .35);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+
     await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
     await page.locator("#exportWord").click();
     await page.locator("#outputGate").waitFor({ state: "visible" });
@@ -2210,6 +2219,8 @@ test("editing a confirmed image requires a fresh review before output", { timeou
     assert.equal(await page.locator("#startShare").isDisabled(), true, "changed pixels must block cloud output until review");
     await page.locator("#outputIssues button").first().click();
     await page.locator("#step-step-1 .image-state-actions button").first().click();
+    await page.waitForFunction(() => document.querySelector("#step-step-1 .image-status")?.dataset.state === "ready");
+    assert.match(await page.locator("#privacySummary").textContent(), /確認済みの画像/u, "確認後は選択中の画像パネルへ確認済みを即時表示する");
     await page.waitForFunction(async (id) => {
       const draft = await (await import("/storage/draft-store.js")).draftStore.get(id);
       return draft?.steps?.every((step) => step.imageState?.status === "ready" && step.privacyReview?.reviewRequired === false);
