@@ -137,6 +137,21 @@ async function getStorage(worker, key) {
   }), key);
 }
 
+function officeIntentStorageKey(draftId) {
+  return `meccha-manual:office-intent:${draftId}`;
+}
+
+async function watchOfficeReturnReceipt(worker, handoffId) {
+  await worker.evaluate((id) => {
+    globalThis.__officeReturnReceiptEvents = [];
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      const value = changes[`meccha-manual:handoff:${id}`]?.newValue;
+      if (value?.officeReturnReceipt) globalThis.__officeReturnReceiptEvents.push(value.officeReturnReceipt);
+    });
+  }, handoffId);
+}
+
 async function tabIdForPage(worker, page) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const id = await worker.evaluate((url) => new Promise((resolve, reject) => {
@@ -206,6 +221,11 @@ test("actual MV3 coordinator completes authenticated Office docx and pptx claims
         const draftFingerprint = await fingerprintDraft(draft);
         const expiresAt = new Date(Date.now() + 120_000).toISOString();
         await setStorage(worker, handoffStorageKey(handoffId), { handoffId, draftId: draft.id, outputAction: "office", officeFormat, extensionId, draftUpdatedAt: draft.updatedAt, draftFingerprint, expiresAt });
+        await setStorage(worker, officeIntentStorageKey(draft.id), { draftId: draft.id, handoffId, officeFormat, draftFingerprint, expiresAt });
+        const originalEditor = await context.newPage();
+        await originalEditor.goto(`chrome-extension://${extensionId}/editor/editor.html#${draft.id}`, { waitUntil: "domcontentloaded" });
+        await originalEditor.locator("#editor-heading").waitFor({ state: "visible", timeout: 15_000 });
+        await originalEditor.close();
         const page = await createStagingPage(context, fixture);
         await page.goto(`${STAGING_ORIGIN}/onboarding/continue`, { waitUntil: "domcontentloaded" });
         const tabId = await tabIdForPage(worker, page);
@@ -234,6 +254,35 @@ test("actual MV3 coordinator completes authenticated Office docx and pptx claims
         assert.equal(claim.manual_id, completed.completedManualId);
         assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM manuals").get().count, index + 1);
         assert.equal([...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png").length, index + 1);
+        await watchOfficeReturnReceipt(worker, handoffId);
+        let resolveDownload;
+        const downloadPromise = new Promise((resolve) => { resolveDownload = resolve; });
+        const downloadListener = (candidate) => resolveDownload(candidate);
+        const pageListener = (candidate) => candidate.on("download", downloadListener);
+        context.on("page", pageListener);
+        try {
+          const editorPagePromise = context.waitForEvent("page", { timeout: 15_000 });
+          await page.waitForFunction(() => document.querySelector("#bootstrap")?.disabled === false, null, { timeout: 10_000 });
+          await page.locator("#bootstrap").click();
+          const editorPage = await editorPagePromise;
+          await editorPage.waitForLoadState("domcontentloaded");
+          assert.match(editorPage.url(), new RegExp(`^chrome-extension://${extensionId}/editor/editor\\.html#${draft.id}$`));
+          const download = await Promise.race([
+            downloadPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Office download did not start")), 30_000))
+          ]);
+          const filePath = await download.path();
+          assert.ok(filePath, "Office download must expose a file path");
+          const bytes = await readFile(filePath);
+          assert.deepEqual([...bytes.subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04], "Office output must be a ZIP package");
+          assert.match(await download.suggestedFilename(), new RegExp(`\\.${officeFormat}$`));
+          const receipts = await worker.evaluate(() => globalThis.__officeReturnReceiptEvents || []);
+          assert.ok(receipts.some((receipt) => receipt.handoffId === handoffId && receipt.launchId === launchId && receipt.officeFormat === officeFormat && receipt.draftFingerprint === draftFingerprint), "editor return must use a real SW-issued Office receipt");
+          assert.equal(await getStorage(worker, officeIntentStorageKey(draft.id)), null, "Office intent must be consumed after the download");
+          assert.equal((await getStorage(worker, handoffStorageKey(handoffId)))?.officeReturnReceipt, undefined, "Office return receipt must be consumed by the resumed editor");
+        } finally {
+          context.off("page", pageListener);
+        }
       } finally {
         await closeContext(context);
         await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
