@@ -255,12 +255,19 @@ async function exchangeAndVerify(request: Request, env: Env, provider: Provider,
   if (provider === "google") body.set("client_secret", clientSecret);
   else headers.set("authorization", `Basic ${bytesToBase64(new TextEncoder().encode(`${formComponent(clientId)}:${formComponent(clientSecret)}`))}`);
   const response = await boundedProviderFetch(spec.tokenEndpoint, { method: "POST", headers, body });
-  if (!response.ok) throw new ProductAuthError(401, "AUTH_CODE_INVALID", "ログインを確認できませんでした。ログインをやり直してください。");
+  if (!response.ok) {
+    if (response.status === 429 || response.status >= 500) throw new ProductAuthError(503, "AUTH_PROVIDER_UNAVAILABLE", "ログインサービスに接続できません。時間をおいて再度お試しください。");
+    throw new ProductAuthError(401, "AUTH_CODE_INVALID", "ログインを確認できませんでした。ログインをやり直してください。");
+  }
   const payload = await response.json().catch(() => null) as { id_token?: unknown } | null;
   if (!payload || typeof payload.id_token !== "string") throw new ProductAuthError(502, "AUTH_PROVIDER_INVALID", "ログインサービスの応答を確認できませんでした。時間をおいて再度お試しください。");
   let claims: IdClaims;
   try {
-      ({ payload: claims } = await jwtVerify<IdClaims>(payload.id_token, createRemoteJWKSet(new URL(spec.jwksEndpoint), { [customFetch]: (input, init) => boundedProviderFetch(input, init) }), {
+      ({ payload: claims } = await jwtVerify<IdClaims>(payload.id_token, createRemoteJWKSet(new URL(spec.jwksEndpoint), { [customFetch]: async (input, init) => {
+        const response = await boundedProviderFetch(input, init);
+        if (response.status === 429 || response.status >= 500) throw new ProductAuthError(503, "AUTH_PROVIDER_UNAVAILABLE", "ログインサービスに接続できません。時間をおいて再度お試しください。");
+        return response;
+      } }), {
         // Google documents both its canonical HTTPS issuer and the legacy bare
         // host. Store only the canonical issuer after accepting either exact
         // value; all other issuers remain rejected by jose.
@@ -268,7 +275,8 @@ async function exchangeAndVerify(request: Request, env: Env, provider: Provider,
         audience: clientId,
         requiredClaims: ["iss", "sub", "aud", "exp", "iat", "nonce"]
       }));
-  } catch {
+  } catch (error) {
+    if (error instanceof ProductAuthError) throw error;
     throw new ProductAuthError(401, "AUTH_IDENTITY_INVALID", "ログイン情報を確認できませんでした。ログインをやり直してください。");
   }
   if (claims.nonce !== nonce || typeof claims.sub !== "string" || !claims.sub.trim() || (provider === "google" && claims.email_verified !== true)) throw new ProductAuthError(403, "AUTH_IDENTITY_UNVERIFIED", "確認済みのログイン情報を受け取れませんでした。別のログイン方法をお試しください。");

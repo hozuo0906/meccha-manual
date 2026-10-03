@@ -14,6 +14,8 @@ Status: Accepted
 
 callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返す。ブラウザのHTML要求では、検証済みtransactionに保存された許可済み同一originの`return_path`を日本語の再試行リンクとして表示し、失敗のHTTP status/messageを保ったまま、利用者がリンクを選んだ後もhandoff／Office形式のsessionStorageを維持できる状態にする。transactionを検証できない場合だけ、秘密値や外部戻り先を含めない日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合もstateから導出した対象transactionの一時OAuth cookieだけを消去し、形式不正・未知stateでは他のpending cookieを消去しない。`no-store`を指定する。`return_path`は`/`、`/onboarding/continue`、`/manuals`の固定pathだけを許可し、任意URL・query・fragmentへ拡張しない。
 
+provider token endpointまたはJWKS endpointのHTTP `429`または`5xx`、接続失敗、timeoutは、code拒否と混同せず`503 AUTH_PROVIDER_UNAVAILABLE`として再試行可能にする。token endpointの実際のcode拒否など4xxだけを`401 AUTH_CODE_INVALID`へ写像する。JWTのissuer／audience／署名などの検証失敗は`401 AUTH_IDENTITY_INVALID`とし、transactionとJWTのnonce不一致など既存のnonce境界は既存の拒否分類を維持する。JWKS取得の応答上限超過など既に分類された`ProductAuthError`はこの401へ潰さず、provider障害またはprovider応答不正として返す。
+
 認証開始の`ONBOARDING_RATE_LIMITER`は、結果の`success: false`だけを利用者単位の拒否として`429 AUTH_RATE_LIMITED`へ写像する。bindingの欠落、呼出し例外、`success`の欠落・不正など結果を判定できない場合は`503 AUTH_RATE_LIMIT_UNAVAILABLE`として再試行を案内し、いずれもOAuth transaction、cookie、provider redirectを作成しない。
 
 製品providerが設定済みでも、リクエストに有効なSupabase password session cookieがある場合はlegacy password routeを選択する。有効な製品session cookieはD1 routeを選択し、不正・失効した製品cookieをSupabase passwordまたはAccessへfallbackしない。

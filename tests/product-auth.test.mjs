@@ -1073,3 +1073,99 @@ test("provider response bodies over the bounded limit fail closed", async () => 
     database.close();
   }
 });
+
+test("Google/SIWC provider transient and verification failures keep their callback classification", async () => {
+  const scenarios = [
+    { name: "token 429", kind: "token-status", status: 429, expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "token rejection", kind: "token-status", status: 400, expectedStatus: 401, expectedCode: "AUTH_CODE_INVALID" },
+    { name: "token timeout", kind: "timeout", expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "token body size", kind: "token-size", expectedStatus: 502, expectedCode: "AUTH_PROVIDER_INVALID" },
+    { name: "JWKS 429", kind: "jwks-status", status: 429, expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "JWKS 503", kind: "jwks-status", status: 503, expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "JWKS timeout", kind: "jwks-timeout", expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "JWKS connection failure", kind: "jwks-network", expectedStatus: 503, expectedCode: "AUTH_PROVIDER_UNAVAILABLE" },
+    { name: "JWKS body size", kind: "jwks-size", expectedStatus: 502, expectedCode: "AUTH_PROVIDER_INVALID" },
+    { name: "invalid signature", kind: "invalid-signature", expectedStatus: 401, expectedCode: "AUTH_IDENTITY_INVALID" }
+  ];
+  for (const provider of ["google", "chatgpt"]) {
+    for (const scenario of scenarios) {
+      const { database, binding } = await authDatabase();
+      const clientId = `failure-${provider}-client`;
+      const env = {
+        APP_ENV: "staging",
+        APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+        ...(provider === "google"
+          ? { GOOGLE_OIDC_CLIENT_ID: clientId, GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret-not-returned" }
+          : { OPENAI_SIWC_CLIENT_ID: clientId, OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret-not-returned", OPENAI_SIWC_ENABLED: "true" }),
+        ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        DB: binding
+      };
+      const originalFetch = globalThis.fetch;
+      const { privateKey: signingKey, publicKey: signingPublicKey } = await generateKeyPair("RS256");
+      const { privateKey: wrongSigningKey } = await generateKeyPair("RS256");
+      const publicJwk = { ...await exportJWK(signingPublicKey), kid: `failure-${provider}`, alg: "RS256", use: "sig" };
+      let tokenCalls = 0;
+      let jwksCalls = 0;
+      globalThis.fetch = async (input, init = {}) => {
+        const target = String(input);
+        const tokenEndpoint = provider === "google" ? "https://oauth2.googleapis.com/token" : "https://auth.openai.com/api/accounts/oauth/token";
+        const jwksEndpoint = provider === "google" ? "https://www.googleapis.com/oauth2/v3/certs" : "https://auth.openai.com/.well-known/jwks.json";
+        if (target === tokenEndpoint) {
+          tokenCalls += 1;
+          if (scenario.kind === "token-status") return new Response("provider response", { status: scenario.status });
+          if (scenario.kind === "timeout") {
+            return new Promise((_, reject) => {
+              const abort = () => reject(new DOMException("synthetic timeout", "AbortError"));
+              if (init.signal?.aborted) abort();
+              else init.signal?.addEventListener("abort", abort, { once: true });
+            });
+          }
+          if (scenario.kind === "token-size") return new Response(new Uint8Array(256 * 1024 + 1), { status: 200 });
+          const params = new URLSearchParams(init.body);
+          const token = await new SignJWT({ sub: `failure-${provider}`, nonce: "unused", ...(provider === "google" ? { email_verified: true } : {}) })
+            .setProtectedHeader({ alg: "RS256", kid: `failure-${provider}` }).setIssuer(provider === "google" ? "https://accounts.google.com" : "https://auth.openai.com").setAudience(clientId).setIssuedAt().setExpirationTime("5m")
+            .sign(scenario.kind === "invalid-signature" ? wrongSigningKey : signingKey);
+          assert.ok(params.get("code"));
+          return Response.json({ id_token: token });
+        }
+        if (target === jwksEndpoint) {
+          jwksCalls += 1;
+          if (scenario.kind === "jwks-status") return new Response("provider response", { status: scenario.status });
+          if (scenario.kind === "jwks-timeout") {
+            return new Promise((_, reject) => {
+              const abort = () => reject(new DOMException("synthetic timeout", "AbortError"));
+              if (init.signal?.aborted) abort();
+              else init.signal?.addEventListener("abort", abort, { once: true });
+            });
+          }
+          if (scenario.kind === "jwks-network") throw new Error("synthetic provider connection failure");
+          if (scenario.kind === "jwks-size") return new Response(new Uint8Array(256 * 1024 + 1), { status: 200 });
+          return Response.json({ keys: [publicJwk] });
+        }
+        throw new Error(`unexpected external request: ${target}`);
+      };
+      try {
+        const start = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/start?return=%2Fonboarding%2Fcontinue`), env, {});
+        assert.equal(start.status, 302, `${provider}/${scenario.name}/start`);
+        const redirect = new URL(start.headers.get("location"));
+        const wantsHtmlRetry = scenario.kind === "token-status" && scenario.status === 429;
+        const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/${provider}/callback?code=synthetic-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, {
+          headers: { cookie: firstCookie(start), accept: wantsHtmlRetry ? "text/html" : "application/json" }
+        }), env, {});
+        assert.equal(callback.status, scenario.expectedStatus, `${provider}/${scenario.name}/status`);
+        const body = await callback.text();
+        if (wantsHtmlRetry) assert.match(body, /href="\/onboarding\/continue"/u, `${provider}/${scenario.name}/returnPath`);
+        else assert.equal(JSON.parse(body).code, scenario.expectedCode, `${provider}/${scenario.name}/code`);
+        assert.equal(tokenCalls, 1, `${provider}/${scenario.name}/token endpoint`);
+        assert.equal(jwksCalls, scenario.kind.startsWith("jwks-") || scenario.kind === "invalid-signature" ? 1 : 0, `${provider}/${scenario.name}/JWKS endpoint`);
+        if (wantsHtmlRetry) assert.equal(callback.headers.get("referrer-policy"), "no-referrer", `${provider}/${scenario.name}/referrer policy`);
+        assert.doesNotMatch(body, /synthetic-secret-not-returned/u, `${provider}/${scenario.name}/secret`);
+        const transaction = database.prepare("SELECT consumed_at FROM oauth_transactions").get();
+        assert.ok(transaction.consumed_at, `${provider}/${scenario.name}/consume`);
+      } finally {
+        globalThis.fetch = originalFetch;
+        database.close();
+      }
+    }
+  }
+});

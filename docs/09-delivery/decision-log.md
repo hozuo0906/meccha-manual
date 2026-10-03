@@ -43,6 +43,13 @@ Status: Accepted
 - Reason: provider設定済みの製品専用環境でDB bindingが一時的または移行中に欠落しても、業務APIを404へ変換せず、既存helperが定義したstorage障害として利用者へ返すため。認証方式の選択をDB availabilityに結び付けないことで、legacy／Accessの既存境界も変えない。
 - Evidence: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
 
+### DEC-101: 製品認証providerの上流障害とtoken／JWKSエラー分類
+
+- 日付: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5402139079
+- 決定: Google／SIWCのtokenまたはJWKS endpointのHTTP `429`／`5xx`、接続失敗、timeoutは再試行可能な`503 AUTH_PROVIDER_UNAVAILABLE`として保持する。実際のcode拒否など4xxだけを`401 AUTH_CODE_INVALID`へ写像する。JWTのissuer／audience／署名などの検証失敗は`401 AUTH_IDENTITY_INVALID`とし、transactionとJWTのnonce不一致など既存のnonce境界は既存の拒否分類を維持する。bounded provider fetchで既に分類した`ProductAuthError`（timeout、上流障害、応答上限超過を含む）は保持する。検証済み固定`return_path`、transactionの一度限りconsume境界、秘密値非露出は変更しない。
+- 理由: providerの可用性障害やJWKSの通信／サイズ障害を利用者のcodeまたはidentity拒否へ変換せず、callbackの安全なonboarding／Office再試行先と障害分類を維持するため。
+- 根拠: `apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
+
 ### DEC-095: Product auth route and callback return boundaries
 
 - Date: 2026-10-03 / Issue #283 / PR #284
