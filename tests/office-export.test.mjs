@@ -68,6 +68,13 @@ function imageWithDimensions(width, height, mimeType = "image/png") {
   return { kind: "edited", bytes, mimeType, width, height };
 }
 
+class DeclaredSizeBytes extends Uint8Array {
+  constructor(bytes, declaredSize) {
+    super(bytes);
+    Object.defineProperty(this, "byteLength", { value: declaredSize });
+  }
+}
+
 function manual() {
   return {
     title: "売上確認の手順",
@@ -112,6 +119,19 @@ test("Office image, archive, and ZIP32 guards reject overflow without allocating
   assert.throws(() => assertOfficeZip32(0x100000000), /画像容量が大きいため/u);
   assert.equal(assertOfficeZipEntryCount(0xffff), 0xffff);
   assert.throws(() => assertOfficeZipEntryCount(0x10000), /画像容量が大きいため/u);
+});
+
+test("real DOCX/PPTX builds reject cumulative image overflow before copying the next image", () => {
+  const oversizedManual = {
+    title: "容量超過の実build",
+    steps: [1, 2].map((number) => ({
+      number,
+      instruction: `手順${number}`,
+      image: { ...imageWithDimensions(320, 180), bytes: new DeclaredSizeBytes(PNG, Math.floor(OFFICE_IMAGE_BYTES_LIMIT / 2) + 1) }
+    }))
+  };
+  assert.throws(() => buildDocx(oversizedManual), /画像容量が大きいため/u);
+  assert.throws(() => buildPptx(oversizedManual), /画像容量が大きいため/u);
 });
 
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {

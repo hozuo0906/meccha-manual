@@ -329,6 +329,30 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
 
     const retryBytes = await downloadBytes(page, page.locator("#exportWord"));
     assert.equal(zipEntries(retryBytes).get("word/media/image20.png")?.length > 0, true, "retry exports the final image");
+
+    // A rendered Blob over the image budget must fail before arrayBuffer and
+    // download, then recover after the encoder is restored.
+    let oversizedArrayBufferCalls = 0;
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      window.__restoreOfficeToBlob = () => { HTMLCanvasElement.prototype.toBlob = original; };
+      HTMLCanvasElement.prototype.toBlob = function oversizedToBlob(callback) {
+        callback({ size: 64 * 1024 * 1024 + 1, arrayBuffer: async () => { window.__oversizedArrayBufferCalls = (window.__oversizedArrayBufferCalls || 0) + 1; throw new Error("arrayBuffer must not run"); } });
+      };
+      window.__oversizedArrayBufferCalls = 0;
+    });
+    let oversizedDownloads = 0;
+    const countOversizedDownload = () => { oversizedDownloads += 1; };
+    page.on("download", countOversizedDownload);
+    await page.locator("#exportWord").click();
+    await page.locator("#officeExportStatus").filter({ hasText: "画像容量が大きいため" }).waitFor();
+    assert.equal(oversizedDownloads, 0, "oversized rendered images do not trigger a download");
+    oversizedArrayBufferCalls = await page.evaluate(() => window.__oversizedArrayBufferCalls);
+    assert.equal(oversizedArrayBufferCalls, 0, "oversized rendered images fail before arrayBuffer");
+    page.off("download", countOversizedDownload);
+    await page.evaluate(() => window.__restoreOfficeToBlob?.());
+    const recoveredBytes = await downloadBytes(page, page.locator("#exportWord"));
+    assert.equal(zipEntries(recoveredBytes).get("word/media/image20.png")?.length > 0, true, "Office export can be retried after a capacity failure");
   } finally {
     await context?.close();
     server.closeAllConnections?.();
