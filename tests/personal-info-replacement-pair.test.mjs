@@ -62,7 +62,7 @@ function harness(t, annotations) {
   const screenshot = { dataUrl: "data:image/png;base64,AA==", annotations, masks: [] };
   const editor = createImageEditor({ dialog, canvas, screenshot, inline: true, initialTool: "replacement", onSave: async (value) => { output = value; return true; } });
   t.after(() => editor.dispose());
-  return { dialog, screenshot, editor, get output() { return output; } };
+  return { dialog, canvas, screenshot, editor, get output() { return output; } };
 }
 
 test("既存の氏名置換から同じ合成人物をreload後に復元する", () => {
@@ -101,4 +101,27 @@ test("氏名・カナの合成人物選択は既存注釈を揃え、適用前�
   await cancelHarness.dialog.querySelector("[data-editor-cancel]").fire("click");
   assert.equal(cancelHarness.output, undefined);
   assert.equal(cancelHarness.screenshot.annotations[0].text, "高橋一郎");
+});
+
+test("同じ画像編集dialogを再openしても置換操作と説明は一つだけ残る", async (t) => {
+  const h = harness(t, []);
+  const create = () => createImageEditor({ dialog: h.dialog, canvas: h.canvas, screenshot: h.screenshot, inline: true, initialTool: "replacement", onSave: async () => true });
+  await h.editor.open();
+  h.editor.dispose();
+  const second = create();
+  t.after(() => second.dispose());
+  await second.open();
+  second.dispose();
+  const third = create();
+  t.after(() => third.dispose());
+  await third.open();
+
+  const all = h.dialog.querySelectorAll("*");
+  const addButtons = all.filter((element) => element.dataset.replacementAction === "add");
+  const helpTexts = all.filter((element) => element.dataset.replacementAction === "help");
+  assert.equal(addButtons.length, 1);
+  assert.equal(helpTexts.length, 1);
+  assert.equal(addButtons[0].getAttribute("aria-describedby"), helpTexts[0].id);
+  await addButtons[0].fire("click");
+  assert.equal(h.dialog.querySelector("[data-editor-selection]").children.length, 1);
 });

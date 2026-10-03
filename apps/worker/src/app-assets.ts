@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-9f8696b9df25e6f5";
+export const APP_ASSET_VERSION = "sha256-4f511df5c1c29bb4";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">

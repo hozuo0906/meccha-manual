@@ -90,10 +90,20 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
     SYNTHETIC_PEOPLE.forEach((person, index) => { const option = document.createElement("option"); option.value = String(index); option.textContent = `${person.name}（${person.kana}）`; replacementPersonInput.append(option); });
     const label = document.createElement("label"); label.dataset.replacementProperty = ""; label.textContent = "架空人物"; label.append(replacementPersonInput); propertyGroup?.append(label);
   }
-  const replacementAddButton = document.createElement("button"); replacementAddButton.type = "button"; replacementAddButton.className = "secondary"; replacementAddButton.dataset.replacementAction = "add"; replacementAddButton.textContent = "範囲を追加"; replacementAddButton.setAttribute("aria-describedby", "replacementKeyboardHelp");
-  const replacementKeyboardHelp = document.createElement("p"); replacementKeyboardHelp.id = "replacementKeyboardHelp"; replacementKeyboardHelp.className = "editor-help"; replacementKeyboardHelp.dataset.replacementAction = "help"; replacementKeyboardHelp.textContent = "範囲を追加後、選択した範囲を矢印キーで移動できます。元の画像の文字は表示せず、選んだ種別の架空値を表示します。";
+  let replacementAddButton = propertyGroup?.querySelector('[data-replacement-action="add"]');
+  if (!replacementAddButton) {
+    replacementAddButton = document.createElement("button"); replacementAddButton.type = "button"; replacementAddButton.className = "secondary"; replacementAddButton.dataset.replacementAction = "add"; replacementAddButton.textContent = "範囲を追加";
+    propertyGroup?.append(replacementAddButton);
+  }
+  let replacementKeyboardHelp = propertyGroup?.querySelector('[data-replacement-action="help"]');
+  if (!replacementKeyboardHelp) {
+    replacementKeyboardHelp = document.createElement("p"); replacementKeyboardHelp.className = "editor-help"; replacementKeyboardHelp.dataset.replacementAction = "help";
+    propertyGroup?.append(replacementKeyboardHelp);
+  }
+  replacementKeyboardHelp.id = "replacementKeyboardHelp";
+  replacementKeyboardHelp.textContent = "範囲を追加後、選択した範囲を矢印キーで移動できます。元の画像の文字は表示せず、選んだ種別の架空値を表示します。";
   replacementKeyboardHelp.textContent += "画像に焼き込まれた架空人物は自動判定できないため、見えている氏名・カナに合う架空人物を選んでください。";
-  propertyGroup?.append(replacementAddButton, replacementKeyboardHelp);
+  replacementAddButton.setAttribute("aria-describedby", replacementKeyboardHelp.id);
   const errorPanel = document.createElement("div"); errorPanel.className = "image-editor-error"; errorPanel.hidden = true;
   const errorText = document.createElement("p"); errorText.textContent = "画像を表示できませんでした。元の画像は保持しています。";
   const retryImage = document.createElement("button"); retryImage.type = "button"; retryImage.textContent = "画像をもう一度読み込む"; retryImage.dataset.editorRetry = "true";

@@ -179,6 +179,15 @@ test("local extension editor downloads 20 edited images to Word and PowerPoint w
 
     // Exercise the real image editor before export so at least one output pixel
     // is changed through the editor path, while all twenty references remain.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await page.locator("#step-step-1 .image-edit-button").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+      assert.equal(await page.locator('[data-replacement-action="add"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="help"]').count(), 1);
+      assert.equal(await page.locator('[data-replacement-action="add"]').getAttribute("aria-describedby"), await page.locator('[data-replacement-action="help"]').getAttribute("id"));
+      await page.locator("[data-editor-cancel]").first().click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    }
     await page.locator("#step-step-1 .image-edit-button").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
     await captureEvidence(page, "office-extension-image-editor-1366");
