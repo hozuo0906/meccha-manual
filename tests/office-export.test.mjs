@@ -89,6 +89,21 @@ test("PPTX is a real OOXML package with one slide per step and edited image", ()
   assert.match(slide, /r:embed="rId2"/);
 });
 
+test("PPTX theme has the required three style entries and long Japanese body uses autofit", () => {
+  const longInstruction = "\u64cd\u4f5c\u3092\u8a18\u9332\u3057\u305f\u624b\u9806\u306e\u8a73\u7d30\u3092\u78ba\u8a8d\u3057\u3001\u5fc5\u8981\u306a\u9805\u76ee\u3092\u5165\u529b\u3057\u3066\u304b\u3089\u4fdd\u5b58\u3092\u30af\u30ea\u30c3\u30af\u3057\u307e\u3059\u3002".repeat(24);
+  const packageEntries = zipEntries(buildPptx({ title: "\u9577\u6587\u5b57\u30ec\u30a4\u30a2\u30a6\u30c8", steps: [{ instruction: longInstruction, image: { kind: "edited", bytes: PNG, mimeType: "image/png", width: 1600, height: 900 } }] }));
+  const theme = entryText(packageEntries, "ppt/theme/theme1.xml");
+  assert.equal((theme.match(/<a:fillStyleLst>/g) || []).length, 1);
+  assert.equal((theme.match(/<a:solidFill>/g) || []).length, 9);
+  assert.equal((theme.match(/<a:ln /g) || []).length, 3);
+  assert.equal((theme.match(/<a:effectStyle>/g) || []).length, 3);
+  assert.equal((theme.match(/<a:bgFillStyleLst>/g) || []).length, 1);
+  const slide = entryText(packageEntries, "ppt/slides/slide1.xml");
+  assert.match(slide, /<a:normAutofit\/>/);
+  assert.match(slide, /cy="3200000"/);
+  assert.match(slide, /\u64cd\u4f5c\u3092\u8a18\u9332/);
+});
+
 test("data URL rendered image can be exported without cloud login", () => {
   const dataUrl = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
   const packageEntries = zipEntries(buildDocx({ title: "ローカル出力", steps: [{ instruction: "保存します。", image: { kind: "edited", dataUrl } }] }));
