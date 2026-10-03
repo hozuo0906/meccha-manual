@@ -285,6 +285,10 @@ test("local extension editor requires the auth gate before downloading 20 edited
     await page.setViewportSize({ width: 1366, height: 900 });
     await page.locator("[data-editor-save]").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    // Image editing invalidates the prior review. Confirm the edited image
+    // through the same user-facing action before the twenty-image export.
+    await page.locator("#step-step-1 .image-state-actions button").first().click();
+    await page.waitForFunction(async () => (await (await import("/storage/draft-store.js")).draftStore.get("extension-office-browser-fixture"))?.steps?.[0]?.privacyReview?.reviewRequired === false);
     await page.waitForFunction(() => document.querySelectorAll('.step-image-status[data-state="ready"]').length === 20);
 
     const officeDetails = page.locator(".office-actions");
