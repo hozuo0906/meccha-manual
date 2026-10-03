@@ -2,7 +2,7 @@
 
 Status: Proposed
 
-専用Google Cloud project `meccha-manual-auth`は作成済みだが、OAuth clientは未作成である。課金有効化、同意画面、client登録は未実施で、Googleログインは未稼働として扱う。
+専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意とOAuthの構成作成も完了している。ただし請求先アカウントはなく、OAuth clientは未作成である。Googleログインは未稼働として扱う。
 
 Date: 2026-10-03
 
@@ -40,6 +40,8 @@ Googleでは遷移中に「Googleで認証しています」と表示し、キ�
 
 ### Google
 
+scopeはidentity確認に必要な最小候補として`openid email profile`を使う。現行sourceと契約で確認できるstaging originは`https://meccha-manual-staging.meccha-iiyatsu.com`である。既存の`/onboarding/continue`はguest handoff用のrouteであり、Google callbackではない。Google callback routeは現行source・契約に未実装のため、OAuth client作成時のredirect URIとして登録せず、認証実装unitでrouteと契約を確定してから登録する。
+
 OIDC Authorization Code + PKCE、state、nonceをサーバー側で生成し、登録済みcallback URLへ限定する。issuer、audience、署名、期限、nonce、state、verified emailを検証し、検証済みのissuer+subjectをidentityとして扱う。client secretはserver-side secret managerだけに置く。secret名を追加する場合も候補として設計に記載し、実装unitで承認するまで追加しない。
 
 ### ChatGPT / SIWC
@@ -67,7 +69,7 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 
 ## 設定・依存の候補
 
-現リポジトリでGoogle、メール送信、SIWCのclient設定が確認できていないため、以下は候補名であり未登録である。
+現リポジトリでGoogle OAuth client、メール送信、SIWCのclient設定が確認できていないため、以下は候補名であり未登録である。Google Cloud project、OAuthの構成作成、Google API policyへの同意は完了済みだが、請求先アカウントはない。
 
 - Google候補: `GOOGLE_OIDC_CLIENT_ID`、`GOOGLE_OIDC_CLIENT_SECRET`、環境別redirect URI
 - メール候補: `EMAIL_CODE_PROVIDER`、送信元名、provider secret
@@ -91,7 +93,7 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 ## 必要な外部操作と未決事項
 
 - メール送信providerの選定、送信元domain、staging/production credential、rate limitと失敗時運用の承認。
-- Google Cloud側のOAuth client、環境別callback URL、issuer/audience、同意画面、verified email運用の登録。
+- Google Cloud側の請求先アカウント、OAuth client、環境別callback URL、issuer/audience、verified email運用の登録。OAuthの構成作成とGoogle API policyへの同意は完了済みである。
 - OpenAI側のSIWC商用client登録・利用資格、identity scopeとplan usage scopeの可否、callbackとtoken endpointの登録。
 - 既存Access identityを新provider identityへ明示linkする本人確認手順と、link解除・アカウント復旧方針。
 - `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。

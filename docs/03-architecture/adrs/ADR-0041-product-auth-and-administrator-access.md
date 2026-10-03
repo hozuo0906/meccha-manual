@@ -2,7 +2,7 @@
 
 Status: Proposed
 
-専用Google Cloud project `meccha-manual-auth`は作成済みだが、OAuth clientは未作成である。課金有効化、同意画面、client登録は未実施で、Googleログインは未稼働として扱う。
+専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意とOAuthの構成作成も完了している。ただし請求先アカウントはなく、OAuth clientは未作成である。Googleログインは未稼働として扱う。
 
 Date: 2026-10-03
 
