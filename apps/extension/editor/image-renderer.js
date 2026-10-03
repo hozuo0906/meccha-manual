@@ -35,6 +35,20 @@ function drawText(context, annotation, width, height) {
   lines.slice(0, maxLines).forEach((line, index) => context.fillText(line, annotation.x * width, annotation.y * height + index * lineHeight, maxWidth));
 }
 
+function drawReplacement(context, annotation, width, height) {
+  const x = annotation.x * width;
+  const y = annotation.y * height;
+  const boxWidth = annotation.width * width;
+  const boxHeight = annotation.height * height;
+  context.save();
+  context.fillStyle = "#ffffff";
+  context.fillRect(x, y, boxWidth, boxHeight);
+  context.fillStyle = "#111827";
+  context.font = `${annotation.fontSize}px sans-serif`;
+  drawText(context, annotation, width, height);
+  context.restore();
+}
+
 export function drawAnnotations(context, annotations, width, height) {
   const valid = normalizeAnnotations(annotations);
   if (valid === null) throw new TypeError("invalid annotations");
@@ -46,7 +60,9 @@ export function drawAnnotations(context, annotations, width, height) {
     context.strokeStyle = color;
     context.fillStyle = color;
     context.lineWidth = annotation.strokeWidth;
-    if (annotation.type === "text") {
+    if (annotation.type === "replacement") {
+      drawReplacement(context, annotation, width, height);
+    } else if (annotation.type === "text") {
       context.font = `${annotation.fontSize}px sans-serif`;
       drawText(context, annotation, width, height);
     } else if (annotation.type === "rectangle") {

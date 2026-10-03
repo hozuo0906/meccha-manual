@@ -1,5 +1,4 @@
 import { normalizeCaptureEvent } from "../capture/privacy.js";
-import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../capture/screenshot.js";
 import { VIEWPORTS } from "../responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../responsive/window-lifecycle.js";
 import { draftStore } from "../storage/draft-store.js";
@@ -334,36 +333,59 @@ async function persistCapturePrivacyAliases(state, result) {
 
 async function clearCapturePrivacy(session) {
   if ((await chrome.storage.session.get(PRIVACY_ALIAS_KEY))[PRIVACY_ALIAS_KEY]) await chrome.storage.session.remove(PRIVACY_ALIAS_KEY);
-  if (!Number.isInteger(session?.tabId)) return;
-  await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks, args: [{ endRecord: true }] }).catch(() => undefined);
 }
 
-async function takeMaskedScreenshot(session, assertCurrent = () => undefined, event) {
+async function takeScreenshot(session, assertCurrent = () => undefined, event) {
   let clickTarget = null;
-  const result = await captureWithMaskBoundary({
-    includePrivacyMetadata: true,
-    applyMasks: async () => {
-      assertCurrent();
-      let privateAliasState;
-      let mask;
-      try {
-        privateAliasState = await readCapturePrivacyAliases(session);
-        mask = (await chrome.scripting.executeScript({ target: { tabId: session.tabId }, world: "ISOLATED",
-          func: installSensitiveMasks, args: [{ recordId: session.id, privateAliasState }] }))[0]?.result;
-      } catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
-      // A navigation or newer scene has its own safe reason code. Do not
-      // relabel it as a mask failure after waiting for isolated-world crypto.
-      assertCurrent();
-      if (mask?.applied && !mask.reason) {
-        try { await persistCapturePrivacyAliases(privateAliasState, mask); }
-        catch { throw new Error("SCREENSHOT_MASK_FAILED"); }
-      }
-      // Explicit allowlist keeps HMAC keys and allocation state inside the
-      // trusted worker, including when capture later fails or is retried.
-      return mask && { applied: mask.applied, count: mask.count, privacyMaskedCount: mask.privacyMaskedCount,
-        privacyReview: mask.privacyReview, token: mask.token, ...(mask.reason ? { reason: mask.reason } : {}) };
-    },
-    waitForPaint: async () => {
+  await visibleCaptureTab(session);
+  assertCurrent();
+  let paintResult;
+  try {
+    [paintResult] = await chrome.scripting.executeScript({
+      target: { tabId: session.tabId },
+      func: () => new Promise((resolve) => {
+        if (document.visibilityState === "hidden") { resolve({ ready: false, reason: "TARGET_TAB_NOT_VISIBLE" }); return; }
+        let settled = false;
+        const finish = (reason = null) => { if (settled) return; settled = true; clearTimeout(timeout); resolve({ ready: !reason, reason }); };
+        const timeout = setTimeout(() => finish("SCREENSHOT_PAINT_TIMEOUT"), 1000);
+        if (typeof requestAnimationFrame !== "function") { finish("SCREENSHOT_PAINT_UNAVAILABLE"); return; }
+        try { requestAnimationFrame(() => { try { requestAnimationFrame(() => finish()); } catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); } }); }
+        catch { finish("SCREENSHOT_PAINT_UNAVAILABLE"); }
+      })
+    });
+  } catch { throw new Error("SCREENSHOT_PAINT_UNAVAILABLE"); }
+  if (paintResult?.result?.ready !== true) {
+    const reason = paintResult?.result?.reason;
+    throw new Error(["TARGET_TAB_NOT_VISIBLE", "SCREENSHOT_PAINT_TIMEOUT", "SCREENSHOT_PAINT_UNAVAILABLE"].includes(reason) ? reason : "SCREENSHOT_PAINT_UNAVAILABLE");
+  }
+  assertCurrent();
+  await visibleCaptureTab(session);
+  assertCurrent();
+  clickTarget = await currentClickTarget(session, event);
+  assertCurrent();
+  try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { pending: true } }); }
+  catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+  assertCurrent();
+  lastStepScreenshotAt = Date.now();
+  let dataUrl;
+  try { dataUrl = await chrome.tabs.captureVisibleTab(session.windowId, { format: "jpeg", quality: 75 }); }
+  finally {
+    try { await chrome.storage.session.set({ [SCREENSHOT_TIMING_KEY]: { completedAt: Date.now() } }); }
+    catch { throw new Error("SCREENSHOT_STORAGE_FAILED"); }
+  }
+  if (clickTarget && await currentClickTarget(session, event)) {
+    const annotation = {
+      id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
+      y: clickTarget.y / clickTarget.viewportHeight, width: clickTarget.width / clickTarget.viewportWidth,
+      height: clickTarget.height / clickTarget.viewportHeight, color: "#dc2626", strokeWidth: 3
+    };
+    return { dataUrl, annotations: [annotation] };
+  }
+  return dataUrl;
+  /* Previous automatic DOM masking implementation intentionally removed. */
+  /*
+    return legacyCaptureBoundary({
+      waitForPaint: async () => {
       await visibleCaptureTab(session);
       let paintResult;
       try {
@@ -420,20 +442,12 @@ async function takeMaskedScreenshot(session, assertCurrent = () => undefined, ev
       }
     },
     verifyMasks: async (token) => {
-      try { return Boolean((await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: verifySensitiveMasks, args: [token] }))[0]?.result); }
+      try { return Boolean((await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: legacyVerifyMasks, args: [token] }))[0]?.result); }
       catch { throw new Error("SCREENSHOT_MASK_INVALIDATED"); }
     },
-    removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: removeSensitiveMasks }).catch(() => undefined); }
-  });
-  if (clickTarget && await currentClickTarget(session, event)) {
-    const annotation = {
-      id: crypto.randomUUID(), type: "rectangle", x: clickTarget.x / clickTarget.viewportWidth,
-      y: clickTarget.y / clickTarget.viewportHeight, width: clickTarget.width / clickTarget.viewportWidth,
-      height: clickTarget.height / clickTarget.viewportHeight, color: "#dc2626", strokeWidth: 3
-    };
-    return { ...(typeof result === "string" ? { dataUrl: result } : result), annotations: [annotation] };
-  }
-  return result;
+    removeMasks: async () => { await chrome.scripting.executeScript({ target: { tabId: session.tabId }, func: legacyRemoveMasks }).catch(() => undefined); }
+      });
+  */
 }
 
 function instructionFor(event) {
@@ -494,20 +508,17 @@ async function finishCapture() {
       const refsByEventId = new Map((session.stepImageRefs || []).map((ref) => [ref.eventId, ref]));
       const imageByEventId = new Map(liveImages.filter((image) => {
         const ref = refsByEventId.get(image.eventId);
-        return ["ready", "protected"].includes(image.status) && image.dataUrl && (!ref || (ref.version || 1) <= (image.version || 1));
+        return image.status === "ready" && image.dataUrl && (!ref || (ref.version || 1) <= (image.version || 1));
       }).map((image) => [image.eventId, image]));
       const screenshots = session.events
         .map((event) => imageByEventId.get(event.eventId))
         .filter(Boolean)
-        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [],
-          ...(image.privacyReview ? { privacyReview: image.privacyReview } : {}),
-          ...(image.annotations ? { annotations: image.annotations } : {})
-        }));
+        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [], ...(image.annotations ? { annotations: image.annotations } : {}) }));
       if (!session.events.length) {
         await waitForScreenshotSlot(session);
-        const result = await takeMaskedScreenshot(session);
+        const result = await takeScreenshot(session);
         const dataUrl = typeof result === "string" ? result : result.dataUrl;
-        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [], ...(result.privacyReview ? { privacyReview: result.privacyReview } : {}) });
+        screenshots.push({ id: crypto.randomUUID(), dataUrl, masks: [] });
       }
       const draft = {
         id: session.id,
@@ -833,14 +844,11 @@ async function recordStepImage(session, eventId, eventGeneration = captureEventG
     attempts += 1;
     pendingSession = imageRefsWithStatus(pendingSession, eventId, "capturing", { attempts });
     await setSession(pendingSession).catch(() => undefined);
-    const result = await takeMaskedScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
+    const result = await takeScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
     assertCurrent();
     const dataUrl = typeof result === "string" ? result : result.dataUrl;
-    const privacyReview = typeof result === "object" ? result.privacyReview : undefined;
-    const status = privacyReview?.reviewRequired ? "protected" : "ready";
-    const reason = status === "protected" ? privacyReview.reasonCodes?.find((code) => IMAGE_REASONS.has(code)) || "protected_region" : null;
-    state = { status, reason };
-    image = { id: crypto.randomUUID(), dataUrl, ...(privacyReview ? { privacyReview } : {}), ...(result.annotations ? { annotations: result.annotations } : {}) };
+    state = { status: "ready", reason: null };
+    image = { id: crypto.randomUUID(), dataUrl, ...(result.annotations ? { annotations: result.annotations } : {}) };
   } catch (error) {
     // A later screen is never used to silently retry an earlier operation.
     state = captureFailureState(error);
