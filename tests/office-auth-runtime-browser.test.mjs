@@ -155,6 +155,12 @@ async function getStorage(worker, key) {
   }), key);
 }
 
+async function getAllStorage(worker) {
+  return worker.evaluate(() => new Promise((resolve, reject) => {
+    chrome.storage.local.get(null, (result) => { const error = chrome.runtime.lastError; if (error) reject(new Error(error.message)); else resolve(result || {}); });
+  }));
+}
+
 function officeIntentStorageKey(draftId) {
   return `meccha-manual:office-intent:${draftId}`;
 }
@@ -204,12 +210,11 @@ function sessionCookieFromResponse(raw, hostname) {
   return cookie;
 }
 
-async function createStagingPage(context, fixture, provider) {
+async function installStagingRoutes(context, fixture, provider) {
   const providerConfig = provider === "google"
     ? { origin: GOOGLE_AUTH_ORIGIN, authorizationPath: "/o/oauth2/v2/auth", callbackPath: "/api/auth/google/callback" }
     : { origin: CHATGPT_AUTH_ORIGIN, authorizationPath: "/api/accounts/authorize", callbackPath: "/api/auth/chatgpt/callback" };
-  const page = await context.newPage();
-  await page.route("**/*", async (route) => {
+  await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin === providerConfig.origin && url.pathname === providerConfig.authorizationPath) {
       fixture.setNonce(url.searchParams.get("nonce") || "");
@@ -217,16 +222,28 @@ async function createStagingPage(context, fixture, provider) {
       callback.searchParams.set("code", "synthetic-office-code"); callback.searchParams.set("state", url.searchParams.get("state") || "");
       await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: `<!doctype html><script>location.replace(${JSON.stringify(callback.toString())})</script>` }); return;
     }
-    if (url.origin !== STAGING_ORIGIN) { await route.abort(); return; }
-    const response = await cloudWorker.fetch(browserRequest(route.request()), fixture.env, {});
+    if (url.origin !== STAGING_ORIGIN && url.protocol !== "chrome-extension:" && !["about:", "data:"].includes(url.protocol)) { await route.abort(); return; }
+    if (url.origin !== STAGING_ORIGIN) { await route.continue(); return; }
+    const request = route.request();
+    const response = url.pathname === "/onboarding/continue"
+      ? await cloudWorker.fetch(new Request(url, { headers: { cookie: request.headers().cookie || "" } }), fixture.env, {})
+      : await cloudWorker.fetch(browserRequest(request), fixture.env, {});
+    if (url.pathname === "/onboarding/continue" && response.status !== 200) console.error("generated-onboarding-response", response.status, response.headers.has("location"));
     if (url.pathname === providerConfig.callbackPath && response.status === 302) {
       const returnLocation = response.headers.get("location"); assert.ok(returnLocation);
-      const cookie = sessionCookieFromResponse(response.headers.get("set-cookie"), url.hostname);
+      assert.equal(new URL(returnLocation, STAGING_ORIGIN).origin, STAGING_ORIGIN, "product auth callback must return to the staging onboarding origin");
+      const cookieHeader = response.headers.get("set-cookie");
+      const cookie = sessionCookieFromResponse(cookieHeader, url.hostname);
       await context.addCookies([cookie]);
-      const returnRequest = new Request(new URL(returnLocation, STAGING_ORIGIN), { headers: { cookie: `${cookie.name}=${encodeURIComponent(cookie.value)}` } });
-      const onboarding = await cloudWorker.fetch(returnRequest, fixture.env, {});
-      const body = Buffer.from(await onboarding.arrayBuffer()).toString("utf8");
-      await route.fulfill({ status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: `<script>history.replaceState(null, "", ${JSON.stringify(new URL(returnLocation).pathname)})</script>${body}` }); return;
+      const onboarding = await cloudWorker.fetch(new Request(returnLocation, { headers: { cookie: `${cookie.name}=${encodeURIComponent(cookie.value)}` } }), fixture.env, {});
+      const onboardingBody = Buffer.from(await onboarding.arrayBuffer()).toString("utf8");
+      const callbackHeaders = Object.fromEntries(response.headers.entries());
+      delete callbackHeaders.location;
+      await route.fulfill({
+        status: 200,
+        headers: { ...callbackHeaders, "content-type": "text/html; charset=utf-8" },
+        body: `<script>history.replaceState(null, "", ${JSON.stringify(new URL(returnLocation).pathname)})</script>${onboardingBody}`
+      }); return;
     }
     const headers = Object.fromEntries(response.headers.entries()); delete headers.location;
     if (url.pathname === `/api/auth/${provider}/start` && response.status === 302) {
@@ -235,7 +252,11 @@ async function createStagingPage(context, fixture, provider) {
     }
     await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
   });
-  return page;
+}
+
+async function createStagingPage(context, fixture, provider) {
+  await installStagingRoutes(context, fixture, provider);
+  return context.newPage();
 }
 
 async function waitForCompleted(worker, key) {
@@ -396,6 +417,139 @@ test("actual MV3 Office claims use product-auth Google and ChatGPT sessions", { 
     }
   } finally {
     fixture.restoreFetch();
+    }
+  }
+});
+
+test("editor startRegistration creates the real Office handoff for both synthetic providers", { timeout: 600_000 }, async () => {
+  for (const provider of ["google", "chatgpt"]) {
+    const fixture = await createFixture(provider);
+    try {
+      for (const [index, officeFormat] of ["docx", "pptx"].entries()) {
+        const profile = profilePath(await mkdtemp(join(tmpdir(), "meccha-manual-office-runtime-")));
+        let context;
+        try {
+          ({ context } = await openExtension(profile));
+          await installStagingRoutes(context, fixture, provider);
+          const worker = context.serviceWorkers()[0];
+          const extensionId = new URL(worker.url()).hostname;
+          const draftId = `office-generated-${provider}-${officeFormat}`;
+          const draft = {
+            id: draftId, title: `Generated Office ${officeFormat}`, description: "real editor handoff fixture",
+            updatedAt: "2026-10-03T00:00:00.000Z",
+            steps: [{ id: `generated-step-${officeFormat}`, order: 1, instruction: "生成されたOffice出力を確認する", screenshotId: `generated-image-${officeFormat}`, imageState: { status: "ready", reason: null, attempts: 1, version: 1 }, privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: false, reasonCodes: ["manual_image_review"], replacements: [] } }],
+            screenshots: [{ id: `generated-image-${officeFormat}`, dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", masks: [], privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: false, reasonCodes: ["manual_image_review"], replacements: [] } }]
+          };
+          await putDraft(worker, draft);
+          const editor = await context.newPage();
+          await editor.goto(`chrome-extension://${extensionId}/editor/editor.html#${draftId}`, { waitUntil: "domcontentloaded" });
+          await editor.locator("#editor-heading").waitFor({ state: "visible", timeout: 15_000 });
+          await editor.locator(".header-office-actions > summary").click();
+          await editor.locator(officeFormat === "docx" ? "#exportWord" : "#exportPowerPoint").click();
+          await editor.locator("#outputGate").waitFor({ state: "visible", timeout: 10_000 });
+          await editor.locator("#startRegistration:not([disabled])").waitFor({ timeout: 15_000 });
+
+          const stagingPagePromise = (async () => {
+            const deadline = Date.now() + 30_000;
+            while (Date.now() < deadline) {
+              const page = context.pages().find((candidate) => candidate.url().startsWith(`${STAGING_ORIGIN}/onboarding/continue`));
+              if (page) return page;
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            throw new Error(`generated staging page did not open for ${provider}/${officeFormat}`);
+          })();
+          const registrationClick = editor.locator("#startRegistration").click();
+          const stagingPage = await stagingPagePromise;
+          await stagingPage.waitForSelector("#bootstrap", { timeout: 20_000 });
+          const intent = await (async () => {
+            const deadline = Date.now() + 10_000;
+            while (Date.now() < deadline) {
+              const values = await getAllStorage(worker);
+              const candidate = Object.values(values).find((value) => value?.draftId === draftId && value?.officeFormat === officeFormat && typeof value.handoffId === "string");
+              if (candidate) return candidate;
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            throw new Error(`editor did not persist Office intent for ${provider}/${officeFormat}`);
+          })();
+          assert.equal(intent.draftId, draftId);
+          const handoffId = intent.handoffId;
+          const allBeforeAuth = await getAllStorage(worker);
+          const readyEntry = Object.entries(allBeforeAuth).find(([key, value]) => key.includes(`:handoff-ready:${handoffId}:`) && value?.requestedAction === "office");
+          assert.ok(readyEntry, "startRegistration must create a matching handoff-ready record");
+          const launchId = readyEntry[1].launchId;
+          assert.equal(readyEntry[1].requestedOfficeFormat, officeFormat);
+          assert.equal(readyEntry[1].tabId, await tabIdForPage(worker, stagingPage));
+
+          await stagingPage.locator("#bootstrap").click();
+          const providerSelector = `#product-auth-buttons a[href^="/api/auth/${provider}/start"]`;
+          await stagingPage.waitForSelector(providerSelector, { timeout: 15_000 });
+          const preProviderState = await stagingPage.evaluate(() => {
+            let saved = null;
+            try { saved = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"); } catch {}
+            return {
+              pathname: location.pathname,
+              hasHash: Boolean(location.hash),
+              hasLoginReturn: sessionStorage.getItem("meccha-manual:product-login-return") !== null,
+              activeEntries: Array.isArray(saved?.entries) ? saved.entries.filter((entry) => entry?.state === "active").length : 0
+            };
+          });
+          assert.equal(preProviderState.hasLoginReturn, true, "initial unauthenticated bootstrap must preserve the generated return context");
+          assert.ok(preProviderState.activeEntries >= 1, "generated handoff must remain active through product login");
+          await stagingPage.locator(providerSelector).click();
+          await stagingPage.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { timeout: 15_000 });
+          try {
+            await stagingPage.waitForFunction(() => !sessionStorage.getItem("meccha-manual:product-login-return") && document.querySelector("#bootstrap")?.textContent !== "保存先を準備する", null, { timeout: 15_000 });
+          } catch (error) {
+            const diagnostic = await stagingPage.evaluate(() => {
+              let saved = null;
+              try { saved = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"); } catch {}
+              return {
+                pathname: location.pathname,
+                hasHash: Boolean(location.hash),
+                bootstrapText: document.querySelector("#bootstrap")?.textContent || "",
+                statusText: document.querySelector("#status")?.textContent || "",
+                hasLoginReturn: sessionStorage.getItem("meccha-manual:product-login-return") !== null,
+                activeHandoffIdPresent: typeof saved?.activeHandoffId === "string",
+                activeHandoffMatchesEntry: Array.isArray(saved?.entries) && saved.entries.some((entry) => entry?.handoffId === saved?.activeHandoffId),
+                operationStates: Array.isArray(saved?.entries) ? saved.entries.map((entry) => ({ version: saved?.version, state: entry?.state || null, handoffIdLength: typeof entry?.handoffId === "string" ? entry.handoffId.length : 0, operationIdLength: typeof entry?.operationId === "string" ? entry.operationId.length : 0, ageMs: typeof entry?.createdAt === "string" ? Date.now() - Date.parse(entry.createdAt) : null, outputAction: entry?.outputAction, officeFormat: entry?.officeFormat, requestedAction: entry?.requestedAction, requestedOfficeFormat: entry?.requestedOfficeFormat, extensionIdLength: typeof entry?.extensionId === "string" ? entry.extensionId.length : 0, launchIdLength: typeof entry?.launchId === "string" ? entry.launchId.length : 0, hasExpiresAt: typeof entry?.expiresAt === "string" })) : []
+              };
+            });
+            console.error("generated-return-diagnostic", diagnostic);
+            throw error;
+          }
+          await stagingPage.locator("#bootstrap").click();
+          await registrationClick;
+          await waitForCompleted(worker, handoffStorageKey(handoffId));
+          const completed = await getStorage(worker, handoffStorageKey(handoffId));
+          assert.equal(completed.outputAction, "office");
+          assert.equal(completed.officeFormat, officeFormat);
+          assert.equal(completed.draftFingerprint, intent.draftFingerprint);
+          assert.ok(completed.claimIntentId && completed.cloudRef?.workspaceId && completed.cloudRef?.manualId && completed.cloudRef?.revisionId);
+          assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get().status, "completed");
+          assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM manuals").get().count, index + 1);
+          assert.equal([...fixture.env.MANUAL_ASSETS.objects.values()].filter((object) => object.httpMetadata.contentType === "image/png").length, index + 1);
+
+          const wrongFormat = officeFormat === "docx" ? "pptx" : "docx";
+          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId, officeFormat: wrongFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
+          assert.deepEqual(await sendExternalMessage(stagingPage, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId, launchId: "Z".repeat(43), officeFormat }), { ok: false, error: "OFFICE_RETURN_REJECTED" });
+          assert.equal((await getStorage(worker, handoffStorageKey(handoffId))).officeReturnReceipt, undefined);
+
+          const downloadPromise = editor.waitForEvent("download", { timeout: 30_000 });
+          await stagingPage.locator("#bootstrap").click();
+          const download = await downloadPromise;
+          const downloadedPath = await download.path();
+          assert.ok(downloadedPath);
+          assert.deepEqual([...(await readFile(downloadedPath)).subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+          assert.match(await download.suggestedFilename(), new RegExp(`\\.${officeFormat}$`));
+          assert.equal(await getStorage(worker, officeIntentStorageKey(draftId)), null);
+          assert.equal((await getStorage(worker, handoffStorageKey(handoffId))).officeReturnReceipt, undefined);
+        } finally {
+          await closeContext(context);
+          await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+        }
+      }
+    } finally {
+      fixture.restoreFetch();
     }
   }
 });
