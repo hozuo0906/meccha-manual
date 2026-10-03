@@ -178,4 +178,4 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 
 2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、認証・workspace claim後の端末Office生成を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
 
-Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は	ests/product-auth.test.mjs、	ests/product-auth-browser.test.mjs、	ests/office-auth-runtime-browser.test.mjsで検証する。prepare／bind／run拒否と消費CAS競合を区別し、callback成功・エラーリンク復帰ともReferer無しを確認する。
+Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs`で検証する。prepare／bind／run拒否と消費CAS競合を区別し、callback成功・エラーリンク復帰ともReferer無しを確認する。
