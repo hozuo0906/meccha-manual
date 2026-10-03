@@ -282,9 +282,12 @@ async function productAuthCallbackRoute(request: Request, env: Env, provider: "g
     const message = error instanceof ProductAuthError
       ? error.message
       : "ログインを完了できませんでした。時間をおいて、もう一度お試しください。";
+    const returnPath = error instanceof ProductAuthError ? error.returnPath : undefined;
     const acceptsHtml = (request.headers.get("accept") ?? "").includes("text/html");
+    const escapedMessage = message.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value));
+    const safeReturn = returnPath?.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value));
     const response = acceptsHtml
-      ? new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを完了できませんでした</title><main><h1>ログインを完了できませんでした</h1><p>${message.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value))}</p><a href="/">ログイン画面へ戻る</a></main></html>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } })
+      ? new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを完了できませんでした</title><main><h1>ログインを完了できませんでした</h1><p>${escapedMessage}</p><a href="${safeReturn ?? "/"}">${safeReturn ? "元の操作へ戻って再試行" : "ログイン画面へ戻る"}</a></main></html>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } })
       : json;
     response.headers.append("set-cookie", `__Host-mm_oauth_${provider}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`);
     return response;
@@ -327,7 +330,21 @@ function useAccessD1Routes(env: Env): boolean {
 
 function useProductD1Routes(env: Env, request?: Request): boolean {
   const providers = configuredProductProviders(env);
-  return Boolean(env.DB) && (providers.google || providers.chatgpt || (request ? hasProductSessionCookie(request) : false));
+  if (!env.DB) return false;
+
+  // Route selection follows the credential present on this request. A legacy
+  // Supabase session must stay on the password route even while a product OIDC
+  // provider is configured; a product cookie remains fail-closed and wins over
+  // any legacy cookie so it cannot fall back to another authentication system.
+  if (request) {
+    if (hasProductSessionCookie(request)) return true;
+    const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
+      const separator = part.indexOf("=");
+      return (separator < 0 ? part : part.slice(0, separator)).trim();
+    }));
+    if (cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) return false;
+  }
+  return providers.google || providers.chatgpt;
 }
 
 function hasAccessAssertion(request: Request): boolean {

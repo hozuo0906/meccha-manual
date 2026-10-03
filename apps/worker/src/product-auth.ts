@@ -26,7 +26,13 @@ const CHATGPT = {
 export class ProductAuthError extends Error {
   readonly status: 400 | 401 | 403 | 409 | 429 | 502 | 503;
   readonly code: string;
-  constructor(status: 400 | 401 | 403 | 409 | 429 | 502 | 503, code: string, message: string) { super(message); this.status = status; this.code = code; }
+  readonly returnPath?: string;
+  constructor(status: 400 | 401 | 403 | 409 | 429 | 502 | 503, code: string, message: string, returnPath?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.returnPath = returnPath;
+  }
 }
 
 export function hasProductSessionCookie(request: Request): boolean {
@@ -193,7 +199,14 @@ async function exchangeAndVerify(request: Request, env: Env, provider: Provider,
   if (!payload || typeof payload.id_token !== "string") throw new ProductAuthError(502, "AUTH_PROVIDER_INVALID", "ログインサービスの応答を確認できませんでした。時間をおいて再度お試しください。");
   let claims: IdClaims;
   try {
-    ({ payload: claims } = await jwtVerify<IdClaims>(payload.id_token, createRemoteJWKSet(new URL(spec.jwksEndpoint), { [customFetch]: (input, init) => boundedProviderFetch(input, init) }), { issuer: spec.issuer, audience: clientId, requiredClaims: ["iss", "sub", "aud", "exp", "iat", "nonce"] }));
+      ({ payload: claims } = await jwtVerify<IdClaims>(payload.id_token, createRemoteJWKSet(new URL(spec.jwksEndpoint), { [customFetch]: (input, init) => boundedProviderFetch(input, init) }), {
+        // Google documents both its canonical HTTPS issuer and the legacy bare
+        // host. Store only the canonical issuer after accepting either exact
+        // value; all other issuers remain rejected by jose.
+        issuer: provider === "google" ? [GOOGLE.issuer, "accounts.google.com"] : spec.issuer,
+        audience: clientId,
+        requiredClaims: ["iss", "sub", "aud", "exp", "iat", "nonce"]
+      }));
   } catch {
     throw new ProductAuthError(401, "AUTH_IDENTITY_INVALID", "ログイン情報を確認できませんでした。ログインをやり直してください。");
   }
@@ -205,40 +218,49 @@ async function exchangeAndVerify(request: Request, env: Env, provider: Provider,
 export async function finishProductAuth(request: Request, env: Env, provider: Provider): Promise<Response> {
   if (!env.DB) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
   const query = new URL(request.url).searchParams;
-  if (query.get("error")) throw new ProductAuthError(401, "AUTH_CANCELLED", "ログインをキャンセルしました。ログイン画面から再度お試しください。");
   const state = query.get("state") ?? "";
   const code = query.get("code") ?? "";
   const parts = cookies(request).get(`${OAUTH_COOKIE_PREFIX}${provider}`)?.split(".") ?? [];
-  if (!state || !code || parts.length !== 3) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
+  if (!state || parts.length !== 3) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
   const [transactionId, verifier, nonce] = parts;
   if (!transactionId || !verifier || !nonce) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
   const transaction = await readTransaction(env.DB, provider, state, transactionId, verifier);
   if ((await hash(nonce)) !== transaction.nonce_hash) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
-  const identity = await exchangeAndVerify(request, env, provider, code, verifier, nonce, transaction);
+  if (query.get("error")) throw new ProductAuthError(401, "AUTH_CANCELLED", "ログインをキャンセルしました。ログイン画面から再度お試しください。", transaction.return_path);
+  if (!code) throw new ProductAuthError(401, "AUTH_CODE_INVALID", "ログインを確認できませんでした。ログインをやり直してください。", transaction.return_path);
   try {
-    await new D1OnboardingRepository(env.DB).bootstrap({ kind: "product_user", issuer: identity.issuer, subject: identity.subject }, `oauth-${crypto.randomUUID().replaceAll("-", "")}`);
-  } catch (error) {
-    if (error instanceof D1RepositoryError) {
-      if (error.code === "actor_forbidden") {
-        throw new ProductAuthError(403, "AUTH_IDENTITY_FORBIDDEN", "このログイン情報は現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
+    const identity = await exchangeAndVerify(request, env, provider, code, verifier, nonce, transaction);
+    try {
+      await new D1OnboardingRepository(env.DB).bootstrap({ kind: "product_user", issuer: identity.issuer, subject: identity.subject }, `oauth-${crypto.randomUUID().replaceAll("-", "")}`);
+    } catch (error) {
+      if (error instanceof D1RepositoryError) {
+        if (error.code === "actor_forbidden") {
+          throw new ProductAuthError(403, "AUTH_IDENTITY_FORBIDDEN", "このログイン情報は現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
+        }
+        if (error.code === "personal_workspace_unavailable") {
+          throw new ProductAuthError(403, "AUTH_WORKSPACE_UNAVAILABLE", "個人ワークスペースは現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
+        }
+        throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて、もう一度お試しください。");
       }
-      if (error.code === "personal_workspace_unavailable") {
-        throw new ProductAuthError(403, "AUTH_WORKSPACE_UNAVAILABLE", "個人ワークスペースは現在利用できません。管理者に状態確認を依頼してから、もう一度ログインしてください。");
-      }
-      throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
+      throw error;
     }
-    throw error;
-  }
-  const token = randomValue(32);
-  const now = new Date();
-  const result = await env.DB.prepare(`INSERT INTO auth_sessions (id, application_id, token_hash, auth_method, issued_at, expires_at)
+    const token = randomValue(32);
+    const now = new Date();
+    const result = await env.DB.prepare(`INSERT INTO auth_sessions (id, application_id, token_hash, auth_method, issued_at, expires_at)
     SELECT ?, application_id, ?, ?, ?, ? FROM identities WHERE issuer = ? AND subject = ? AND status = 'active'`)
-    .bind(crypto.randomUUID(), await hash(token), identity.method, now.toISOString(), new Date(now.getTime() + SESSION_SECONDS * 1000).toISOString(), identity.issuer, identity.subject).run();
-  if (!result.success || (result.meta?.changes ?? 0) !== 1) throw new ProductAuthError(503, "AUTH_SESSION_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
-  const response = new Response(null, { status: 302, headers: { location: new URL(transaction.return_path, runtimeBaseUrl(env)).toString(), "cache-control": "no-store" } });
-  response.headers.append("set-cookie", cookie(PRODUCT_SESSION_COOKIE, token, SESSION_SECONDS));
-  response.headers.append("set-cookie", clearCookie(`${OAUTH_COOKIE_PREFIX}${provider}`));
-  return response;
+      .bind(crypto.randomUUID(), await hash(token), identity.method, now.toISOString(), new Date(now.getTime() + SESSION_SECONDS * 1000).toISOString(), identity.issuer, identity.subject).run();
+    if (!result.success || (result.meta?.changes ?? 0) !== 1) throw new ProductAuthError(503, "AUTH_SESSION_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて、もう一度お試しください。");
+    const response = new Response(null, { status: 302, headers: { location: new URL(transaction.return_path, runtimeBaseUrl(env)).toString(), "cache-control": "no-store" } });
+    response.headers.append("set-cookie", cookie(PRODUCT_SESSION_COOKIE, token, SESSION_SECONDS));
+    response.headers.append("set-cookie", clearCookie(`${OAUTH_COOKIE_PREFIX}${provider}`));
+    return response;
+  } catch (error) {
+    if (error instanceof ProductAuthError) {
+      if (error.returnPath) throw error;
+      throw new ProductAuthError(error.status, error.code, error.message, transaction.return_path);
+    }
+    throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を確認できません。時間をおいて、もう一度お試しください。", transaction.return_path);
+  }
 }
 
 export async function getProductSession(request: Request, env: Env): Promise<{ applicationId: string; issuer: string; subject: string; authMethod: Provider } | null> {

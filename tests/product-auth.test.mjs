@@ -202,6 +202,77 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
   }
 });
 
+test("configured Google provider keeps a valid password session on Supabase and rejects a mixed invalid product cookie", async () => {
+  const { database, binding } = await authDatabase();
+  const originalFetch = globalThis.fetch;
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-mixed-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    SUPABASE_URL: "https://supabase.example.test",
+    SUPABASE_ANON_KEY: "synthetic-anon-key",
+    DB: binding
+  };
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const target = String(input);
+    calls.push(target);
+    if (target.endsWith("/auth/v1/user")) return Response.json({ id: "password-user", email: "password@example.test" });
+    if (target.includes("/rest/v1/profiles?")) return Response.json([{ id: "password-user", display_name: "Password User", locale: "ja", timezone: "Asia/Tokyo" }]);
+    if (target.includes("/rest/v1/workspaces?")) return new Response(JSON.stringify([]), { status: 200, headers: { "content-range": "*/0" } });
+    throw new Error(`unexpected Supabase request: ${target}`);
+  };
+  try {
+    const password = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, {
+      headers: { cookie: "__Host-mm_access=password-token" }
+    }), env, {});
+    assert.equal(password.status, 200);
+    assert.equal((await password.json()).user.id, "password-user");
+    assert.equal(calls.filter((target) => target.includes("supabase.example.test")).length, 3);
+
+    const beforeInvalidProduct = calls.length;
+    const mixedInvalid = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, {
+      headers: { cookie: "__Host-mm_product=invalid-product-token; __Host-mm_access=password-token" }
+    }), env, {});
+    assert.equal(mixedInvalid.status, 401);
+    assert.equal((await mixedInvalid.json()).code, "SESSION_REQUIRED");
+    assert.equal(calls.length, beforeInvalidProduct, "invalid product cookies must not fall back to Supabase password or Access");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("cancelled callback returns to the transaction return path and permits a fresh retry", async () => {
+  const { database, binding } = await authDatabase();
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-cancel-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    DB: binding
+  };
+  try {
+    const start = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
+    const redirect = new URL(start.headers.get("location"));
+    const oauthCookie = start.headers.get("set-cookie").split(";")[0];
+    const cancelled = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?error=access_denied&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, {
+      headers: { accept: "text/html", cookie: oauthCookie }
+    }), env, {});
+    assert.equal(cancelled.status, 401);
+    assert.match(await cancelled.text(), /href="\/onboarding\/continue"/u);
+    assert.match(cancelled.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
+    const retry = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
+    assert.equal(retry.status, 302);
+    assert.equal(new URL(retry.headers.get("location")).searchParams.get("return"), null);
+    assert.equal(database.prepare("SELECT count(*) AS total FROM oauth_transactions").get().total, 2);
+  } finally {
+    database.close();
+  }
+});
+
 test("Google callback rejects state, PKCE, and signed claim boundary violations in the Worker", async () => {
   const scenarios = [
     { name: "state", state: "wrong-state" },
@@ -211,7 +282,8 @@ test("Google callback rejects state, PKCE, and signed claim boundary violations 
     { name: "signature", signature: true },
     { name: "nonce", nonce: "wrong-nonce", status: 403 },
     { name: "expiry", expired: true },
-    { name: "email", emailVerified: false, status: 403 }
+    { name: "email", emailVerified: false, status: 403 },
+    { name: "legacy Google issuer", issuer: "accounts.google.com", status: 302, validIssuer: true }
   ];
   for (const scenario of scenarios) {
     const { database, binding } = await authDatabase();
@@ -262,7 +334,10 @@ test("Google callback rejects state, PKCE, and signed claim boundary violations 
       const callbackState = scenario.state ?? redirect.searchParams.get("state");
       const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=negative-code&state=${encodeURIComponent(callbackState)}`, { headers: { cookie: callbackCookie } }), env, {});
       assert.equal(callback.status, scenario.status ?? 401, scenario.name);
-      assert.equal(database.prepare("SELECT count(*) AS total FROM auth_sessions").get().total, 0, `${scenario.name} must not create a session`);
+      assert.equal(database.prepare("SELECT count(*) AS total FROM auth_sessions").get().total, scenario.validIssuer ? 1 : 0, `${scenario.name} session count`);
+      if (scenario.validIssuer) {
+        assert.equal(database.prepare("SELECT issuer FROM identities WHERE subject = 'negative-subject'").get().issuer, "https://accounts.google.com");
+      }
       if (scenario.state || scenario.verifier) assert.equal(tokenRequests, 0, `${scenario.name} must fail before token exchange`);
       else assert.equal(tokenRequests, 1, `${scenario.name} must reach token verification`);
     } finally {

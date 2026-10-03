@@ -4,11 +4,13 @@ Status: Accepted
 
 ### 製品認証（Issue #283 / ADR-0041）
 
-`GET /api/auth/providers` はGoogleとChatGPTの利用可否booleanだけを返す。`GET /api/auth/{google|chatgpt}/start?return=/` は許可した同一originの戻り先だけを受け、Authorization Code + PKCEを開始する。callbackはstate・nonce・期限・一回消費・issuer・audience・署名を検証し、Googleはverified emailを必須とする。SIWCは登録済みconfidential clientの`client_secret_basic`だけを使い、未登録・未有効化なら503で非表示とする。
+`GET /api/auth/providers` はGoogleとChatGPTの利用可否booleanだけを返す。`GET /api/auth/{google|chatgpt}/start?return=/` は許可した同一originの戻り先だけを受け、Authorization Code + PKCEを開始する。callbackはstate・nonce・期限・一回消費・issuer・audience・署名を検証し、Googleはverified emailを必須とする。Googleのissuerは公式OIDC仕様にある`https://accounts.google.com`とlegacy値`accounts.google.com`だけを受け付け、identityへ保存するissuerは常にHTTPS canonical値へ統一する。SIWCは登録済みconfidential clientの`client_secret_basic`だけを使い、未登録・未有効化なら503で非表示とする。
 
 認証成功時は既存D1 `identities(issuer, subject)` を再利用またはPersonal Workspace bootstrapし、平文tokenは返さずSecure・HttpOnly・SameSite=Laxの製品session cookieを発行する。Googleは検証済みtokenのsubをsubjectに使い、SIWCは`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectに使うため、同じsubでもclient IDが異なれば別identityとなる。メール一致による自動linkは行わない。D1の`auth_sessions`はtoken hash・期限・revocationだけ、`oauth_transactions`はstate／nonce／verifier hashだけを保持する。`GET /api/session`、workspace、manual、shareの製品経路はこのsessionを使うが、Access service tokenと`/health/config`にはfallbackしない。不正・失効cookie、期限切れ、別origin、tenant越境は拒否する。
 
-callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返し、ブラウザのHTML要求には秘密値や外部戻り先を含めず、再試行できる日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合も一時OAuth cookieを消去し、`no-store`を指定する。
+callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返す。ブラウザのHTML要求では、検証済みtransactionに保存された許可済み同一originの`return_path`を日本語の再試行リンクとして表示し、失敗のHTTP status/messageを保ったまま、利用者がリンクを選んだ後もhandoff／Office形式のsessionStorageを維持できる状態にする。transactionを検証できない場合だけ、秘密値や外部戻り先を含めない日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合も一時OAuth cookieを消去し、`no-store`を指定する。`return_path`は`/`、`/onboarding/continue`、`/manuals`の固定pathだけを許可し、任意URL・query・fragmentへ拡張しない。
+
+製品providerが設定済みでも、リクエストに有効なSupabase password session cookieがある場合はlegacy password routeを選択する。有効な製品session cookieはD1 routeを選択し、不正・失効した製品cookieをSupabase passwordまたはAccessへfallbackしない。
 
 callback後のD1 bootstrap拒否は、disabled identityなら`403 AUTH_IDENTITY_FORBIDDEN`、停止・削除済みPersonal Workspaceなら`403 AUTH_WORKSPACE_UNAVAILABLE`として理由と管理者への状態確認を日本語で案内する。いずれもsessionを発行せず、D1の一時障害は`503 AUTH_STORAGE_UNAVAILABLE`として時間をおいた再試行を案内する。
 

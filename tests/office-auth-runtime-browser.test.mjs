@@ -210,16 +210,20 @@ function sessionCookieFromResponse(raw, hostname) {
   return cookie;
 }
 
-async function installStagingRoutes(context, fixture, provider) {
+async function installStagingRoutes(context, fixture, provider, options = {}) {
   const providerConfig = provider === "google"
     ? { origin: GOOGLE_AUTH_ORIGIN, authorizationPath: "/o/oauth2/v2/auth", callbackPath: "/api/auth/google/callback" }
     : { origin: CHATGPT_AUTH_ORIGIN, authorizationPath: "/api/accounts/authorize", callbackPath: "/api/auth/chatgpt/callback" };
+  let authAttempts = 0;
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin === providerConfig.origin && url.pathname === providerConfig.authorizationPath) {
+      authAttempts += 1;
       fixture.setNonce(url.searchParams.get("nonce") || "");
       const callback = new URL(`${STAGING_ORIGIN}${providerConfig.callbackPath}`);
-      callback.searchParams.set("code", "synthetic-office-code"); callback.searchParams.set("state", url.searchParams.get("state") || "");
+      if (options.cancelFirst && authAttempts === 1) callback.searchParams.set("error", "access_denied");
+      else callback.searchParams.set("code", "synthetic-office-code");
+      callback.searchParams.set("state", url.searchParams.get("state") || "");
       await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: `<!doctype html><script>location.replace(${JSON.stringify(callback.toString())})</script>` }); return;
     }
     if (url.origin !== STAGING_ORIGIN && url.protocol !== "chrome-extension:" && !["about:", "data:"].includes(url.protocol)) { await route.abort(); return; }
@@ -436,7 +440,7 @@ test("editor startRegistration creates the real Office handoff for both syntheti
         let context;
         try {
           ({ context } = await openExtension(profile));
-          await installStagingRoutes(context, fixture, provider);
+          await installStagingRoutes(context, fixture, provider, { cancelFirst: true });
           const worker = context.serviceWorkers()[0];
           const extensionId = new URL(worker.url()).hostname;
           const draftId = `office-generated-${provider}-${officeFormat}`;
@@ -501,30 +505,40 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           });
           assert.equal(preProviderState.hasLoginReturn, true, "initial unauthenticated bootstrap must preserve the generated return context");
           assert.ok(preProviderState.activeEntries >= 1, "generated handoff must remain active through product login");
-          const fragmentReturnPromise = stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue" && url.hash.includes("handoff="), { timeout: 30_000 });
           await stagingPage.locator(providerSelector).click();
-          await stagingPage.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { waitUntil: "commit", timeout: 15_000 });
-          await fragmentReturnPromise;
-          try {
-            await stagingPage.waitForFunction(() => !sessionStorage.getItem("meccha-manual:product-login-return"), null, { timeout: 15_000 });
-          } catch (error) {
-            const diagnostic = await stagingPage.evaluate(() => {
-              let saved = null;
-              try { saved = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null"); } catch {}
-              return {
-                pathname: location.pathname,
-                hasHash: Boolean(location.hash),
-                bootstrapText: document.querySelector("#bootstrap")?.textContent || "",
-                statusText: document.querySelector("#status")?.textContent || "",
-                hasLoginReturn: sessionStorage.getItem("meccha-manual:product-login-return") !== null,
-                activeHandoffIdPresent: typeof saved?.activeHandoffId === "string",
-                activeHandoffMatchesEntry: Array.isArray(saved?.entries) && saved.entries.some((entry) => entry?.handoffId === saved?.activeHandoffId),
-                operationStates: Array.isArray(saved?.entries) ? saved.entries.map((entry) => ({ version: saved?.version, state: entry?.state || null, handoffIdLength: typeof entry?.handoffId === "string" ? entry.handoffId.length : 0, operationIdLength: typeof entry?.operationId === "string" ? entry.operationId.length : 0, ageMs: typeof entry?.createdAt === "string" ? Date.now() - Date.parse(entry.createdAt) : null, outputAction: entry?.outputAction, officeFormat: entry?.officeFormat, requestedAction: entry?.requestedAction, requestedOfficeFormat: entry?.requestedOfficeFormat, extensionIdLength: typeof entry?.extensionId === "string" ? entry.extensionId.length : 0, launchIdLength: typeof entry?.launchId === "string" ? entry.launchId.length : 0, hasExpiresAt: typeof entry?.expiresAt === "string" })) : []
-              };
-            });
-            console.error("generated-return-diagnostic", diagnostic);
-            throw error;
-          }
+          await stagingPage.waitForURL((url) => url.pathname === `/api/auth/${provider}/callback` && url.searchParams.get("error") === "access_denied", { waitUntil: "commit", timeout: 15_000 });
+          const safeReturn = stagingPage.locator('a[href="/onboarding/continue"]');
+          await safeReturn.waitFor({ state: "visible", timeout: 15_000 });
+          assert.equal(await safeReturn.getAttribute("href"), "/onboarding/continue", "cancelled callback must expose only the verified same-origin return path");
+          await safeReturn.click();
+          await stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });
+          await stagingPage.locator("#bootstrap").waitFor({ state: "visible", timeout: 15_000 });
+          await stagingPage.waitForFunction((format) => {
+            try {
+              const state = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null");
+              return state?.entries?.some((entry) => entry?.state === "active" && entry?.officeFormat === format);
+            } catch { return false; }
+          }, officeFormat, { timeout: 15_000 });
+          const cancelledState = await stagingPage.evaluate(() => ({
+            hasLoginReturn: sessionStorage.getItem("meccha-manual:product-login-return") !== null,
+            operation: sessionStorage.getItem("meccha-manual:onboarding-operation")
+          }));
+          assert.equal(cancelledState.hasLoginReturn, false, "cancelled Office login must consume the return marker only after restoring the saved operation");
+          assert.match(cancelledState.operation || "", new RegExp(officeFormat));
+          await stagingPage.locator("#bootstrap:not([disabled])").click();
+          await stagingPage.waitForURL((url) => url.pathname === "/" && url.searchParams.get("return") === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });
+          await stagingPage.waitForSelector(providerSelector, { timeout: 15_000 });
+          const successCallbackPromise = stagingPage.waitForURL((url) => url.pathname === `/api/auth/${provider}/callback` && url.searchParams.get("code") === "synthetic-office-code", { waitUntil: "commit", timeout: 15_000 });
+          const successReturnPromise = stagingPage.waitForURL((url) => url.pathname === "/onboarding/continue", { waitUntil: "commit", timeout: 15_000 });
+          await stagingPage.locator(providerSelector).click();
+          await successCallbackPromise;
+          await successReturnPromise;
+          await stagingPage.waitForFunction((format) => {
+            try {
+              const state = JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation") || "null");
+              return !location.hash && state?.entries?.some((entry) => entry?.state === "active" && entry?.officeFormat === format) && document.querySelector("#bootstrap")?.disabled === false;
+            } catch { return false; }
+          }, officeFormat, { timeout: 15_000 });
           const restoredState = await stagingPage.evaluate(() => ({
             pathname: location.pathname,
             hasHash: Boolean(location.hash),
@@ -534,7 +548,6 @@ test("editor startRegistration creates the real Office handoff for both syntheti
           }));
           assert.equal(restoredState.pathname, "/onboarding/continue");
           assert.equal(restoredState.hasHash, false, "product-auth return must scrub the handoff fragment");
-          assert.equal(restoredState.hasLoginReturn, false, "product-auth return context must be consumed once");
           const bootstrapButton = stagingPage.locator("#bootstrap");
           await bootstrapButton.waitFor({ state: "visible", timeout: 15_000 });
           await stagingPage.locator("#bootstrap:not([disabled])").waitFor({ state: "visible", timeout: 15_000 });

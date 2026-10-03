@@ -15,6 +15,13 @@ Status: Accepted
 - Reason: Preserve fail-closed identity and workspace boundaries while giving callback and logout callers an actionable response, and keep provisioning audit logs idempotent across re-login.
 - Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/infra/d1/onboarding-repository.ts`, `tests/product-auth.test.mjs`
 
+### DEC-095: Product auth route and callback return boundaries
+
+- Date: 2026-10-03 / Issue #283 / PR #284
+- Decision: Product route selection follows the request credential: a valid legacy password cookie remains on the Supabase route while a product cookie selects D1 and is never allowed to fall back to password or Access after validation failure. Google accepts only the documented canonical HTTPS issuer and exact legacy bare issuer, storing the canonical HTTPS issuer with the same `sub`. After a state, verifier, nonce, and transaction return path are verified, browser callback failures keep their Japanese error status/message and expose a link to that fixed same-origin path so onboarding and Office handoff sessionStorage survives cancel and retry; invalid or untrusted transactions use the generic Japanese error page instead. Unexpected D1 failures use a safe retryable 503 while retaining the verified return link.
+- Reason: Prevent a configured provider from hijacking legacy password sessions, avoid issuer-based duplicate identities, and preserve the user's selected Office format across a provider cancel or retry without introducing an open redirect.
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`, `docs/05-api/api-contracts.md`
+
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
 | DEC-093 | 2026-10-01 | 初回Access復帰でfragment再付与後の旧document由来の遅着`hashchange`は、`event.newURL`のfragmentと現在の`location.hash`が一致しない場合に無視する。現在のfragmentと一致するhash-only遷移は従来どおりCTAを無効化して再読込し、遷移先を再検証する | `history.replaceState`後の遅着イベントがhashless画面を再読込すると、初回復帰のbootstrapではなくresume経路が選択され、保存操作が失敗し得るため。stale eventの副作用を0回にし、通常のfragment遷移の安全境界を維持する |
