@@ -744,6 +744,13 @@ function downloadOffice(bytes, titleValue, format) {
   const blob = new Blob([bytes], { type: mimeType }); const url = URL.createObjectURL(blob); const link = document.createElement("a");
   link.href = url; link.download = officeFileName(titleValue, format === "docx" ? "docx" : "pptx"); link.rel = "noopener"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+function officeExportMessage(error) {
+  const message = String(error?.message || "");
+  const step = message.match(/^Step (\d+) requires body text$/u);
+  if (step) return `手順${step[1]}の説明を入力してから再試行してください。`;
+  if (message === "Office export requires one to 200 steps") return "手順は200件以内にしてから再試行してください。";
+  return error?.userMessage || "Officeファイルを書き出せませんでした。内容を確認して再試行してください。";
+}
 async function exportOffice(format, button) {
   if (officeExportInFlight || imageDialog.open) return;
   if (!textFieldsValid()) { setOfficeExportStatus(title.validationMessage || description.validationMessage, "error"); title.reportValidity(); description.reportValidity(); return; }
@@ -767,7 +774,7 @@ async function exportOffice(format, button) {
     const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
     if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
     downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。クラウド保存・共有設定は変更していません。`, "success");
-  } catch (error) { setOfficeExportStatus(error?.userMessage || "Officeファイルを書き出せませんでした。内容を確認して再試行してください。", error?.code === "office-export-changed" ? "warning" : "error"); }
+  } catch (error) { setOfficeExportStatus(officeExportMessage(error), error?.code === "office-export-changed" ? "warning" : "error"); }
   finally { officeExportInFlight = false; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = false; }); if (button) button.removeAttribute("aria-busy"); updateImageSummary(); }
 }
 async function openOutput(action) {

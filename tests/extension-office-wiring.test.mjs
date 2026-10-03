@@ -21,6 +21,8 @@ test("0.1.9 editor exposes local Office actions without changing the cloud gate"
   assert.match(editor, /kind: "edited"/u);
   assert.match(editor, /drawScreenshot\(canvas\.getContext\("2d"\), image, screenshot\)/u);
   assert.match(editor, /office-image-failed/u);
+  assert.match(editor, /手順\$\{step\[1\]\}の説明を入力してから再試行してください/u);
+  assert.match(editor, /手順は200件以内にしてから再試行してください/u);
   assert.match(editor, /クラウド保存・共有設定は変更していません/u);
 });
 
