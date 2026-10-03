@@ -436,12 +436,13 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.doesNotMatch(source, /Array\.from\(element\.innerText/);
 });
 
-test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
+test("service worker keeps durable recovery, native capture and independent reinjection", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
   assert.match(source, /persistRecoveryJournal\(session\.id, acceptedPendingEvents\)/);
-  assert.match(source, /verifySensitiveMasks/);
+  assert.match(source, /captureVisibleTab/);
+  assert.doesNotMatch(source, /verifySensitiveMasks|takeMaskedScreenshot|captureWithMaskBoundary/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);

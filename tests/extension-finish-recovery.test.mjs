@@ -802,9 +802,9 @@ test("a step-limited session can still save all 200 recorded steps", async () =>
 test("failed and unavailable images do not consume the image cap before the 200-step limit", async () => {
   const capture = await harness({ pendingEvents: [] });
   for (let index = 0; index < 200; index += 1) {
-    if (index === 1) capture.setScreenshotFails(true);
+    if (index === 1) capture.setTargetActive(false);
     const response = await capture.event({ kind: "click", at: index + 1, eventId: `mixed:${index}`, target: { tagName: "button" } });
-    assert.equal(response.value.accepted, true);
+    assert.equal(response.value.accepted, true, `event ${index} was rejected: ${JSON.stringify(response)}`);
   }
   assert.equal(capture.session().events.length, 200);
   assert.equal(capture.session().stepImageRefs.filter((ref) => ref.status === "ready").length, 1);
@@ -880,14 +880,14 @@ test("a burst coalesces only image work and keeps every operation with an explic
 test("three failed images among twenty operations survive finish without losing steps", async () => {
   const capture = await harness({ pendingEvents: [] });
   for (let index = 0; index < 20; index += 1) {
-    capture.setScreenshotFails([3, 7, 15].includes(index));
+    capture.setTargetActive(![3, 7, 15].includes(index));
     await capture.event({ kind: "click", at: index + 1, eventId: `partial:${index}`, target: { tagName: "button" } });
   }
   const result = await capture.finish();
   assert.equal(result.imageCount, 17);
   assert.equal(result.missingImageCount, 3);
   assert.equal(capture.draft().steps.length, 20);
-  assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "mask_failed").length, 3);
+  assert.equal(capture.draft().steps.filter((step) => step.imageState.reason === "tab_not_visible").length, 3);
   for (const step of capture.draft().steps) {
     assert.equal(step.imageState.attempts, 1);
     assert.equal(step.imageState.version, 1);
@@ -940,18 +940,12 @@ test("Chrome capture interval survives a service worker restart", async () => {
   assert.ok(capture.screenshotTimes[1] - capture.screenshotTimes[0] >= 500);
 });
 
-for (const [error, expectedStatus, reason] of [
-  ["SCREENSHOT_MASK_FAILED", "failed", "mask_failed"],
-  ["SCREENSHOT_MASK_INVALIDATED", "failed", "mask_invalidated"],
-  ["SCREENSHOT_PAINT_TIMEOUT", "failed", "paint_timeout"],
-  ["SCREENSHOT_PAINT_UNAVAILABLE", "failed", "paint_unavailable"],
-  ["TARGET_TAB_NOT_VISIBLE", "unavailable", "tab_not_visible"],
-  ["TARGET_TAB_UNAVAILABLE", "unavailable", "tab_unavailable"],
-  ["SCREENSHOT_BUDGET_EXCEEDED", "protected", "privacy_budget_exceeded"],
-  ["private page error text must not be saved", "failed", "capture_failed"]
+for (const [name, options, expectedStatus, reason] of [
+  ["inactive target", { switchDuringStorage: true }, "unavailable", "tab_not_visible"],
+  ["activation during capture", { activateDuringCapture: true }, "unavailable", "screen_changed"]
 ]) {
-  test(`finished draft keeps safe reason ${reason}`, async () => {
-    const capture = await harness({ pendingEvents: [], screenshotFails: true, screenshotError: error });
+  test(`finished draft keeps native reason ${reason} (${name})`, async () => {
+    const capture = await harness({ pendingEvents: [], ...options });
     await capture.event({ kind: "click", at: 1, eventId: "reason:1", target: { tagName: "button" } });
     await capture.restart();
     await capture.finish();
@@ -974,15 +968,16 @@ test("image persistence failure leaves the step and a storage reason in the fina
   assert.equal(capture.draft().screenshots.length, 0);
 });
 
-test("protected image keeps its review metadata and cannot count as normal success", async () => {
-  const privacyReview = { replacementCount: 3, protectedRegionCount: 1, reviewRequired: true, reasonCodes: ["unsupported_canvas"] };
-  const capture = await harness({ pendingEvents: [], privacyReview });
+test("native image is ready without review metadata or automatic replacement", async () => {
+  const capture = await harness({ pendingEvents: [] });
   await capture.event({ kind: "click", at: 1, eventId: "protected:1", target: { tagName: "button" } });
   const result = await capture.finish();
-  assert.equal(result.reviewImageCount, 1);
-  assert.equal(capture.draft().steps[0].imageState.status, "protected");
-  assert.equal(capture.draft().steps[0].imageState.reason, "unsupported_canvas");
-  assert.deepEqual(capture.draft().screenshots[0].privacyReview, privacyReview);
+  assert.equal(result.reviewImageCount, 0);
+  assert.equal(capture.draft().steps[0].imageState.status, "ready");
+  assert.equal(capture.draft().steps[0].imageState.reason, null);
+  assert.equal(capture.draft().screenshots[0].privacyReview, undefined);
+  assert.equal(Array.isArray(capture.draft().screenshots[0].masks), true);
+  assert.equal(capture.draft().screenshots[0].masks.length, 0);
 });
 
 test("newer intentional no-image state wins over an older completed image", async () => {
