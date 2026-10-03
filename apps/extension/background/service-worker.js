@@ -465,12 +465,12 @@ async function finishCapture() {
       const refsByEventId = new Map((session.stepImageRefs || []).map((ref) => [ref.eventId, ref]));
       const imageByEventId = new Map(liveImages.filter((image) => {
         const ref = refsByEventId.get(image.eventId);
-        return image.status === "ready" && image.dataUrl && (!ref || (ref.version || 1) <= (image.version || 1));
+        return ["ready", "protected"].includes(image.status) && image.dataUrl && (!ref || (ref.version || 1) <= (image.version || 1));
       }).map((image) => [image.eventId, image]));
       const screenshots = session.events
         .map((event) => imageByEventId.get(event.eventId))
         .filter(Boolean)
-        .map((image) => ({ id: image.id, dataUrl: image.dataUrl, masks: [], ...(image.annotations ? { annotations: image.annotations } : {}) }));
+        .map((image) => { const review = imageReviewState(image); return { id: image.id, dataUrl: image.dataUrl, masks: [], ...(image.annotations ? { annotations: image.annotations } : {}), privacyReview: review.privacyReview }; });
       if (!session.events.length) {
         await waitForScreenshotSlot(session);
         const result = await takeScreenshot(session);
@@ -489,8 +489,11 @@ async function finishCapture() {
           order: index + 1,
           instruction: instructionFor(event),
           ...(imageByEventId.has(event.eventId) ? { screenshotId: imageByEventId.get(event.eventId).id } : {}),
+          ...(imageByEventId.has(event.eventId) ? { privacyReview: imageReviewState(imageByEventId.get(event.eventId)).privacyReview } : {}),
           ...event,
-          imageState: finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId))
+          imageState: imageByEventId.has(event.eventId)
+            ? { ...finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId)), status: imageReviewState(imageByEventId.get(event.eventId)).status, reason: null }
+            : finalStepImageState(stateByEventId.get(event.eventId), refsByEventId.get(event.eventId))
         })),
         screenshots
       };
@@ -596,17 +599,26 @@ function imageStateFor(value, fallbackStatus = "unavailable") {
   const status = IMAGE_STATES.has(value?.status) ? value.status : fallbackStatus;
   return {
     status,
-    reason: IMAGE_REASONS.has(value?.reason) ? value.reason : ["ready", "none", "queued", "capturing"].includes(status) ? null : "capture_interrupted",
+    reason: IMAGE_REASONS.has(value?.reason) ? value.reason : ["ready", "protected", "none", "queued", "capturing"].includes(status) ? null : "capture_interrupted",
     attempts: Number.isSafeInteger(value?.attempts) && value.attempts >= 0 ? value.attempts : 0,
     version: Number.isSafeInteger(value?.version) && value.version > 0 ? value.version : 1
   };
+}
+
+function manualImageReview() {
+  return { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+}
+
+function imageReviewState(image) {
+  const privacyReview = image?.privacyReview && typeof image.privacyReview === "object" ? image.privacyReview : manualImageReview();
+  return { privacyReview, status: privacyReview.reviewRequired === false ? "ready" : "protected" };
 }
 
 function finalStepImageState(stored, ref) {
   const source = ref && (ref.version || 1) > (stored?.version || 1) ? ref : stored || ref;
   const state = imageStateFor(source);
   if (["queued", "capturing"].includes(state.status)) return { ...state, status: "unavailable", reason: "capture_interrupted" };
-  if (state.status === "ready" && !stored?.dataUrl) return { ...state, status: "failed", reason: "storage_failed" };
+  if (["ready", "protected"].includes(state.status) && !stored?.dataUrl) return { ...state, status: "failed", reason: "storage_failed" };
   return state;
 }
 
@@ -802,8 +814,8 @@ async function recordStepImage(session, eventId, eventGeneration = captureEventG
     const result = await takeScreenshot(session, assertCurrent, session.events.find((event) => event.eventId === eventId));
     assertCurrent();
     const dataUrl = typeof result === "string" ? result : result.dataUrl;
-    state = { status: "ready", reason: null };
-    image = { id: crypto.randomUUID(), dataUrl, ...(result.annotations ? { annotations: result.annotations } : {}) };
+    state = { status: "protected", reason: null };
+    image = { id: crypto.randomUUID(), dataUrl, ...(result.annotations ? { annotations: result.annotations } : {}), privacyReview: manualImageReview() };
   } catch (error) {
     // A later screen is never used to silently retry an earlier operation.
     state = captureFailureState(error);

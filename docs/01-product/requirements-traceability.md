@@ -145,6 +145,7 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 - DEC-090: 通常入力欄の架空値表示、content-visibility:hidden除外、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gate
 - 実装: apps/extension/capture/screenshot.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
 - 検査: tests/extension-pii-mask-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
+- raw captureは同じ画像bytesを端末draftへ保持し、`manual_image_review`の明示確認まで`protected`としてOffice/cloudを拒否する。確認後の同一bytes出力と未確認拒否は、`extension-finish-recovery.test.mjs`、`extension-cloud-claim.test.mjs`、`extension-capture-completion-browser.test.mjs`で追跡する。
 - 実画面受入: docs/02-ux/manual-editor-review-rubric.md。各独立評価者80点以上と安全条件の両方が必要。未実行は合格扱いにしない
 
 ## 統一編集器の継続保存・チーム書式（2026-10-01）

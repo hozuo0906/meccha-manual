@@ -338,6 +338,20 @@ test("output prunes orphan screenshots but rejects referenced pending privacy re
   assert.deepEqual(cleanDraft({ ...draft, steps: [{ id: "s1", order: 1, instruction: "説明のみ", imageState: { status: "none", version: 2 } }] }).screenshots, []);
 });
 
+test("raw capture review blocks cloud output until confirmation while retaining the same image bytes", () => {
+  const review = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+  const image = { id: "raw-image", dataUrl: "data:image/jpeg;base64,AA==", masks: [], privacyReview: review };
+  const step = { id: "raw-step", order: 1, instruction: "確認する", screenshotId: image.id, imageState: { status: "protected", reason: null, version: 1 }, privacyReview: review };
+  const raw = { title: "手順書", description: "", steps: [step], screenshots: [image] };
+  assert.equal(cleanDraft(raw), null, "未確認raw画像はcloud claimを拒否する");
+  const originalDataUrl = raw.screenshots[0].dataUrl;
+  const confirmedReview = { ...review, reviewRequired: false };
+  const confirmed = { ...raw, steps: [{ ...step, imageState: { ...step.imageState, status: "ready" }, privacyReview: confirmedReview }], screenshots: [{ ...image, privacyReview: confirmedReview }] };
+  const clean = cleanDraft(confirmed);
+  assert.ok(clean, "利用者確認後はcloud claimできる");
+  assert.equal(confirmed.screenshots[0].dataUrl, originalDataUrl, "確認は画像bytesを加工・差替えしない");
+});
+
 
 test("pending save is recovered before Share even when local content changed", async () => {
   for (const status of ["finalize-pending", "completion-pending"]) {

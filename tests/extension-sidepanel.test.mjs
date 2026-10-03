@@ -65,7 +65,7 @@ async function imageStatusHarness() {
   const source = await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8");
   const context = { failedDisplayImages: new Set() };
   vm.runInNewContext(source.slice(source.indexOf("function imageStateFor("), source.indexOf("function updateLiveLatestVisibility(")) +
-    "\nglobalThis.state = imageStateFor; globalThis.label = imageStatusFor; globalThis.summary = imageSummaryFor; globalThis.reason = imageReasonText;", context);
+    "\nglobalThis.state = imageStateFor; globalThis.label = imageStatusFor; globalThis.summary = imageSummaryFor; globalThis.reason = imageReasonText; globalThis.review = imageReviewText;", context);
   return context;
 }
 
@@ -78,6 +78,11 @@ test("sidepanel distinguishes completed, pending, missing, protected and intenti
   assert.equal(view.summary(events, images, refs), "画像 完了 1/7・準備中 2・取得できず 2・要確認 1・説明のみ 1");
   assert.equal(view.label(events[5], images, refs), "保護した領域の確認が必要です");
   assert.equal(view.label(events[6], images, refs), "説明のみの手順");
+  const rawImage = { eventId: "raw", id: "raw-image", status: "protected", dataUrl: "data:image/jpeg;base64,AA", privacyReview: { reviewRequired: true, reasonCodes: ["manual_image_review"] } };
+  const rawEvent = { eventId: "raw" };
+  const rawRef = { eventId: "raw", status: "protected", reason: null, version: 1 };
+  assert.equal(view.label(rawEvent, [rawImage], [rawRef]), "画像の確認が必要です");
+  assert.match(view.review(rawImage, rawRef), /画像を表示しています/);
   assert.match(view.reason("unsupported_iframe"), /埋め込み領域/);
   assert.match(view.reason("screen_changed"), /過去の画面/);
 });
@@ -99,7 +104,9 @@ test("sidepanel respects newer intentional no-image state and missing stored byt
   const image = { eventId: "one", status: "ready", dataUrl: "data:image/jpeg;base64,AA", version: 1 };
   assert.equal(view.state(event, [image], [{ eventId: "one", status: "none", version: 2 }]).status, "none");
   assert.equal(view.state(event, [], [{ eventId: "one", status: "ready" }]).reason, "storage_failed");
+  assert.equal(view.state(event, [], [{ eventId: "one", status: "protected" }]).reason, "storage_failed");
   assert.equal(view.state(event, [image], [{ eventId: "one", status: "ready", version: 2 }]).reason, "storage_failed");
+  assert.equal(view.state(event, [{ eventId: "one", status: "protected", version: 1 }], [{ eventId: "one", status: "protected", version: 2 }]).reason, "storage_failed");
   view.failedDisplayImages.add(undefined);
   assert.equal(view.state(event, [image], [{ eventId: "one", status: "none", version: 2 }]).status, "none");
 });

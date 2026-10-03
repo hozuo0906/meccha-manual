@@ -2,7 +2,10 @@
 
 Status: Accepted
 
-確認日時: 2026-10-03T18:36:09+09:00 (Asia/Tokyo)
+確認日時: 2026-10-03T19:18:47+09:00 (Asia/Tokyo)
+- source baseは `92e37627bc699acd5886b6ff27ed90203baa8080`。最新Review5400080256の新P1（raw画像の利用者確認欠落、thread PRRT_kwDOTpNknc6omG6p）を修正した今回の差分はcommit前。写真のbytesを保持し、既存manual_image_review・確認ボタンを使って保存・出力前に確認を求める。自動PII検出・黒塗り・架空値への置換は再導入しない。確認済みと未確認を区別し、protected画像のbytes欠落はstorage_failedとして復旧を案内する。
+- 親が今回のnpm ci、119/119 unit・skip 0、docs141・秘密値444・diffを確認。担当の公式CFTによる実記録1/1、実editor確認2/2、実sidepanel3/3と既存Worker/D1/R2記録連携（2手順・2画像、保存/共有画像bytes一致、共有失効拒否）の結果・対象差分を回収。外部Google/ChatGPT認証やremote D1/R2の成功証跡ではない。新commitのCI・Codex Reviewは未実行で、P1 threadは検証後に解決する。
+- ユーザーの追加指示はGoogle・ChatGPTログインからworkspace・保存・Office出力までの一貫実装。別checkoutの認証branch `codex/manual-product-auth-283`、base `fb5dca7fcdd8c575f940548229526aead6cbc294` で共通session/OIDC/D1認可の実装差分を実確認した。製品ログインは未稼働。ChatGPT商用websiteは公式の限定trial/client登録が必要で、IAB申請フォームの本人必須表記を質問中、申請は未送信。identityとAI利用枠の許可は別で、AI初期OFF。remote migration/deploy/Access/billing変更なし。
 - 対象source HEADは `dc119d18e6548f9fb05a3bb34ec55fcb686d2b17`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。closed-editor復帰receiptの実装は `af6f107` + `0510bcd`、Office snapshot browser回帰は `dc119d1` に反映済み。release検証は未完了。
 - 親が実MV3のclosed-editor復帰→Word/PPT両形式ダウンロード、別形式/別launch拒否・receipt未発行、二回目consume拒否・重複downloadなしを1/1、skip 0、exit 0で確認（source `dc119d1`、今回のruntimeテスト差分）。Office関連unit37/37 pass、component browserは `dc119d1` で1/1 pass、skip 0。npm ciは親で成功。Windows `npm run check` は docs/brand/worker/editor-tools/typecheck 通過後、既存 `wrangler.cmd` の `spawnSync ... EINVAL` で停止。一方、`dc119d1` のLinux Docs CI run37113055230/job111174537678でnpm ci/fullcheck成功をログ照合済み、Privacy run37113055312のOffice stepも成功。今回の新headのCIとCodex Reviewは別途必要で、旧SHAの成功を流用しない。
 - Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。実SSOとnative Office描画は未確認。

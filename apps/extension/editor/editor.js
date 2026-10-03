@@ -115,13 +115,13 @@ function replacementRegions(step) {
 function imageLabel(step) {
   if(editorViewStates.get(step.id)==="error")return "画像編集を読み込めませんでした";
   if(editorViewStates.get(step.id)==="loading")return "画像編集を準備しています";
+  const review = screenshotFor(step)?.privacyReview || step.privacyReview;
   const state = imageStatus(step);
   if (["queued", "capturing"].includes(state)) return "画像を準備しています";
   if (state === "none") return "説明のみの手順";
-  if (state === "protected") return "画像の確認が必要です";
+  if (state === "protected") return review?.reasonCodes?.includes("manual_image_review") ? "画像を確認してください" : "画像の確認が必要です";
   if (state === "failed") return displayFailures.has(step.id) ? "保存済みの画像を読み込めませんでした" : "画像を準備できませんでした";
   if (state === "unavailable" || !screenshotFor(step)) return "この操作の画像を取得できませんでした";
-  const review = screenshotFor(step)?.privacyReview || step.privacyReview;
   return review?.replacementCount ? `架空データに置換済み ${review.replacementCount}か所` : "画像の準備ができました";
 }
 function unresolvedSteps() { return draft.steps.filter((step) => !["ready", "none"].includes(imageStatus(step)) || (imageStatus(step) === "ready" && !screenshotFor(step))); }
@@ -531,7 +531,8 @@ function renderScreenshot(step) {
     const privacy = screenshot.privacyReview || step.privacyReview;
     // Unsupported protected surfaces need a replacement or an explicit text-only
     // choice. A generic acknowledgement cannot turn those pixels into success.
-    if (privacy?.reasonCodes?.includes("manual_image_review") || uploadFailures.has(step.id)) recovery.append(button(uploadFailures.has(step.id) ? "元の画像を使う" : "画像に公開できない情報がないことを確認", () => confirmImage(step)));
+    const manualReview = privacy?.reasonCodes?.includes("manual_image_review");
+    if (manualReview || uploadFailures.has(step.id)) recovery.append(button(uploadFailures.has(step.id) ? "元の画像を使う" : "画像を確認しました", () => confirmImage(step)));
     recovery.append(button("安全な画像へ差し替える", () => detail.querySelector("input[type=file]")?.click()), button("説明だけの手順にする", () => makeTextOnly(step)));
     area.append(recovery);
   }
@@ -633,10 +634,11 @@ function updateContextTools(step) {
   document.querySelector("#adjustImage").disabled = !canEdit;
   document.querySelector("#cropImage").disabled = !canEdit;
   const review = screenshot?.privacyReview || step.privacyReview;
-  document.querySelector("#privacySummary").textContent = review?.replacementCount ? `${review.replacementCount}か所を架空値に置換` : "画像と説明の内容を確認してください";
+  const manualReview = review?.reasonCodes?.includes("manual_image_review");
+  document.querySelector("#privacySummary").textContent = manualReview ? (review?.reviewRequired ? "画像を表示しています。保存・共有前に内容を確認してください" : "確認済みの画像を表示しています") : review?.replacementCount ? `${review.replacementCount}か所を架空値に置換` : "画像と説明の内容を確認してください";
   const privacyDetail = document.querySelector("#privacyDetail");
   privacyDetail.hidden = !shownReplacements.has(step.id);
-  privacyDetail.textContent = review?.reviewRequired ? "安全な置換を確認できない領域があります。安全な画像へ差し替えるか、説明だけの手順に変更してください。" : "置換済み画像だけを表示しています。元の個人情報の表示・復元はできません。手動追加した画像では自動置換を行っていません。";
+  privacyDetail.textContent = manualReview && review?.reviewRequired ? "表示中の画像に個人情報が写っていないか確認し、必要なら画像編集で黒塗りや置換を適用してください。確認後はこの画像をそのまま使えます。" : review?.reviewRequired ? "安全な置換を確認できない領域があります。安全な画像へ差し替えるか、説明だけの手順に変更してください。" : manualReview ? "確認済みの画像を表示しています。内容を変更した場合は、保存・共有前にもう一度確認してください。" : "置換済み画像だけを表示しています。元の個人情報の表示・復元はできません。手動追加した画像では自動置換を行っていません。";
   const regions = replacementRegions(step);
   if (regions.length) {
     const list = document.createElement("ol"); list.className = "replacement-list";
@@ -644,7 +646,7 @@ function updateContextTools(step) {
     for (const region of regions) { const item = document.createElement("li"); item.textContent = `${labels[region.kind] || "置換"}：${region.text}`; list.append(item); }
     privacyDetail.append(list);
   } else if (review?.replacementCount) { const note = document.createElement("p"); note.textContent = "この画像には置換位置の情報がありません。画像全体で確認してください。"; privacyDetail.append(note); }
-  document.querySelector("#reviewPrivacy").textContent = shownReplacements.has(step.id) ? "置換箇所の表示を閉じる" : "置換箇所を確認";
+  document.querySelector("#reviewPrivacy").textContent = shownReplacements.has(step.id) ? (manualReview ? "確認案内を閉じる" : "置換箇所の表示を閉じる") : (manualReview ? "確認案内を表示" : "置換箇所を確認");
   document.querySelector("#reviewPrivacy").disabled = !screenshot;
   const actions = document.querySelector("#contextImageActions"); actions.replaceChildren(button(screenshot ? "画像を差し替える" : "画像を追加する", () => { closePanels(); const details = detail.querySelector(".image-file-actions"); details.open = true; details.querySelector("button")?.focus(); }), button("説明だけの手順にする", () => makeTextOnly(step)));
 }
