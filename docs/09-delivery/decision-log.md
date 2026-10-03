@@ -22,6 +22,13 @@ Status: Accepted
 - Reason: Prevent callback `code`/`state` values from entering a later same-origin `Referer` header and keep transient D1 failures retryable without leaking implementation errors.
 - Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`
 
+### DEC-097: Product auth limiter and consumed callback return boundaries
+
+- Date: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5401676113
+- Decision: Product auth start maps only an explicit limiter result of `success: false` to `429 AUTH_RATE_LIMITED`. A missing binding, limiter exception, or malformed/unknown result maps to retryable `503 AUTH_RATE_LIMIT_UNAVAILABLE` before OAuth transaction creation. After a transaction is verified and consumed, nonce binding failures and other callback errors inherit only a revalidated fixed `return_path`; invalid or external stored paths are discarded and never rendered or redirected.
+- Reason: Keep quota refusal distinct from limiter availability failures, preserve consumed-transaction replay protection, and retain Office/onboarding retry context without trusting tampered transaction data.
+- Evidence: `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `docs/05-api/api-contracts.md`
+
 ### DEC-095: Product auth route and callback return boundaries
 
 - Date: 2026-10-03 / Issue #283 / PR #284

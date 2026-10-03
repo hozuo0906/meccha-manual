@@ -637,6 +637,98 @@ test("configured product provider without the onboarding limiter fails closed be
   } finally { database.close(); }
 });
 
+test("product auth rate limiter distinguishes an explicit refusal from an unavailable or malformed result", async () => {
+  for (const [name, limiter, status, code] of [
+    ["refused", async () => ({ success: false }), 429, "AUTH_RATE_LIMITED"],
+    ["throws", async () => { throw new Error("synthetic limiter failure"); }, 503, "AUTH_RATE_LIMIT_UNAVAILABLE"],
+    ["missing result", async () => null, 503, "AUTH_RATE_LIMIT_UNAVAILABLE"],
+    ["malformed result", async () => ({ success: "false" }), 503, "AUTH_RATE_LIMIT_UNAVAILABLE"]
+  ]) {
+    const { database, binding } = await authDatabase();
+    const env = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      GOOGLE_OIDC_CLIENT_ID: "google-rate-limit-client",
+      GOOGLE_OIDC_CLIENT_SECRET: "secret-not-logged",
+      ONBOARDING_RATE_LIMITER: { limit: limiter },
+      DB: binding
+    };
+    try {
+      const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+      assert.equal(response.status, status, name);
+      assert.equal((await response.json()).code, code, name);
+      assert.equal(response.headers.get("location"), null, name);
+      assert.equal(response.headers.get("set-cookie"), null, name);
+      assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 0, name);
+    } finally {
+      database.close();
+    }
+  }
+});
+
+test("nonce binding failure after transaction consume preserves only the verified return path", async () => {
+  const { database, binding } = await authDatabase();
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-nonce-return-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "secret-not-logged",
+    ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    DB: binding
+  };
+  try {
+    const start = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
+    const redirect = new URL(start.headers.get("location"));
+    const transactionId = database.prepare("SELECT id FROM oauth_transactions").get().id;
+    const cookieValue = start.headers.get("set-cookie").split(";")[0];
+    const [cookieName, cookiePayload] = cookieValue.split("=");
+    const [storedTransactionId, verifier] = decodeURIComponent(cookiePayload).split(".");
+    assert.equal(storedTransactionId, transactionId);
+    const nonceMismatchCookie = `${cookieName}=${encodeURIComponent(`${transactionId}.${verifier}.wrong-nonce`)}`;
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=unused&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, {
+      headers: { accept: "text/html", cookie: nonceMismatchCookie }
+    }), env, {});
+    assert.equal(response.status, 401);
+    assert.match(await response.text(), /href="\/onboarding\/continue"/u);
+    assert.match(response.headers.get("set-cookie") ?? "", /__Host-mm_oauth_google=; Max-Age=0/u);
+    assert.ok(database.prepare("SELECT consumed_at FROM oauth_transactions WHERE id=?").get(transactionId).consumed_at);
+  } finally {
+    database.close();
+  }
+});
+
+test("an untrusted transaction return path is not copied into nonce failure HTML", async () => {
+  const { database, binding } = await authDatabase();
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-untrusted-return-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "secret-not-logged",
+    ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    DB: binding
+  };
+  try {
+    const start = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
+    const redirect = new URL(start.headers.get("location"));
+    const transactionId = database.prepare("SELECT id FROM oauth_transactions").get().id;
+    database.prepare("UPDATE oauth_transactions SET return_path='https://attacker.example/steal' WHERE id=?").run(transactionId);
+    const cookieValue = start.headers.get("set-cookie").split(";")[0];
+    const [, cookiePayload] = cookieValue.split("=");
+    const [storedTransactionId, verifier] = decodeURIComponent(cookiePayload).split(".");
+    assert.equal(storedTransactionId, transactionId);
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=unused&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, {
+      headers: { accept: "text/html", cookie: `${cookieValue.split("=")[0]}=${encodeURIComponent(`${transactionId}.${verifier}.wrong-nonce`)}` }
+    }), env, {});
+    assert.equal(response.status, 401);
+    const body = await response.text();
+    assert.match(body, /href="\/"/u);
+    assert.doesNotMatch(body, /attacker\.example/u);
+    assert.ok(database.prepare("SELECT consumed_at FROM oauth_transactions WHERE id=?").get(transactionId).consumed_at);
+  } finally {
+    database.close();
+  }
+});
+
 test("invalid transaction and session timestamps fail closed", async () => {
   const { database, binding } = await authDatabase();
   const env = {

@@ -46,6 +46,10 @@ function productAuthStorageError(message = "ログイン状態を保存できま
   return new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", message);
 }
 
+function productAuthRateLimiterUnavailableError(): ProductAuthError {
+  return new ProductAuthError(503, "AUTH_RATE_LIMIT_UNAVAILABLE", "ログインを開始できません。時間をおいて、もう一度お試しください。");
+}
+
 interface Env extends AppRuntimeBindings, ProductAuthBindings { DB?: D1DatabaseLike; ONBOARDING_RATE_LIMITER?: RateLimit; }
 interface TransactionRow { id: string; provider: Provider; state_hash: string; nonce_hash: string; verifier_hash: string; redirect_uri: string; return_path: string; expires_at: string; consumed_at: string | null; }
 interface SessionRow { application_id: string; issuer: string; subject: string; expires_at: string; revoked_at: string | null; auth_method: Provider; }
@@ -157,10 +161,20 @@ export function configuredProductProviders(env: ProductAuthBindings): { google: 
 export async function beginProductAuth(request: Request, env: Env, provider: Provider): Promise<Response> {
   const { clientId, spec } = providerConfig(env, provider);
   if (!env.DB) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
-  if (!env.ONBOARDING_RATE_LIMITER) throw new ProductAuthError(503, "AUTH_RATE_LIMITED", "ログイン設定を確認できません。管理者が設定を確認してから再度お試しください。");
+  if (!env.ONBOARDING_RATE_LIMITER) throw new ProductAuthError(503, "AUTH_RATE_LIMIT_UNAVAILABLE", "ログイン設定を確認できません。管理者が設定を確認してから再度お試しください。");
   const ip = request.headers.get("CF-Connecting-IP")?.trim() || "unknown";
-  const limited = await env.ONBOARDING_RATE_LIMITER.limit({ key: `product-auth:${provider}:${await hash(ip)}` }).catch(() => null);
-  if (!limited || limited.success !== true) throw new ProductAuthError(429, "AUTH_RATE_LIMITED", "ログイン操作が多すぎます。時間をおいて再度お試しください。");
+  let limited: unknown;
+  try {
+    limited = await env.ONBOARDING_RATE_LIMITER.limit({ key: `product-auth:${provider}:${await hash(ip)}` });
+  } catch {
+    throw productAuthRateLimiterUnavailableError();
+  }
+  if (limited && typeof limited === "object" && "success" in limited && limited.success === false) {
+    throw new ProductAuthError(429, "AUTH_RATE_LIMITED", "ログイン操作が多すぎます。時間をおいて再度お試しください。");
+  }
+  if (!limited || typeof limited !== "object" || !("success" in limited) || limited.success !== true) {
+    throw productAuthRateLimiterUnavailableError();
+  }
   const returnPath = safeReturnPath(new URL(request.url).searchParams.get("return"));
   const redirectUri = `${runtimeBaseUrl(env)}/api/auth/${provider}/callback`;
   const state = randomValue();
@@ -205,6 +219,14 @@ async function readTransaction(db: D1DatabaseLike, provider: Provider, state: st
   return row;
 }
 
+function verifiedTransactionReturnPath(value: string): string | undefined {
+  try {
+    return safeReturnPath(value);
+  } catch {
+    return undefined;
+  }
+}
+
 interface IdClaims extends JWTPayload { email?: unknown; email_verified?: unknown; name?: unknown; }
 
 async function exchangeAndVerify(request: Request, env: Env, provider: Provider, code: string, verifier: string, nonce: string, transaction: TransactionRow): Promise<{ issuer: string; subject: string; displayName: string; method: Provider }> {
@@ -245,10 +267,12 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
   const [transactionId, verifier, nonce] = parts;
   if (!transactionId || !verifier || !nonce) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
   const transaction = await readTransaction(env.DB, provider, state, transactionId, verifier);
-  if ((await hash(nonce)) !== transaction.nonce_hash) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
-  if (query.get("error")) throw new ProductAuthError(401, "AUTH_CANCELLED", "ログインをキャンセルしました。ログイン画面から再度お試しください。", transaction.return_path);
-  if (!code) throw new ProductAuthError(401, "AUTH_CODE_INVALID", "ログインを確認できませんでした。ログインをやり直してください。", transaction.return_path);
+  const returnPath = verifiedTransactionReturnPath(transaction.return_path);
   try {
+    if (!returnPath) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。");
+    if ((await hash(nonce)) !== transaction.nonce_hash) throw new ProductAuthError(401, "AUTH_TRANSACTION_INVALID", "ログインの有効期限が切れました。ログインをやり直してください。", returnPath);
+    if (query.get("error")) throw new ProductAuthError(401, "AUTH_CANCELLED", "ログインをキャンセルしました。ログイン画面から再度お試しください。", returnPath);
+    if (!code) throw new ProductAuthError(401, "AUTH_CODE_INVALID", "ログインを確認できませんでした。ログインをやり直してください。", returnPath);
     const identity = await exchangeAndVerify(request, env, provider, code, verifier, nonce, transaction);
     try {
       await new D1OnboardingRepository(env.DB).bootstrap({ kind: "product_user", issuer: identity.issuer, subject: identity.subject }, `oauth-${crypto.randomUUID().replaceAll("-", "")}`);
@@ -270,16 +294,17 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
     SELECT ?, application_id, ?, ?, ?, ? FROM identities WHERE issuer = ? AND subject = ? AND status = 'active'`)
       .bind(crypto.randomUUID(), await hash(token), identity.method, now.toISOString(), new Date(now.getTime() + SESSION_SECONDS * 1000).toISOString(), identity.issuer, identity.subject).run();
     if (!result.success || (result.meta?.changes ?? 0) !== 1) throw new ProductAuthError(503, "AUTH_SESSION_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて、もう一度お試しください。");
-    const response = new Response(null, { status: 302, headers: { location: new URL(transaction.return_path, runtimeBaseUrl(env)).toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+    const response = new Response(null, { status: 302, headers: { location: new URL(returnPath, runtimeBaseUrl(env)).toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
     response.headers.append("set-cookie", cookie(PRODUCT_SESSION_COOKIE, token, SESSION_SECONDS));
     response.headers.append("set-cookie", clearCookie(`${OAUTH_COOKIE_PREFIX}${provider}`));
     return response;
   } catch (error) {
     if (error instanceof ProductAuthError) {
       if (error.returnPath) throw error;
-      throw new ProductAuthError(error.status, error.code, error.message, transaction.return_path);
+      if (!returnPath) throw error;
+      throw new ProductAuthError(error.status, error.code, error.message, returnPath);
     }
-    throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を確認できません。時間をおいて、もう一度お試しください。", transaction.return_path);
+    throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を確認できません。時間をおいて、もう一度お試しください。", returnPath);
   }
 }
 

@@ -571,3 +571,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 追加P2修正（PR #284 Codex Review 5401643521、thread `PRRT_kwDOTpNknc6opXYj`）では、state／provider／verifier binding／期限の確認後にtransaction消費CASを先に確定し、nonce bindingとprovider tokenの署名・audience・issuer・nonce検証を消費後に行う順序を2つのD1正本へ明記した。後続検証に失敗してもtransactionは消費済みのため、ログインを最初からやり直す。OQ-036は`authMode`を「productまたはaccess」と記載してMarkdown表のセル境界を維持した。
 
 次の1マイルストーンは、今回の文書同期を含む最新headへCI／Codex Reviewとreview thread解決を照合し、その後にstaging接続の具体案（remote migration、Google binding、製品入口と運営health保護分離）を確定することである。remote migration、secret取得・変更、Access設定、実provider SSO、production反映は未実施である。
+
+## PR #284 Codex Review 5401676113 P2修正（2026-10-04T01:44:31+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。limiterは明示的な`success: false`だけを`429 AUTH_RATE_LIMITED`へ写像し、binding欠落・呼出し例外・不明／不正結果は`503 AUTH_RATE_LIMIT_UNAVAILABLE`としてOAuth transaction作成前に停止する。nonce不一致を含むconsume後callback errorは、再検証した固定`return_path`だけを引き継ぎ、改変された外部pathは利用しない。
+- `app:auth:unit`は136/136、`docs:check`は143 files、`worker:check`、worker typecheck、`encoding:check`は377 files、`git diff --check`をexit 0で確認した。追加回帰はlimiterの拒否／例外／malformed、nonce mismatch後のconsume済み、外部return pathのHTML不出力を含む。Office export test／workflowは変更していない。
+- この時点の差分はlocal未commitであり、commit・push・PR head／CI／Codex Reviewの再取得は未確認。実provider SSO、remote migration、secret binding、production反映は未実施である。
