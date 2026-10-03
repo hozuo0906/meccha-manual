@@ -548,3 +548,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - e82dの手動gotoによる旧成功報告は実UI証跡として不採用。7342は復元後hashの再ログイン保持と実ボタン経路を修正。credential選択、Google issuer正規化、失敗時の検証済み戻り先は9b6cd1eで修正済み。
 - PR #282 source573b921は通常CI13件成功、最新Codex Review majorなし、未解決thread0を親確認済み。merge・配布・production反映は未実施。
 - 次は最新headのCI／Codex Reviewとthread解決。その後staging接続案を確定する。Cloudflare運営管理ログインとSIWC申請氏名・会社名・公開URLの回答待ち。SIWC client未発行、Google資格情報は暗号化保管済み。remote secret／migration／外周未確認。文書記録を継続稼働とは扱わない。
+## 認証状態遷移とstaging接続の親確認（2026-10-04T00:18:00+09:00）
+
+- PR #284 source/head `6e3ad574c599fbacd82e5120725815d96a343d29` を親が照合。期限切れproduct cookieから明示password成功時に競合sessionを失効・cookie削除、logout JSON成功応答、session.authModeによるproduct／Access分離を修正。初担当の実行は親がinterruptし、差分保持後に回収担当へ引継いだ。
+- 親の最新source認証／Access単体は142/142・skip0。公式CFT実行 `session11521` は実editor Office/auth2件とprovider／logout／期限切れbrowser4件の合計6/6・skip0・exit0。合成provider、local Worker、SQLite D1、memory R2の検証で、実SSOやnative Office描画ではない。担当worker71/71等の証跡も回収。最新文書headのCI／Codex Reviewと新3thread解決は待ち。旧3threadは074c789最新レビュー・CI・回帰根拠返信後に解決確認済み。
+- 運営IABログインを確認し、staging Workerのlive version cc830546 100%、DB/R2とrate limiter1001/1002一致をread-only取得。runtime変数はAccess3項目とAPP_BASE_URL／APP_ENVの5項目で、Google／SIWC未接続。Accessはowner hostname（path空欄）とWorker全URLスコープ、/s/*別viewer bypass。D1の移行名SELECTは0001〜0005のみで0006/7/8未適用。秘密値取得、遠隔設定変更、migration、deployは実施していない。CLI未認証とIAB取得を区別する。
+- 次の1マイルストーンは最新品質ゲート。その後staging専用のDB移行・Google接続・製品入口と運営health保護分離を具体案として提示。SIWCは申請氏名／会社名／公開URL回答待ち、商用client未発行のため無効。AI OFF。production・課金・一般公開未実施、監視未登録。
