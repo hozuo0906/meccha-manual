@@ -540,3 +540,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - Office最新は `b087abf`（remote／PR #282一致）で、通常CI 13件成功、`78f`へのCodex comment `5968825999` はmajorなしを確認済みである。`b087`に対する最新Reviewは未確認で、未解決threadは1件残っている。製品ログイン側は親が `270` で認証unit 124件・browser 2件を再取得した。
 - staging origin rootをIABで1回直接開くとCloudflare Dashboardのサインイン画面へ遷移した。これは確認tabを閉じ、設定変更・ログイン操作をしていない。Access、DNS、未設定domainのいずれが原因かは未確認であり、Accessが原因とは断定しない。challenge URLや連絡先、秘密値は記録しない。
 - 次の1 milestoneは、対象SHAを固定して `wrangler.onboarding.jsonc --env staging` のversion、0006/0007/0008、secret名、Access外周をread-only照合する staging 接続案である。実stagingへのdeploy、migration apply、secret取得、Access変更、実provider SSOは別承認境界として実行しない。
+
+## 製品ログイン・Office再試行の親検証（2026-10-03T23:36:46+09:00）
+
+- PR #284、branch `codex/manual-auth-office-integration-283`、source SHA `7342c6512dd3c6282451be89ca679b7752955eda`。PR head一致と通常CI13件成功を取得。latest-review gate失敗、最新Codex Reviewとthread3件の解決は未完了。
+- 親実行 `session41501`：Office/auth browser 2/2、skip0、exit0。実editor操作からGoogle／ChatGPT × DOCX／PPTX、キャンセルHTML戻りリンク、実bootstrapボタンから再ログイン、同形式download、return marker消費を確認。合成provider、公式CFT、local Worker、SQLite D1、memory R2の証跡。実SSO・remote設定・native Office描画は未確認。
+- e82dの手動gotoによる旧成功報告は実UI証跡として不採用。7342は復元後hashの再ログイン保持と実ボタン経路を修正。credential選択、Google issuer正規化、失敗時の検証済み戻り先は9b6cd1eで修正済み。
+- PR #282 source573b921は通常CI13件成功、最新Codex Review majorなし、未解決thread0を親確認済み。merge・配布・production反映は未実施。
+- 次は最新headのCI／Codex Reviewとthread解決。その後staging接続案を確定する。Cloudflare運営管理ログインとSIWC申請氏名・会社名・公開URLの回答待ち。SIWC client未発行、Google資格情報は暗号化保管済み。remote secret／migration／外周未確認。文書記録を継続稼働とは扱わない。

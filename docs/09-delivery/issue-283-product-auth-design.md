@@ -110,7 +110,7 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 
 これらが確認できるまで、現行Access/D1運用と本番設定を変更せず、実環境のprovider有効化、remote migration適用、secret bindingは行わない。実装済みの検証用UI・callbackは合成providerテストの範囲に限定する。
 
-`tests/office-auth-runtime-browser.test.mjs` の生成editor経路は、2026-10-03の親取得（実行ID `session55529`）でGoogle／ChatGPT × DOCX／PPTXの2/2、skip 0、exit 0を確認した。キャンセルcallbackのHTMLリンクから検証済み戻り先へ戻り、同じOffice形式で再ログインしてdownloadする経路も実navigationで確認する。これは合成provider、実ブラウザ、local Worker、SQLite D1 adapter、memory R2による検証であり、実provider SSO、remote D1／R2、staging deploy、secret binding、Access外周の成功を示さない。
+`tests/office-auth-runtime-browser.test.mjs` の生成editor経路は、2026-10-03の親取得（実行ID `session55529`）でGoogle／ChatGPT × DOCX／PPTXの2/2、skip 0、exit 0を確認した。source SHA `7342c6512dd3c6282451be89ca679b7752955eda` の親実行 `session41501`（2026-10-03T23:36:46+09:00）では、キャンセルcallbackのHTMLリンクから戻り、実bootstrapボタンから同じOffice形式で再ログインしてdownloadする経路も2/2、skip0、exit0を確認した。手動gotoによる旧e82dの結果は実UI証跡として不採用。これは合成provider、実ブラウザ、local Worker、SQLite D1 adapter、memory R2による検証であり、実provider SSO、remote D1／R2、staging deploy、secret binding、Access外周の成功を示さない。
 
 ## 認証テストの実行境界
 
