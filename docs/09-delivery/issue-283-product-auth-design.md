@@ -32,6 +32,10 @@ Googleでは遷移中に「Googleで認証しています」と表示し、キ�
 
 ログイン途中でlocal draftを再読み込みしても、認証用handoffの有効期限とdraft fingerprintを照合できる間は同じ下書きへ戻す。別の利用者のsession、別handoff、期限切れhandoff、変更されたdraftは復帰させず、元のlocal下書きを保持したまま再開方法を示す。
 
+## Office出力の認証境界
+
+Word／PowerPoint出力は、ファイル保存を開始する直前に製品sessionを必須とする。ログイン途中もguestの下書きと出力選択を保持し、製品session確立後に同じ出力を再開する。Cloudflare Accessの管理者・運用sessionを製品利用者のログイン完了とは扱わない。
+
 ## provider別の処理境界
 
 ### メール確認コード
@@ -39,6 +43,8 @@ Googleでは遷移中に「Googleで認証しています」と表示し、キ�
 候補providerから送信providerを選び、送信元domain、rate limit、失敗時の再送、staging/production分離を決める。provider未選定またはcredential未設定の環境では、メール認証を有効化しない。パスワードhashや確認コードの平文は保存しない。
 
 ### Google
+
+次の実装unitで作成するroute候補は、`GET /api/auth/google/start` と `GET /api/auth/google/callback` である。どちらも現行source・契約には存在せず、Google OAuth client作成前の準備候補として扱う。server secret候補は`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`、origin設定は既存の`APP_ENV`と`APP_BASE_URL`を再利用する。
 
 scopeはidentity確認に必要な最小候補として`openid email profile`を使う。現行sourceと契約で確認できるstaging originは`https://meccha-manual-staging.meccha-iiyatsu.com`である。既存の`/onboarding/continue`はguest handoff用のrouteであり、Google callbackではない。Google callback routeは現行source・契約に未実装のため、OAuth client作成時のredirect URIとして登録せず、認証実装unitでrouteと契約を確定してから登録する。
 

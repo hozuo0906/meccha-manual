@@ -25,6 +25,8 @@ Date: 2026-10-03
 - guestのlocal draftとoutput選択はログイン途中でも保持し、認証後に同じhandoffとdraft fingerprintを再検証して元のoutputへ戻す。認証失敗やキャンセルでlocal原本を削除しない。
 
 ## 境界
+- 次のGoogle実装unitの候補は、同一staging origin `https://meccha-manual-staging.meccha-iiyatsu.com` の `GET /api/auth/google/start` と `GET /api/auth/google/callback` である。scopeは`openid email profile`、server secret候補は`GOOGLE_OIDC_CLIENT_ID`と`GOOGLE_OIDC_CLIENT_SECRET`とし、`APP_ENV`と`APP_BASE_URL`を再利用する。これらのrouteは現時点で未実装であり、既存route・契約として扱わない。
+- Word／PowerPoint出力は、保存処理を開始する直前に製品sessionを必須とする。guestの下書きと出力選択はログイン途中も保持し、製品session確立後に同じ出力を再開する。Cloudflare Accessの管理者・運用sessionとは別境界にする。
 
 この提案は、現行Access application、production policy、Cloudflare管理設定、Google client、メール送信provider、OpenAI client、D1 migration、session実装を変更しない。新しい環境変数、依存package、schema、秘密値をこのADRだけで追加しない。
 
