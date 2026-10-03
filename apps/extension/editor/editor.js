@@ -501,7 +501,9 @@ async function openImageEditor(step, initialTool = "select") {
       }, "画像を更新して、この端末に保存しました。");
       if (!result.ok) return false;
       undoStack.push(before); redoStack.length = 0; historyGroup = null;
-      renderStepArticle(currentStep); updateContextTools(currentStep); updateHistoryButtons();
+      const renderedStep = draft.steps.find((entry) => entry.id === step.id);
+      if (renderedStep) { renderStepArticle(renderedStep); updateContextTools(renderedStep); }
+      updateHistoryButtons();
       return detail.querySelector(".image-edit-button");
     }, onClose: () => { workSurface.hidden = false; contextTools.hidden = false; }
   });
@@ -637,18 +639,22 @@ function createUploadPanel(step, screenshot) {
 }
 
 async function confirmImage(step) {
-  if (pendingImages.has(step.id)) return;
-  remember(); const screenshot = screenshotFor(step);
-  const failure = uploadFailures.get(step.id);
-  if (failure) { step.imageState = failure.priorState || { status: screenshot ? "ready" : "unavailable", reason: null, attempts: 0, version: 1 }; uploadFailures.delete(step.id); renderStepArticle(step); renderListOnly(); await persist(); return; }
-  uploadFailures.delete(step.id); displayFailures.delete(step.id);
+  const currentStep = draft.steps.find((entry) => entry.id === step.id);
+  if (!currentStep || pendingImages.has(currentStep.id)) return;
+  remember(); const screenshot = screenshotFor(currentStep);
+  const failure = uploadFailures.get(currentStep.id);
+  if (failure) { currentStep.imageState = failure.priorState || { status: screenshot ? "ready" : "unavailable", reason: null, attempts: 0, version: 1 }; uploadFailures.delete(currentStep.id); renderStepArticle(currentStep); renderListOnly(); await persist(); return; }
+  uploadFailures.delete(currentStep.id); displayFailures.delete(currentStep.id);
   if (screenshot?.privacyReview) screenshot.privacyReview.reviewRequired = false;
-  const linkedSteps = screenshot ? draft.steps.filter((entry) => entry.screenshotId === screenshot.id) : [step];
+  const linkedSteps = screenshot ? draft.steps.filter((entry) => entry.screenshotId === screenshot.id) : [currentStep];
   for (const linkedStep of linkedSteps) {
     if (linkedStep.privacyReview) linkedStep.privacyReview.reviewRequired = false;
     setImageState(linkedStep, "ready");
   }
-  renderStepArticle(step); renderListOnly(); await persist();
+  await persist();
+  const renderedStep = draft.steps.find((entry) => entry.id === currentStep.id);
+  if (renderedStep) renderStepArticle(renderedStep);
+  renderListOnly();
 }
 async function makeTextOnly(step) {
   if (pendingImages.has(step.id)) return;
