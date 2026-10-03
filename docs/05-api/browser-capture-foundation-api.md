@@ -45,7 +45,7 @@ paint後のcapture前およびcapture後に候補集合、overlayの接続・幾
 正規化eventは外部AI APIを使わず、日本語のmanual step候補へ変換する。
 
 - click: `{target}をクリックします。`
-- input completion: `{target}への入力を完了します。入力値は操作記録や手順説明には含めません。画面に表示された値の画像への映り込みは画像編集で確認します。`
+- input completion: `{target}に入力します。`
 - navigation: URLを含まない「次のページへ移動」の汎用step
 - 連続する同方向scroll: 1件のnoteへ集約
 

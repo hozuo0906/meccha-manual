@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { posix } from "node:path";
 
-import { buildDocx, buildPptx, normalizeOfficeManual, OFFICE_EXPORT_MIME_TYPES } from "../apps/extension/export/office-export.js";
+import { assertOfficeArchiveBudget, assertOfficeImageBudget, assertOfficeZip32, assertOfficeZipEntryCount, buildDocx, buildPptx, normalizeOfficeManual, OFFICE_ARCHIVE_BYTES_LIMIT, OFFICE_IMAGE_BYTES_LIMIT, OFFICE_EXPORT_MIME_TYPES } from "../apps/extension/export/office-export.js";
 
 const PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
 
@@ -101,6 +101,17 @@ test("office exports reject XML 1.0 control characters and unpaired surrogates",
 test("office exports reject XML 1.0 noncharacters U+FFFE and U+FFFF", () => {
   assert.throws(() => buildDocx({ ...manual(), title: `invalid\u{fffe}title` }), /unsupported XML characters/);
   assert.throws(() => buildPptx({ ...manual(), steps: [{ ...manual().steps[0], instruction: `invalid\u{ffff}instruction` }] }), /unsupported XML characters/);
+});
+
+test("Office image, archive, and ZIP32 guards reject overflow without allocating giant fixtures", () => {
+  assert.equal(assertOfficeImageBudget(OFFICE_IMAGE_BYTES_LIMIT), OFFICE_IMAGE_BYTES_LIMIT);
+  assert.throws(() => assertOfficeImageBudget(1, OFFICE_IMAGE_BYTES_LIMIT), /画像容量が大きいため/u);
+  assert.equal(assertOfficeArchiveBudget(OFFICE_ARCHIVE_BYTES_LIMIT), OFFICE_ARCHIVE_BYTES_LIMIT);
+  assert.throws(() => assertOfficeArchiveBudget(OFFICE_ARCHIVE_BYTES_LIMIT + 1), /画像容量が大きいため/u);
+  assert.equal(assertOfficeZip32(0xffffffff), 0xffffffff);
+  assert.throws(() => assertOfficeZip32(0x100000000), /画像容量が大きいため/u);
+  assert.equal(assertOfficeZipEntryCount(0xffff), 0xffff);
+  assert.throws(() => assertOfficeZipEntryCount(0x10000), /画像容量が大きいため/u);
 });
 
 test("DOCX is a real OOXML package with text, page breaks, and edited image relationship", () => {
@@ -205,7 +216,10 @@ test("OOXML keeps styles relationships and converts source newlines to Office br
   const docxEntries = zipEntries(buildDocx(value));
   const docx = entryText(docxEntries, "word/document.xml");
   const docxRels = entryText(docxEntries, "word/_rels/document.xml.rels");
+  const styles = entryText(docxEntries, "word/styles.xml");
   assert.match(docxRels, /Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/styles" Target="styles\.xml"/);
+  assert.match(styles, /<w:style[^>]+w:styleId="Heading1"[\s\S]*?<w:pPr><w:keepNext\/><\/w:pPr>[\s\S]*?<\/w:style>/u);
+  assert.doesNotMatch(styles, /<w:style[^>]+w:styleId="Heading1"[^>]*>[^<]*<w:name[^>]*\/><w:basedOn[^>]*\/><w:keepNext\/>/u);
   assert.match(docx, /<w:t xml:space="preserve">タイトル<\/w:t><w:br\/><w:t xml:space="preserve">次の行<\/w:t>/);
   assert.ok(!docx.includes("タイトル\n次の行"));
 

@@ -160,12 +160,12 @@ export const CLOUD_MANUAL_JS = `(() => {
   ${MANUAL_BRANDING_JS}
   ${MANUAL_PRINT_JS}
   function imageTools() { if (!globalThis.MecchaImageTools) throw new Error("画像編集を準備できませんでした。再読み込みしてください。"); return globalThis.MecchaImageTools; }
-  function officeTools() { const tools = imageTools(); if (typeof tools.buildDocx !== "function" || typeof tools.buildPptx !== "function") throw new Error("Office出力を準備できませんでした。画面を更新してください。"); return tools; }
+  function officeTools() { const tools = imageTools(); if (typeof tools.buildDocx !== "function" || typeof tools.buildPptx !== "function" || typeof tools.assertOfficeImageBudget !== "function") throw new Error("Office出力を準備できませんでした。画面を更新してください。"); return tools; }
   function officeFileName(title, extension) { const safe = String(title || "手順書").trim().replace(/[\\/:*?\"<>|\u0000-\u001f]/gu, "_").replace(/[. ]+$/u, "").slice(0, 80) || "手順書"; return safe + "." + extension; }
   function downloadOfficeBytes(bytes, fileName, mimeType) { const blob = new Blob([bytes], { type: mimeType }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = fileName; link.rel = "noopener"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0); }
   function officeImageError(index) { const error = new Error("office-image-failed"); error.code = "office-image-failed"; error.stepIndex = index; return error; }
   function officeExportChanged() { const error = new Error("office-export-changed"); error.code = "office-export-changed"; return error; }
-  async function renderOfficeImage(step, index) {
+  async function renderOfficeImage(step, index, imageBudget, tools) {
     if (!step?.assetId) return null;
     const source = imageUrlFor(step);
     if (!source) throw officeImageError(index);
@@ -180,9 +180,10 @@ export const CLOUD_MANUAL_JS = `(() => {
       const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
       imageTools().drawScreenshot(canvas.getContext("2d"), image, { annotations: Array.isArray(step.annotations) ? step.annotations : [], masks: [] });
       const rendered = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(officeImageError(index)), "image/png"));
+      imageBudget.used = tools.assertOfficeImageBudget(rendered.size, imageBudget.used);
       return { kind: "edited", bytes: new Uint8Array(await rendered.arrayBuffer()), mimeType: "image/png", width: image.naturalWidth, height: image.naturalHeight };
     } catch (error) {
-      if (error?.code === "office-image-failed") throw error;
+      if (error?.code === "office-image-failed" || error?.code === "office-image-budget") throw error;
       throw officeImageError(index);
     } finally { URL.revokeObjectURL(sourceUrl); }
   }
@@ -193,20 +194,23 @@ export const CLOUD_MANUAL_JS = `(() => {
     const exportSnapshot = { manualId: detailData.manual.id, requestSerial, editVersion, title: String(editorState.title || ""), description: String(editorState.description || ""), steps: clone(editorState.steps) };
     officeExportBusy = true; if (button) button.disabled = true; setMessage((format === "docx" ? "Word" : "PowerPoint") + "\u30d5\u30a1\u30a4\u30eb\u3092\u4f5c\u6210\u3057\u3066\u3044\u307e\u3059\u3002");
     try {
+      const tools = officeTools();
+      const imageBudget = { used: 0 };
       const steps = [];
       for (const [index, step] of exportSnapshot.steps.entries()) {
         if (requestSerial !== exportSnapshot.requestSerial || editVersion !== exportSnapshot.editVersion || detailData?.manual?.id !== exportSnapshot.manualId) throw officeExportChanged();
-        steps.push({ number: index + 1, title: String(step.title || "").trim(), instruction: String(step.instruction || ""), image: await renderOfficeImage(step, index) });
+        steps.push({ number: index + 1, title: String(step.title || "").trim(), instruction: String(step.instruction || ""), image: await renderOfficeImage(step, index, imageBudget, tools) });
       }
       if (requestSerial !== exportSnapshot.requestSerial || editVersion !== exportSnapshot.editVersion || detailData?.manual?.id !== exportSnapshot.manualId) throw officeExportChanged();
       const value = { title: exportSnapshot.title, description: exportSnapshot.description, steps };
-      const tools = officeTools(); const bytes = format === "docx" ? tools.buildDocx(value) : tools.buildPptx(value);
+      const bytes = format === "docx" ? tools.buildDocx(value) : tools.buildPptx(value);
       const mime = format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
       downloadOfficeBytes(bytes, officeFileName(exportSnapshot.title, format === "docx" ? "docx" : "pptx"), mime);
       setMessage((format === "docx" ? "Word" : "PowerPoint") + "\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u3057\u307e\u3057\u305f\u3002\u30af\u30e9\u30a6\u30c9\u306e\u5185\u5bb9\u3084\u5171\u6709\u8a2d\u5b9a\u306f\u5909\u66f4\u3057\u3066\u3044\u307e\u305b\u3093\u3002", "success");
     } catch (error) {
       if (error?.code === "office-export-changed") setMessage("\u7de8\u96c6\u4e2d\u306e\u5185\u5bb9\u304c\u5909\u308f\u3063\u305f\u305f\u3081\u3001Office\u30d5\u30a1\u30a4\u30eb\u306e\u66f8\u304d\u51fa\u3057\u3092\u4e2d\u6b62\u3057\u307e\u3057\u305f\u3002\u6700\u65b0\u306e\u5185\u5bb9\u3067\u518d\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning");
       else if (error?.code === "office-image-failed") setMessage("\u753b\u50cf\u3092\u8aad\u307f\u8fbc\u3081\u306a\u3044\u624b\u9806\u304c\u3042\u308b\u305f\u3081\u3001Office\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u3057\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u753b\u50cf\u3092\u78ba\u8a8d\u3057\u3066\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "error");
+      else if (["office-image-budget", "office-archive-budget", "office-zip32-overflow", "office-zip16-overflow", "office-zip-entry-count"].includes(error?.code)) setMessage(error.userMessage || "\u753b\u50cf\u5bb9\u91cf\u304c\u5927\u304d\u305f\u3081\u3001\u753b\u50cf\u3092\u5c0f\u3055\u304f\u3059\u308b\u304b\u624b\u9806\u66f8\u3092\u5206\u3051\u3066\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "error");
       else setMessage("Office\u30d5\u30a1\u30a4\u30eb\u3092\u66f8\u304d\u51fa\u305b\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30bf\u30a4\u30c8\u30eb\u3084\u672c\u6587\u3092\u78ba\u8a8d\u3057\u3066\u518d\u7de8\u96c6\u3057\u3066\u304b\u3089\u3001\u3082\u3046\u4e00\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002", "error");
     }
     finally { officeExportBusy = false; if (button) button.disabled = false; }

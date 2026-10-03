@@ -722,7 +722,7 @@ function setOfficeExportStatus(message, state = "") {
   if (!officeExportStatus) return;
   officeExportStatus.textContent = message; officeExportStatus.dataset.state = state;
 }
-async function editedOfficeImage(step, index) {
+async function editedOfficeImage(step, index, imageBudget, tools) {
   const screenshot = screenshotFor(step);
   if (!screenshot?.dataUrl || imageStatus(step) !== "ready") throw officeError("office-image-failed", `手順${index + 1}の画像を確認できないため、Officeファイルを作成できません。画像を確認してから再試行してください。`, step);
   let timer;
@@ -732,10 +732,11 @@ async function editedOfficeImage(step, index) {
     assertImageDimensions(image.naturalWidth || image.width, image.naturalHeight || image.height);
     const canvas = document.createElement("canvas"); drawScreenshot(canvas.getContext("2d"), image, screenshot);
     const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("IMAGE_ENCODE_FAILED")), "image/png"));
+    imageBudget.used = tools.assertOfficeImageBudget(blob.size, imageBudget.used);
     const bytes = new Uint8Array(await blob.arrayBuffer()); if (!bytes.length) throw new Error("IMAGE_ENCODE_EMPTY");
     return { kind: "edited", bytes, mimeType: "image/png", width: canvas.width, height: canvas.height };
   } catch (error) {
-    if (error?.code === "office-image-failed") throw error;
+    if (error?.code === "office-image-failed" || error?.code === "office-image-budget") throw error;
     throw officeError("office-image-failed", `手順${index + 1}の画像を読み込めませんでした。画像を確認してから再試行してください。`, step);
   } finally { clearTimeout(timer); }
 }
@@ -768,15 +769,17 @@ async function exportOffice(format, button) {
     const exportContent = officeDraftContent(draft, title.value, description.value);
     const exportFingerprint = await fingerprintDraft(draft);
     if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
+    const tools = await import("../export/office-export.js");
+    if (officeDraftContent(draft, title.value, description.value) !== exportContent || await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const exportSnapshot = { title: title.value, description: description.value, steps: draft.steps.map((step) => ({ id: step.id, instruction: step.instruction, screenshotId: step.screenshotId })) };
+    const imageBudget = { used: 0 };
     const steps = [];
     for (const [index, step] of exportSnapshot.steps.entries()) {
       if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
       const current = draft.steps.find((item) => item.id === step.id); if (!current) throw officeError("office-export-changed", "手順が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。", step);
-      steps.push({ number: index + 1, instruction: String(step.instruction || ""), image: step.screenshotId ? await editedOfficeImage(current, index) : null });
+      steps.push({ number: index + 1, instruction: String(step.instruction || ""), image: step.screenshotId ? await editedOfficeImage(current, index, imageBudget, tools) : null });
     }
     if (officeDraftContent(draft, title.value, description.value) !== exportContent || await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
-    const tools = await import("../export/office-export.js");
     if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     if (await fingerprintDraft(draft) !== exportFingerprint) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");

@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+## 容量とZIP32の境界
+
+flatten後に保持する編集済み画像の合計は64 MiB以下、生成するOfficeアーカイブは80 MiB以下とする。画像またはアーカイブが上限を超える場合は画像を省略せず、日本語で画像を小さくするか手順書を分けて再試行するよう案内する。ZIP32のentry数、各サイズ、offset、中央ディレクトリの値は32-bit範囲を検証し、値の切り詰めで生成を続行しない。
+
 ## 対象
 
 [ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)に従い、Chrome拡張のeditorからWord／PowerPointを端末へ保存する境界を定める。これはPDF出力、cloud保存、共有リンクとは別のlocal-only操作である。
