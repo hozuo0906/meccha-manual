@@ -644,7 +644,7 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
     await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
     await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
-    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.locator('input[aria-label="タイトル"]').inputValue(), draft.title);
     assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
     await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");

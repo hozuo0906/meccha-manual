@@ -539,8 +539,8 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     assert.equal(prepared.status, "ready");
     assert.equal(prepared.draftFingerprint, draftFingerprint);
     assert.equal(prepared.assets[0].assetSlot, 0);
-    assert.deepEqual(prepared.draft.steps[0].annotations, draft.screenshots[0].annotations);
-    assert.deepEqual(prepared.draft.steps[1].annotations, draft.screenshots[1].annotations);
+    assert.equal(prepared.draft.steps[0].annotations, undefined, "masked export clears editable annotation metadata");
+    assert.equal(prepared.draft.steps[1].annotations, undefined, "masked export clears editable annotation metadata");
     assert.equal(prepared.draft.steps.some((step) => "masks" in step), false);
     assert.deepEqual(await getDraft(worker, draft.id), sameContentDraft, "prepare must retain the local original");
     assert.equal((await readMetadata(worker, storageKey)).draftUpdatedAt, updatedAt, "prepare must retain the handoff timestamp while allowing unchanged content");
@@ -579,10 +579,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const sourceEncoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
     const sourceRectanglePixels = await decodePixelRegion(page, sourceEncoded, 12, 12, 80, 80);
     const rectanglePixels = await decodePixelRegion(page, encoded, 12, 12, 80, 80);
-    assert.deepEqual(rectanglePixels, sourceRectanglePixels, "safe base keeps rectangle annotations editable rather than flattening them");
+    assert.notDeepEqual(rectanglePixels, sourceRectanglePixels, "masked export burns rectangle annotations into the image");
     const sourceTextPixels = await decodePixelRegion(page, sourceEncoded, 192, 192, 80, 70);
     const textPixels = await decodePixelRegion(page, encoded, 192, 192, 80, 70);
-    assert.deepEqual(textPixels, sourceTextPixels, "safe base keeps text annotations editable rather than flattening them");
+    assert.notDeepEqual(textPixels, sourceTextPixels, "masked export burns text annotations into the image");
 
     const secondStarted = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 1 });
     assert.equal(secondStarted.ok, true);
@@ -595,10 +595,10 @@ test("MV3 cloud claim survives worker restart and TTL recovery while preserving 
     const secondEncoded = Buffer.concat(secondChunks.map((chunk) => Buffer.from(chunk, "base64"))).toString("base64");
     const sourceEllipsePixels = await decodePixelRegion(page, sourceEncoded, 180, 0, 130, 130);
     const ellipsePixels = await decodePixelRegion(page, secondEncoded, 180, 0, 130, 130);
-    assert.deepEqual(ellipsePixels, sourceEllipsePixels, "safe base keeps ellipse annotations editable rather than flattening them");
+    assert.notDeepEqual(ellipsePixels, sourceEllipsePixels, "masked export burns ellipse annotations into the image");
     const sourceArrowPixels = await decodePixelRegion(page, sourceEncoded, 24, 210, 160, 130);
     const arrowPixels = await decodePixelRegion(page, secondEncoded, 24, 210, 160, 130);
-    assert.deepEqual(arrowPixels, sourceArrowPixels, "safe base keeps arrow annotations editable rather than flattening them");
+    assert.notDeepEqual(arrowPixels, sourceArrowPixels, "masked export burns arrow annotations into the image");
     const artifactPath = resolve(".artifacts/editor-image-workspace/annotated-export-draft.json");
     await mkdir(resolve(".artifacts/editor-image-workspace"), { recursive: true });
     await writeFile(artifactPath, JSON.stringify({
@@ -1254,7 +1254,7 @@ test("MV3 bound external Access復帰から実WorkerのD1/R2保存と再閲覧�
     await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
     await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
     await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
-    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.locator('input[aria-label="タイトル"]').inputValue(), draft.title);
     assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
     await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");
@@ -1281,7 +1281,7 @@ test("MV3 expired in-flight transfer releases capacity exactly once", { timeout:
       title: "転送期限会計検証",
       description: "合成データのみ",
       updatedAt,
-      steps: [],
+      steps: [{ id: "runtime-transfer-step", order: 1, instruction: "転送容量を確認する", screenshotId: "asset-0" }],
       screenshots: [{ id: "asset-0", dataUrl, masks: [] }]
     };
     const draftFingerprint = await fingerprintDraft(draft);
@@ -1304,7 +1304,7 @@ test("MV3 expired in-flight transfer releases capacity exactly once", { timeout:
 
     for (let attempt = 0; attempt < 16; attempt += 1) {
       const started = await sendExternal(page, extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.asset.start", handoffId, action: "save", assetSlot: 0 });
-      assert.equal(started.ok, true);
+      assert.equal(started.ok, true, JSON.stringify(started));
       assert.ok(started.byteLength > 6 * 1024 * 1024, "fixture must make the total transfer limit observable");
       await worker.evaluate(() => {
         const originalDateNow = Date.now;
