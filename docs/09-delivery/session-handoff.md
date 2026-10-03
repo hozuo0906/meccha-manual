@@ -568,5 +568,6 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - OQ-033〜036はADR-0041 Accepted後の状態へ更新した。メールprovider／remote Google binding・稼働、SIWC商用client・資格、本人による明示identity linkと旧Access identity移行・復旧は未決・未確認のまま保持する。SIWCの申請回答待ちと商用client未発行も継続する。
 - 初期確認はsource HEAD、関連migration/source/types、ADR-0041、decision-log、要件、既存D1文書、OQを照合し、ソース不変を確認する。docs差分、D1 schema記載、`git diff --check`、関連文書／migration検査をこの作業単位で実行し、PR最新headのCI／Codex Reviewは親のrelease gateで再取得する。
 - 2026-10-04T01:15:52+09:00（Asia/Tokyo）に`docs:check`（143 files）、`migrations:check`（11 SQL）、`migration:safety:check`（11 SQL）、`app:auth:unit`（133/133、skip 0）、`encoding:check`（377 files）、`git diff --check`を実行し、すべてexit 0を確認した。親が同source基準で行った`wrangler.onboarding.jsonc --env staging` deploy dry-runもexit 0で、remote変更なし。今回source差分は0件である。
+- 追加P2修正（PR #284 Codex Review 5401643521、thread `PRRT_kwDOTpNknc6opXYj`）では、state／provider／verifier binding／期限の確認後にtransaction消費CASを先に確定し、nonce bindingとprovider tokenの署名・audience・issuer・nonce検証を消費後に行う順序を2つのD1正本へ明記した。後続検証に失敗してもtransactionは消費済みのため、ログインを最初からやり直す。OQ-036は`authMode`を「productまたはaccess」と記載してMarkdown表のセル境界を維持した。
 
 次の1マイルストーンは、今回の文書同期を含む最新headへCI／Codex Reviewとreview thread解決を照合し、その後にstaging接続の具体案（remote migration、Google binding、製品入口と運営health保護分離）を確定することである。remote migration、secret取得・変更、Access設定、実provider SSO、production反映は未実施である。

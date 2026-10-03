@@ -42,7 +42,7 @@ Access経路では、Access application JWTをWorkerが検証した後、検証�
 
 同migrationの`oauth_transactions`は、`id`（主キー）、`provider`（`google | chatgpt`）、`state_hash`（小文字hex 64文字、unique）、`nonce_hash`、`verifier_hash`（いずれも小文字hex 64文字）、`redirect_uri`、`return_path`、`created_at`、`expires_at`、`consumed_at`を持つ。`expires_at > created_at`、`consumed_at`はnullまたは`created_at`以降というCHECKを持ち、`(state_hash, expires_at, consumed_at)`のactive lookup indexを持つ。`id`、`provider`、`state_hash`、`created_at`はtriggerで不変とする。PKCE verifierとnonceは短命のHttpOnly cookieへbindし、保存するのはhashだけである。`return_path`はWorkerが同一originの`/`、`/onboarding/continue`、`/manuals`だけに制限する。
 
-callback処理のtransaction消費はstate、provider、cookie binding、期限、nonceの確認後に`consumed_at IS NULL`条件の更新を行い、変更件数1件だけを一回消費として受理する。その後provider tokenの署名、audience、issuerを検証する。
+callback処理はstate、provider、cookieのPKCE verifier binding、期限を確認してから`consumed_at IS NULL`条件のCAS更新を一回行い、変更件数1件でtransaction消費を確定する。消費後にcookieのnonce bindingを照合し、その後provider tokenの署名、audience、issuer、nonceを検証する。nonceまたはtoken検証など後続処理に失敗してもtransactionは消費済みのため、同じcallbackを再送せずログインを最初からやり直す。
 
 `/api/session`のD1応答は認証方式を`authMode: "product" | "access"`で返す。製品sessionは`application_id`へ解決した後、既存のPersonal Workspace bootstrapとworkspace固定queryを使う。製品sessionの不正・期限切れ・失効時にAccessやlegacy passwordへfallbackせず、Accessのservice tokenを人間向けactorへ写像しない。Accessの`access_user`は検証済みissuer／subjectとactive identity・membershipを必要とし、`service_token`はmachine専用経路（例: `/health/config`）に限定する。製品sessionとAccess sessionは別cookie・別検証経路だが、業務repositoryはどちらも解決済みの`actorId`と`workspaceId`を必須にし、active identity、membership、role、workspace statusを同じ固定条件で再確認する。
 
