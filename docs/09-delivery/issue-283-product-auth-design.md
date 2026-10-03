@@ -2,7 +2,7 @@
 
 Status: Proposed
 
-専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意とOAuthの構成作成も完了している。ただし請求先アカウントはなく、OAuth clientは未作成である。Googleログインは未稼働として扱う。
+専用Google Cloud project `meccha-manual-auth`は作成済みで、Google API policyへの同意、OAuthの構成作成、OAuth client作成が完了している。請求先アカウントはなく、client資格情報はrepo外で保護済みである。ただしcallback/startのsource実装、schema、bindingは未実装のため、Googleログインは未稼働として扱う。
 
 Date: 2026-10-03
 
@@ -75,7 +75,7 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 
 ## 設定・依存の候補
 
-現リポジトリでGoogle OAuth client、メール送信、SIWCのclient設定が確認できていないため、以下は候補名であり未登録である。Google Cloud project、OAuthの構成作成、Google API policyへの同意は完了済みだが、請求先アカウントはない。
+現リポジトリでGoogleのcredential binding、callback/start実装、schema、メール送信、SIWCのclient設定が確認できていないため、以下は実装候補名である。Google OAuth clientは作成済みでclient資格情報はrepo外で保護済みだが、請求先アカウントはない。
 
 - Google候補: `GOOGLE_OIDC_CLIENT_ID`、`GOOGLE_OIDC_CLIENT_SECRET`、環境別redirect URI
 - メール候補: `EMAIL_CODE_PROVIDER`、送信元名、provider secret
@@ -99,7 +99,7 @@ sessionの平文token、OIDC token、ChatGPT credential、メール確認コー�
 ## 必要な外部操作と未決事項
 
 - メール送信providerの選定、送信元domain、staging/production credential、rate limitと失敗時運用の承認。
-- Google Cloud側の請求先アカウント、OAuth client、環境別callback URL、issuer/audience、verified email運用の登録。OAuthの構成作成とGoogle API policyへの同意は完了済みである。
+- Google Cloud側の請求先アカウント、作成済みclientの環境別callback URL、issuer/audience、verified email運用の登録。OAuthの構成作成、Google API policyへの同意、client作成は完了済みだが、source実装とbindingは未実装である。
 - OpenAI側のSIWC商用client登録・利用資格、identity scopeとplan usage scopeの可否、callbackとtoken endpointの登録。
 - 既存Access identityを新provider identityへ明示linkする本人確認手順と、link解除・アカウント復旧方針。
 - `accounts`/link table、session、challengeのD1 schema、migration、backup/restore、negative/mutation testの承認。
