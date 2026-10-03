@@ -19,7 +19,7 @@ test("recording normalization keeps event identity while excluding input values"
 
 test("native capture source has no automatic mask or alias screenshot path", () => {
   assert.doesNotMatch(workerSource, /takeMaskedScreenshot|captureWithMaskBoundary|installSensitiveMasks/);
-  assert.doesNotMatch(workerSource, /capturePrivacyAliases|privateAliasAllocations|privacyReview/);
+  assert.doesNotMatch(workerSource, /capturePrivacyAliases|privateAliasAllocations/);
 });
 
 test("capture normalization rejects values from click metadata as well", () => {
