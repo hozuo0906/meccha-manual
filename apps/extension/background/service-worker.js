@@ -8,7 +8,7 @@ import { nextRecoveryJournal } from "./recovery-journal.js";
 import { recoverWindowSession } from "./session-recovery.js";
 import { CLOUD_CLAIM_MAX_ASSETS, handleExternalCloudClaimMessage } from "./cloud-claim.js";
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
-import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, withHandoffReadyLock } from "../editor/handoff.js";
+import { buildContinueUrl, handoffReadyStorageKey, handoffStorageKey, validOfficeFormat, validOutputAction, withHandoffReadyLock } from "../editor/handoff.js";
 
 const SESSION_KEY = "activeCaptureSession";
 const RECOVERY_KEY = "captureRecoveryJournal";
@@ -908,13 +908,39 @@ if (chrome.action?.onClicked?.addListener && chrome.sidePanel?.open) {
 serializeSessionOperation(recoverInterruptedStartingSession).catch(() => undefined);
 
 const HANDOFF_PAGE_READY_SCHEMA = "meccha-manual/cloud-claim-v1";
-const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share"]);
+const HANDOFF_PAGE_READY_TYPES = new Set(["save", "share", "office"]);
 const HANDOFF_PAGE_READY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_PAGE_READY_FINGERPRINT = /^[a-f0-9]{64}$/;
 const HANDOFF_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 const HANDOFF_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_READY_KEY_PREFIX = "meccha-manual:handoff-ready:";
 const handoffExternalOperations = new Map();
+
+function validHandoffIntent(action, officeFormat) {
+  return validOutputAction(action) && (action === "office" ? validOfficeFormat(officeFormat) : officeFormat === undefined);
+}
+
+function sameHandoffIntent(left, right) {
+  return left?.outputAction === right?.action && (right?.action === "office" ? left.officeFormat === right.officeFormat : left?.officeFormat === undefined && right?.officeFormat === undefined);
+}
+
+async function handleOfficeReturn(message, sender) {
+  const validMessage = message?.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.office-return" &&
+    HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") && validOfficeFormat(message.officeFormat) &&
+    Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "officeFormat"].includes(key));
+  if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+  const key = handoffReadyStorageKey(message.handoffId, message.launchId);
+  const ready = (await chrome.storage.local.get(key))?.[key];
+  const metadata = (await chrome.storage.local.get(handoffStorageKey(message.handoffId)))?.[handoffStorageKey(message.handoffId)];
+  if (!ready || !metadata || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id || ready.activationPolicy === "cancelled" ||
+    metadata.status !== "completed" || !validHandoffIntent(metadata.outputAction, metadata.officeFormat) || metadata.outputAction !== "office" || metadata.officeFormat !== message.officeFormat || metadata.expiresAt !== ready.expiresAt || !Number.isFinite(Date.parse(metadata.expiresAt || "")) || Date.parse(metadata.expiresAt) <= Date.now()) return { ok: false, error: "OFFICE_RETURN_REJECTED" };
+  const editorUrl = chrome.runtime.getURL(`editor/editor.html#${metadata.draftId}`);
+  const tabs = typeof chrome.tabs?.query === "function" ? await chrome.tabs.query({}) : [];
+  const existing = tabs.find((tab) => tab?.url === editorUrl);
+  if (Number.isInteger(existing?.id)) await chrome.tabs.update(existing.id, { active: true });
+  else await chrome.tabs.create({ url: editorUrl, active: true });
+  return { ok: true, status: "editor-opened" };
+}
 
 function recoveryMetadataForHandoff(metadata) {
   if (!metadata || typeof metadata !== "object") return null;
@@ -952,14 +978,15 @@ async function handleInitialHandoffAccessReturn(sender, locked = false) {
   const pendingRecovery = metadata?.status === "finalize-pending" || metadata?.status === "completion-pending";
   const validIdentity = !metadata?.operationId || /^[A-Za-z0-9_-]{16,128}$/.test(metadata.operationId);
   const validMetadata = metadata?.handoffId === ready.handoffId && HANDOFF_EXTENSION_ID_PATTERN.test(metadata.extensionId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(metadata.outputAction) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
+    validHandoffIntent(metadata.outputAction, metadata.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(metadata.draftFingerprint || "") &&
     Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt &&
     validIdentity && metadata.status !== "completed" &&
     (pendingRecovery ? recoveryMetadataForHandoff(metadata) !== null : metadataExpiresAt > Date.now());
   if (!validMetadata) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+  if ((ready.requestedAction ?? metadata.outputAction) === "office" && (ready.requestedOfficeFormat ?? metadata.officeFormat) !== metadata.officeFormat) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   let pendingUrl;
   try {
-    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, ready.launchId);
+    pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, ready.handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, ready.launchId, ready.requestedOfficeFormat ?? metadata.officeFormat);
   } catch {
     return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   }
@@ -981,8 +1008,8 @@ async function handleHandoffAccessReturn(message, sender) {
     message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.access-return" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
     HANDOFF_EXTENSION_ID_PATTERN.test(message.extensionId || "") && HANDOFF_OPERATION_ID_PATTERN.test(message.operationId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(message.action) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
-    typeof message.expiresAt === "string" && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "extensionId", "operationId", "action", "draftFingerprint", "expiresAt"].includes(key));
+    validHandoffIntent(message.action, message.officeFormat) && HANDOFF_PAGE_READY_FINGERPRINT.test(message.draftFingerprint || "") &&
+    typeof message.expiresAt === "string" && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "extensionId", "operationId", "action", "officeFormat", "draftFingerprint", "expiresAt"].includes(key));
   if (!validMessage || !validHandoffAccessReturnSender(sender)) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
   const handoffId = message.handoffId;
   const readyKey = handoffReadyStorageKey(handoffId, message.launchId);
@@ -997,11 +1024,12 @@ async function handleHandoffAccessReturn(message, sender) {
     const validExpiry = Number.isFinite(readyExpiresAt) && Number.isFinite(metadataExpiresAt) && ready.expiresAt === metadata.expiresAt && metadata.expiresAt === message.expiresAt;
     const validIdentity = !metadata?.operationId || metadata.operationId === message.operationId;
     if (!ready || ready.tabId !== sender.tab.id || ready.handoffId !== handoffId || ready.launchId !== message.launchId || ready.activationPolicy === "cancelled" || Number(ready.restoreAttempts || 0) >= 3 ||
-      !metadata || metadata.handoffId !== handoffId || metadata.extensionId !== message.extensionId || metadata.outputAction !== message.action || metadata.draftFingerprint !== message.draftFingerprint || !validExpiry || !validIdentity || metadata.status === "completed" ||
+      !metadata || metadata.handoffId !== handoffId || metadata.extensionId !== message.extensionId || !sameHandoffIntent(metadata, message) || metadata.draftFingerprint !== message.draftFingerprint || !validExpiry || !validIdentity || metadata.status === "completed" ||
       (!pendingRecovery && metadataExpiresAt <= Date.now())) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
+    if ((ready.requestedAction ?? metadata.outputAction) === "office" && (ready.requestedOfficeFormat ?? metadata.officeFormat) !== metadata.officeFormat) return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     let pendingUrl;
     try {
-      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, message.launchId);
+      pendingUrl = buildContinueUrl(STAGING_ONBOARDING_ORIGIN, handoffId, metadata.extensionId, recoveryMetadataForHandoff(metadata), ready.requestedAction ?? metadata.outputAction, message.launchId, ready.requestedOfficeFormat ?? metadata.officeFormat);
     } catch {
       return { ok: false, error: "HANDOFF_ACCESS_RETURN_REJECTED" };
     }
@@ -1043,7 +1071,7 @@ async function handleHandoffPageReady(message, sender) {
   const validMessage = message && typeof message === "object" && !Array.isArray(message) &&
     message.schema === HANDOFF_PAGE_READY_SCHEMA && message.type === "handoff.page-ready" &&
     HANDOFF_PAGE_READY_PATTERN.test(message.handoffId || "") && HANDOFF_PAGE_READY_PATTERN.test(message.launchId || "") &&
-    HANDOFF_PAGE_READY_TYPES.has(message.action) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action"].includes(key));
+    validHandoffIntent(message.action, message.officeFormat) && Object.keys(message).every((key) => ["schema", "type", "handoffId", "launchId", "action", "officeFormat"].includes(key));
   if (!validMessage || !validHandoffPageReadySender(sender)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
   const key = handoffStorageKey(message.handoffId);
   const readyKey = handoffReadyStorageKey(message.handoffId, message.launchId);
@@ -1051,20 +1079,20 @@ async function handleHandoffPageReady(message, sender) {
     const stored = (await chrome.storage.local.get(key))?.[key];
     const ready = (await chrome.storage.local.get(readyKey))?.[readyKey];
     const expiresAt = Date.parse(stored?.expiresAt || "");
-    if (!stored || stored.handoffId !== message.handoffId || stored.outputAction !== message.action || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!stored || stored.handoffId !== message.handoffId || !sameHandoffIntent(stored, message) || !HANDOFF_PAGE_READY_FINGERPRINT.test(stored.draftFingerprint || "") || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!ready || ready.handoffId !== message.handoffId || ready.launchId !== message.launchId || ready.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || "")) && Number.isFinite(Date.parse(ready?.activatedAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
     if (ready?.activationPolicy === "cancelled") return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const activationDeadlineAt = Date.parse(ready?.activationDeadlineAt || "");
-    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
-    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt };
+    if (ready?.activationPolicy === "manual" || (Number.isFinite(activationDeadlineAt) && activationDeadlineAt < Date.now())) return { ok: true, status: "manual", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
+    if (Number.isFinite(Date.parse(ready?.pageReadyAt || ""))) return { ok: true, status: "ready", extensionId: stored.extensionId, draftFingerprint: stored.draftFingerprint, expiresAt: stored.expiresAt, ...(stored.outputAction === "office" ? { officeFormat: stored.officeFormat } : {}) };
     const latest = (await chrome.storage.local.get(key))?.[key];
     const latestReady = (await chrome.storage.local.get(readyKey))?.[readyKey];
-    if (!latest || latest.handoffId !== message.handoffId || latest.outputAction !== message.action) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
+    if (!latest || latest.handoffId !== message.handoffId || !sameHandoffIntent(latest, message)) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     if (!latestReady || latestReady.handoffId !== message.handoffId || latestReady.launchId !== message.launchId || latestReady.tabId !== sender.tab.id) return { ok: false, error: "HANDOFF_PAGE_READY_REJECTED" };
     const readyAt = new Date().toISOString();
     await chrome.storage.local.set({ [readyKey]: { ...latestReady, pageReadyAt: readyAt, activatedAt: null } });
-    return { ok: true, status: "ready", extensionId: latest.extensionId, draftFingerprint: latest.draftFingerprint, expiresAt: latest.expiresAt };
+    return { ok: true, status: "ready", extensionId: latest.extensionId, draftFingerprint: latest.draftFingerprint, expiresAt: latest.expiresAt, ...(latest.outputAction === "office" ? { officeFormat: latest.officeFormat } : {}) };
   });
 }
 
@@ -1098,7 +1126,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
-  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : handleExternalCloudClaimMessage;
+  const handler = message?.type === "handoff.page-ready" ? handleHandoffPageReady : message?.type === "handoff.access-return" ? handleHandoffAccessReturn : message?.type === "handoff.office-return" ? handleOfficeReturn : handleExternalCloudClaimMessage;
   queueHandoffExternalOperation(message, sender, () => handler(message, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "HANDOFF_FAILED" }));
   return true;
 });

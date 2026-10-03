@@ -46,7 +46,7 @@ Status: Accepted
 | FR-021 | NEXT | 利用権と上限を適用できる | MVPの価値検証後にFree/Pro/Teamの提供条件を確定し、manual数、席数、保存容量等の必要な境界をサーバー側で検証する。Chrome拡張によるcapture時間を利用者向け課金軸にしない |
 | FR-022 | MVP | アカウント未作成でも1本目をローカル作成できる | Chrome拡張のIndexedDB等のローカル領域だけでcapture event、画像、下書き、編集内容を保持し、D1/R2へguest contentを送信しない。`保存 / 共有 / PDF出力` で認証を要求し、認証後は冪等なguest claimで同じ下書きをPersonal Workspaceへ移して元の操作を続行する |
 | FR-023 | NEXT | Markdown／HTML出力ができる | PDFとは分離して需要を検証し、提供する形式ごとに日本語、画像、ぼかし、リンクの保持を確認する |
-| FR-024 | MVP | 端末でWord／PowerPointへ書き出せる | ログインなしで現在のローカル下書きをsnapshotし、最新の注釈・置換・黒塗りをflattenした画像と日本語本文を含むOfficeファイルをダウンロードできる。処理中・失敗・要確認画像は黙って省略せず、日本語の再試行案内を表示する。PDF、cloud保存、共有リンクの認証境界は変更しない |
+| FR-024 | MVP | 端末でWord／PowerPointへ書き出せる | output操作時に認証・workspace claimを経て、現在のローカル下書きをsnapshotし、最新の注釈・置換・黒塗りをflattenした画像と日本語本文を含むOfficeファイルをダウンロードできる。未認証なら既存handoffでログインへ進み、認証済みなら再ログインせず同じ形式へ戻る。処理中・失敗・要確認画像は黙って省略せず、日本語の再試行案内を表示する。PDF、cloud保存、共有リンクの認証境界は維持する。
 
 ## MVP Product Event
 

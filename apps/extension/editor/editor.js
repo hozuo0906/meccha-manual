@@ -3,7 +3,7 @@ import { createImageEditor } from "./image-editor.js";
 import { drawScreenshot } from "./image-renderer.js";
 import { createSyntheticPerson, syntheticPersonForReplacementAnnotations } from "./personal-info-replacement.js";
 import { normalizeUploadedImage, assertImageCapacity, assertImageDimensions, dataUrlBytes, MAX_IMAGE_BYTES, ACCEPTED_IMAGE_TYPES } from "./image-import.js";
-import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
+import { buildContinueUrl, canonicalDraftJson, createHandoffAttemptId, createHandoffMetadata, findRecoverableHandoff, fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, pruneExpiredHandoffs, saveHandoffMetadata, validOfficeFormat, withHandoffDraftLock, withHandoffReadyLock } from "./handoff.js";
 import { getOnboardingOrigin } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
 
@@ -33,6 +33,7 @@ const saveState = document.querySelector("#saveState");
 const cloudSaveState = document.querySelector("#cloudSaveState");
 let cloudStateVersion = 0;
 const cloudReferenceKey = "meccha-manual:cloud-ref:" + id;
+const officeIntentKey = "meccha-manual:office-intent:" + id;
 const handoffProgress = document.querySelector("#handoffProgress");
 const handoffProgressText = document.querySelector("#handoffProgressText");
 const pendingRegistrationMessage = "保存先を準備できません。時間をおいてもう一度お試しください。手順書はこの端末に残っています。";
@@ -55,6 +56,9 @@ const replacementPeople = new Map();
 const undoStack = [];
 const redoStack = [];
 let outputIntent = "save";
+let outputOfficeFormat = null;
+let pendingOfficeResume = null;
+let officeResumePromise = null;
 let outputGateGeneration = 0;
 let outputPreflight = false;
 let officeExportInFlight = false;
@@ -193,8 +197,55 @@ async function refreshCloudReference(reference) {
   if (version !== cloudStateVersion) return;
   cloudSaveState.textContent = saved ? "クラウドに保存済み" : "クラウド未反映の変更あり";
 }
+
+async function saveOfficeIntent(intent) {
+  if (!chrome.storage?.local?.set) throw new Error("OFFICE_INTENT_STORAGE_UNAVAILABLE");
+  await chrome.storage.local.set({ [officeIntentKey]: intent });
+  pendingOfficeResume = intent;
+}
+
+async function readOfficeIntent() {
+  if (!chrome.storage?.local?.get) return null;
+  const value = (await chrome.storage.local.get(officeIntentKey))?.[officeIntentKey];
+  if (!value || value.draftId !== id || !validOfficeFormat(value.officeFormat) || typeof value.handoffId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.handoffId) || !/^[a-f0-9]{64}$/.test(value.draftFingerprint || "") || !Number.isFinite(Date.parse(value.expiresAt || ""))) return null;
+  if (Date.parse(value.expiresAt) <= Date.now()) { await chrome.storage.local.remove(officeIntentKey); return null; }
+  pendingOfficeResume = value;
+  return value;
+}
+
+async function clearOfficeIntent() {
+  pendingOfficeResume = null;
+  if (chrome.storage?.local?.remove) await chrome.storage.local.remove(officeIntentKey);
+}
+
+async function resumeOfficeAfterClaim(metadata) {
+  if (officeResumePromise || !pendingOfficeResume || metadata?.outputAction !== "office" || metadata.officeFormat !== pendingOfficeResume.officeFormat || metadata.handoffId !== pendingOfficeResume.handoffId || metadata.status !== "completed" || metadata.draftFingerprint !== pendingOfficeResume.draftFingerprint) return;
+  officeResumePromise = withHandoffDraftLock(draft.id, async () => {
+    // Re-read and consume the intent while holding the shared draft lock. Two
+    // editor tabs can observe the same completed handoff; only one may start
+    // the download.
+    const intent = await readOfficeIntent();
+    if (!intent || intent.handoffId !== metadata.handoffId || intent.officeFormat !== metadata.officeFormat || intent.draftFingerprint !== metadata.draftFingerprint) return;
+    if (Date.parse(metadata.expiresAt || "") <= Date.now() || await fingerprintDraft(draft) !== intent.draftFingerprint) {
+      setOfficeExportStatus("認証後に手順書が変更されたため、Office出力を中止しました。最新の内容で再試行してください。", "warning");
+      await clearOfficeIntent();
+      return;
+    }
+    const format = intent.officeFormat;
+    await clearOfficeIntent();
+    setOfficeExportStatus("認証と保存先の確認が完了しました。Officeファイルを作成しています。", "saving");
+    await exportOffice(format, null);
+  }).catch(() => {
+    setOfficeExportStatus("認証後のOfficeファイル作成に失敗しました。もう一度Office出力を選んでください。", "error");
+  }).finally(() => { officeResumePromise = null; });
+  await officeResumePromise;
+}
+
 chrome.storage?.onChanged?.addListener((changes, area) => {
-  if (area === "local" && changes[cloudReferenceKey]?.newValue) void refreshCloudReference(changes[cloudReferenceKey].newValue);
+  if (area !== "local") return;
+  if (changes[cloudReferenceKey]?.newValue) void refreshCloudReference(changes[cloudReferenceKey].newValue);
+  const handoffChanges = Object.entries(changes).filter(([key]) => key.startsWith("meccha-manual:handoff:") && !key.startsWith("meccha-manual:handoff-ready:"));
+  for (const [, change] of handoffChanges) if (change.newValue) void resumeOfficeAfterClaim(change.newValue);
 });
 
 function setSaveState(label, state = "saved") {
@@ -785,17 +836,21 @@ async function exportOffice(format, button) {
     if (officeDraftContent(draft, title.value, description.value) !== exportContent) throw officeError("office-export-changed", "編集中の内容が変わったため、Officeファイルの作成を中止しました。最新の内容で再試行してください。");
     const bytes = format === "docx" ? tools.buildDocx({ title: exportSnapshot.title, description: exportSnapshot.description, steps }) : tools.buildPptx({ title: exportSnapshot.title, description: exportSnapshot.description, steps });
     if (!(bytes instanceof Uint8Array) || !bytes.length) throw officeError("office-export-failed", "Officeファイルを作成できませんでした。内容を確認して再試行してください。");
-    downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。クラウド保存・共有設定は変更していません。`, "success");
+    downloadOffice(bytes, exportSnapshot.title, format); setOfficeExportStatus(`${format === "docx" ? "Word" : "PowerPoint"}ファイルを書き出しました。認証済みワークスペースへの保存を確認しました。共有設定は変更していません。`, "success");
   } catch (error) { setOfficeExportStatus(officeExportMessage(error), error?.code === "office-export-changed" ? "warning" : "error"); }
   finally { officeExportInFlight = false; [exportWord, exportPowerPoint].forEach((item) => { if (item) item.disabled = false; }); if (button) button.removeAttribute("aria-busy"); updateImageSummary(); }
 }
-async function openOutput(action) {
+async function openOutput(action, officeFormat = undefined) {
+  if (action === "office" && !validOfficeFormat(officeFormat)) return;
+  if (action !== "office") officeFormat = undefined;
   if(imageDialog.open){status.textContent="画像の変更を適用するか、閉じてから保存・共有へ進んでください。";return;}
   if (!textFieldsValid()) { status.textContent = title.validationMessage || description.validationMessage; title.reportValidity(); description.reportValidity(); return; }
   if (imageDialog.open) { status.textContent = "画像の変更を適用するか、閉じてから保存・共有してください。"; return; }
-  const generation = ++outputGateGeneration; outputIntent = action; closePanels();
-  document.querySelector("#outputGateTitle").textContent = action === "share" ? "共有する内容を確認" : "クラウドに保存する内容を確認";
+  const generation = ++outputGateGeneration; outputIntent = action; outputOfficeFormat = officeFormat || null; closePanels();
+  document.querySelector("#outputGateTitle").textContent = action === "share" ? "共有する内容を確認" : action === "office" ? `${officeFormat === "docx" ? "Word" : "PowerPoint"}を書き出す準備` : "クラウドに保存する内容を確認";
   startRegistration.hidden = action === "share"; startShare.hidden = action !== "share";
+  if (action === "office") startRegistration.textContent = `ログインして${officeFormat === "docx" ? "Word" : "PowerPoint"}を書き出す`;
+  else startRegistration.textContent = "ログインしてクラウドに保存";
   outputPreflight = true; gateStatus.textContent = "画像と端末の保存状態を確認しています…"; renderOutputSummary();
   if (!outputGate.open) outputGate.showModal();
   if (pendingImages.size) { gateStatus.textContent = "追加した画像を端末に保存しています。完了後、内容を確認できます。"; await Promise.all([...pendingImages.values()].map((entry) => entry.promise)); }
@@ -809,8 +864,11 @@ async function openOutput(action) {
 document.querySelector("#save").addEventListener("click", () => openOutput("save"));
 document.querySelector("#share").addEventListener("click", () => openOutput("share"));
 document.querySelector("#mobileShare").addEventListener("click", () => openOutput("share"));
-exportWord?.addEventListener("click", () => exportOffice("docx", exportWord));
-exportPowerPoint?.addEventListener("click", () => exportOffice("pptx", exportPowerPoint));
+// A cloudRef identifies a saved revision, not a live authenticated session.
+// Always use the existing auth/workspace handoff; an already authenticated
+// browser session returns through it without asking the user to log in again.
+exportWord?.addEventListener("click", () => openOutput("office", "docx"));
+exportPowerPoint?.addEventListener("click", () => openOutput("office", "pptx"));
 
 function applyBranding() {
   const color = /^#[\da-f]{6}$/i.test(draft.branding?.themeColor || "") ? draft.branding.themeColor : "#087f7a";
@@ -844,8 +902,20 @@ function cancelHandoffRun(run) {
   if (!run || run.cancelled || run.tabState === "activating") return;
   run.cancelled = true;
   if (activeHandoffAttempt === run) activeHandoffAttempt = null;
+  if (run.outputAction === "office" && run.handoffId) void clearOfficeIntentForRun(run);
   updateHandoffActivationPolicy(run, "cancelled").catch(() => undefined);
   cleanupProvisionalHandoffTab(run).catch(() => undefined);
+}
+
+async function clearOfficeIntentForRun(run) {
+  try {
+    await withHandoffDraftLock(draft.id, async () => {
+      const current = (await chrome.storage.local.get(officeIntentKey))?.[officeIntentKey];
+      if (current?.handoffId === run.handoffId) await chrome.storage.local.remove(officeIntentKey);
+    });
+  } catch {
+    // A competing run keeps its newer intent when the shared lock is unavailable.
+  }
 }
 
 async function cleanupProvisionalHandoffTab(run) {
@@ -865,7 +935,7 @@ async function cleanupProvisionalHandoffTab(run) {
   }
 }
 
-async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
+async function openHandoffTab(origin, metadata, recovery, outputAction, officeFormat, run) {
   if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
   const launchId = createHandoffAttemptId();
   const tab = await chrome.tabs.create({ url: "about:blank", active: false });
@@ -895,6 +965,7 @@ async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
     await chrome.storage.local.set({ [readyKey]: {
       handoffId: base.handoffId,
       requestedAction: outputAction,
+      ...(outputAction === "office" ? { requestedOfficeFormat: officeFormat } : {}),
       launchId,
       tabId: tab.id,
       expiresAt: base.expiresAt,
@@ -910,7 +981,7 @@ async function openHandoffTab(origin, metadata, recovery, outputAction, run) {
     run.tabState = "navigating";
     try {
       await chrome.tabs.update(tab.id, {
-        url: buildContinueUrl(origin, base.handoffId, base.extensionId, recovery, outputAction, launchId),
+        url: buildContinueUrl(origin, base.handoffId, base.extensionId, recovery, outputAction, launchId, officeFormat),
         active: false
       });
       run.tabState = "prepared";
@@ -1005,13 +1076,15 @@ async function activateReadyHandoff(run, ready) {
   return activateHandoffTab(run, "auto");
 }
 
-async function startOutput(outputAction) {
+async function startOutput(outputAction, officeFormat = undefined) {
+  if (outputAction === "office" && !validOfficeFormat(officeFormat)) return;
+  if (outputAction !== "office") officeFormat = undefined;
   const origin = updateRegistrationAvailability();
   if (!origin || outputPreflight || !textFieldsValid() || outputInFlight || pendingImages.size || unresolvedSteps().length || localWriteFailed || activeHandoffAttempt?.tabState === "activating") return;
   outputInFlight = true;
   const previousAttempt = activeHandoffAttempt;
   cancelHandoffRun(previousAttempt);
-  const run = { runId: ++handoffRunGeneration, cancelled: false, handoffId: null, launchId: null, tabId: null, tabState: "none", tabCleanupStarted: false };
+  const run = { runId: ++handoffRunGeneration, outputAction, officeFormat, cancelled: false, handoffId: null, launchId: null, tabId: null, tabState: "none", tabCleanupStarted: false };
   activeHandoffAttempt = run;
   pendingHandoffTabId = null;
   if (activateHandoff) activateHandoff.hidden = true;
@@ -1019,7 +1092,7 @@ async function startOutput(outputAction) {
   startRegistration.disabled = true;
   if (startShare) startShare.disabled = true;
   if (handoffProgress) handoffProgress.hidden = false;
-  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有の準備をしています。" : "ワークスペースへの保存を準備しています。";
+  if (handoffProgressText) handoffProgressText.textContent = outputAction === "share" ? "共有の準備をしています。" : outputAction === "office" ? "Office出力の認証と保存先を準備しています。" : "ワークスペースへの保存を準備しています。";
   gateStatus.textContent = "保存先の準備画面を開いています。ログインが必要な場合は、表示された画面で続けてください。";
   try {
     await withHandoffDraftLock(draft.id, async () => {
@@ -1028,13 +1101,14 @@ async function startOutput(outputAction) {
       await pruneExpiredHandoffs();
       const extensionId = chrome.runtime?.id;
       const draftFingerprint = await fingerprintDraft(draft);
-      const recovery = await findRecoverableHandoff(draft.id, draftFingerprint, undefined, outputAction);
-      const metadata = recovery || createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint);
+      const recovery = await findRecoverableHandoff(draft.id, draftFingerprint, undefined, outputAction, officeFormat);
+      const metadata = recovery || createHandoffMetadata(draft.id, outputAction, Date.now(), extensionId, draft.updatedAt, draftFingerprint, officeFormat);
       const reconcilingPendingSave = recovery && ["finalize-pending", "completion-pending"].includes(recovery.status);
       if (metadata.draftFingerprint !== draftFingerprint && !reconcilingPendingSave) throw new Error("DRAFT_CHANGED");
       run.handoffId = metadata.handoffId;
+      if (outputAction === "office") await saveOfficeIntent({ draftId: draft.id, handoffId: metadata.handoffId, officeFormat, draftFingerprint, expiresAt: metadata.expiresAt });
       if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
-      const opened = await openHandoffTab(origin, metadata, recovery, outputAction, run);
+      const opened = await openHandoffTab(origin, metadata, recovery, outputAction, officeFormat, run);
       if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
       const ready = await waitForPageReady(opened.metadata.handoffId, opened.launchId, opened.tabId, run);
       if (!isActiveHandoffRun(run)) throw new Error("HANDOFF_CANCELLED");
@@ -1103,7 +1177,7 @@ activateHandoff?.addEventListener("click", async () => {
     if ((activeHandoffAttempt === attempt || activeHandoffAttempt === null) && attempt.tabState !== "activating") activateHandoff.disabled = false;
   }
 });
-startRegistration.addEventListener("click", () => startOutput("save"));
+startRegistration.addEventListener("click", () => startOutput(outputIntent, outputIntent === "office" ? outputOfficeFormat : undefined));
 startShare?.addEventListener("click", () => startOutput("share"));
 cancelOutput?.addEventListener("click", () => {
   if (activeHandoffAttempt?.tabState === "activating") return;
@@ -1120,7 +1194,7 @@ outputGate.addEventListener("cancel", (event) => {
 outputGate.addEventListener("close", () => {
   outputGateGeneration += 1; outputPreflight = false;
   status.textContent = "ログイン・保存の準備を閉じました。下書きはこの端末に残っています。";
-  document.querySelector(outputIntent === "share" ? "#share" : "#save")?.focus({ preventScroll: true });
+  document.querySelector(outputIntent === "share" ? "#share" : outputIntent === "office" ? (outputOfficeFormat === "docx" ? "#exportWord" : "#exportPowerPoint") : "#save")?.focus({ preventScroll: true });
   const attempt = activeHandoffAttempt;
   cancelHandoffRun(attempt);
 });
@@ -1129,5 +1203,17 @@ for (const step of interruptedImages) setImageState(step, "unavailable", "captur
 render();
 notifyEditorReady();
 void refreshCloudReference().catch(() => { if (cloudSaveState) cloudSaveState.textContent = "クラウド保存状態を確認できません"; });
+void (async () => {
+  const intent = await readOfficeIntent().catch(() => null);
+  if (!intent || !chrome.storage?.local?.get) return;
+  const metadata = (await chrome.storage.local.get(handoffStorageKey(intent.handoffId)).catch(() => ({})))?.[handoffStorageKey(intent.handoffId)];
+  // A persisted completed record is only a recovery hint. It does not prove
+  // that the current browser session is still authenticated after reload or
+  // logout, so require a fresh Office output handoff instead of downloading.
+  if (metadata?.status === "completed") {
+    await clearOfficeIntent();
+    setOfficeExportStatus("認証済みセッションを確認するため、Office出力をもう一度選択してください。", "warning");
+  }
+})();
 if (interruptedImages.length) persist("前回の画像準備が完了しませんでした。画像を追加するか、説明だけの手順に変更できます。");
 document.getElementById("editor-heading")?.focus({ preventScroll: true });

@@ -1,6 +1,6 @@
 import { STAGING_ONBOARDING_ORIGIN } from "../onboarding-config.js";
 import { draftStore } from "../storage/draft-store.js";
-import { fingerprintDraft, handoffStorageKey, legacyFingerprintDraft } from "../editor/handoff.js";
+import { fingerprintDraft, handoffReadyStorageKey, handoffStorageKey, legacyFingerprintDraft, validOfficeFormat, validOutputAction } from "../editor/handoff.js";
 import { normalizeAnnotations } from "../editor/image-annotations.js";
 import { drawScreenshot, cloudImageLayers } from "../editor/image-renderer.js";
 
@@ -24,8 +24,6 @@ let transferBytesTotal = 0;
 let transferBytesReserved = 0;
 let snapshotBytesTotal = 0;
 const MAX_MESSAGE_BYTES = 32 * 1024;
-const OUTPUT_ACTIONS = new Set(["save", "share"]);
-
 function reject(code) {
   return { ok: false, error: code };
 }
@@ -43,16 +41,16 @@ export function safeMessage(message, type) {
   try { size = new TextEncoder().encode(JSON.stringify(message)).byteLength; } catch { return false; }
   if (size > MAX_MESSAGE_BYTES || Object.keys(message || {}).some((key) => /authorization|cookie|password|token|credential/i.test(key))) return false;
   const allowed = {
-    "handoff.begin": ["schema", "type", "handoffId", "action"],
-    "handoff.prepare": ["schema", "type", "handoffId", "action"],
-    "handoff.logo.start": ["schema", "type", "handoffId", "action"],
-    "handoff.logo.chunk": ["schema", "type", "handoffId", "action", "sequence"],
-    "handoff.asset.start": ["schema", "type", "handoffId", "action", "assetSlot"],
-    "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "assetSlot", "sequence"],
-    "handoff.recovery": ["schema", "type", "handoffId", "action"],
-    "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"],
-    "handoff.expired": ["schema", "type", "handoffId", "action", "operationId", "claimIntentId", "draftFingerprint", "claimResult"],
-    "handoff.completed": ["schema", "type", "handoffId", "action", "manualId", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"]
+    "handoff.begin": ["schema", "type", "handoffId", "action", "officeFormat", "launchId"],
+    "handoff.prepare": ["schema", "type", "handoffId", "action", "officeFormat", "launchId"],
+    "handoff.logo.start": ["schema", "type", "handoffId", "action", "officeFormat", "launchId"],
+    "handoff.logo.chunk": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "sequence"],
+    "handoff.asset.start": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "assetSlot"],
+    "handoff.asset.chunk": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "assetSlot", "sequence"],
+    "handoff.recovery": ["schema", "type", "handoffId", "action", "officeFormat", "launchId"],
+    "handoff.finalize-pending": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"],
+    "handoff.expired": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "operationId", "claimIntentId", "draftFingerprint", "claimResult"],
+    "handoff.completed": ["schema", "type", "handoffId", "action", "officeFormat", "launchId", "manualId", "operationId", "claimIntentId", "draftFingerprint", "cloudRef"]
   }[type];
   return Boolean(allowed && Object.keys(message || {}).every((key) => allowed.includes(key)));
 }
@@ -60,14 +58,25 @@ export function safeMessage(message, type) {
 function exactSenderOrigin(sender) {
   try {
     const url = new URL(sender?.url || "");
-    return url.origin === STAGING_ONBOARDING_ORIGIN && !url.username && !url.password;
+    return url.origin === STAGING_ONBOARDING_ORIGIN && url.pathname === "/onboarding/continue" && !url.username && !url.password && (sender?.frameId === undefined || sender.frameId === 0);
   } catch {
     return false;
   }
 }
 
 function validRequest(message, sender, type) {
-  return exactSenderOrigin(sender) && safeMessage(message, type) && validSchema(message) && message?.type === type && validHandoffId(message?.handoffId) && OUTPUT_ACTIONS.has(message?.action);
+  return exactSenderOrigin(sender) && safeMessage(message, type) && validSchema(message) && message?.type === type && validHandoffId(message?.handoffId) && validOutputAction(message?.action) && (message.action === "office" ? validOfficeFormat(message.officeFormat) : message.officeFormat === undefined && message.launchId === undefined);
+}
+
+function sameIntent(metadata, message) {
+  return metadata?.outputAction === message?.action && (message.action === "office" ? metadata.officeFormat === message.officeFormat : metadata.officeFormat === undefined && message.officeFormat === undefined);
+}
+
+async function validOfficeCoordinator(metadata, message, sender) {
+  if (message.action !== "office") return true;
+  if (!/^[A-Za-z0-9_-]{43}$/.test(message.launchId || "") || !Number.isInteger(sender?.tab?.id)) return false;
+  const ready = (await chrome.storage.local.get(handoffReadyStorageKey(message.handoffId, message.launchId)))?.[handoffReadyStorageKey(message.handoffId, message.launchId)];
+  return ready?.handoffId === message.handoffId && ready.launchId === message.launchId && ready.tabId === sender.tab.id && ready.activationPolicy !== "cancelled" && ready.expiresAt === metadata.expiresAt;
 }
 
 function isFresh(metadata, now = Date.now()) {
@@ -79,7 +88,7 @@ async function readHandoff(handoffId) {
   const key = handoffStorageKey(handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || ["superseded", "expired"].includes(metadata.status) || !isFresh(metadata)) return null;
+  if (!metadata || metadata.handoffId !== handoffId || !validOutputAction(metadata.outputAction) || (metadata.outputAction === "office" ? !validOfficeFormat(metadata.officeFormat) : metadata.officeFormat !== undefined) || ["superseded", "expired"].includes(metadata.status) || !isFresh(metadata)) return null;
   return metadata;
 }
 
@@ -319,7 +328,8 @@ function clearClaimRuntime(handoffId) {
 async function prepare(message, sender) {
   if (!validRequest(message, sender, "handoff.prepare")) return reject("HANDOFF_REQUEST_REJECTED");
   const metadata = await readHandoff(message.handoffId);
-  if (!metadata || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!metadata || !sameIntent(metadata, message)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+  if (!await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
   if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
   if (await hasOtherPendingClaim(metadata.draftId, metadata.handoffId)) return reject("DRAFT_CLAIM_PENDING");
   const draft = await draftStore.get(metadata.draftId);
@@ -365,7 +375,7 @@ async function begin(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !sameIntent(metadata, message) || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "") || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
     if (metadata.status === "expired") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     const expiresAt = Date.parse(metadata.expiresAt || "");
@@ -398,7 +408,7 @@ async function startAsset(message, sender) {
   try {
     cleanupTransfers();
     const metadata = await readHandoff(message.handoffId);
-    if (!metadata || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || !sameIntent(metadata, message) || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
     const snapshot = snapshots.get(message.handoffId);
     if (!snapshot || snapshot.expiresAt <= Date.now() || snapshot.draftId !== metadata.draftId || (metadata.draftFingerprint && snapshot.draftFingerprint !== metadata.draftFingerprint)) return reject("DRAFT_CHANGED");
@@ -442,7 +452,7 @@ async function assetChunk(message, sender) {
     const transfer = transferFor(message.handoffId, assetSlot);
     if (!transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const metadata = await readHandoff(message.handoffId);
-    if (!metadata || metadata.outputAction !== message.action || metadata.status === "completed") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || !sameIntent(metadata, message) || metadata.status === "completed" || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (transferFor(message.handoffId, assetSlot) !== transfer || message.sequence !== transfer.nextSequence) return reject("CHUNK_SEQUENCE_INVALID");
     const totalChunks = Math.ceil(transfer.bytes.byteLength / CLOUD_CLAIM_CHUNK_BYTES);
     if (message.sequence >= totalChunks) return reject("CHUNK_SEQUENCE_INVALID");
@@ -478,7 +488,7 @@ async function finalizePending(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !sameIntent(metadata, message) || !DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "") || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "superseded") return reject("DRAFT_CLOUD_CHANGED");
     if (metadata.status === "expired") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.draftFingerprint !== message.draftFingerprint) return reject("DRAFT_CHANGED");
@@ -532,7 +542,7 @@ async function recovery(message, sender) {
   const key = handoffStorageKey(message.handoffId);
   const result = await chrome.storage.local.get(key);
   const metadata = result?.[key];
-  if (!metadata || metadata.handoffId !== message.handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action || !["finalize-pending", "completion-pending", "completed", "expired"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
+  if (!metadata || metadata.handoffId !== message.handoffId || !sameIntent(metadata, message) || !["finalize-pending", "completion-pending", "completed", "expired"].includes(metadata.status) || !validRecoveryIdentity(metadata)) return reject("RECOVERY_NOT_FOUND");
   return {
     ok: true,
     status: metadata.status,
@@ -556,7 +566,7 @@ async function expired(message, sender) {
   try {
     const key = handoffStorageKey(handoffId);
     const metadata = (await chrome.storage.local.get(key))?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || metadata.outputAction !== message.action || !["finalize-pending", "expired"].includes(metadata.status)) return reject("RECOVERY_NOT_FOUND");
+    if (!metadata || metadata.handoffId !== handoffId || !sameIntent(metadata, message) || !["finalize-pending", "expired"].includes(metadata.status)) return reject("RECOVERY_NOT_FOUND");
     if (!validRecoveryIdentity(metadata) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
     // As with completion, only the trusted Web/Access coordinator transports
     // the authenticated server result. The extension never fetches credentials
@@ -581,6 +591,7 @@ async function expired(message, sender) {
 async function completed(message, sender) {
   if (!validRequest(message, sender, "handoff.completed") || typeof message.manualId !== "string" || message.manualId.length < 1 || message.manualId.length > 128) return reject("HANDOFF_REQUEST_REJECTED");
   if (message.cloudRef !== undefined && !validCloudRef(message.cloudRef, message.manualId)) return reject("HANDOFF_REQUEST_REJECTED");
+  if (message.action === "office" && (!validRecoveryIdentity(message) || !validCloudRef(message.cloudRef, message.manualId))) return reject("RECOVERY_IDENTITY_REQUIRED");
   const handoffId = message.handoffId;
   const previous = finalizeLocks.get(handoffId) || Promise.resolve();
   let release;
@@ -592,11 +603,13 @@ async function completed(message, sender) {
     const key = handoffStorageKey(handoffId);
     const result = await chrome.storage.local.get(key);
     const metadata = result?.[key];
-    if (!metadata || metadata.handoffId !== handoffId || !OUTPUT_ACTIONS.has(metadata.outputAction) || metadata.outputAction !== message.action) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
+    if (!metadata || metadata.handoffId !== handoffId || !sameIntent(metadata, message) || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "expired" || metadata.status === "superseded") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
+    if (message.action === "office" && message.cloudRef.savedFingerprint !== metadata.draftFingerprint) return reject("RECOVERY_MISMATCH");
+    if (message.action === "office" && !["finalize-pending", "completion-pending", "completed"].includes(metadata.status)) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "completed") {
-      if (metadata.operationId || metadata.claimIntentId) {
+      if (message.action === "office" || metadata.operationId || metadata.claimIntentId) {
         if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
       }
       return metadata.completedManualId === message.manualId ? { ok: true, status: "completed" } : reject("COMPLETION_MISMATCH");
@@ -604,7 +617,7 @@ async function completed(message, sender) {
     const recovery = metadata.status === "finalize-pending";
     if (recovery) {
       if (!validRecoveryIdentity(message) || metadata.operationId !== message.operationId || metadata.claimIntentId !== message.claimIntentId || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
-    } else if (message.operationId || message.claimIntentId || message.draftFingerprint) {
+    } else if (message.action === "office" || message.operationId || message.claimIntentId || message.draftFingerprint) {
       if (!validRecoveryIdentity(message) || (metadata.operationId && metadata.operationId !== message.operationId) || (metadata.claimIntentId && metadata.claimIntentId !== message.claimIntentId) || metadata.draftFingerprint !== message.draftFingerprint) return reject("RECOVERY_MISMATCH");
     }
     if (metadata.status === "completion-pending" && metadata.completedManualId !== message.manualId) return reject("COMPLETION_MISMATCH");
