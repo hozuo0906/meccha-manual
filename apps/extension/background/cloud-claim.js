@@ -108,7 +108,8 @@ function validCloudRef(value, manualId = value?.manualId) {
   return value && typeof value === "object" && Object.keys(value).every((key) => ["workspaceId", "manualId", "revisionId", "updatedAt", "contentVersion", "savedFingerprint"].includes(key))
     && [value.workspaceId, value.manualId, value.revisionId].every((id) => typeof id === "string" && CLAIM_INTENT_ID_PATTERN.test(id))
     && value.manualId === manualId && typeof value.updatedAt === "string" && Number.isFinite(Date.parse(value.updatedAt))
-    && /^[a-f0-9]{32}$/.test(value.contentVersion || "");
+    && /^[a-f0-9]{32}$/.test(value.contentVersion || "")
+    && (value.savedFingerprint === undefined || DRAFT_FINGERPRINT_PATTERN.test(value.savedFingerprint));
 }
 function cloudRefStorageKey(draftId) { return "meccha-manual:cloud-ref:" + draftId; }
 function cloudRefIdentity(value) {
@@ -606,7 +607,6 @@ async function completed(message, sender) {
     if (!metadata || metadata.handoffId !== handoffId || !sameIntent(metadata, message) || !await validOfficeCoordinator(metadata, message, sender)) return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (metadata.status === "expired" || metadata.status === "superseded") return reject("HANDOFF_EXPIRED_OR_UNKNOWN");
     if (!DRAFT_FINGERPRINT_PATTERN.test(metadata.draftFingerprint || "")) return reject("DRAFT_FINGERPRINT_REQUIRED");
-    if (message.action === "office" && message.cloudRef.savedFingerprint !== metadata.draftFingerprint) return reject("RECOVERY_MISMATCH");
     if (message.action === "office" && !["finalize-pending", "completion-pending", "completed"].includes(metadata.status)) return reject("RECOVERY_MISMATCH");
     if (metadata.status === "completed") {
       if (message.action === "office" || metadata.operationId || metadata.claimIntentId) {

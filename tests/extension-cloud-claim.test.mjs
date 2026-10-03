@@ -171,11 +171,77 @@ test("Office completion rejects an active handoff even with a matching coordinat
   try {
     const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "office", officeFormat: "pptx", launchId,
       manualId, operationId, claimIntentId, draftFingerprint,
-      cloudRef: { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "c".repeat(32), savedFingerprint: draftFingerprint } };
+      cloudRef: { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "c".repeat(32) } };
     assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: false, error: "RECOVERY_MISMATCH" });
   } finally {
     if (previousChrome === undefined) delete globalThis.chrome;
     else globalThis.chrome = previousChrome;
+  }
+});
+
+test("Office completion accepts the Worker cloudRef shape and adds the local fingerprint receipt", async () => {
+  const handoffId = "J".repeat(43);
+  const launchId = "K".repeat(43);
+  const operationId = "L".repeat(43);
+  const claimIntentId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const manualId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const draftFingerprint = "d".repeat(64);
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const metadata = {
+    handoffId, draftId: "draft-office-worker-shape", outputAction: "office", officeFormat: "docx", status: "finalize-pending",
+    expiresAt, draftUpdatedAt: "2026-10-03T00:00:00.000Z", draftFingerprint, operationId, claimIntentId, sourceCloudRef: null
+  };
+  const ready = { handoffId, launchId, tabId: 11, activationPolicy: "active", expiresAt };
+  const cloudRef = { workspaceId: manualId, manualId, revisionId: manualId, updatedAt: "2026-10-03T00:00:00.000Z", contentVersion: "e".repeat(32) };
+  const records = new Map([[handoffStorageKey(handoffId), metadata], [handoffReadyStorageKey(handoffId, launchId), ready]]);
+  const previousChrome = globalThis.chrome;
+  const previousIndexedDB = globalThis.indexedDB;
+  const storedKeys = [];
+  globalThis.chrome = { storage: { local: {
+    async get(key) {
+      if (key === null) return Object.fromEntries(records);
+      if (typeof key === "string") return records.has(key) ? { [key]: records.get(key) } : {};
+      return {};
+    },
+    async set(values) { for (const [key, value] of Object.entries(values)) { records.set(key, value); storedKeys.push(key); } }
+  } } };
+  globalThis.indexedDB = { open() {
+    const request = {};
+    const transaction = {
+      oncomplete: null,
+      onerror: null,
+      onabort: null,
+      objectStore() {
+        return {
+          get() {
+            const read = { result: { id: metadata.draftId } };
+            queueMicrotask(() => { read.onsuccess?.(); queueMicrotask(() => transaction.oncomplete?.()); });
+            return read;
+          },
+          put() {}
+        };
+      }
+    };
+    request.result = { transaction() { return transaction; }, close() {} };
+    queueMicrotask(() => request.onsuccess?.());
+    return request;
+  } };
+  try {
+    const sender = { url: "https://meccha-manual-staging.meccha-iiyatsu.com/onboarding/continue", frameId: 0, tab: { id: 11 } };
+    const message = { schema: "meccha-manual/cloud-claim-v1", type: "handoff.completed", handoffId, action: "office", officeFormat: "docx", launchId,
+      manualId, operationId, claimIntentId, draftFingerprint, cloudRef };
+    assert.deepEqual(await handleExternalCloudClaimMessage(message, sender), { ok: true, status: "completed" });
+    const saved = records.get("meccha-manual:cloud-ref:" + metadata.draftId);
+    assert.equal(saved.savedFingerprint, draftFingerprint);
+    assert.equal("savedFingerprint" in cloudRef, false, "the Worker response does not carry the local receipt field");
+    assert.ok(storedKeys.includes(handoffStorageKey(handoffId)));
+    const mismatch = await handleExternalCloudClaimMessage({ ...message, draftFingerprint: "f".repeat(64) }, sender);
+    assert.deepEqual(mismatch, { ok: false, error: "RECOVERY_MISMATCH" });
+  } finally {
+    if (previousChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = previousChrome;
+    if (previousIndexedDB === undefined) delete globalThis.indexedDB;
+    else globalThis.indexedDB = previousIndexedDB;
   }
 });
 
