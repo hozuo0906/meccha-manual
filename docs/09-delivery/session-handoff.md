@@ -637,7 +637,7 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - このhandoff追記を含むdocs-only commitを作成・pushした後、親PMが最終headに対するCI、Codex Review、review thread、staging反映判断を再取得する。
 ## Issue #283／PR #284 OAuth start origin・browser recovery P2修正（2026-10-04）
 
-- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`。`beginProductAuth`はprovider、request URLと設定済み`APP_BASE_URL`の完全一致、許可return pathをrate limiterとD1 cleanup／INSERTより先に検証し、preview／workers.dev／その他aliasと不正returnを副作用なしで拒否する。runtime設定が未取得でも、既存allowlistの正規request originだけをブラウザ復帰先に使う。
+- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`、source SHA `6313790a31e6bda41ef270ed9dc47954767a5ecb`（remote一致）。`beginProductAuth`はprovider、request URLと設定済み`APP_BASE_URL`の完全一致、許可return pathをrate limiterとD1 cleanup／INSERTより先に検証し、preview／workers.dev／その他aliasと不正returnを副作用なしで拒否する。runtime設定が未取得でも、既存allowlistの正規request originだけをブラウザ復帰先に使う。
 - `/api/auth/{provider}/start`のHTML失敗は既存login CSS・security headersを使う日本語復帰画面へ分類し、失敗理由と「元の画面へ戻る」を示す。JSON clientのstatusとbody分類は維持し、aliasや未検証URL、secret、下位例外を返さない。ブラウザ回帰では一度429を表示した後、同じOffice handoffの下書きと出力形式を保持してprovider再選択を成功させた。
 - 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs` 32/32、`node --experimental-transform-types --test tests/product-auth-browser.test.mjs` 8/8、invalid return／runtime missing／alias、API JSON、rate／D1失敗、cancel／retryを確認。`node --experimental-strip-types --check`による`index.ts`／`product-auth.ts`構文確認と`git diff --check`も成功。Windows `npm ci`の既知EPERM、Linux CI、正式Review、deploy／merge／review thread解決は未確認で親へ引き継ぐ。
 
