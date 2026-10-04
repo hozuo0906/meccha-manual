@@ -641,3 +641,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - P2のprovider取得非2xx／空応答／通信失敗では、Product session確認済みの画面にエラーと再試行を表示する。成功時だけprovider導線へ戻り、入力値・return pathを保持する。render世代とprovider request世代を照合し、古い非同期応答による画面上書きを抑止した。Product session未確認時の既存password fallbackは維持した。
 - `APP_ASSET_VERSION`をsourceと`tests/worker-runtime.test.mjs`の契約へ同期した。関連差分は`apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、本追補を含む契約・UX・trace・decision文書である。
 - 最終commit／remote SHAと、source回帰、browser retry回帰、既存関連回帰、`npm ci`／`npm run check`のWindows制約は、この追補後に実取得して親PMへ報告する。CI／Codex Review／thread解決、deploy／merge、staging／production設定変更は親PMの回収対象であり未実施。
+
+### 認証資格情報の優先順位とOAuthログイン一時データの整理（2026-10-04）
+
+- 対象は Issue #283 / PR #284、branch `codex/manual-auth-office-integration-283`。P1 は request credential を Access 設定 fallback より先に評価し、product cookie → Access assertion → configured legacy Supabase cookie の順で route を選択する修正。Access assertion の issuer・audience・JWKS、human actor、active identity、workspace・role 認可と、product cookie の fail-closed 境界は維持する。
+- P2 は既存10分の `oauth_transactions.expires_at` を正とし、provider／origin／return path／rate limit の拒否後だけ、解釈可能な期限切れ行を start 1回につき最大100件 cleanup する。DELETE と INSERT は D1 batch で atomic に扱い、storage failure は `503 AUTH_STORAGE_UNAVAILABLE`、未期限切れ consumed 行・auth_sessions・identity・workspaceは保持する。migration、cron、新 retention は追加しない。
+- local source/tests: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`。product-auth unit 30/30、Worker typecheck exit 0。追加回帰でrate-limit拒否時の期限切れ行保持、101件の継続start、malformed expiry保持、cleanup後INSERT失敗時のrollbackをD1 adapterで確認した。既存のCI担当所有 `tests/product-auth-browser.test.mjs` は変更・stageしていない。
+- UI担当の logout render race 修正は `b6ac28a38822e7247f7113b0200b0c6d5444bac6`（app-assets.ts / app-auth.test.mjs / product-auth-browser.test.mjs、app117/browser6/runtime71）を採用根拠として親が統合する。staging／production設定、deploy、mergeは未実施。
+- 次のゲートはこの修正を含むcommitのremote保存後に、親が最新head SHAでCI／Codex Review／review thread解決を再取得すること。

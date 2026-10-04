@@ -201,13 +201,26 @@ export async function beginProductAuth(request: Request, env: Env, provider: Pro
   const verifier = randomValue(48);
   const transactionId = crypto.randomUUID();
   const now = new Date();
+  const nowIso = now.toISOString();
   const expires = new Date(now.getTime() + TRANSACTION_SECONDS * 1000).toISOString();
-  let result: { success: boolean };
+  let results: Array<{ success: boolean }>;
+  let result: { success: boolean } = { success: false };
   try {
-    result = await env.DB.prepare(`INSERT INTO oauth_transactions
+    results = await env.DB.batch([
+      env.DB.prepare(`DELETE FROM oauth_transactions
+        WHERE id IN (
+          SELECT id FROM oauth_transactions
+          WHERE julianday(expires_at) IS NOT NULL AND julianday(expires_at) <= julianday(?)
+          ORDER BY expires_at ASC, id ASC
+          LIMIT 100
+        )`).bind(nowIso),
+      env.DB.prepare(`INSERT INTO oauth_transactions
     (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(transactionId, provider, await hash(state), await hash(nonce), await hash(verifier), redirectUri, returnPath, now.toISOString(), expires).run();
+        .bind(transactionId, provider, await hash(state), await hash(nonce), await hash(verifier), redirectUri, returnPath, nowIso, expires)
+    ]);
+    result = results[1] ?? { success: false };
+    if (results.length !== 2 || results.some((item) => !item.success)) throw productAuthStorageError();
   } catch {
     throw productAuthStorageError();
   }

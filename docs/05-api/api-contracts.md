@@ -2,6 +2,12 @@
 
 Status: Accepted
 
+### Issue #283 認証資格情報の優先順位と OAuth start 一時データ整理（2026-10-04）
+
+業務 route の選択は環境設定の fallback より request credential を先に評価する。product cookie は常に product D1 route を選び、存在するだけでも不正値を Access／Supabase へ fallback しない。Access assertion は Access の issuer・audience・JWKS、human actor、active identity、workspace／role 認可を通す。product cookie がなく、Supabase が設定済みの legacy access／refresh cookie がある場合は、Access と product provider が設定済みでも legacy Supabase route を選ぶ。Supabase 未設定の legacy cookie は認証根拠として扱わず、設定済み product provider または Access の fail-closed 応答へ進む。
+
+`GET /api/auth/{provider}/start` は provider、origin、return path、rate limit、DB の事前検証を通過した後、`expires_at <= 現在時刻` の既存 `oauth_transactions` を最大100件だけ削除し、新しい transaction の INSERT と同じ D1 batch で確定する。cleanup または INSERT の prepare／bind／実行が失敗した場合は `503 AUTH_STORAGE_UNAVAILABLE` とし、redirect、cookie、部分的な INSERT／cleanup を成功扱いにしない。有効期限内の transaction（consumed を含む）、`auth_sessions`、identity、workspace は変更しない。
+
 ### 製品認証（Issue #283 / ADR-0041）
 
 `GET /api/auth/providers` はGoogleとChatGPTの利用可否booleanだけを返す。`GET /api/auth/{google|chatgpt}/start?return=/` は許可した同一originの戻り先だけを受け、Authorization Code + PKCEを開始する。callbackはstate・nonce・期限・一回消費・issuer・audience・署名を検証し、Googleはverified emailを必須とする。Googleのissuerは公式OIDC仕様にある`https://accounts.google.com`とlegacy値`accounts.google.com`だけを受け付け、identityへ保存するissuerは常にHTTPS canonical値へ統一する。SIWCは登録済みconfidential clientの`client_secret_basic`だけを使い、未登録・未有効化なら503で非表示とする。

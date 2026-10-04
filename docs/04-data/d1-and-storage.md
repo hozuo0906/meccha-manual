@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+## OAuthログイン一時データの整理契約（Issue #283）
+
+OAuth start は provider／origin／return path／rate limit の拒否を先に確定し、副作用を発生させない。通過後に `oauth_transactions` の `expires_at` が現在時刻以前である行だけを最大100件選び、期限値が解釈できない行は保持する。削除と新しい transaction の INSERT は同一 `D1Database.batch()` で実行し、D1 の atomic rollback 境界を使う。失敗時は `503 AUTH_STORAGE_UNAVAILABLE` とし、既存行と新規行の部分成功を返さない。未期限切れの consumed transaction、`auth_sessions`、identity、workspace は掃除対象に含めない。新しい retention 期間、cron、環境変数、migration は追加しない。
+
 ## 目的
 
 ADR-0028に基づき、Cloudflare D1を業務データとファイルメタデータの正本にする。Postgres RLSの暗黙適用を前提にせず、Worker認可とworkspace固定queryを検証可能な契約として定義する。

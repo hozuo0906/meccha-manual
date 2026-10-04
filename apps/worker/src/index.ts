@@ -365,6 +365,19 @@ function hasAccessAssertion(request: Request): boolean {
 }
 
 function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
+  if (request) {
+    // A request credential selects the authentication boundary before an
+    // environment fallback. Product cookies are fail-closed and win over
+    // every other credential. A configured Supabase session stays on the
+    // legacy route even when Access and product providers are configured.
+    if (hasProductSessionCookie(request)) return true;
+    if (hasAccessAssertion(request)) return true;
+    const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
+      const separator = part.indexOf("=");
+      return (separator < 0 ? part : part.slice(0, separator)).trim();
+    }));
+    if ((cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) && inspectSupabaseConfig(env).configured) return false;
+  }
   return useAccessD1Routes(env) || useProductD1Routes(env, request);
 }
 

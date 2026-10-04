@@ -701,3 +701,15 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: provider取得失敗後に非表示のpassword form、空のproviderボタン、読み込み中表示が残り、Google／ChatGPTへ進めなくなる状態を解消するため。
 - Boundary: Product session未確認時の既存password formへの復帰、legacy Supabase／Access認証、provider設定、API応答契約、staging／production設定は変更しない。
 - Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`
+
+## DEC-107: 認証資格情報の優先順位とOAuthログイン一時データの上限付き整理
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - Worker route は request credential を環境設定の fallback より先に評価する。product cookie は不正値を含めて product route を選び、Access assertion は Access の issuer・audience・JWKS と human actor の active identity、workspace、role 認可へ進む。product cookie がなく Supabase が設定済みの legacy cookie がある場合は、Access／provider 設定が同時に存在しても Supabase password route を選び、Supabase 未設定の legacy cookie は根拠にしない。
+  - OAuth start は provider、origin、return path、rate limit の拒否後にだけ、既存の `expires_at <= 現在時刻` かつ解釈可能な期限切れ transaction を最大100件削除する。削除と新規 INSERT は同一 D1 batch とし、失敗は `503 AUTH_STORAGE_UNAVAILABLE`、部分成功なしとする。未期限切れ consumed transaction、auth session、identity、workspace、既存10分期限契約は変更しない。
+- Reason: Access 設定の存在だけで valid legacy session を D1 へ誤進入させず、期限切れ OAuth state の無制限蓄積を bounded cleanup で抑えながら、認証境界と結果不明時の fail-closed を保つため。
+- Boundary: schema／migration、cron、retention 期間、環境変数、provider secret、remote 認証設定は追加・変更しない。
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `docs/05-api/api-contracts.md`, `docs/04-data/d1-and-storage.md`, `docs/04-data/d1-workspace-schema.md`, `docs/01-product/requirements-traceability.md`

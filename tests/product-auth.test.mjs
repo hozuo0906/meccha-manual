@@ -67,7 +67,18 @@ class D1Adapter {
       };
     } };
   }
-  async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
+  async batch(statements) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      this.database.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 async function authDatabase() {
@@ -454,6 +465,9 @@ test("configured Google provider keeps a valid password session on Supabase and 
     GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
     SUPABASE_URL: "https://supabase.example.test",
     SUPABASE_ANON_KEY: "synthetic-anon-key",
+    ACCESS_ISSUER: "https://access.example",
+    ACCESS_AUDIENCE: "access-audience",
+    ACCESS_JWKS_URL: "https://access.example/jwks",
     DB: binding
   };
   const calls = [];
@@ -859,6 +873,11 @@ test("product auth rate limiter distinguishes an explicit refusal from an unavai
     ["malformed result", async () => ({ success: "false" }), 503, "AUTH_RATE_LIMIT_UNAVAILABLE"]
   ]) {
     const { database, binding } = await authDatabase();
+    const expiredAt = new Date(Date.now() - 60_000).toISOString();
+    database.prepare(`INSERT INTO oauth_transactions
+      (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
+      VALUES ('rate-expired', 'google', ?, ?, ?, 'https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/google/callback', '/', ?, ?)`)
+      .run("1".repeat(64), "2".repeat(64), "3".repeat(64), new Date(Date.now() - 120_000).toISOString(), expiredAt);
     const env = {
       APP_ENV: "staging",
       APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
@@ -873,10 +892,100 @@ test("product auth rate limiter distinguishes an explicit refusal from an unavai
       assert.equal((await response.json()).code, code, name);
       assert.equal(response.headers.get("location"), null, name);
       assert.equal(response.headers.get("set-cookie"), null, name);
-      assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 0, name);
+      assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 1, name);
     } finally {
       database.close();
     }
+  }
+});
+
+test("OAuth start removes at most 100 expired transactions per atomic start and preserves active rows", async () => {
+  const { database, binding } = await authDatabase();
+  const now = new Date();
+  const createdAt = new Date(now.getTime() - 20 * 60_000).toISOString();
+  const expiredAt = new Date(now.getTime() - 10 * 60_000).toISOString();
+  const activeCreatedAt = new Date(now.getTime() - 60_000).toISOString();
+  const activeExpiresAt = new Date(now.getTime() + 9 * 60_000).toISOString();
+  try {
+    for (let index = 0; index < 101; index += 1) {
+      const hash = index.toString(16).padStart(64, "0");
+      database.prepare(`INSERT INTO oauth_transactions
+        (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
+        VALUES (?, 'google', ?, ?, ?, 'https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/google/callback', '/', ?, ?)`)
+        .run(`expired-${index}`, hash, "b".repeat(64), "c".repeat(64), createdAt, expiredAt);
+    }
+    database.prepare(`INSERT INTO oauth_transactions
+      (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at, consumed_at)
+      VALUES ('active-consumed', 'google', ?, ?, ?, 'https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/google/callback', '/', ?, ?, ?)`)
+      .run("d".repeat(64), "e".repeat(64), "f".repeat(64), activeCreatedAt, activeExpiresAt, activeCreatedAt);
+    database.prepare(`INSERT INTO oauth_transactions
+      (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
+      VALUES ('malformed-expiry', 'google', ?, ?, ?, 'https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/google/callback', '/', ?, 'invalid-future')`)
+      .run("4".repeat(64), "5".repeat(64), "6".repeat(64), createdAt);
+    const env = {
+      APP_ENV: "staging",
+      APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+      GOOGLE_OIDC_CLIENT_ID: "google-cleanup-client",
+      GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+      ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      DB: binding
+    };
+    const first = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+    assert.equal(first.status, 302);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions WHERE expires_at <= ?").get(now.toISOString()).count, 1);
+    assert.equal(database.prepare("SELECT consumed_at FROM oauth_transactions WHERE id = 'active-consumed'").get().consumed_at, activeCreatedAt);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 4);
+    assert.equal(database.prepare("SELECT id FROM oauth_transactions WHERE id = 'malformed-expiry'").get().id, "malformed-expiry");
+
+    const second = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+    assert.equal(second.status, 302);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions WHERE expires_at <= ?").get(now.toISOString()).count, 0);
+    assert.equal(database.prepare("SELECT consumed_at FROM oauth_transactions WHERE id = 'active-consumed'").get().consumed_at, activeCreatedAt);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 4);
+    assert.equal(database.prepare("SELECT id FROM oauth_transactions WHERE id = 'malformed-expiry'").get().id, "malformed-expiry");
+  } finally {
+    database.close();
+  }
+});
+
+test("OAuth cleanup and insert storage failure is classified as unavailable without a partial insert", async () => {
+  const { database, binding } = await authDatabase();
+  const expiredAt = new Date(Date.now() - 60_000).toISOString();
+  database.prepare(`INSERT INTO oauth_transactions
+    (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
+    VALUES ('rollback-expired', 'google', ?, ?, ?, 'https://meccha-manual-staging.meccha-iiyatsu.com/api/auth/google/callback', '/', ?, ?)`)
+    .run("7".repeat(64), "8".repeat(64), "9".repeat(64), new Date(Date.now() - 120_000).toISOString(), expiredAt);
+  const failingBatchBinding = {
+    prepare: binding.prepare.bind(binding),
+    batch: async (statements) => {
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        await statements[0].run();
+        throw new Error("synthetic insert failure after cleanup");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    }
+  };
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-cleanup-failure-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    DB: failingBatchBinding
+  };
+  try {
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start`), env, {});
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "AUTH_STORAGE_UNAVAILABLE");
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("set-cookie"), null);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 1);
+    assert.equal(database.prepare("SELECT id FROM oauth_transactions WHERE id = 'rollback-expired'").get().id, "rollback-expired");
+  } finally {
+    database.close();
   }
 });
 
