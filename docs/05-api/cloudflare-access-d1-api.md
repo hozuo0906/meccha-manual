@@ -152,4 +152,10 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 - Access modeの`GET /api/session`は`members.status: "migration"`も返し、メンバー管理UIをmember APIの移行完了まで無効化する。
 - capture/mobile-previewはAccess modeでも、Access JWT、D1 application identity、same-origin、workspace roleの認可確認を先に行う。認証済みowner/admin/editorに限り`503 BROWSER_EGRESS_NOT_VERIFIED`を返し、未認証・権限外の要求は認証・認可エラーを返す。legacy sessionへfallbackしない。
 
+### Issue #283 D1 member route and product shell update (2026-10-04)
+
+- D1 application routeの`GET/POST /api/workspaces/{workspaceId}/members`と`PATCH /api/workspaces/{workspaceId}/members/{userId}`は、Access／product actorを同じD1 workspace repositoryへ渡す。workspace固定query、active identity、membership、owner/admin mutation境界をWorkerとD1 constraintで再確認し、旧Supabase member handlerへfallbackしない。
+- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。ownerロールの付与・移管は引き続き拒否する。
+- 製品ログインのroot shellは製品／Access sessionでメールが返らない場合に架空のメールや個人情報を補わず「アカウント」と表示する。手順書リンクはD1 canonical `/manuals`へ遷移し、旧rootのSupabase作成入口やmanual POST 405を呼ばない。product logout後もprovider設定に応じた製品ログイン導線を維持し、password formへ戻さない。
+
 製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。

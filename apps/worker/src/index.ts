@@ -5,7 +5,7 @@ import { AccessIdentityError, authenticateApplicationRequest, requireHumanActor,
 import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1OnboardingRepository } from "./infra/d1/onboarding-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
-import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
+import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord, type WorkspaceMemberRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
@@ -302,21 +302,24 @@ async function productAuthCallbackRoute(request: Request, env: Env, provider: "g
   }
 }
 
-function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code"): AppError {
+function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code" | "members" | "members_join" | "members_update"): AppError {
   if (!(error instanceof D1RepositoryError)) {
     return new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   }
   if (error.code === "limit_exceeded") {
-    return new AppError(409, "WORKSPACES_LIMIT_EXCEEDED", "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
+    return new AppError(409, operation === "members" || operation === "members_join" || operation === "members_update" ? "WORKSPACE_MEMBERS_LIMIT_EXCEEDED" : "WORKSPACES_LIMIT_EXCEEDED", operation === "members" || operation === "members_join" || operation === "members_update" ? "メンバーが多いため一覧を表示できません。管理者に整理を依頼してください。" : "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
   }
   if (error.code === "invalid_input") {
     return new AppError(400, operation === "create_workspace" ? "WORKSPACE_INPUT_INVALID" : "REQUEST_INVALID", "入力内容を確認してください。");
   }
   if (error.code === "conflict") {
-    return new AppError(409, operation === "join_code" ? "JOIN_CODE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
+    return new AppError(409, operation === "join_code" || operation === "members_join" ? "JOIN_CODE_UNAVAILABLE" : operation === "members_update" ? "MEMBER_UPDATE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
   }
   if (error.code === "actor_forbidden") {
     return new AppError(403, operation === "create_workspace" ? "ACCESS_ACTOR_FORBIDDEN" : "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  if (error.code === "not_found" && operation === "members") {
+    return new AppError(404, "WORKSPACE_MEMBERS_NOT_FOUND", "ワークスペースまたはメンバー情報を確認できませんでした。");
   }
   if (error.code === "forbidden" || error.code === "not_found") {
     return new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
@@ -417,6 +420,16 @@ function apiProfile(profile: ProfileRecord | null): unknown {
     display_name: profile.displayName,
     locale: profile.locale,
     timezone: profile.timezone
+  };
+}
+
+function apiWorkspaceMember(member: WorkspaceMemberRecord): WorkspaceMemberSummary {
+  return {
+    userId: member.applicationId,
+    displayName: member.displayName,
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt
   };
 }
 
@@ -528,7 +541,7 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
       manuals: { status: env.MANUAL_ASSETS ? "ready" : "migration" },
-      members: { status: "migration" }
+      members: { status: "ready" }
     });
   } catch (error) {
     throw d1ErrorResponse(error, "profile");
@@ -588,6 +601,58 @@ async function createD1WorkspaceJoinCode(request: Request, env: Env): Promise<Re
     return jsonResponse({ joinCode: result.code, expiresAt: result.expiresAt }, { status: 201 });
   } catch (error) {
     throw d1ErrorResponse(error, "join_code");
+  }
+}
+
+async function getD1WorkspaceMembers(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const { actorId, repository } = await authenticateD1User(request, env);
+  try {
+    const members = await repository.listMembers(actorId, workspaceId);
+    const currentUserRole = members.find((member) => member.applicationId === actorId)?.role;
+    if (!currentUserRole || members.length === 0) throw new D1RepositoryError("not_found");
+    return jsonResponse({
+      workspaceId,
+      currentUserRole,
+      members: members.map(apiWorkspaceMember)
+    });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members");
+  }
+}
+
+async function addD1WorkspaceMember(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ joinCode?: unknown; role?: unknown }>(request);
+  if (typeof body.joinCode !== "string" || !JOIN_CODE_PATTERN.test(body.joinCode.trim())) {
+    throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
+  }
+  if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・追加は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+  }
+  try {
+    await repository.consumeJoinCode(actorId, workspaceId, body.joinCode.trim(), body.role, new Date().toISOString());
+    return jsonResponse({ status: "ok" }, { status: 201 });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members_join");
+  }
+}
+
+async function updateD1WorkspaceMember(request: Request, env: Env, workspaceId: string, userId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  if (!UUID_PATTERN.test(userId)) throw new AppError(409, "MEMBER_UPDATE_UNAVAILABLE", "対象メンバーの状態が変わったため更新できませんでした。一覧を更新してください。");
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ role?: unknown; status?: unknown }>(request);
+  if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・移管は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+  }
+  if (body.status !== "active" && body.status !== "removed") throw new AppError(400, "MEMBER_STATUS_INVALID", "メンバー状態の指定が正しくありません。");
+  try {
+    await repository.updateMember(actorId, workspaceId, userId, { role: body.role, status: body.status }, new Date().toISOString());
+    return jsonResponse({ status: "ok" });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members_update");
   }
 }
 
@@ -2354,10 +2419,7 @@ function cloudManualMigrationResponse(): Response {
 }
 
 function isLegacySupabaseProtectedRoute(pathname: string): boolean {
-  return (
-    /^\/api\/auth\/(?:login|refresh)$/.test(pathname) ||
-    /^\/api\/workspaces\/[^/]+\/members(?:\/[^/]+)?$/.test(pathname)
-  );
+  return /^\/api\/auth\/(?:login|refresh)$/.test(pathname);
 }
 
 const BRAND_ASSET_PATHS: Record<string, string> = {
@@ -2474,13 +2536,19 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
     return useD1ApplicationRoutes(env, request) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
   }
   if (request.method === "GET" && workspaceMembersMatch?.[1]) {
-    return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
+    return useD1ApplicationRoutes(env, request)
+      ? getD1WorkspaceMembers(request, env, workspaceMembersMatch[1])
+      : getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
   }
   if (request.method === "POST" && workspaceMembersMatch?.[1]) {
-    return addWorkspaceMember(request, env, workspaceMembersMatch[1]);
+    return useD1ApplicationRoutes(env, request)
+      ? addD1WorkspaceMember(request, env, workspaceMembersMatch[1])
+      : addWorkspaceMember(request, env, workspaceMembersMatch[1]);
   }
   if (request.method === "PATCH" && workspaceMemberMatch?.[1] && workspaceMemberMatch[2]) {
-    return updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
+    return useD1ApplicationRoutes(env, request)
+      ? updateD1WorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2])
+      : updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
   }
 
   return jsonResponse({

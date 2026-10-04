@@ -644,3 +644,16 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: 固定provider cookieの上書きで別tabのpending loginを壊したり、先行callbackのerror cleanupで後続loginを壊したりする経路を閉じる。product logout後のreloadで旧legacy accountへ戻らない状態遷移を、provider remote状態に依存せず端末cookie境界で保証する。
 - Boundary: D1 schema／migration、provider登録、remote Supabase／Google／ChatGPT logout、production secret binding、実provider SSOは変更しない。state／verifier／nonce／legacy credentialのraw valueはログやD1へ保存せず、文書にも記録しない。
 - Evidence: `apps/worker/src/product-auth.ts`、`apps/worker/src/index.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`、`docs/04-data/d1-and-storage.md`、`docs/04-data/d1-workspace-schema.md`、`docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`。
+
+## DEC-102: D1 member routeと製品ログインroot導線を現行契約へ同期する
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - D1 application routeのmember一覧・追加・更新は、Access／product actor、workspace固定query、active membership、owner/admin mutation境界を同じD1 repositoryで検証し、旧Supabase member handlerへfallbackしない。`GET /api/session`の`members.status`は有効化後に`ready`を返す。
+  - product／Access sessionにメールがないroot shellは「アカウント」と表示し、手順書リンクをcanonical `/manuals`へ固定する。旧rootのSupabase作成入口を製品ログイン後の導線に残さず、手順書POST 405をUIから誘発しない。
+  - provider passwordが無効な製品環境では、logout後もprovider-only loginを維持し、架空のメールやpassword formを表示しない。
+- Reason: 実Google SSO後のrootでメール未設定表示とメンバー権限loadingが停止し、logout後にpassword formへ戻る不整合を、D1現行契約の状態・認可・canonical manual surfaceへ最小修正するため。
+- Boundary: guest導線、manual新規作成API、外部staging設定、remote migration、実ユーザー操作データ、秘密値、production反映は変更しない。
+- Evidence: `apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/m3-http-d1.test.mjs`、`tests/app-auth.test.mjs`、`docs/05-api/cloudflare-access-d1-api.md`。

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-9653c526f953ef3e";
+export const APP_ASSET_VERSION = "sha256-23f4f64294bf711d";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -997,6 +997,8 @@ a.nav-item:hover {
 export const APP_JS = `
 const app = document.getElementById("app");
 let currentSession = null;
+let configuredAuthProviders = null;
+let productAuthSessionSeen = false;
 let sessionGeneration = 0;
 let sessionReloadSequence = 0;
 let currentWorkspaceSelection = null;
@@ -1017,6 +1019,14 @@ let manualReadingPreview = null;
 
 function isAccessModeSession(session = currentSession) {
   return session?.authMode === "access";
+}
+
+function usesD1ManualSurface(session = currentSession) {
+  return session?.authMode === "product" || session?.authMode === "access";
+}
+
+function sessionLoginLabel(session) {
+  return session?.authMode === "product" ? "アカウント" : session?.user?.email || "メールアドレス未設定";
 }
 
 function manualMigrationInProgress(session = currentSession) {
@@ -1676,7 +1686,21 @@ function updateLoginFieldErrors(form, validationMessage) {
   invalidField.setAttribute("aria-describedby", "login-message");
 }
 
+function renderProductAuthLinks(providers) {
+  if (!providers) return "";
+  const requestedReturn = new URLSearchParams(window.location.search).get("return");
+  const returnPath = encodeURIComponent(requestedReturn || window.location.pathname || "/");
+  const links = [];
+  if (providers.google === true) links.push('<a class="secondary-button" href="/api/auth/google/start?return=' + returnPath + '">Googleでログイン</a>');
+  if (providers.chatgpt === true) links.push('<a class="secondary-button" href="/api/auth/chatgpt/start?return=' + returnPath + '">ChatGPTでログイン</a>');
+  return links.length ? '<p class="auth-divider">または</p>' + links.join("") : "";
+}
+
 function renderLogin(message = "") {
+  const productOnlyLogin = productAuthSessionSeen || configuredAuthProviders?.password === false;
+  const initialProviderLinks = configuredAuthProviders?.providers
+    ? renderProductAuthLinks(configuredAuthProviders.providers)
+    : "";
   app.innerHTML =
     '<section id="screen-content" class="login-screen" aria-labelledby="service-title" tabindex="-1">' +
       '<div class="login-intro">' +
@@ -1690,10 +1714,10 @@ function renderLogin(message = "") {
       '<div class="login-panel">' +
         '<div class="panel-heading">' +
           '<h2>ログイン</h2>' +
-          '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
+          '<p>' + (productOnlyLogin ? 'GoogleまたはChatGPTでログインしてください。' : '登録済みのメールアドレスとパスワードを入力してください。') + '</p>' +
         '</div>' +
-        '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite"></div>' +
-        '<form id="login-form" class="form" novalidate>' +
+        '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite">' + initialProviderLinks + '</div>' +
+        '<form id="login-form" class="form" novalidate' + (productOnlyLogin ? ' hidden aria-hidden="true"' : '') + '>' +
           '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
@@ -1740,17 +1764,15 @@ function renderLogin(message = "") {
     }
   });
   setTimeout(() => fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+    configuredAuthProviders = payload;
     const providers = payload?.providers;
     const buttons = document.getElementById("product-auth-buttons");
     if (!buttons || !providers) return;
-    const requestedReturn = new URLSearchParams(window.location.search).get("return");
-    const returnPath = encodeURIComponent(requestedReturn || window.location.pathname || "/");
-    const links = [];
-    if (providers.google === true) links.push('<a class="secondary-button" href="/api/auth/google/start?return=' + returnPath + '">Googleでログイン</a>');
-    if (providers.chatgpt === true) links.push('<a class="secondary-button" href="/api/auth/chatgpt/start?return=' + returnPath + '">ChatGPTでログイン</a>');
-    if (links.length) {
-      buttons.innerHTML = '<p class="auth-divider">または</p>' + links.join("");
+    const links = renderProductAuthLinks(providers);
+    if (links) {
+      buttons.innerHTML = links;
       if (payload.password === false) {
+        productAuthSessionSeen = true;
         const form = document.getElementById("login-form");
         const heading = document.querySelector(".panel-heading p");
         if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
@@ -1763,7 +1785,7 @@ function renderLogin(message = "") {
   }
   if (message) {
     document.getElementById("login-message").focus();
-  } else {
+  } else if (!productOnlyLogin) {
     document.getElementById("email").focus();
   }
 }
@@ -2473,7 +2495,9 @@ function manualSidebarHtml(session, activeScreen) {
     : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>';
   const manualNavigation = manualMigrationInProgress(session)
     ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
-    : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
+    : usesD1ManualSurface(session)
+      ? '<a id="manual-nav-link" class="nav-item' + (activeScreen !== "workspace" ? ' active' : '') + '" href="/manuals"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</a>'
+      : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
   return '<aside class="sidebar" aria-label="アプリメニュー">' +
     '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
     '<nav class="nav" aria-label="主要メニュー">' +
@@ -2483,7 +2507,7 @@ function manualSidebarHtml(session, activeScreen) {
       '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
     '</nav>' +
     '<div class="user-box">' +
-      '<span>ログイン中：' + escapeHtml(session.user.email || "メールアドレス未設定") + '</span>' +
+      '<span>ログイン中：' + escapeHtml(sessionLoginLabel(session)) + '</span>' +
       '<button id="logout-button" class="secondary-button" type="button">ログアウト</button>' +
     '</div>' +
   '</aside>';
@@ -3450,11 +3474,13 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
              : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>') +
           (manualMigration
             ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
-            : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
+            : usesD1ManualSurface(session)
+              ? '<a id="manual-nav-link" class="nav-item" href="/manuals">手順書</a>'
+              : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
           '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
         '</nav>' +
         '<div class="user-box">' +
-          '<span>ログイン中：' + escapeHtml(session.user.email || "メールアドレス未設定") + '</span>' +
+          '<span>ログイン中：' + escapeHtml(sessionLoginLabel(session)) + '</span>' +
           '<button id="logout-button" class="secondary-button" type="button">ログアウト</button>' +
         '</div>' +
       '</aside>' +
@@ -3605,6 +3631,7 @@ async function loadSession(options = {}) {
   try {
     const session = await requestJson("/api/session", {}, true, options.requestAccessMode ?? isAccessModeSession());
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (session.authMode === "product") productAuthSessionSeen = true;
     if (currentSession?.user?.id !== session.user?.id) {
       replaceCurrentSession(session);
     } else {

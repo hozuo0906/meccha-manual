@@ -818,6 +818,50 @@ test("Access logout成功はpassword画面ではなくAccessログイン導線�
   assert.doesNotMatch(app.innerHTML, /login-screen|login-form|メールアドレスとパスワード/);
 });
 
+test("product sessionはメール未設定を表示せずD1手順書surfaceへ遷移できる", () => {
+  const session = {
+    user: { id: "product-user-1" },
+    workspaces: [],
+    manuals: { status: "ready" },
+    members: { status: "ready" },
+    authMode: "product"
+  };
+  const { api, app } = createHarness();
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  assert.match(app.innerHTML, /ログイン中：アカウント/);
+  assert.doesNotMatch(app.innerHTML, /メールアドレス未設定/);
+  assert.match(app.innerHTML, /id="manual-nav-link"[^>]*href="\/manuals"/);
+});
+
+test("product logoutはprovider設定を再利用してpassword formを表示しない", async () => {
+  const session = {
+    user: { id: "product-user-1" },
+    workspaces: [],
+    manuals: { status: "ready" },
+    members: { status: "ready" },
+    authMode: "product"
+  };
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/session") return Response.json(session);
+      if (path === "/api/auth/providers") return Response.json({ providers: { google: true, chatgpt: false }, password: false });
+      if (path === "/api/auth/logout") return Response.json({ status: "ok" });
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  await harness.api.loadSession();
+  harness.advanceTime(0);
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+  await harness.api.logout();
+  harness.advanceTime(0);
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.doesNotMatch(harness.app.innerHTML, /メールアドレスとパスワードを入力してください/);
+});
+
 test("Access logout中の兄弟タブはsessionを再取得せず遅着成功でも保護shellを復活させない", async () => {
   const versionKey = "meccha-manual-authentication-version";
   const logoutStarted = deferred();
