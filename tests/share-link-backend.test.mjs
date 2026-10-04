@@ -271,6 +271,37 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.match(await viewer.text(), /id="share-viewer"/u);
     const viewerCss = await request("/s/assets/share.css");
     assert.match(await viewerCss.text(), /#share-auth\[hidden\].*display:none/u);
+    const legacyCookieAppEnv = {
+      ...appEnv,
+      SUPABASE_URL: "https://supabase.example.test",
+      SUPABASE_ANON_KEY: "synthetic-anon-key"
+    };
+    const legacyViewer = await worker.fetch(new Request(`${HTTP_BASE_URL}/s/`, {
+      headers: { cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh" }
+    }), legacyCookieAppEnv, {});
+    assert.equal(legacyViewer.status, 200, "public share viewer remains available with a legacy cookie");
+    assert.match(await legacyViewer.text(), /id="share-viewer"/u);
+    const legacyViewerCss = await worker.fetch(new Request(`${HTTP_BASE_URL}/s/assets/share.css`, {
+      headers: { cookie: "__Host-mm_access=legacy-access" }
+    }), legacyCookieAppEnv, {});
+    assert.equal(legacyViewerCss.status, 200, "public share assets remain available with a legacy cookie");
+    const legacyPublicRequest = async (path, { method = "GET", body, token, grant } = {}) => {
+      const headers = new Headers({ origin: HTTP_BASE_URL, cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh" });
+      if (token) headers.set("x-share-token", token);
+      if (grant) headers.set("x-share-grant", grant);
+      if (body !== undefined) {
+        headers.set("content-type", "application/json");
+        body = JSON.stringify(body);
+      }
+      return worker.fetch(new Request(`${HTTP_BASE_URL}${path}`, { method, headers, body }), legacyCookieAppEnv, {});
+    };
+    const legacyResolve = await legacyPublicRequest("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: fixture.token });
+    assert.equal(legacyResolve.status, 200, "public share resolve remains available with a legacy cookie");
+    const legacyGrant = (await legacyResolve.json()).grant;
+    const legacyContent = await legacyPublicRequest("/s/api/content", { method: "POST", grant: legacyGrant });
+    assert.equal(legacyContent.status, 200, "public share content remains available with a legacy cookie");
+    const legacyAsset = await legacyPublicRequest(`/s/api/assets/${HTTP_ASSET}`, { grant: legacyGrant });
+    assert.equal(legacyAsset.status, 200, "public share assets API remains available with a legacy cookie");
     for (const path of ["/s/assets/brand/logo.png", "/s/assets/brand/mascot.png"]) {
       const brand = await appRequest(path);
       assert.equal(brand.status, 200);

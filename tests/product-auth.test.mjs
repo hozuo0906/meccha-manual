@@ -480,6 +480,18 @@ test("configured Google provider keeps a valid password session on Supabase and 
     throw new Error(`unexpected Supabase request: ${target}`);
   };
   try {
+    const providers = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/providers`), env, {});
+    assert.equal(providers.status, 200);
+    assert.deepEqual(await providers.json(), { providers: { google: true, chatgpt: false }, password: false });
+    const blockedLogin = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { origin: env.APP_BASE_URL, "content-type": "application/json" },
+      body: JSON.stringify({ email: "password@example.test", password: "synthetic-password" })
+    }), env, {});
+    assert.equal(blockedLogin.status, 503);
+    assert.equal((await blockedLogin.json()).code, "MANUAL_MIGRATION_IN_PROGRESS");
+    assert.equal(blockedLogin.headers.get("set-cookie"), null);
+
     const password = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, {
       headers: { cookie: "__Host-mm_access=password-token" }
     }), env, {});
@@ -494,6 +506,79 @@ test("configured Google provider keeps a valid password session on Supabase and 
     assert.equal(mixedInvalid.status, 401);
     assert.equal((await mixedInvalid.json()).code, "SESSION_REQUIRED");
     assert.equal(calls.length, beforeInvalidProduct, "invalid product cookies must not fall back to Supabase password or Access");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("legacy Supabase logout wins over Access environment fallback while Access assertion wins when present", async () => {
+  const { database, binding } = await authDatabase();
+  const originalFetch = globalThis.fetch;
+  const env = {
+    GOOGLE_OIDC_CLIENT_ID: "google-mixed-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    SUPABASE_URL: "https://supabase.example.test",
+    SUPABASE_ANON_KEY: "synthetic-anon-key",
+    ACCESS_ISSUER: "https://access.example",
+    ACCESS_AUDIENCE: "access-audience",
+    ACCESS_JWKS_URL: "https://access.example/jwks",
+    DB: binding
+  };
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const target = String(input);
+    calls.push(target);
+    if (target.endsWith("/auth/v1/user")) return Response.json({ id: "legacy-user", email: "legacy@example.test" });
+    if (target.endsWith("/auth/v1/logout?scope=local")) return new Response(null, { status: 204 });
+    throw new Error(`unexpected Supabase request: ${target}`);
+  };
+  try {
+    const legacy = await worker.fetch(new Request("https://app.example/api/auth/logout", {
+      method: "POST",
+      headers: {
+        origin: "https://app.example",
+        "content-type": "application/json",
+        cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh"
+      },
+      body: "{}"
+    }), env, {});
+    assert.equal(legacy.status, 200);
+    assert.deepEqual(await legacy.json(), { status: "ok" });
+    assert.deepEqual(calls, [
+      "https://supabase.example.test/auth/v1/user",
+      "https://supabase.example.test/auth/v1/logout?scope=local"
+    ]);
+    assert.match(legacy.headers.get("set-cookie") ?? "", /__Host-mm_access=.*Max-Age=0/u);
+    assert.match(legacy.headers.get("set-cookie") ?? "", /__Host-mm_refresh=.*Max-Age=0/u);
+
+    const access = await worker.fetch(new Request("https://app.example/api/auth/logout", {
+      method: "POST",
+      headers: {
+        origin: "https://app.example",
+        "content-type": "application/json",
+        cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh",
+        "Cf-Access-Jwt-Assertion": "invalid.jwt"
+      },
+      body: "{}"
+    }), env, {});
+    assert.equal(access.status, 401);
+    assert.equal((await access.json()).code, "ACCESS_JWT_INVALID");
+    assert.equal(calls.length, 2, "Access assertion must win without contacting Supabase");
+    assert.equal(access.headers.get("set-cookie"), null);
+
+    const invalidProduct = await worker.fetch(new Request("https://app.example/api/auth/logout", {
+      method: "POST",
+      headers: {
+        origin: "https://app.example",
+        "content-type": "application/json",
+        cookie: "__Host-mm_product=invalid-product; __Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh"
+      },
+      body: "{}"
+    }), env, {});
+    assert.equal(invalidProduct.status, 200);
+    assert.match(invalidProduct.headers.get("set-cookie") ?? "", /__Host-mm_product=.*Max-Age=0/u);
+    assert.equal(calls.length, 2, "invalid product cookies must not fall back to Supabase logout");
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

@@ -401,13 +401,17 @@ function useProductD1Routes(env: Env, request?: Request): boolean {
   // backend that is not configured.
   if (request) {
     if (hasProductSessionCookie(request)) return true;
-    const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
-      const separator = part.indexOf("=");
-      return (separator < 0 ? part : part.slice(0, separator)).trim();
-    }));
-    if ((cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) && legacyConfigured) return false;
+    if (hasLegacySupabaseSessionCookie(request) && legacyConfigured) return false;
   }
   return providers.google || providers.chatgpt;
+}
+
+function hasLegacySupabaseSessionCookie(request: Request): boolean {
+  const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
+    const separator = part.indexOf("=");
+    return (separator < 0 ? part : part.slice(0, separator)).trim();
+  }));
+  return cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN);
 }
 
 function hasAccessAssertion(request: Request): boolean {
@@ -422,11 +426,7 @@ function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
     // legacy route even when Access and product providers are configured.
     if (hasProductSessionCookie(request)) return true;
     if (hasAccessAssertion(request)) return true;
-    const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
-      const separator = part.indexOf("=");
-      return (separator < 0 ? part : part.slice(0, separator)).trim();
-    }));
-    if ((cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) && inspectSupabaseConfig(env).configured) return false;
+    if (hasLegacySupabaseSessionCookie(request) && inspectSupabaseConfig(env).configured) return false;
   }
   return useAccessD1Routes(env) || useProductD1Routes(env, request);
 }
@@ -2523,6 +2523,14 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const brandAsset = await brandAssetResponse(request, env);
   if (brandAsset) return brandAsset;
 
+  // The share viewer, token/grant APIs, and their assets are public entry
+  // points. Share management and protected manual routes still depend on the
+  // credential-selected application route.
+  if (url.pathname.startsWith("/s/")) {
+    const shareResponse = await handleShareLinkRoute(request, env);
+    if (shareResponse) return shareResponse;
+  }
+
   if (useD1ApplicationRoutes(env, request)) {
     const shareResponse = await handleShareLinkRoute(request, env);
     if (shareResponse) return shareResponse;
@@ -2531,7 +2539,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
 
   if (request.method === "GET" && url.pathname === "/api/auth/providers") {
-    return jsonResponse({ providers: configuredProductProviders(env), password: inspectSupabaseConfig(env).configured });
+    return jsonResponse({ providers: configuredProductProviders(env), password: inspectSupabaseConfig(env).configured && !useAccessD1Routes(env) });
   }
   if (request.method === "GET" && url.pathname === "/api/auth/google/start") return productAuthStartRoute(request, env, "google");
   if (request.method === "GET" && url.pathname === "/api/auth/google/callback") return productAuthCallbackRoute(request, env, "google");
@@ -2588,6 +2596,8 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
     if ((await getProductSession(request, env)) || hasProductSessionCookie(request)) return revokeProductSession(request, env);
+    if (hasAccessAssertion(request)) return accessLogout(request, env);
+    if (inspectSupabaseConfig(env).configured && hasLegacySupabaseSessionCookie(request)) return logout(request, env);
     return useAccessD1Routes(env) ? accessLogout(request, env) : logout(request, env);
   }
   if (request.method === "GET" && url.pathname === "/api/workspaces") {

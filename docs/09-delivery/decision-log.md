@@ -725,3 +725,13 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: OAuth開始前のorigin／return境界を副作用より先に固定し、alias経由の開始とopen redirectを拒否する。ブラウザではraw JSONへ遷移させず、失敗理由と利用者の次操作を日本語で示し、同じOffice handoffへ安全に戻れるようにする。
 - Boundary: callback検証、provider設定、limiter／D1の既存status分類、migration、secret、deploy、Office出力仕様は変更しない。
 - Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-109: Access migration guardとmixed credentialのentry dispatch
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5404074857
+- Decision: Access migration guardはlegacy password login／refreshの503を維持し、`/api/auth/providers`の`password`をAccess設定時にfalseへ同期する。既存legacy cookieのsession／logoutはproduct cookie、Access assertion、configured legacy cookieの順で選択する。`/s/`配下の公開share viewer、token／grant API、assetだけはcredential-selected routeから独立してdispatchし、share管理APIとmanual業務routeの認証境界は維持する。
+- Reason: 移行中にUIが停止中のpassword loginを案内する矛盾、legacy cookie logoutがAccess assertion要求へ誤分岐する欠陥、legacy cookieによる公開share viewerの404を同時に解消し、既存のfail-closed境界を変えないため。
+- Boundary: Access／Supabase／Productのprovider設定、D1 schema、migration、外部認証、tenant query、共有OFF／token／grant認可、deployは変更しない。
+- Evidence: `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/share-link-backend.test.mjs`, `docs/05-api/api-contracts.md`, `docs/01-product/requirements-traceability.md`

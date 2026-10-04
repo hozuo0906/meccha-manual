@@ -655,3 +655,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - local source/tests: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`。product-auth unit 30/30、Worker typecheck exit 0。追加回帰でrate-limit拒否時の期限切れ行保持、101件の継続start、malformed expiry保持、cleanup後INSERT失敗時のrollbackをD1 adapterで確認した。既存のCI担当所有 `tests/product-auth-browser.test.mjs` は変更・stageしていない。
 - UI担当の logout render race 修正は `b6ac28a38822e7247f7113b0200b0c6d5444bac6`（app-assets.ts / app-auth.test.mjs / product-auth-browser.test.mjs、app117/browser6/runtime71）を採用根拠として親が統合する。staging／production設定、deploy、mergeは未実施。
 - 次のゲートはこの修正を含むcommitのremote保存後に、親が最新head SHAでCI／Codex Review／review thread解決を再取得すること。
+
+## Issue #283／PR #284 mixed credential entry dispatch修正（2026-10-04）
+- Access migration guard の login／refresh 503 は維持し、`/api/auth/providers` の `password:false` を Access 設定時に同期した。legacy Supabase session／logout は product cookie → Access assertion → configured legacy cookie の順で選択する。
+- `/s/` viewer、token／grant API、assets は configured legacy cookie の有無に関係なく `handleShareLinkRoute` へ到達し、share 管理 API と manual 業務 route は保護 dispatch を維持する。Supabase 未設定の legacy cookie fail-closed、product invalid cookie、tenant／workspace 境界は既存回帰を維持した。
+- 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs tests/share-link-backend.test.mjs` 42/42、skip 0、exit 0。Windows `npm ci`／full `npm run check`、CI、正式 Review、remote SHA、deploy／merge はcommit／push前のこの担当では未確認。
+- 次のゲート: この担当が差分をcommit／pushしてremote SHAを照合した後、親PMが最新SHAでCI・正式Review・review threadを再取得する。
