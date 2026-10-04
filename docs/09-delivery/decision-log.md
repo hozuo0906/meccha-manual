@@ -679,3 +679,16 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: `manual_revision_sync_draft`などのtriggerがmanual rowを更新すると、remote D1の累積変更件数だけが増え、保存済みなのに409へ写像されるため。
 - Boundary: migration、trigger定義、R2、Office出力、staging／production設定は変更しない。D1 batchの直接変更件数照合とそのSQLite回帰mockだけを更新する。
 - Evidence: `apps/worker/src/infra/d1/d1-types.ts`、`apps/worker/src/infra/d1/cloud-manual-repository.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`。
+
+## DEC-105: Product provider-onlyログインUIの可視性と状態表示
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - provider設定の取得中はメール／パスワードフォームを表示せず、「ログイン方法を読み込んでいます。」と案内する。取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す。
+  - `password=false` のProduct環境では `.form[hidden] { display: none; }` を明示して、`.form { display: grid; }` による実表示の上書きを防ぐ。エラーメッセージは隠しフォームの外に置き、フォームを隠している間も表示できるようにする。
+  - providerが1つだけならprovider名を案内し、2つのproviderが利用できる場合だけ「または」を表示する。provider設定が空の場合は読み込み中のままにせず、利用できるログイン方法がないことと次の問い合わせ先を案内する。
+- Reason: provider-only画面でのパスワードフォームの一瞬の表示、不要な区切り、provider名と案内の不一致、隠しフォーム内のエラー消失を防ぎ、ログアウト後・期限切れ後にも利用可能な認証導線を実表示するため。
+- Boundary: provider登録・secret、session／API契約、Cloudflare Access、staging／production設定、AI／ChatGPT利用枠は変更しない。
+- Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`。unit 115/115、product-auth browser 5/5、worker-runtime 71/71、Worker harness、diff-checkを確認した。`npm ci`はWindowsのnode_modules lock unlink EPERM、`npm run check`はworktree内でnpm shimの解決失敗が残るため、これらは未確認のままとする。

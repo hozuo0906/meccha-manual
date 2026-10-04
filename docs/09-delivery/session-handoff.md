@@ -627,3 +627,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 親がstaging D1へread-only相当の実probeを行い、既存のarchived fixtureでtriggerを発火する`UPDATE manual_revisions ...`と同一batch内の`SELECT changes() AS direct_changes`を実行した。取得結果はDMLが`meta.changes=2`／`results=[]`、直後のSELECTが`meta.changes=0`／`results=[{direct_changes:1}]`で、`manual_revision_sync_draft`のtrigger副作用がD1変更件数へ加算される仕様を確認した。
 - このprobeはD1の変更件数仕様確認だけであり、今回のrepository最終修正APIの保存成功、画像あり保存、Office出力、remote migration／deployの成功証跡とは扱わない。今回の修正はD1 batch内の各DML直後に同じ`SELECT changes()`を置き、直接件数を厳密照合する。
 - 修正前の旧ローカル回帰43/43はSQLite `run().changes`を使っていたためこのremote専用のtrigger加算誤409を検出できなかった。今回のmockはDMLの累積変更件数を`meta.changes`へ反映し、直後SELECT結果を必須照合することで同じ欠陥を回帰対象へ含めた。
+
+## Root ProductログインUI可視性修正（2026-10-04T10:22:45+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。rootのProductログイン画面で、`.form { display: grid; }` がUAの`hidden`表示を上書きしprovider-onlyでもパスワードフォームが見える問題、単一providerでも不要な「または」が残る問題、隠したフォーム内のエラーが見えない問題を確認し、source commit `4cc027ddde4ba34ffacd134c19b317f2f95d379b`へ最小修正した。
+- provider設定取得中はパスワードフォームを表示せず、provider-only時は利用可能なproviderだけを案内する。providerが1つならprovider名を単独表示し、2つの場合だけ「または」を使う。設定が空のときは読み込み中のままにせず利用不可の案内を出し、取得失敗時はProduct session未確認の場合に限り既存入力へ戻す。エラー表示は隠しフォームの外に置いた。UX、requirements traceability、decision logにも同じ状態遷移と境界を追記した。
+- 実測は`tests/app-auth.test.mjs` 115/115、`tests/product-auth-browser.test.mjs` 5/5、`tests/worker-runtime.test.mjs` 71/71、Worker harness、`git diff --check`が成功。親が同一headの関連認証・Office・D1回帰207/207、skip 0、exit 0（session 15526）を取得している。実provider SSO、remote D1/R2、native Officeアプリ、staging／production反映はこの作業では確認・実施していない。
+- `npm ci`はWindowsの`node_modules\\.package-lock.json` unlinkでEPERM、`npm run check`はworktree内でnpm shimを解決できず未完了。これらを成功扱いにせず、source回帰の既存Node直接実行結果と区別する。外部設定、deploy、mergeは行っていない。
+- このhandoff追記を含むdocs-only commitを作成・pushした後、親PMが最終headに対するCI、Codex Review、review thread、staging反映判断を再取得する。

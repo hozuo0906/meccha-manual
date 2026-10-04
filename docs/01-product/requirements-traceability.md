@@ -181,3 +181,12 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、認証・workspace claim後の端末Office生成を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
 
 Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs`で検証する。prepare／bind／run拒否と消費CAS競合を区別し、callback成功・エラーリンク復帰ともReferer無しを確認する。
+
+## ProductログインUI実表示の追跡（2026-10-04）
+
+| 追跡対象 | 利用者に見える挙動 | 実装・回帰 | 状態 |
+|---|---|---|---|
+| FR-001／FR-002のoutput gate後認証 | 認証方法の取得中は入力欄を表示せず、provider-only環境では利用可能なproviderだけを案内する。providerが1つなら単独案内、2つなら必要な場合だけ「または」を表示する | `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs` | source commit `4cc027ddde4ba34ffacd134c19b317f2f95d379b`で実装、unit 115/115・browser 5/5 |
+| 同上の失敗・空設定 | provider取得失敗時は未確認のProduct sessionに限り既存入力へ戻し、provider設定が空なら読み込み中のままにせず管理者への案内を表示する。隠したフォームの外にエラーを表示する | 同上 | `worker-runtime` 71/71、Worker harness OK |
+
+この追跡はrootログイン画面の表示と状態遷移に限る。実provider SSO、remote設定、staging／production反映、native Officeアプリの表示結果はこのローカル回帰の成功には含めない。
