@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-23f4f64294bf711d";
+export const APP_ASSET_VERSION = "sha256-dd286b45229d7033";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -219,6 +219,10 @@ h1 {
 .form {
   display: grid;
   gap: 16px;
+}
+
+.form[hidden] {
+  display: none;
 }
 
 .field {
@@ -1686,20 +1690,30 @@ function updateLoginFieldErrors(form, validationMessage) {
   invalidField.setAttribute("aria-describedby", "login-message");
 }
 
-function renderProductAuthLinks(providers) {
+function renderProductAuthLinks(providers, showDivider = false) {
   if (!providers) return "";
   const requestedReturn = new URLSearchParams(window.location.search).get("return");
   const returnPath = encodeURIComponent(requestedReturn || window.location.pathname || "/");
   const links = [];
   if (providers.google === true) links.push('<a class="secondary-button" href="/api/auth/google/start?return=' + returnPath + '">Googleでログイン</a>');
   if (providers.chatgpt === true) links.push('<a class="secondary-button" href="/api/auth/chatgpt/start?return=' + returnPath + '">ChatGPTでログイン</a>');
-  return links.length ? '<p class="auth-divider">または</p>' + links.join("") : "";
+  return showDivider && links.length ? '<p class="auth-divider">または</p>' + links.join("") : links.join("");
+}
+
+function productAuthInstruction(providers) {
+  const labels = [];
+  if (providers?.google === true) labels.push("Google");
+  if (providers?.chatgpt === true) labels.push("ChatGPT");
+  if (labels.length === 2) return labels[0] + "または" + labels[1] + "でログインしてください。";
+  if (labels.length === 1) return labels[0] + "でログインしてください。";
+  return providers ? "現在利用できるログイン方法がありません。管理者にお問い合わせください。" : "ログイン方法を読み込んでいます。";
 }
 
 function renderLogin(message = "") {
-  const productOnlyLogin = productAuthSessionSeen || configuredAuthProviders?.password === false;
+  const providerConfigPending = configuredAuthProviders === null && !productAuthSessionSeen;
+  const productOnlyLogin = productAuthSessionSeen || configuredAuthProviders?.password === false || providerConfigPending;
   const initialProviderLinks = configuredAuthProviders?.providers
-    ? renderProductAuthLinks(configuredAuthProviders.providers)
+    ? renderProductAuthLinks(configuredAuthProviders.providers, !productOnlyLogin)
     : "";
   app.innerHTML =
     '<section id="screen-content" class="login-screen" aria-labelledby="service-title" tabindex="-1">' +
@@ -1714,11 +1728,11 @@ function renderLogin(message = "") {
       '<div class="login-panel">' +
         '<div class="panel-heading">' +
           '<h2>ログイン</h2>' +
-          '<p>' + (productOnlyLogin ? 'GoogleまたはChatGPTでログインしてください。' : '登録済みのメールアドレスとパスワードを入力してください。') + '</p>' +
+          '<p id="login-heading">' + (productOnlyLogin ? productAuthInstruction(configuredAuthProviders?.providers) : '登録済みのメールアドレスとパスワードを入力してください。') + '</p>' +
         '</div>' +
         '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite">' + initialProviderLinks + '</div>' +
+        '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
         '<form id="login-form" class="form" novalidate' + (productOnlyLogin ? ' hidden aria-hidden="true"' : '') + '>' +
-          '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
             '<input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>' +
@@ -1767,19 +1781,36 @@ function renderLogin(message = "") {
     configuredAuthProviders = payload;
     const providers = payload?.providers;
     const buttons = document.getElementById("product-auth-buttons");
-    if (!buttons || !providers) return;
-    const links = renderProductAuthLinks(providers);
-    if (links) {
-      buttons.innerHTML = links;
-      if (payload.password === false) {
-        productAuthSessionSeen = true;
+    const heading = document.getElementById("login-heading");
+    if (!buttons) return;
+    if (!providers) {
+      if (!productAuthSessionSeen) {
         const form = document.getElementById("login-form");
-        const heading = document.querySelector(".panel-heading p");
-        if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
-        if (heading) heading.textContent = "GoogleまたはChatGPTでログインしてください。";
+        buttons.innerHTML = "";
+        if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+        if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
       }
+      return;
     }
-  }).catch(() => undefined), 0);
+    const links = renderProductAuthLinks(providers, payload.password !== false);
+    buttons.innerHTML = links;
+    if (payload.password === false) {
+      productAuthSessionSeen = true;
+      const form = document.getElementById("login-form");
+      if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
+      if (heading) heading.textContent = productAuthInstruction(providers);
+    } else {
+      const form = document.getElementById("login-form");
+      if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+      if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+    }
+  }).catch(() => {
+    if (productAuthSessionSeen) return;
+    const form = document.getElementById("login-form");
+    const heading = document.getElementById("login-heading");
+    if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+    if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+  }), 0);
   for (const field of [document.getElementById("email"), document.getElementById("password")]) {
     field.addEventListener("input", () => clearLoginFieldError(field));
   }

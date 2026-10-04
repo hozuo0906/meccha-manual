@@ -853,13 +853,14 @@ test("product logoutはprovider設定を再利用してpassword formを表示し
   });
   await harness.api.loadSession();
   harness.advanceTime(0);
-  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
   await harness.api.logout();
   harness.advanceTime(0);
   for (let index = 0; index < 6; index += 1) await Promise.resolve();
 
   assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
   assert.doesNotMatch(harness.app.innerHTML, /メールアドレスとパスワードを入力してください/);
+  assert.doesNotMatch(harness.app.innerHTML, /class="auth-divider"/);
 });
 
 test("Access logout中の兄弟タブはsessionを再取得せず遅着成功でも保護shellを復活させない", async () => {

@@ -155,14 +155,18 @@ async function runProductSessionBrowser({ expired }) {
   try {
     await page.goto(`${STAGING_ORIGIN}/`, { waitUntil: "networkidle", timeout: 15_000 });
     if (expired) {
-      await page.waitForSelector("#login-form", { timeout: 10_000 });
+      await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
+      await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
+      assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
       assert.equal(await page.locator("#logout-button").count(), 0);
       assert.ok(routeTrace.some((entry) => entry.endsWith("/api/session 401")), routeTrace.join(" | "));
       assert.equal(fixture.database.prepare("SELECT revoked_at FROM auth_sessions WHERE id = 'browser-product-session'").get().revoked_at, null);
     } else {
       await page.waitForSelector("#logout-button", { timeout: 10_000 });
       await page.locator("#logout-button").click();
-      await page.waitForSelector("#login-form", { timeout: 10_000 });
+      await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
+      await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
+      assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
       for (let attempt = 0; attempt < 100 && !routeTrace.some((entry) => entry.endsWith("/api/auth/logout 200")); attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
@@ -284,6 +288,9 @@ async function runProviderBrowser(provider) {
     const otherProviderSelector = `#product-auth-buttons a[href^="/api/auth/${otherProvider}/start"]`;
     await page.waitForSelector(providerSelector, { timeout: 10_000 });
     assert.equal(await page.locator("#login-form").getAttribute("aria-hidden"), "true");
+    assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none", "provider-only login must hide the password form in the rendered UI");
+    assert.equal(await page.locator(".auth-divider").count(), 0, "a single provider must not show an orphaned separator");
+    assert.equal((await page.locator(".panel-heading p").textContent())?.trim(), `${provider === "google" ? "Google" : "ChatGPT"}でログインしてください。`);
     assert.equal(await page.locator(otherProviderSelector).count(), 0, `${otherProvider} must not expose an unconfigured login action`);
     const providerStartHref = await page.locator(providerSelector).getAttribute("href");
     assert.equal(new URL(providerStartHref, STAGING_ORIGIN).searchParams.get("return"), "/onboarding/continue");
@@ -447,7 +454,10 @@ async function runParallelProviderBrowser(provider) {
     const logout = await pages[0].evaluate(async () => (await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status);
     assert.equal(logout, 200);
     await pages[0].goto(`${STAGING_ORIGIN}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
-    await pages[0].waitForSelector("#login-form", { timeout: 10_000 });
+    await pages[0].waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
+    await pages[0].waitForSelector(`#product-auth-buttons a[href^="/api/auth/${provider}/start"]`, { timeout: 10_000 });
+    assert.equal(await pages[0].locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none", `${provider} logout must return to the provider-only login UI`);
+    assert.equal(await pages[0].locator(".auth-divider").count(), 0, `${provider} logout must not show an orphaned separator`);
     assert.equal((await context.cookies(STAGING_ORIGIN)).some((cookie) => cookie.name === "__Host-mm_product"), false, `${provider} product logout must clear product cookie before reload`);
     await callback(pages[1], legacySecond, "success");
   } finally {
