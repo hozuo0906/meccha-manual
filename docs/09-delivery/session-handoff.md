@@ -613,3 +613,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - WorkerはD1 `GET/POST /api/workspaces/{workspaceId}/members`、`PATCH /api/workspaces/{workspaceId}/members/{userId}`へ固定repositoryを接続し、sessionの`members.status`を`ready`へ同期した。UIはproduct／Access sessionのメール欠落時に「アカウント」と表示し、手順書をcanonical `/manuals`へ案内し、product logout後はpassword formへ戻さない。guest導線、manual新規作成API、remote staging設定、秘密値、PII、実ユーザー操作の記録は変更していない。
 - 合成D1／SQLiteで、workspace ownerの一覧、join codeによるviewer追加、viewerのmutation拒否、ownerのrole更新、不明workspaceの404、legacy auth routeのSupabase fallback停止を確認した。`tests/m3-http-d1.test.mjs` 13/13、`tests/app-auth.test.mjs` 115/115、`tests/worker-runtime.test.mjs` 71/71、worker typecheck exit 0。`npm exec`の依存解決はWindows npm cacheのEPERMで実行できず、直接Node実行で既存依存を使った結果を記録する。`npm ci`、`npm run check`、CI、Codex Reviewはこの修正headで親が再取得する。
 - 親から共有されたstaging／IABの実Google login、D1 migration 0006–0008、Google secrets登録、Access health／preview-onlyのread-only確認、`/manuals`空一覧表示はこのsource変更のlocal検証とは分離する。実保存、Office出力、native Office描画、実ユーザーの手順操作は未確認であり、staging／productionの追加操作は行っていない。
+
+## D1 direct changes probe（2026-10-04）
+
+- 親がstaging D1へread-only相当の実probeを行い、既存のarchived fixtureでtriggerを発火する`UPDATE manual_revisions ...`と同一batch内の`SELECT changes() AS direct_changes`を実行した。取得結果はDMLが`meta.changes=2`／`results=[]`、直後のSELECTが`meta.changes=0`／`results=[{direct_changes:1}]`で、`manual_revision_sync_draft`のtrigger副作用がD1変更件数へ加算される仕様を確認した。
+- このprobeはD1の変更件数仕様確認だけであり、今回のrepository最終修正APIの保存成功、画像あり保存、Office出力、remote migration／deployの成功証跡とは扱わない。今回の修正はD1 batch内の各DML直後に同じ`SELECT changes()`を置き、直接件数を厳密照合する。
+- 修正前の旧ローカル回帰43/43はSQLite `run().changes`を使っていたためこのremote専用のtrigger加算誤409を検出できなかった。今回のmockはDMLの累積変更件数を`meta.changes`へ反映し、直後SELECT結果を必須照合することで同じ欠陥を回帰対象へ含めた。

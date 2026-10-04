@@ -105,6 +105,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 
 - C sliceのcreateはguest claim finalizeだけで、単独manual create／draft create endpointは公開しない。manual list/detailは認証済みworkspace所属へ限定する。
 - update: workspace、role、draft state、期待version、全step内容を同じ`PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft`のatomic operationで照合する。入力は`title`、`description`、`steps`、`expectedUpdatedAt`の固定DTOで、step配列の順序をpositionとし、既存stepは`id`、新規stepはid省略、`assetId`は同じworkspaceのmanual imageだけを許可する。競合は409で入力値を保持する。
+- updateのD1 batchは各DML直後の`SELECT changes()`で直接変更件数を照合する。trigger副作用を含む`meta.changes`をCAS成功判定へ使わず、保存成功を誤って409へ写像しない。
 - publish: manual pointerと期待draft IDを再照合し、公開版を不変化
 - next draft: 期待published IDから複製
 - archive: 期待manual versionを照合し、内容を保持して非破壊化

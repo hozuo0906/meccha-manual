@@ -1,6 +1,6 @@
 import { readStoredManualAnnotations, type ManualAnnotation } from "../../manual-annotations.ts";
 import { D1RepositoryError, ensureRepositoryError } from "./d1-errors.ts";
-import { changed, type D1DatabaseLike, type D1RunResult } from "./d1-types.ts";
+import { changed, directChanged, directChangesStatement, type D1DatabaseLike, type D1RunResult } from "./d1-types.ts";
 
 export type CloudManualRole = "owner" | "admin" | "editor" | "viewer";
 export type ClaimIntentStatus = "pending" | "completed" | "expired";
@@ -534,8 +534,9 @@ export class CloudManualRepository {
           .bind(current.draft_id, workspaceId, stepsPayload, current.draft_id, workspaceId, writeNow, newContentVersion)
       ];
       let results: D1RunResult[];
-      results = await this.db.batch(statements);
-      if (results.length !== 5 || changed(results[0]) !== 1 || changed(results[1]) !== deletedCount || changed(results[2]) !== existingCount || changed(results[3]) !== newCount || changed(results[4]) !== steps.length) throw new D1RepositoryError("conflict");
+      results = await this.db.batch(statements.flatMap((statement) => [statement, directChangesStatement(this.db)]));
+      const expectedChanges = [1, deletedCount, existingCount, newCount, steps.length];
+      if (results.length !== expectedChanges.length * 2 || expectedChanges.some((expected, index) => directChanged(results[index * 2 + 1]) !== expected)) throw new D1RepositoryError("conflict");
       return { draftId: current.draft_id, contentVersion: newContentVersion, updatedAt: writeNow };
     } catch (error) {
       throw repositoryError(error);
@@ -572,9 +573,9 @@ export class CloudManualRepository {
           FROM json_each(?4) AS item WHERE EXISTS (SELECT 1 FROM manual_revisions WHERE id = ?2 AND workspace_id = ?1 AND state = 'draft')`)
           .bind(intent.workspaceId, revisionId, now, JSON.stringify(stepRows.map((step, index) => ({ ...step, position: index }))))
       ];
-      const results = await this.db.batch(statements);
+      const results = await this.db.batch(statements.flatMap((statement) => [statement, directChangesStatement(this.db)]));
       const expectedChanges = [1, 1, 1, assets.length, assets.length, steps.length];
-      if (results.length === expectedChanges.length && results.every((result, index) => changed(result) === expectedChanges[index])) return { status: "claimed", manualId };
+      if (results.length === expectedChanges.length * 2 && expectedChanges.every((expected, index) => directChanged(results[index * 2 + 1]) === expected)) return { status: "claimed", manualId };
       const current = await this.getClaimIntent(actorId, intent.id);
       if (current?.status === "completed" && current.requestFingerprint === fingerprint && current.manualId) return { status: "claimed", manualId: current.manualId };
       throw new D1RepositoryError("conflict");
@@ -592,7 +593,7 @@ export class CloudManualRepository {
     // Every later statement is fenced by this unique CAS result. A lost race changes nothing.
     const fence = `EXISTS (SELECT 1 FROM manual_revisions r WHERE r.id = ?1 AND r.workspace_id = ?2 AND r.manual_id = ?3 AND r.state = 'draft' AND r.content_version = ?4)`;
     try {
-      const results = await this.db.batch([
+      const statements = [
         this.db.prepare(`UPDATE manual_revisions SET title = ?1, description = ?2, content_version = ?3, updated_at = ?4,
           branding_version_id = CASE WHEN ?12 IS NOT NULL THEN ?12 WHEN EXISTS (SELECT 1 FROM workspace_branding_versions b WHERE b.id = manual_revisions.branding_version_id AND b.source_claim_id IS NOT NULL) THEN branding_version_id ELSE (SELECT version_id FROM workspace_branding WHERE workspace_id = ?6) END
           WHERE id = ?5 AND workspace_id = ?6 AND manual_id = ?7 AND state = 'draft' AND updated_at = ?8
@@ -620,8 +621,10 @@ export class CloudManualRepository {
           SELECT json_extract(item.value,'$.id'), ?2, ?1, CAST(json_extract(item.value,'$.position') AS INTEGER), json_extract(item.value,'$.type'), json_extract(item.value,'$.title'), json_extract(item.value,'$.instruction'), json_extract(item.value,'$.actionType'), json_extract(item.value,'$.targetText'), json_extract(item.value,'$.url'), json_extract(item.value,'$.assetId'), json_extract(item.value,'$.annotations'), ?5, ?5
           FROM json_each(?6) item WHERE ${fence}`)
           .bind(target.revisionId, target.workspaceId, target.manualId, contentVersion, writeNow, stepPayload)
-      ]);
-      if (changed(results[0]) === 1 && changed(results[1]) === 1 && changed(results[2]) === assets.length && changed(results[3]) === assets.length && changed(results[5]) === steps.length) return { status: "claimed", manualId: target.manualId };
+      ];
+      const results = await this.db.batch(statements.flatMap((statement) => [statement, directChangesStatement(this.db)]));
+      const expectedChanges: Array<number | null> = [1, 1, assets.length, assets.length, null, steps.length];
+      if (results.length === expectedChanges.length * 2 && expectedChanges.every((expected, index) => expected === null || directChanged(results[index * 2 + 1]) === expected)) return { status: "claimed", manualId: target.manualId };
       const completed = await this.getClaimIntent(actorId, intent.id);
       if (completed?.status === "completed" && completed.requestFingerprint === fingerprint && completed.manualId === target.manualId) return { status: "claimed", manualId: target.manualId };
       throw new D1RepositoryError("conflict");

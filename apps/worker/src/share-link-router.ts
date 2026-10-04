@@ -4,7 +4,7 @@ import { ManualBrandingRepository } from "./infra/d1/manual-branding-repository.
 import { AccessIdentityError, authenticateApplicationRequest, type ApplicationIdentityRepository } from "./access-identity.ts";
 import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
-import { changed, type D1DatabaseLike } from "./infra/d1/d1-types.ts";
+import { changed, directChanged, directChangesStatement, type D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAppRuntimeConfig, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings } from "./server-config.ts";
 import { derivePasscodeHash, nowIso, randomSecret, sha256Hex, validatePasscode, validateSecret, verifyPasscode, PASSCODE_MAX_LENGTH, PASSCODE_MIN_LENGTH, SHARE_GRANT_BYTES, SHARE_TOKEN_BYTES } from "./share-link-crypto.ts";
 import { configuredProductProviders, getProductSession, hasProductSessionCookie } from "./product-auth.ts";
@@ -429,9 +429,10 @@ async function createShare(request: Request, env: ShareLinkEnv, workspaceId: str
     database.prepare(`INSERT INTO share_links (id, workspace_id, manual_id, published_revision_id, source_draft_revision_id, source_content_version, token_hash, passcode_salt, passcode_hash, permission, expires_at, created_by, operation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'read_only', ?10, ?11, ?12, ?13, ?13)`).bind(shareId, workspaceId, manualId, revisionId, expectedDraftRevisionId, body.expectedContentVersion, tokenHash, salt, passcodeHash, expiresAt, actorId, operationId, createdAt)
   ];
   let results;
-  try { results = await database.batch(statements); } catch (error) { throw new D1RepositoryError("conflict", error instanceof Error ? error.message : "share create failed"); }
-  if (results.length !== 7 || changed(results[0]) !== 1 || changed(results[2]) !== 1 || changed(results[3]) !== snapshotSteps.length || changed(results[4]) !== 1 || changed(results[5]) !== 1 || changed(results[6]) !== 1) throw new ShareError(409, "SHARE_CONFLICT", "共有操作が競合しました。最新の内容を確認してください。");
-  return json({ shareLinkId: shareId, expiresAt, permission: "read_only", viewerPath: "/s/", reused: false });
+  try { results = await database.batch(statements.flatMap((statement) => [statement, directChangesStatement(database)])); } catch (error) { throw new D1RepositoryError("conflict", error instanceof Error ? error.message : "share create failed"); }
+  const expectedChanges: Array<number | null> = [1, null, 1, snapshotSteps.length, 1, 1, 1];
+  if (results.length === expectedChanges.length * 2 && expectedChanges.every((expected, index) => expected === null || directChanged(results[index * 2 + 1]) === expected)) return json({ shareLinkId: shareId, expiresAt, permission: "read_only", viewerPath: "/s/", reused: false });
+  throw new ShareError(409, "SHARE_CONFLICT", "共有操作が競合しました。最新の内容を確認してください。");
 }
 
 async function revokeShare(request: Request, env: ShareLinkEnv, workspaceId: string, manualId: string): Promise<Response> {

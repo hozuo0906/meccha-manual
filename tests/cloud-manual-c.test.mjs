@@ -35,8 +35,11 @@ class LocalStatement {
     return new LocalStatement(this.database, this.sql, values);
   }
   async run() {
+    if (/^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(this.sql)) return { success: true, results: [this.database.prepare(this.sql).get(...this.values)] };
+    const beforeTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes);
     const result = this.database.prepare(this.sql).run(...this.values);
-    return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
+    const afterTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes);
+    return { success: true, meta: { changes: afterTotalChanges - beforeTotalChanges, last_row_id: Number(result.lastInsertRowid) } };
   }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
@@ -52,8 +55,10 @@ class LocalD1 {
       this.database.exec("BEGIN IMMEDIATE");
       try {
         const results = [];
+        let operationIndex = 0;
         for (const [index, statement] of statements.entries()) {
-          if (index === this.failAt) throw new Error("injected D1 failure");
+          const isDirectChanges = /^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(statement.sql);
+          if (!isDirectChanges && operationIndex++ === this.failAt) throw new Error("injected D1 failure");
           results.push(await statement.run());
         }
         this.database.exec("COMMIT");

@@ -40,7 +40,7 @@ const httpPublicJwk = { ...await exportJWK(httpPublicKey), kid: "share-test", al
 class HttpStatement {
   constructor(database, sql, values = [], beforeRun = null) { this.database = database; this.sql = sql; this.values = values; this.beforeRun = beforeRun; }
   bind(...values) { return new HttpStatement(this.database, this.sql, values, this.beforeRun); }
-  async run() { this.beforeRun?.(); const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async run() { this.beforeRun?.(); if (/^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(this.sql)) return { success: true, results: [this.database.prepare(this.sql).get(...this.values)] }; const beforeTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes); const result = this.database.prepare(this.sql).run(...this.values); const afterTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes); return { success: true, meta: { changes: afterTotalChanges - beforeTotalChanges, last_row_id: Number(result.lastInsertRowid) } }; }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
 }
@@ -51,7 +51,7 @@ class HttpD1 {
   async batch(statements) {
     this.beforeBatch?.();
     this.database.exec("BEGIN IMMEDIATE");
-    try { const results = []; for (const [index, statement] of statements.entries()) { if (index === this.failAt) throw new Error("injected batch failure"); results.push(await statement.run()); } this.database.exec("COMMIT"); return results; }
+    try { const results = []; let operationIndex = 0; for (const statement of statements) { const isDirectChanges = /^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(statement.sql); if (!isDirectChanges && operationIndex++ === this.failAt) throw new Error("injected batch failure"); results.push(await statement.run()); } this.database.exec("COMMIT"); return results; }
     catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
 }

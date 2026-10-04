@@ -657,3 +657,15 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: 実Google SSO後のrootでメール未設定表示とメンバー権限loadingが停止し、logout後にpassword formへ戻る不整合を、D1現行契約の状態・認可・canonical manual surfaceへ最小修正するため。
 - Boundary: guest導線、manual新規作成API、外部staging設定、remote migration、実ユーザー操作データ、秘密値、production反映は変更しない。
 - Evidence: `apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/m3-http-d1.test.mjs`、`tests/app-auth.test.mjs`、`docs/05-api/cloudflare-access-d1-api.md`。
+
+## DEC-103: D1 trigger加算を含むmanual保存の直接変更件数照合
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - manual draft PATCH、claim finalize、既存manual更新claim、share snapshot作成のD1 batchでは、各DML直後に同じbatch内で`SELECT changes()`を実行し、その直接変更件数を期待値と照合する。
+  - D1 `meta.changes`はtriggerによる副作用を含むため、CASの成否判定には使用しない。transaction、workspace／actor認可、再送時のcompleted receipt、途中失敗rollbackは既存契約を維持する。
+- Reason: `manual_revision_sync_draft`などのtriggerがmanual rowを更新すると、remote D1の累積変更件数だけが増え、保存済みなのに409へ写像されるため。
+- Boundary: migration、trigger定義、R2、Office出力、staging／production設定は変更しない。D1 batchの直接変更件数照合とそのSQLite回帰mockだけを更新する。
+- Evidence: `apps/worker/src/infra/d1/d1-types.ts`、`apps/worker/src/infra/d1/cloud-manual-repository.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`。
