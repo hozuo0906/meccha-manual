@@ -6,14 +6,59 @@ import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 
+const WORKER_CSP = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; script-src 'self'; style-src 'self'";
+
+function zipEntries(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const entries = new Map();
+  let cursor = 0;
+  while (cursor + 4 <= bytes.length) {
+    const signature = view.getUint32(cursor, true);
+    if (signature === 0x04034b50) {
+      const compressedLength = view.getUint32(cursor + 18, true);
+      const nameLength = view.getUint16(cursor + 26, true);
+      const extraLength = view.getUint16(cursor + 28, true);
+      const nameStart = cursor + 30;
+      const name = new TextDecoder().decode(bytes.subarray(nameStart, nameStart + nameLength));
+      const bodyStart = nameStart + nameLength + extraLength;
+      entries.set(name, bytes.subarray(bodyStart, bodyStart + compressedLength));
+      cursor = bodyStart + compressedLength;
+      continue;
+    }
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    throw new Error(`unexpected ZIP signature 0x${signature.toString(16)}`);
+  }
+  return entries;
+}
+
+async function inspectPng(page, bytes, xRatio, yRatio) {
+  return page.evaluate(async ({ base64, x, y }) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    return {
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      pixel: [...context.getImageData(Math.floor(canvas.width * x), Math.floor(canvas.height * y), 1, 1).data]
+    };
+  }, { base64: Buffer.from(bytes).toString("base64"), x: xRatio, y: yRatio });
+}
+
 test("cloud Office actions download both formats and refuse a failed image", { timeout: 180_000 }, async () => {
   let imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
   let assetStatus = 200;
   let assetDelayMs = 0;
+  const requests = [];
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://localhost").pathname;
+    requests.push({ method: req.method, path });
     const send = (body, type = "application/json", status = 200) => {
-      res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
+      res.writeHead(status, { "content-type": type, "cache-control": "no-store", "content-security-policy": WORKER_CSP });
       res.end(type === "application/json" ? JSON.stringify(body) : body);
     };
     if (path === "/manuals") return send(renderCloudManualsPage({ workspaceId: "team" }), "text/html");
@@ -44,9 +89,10 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     const seed = await browser.newPage();
     await seed.goto(origin + "/manuals");
     imageBytes = Buffer.from(await seed.evaluate(() => {
-      const canvas = document.createElement("canvas"); canvas.width = 1200; canvas.height = 660;
+      const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 360;
       const context = canvas.getContext("2d"); context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = "#087f7a"; context.fillRect(0, 0, canvas.width, 90); context.fillStyle = "#ffffff"; context.font = "32px sans-serif"; context.fillText("Office export canary", 32, 58);
+      context.fillStyle = "#087f7a"; context.fillRect(0, 0, canvas.width, 50); context.fillStyle = "#ffffff"; context.font = "24px sans-serif"; context.fillText("Office export canary", 20, 34);
+      context.fillStyle = "#111827"; context.fillRect(canvas.width * 0.25, canvas.height * 0.25, canvas.width * 0.1, canvas.height * 0.1);
       return canvas.toDataURL("image/png").split(",")[1];
     }), "base64");
     await seed.close();
@@ -56,17 +102,29 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     const word = page.getByRole("button", { name: /Word/ });
     const powerpoint = page.getByRole("button", { name: /PowerPoint/ });
     await word.waitFor();
+    await page.locator("[data-step-add]").click();
+    await page.locator(".manual-step-center textarea").fill("画像がない手順も本文を出力します。");
     const wordDownload = await Promise.all([page.waitForEvent("download"), word.click()]);
     const wordBytes = await readFile(await wordDownload[0].path());
     assert.equal(wordBytes.subarray(0, 2).toString(), "PK");
     assert.ok(wordBytes.includes(Buffer.from("Office", "utf8")), "DOCX keeps the title/body text");
     assert.ok(wordBytes.includes(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), "DOCX keeps the edited PNG image");
+    const wordEntries = zipEntries(wordBytes);
+    const wordImage = await inspectPng(page, wordEntries.get("word/media/image1.png"), 0.3, 0.27);
+    assert.deepEqual({ width: wordImage.width, height: wordImage.height }, { width: 640, height: 360 }, "DOCX keeps the source PNG dimensions");
+    assert.deepEqual(wordImage.pixel.slice(0, 3), [17, 24, 39], "DOCX keeps the masked image pixel");
+    assert.equal([...wordEntries.keys()].filter((name) => /^word\/media\/image\d+\.png$/u.test(name)).length, 1, "text-only steps do not create a fake image");
     assert.match(await page.locator("#cloud-message").textContent(), /Word/);
     const powerpointDownload = await Promise.all([page.waitForEvent("download"), powerpoint.click()]);
     const powerpointBytes = await readFile(await powerpointDownload[0].path());
     assert.equal(powerpointBytes.subarray(0, 2).toString(), "PK");
     assert.ok(powerpointBytes.includes(Buffer.from("Office", "utf8")), "PPTX keeps the title/body text");
     assert.ok(powerpointBytes.includes(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), "PPTX keeps the edited PNG image");
+    const powerpointEntries = zipEntries(powerpointBytes);
+    const powerpointImage = await inspectPng(page, powerpointEntries.get("ppt/media/image1.png"), 0.3, 0.27);
+    assert.deepEqual({ width: powerpointImage.width, height: powerpointImage.height }, { width: 640, height: 360 }, "PPTX keeps the source PNG dimensions");
+    assert.deepEqual(powerpointImage.pixel.slice(0, 3), [17, 24, 39], "PPTX keeps the masked image pixel");
+    assert.equal([...powerpointEntries.keys()].filter((name) => /^ppt\/media\/image\d+\.png$/u.test(name)).length, 1, "text-only steps do not create a fake image");
     assert.match(await page.locator("#cloud-message").textContent(), /PowerPoint/);
     assetStatus = 404;
     await word.click();
@@ -100,6 +158,8 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     await page.evaluate(() => window.__restoreCloudOfficeToBlob?.());
     const recoveredDownload = await Promise.all([page.waitForEvent("download"), word.click()]);
     assert.equal((await readFile(await recoveredDownload[0].path())).subarray(0, 2).toString(), "PK", "cloud Office export can be retried after a capacity failure");
+    assert.equal(requests.some(({ method }) => method !== "GET"), false, "cloud Office export does not issue writes");
+    assert.equal(requests.some(({ path }) => path.includes("token") || path.includes("secret")), false, "cloud Office export does not expose secret-like values in asset URLs");
     await page.close();
   } finally {
     await browser?.close();

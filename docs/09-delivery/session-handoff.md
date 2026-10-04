@@ -614,6 +614,14 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 合成D1／SQLiteで、workspace ownerの一覧、join codeによるviewer追加、viewerのmutation拒否、ownerのrole更新、不明workspaceの404、legacy auth routeのSupabase fallback停止を確認した。`tests/m3-http-d1.test.mjs` 13/13、`tests/app-auth.test.mjs` 115/115、`tests/worker-runtime.test.mjs` 71/71、worker typecheck exit 0。`npm exec`の依存解決はWindows npm cacheのEPERMで実行できず、直接Node実行で既存依存を使った結果を記録する。`npm ci`、`npm run check`、CI、Codex Reviewはこの修正headで親が再取得する。
 - 親から共有されたstaging／IABの実Google login、D1 migration 0006–0008、Google secrets登録、Access health／preview-onlyのread-only確認、`/manuals`空一覧表示はこのsource変更のlocal検証とは分離する。実保存、Office出力、native Office描画、実ユーザーの手順操作は未確認であり、staging／productionの追加操作は行っていない。
 
+## Cloud Office CSP画像decode修正チェックポイント（2026-10-04T10:13:47+09:00）
+
+- 対象はIssue #283 / PR #284、branch `codex/manual-auth-office-integration-283`。Cloud manualの`renderOfficeImage`で、same-origin asset BlobをFileReaderのdata URLへ変換してから`Image.decode`する最小修正を行った。Workerの`img-src 'self' data:`は維持し、CSPを緩和していない。Office download helper、auth、asset保存、D1、staging／production設定は変更していない。
+- `tests/cloud-office-export-browser.test.mjs`は実Worker CSPを全レスポンスへ適用し、合成640x360 PNGを使ってWord／PowerPoint ZIP内の画像寸法、編集済みmask pixel、画像entry数（本文だけの未保存stepに偽画像がないこと）、画像404拒否、画像予算拒否後の再試行、GET限定、secret-like URL非露出を確認する。編集途中のstepは本文を入力してから出力し、既存のsnapshot変更検知・mask焼込み境界を維持する。
+- 対象テストはNode direct executableで1/1、skip 0、exit 0を確認済み。`npm ci`、全体`npm run check`、新headのCI／Codex Reviewはこの時点で未確認。native Officeアプリ描画、実provider SSO、remote D1/R2、staging／production反映は未実施。
+- 親が観測したIABのWord本文「書き出しました」表示とdownload event／Downloads未確認は、CFTのdownload成功証跡と区別する。今回の修正ではdownload helperの即時revokeタイミングを変更しない。
+- 次の1マイルストーンは、この修正を含む最新commitのremote／PR head SHA照合、関連CIとCodex Reviewの再取得、root認証UI担当（`app-assets.ts`／`app-auth.test.mjs`／`product-auth-browser.test.mjs`）の実SHA・検証結果の統合である。staging／productionへの反映、merge、IAB追加操作は親PMが別途判断する。
+
 ## D1 direct changes probe（2026-10-04）
 
 - 親がstaging D1へread-only相当の実probeを行い、既存のarchived fixtureでtriggerを発火する`UPDATE manual_revisions ...`と同一batch内の`SELECT changes() AS direct_changes`を実行した。取得結果はDMLが`meta.changes=2`／`results=[]`、直後のSELECTが`meta.changes=0`／`results=[{direct_changes:1}]`で、`manual_revision_sync_draft`のtrigger副作用がD1変更件数へ加算される仕様を確認した。

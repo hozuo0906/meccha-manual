@@ -658,6 +658,16 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Boundary: guest導線、manual新規作成API、外部staging設定、remote migration、実ユーザー操作データ、秘密値、production反映は変更しない。
 - Evidence: `apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/m3-http-d1.test.mjs`、`tests/app-auth.test.mjs`、`docs/05-api/cloudflare-access-d1-api.md`。
 
+## DEC-104: Cloud Office画像はWorker CSP許可済みのdata URLでdecodeする
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision: Cloud manualの画像取得は、既存のsame-origin asset fetchで得たBlobを`FileReader.readAsDataURL`でdata URLへ変換してから`Image.decode`へ渡す。Workerの`img-src 'self' data:`は維持し、`blob:`をCSPへ追加しない。Office生成は既存どおりブラウザ内で行い、asset URLへ秘密値を付加しない。
+- Reason: 実Worker CSPではBlob URLが画像decodeで拒否される一方、CSPで許可済みのdata URLはdecodeできるため。data URL化は既存の画像importと同じFileReader経路で、認可・tenant境界・画像寸法・画像予算・編集済み画像のflattenを変更しない。
+- Boundary: Office download helper、auth、asset保存、staging／production設定、native Officeアプリ描画はこの決定の対象外。IABのdownload event未取得は生成成功とは扱わず、CFTのdownload証跡と分離する。
+- Evidence: `apps/worker/src/cloud-manual-assets.ts`、`tests/cloud-office-export-browser.test.mjs`
+
 ## DEC-103: D1 trigger加算を含むmanual保存の直接変更件数照合
 
 - Status: Accepted
