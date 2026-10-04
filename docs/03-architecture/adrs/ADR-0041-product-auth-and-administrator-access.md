@@ -4,7 +4,7 @@ Status: Accepted
 
 ## 実装対象の受入れ（2026-10-03）
 
-このADRのAccepted範囲は、first-partyのGoogle／SIWC認証基盤、D1の`auth_sessions`・`oauth_transactions`、既存`identities(issuer, subject)`とPersonal Workspace bootstrapへの接続である。Googleは`GET /api/auth/google/start`と`/callback`、ChatGPTは同形式のrouteを持つ。設定未完了のproviderは設定booleanだけを返し、UIとstartをfail closedにする。
+このADRのAccepted範囲は、first-partyのGoogle／SIWC認証基盤、D1の`auth_sessions`・`oauth_transactions`、既存`identities(issuer, subject)`とPersonal Workspace bootstrapへの接続である。Googleは`GET /api/auth/google/start`と`/callback`、ChatGPTは同形式のrouteを持つ。設定未完了のproviderは設定booleanだけを返し、UIとstartをfail closedにする。startは`APP_BASE_URL`とのrequest origin完全一致を確認し、preview／workers.dev／別名originではOAuth副作用を開始しない。ブラウザのstart失敗は検証済みcanonical returnへ戻れる日本語復帰画面、API要求は既存JSONを返す。
 
 PKCE verifierとnonceはproviderとSHA-256(state)から導出したtransaction固有名のSecure・HttpOnly・SameSite=Lax cookieに結び、D1にはhashだけを保存する。同じproviderの並行startでもcallback/errorはstateに対応するcookieだけを読み書きし、形式不正・未知stateでは他のpending cookieを消去しない。callbackはstate、cookie binding、期限、一回消費、issuer、audience、署名、nonceを検証し、Googleだけverified emailを必須とする。SIWCは`client_secret_basic`とissuer・audience・nonce・subjectを正本にし、`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectとしてprovider/client IDを含むidentity衝突を防ぐ。同じsubでもclient IDが変われば別identityとなり、本人確認を伴う明示linkが将来必要になる。平文token、credential、secretはD1/R2/logへ保存しない。
 

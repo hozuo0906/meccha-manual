@@ -11,8 +11,8 @@ import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./o
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { handleShareLinkRoute } from "./share-link-router.ts";
-import { beginProductAuth, clearProductAuthTransactionCookie, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, revokeProductSession } from "./product-auth.ts";
-import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectProductAuthConfig, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings, type SupabaseBindings } from "./server-config.ts";
+import { beginProductAuth, clearProductAuthTransactionCookie, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, productAuthReturnPath, revokeProductSession } from "./product-auth.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectAppRuntimeConfig, inspectProductAuthConfig, inspectSupabaseConfig, isConfiguredOnboardingOrigin, ONBOARDING_ORIGINS, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings, type SupabaseBindings } from "./server-config.ts";
 
 interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings, ProductAuthBindings {
   DB?: D1DatabaseLike;
@@ -299,6 +299,56 @@ async function productAuthCallbackRoute(request: Request, env: Env, provider: "g
     const transactionCookie = await clearProductAuthTransactionCookie(provider, state);
     if (transactionCookie) response.headers.append("set-cookie", transactionCookie);
     return response;
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[character] ?? character));
+}
+
+function productAuthRecoveryUrl(request: Request, env: Env): string | null {
+  const runtimeInspection = inspectAppRuntimeConfig(env);
+  const runtime = runtimeInspection.config;
+  const requestUrl = new URL(request.url);
+  const knownOrigin = Object.values(ONBOARDING_ORIGINS).find((origin) => requestUrl.origin === origin) ?? null;
+  const canonicalOrigin = runtime?.baseUrl ?? knownOrigin;
+  if (!canonicalOrigin) return null;
+  if (requestUrl.origin !== canonicalOrigin) return `${canonicalOrigin}/`;
+  try {
+    return new URL(productAuthReturnPath(requestUrl.searchParams.get("return")), canonicalOrigin).toString();
+  } catch {
+    return `${canonicalOrigin}/`;
+  }
+}
+
+function productAuthRecoveryHtml(request: Request, env: Env, status: number, message: string): Response {
+  const recoveryUrl = productAuthRecoveryUrl(request, env);
+  const safeMessage = escapeHtml(message);
+  const recoveryLink = recoveryUrl
+    ? `<a class="primary-button" href="${escapeHtml(recoveryUrl)}">元の画面へ戻る</a>`
+    : "<p class=\"muted\">ログイン設定が整った後に、ログイン画面からやり直してください。</p>";
+  return new Response(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを開始できませんでした</title><link rel="stylesheet" href="/assets/app.css?v=${APP_ASSET_VERSION}"></head><body><a class="skip-link" href="#screen-content">本文へ移動</a><main class="app"><section id="screen-content" class="login-screen" aria-labelledby="auth-recovery-heading" tabindex="-1"><div class="login-intro"><div class="login-copy"><div class="logo-mark" aria-hidden="true"><span>め</span></div><p class="eyebrow">日本のオフィスワーカー専用</p><h1>めっちゃマニュアル</h1><p>業務の手順をわかりやすく整理し、チームで共有するためのサービスです。</p></div></div><div class="login-panel"><div class="panel-heading"><h2 id="auth-recovery-heading">ログインを開始できませんでした</h2><p class="error-box show" role="alert" aria-live="assertive">${safeMessage}</p>${recoveryLink}</div></div></section></main></body></html>`, {
+    status,
+    headers: {
+      ...SECURITY_HEADERS,
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    }
+  });
+}
+
+async function productAuthStartRoute(request: Request, env: Env, provider: "google" | "chatgpt"): Promise<Response> {
+  try {
+    return await beginProductAuth(request, env, provider);
+  } catch (error) {
+    const json = errorResponse(error);
+    if (!(request.headers.get("accept") ?? "").includes("text/html")) return json;
+    const status = json.status;
+    const message = error instanceof ProductAuthError
+      ? error.message
+      : "ログインを完了できませんでした。時間をおいて、もう一度お試しください。";
+    return productAuthRecoveryHtml(request, env, status, message);
   }
 }
 
@@ -2483,9 +2533,9 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/api/auth/providers") {
     return jsonResponse({ providers: configuredProductProviders(env), password: inspectSupabaseConfig(env).configured });
   }
-  if (request.method === "GET" && url.pathname === "/api/auth/google/start") return beginProductAuth(request, env, "google");
+  if (request.method === "GET" && url.pathname === "/api/auth/google/start") return productAuthStartRoute(request, env, "google");
   if (request.method === "GET" && url.pathname === "/api/auth/google/callback") return productAuthCallbackRoute(request, env, "google");
-  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/start") return beginProductAuth(request, env, "chatgpt");
+  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/start") return productAuthStartRoute(request, env, "chatgpt");
   if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/callback") return productAuthCallbackRoute(request, env, "chatgpt");
 
   verifySameOriginWrite(request);

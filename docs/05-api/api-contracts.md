@@ -6,7 +6,7 @@ Status: Accepted
 
 業務 route の選択は環境設定の fallback より request credential を先に評価する。product cookie は常に product D1 route を選び、存在するだけでも不正値を Access／Supabase へ fallback しない。Access assertion は Access の issuer・audience・JWKS、human actor、active identity、workspace／role 認可を通す。product cookie がなく、Supabase が設定済みの legacy access／refresh cookie がある場合は、Access と product provider が設定済みでも legacy Supabase route を選ぶ。Supabase 未設定の legacy cookie は認証根拠として扱わず、設定済み product provider または Access の fail-closed 応答へ進む。
 
-`GET /api/auth/{provider}/start` は provider、origin、return path、rate limit、DB の事前検証を通過した後、`expires_at <= 現在時刻` の既存 `oauth_transactions` を最大100件だけ削除し、新しい transaction の INSERT と同じ D1 batch で確定する。cleanup または INSERT の prepare／bind／実行が失敗した場合は `503 AUTH_STORAGE_UNAVAILABLE` とし、redirect、cookie、部分的な INSERT／cleanup を成功扱いにしない。有効期限内の transaction（consumed を含む）、`auth_sessions`、identity、workspace は変更しない。
+`GET /api/auth/{provider}/start` は provider、`APP_BASE_URL` と request URL origin の完全一致、return path、rate limit、DB の事前検証を通過した後、`expires_at <= 現在時刻` の既存 `oauth_transactions` を最大100件だけ削除し、新しい transaction の INSERT と同じ D1 batch で確定する。preview／workers.dev／別名originからは limiter、cleanup、INSERT、cookie、provider redirectへ進まない。cleanup または INSERT の prepare／bind／実行が失敗した場合は `503 AUTH_STORAGE_UNAVAILABLE` とし、redirect、cookie、部分的な INSERT／cleanup を成功扱いにしない。有効期限内の transaction（consumed を含む）、`auth_sessions`、identity、workspace は変更しない。
 
 ### 製品認証（Issue #283 / ADR-0041）
 
@@ -19,6 +19,7 @@ Status: Accepted
 製品cookieが存在する`GET /api/session`、workspace、bootstrapのsession読取でD1 bindingが欠落した場合は、期限切れと断定せず`503 AUTH_STORAGE_UNAVAILABLE`を返す。cookieがない場合のprovider設定済み・Access assertionなしは従来どおり`401 SESSION_REQUIRED`とする。
 
 callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返す。ブラウザのHTML要求では、検証済みtransactionに保存された許可済み同一originの`return_path`を日本語の再試行リンクとして表示し、失敗のHTTP status/messageを保ったまま、利用者がリンクを選んだ後もhandoff／Office形式のsessionStorageを維持できる状態にする。transactionを検証できない場合だけ、秘密値や外部戻り先を含めない日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合もstateから導出した対象transactionの一時OAuth cookieだけを消去し、形式不正・未知stateでは他のpending cookieを消去しない。`no-store`を指定する。`return_path`は`/`、`/onboarding/continue`、`/manuals`の固定pathだけを許可し、任意URL・query・fragmentへ拡張しない。
+callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返す。ブラウザのHTML要求では、検証済みtransactionに保存された許可済み同一originの`return_path`を日本語の復帰リンクとして表示し、失敗のHTTP status/messageを保ったまま、利用者がリンクを選んだ後もhandoff／Office形式のsessionStorageを維持できる状態にする。startのlimiter／provider設定／D1失敗も、HTML要求には同じoriginの検証済みreturn pathへ戻るブランド付き日本語復帰画面を返し、API要求には既存のJSON code/messageとstatusを返す。runtime設定を検証できない場合は未検証originへリンクせず、利用者へ設定確認と再試行を案内する。transactionを検証できない場合だけ、秘密値や外部戻り先を含めない日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合もstateから導出した対象transactionの一時OAuth cookieだけを消去し、形式不正・未知stateでは他のpending cookieを消去しない。`no-store`を指定する。`return_path`は`/`、`/onboarding/continue`、`/manuals`の固定pathだけを許可し、任意URL・query・fragmentへ拡張しない。
 
 provider token endpointまたはJWKS endpointのHTTP `429`または`5xx`、接続失敗、timeoutは、code拒否と混同せず`503 AUTH_PROVIDER_UNAVAILABLE`として再試行可能にする。token endpointの実際のcode拒否など4xxだけを`401 AUTH_CODE_INVALID`へ写像する。JWTのissuer／audience／署名などの検証失敗は`401 AUTH_IDENTITY_INVALID`とし、transactionとJWTのnonce不一致など既存のnonce境界は既存の拒否分類を維持する。JWKS取得の応答上限超過など既に分類された`ProductAuthError`はこの401へ潰さず、provider障害またはprovider応答不正として返す。
 

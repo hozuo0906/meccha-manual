@@ -713,3 +713,15 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: Access 設定の存在だけで valid legacy session を D1 へ誤進入させず、期限切れ OAuth state の無制限蓄積を bounded cleanup で抑えながら、認証境界と結果不明時の fail-closed を保つため。
 - Boundary: schema／migration、cron、retention 期間、環境変数、provider secret、remote 認証設定は追加・変更しない。
 - Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `docs/05-api/api-contracts.md`, `docs/04-data/d1-and-storage.md`, `docs/04-data/d1-workspace-schema.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-108: OAuth startのcanonical origin検証とブラウザ復帰
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5403958304
+- Decision:
+  - Product OAuth startはprovider、request URLのoriginと設定済み`APP_BASE_URL`の完全一致、許可されたreturn pathを、rate limiter呼出しとD1 cleanup／INSERTより前に検証する。preview、workers.dev、その他のaliasは`400 AUTH_ORIGIN_INVALID`または入力拒否として副作用なしで停止する。
+  - HTMLを要求するstart失敗は、既存のlogin画面のCSSとsecurity headersを使った日本語の復帰画面を返し、検証済みcanonical originの許可return pathだけを「元の画面へ戻る」に使う。runtime設定が未取得でも、request originが既存allowlistの正規originと一致する場合だけそのoriginを使い、aliasや未検証URLにはリンクしない。JSON clientのbodyとstatus分類は維持する。
+- Reason: OAuth開始前のorigin／return境界を副作用より先に固定し、alias経由の開始とopen redirectを拒否する。ブラウザではraw JSONへ遷移させず、失敗理由と利用者の次操作を日本語で示し、同じOffice handoffへ安全に戻れるようにする。
+- Boundary: callback検証、provider設定、limiter／D1の既存status分類、migration、secret、deploy、Office出力仕様は変更しない。
+- Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`, `docs/01-product/requirements-traceability.md`

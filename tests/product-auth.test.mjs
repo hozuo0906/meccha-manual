@@ -865,6 +865,110 @@ test("configured product provider without the onboarding limiter fails closed be
   } finally { database.close(); }
 });
 
+test("OAuth start accepts only the configured origin before limiter or D1 side effects", async () => {
+  const { database, binding } = await authDatabase();
+  let rateCalls = 0;
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "google-origin-boundary-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    ONBOARDING_RATE_LIMITER: { limit: async () => { rateCalls += 1; return { success: true }; } },
+    DB: binding
+  };
+  const expiredAt = new Date(Date.now() - 60_000).toISOString();
+  database.prepare(`INSERT INTO oauth_transactions
+    (id, provider, state_hash, nonce_hash, verifier_hash, redirect_uri, return_path, created_at, expires_at)
+    VALUES ('origin-expired', 'google', ?, ?, ?, ?, '/onboarding/continue', ?, ?)`)
+    .run("1".repeat(64), "2".repeat(64), "3".repeat(64), `${env.APP_BASE_URL}/api/auth/google/callback`, new Date(Date.now() - 120_000).toISOString(), expiredAt);
+  try {
+    const alias = await worker.fetch(new Request(`https://preview.example.workers.dev/api/auth/google/start?return=%2Fonboarding%2Fcontinue`, {
+      headers: { accept: "text/html" }
+    }), env, {});
+    assert.equal(alias.status, 400);
+    assert.equal(rateCalls, 0, "an alias origin must be rejected before the limiter call");
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 1, "an alias origin must not cleanup or insert transactions");
+    assert.equal(alias.headers.get("location"), null);
+    assert.equal(alias.headers.get("set-cookie"), null);
+    assert.equal(alias.headers.get("referrer-policy"), "no-referrer");
+    const aliasBody = await alias.text();
+    assert.match(aliasBody, /登録済みのログイン画面から開始してください/u);
+    assert.match(aliasBody, new RegExp(`${env.APP_BASE_URL}/`, "u"));
+    assert.doesNotMatch(aliasBody, /preview\.example\.workers\.dev/u);
+
+    const invalidReturn = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=${encodeURIComponent("https://evil.example/redirect")}`, {
+      headers: { accept: "text/html" }
+    }), env, {});
+    assert.equal(invalidReturn.status, 400);
+    assert.equal(rateCalls, 0, "an invalid return path must be rejected before the limiter call");
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 1, "an invalid return path must not cleanup or insert transactions");
+    const invalidReturnBody = await invalidReturn.text();
+    assert.match(invalidReturnBody, new RegExp(`${env.APP_BASE_URL}/`, "u"));
+    assert.doesNotMatch(invalidReturnBody, /evil\.example/u);
+
+    const canonical = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`), env, {});
+    assert.equal(canonical.status, 302);
+    assert.equal(rateCalls, 1);
+    assert.equal(database.prepare("SELECT count(*) AS count FROM oauth_transactions").get().count, 1, "canonical start cleans up the expired row and inserts one transaction");
+    assert.ok(canonical.headers.get("location"));
+    assert.ok(canonical.headers.get("set-cookie"));
+  } finally {
+    database.close();
+  }
+});
+
+test("OAuth start HTML recovery preserves status and exposes only a safe retry path", async () => {
+  const scenarios = [
+    {
+      name: "provider configuration",
+      status: 503,
+      env: (binding) => ({ APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", DB: binding, ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) } })
+    },
+    {
+      name: "runtime configuration",
+      status: 503,
+      env: (binding) => ({ APP_ENV: "staging", APP_BASE_URL: "https://preview.example.workers.dev", GOOGLE_OIDC_CLIENT_ID: "google-recovery-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret", DB: binding, ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) } }),
+      requestOrigin: "https://meccha-manual-staging.meccha-iiyatsu.com"
+    },
+    {
+      name: "missing runtime environment",
+      status: 503,
+      env: (binding) => ({ GOOGLE_OIDC_CLIENT_ID: "google-recovery-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret", DB: binding, ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) } }),
+      requestOrigin: "https://meccha-manual-staging.meccha-iiyatsu.com"
+    },
+    {
+      name: "rate refusal",
+      status: 429,
+      env: (binding) => ({ APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", GOOGLE_OIDC_CLIENT_ID: "google-recovery-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret", DB: binding, ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: false }) } })
+    },
+    {
+      name: "D1 failure",
+      status: 503,
+      env: (binding) => ({ APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", GOOGLE_OIDC_CLIENT_ID: "google-recovery-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret", DB: rejectingBinding(binding, "INSERT INTO oauth_transactions", "prepare"), ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: true }) } })
+    }
+  ];
+  for (const scenario of scenarios) {
+    const { database, binding } = await authDatabase();
+    const env = scenario.env(binding);
+    try {
+      const responseOrigin = scenario.requestOrigin ?? env.APP_BASE_URL;
+      const response = await worker.fetch(new Request(`${responseOrigin}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`, { headers: { accept: "text/html" } }), env, {});
+      assert.equal(response.status, scenario.status, scenario.name);
+      assert.match(response.headers.get("content-type") ?? "", /^text\/html;/u, scenario.name);
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer", scenario.name);
+      assert.equal(response.headers.get("location"), null, scenario.name);
+      assert.equal(response.headers.get("set-cookie"), null, scenario.name);
+      const body = await response.text();
+      assert.match(body, /ログインを開始できませんでした/u, scenario.name);
+      assert.match(body, /再試行|再度お試しください|もう一度お試しください/u, scenario.name);
+      assert.match(body, /href="https:\/\/meccha-manual-staging\.meccha-iiyatsu\.com\/onboarding\/continue"/u, scenario.name);
+      assert.doesNotMatch(body, /synthetic-secret|AUTH_STORAGE_UNAVAILABLE|preview\.workers\.dev/u, scenario.name);
+    } finally {
+      database.close();
+    }
+  }
+});
+
 test("product auth rate limiter distinguishes an explicit refusal from an unavailable or malformed result", async () => {
   for (const [name, limiter, status, code] of [
     ["refused", async () => ({ success: false }), 429, "AUTH_RATE_LIMITED"],

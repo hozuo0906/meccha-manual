@@ -635,6 +635,12 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 実測は`tests/app-auth.test.mjs` 115/115、`tests/product-auth-browser.test.mjs` 5/5、`tests/worker-runtime.test.mjs` 71/71、Worker harness、`git diff --check`が成功。親が同一headの関連認証・Office・D1回帰207/207、skip 0、exit 0（session 15526）を取得している。実provider SSO、remote D1/R2、native Officeアプリ、staging／production反映はこの作業では確認・実施していない。
 - `npm ci`はWindowsの`node_modules\\.package-lock.json` unlinkでEPERM、`npm run check`はworktree内でnpm shimを解決できず未完了。これらを成功扱いにせず、source回帰の既存Node直接実行結果と区別する。外部設定、deploy、mergeは行っていない。
 - このhandoff追記を含むdocs-only commitを作成・pushした後、親PMが最終headに対するCI、Codex Review、review thread、staging反映判断を再取得する。
+## Issue #283／PR #284 OAuth start origin・browser recovery P2修正（2026-10-04）
+
+- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`。`beginProductAuth`はprovider、request URLと設定済み`APP_BASE_URL`の完全一致、許可return pathをrate limiterとD1 cleanup／INSERTより先に検証し、preview／workers.dev／その他aliasと不正returnを副作用なしで拒否する。runtime設定が未取得でも、既存allowlistの正規request originだけをブラウザ復帰先に使う。
+- `/api/auth/{provider}/start`のHTML失敗は既存login CSS・security headersを使う日本語復帰画面へ分類し、失敗理由と「元の画面へ戻る」を示す。JSON clientのstatusとbody分類は維持し、aliasや未検証URL、secret、下位例外を返さない。ブラウザ回帰では一度429を表示した後、同じOffice handoffの下書きと出力形式を保持してprovider再選択を成功させた。
+- 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs` 32/32、`node --experimental-transform-types --test tests/product-auth-browser.test.mjs` 8/8、invalid return／runtime missing／alias、API JSON、rate／D1失敗、cancel／retryを確認。`node --experimental-strip-types --check`による`index.ts`／`product-auth.ts`構文確認と`git diff --check`も成功。Windows `npm ci`の既知EPERM、Linux CI、正式Review、deploy／merge／review thread解決は未確認で親へ引き継ぐ。
+
 ## Issue #283／PR #284 provider route・retry最終追補（2026-10-04）
 
 - 作業担当はP1のprovider-only＋legacy cookie経路を、既存server-config窓口のSupabase設定有無で分岐するよう修正した。Supabase未設定時は古い`__Host-mm_access`／`__Host-mm_refresh`だけでlegacy routeへ進まず、Product routeのsession必須応答を維持する。Supabase設定済みのpassword backend、Product cookie優先、mixed cookie fail-closed、Access／missing DB dispatchは変更していない。

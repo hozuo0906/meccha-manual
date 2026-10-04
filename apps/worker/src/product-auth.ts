@@ -172,6 +172,18 @@ function runtimeBaseUrl(env: Env): string {
   return config.baseUrl;
 }
 
+function canonicalRuntimeBaseUrl(request: Request, env: Env): string {
+  const baseUrl = runtimeBaseUrl(env);
+  if (new URL(request.url).origin !== baseUrl) {
+    throw new ProductAuthError(400, "AUTH_ORIGIN_INVALID", "登録済みのログイン画面から開始してください。");
+  }
+  return baseUrl;
+}
+
+export function productAuthReturnPath(value: string | null): string {
+  return safeReturnPath(value);
+}
+
 export function configuredProductProviders(env: ProductAuthBindings): { google: boolean; chatgpt: boolean } {
   const config = inspectProductAuthConfig(env);
   return { google: config.google.configured, chatgpt: config.chatgpt.configured };
@@ -179,6 +191,8 @@ export function configuredProductProviders(env: ProductAuthBindings): { google: 
 
 export async function beginProductAuth(request: Request, env: Env, provider: Provider): Promise<Response> {
   const { clientId, spec } = providerConfig(env, provider);
+  const baseUrl = canonicalRuntimeBaseUrl(request, env);
+  const returnPath = safeReturnPath(new URL(request.url).searchParams.get("return"));
   if (!env.DB) throw new ProductAuthError(503, "AUTH_STORAGE_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて再度お試しください。");
   if (!env.ONBOARDING_RATE_LIMITER) throw new ProductAuthError(503, "AUTH_RATE_LIMIT_UNAVAILABLE", "ログイン設定を確認できません。管理者が設定を確認してから再度お試しください。");
   const ip = request.headers.get("CF-Connecting-IP")?.trim() || "unknown";
@@ -194,8 +208,7 @@ export async function beginProductAuth(request: Request, env: Env, provider: Pro
   if (!limited || typeof limited !== "object" || !("success" in limited) || limited.success !== true) {
     throw productAuthRateLimiterUnavailableError();
   }
-  const returnPath = safeReturnPath(new URL(request.url).searchParams.get("return"));
-  const redirectUri = `${runtimeBaseUrl(env)}/api/auth/${provider}/callback`;
+  const redirectUri = `${baseUrl}/api/auth/${provider}/callback`;
   const state = randomValue();
   const nonce = randomValue();
   const verifier = randomValue(48);

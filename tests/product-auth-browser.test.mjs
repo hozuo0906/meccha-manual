@@ -221,7 +221,7 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false,
   }
 }
 
-async function runProviderBrowser(provider) {
+async function runProviderBrowser(provider, { startFailureOnce = false } = {}) {
   const fixture = await createFixture(provider);
   const providerConfig = provider === "google"
     ? { origin: GOOGLE_AUTH_ORIGIN, authorizationPath: "/o/oauth2/v2/auth", callbackPath: "/api/auth/google/callback", clientId: "google-browser-test-client", subject: "synthetic-browser-subject", issuer: "https://accounts.google.com" }
@@ -234,6 +234,7 @@ async function runProviderBrowser(provider) {
   const page = await context.newPage();
   const browserExternalRequests = [];
   const routeTrace = [];
+  let startFailurePending = startFailureOnce;
   await page.route("**/*", async (route) => {
     const requestUrl = new URL(route.request().url());
     routeTrace.push(`${route.request().method()} ${requestUrl.origin}${requestUrl.pathname}`);
@@ -257,7 +258,11 @@ async function runProviderBrowser(provider) {
     }
     try {
       routeTrace.push("worker-start");
-      const response = await worker.fetch(browserRequest(route), fixture.env, {});
+      const requestEnv = startFailurePending && requestUrl.pathname === `/api/auth/${provider}/start`
+        ? { ...fixture.env, ONBOARDING_RATE_LIMITER: { limit: async () => ({ success: false }) } }
+        : fixture.env;
+      if (startFailurePending && requestUrl.pathname === `/api/auth/${provider}/start`) startFailurePending = false;
+      const response = await worker.fetch(browserRequest(route), requestEnv, {});
       routeTrace.push(`worker-done-${response.status}`);
       const body = Buffer.from(await response.arrayBuffer());
       routeTrace.push(`body-${body.length}`);
@@ -336,6 +341,17 @@ async function runProviderBrowser(provider) {
     const providerStartHref = await page.locator(providerSelector).getAttribute("href");
     assert.equal(new URL(providerStartHref, STAGING_ORIGIN).searchParams.get("return"), "/onboarding/continue");
     await page.locator(providerSelector).click();
+    if (startFailureOnce) {
+      await page.waitForURL((url) => url.pathname === `/api/auth/${provider}/start`, { waitUntil: "domcontentloaded", timeout: 10_000 });
+      assert.match(await page.locator("body").innerText(), /ログインを開始できませんでした/u);
+      assert.equal(await page.locator("a.primary-button").getAttribute("href"), `${STAGING_ORIGIN}/onboarding/continue`);
+      await page.locator("a.primary-button").click();
+      await page.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { timeout: 10_000 });
+      await page.locator("#bootstrap").click();
+      await page.waitForSelector(providerSelector, { timeout: 10_000 });
+      assert.equal(await page.locator(providerSelector).getAttribute("href") && new URL(await page.locator(providerSelector).getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/onboarding/continue");
+      await page.locator(providerSelector).click();
+    }
     await page.waitForURL(`${STAGING_ORIGIN}/onboarding/continue`, { timeout: 10_000 }).catch((error) => {
       throw new Error(`${error.message}; routeTrace=${routeTrace.join(" | ")}`);
     });
@@ -512,6 +528,10 @@ test("product auth browser uses a synthetic Google callback, a first-party HttpO
   await runProviderBrowser("google");
 });
 
+test("product auth start recovery returns to the same handoff before retrying Google", { timeout: 60_000 }, async () => {
+  await runProviderBrowser("google", { startFailureOnce: true });
+});
+
 test("product auth browser keeps parallel transaction cookies and clears legacy credentials for Google and ChatGPT", { timeout: 120_000 }, async () => {
   await runParallelProviderBrowser("google");
   await runParallelProviderBrowser("chatgpt");
@@ -519,6 +539,45 @@ test("product auth browser keeps parallel transaction cookies and clears legacy 
 
 test("configured synthetic ChatGPT browser provider creates the same session and preserves the handoff", { timeout: 60_000 }, async () => {
   await runProviderBrowser("chatgpt");
+});
+
+test("product auth start failure renders a Japanese browser recovery page", { timeout: 60_000 }, async () => {
+  const fixture = await createFixture("google");
+  const context = await chromium.launchPersistentContext("", {
+    channel: process.platform === "win32" ? "chrome" : "chromium",
+    headless: true,
+    ignoreHTTPSErrors: true
+  });
+  const page = await context.newPage();
+  fixture.env.ONBOARDING_RATE_LIMITER = { limit: async () => ({ success: false }) };
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== STAGING_ORIGIN) {
+      await route.abort();
+      return;
+    }
+    const response = await worker.fetch(browserRequest(route), fixture.env, {});
+    await route.fulfill({
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: Buffer.from(await response.arrayBuffer())
+    });
+  });
+  try {
+    const response = await page.goto(`${STAGING_ORIGIN}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    assert.equal(response?.status(), 429);
+    assert.match(response?.headers()["content-type"] ?? "", /^text\/html;/u);
+    assert.equal(response?.headers()["referrer-policy"], "no-referrer");
+    assert.match(await page.locator("body").innerText(), /ログインを開始できませんでした/u);
+    assert.match(await page.locator("body").innerText(), /再度お試しください/u);
+    assert.equal(await page.locator("a.primary-button").getAttribute("href"), `${STAGING_ORIGIN}/onboarding/continue`);
+    assert.equal(await page.locator("a.primary-button").count(), 1);
+    assert.equal(page.url(), `${STAGING_ORIGIN}/api/auth/google/start?return=%2Fonboarding%2Fcontinue`);
+  } finally {
+    await page.close();
+    await context.close();
+    fixture.restoreFetch();
+  }
 });
 
 test("browser product logout revokes the first-party session and returns to the password login UI", { timeout: 60_000 }, async () => {

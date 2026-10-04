@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-Issue #283 auth route regression は、product cookie → Access assertion → configured legacy Supabase cookie の credential precedence と、Supabase 未設定 legacy cookie の fail-closed 境界を `tests/product-auth.test.mjs` で検証する。OAuth start の既存期限（10分）を超えた transaction は start 1回につき最大100件だけ cleanup し、cleanup と INSERT の atomic batch、101件目の継続 start、未期限切れ consumed 行の保持、storage failure 分類を同じテストで確認する。
+Issue #283 auth route regression は、product cookie → Access assertion → configured legacy Supabase cookie の credential precedence と、Supabase 未設定 legacy cookie の fail-closed 境界を `tests/product-auth.test.mjs` で検証する。OAuth start は`APP_BASE_URL`とrequest originの完全一致を先に確認し、別名originではlimiter／D1／cookie／redirectの副作用を発生させない。OAuth start の既存期限（10分）を超えた transaction は start 1回につき最大100件だけ cleanup し、cleanup と INSERT の atomic batch、101件目の継続 start、未期限切れ consumed 行の保持、storage failure 分類を同じテストで確認する。
 
 Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は機能の移行状態を示し、認証方式判定には使わない。D1 member routeが有効な環境では`members.status: "ready"`を返す。password login成功時の製品session revoke/clear、product OAuth成功時のlegacy access／refresh cookie clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。OAuthの同一provider並行start、callback順序、cancel、未知／不正stateはtransaction固有cookieのunit回帰で確認する。
 
@@ -12,7 +12,7 @@ Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" |
 |---|---|---|
 | first-party Google／ChatGPT認証とD1 membership | `apps/worker/src/product-auth.ts`、既存`D1OnboardingRepository`、`migrations/0008_product_auth_sessions.sql` | 実装済み（provider外部登録・secret bindingは未完了） |
 | session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止、provider設定時のcookie自然消去・Access assertionなしを`401 SESSION_REQUIRED`へ固定、OAuth transactionごとのcookie分離、D1欠落時もmanual／share dispatchを維持してstorage境界へ分類 | `tests/product-auth.test.mjs`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs` で確認済み |
-| OIDC検証 | Google verified email、SIWC client_secret_basic、issuer/audience/signature/nonce、SIWC subject scope、callback失敗時の許可済み戻り先と再試行、limiter拒否と不明結果の429/503分類 | `tests/product-auth.test.mjs` のunit/API、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs` で確認済み |
+| OIDC検証 | Google verified email、SIWC client_secret_basic、issuer/audience/signature/nonce、SIWC subject scope、callback/start失敗時の許可済み戻り先と日本語復帰、limiter拒否と不明結果の429/503分類、別名originの副作用0 | `tests/product-auth.test.mjs` のunit/API、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs` で確認済み |
 | tenant／管理境界 | 既存D1固定workspace query、Access service token・health分離 | 既存契約を維持、回帰確認対象 |
 | rootの製品ログイン／手順書導線 | product／Access sessionの中立的なアカウント表示、`/manuals` canonical link、logout後のprovider-only login。D1 member routeの正常・権限外・越境negativeを`tests/m3-http-d1.test.mjs`、shell／logout回帰を`tests/app-auth.test.mjs`で確認 | 修正済み（実Google SSO後の保存・Office出力は親のstaging／実環境検証範囲） |
 
