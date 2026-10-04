@@ -123,6 +123,8 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
     ignoreHTTPSErrors: true
   });
   const page = await context.newPage();
+  let downloadCount = 0;
+  page.on("download", () => { downloadCount += 1; });
   await context.addCookies([{
     name: "__Host-mm_product",
     value: token,
@@ -174,10 +176,14 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
       await page.waitForSelector("#logout-button", { timeout: 10_000 });
       await page.locator("#logout-button").click();
       await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
+      await page.waitForFunction(() => {
+        const element = document.querySelector("#login-form");
+        return element && getComputedStyle(element).display === "none";
+      }, null, { timeout: 10_000 });
       assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
       if (providerFailureRetry) {
         await page.waitForSelector("#product-auth-retry", { timeout: 10_000 }).catch(async (error) => {
-          throw new Error(`${error.message}; providerConfigRequests=${providerConfigRequests}; routeTrace=${routeTrace.join(" | ")}; body=${await page.locator("body").innerText()}`);
+          throw new Error(`${error.message}; providerConfigRequests=${providerConfigRequests}; routeTrace=${routeTrace.join(" | ")}`);
         });
         assert.match((await page.locator("#login-heading").textContent())?.trim() ?? "", /読み込めませんでした/);
         await page.locator("#email").evaluate((element) => { element.value = "draft@example.test"; });
@@ -188,6 +194,7 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
         assert.equal(await page.locator("#password").inputValue(), "draft-password");
         assert.equal(new URL(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/manuals");
         assert.equal(providerConfigRequests, 3);
+        assert.equal(downloadCount, 0, "provider retry must not trigger a download");
       } else {
         await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
       }
