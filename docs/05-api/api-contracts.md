@@ -2,6 +2,26 @@
 
 Status: Accepted
 
+### 製品認証（Issue #283 / ADR-0041）
+
+`GET /api/auth/providers` はGoogleとChatGPTの利用可否booleanだけを返す。`GET /api/auth/{google|chatgpt}/start?return=/` は許可した同一originの戻り先だけを受け、Authorization Code + PKCEを開始する。callbackはstate・nonce・期限・一回消費・issuer・audience・署名を検証し、Googleはverified emailを必須とする。Googleのissuerは公式OIDC仕様にある`https://accounts.google.com`とlegacy値`accounts.google.com`だけを受け付け、identityへ保存するissuerは常にHTTPS canonical値へ統一する。SIWCは登録済みconfidential clientの`client_secret_basic`だけを使い、未登録・未有効化なら503で非表示とする。
+
+開始ごとのPKCE verifier／nonceは、短命のHttpOnly cookieに一時保持し、providerとSHA-256(state)から構成したtransaction固有名へbindする。D1にはstate／verifier／nonceのhashだけを保存し、stateの平文やverifier／nonceをD1、R2、ログへ保存しない。stateは生成値のbounded形式だけをcookie名の導出に使う。同じproviderの二つのstartを同じbrowserで行っても、callbackはstateに対応するcookieだけを読む。
+
+認証成功時は既存D1 `identities(issuer, subject)` を再利用またはPersonal Workspace bootstrapし、平文tokenは返さずSecure・HttpOnly・SameSite=Laxの製品session cookieを発行する。成功callbackでは競合するlegacy Supabase access／refresh cookieを端末から消去し、Supabase remote logoutは追加しない。これにより同じbrowserで続くproduct logout後のreloadが旧legacy accountへ戻らない。Googleは検証済みtokenのsubをsubjectに使い、SIWCは`siwc:` + SHA-256(JSON配列 `[registeredClientId, verifiedTokenSub]`) をsubjectに使うため、同じsubでもclient IDが異なれば別identityとなる。メール一致による自動linkは行わない。D1の`auth_sessions`はtoken hash・期限・revocationだけ、`oauth_transactions`はstate／nonce／verifier hashだけを保持する。`GET /api/session`、workspace、manual、shareの製品経路はこのsessionを使い、製品providerが設定済みで製品cookieがない（自然期限切れを含む）かつAccess assertionもない場合は`401 SESSION_REQUIRED`で製品ログインへ戻す。Access assertionがある場合はAccessの検証へ進み、service tokenは業務経路で`403`とする。Access service tokenと`/health/config`へ製品cookieをfallbackせず、不正・失効cookie、期限切れ、別origin、tenant越境は拒否する。
+製品provider設定時のmanual／share業務routeはD1 bindingの有無だけでdispatchを無効化せず、DBが利用できない場合も各helperのstorage境界へ到達させる。manualは`503 D1_UNAVAILABLE`、share管理は`503 SHARE_MIGRATION_IN_PROGRESS`を返し、DB欠落を製品cookieの期限切れ401へ分類しない。legacy password cookieは従来のSupabase routeを優先し、不正な製品cookieはAccessまたはlegacyへfallbackしない。
+製品cookieが存在する`GET /api/session`、workspace、bootstrapのsession読取でD1 bindingが欠落した場合は、期限切れと断定せず`503 AUTH_STORAGE_UNAVAILABLE`を返す。cookieがない場合のprovider設定済み・Access assertionなしは従来どおり`401 SESSION_REQUIRED`とする。
+
+callbackの失敗は、JSONを要求するAPIには日本語のcode/messageを返す。ブラウザのHTML要求では、検証済みtransactionに保存された許可済み同一originの`return_path`を日本語の再試行リンクとして表示し、失敗のHTTP status/messageを保ったまま、利用者がリンクを選んだ後もhandoff／Office形式のsessionStorageを維持できる状態にする。transactionを検証できない場合だけ、秘密値や外部戻り先を含めない日本語メッセージと同一originのログイン画面リンクを返す。どちらの場合もstateから導出した対象transactionの一時OAuth cookieだけを消去し、形式不正・未知stateでは他のpending cookieを消去しない。`no-store`を指定する。`return_path`は`/`、`/onboarding/continue`、`/manuals`の固定pathだけを許可し、任意URL・query・fragmentへ拡張しない。
+
+provider token endpointまたはJWKS endpointのHTTP `429`または`5xx`、接続失敗、timeoutは、code拒否と混同せず`503 AUTH_PROVIDER_UNAVAILABLE`として再試行可能にする。token endpointの実際のcode拒否など4xxだけを`401 AUTH_CODE_INVALID`へ写像する。JWTのissuer／audience／署名などの検証失敗は`401 AUTH_IDENTITY_INVALID`とし、transactionとJWTのnonce不一致など既存のnonce境界は既存の拒否分類を維持する。JWKS取得の応答上限超過など既に分類された`ProductAuthError`はこの401へ潰さず、provider障害またはprovider応答不正として返す。
+
+認証開始の`ONBOARDING_RATE_LIMITER`は、結果の`success: false`だけを利用者単位の拒否として`429 AUTH_RATE_LIMITED`へ写像する。bindingの欠落、呼出し例外、`success`の欠落・不正など結果を判定できない場合は`503 AUTH_RATE_LIMIT_UNAVAILABLE`として再試行を案内し、いずれもOAuth transaction、cookie、provider redirectを作成しない。
+
+製品providerが設定済みでも、リクエストに有効なSupabase password session cookieがある場合はlegacy password routeを選択する。有効な製品session cookieはD1 routeを選択し、不正・失効した製品cookieをSupabase passwordまたはAccessへfallbackしない。
+
+callback後のD1 bootstrap拒否は、disabled identityなら`403 AUTH_IDENTITY_FORBIDDEN`、停止・削除済みPersonal Workspaceなら`403 AUTH_WORKSPACE_UNAVAILABLE`として理由と管理者への状態確認を日本語で案内する。いずれもsessionを発行せず、D1の一時障害は`503 AUTH_STORAGE_UNAVAILABLE`として時間をおいた再試行を案内する。
+
 本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
 ## 共通
@@ -209,3 +229,6 @@ Chrome拡張の`capture:status`は既存の`starting`、`recording`、`paused`�
 `capture:pause`はdrain前に`paused`意図をsessionまたはrecovery journalへ保存し、両方の保存に失敗した場合はrecorderを停止せず失敗する。停止時のpending batchはページ側でclone保持し、sessionまたはjournalへの保存確認後だけreleaseする。recorderのretain確認が欠落または失敗した場合はbatchを空配列として保存せず、releaseや再注入を行わない。release確認が欠落または失敗した場合も成功扱いにせず、保持中のbatchと再試行可能な状態を維持する。保存ready画像が100件または手順が200件に達した場合はrecorderを停止し、`captureLimitReached`に`images`または`steps`を返してpause／終了保存へ誘導する。上限拒否された保留イベントはsession・journalへ追加しない。cancel／上限到達の明示discardはpending batchをreleaseする。
 
 `capture:event`の送信開始からACK受領までの通常遅延は離脱警告の理由にしない。送信失敗が判明して保存成功を確認できないeventだけを再試行可能に保持し、再送成功を確認するまでbeforeunloadで警告する。再送にはevent IDの世代を付け、古いACKは新しい送信の保護状態を変更しない。サイト自身が登録したbeforeunloadの警告は拡張が抑止しない。
+### Product認証provider取得の失敗時契約（2026-10-04）
+
+`/api/auth/providers`が非2xx、空応答、または通信失敗になった場合、Product session確認済みのログイン画面はpassword認証へフォールバックせず、エラーとprovider取得の再試行操作を表示する。再試行が成功した場合だけ設定済みproviderの導線を復元し、画面内の入力値とURLの`return`を保持する。Product session未確認時の既存password画面への復帰とlegacy Supabase認証の契約は維持する。旧login renderの遅延応答は現在のrenderへ反映しない。

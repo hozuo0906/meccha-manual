@@ -5,15 +5,16 @@ import { AccessIdentityError, authenticateApplicationRequest, requireHumanActor,
 import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1OnboardingRepository } from "./infra/d1/onboarding-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
-import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord } from "./infra/d1/workspace-repository.ts";
+import { D1WorkspaceRepository, type CreateWorkspaceInput, type ProfileRecord, type WorkspaceMemberRecord } from "./infra/d1/workspace-repository.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "./onboarding-assets.ts";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "./cloud-manual-assets.ts";
 import { handleCloudManualRoute } from "./cloud-manual-router.ts";
 import { handleShareLinkRoute } from "./share-link-router.ts";
-import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type SupabaseBindings } from "./server-config.ts";
+import { beginProductAuth, clearProductAuthTransactionCookie, configuredProductProviders, finishProductAuth, getProductSession, hasProductSessionCookie, ProductAuthError, revokeProductSession } from "./product-auth.ts";
+import { inspectAccessConfig, inspectAccessHealthServiceTokenNames, inspectProductAuthConfig, inspectSupabaseConfig, isConfiguredOnboardingOrigin, type AccessBindings, type AppRuntimeBindings, type ProductAuthBindings, type SupabaseBindings } from "./server-config.ts";
 
-interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings {
+interface Env extends SupabaseBindings, AccessBindings, AppRuntimeBindings, ProductAuthBindings {
   DB?: D1DatabaseLike;
   ONBOARDING_RATE_LIMITER?: RateLimit;
   SHARE_AUTH_RATE_LIMITER?: RateLimit;
@@ -44,6 +45,10 @@ interface ConfigHealthResponse extends HealthResponse {
       hasUrl: boolean;
       hasAnonKey: boolean;
       projectRef: string | null;
+    };
+    productAuth: {
+      googleConfigured: boolean;
+      chatgptConfigured: boolean;
     };
     discord: {
       issueBridgeConfigured: boolean;
@@ -258,27 +263,63 @@ function errorResponse(error: unknown): Response {
     }, { status: error.status }, error.responseCookies);
   }
 
+  if (error instanceof ProductAuthError) {
+    return jsonResponse({ code: error.code, message: error.message }, { status: error.status });
+  }
+
   return jsonResponse({
     code: "INTERNAL_ERROR",
     message: "予期しないエラーが発生しました。"
   }, { status: 500 });
 }
 
-function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code"): AppError {
+async function productAuthCallbackRoute(request: Request, env: Env, provider: "google" | "chatgpt"): Promise<Response> {
+  try {
+    const response = await finishProductAuth(request, env, provider);
+    // A successful product login is an explicit authentication transition.
+    // Clear competing legacy credentials so a later reload cannot resurrect
+    // the previous Supabase account. Callback failures preserve them.
+    for (const sessionCookie of clearSessionCookies()) response.headers.append("set-cookie", sessionCookie);
+    return response;
+  } catch (error) {
+    const json = errorResponse(error);
+    const status = json.status;
+    const message = error instanceof ProductAuthError
+      ? error.message
+      : "ログインを完了できませんでした。時間をおいて、もう一度お試しください。";
+    const returnPath = error instanceof ProductAuthError ? error.returnPath : undefined;
+    const acceptsHtml = (request.headers.get("accept") ?? "").includes("text/html");
+    const escapedMessage = message.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value));
+    const safeReturn = returnPath?.replace(/[&<>\"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[value] ?? value));
+    const response = acceptsHtml
+      ? new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ログインを完了できませんでした</title><main><h1>ログインを完了できませんでした</h1><p>${escapedMessage}</p><a href="${safeReturn ?? "/"}">${safeReturn ? "元の操作へ戻って再試行" : "ログイン画面へ戻る"}</a></main></html>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } })
+      : json;
+    response.headers.set("referrer-policy", "no-referrer");
+    const state = new URL(request.url).searchParams.get("state") ?? "";
+    const transactionCookie = await clearProductAuthTransactionCookie(provider, state);
+    if (transactionCookie) response.headers.append("set-cookie", transactionCookie);
+    return response;
+  }
+}
+
+function d1ErrorResponse(error: unknown, operation: "profile" | "workspaces" | "create_workspace" | "join_code" | "members" | "members_join" | "members_update"): AppError {
   if (!(error instanceof D1RepositoryError)) {
     return new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   }
   if (error.code === "limit_exceeded") {
-    return new AppError(409, "WORKSPACES_LIMIT_EXCEEDED", "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
+    return new AppError(409, operation === "members" || operation === "members_join" || operation === "members_update" ? "WORKSPACE_MEMBERS_LIMIT_EXCEEDED" : "WORKSPACES_LIMIT_EXCEEDED", operation === "members" || operation === "members_join" || operation === "members_update" ? "メンバーが多いため一覧を表示できません。管理者に整理を依頼してください。" : "所属ワークスペースが多いため一覧を表示できません。管理者に整理を依頼してください。");
   }
   if (error.code === "invalid_input") {
     return new AppError(400, operation === "create_workspace" ? "WORKSPACE_INPUT_INVALID" : "REQUEST_INVALID", "入力内容を確認してください。");
   }
   if (error.code === "conflict") {
-    return new AppError(409, operation === "join_code" ? "JOIN_CODE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
+    return new AppError(409, operation === "join_code" || operation === "members_join" ? "JOIN_CODE_UNAVAILABLE" : operation === "members_update" ? "MEMBER_UPDATE_UNAVAILABLE" : "WORKSPACE_CONFLICT", "処理対象の状態が変わりました。最新の状態を確認してください。");
   }
   if (error.code === "actor_forbidden") {
     return new AppError(403, operation === "create_workspace" ? "ACCESS_ACTOR_FORBIDDEN" : "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
+  }
+  if (error.code === "not_found" && operation === "members") {
+    return new AppError(404, "WORKSPACE_MEMBERS_NOT_FOUND", "ワークスペースまたはメンバー情報を確認できませんでした。");
   }
   if (error.code === "forbidden" || error.code === "not_found") {
     return new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
@@ -298,9 +339,39 @@ function useAccessD1Routes(env: Env): boolean {
   return access.hasIssuer || access.hasAudience || access.hasJwksUrl;
 }
 
+function useProductD1Routes(env: Env, request?: Request): boolean {
+  const providers = configuredProductProviders(env);
+  const legacyConfigured = inspectSupabaseConfig(env).configured;
+
+  // Route selection follows the credential present on this request. A legacy
+  // Supabase session must stay on the password route even while a product OIDC
+  // provider is configured and its backend is available. A product cookie
+  // remains fail-closed and wins over any legacy cookie so it cannot fall back
+  // to another authentication system. A legacy cookie alone cannot select a
+  // backend that is not configured.
+  if (request) {
+    if (hasProductSessionCookie(request)) return true;
+    const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
+      const separator = part.indexOf("=");
+      return (separator < 0 ? part : part.slice(0, separator)).trim();
+    }));
+    if ((cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) && legacyConfigured) return false;
+  }
+  return providers.google || providers.chatgpt;
+}
+
+function hasAccessAssertion(request: Request): boolean {
+  return Boolean(request.headers.get("Cf-Access-Jwt-Assertion")?.trim());
+}
+
+function useD1ApplicationRoutes(env: Env, request?: Request): boolean {
+  return useAccessD1Routes(env) || useProductD1Routes(env, request);
+}
+
 interface D1RouteContext {
   actorId: string;
   repository: D1WorkspaceRepository;
+  authMode: "product" | "access";
 }
 
 function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
@@ -313,6 +384,12 @@ function d1IdentityRepository(env: Env): ApplicationIdentityRepository {
 }
 
 async function authenticateD1User(request: Request, env: Env): Promise<D1RouteContext> {
+  const productSession = await getProductSession(request, env);
+  if (productSession && env.DB) {
+    return { actorId: productSession.applicationId, repository: new D1WorkspaceRepository(env.DB), authMode: "product" };
+  }
+  if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+  if (useProductD1Routes(env, request) && !hasAccessAssertion(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
   let auth;
   try {
     auth = await authenticateApplicationRequest(request, env, d1IdentityRepository(env));
@@ -326,7 +403,7 @@ async function authenticateD1User(request: Request, env: Env): Promise<D1RouteCo
   if (!env.DB) {
     throw new AppError(503, "D1_UNAVAILABLE", "データを利用できません。時間をおいて、もう一度お試しください。");
   }
-  return { actorId: auth.identity.applicationId, repository: new D1WorkspaceRepository(env.DB) };
+  return { actorId: auth.identity.applicationId, repository: new D1WorkspaceRepository(env.DB), authMode: "access" };
 }
 
 function apiWorkspaceSummary(workspace: Awaited<ReturnType<D1WorkspaceRepository["listWorkspaces"]>>[number]): WorkspaceSummary {
@@ -349,13 +426,30 @@ function apiProfile(profile: ProfileRecord | null): unknown {
   };
 }
 
+function apiWorkspaceMember(member: WorkspaceMemberRecord): WorkspaceMemberSummary {
+  return {
+    userId: member.applicationId,
+    displayName: member.displayName,
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt
+  };
+}
+
 async function bootstrapOnboarding(request: Request, env: Env): Promise<Response> {
   if (!isConfiguredOnboardingOrigin(new URL(request.url).origin, env)) {
     throw new AppError(503, "ONBOARDING_UNAVAILABLE", "保存先の準備が完了していません。時間をおいて、もう一度お試しください。");
   }
+  const productSession = await getProductSession(request, env);
   let actor;
-  try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
-  catch (error) { throw mapAccessIdentityError(error); }
+  if (productSession) {
+    actor = { kind: "product_user" as const, issuer: productSession.issuer, subject: productSession.subject };
+  } else {
+    if (hasProductSessionCookie(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+    if (useProductD1Routes(env, request) && !hasAccessAssertion(request)) throw new AppError(401, "SESSION_REQUIRED", "ログインしてください。");
+    try { actor = requireHumanActor(await verifyAccessJwt(request, env)); }
+    catch (error) { throw mapAccessIdentityError(error); }
+  }
   const body = await readJsonBody<{ operationId?: unknown }>(request);
   if (Object.keys(body).some((key) => key !== "operationId") || typeof body.operationId !== "string"
     || !/^[A-Za-z0-9_-]{16,128}$/.test(body.operationId)) {
@@ -438,7 +532,7 @@ async function onboardingRateLimitKey(namespace: "actor" | "connection", value: 
 }
 
 async function getD1Session(request: Request, env: Env): Promise<Response> {
-  const { actorId, repository } = await authenticateD1User(request, env);
+  const { actorId, repository, authMode } = await authenticateD1User(request, env);
   try {
     const [profile, workspaces] = await Promise.all([
       repository.getProfile(actorId),
@@ -446,10 +540,11 @@ async function getD1Session(request: Request, env: Env): Promise<Response> {
     ]);
     return jsonResponse({
       user: { id: actorId },
+      authMode,
       profile: apiProfile(profile),
       workspaces: workspaces.map(apiWorkspaceSummary),
       manuals: { status: env.MANUAL_ASSETS ? "ready" : "migration" },
-      members: { status: "migration" }
+      members: { status: "ready" }
     });
   } catch (error) {
     throw d1ErrorResponse(error, "profile");
@@ -509,6 +604,58 @@ async function createD1WorkspaceJoinCode(request: Request, env: Env): Promise<Re
     return jsonResponse({ joinCode: result.code, expiresAt: result.expiresAt }, { status: 201 });
   } catch (error) {
     throw d1ErrorResponse(error, "join_code");
+  }
+}
+
+async function getD1WorkspaceMembers(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const { actorId, repository } = await authenticateD1User(request, env);
+  try {
+    const members = await repository.listMembers(actorId, workspaceId);
+    const currentUserRole = members.find((member) => member.applicationId === actorId)?.role;
+    if (!currentUserRole || members.length === 0) throw new D1RepositoryError("not_found");
+    return jsonResponse({
+      workspaceId,
+      currentUserRole,
+      members: members.map(apiWorkspaceMember)
+    });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members");
+  }
+}
+
+async function addD1WorkspaceMember(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ joinCode?: unknown; role?: unknown }>(request);
+  if (typeof body.joinCode !== "string" || !JOIN_CODE_PATTERN.test(body.joinCode.trim())) {
+    throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
+  }
+  if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・追加は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+  }
+  try {
+    await repository.consumeJoinCode(actorId, workspaceId, body.joinCode.trim(), body.role, new Date().toISOString());
+    return jsonResponse({ status: "ok" }, { status: 201 });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members_join");
+  }
+}
+
+async function updateD1WorkspaceMember(request: Request, env: Env, workspaceId: string, userId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  if (!UUID_PATTERN.test(userId)) throw new AppError(409, "MEMBER_UPDATE_UNAVAILABLE", "対象メンバーの状態が変わったため更新できませんでした。一覧を更新してください。");
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ role?: unknown; status?: unknown }>(request);
+  if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・移管は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+  }
+  if (body.status !== "active" && body.status !== "removed") throw new AppError(400, "MEMBER_STATUS_INVALID", "メンバー状態の指定が正しくありません。");
+  try {
+    await repository.updateMember(actorId, workspaceId, userId, { role: body.role, status: body.status }, new Date().toISOString());
+    return jsonResponse({ status: "ok" });
+  } catch (error) {
+    throw d1ErrorResponse(error, "members_update");
   }
 }
 
@@ -1533,6 +1680,17 @@ async function login(request: Request, env: Env): Promise<Response> {
     sessionCookie(COOKIE_REFRESH_TOKEN, auth.refresh_token, 60 * 60 * 24 * 30)
   ];
 
+  // A successful explicit password login is an authentication transition. If
+  // an older product session cookie is still present, revoke that server-side
+  // session and clear the competing credential before the new legacy session
+  // can be used. An invalid product cookie still fails closed on protected
+  // requests; this transition never treats it as a silent fallback.
+  if (hasProductSessionCookie(request)) {
+    const productLogout = await revokeProductSession(request, env);
+    const productCookie = productLogout.headers.get("set-cookie");
+    if (productCookie) cookies.push(productCookie);
+  }
+
   return jsonResponse({ user: sanitizeUser(auth.user) }, undefined, cookies);
 }
 
@@ -2190,6 +2348,7 @@ async function configHealth(request: Request, env: Env): Promise<Response> {
       throw new AppError(403, "ACCESS_FORBIDDEN", "この操作を行う権限がありません。");
     }
   }
+
   const supabase = inspectSupabaseConfig(env);
   const { hasUrl, hasAnonKey } = supabase;
   const hasAllowedGuildIds = splitCsv(env.DISCORD_ALLOWED_GUILD_IDS).size > 0;
@@ -2213,6 +2372,10 @@ async function configHealth(request: Request, env: Env): Promise<Response> {
         hasUrl,
         hasAnonKey,
         projectRef: supabase.projectRef
+      },
+      productAuth: {
+        googleConfigured: configuredProductProviders(env).google,
+        chatgptConfigured: configuredProductProviders(env).chatgpt
       },
       discord: {
         issueBridgeConfigured: discordIssueBridgeConfigured,
@@ -2259,10 +2422,7 @@ function cloudManualMigrationResponse(): Response {
 }
 
 function isLegacySupabaseProtectedRoute(pathname: string): boolean {
-  return (
-    /^\/api\/auth\/(?:login|refresh)$/.test(pathname) ||
-    /^\/api\/workspaces\/[^/]+\/members(?:\/[^/]+)?$/.test(pathname)
-  );
+  return /^\/api\/auth\/(?:login|refresh)$/.test(pathname);
 }
 
 const BRAND_ASSET_PATHS: Record<string, string> = {
@@ -2300,19 +2460,27 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const brandAsset = await brandAssetResponse(request, env);
   if (brandAsset) return brandAsset;
 
-  if (useAccessD1Routes(env)) {
+  if (useD1ApplicationRoutes(env, request)) {
     const shareResponse = await handleShareLinkRoute(request, env);
     if (shareResponse) return shareResponse;
     const cloudManualResponse = await handleCloudManualRoute(request, env);
     if (cloudManualResponse) return cloudManualResponse;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/auth/providers") {
+    return jsonResponse({ providers: configuredProductProviders(env), password: inspectSupabaseConfig(env).configured });
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/google/start") return beginProductAuth(request, env, "google");
+  if (request.method === "GET" && url.pathname === "/api/auth/google/callback") return productAuthCallbackRoute(request, env, "google");
+  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/start") return beginProductAuth(request, env, "chatgpt");
+  if (request.method === "GET" && url.pathname === "/api/auth/chatgpt/callback") return productAuthCallbackRoute(request, env, "chatgpt");
+
   verifySameOriginWrite(request);
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/bootstrap") return bootstrapOnboarding(request, env);
   if (request.method === "GET" && url.pathname === "/onboarding/continue") {
     const bootstrapEnabled = isConfiguredOnboardingOrigin(url.origin, env)
-      && inspectAccessConfig(env).configured && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
+      && (inspectAccessConfig(env).configured || useProductD1Routes(env, request)) && Boolean(env.DB) && Boolean(env.ONBOARDING_RATE_LIMITER);
     return htmlResponse(renderOnboardingContinuePage({ bootstrapEnabled }));
   }
   if (request.method === "GET" && url.pathname === "/assets/onboarding.css") {
@@ -2321,23 +2489,23 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/assets/onboarding.js") {
     return assetResponse(ONBOARDING_JS, "application/javascript; charset=utf-8", false);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.css") {
     return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/editor-tools.js") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/editor-tools.js") {
     if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return assetResponse(EDITOR_TOOLS_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
     return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
-  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/manuals") {
+  if (useD1ApplicationRoutes(env, request) && request.method === "GET" && url.pathname === "/manuals") {
     if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return cloudManualPage(request, env);
   }
@@ -2351,32 +2519,39 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   if (request.method === "GET" && url.pathname === "/health") return basicHealth();
   if (request.method === "GET" && url.pathname === "/health/config") return configHealth(request, env);
   if (request.method === "GET" && url.pathname === "/api/session") {
-    return useAccessD1Routes(env) ? getD1Session(request, env) : getSession(request, env);
+    return useD1ApplicationRoutes(env, request) ? getD1Session(request, env) : getSession(request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshAuthentication(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+    if ((await getProductSession(request, env)) || hasProductSessionCookie(request)) return revokeProductSession(request, env);
     return useAccessD1Routes(env) ? accessLogout(request, env) : logout(request, env);
   }
   if (request.method === "GET" && url.pathname === "/api/workspaces") {
-    if (useAccessD1Routes(env)) return listD1Workspaces(request, env);
+    if (useD1ApplicationRoutes(env, request)) return listD1Workspaces(request, env);
     const session = await requireSession(request, env);
     return jsonResponse({ workspaces: await fetchWorkspaces(env, session.accessToken) }, undefined, session.responseCookies);
   }
   if (request.method === "POST" && url.pathname === "/api/workspaces") {
-    return useAccessD1Routes(env) ? createD1Workspace(request, env) : createWorkspace(request, env);
+    return useD1ApplicationRoutes(env, request) ? createD1Workspace(request, env) : createWorkspace(request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/member-join-code") {
-    return useAccessD1Routes(env) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
+    return useD1ApplicationRoutes(env, request) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
   }
   if (request.method === "GET" && workspaceMembersMatch?.[1]) {
-    return getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
+    return useD1ApplicationRoutes(env, request)
+      ? getD1WorkspaceMembers(request, env, workspaceMembersMatch[1])
+      : getWorkspaceMembers(request, env, workspaceMembersMatch[1]);
   }
   if (request.method === "POST" && workspaceMembersMatch?.[1]) {
-    return addWorkspaceMember(request, env, workspaceMembersMatch[1]);
+    return useD1ApplicationRoutes(env, request)
+      ? addD1WorkspaceMember(request, env, workspaceMembersMatch[1])
+      : addWorkspaceMember(request, env, workspaceMembersMatch[1]);
   }
   if (request.method === "PATCH" && workspaceMemberMatch?.[1] && workspaceMemberMatch[2]) {
-    return updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
+    return useD1ApplicationRoutes(env, request)
+      ? updateD1WorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2])
+      : updateWorkspaceMember(request, env, workspaceMemberMatch[1], workspaceMemberMatch[2]);
   }
 
   return jsonResponse({

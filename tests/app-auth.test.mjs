@@ -105,6 +105,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
     FormData: HarnessFormData,
     Set,
     URL,
+    URLSearchParams,
     Date: HarnessDate,
     crypto: webcrypto,
     setTimeout(callback, delay = 0) {
@@ -380,6 +381,43 @@ test("refreshが終端的に失敗したら認証世代を更新して他タブ�
     assert.equal(broadcastMessages[0].message.type, "authentication-changed", terminalCode);
     assert.equal(broadcastMessages[0].message.reason, undefined, terminalCode);
   }
+});
+
+test("product session provider config failure exposes retry and preserves entered values", async () => {
+  let providerCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/session") return Response.json({ user: { id: "product-user-1" }, workspaces: [], manuals: { status: "ready" }, members: { status: "ready" }, authMode: "product" });
+      if (path === "/api/auth/providers") {
+        providerCalls += 1;
+        if (providerCalls === 1) throw new Error("provider unavailable");
+        return Response.json({ providers: { google: true, chatgpt: false }, password: false });
+      }
+      if (path === "/api/auth/logout") return Response.json({ status: "ok" });
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  await harness.api.loadSession();
+  harness.api.renderLogin();
+  harness.advanceTime(0);
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
+
+  assert.equal(providerCalls, 1);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /id="product-auth-retry"/);
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.match(harness.element("login-message").className, /show/);
+  harness.element("email").value = "draft@example.test";
+  harness.element("password").value = "draft-password";
+  harness.element("product-auth-retry").listeners.get("click")();
+  harness.advanceTime(0);
+  await waitForCondition(() => !harness.element("product-auth-buttons").innerHTML.includes("product-auth-retry"), "provider retry should resolve the provider buttons");
+
+  assert.equal(providerCalls, 2);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /api\/auth\/google\/start/);
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.equal(harness.element("email").value, "draft@example.test");
+  assert.equal(harness.element("password").value, "draft-password");
+  assert.equal(harness.element("login-message").className.includes("show"), false);
 });
 
 test("lock待機中に認証世代が変わったら古いrefreshを送信しない", async () => {
@@ -784,7 +822,8 @@ test("Access logoutの401は旧password画面へ戻らず再認証へ進める",
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   api.replaceCurrentSession(session);
   api.renderShell(session);
@@ -804,7 +843,8 @@ test("Access logout成功はpassword画面ではなくAccessログイン導線�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   api.replaceCurrentSession(session);
   api.renderShell(session);
@@ -814,6 +854,51 @@ test("Access logout成功はpassword画面ではなくAccessログイン導線�
   assert.match(app.innerHTML, /ログアウトしました/);
   assert.match(app.innerHTML, /ログインし直す/);
   assert.doesNotMatch(app.innerHTML, /login-screen|login-form|メールアドレスとパスワード/);
+});
+
+test("product sessionはメール未設定を表示せずD1手順書surfaceへ遷移できる", () => {
+  const session = {
+    user: { id: "product-user-1" },
+    workspaces: [],
+    manuals: { status: "ready" },
+    members: { status: "ready" },
+    authMode: "product"
+  };
+  const { api, app } = createHarness();
+  api.replaceCurrentSession(session);
+  api.renderShell(session);
+
+  assert.match(app.innerHTML, /ログイン中：アカウント/);
+  assert.doesNotMatch(app.innerHTML, /メールアドレス未設定/);
+  assert.match(app.innerHTML, /id="manual-nav-link"[^>]*href="\/manuals"/);
+});
+
+test("product logoutはprovider設定を再利用してpassword formを表示しない", async () => {
+  const session = {
+    user: { id: "product-user-1" },
+    workspaces: [],
+    manuals: { status: "ready" },
+    members: { status: "ready" },
+    authMode: "product"
+  };
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/session") return Response.json(session);
+      if (path === "/api/auth/providers") return Response.json({ providers: { google: true, chatgpt: false }, password: false });
+      if (path === "/api/auth/logout") return Response.json({ status: "ok" });
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  await harness.api.loadSession();
+  harness.advanceTime(0);
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
+  await harness.api.logout();
+  harness.advanceTime(0);
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.doesNotMatch(harness.app.innerHTML, /メールアドレスとパスワードを入力してください/);
+  assert.doesNotMatch(harness.app.innerHTML, /class="auth-divider"/);
 });
 
 test("Access logout中の兄弟タブはsessionを再取得せず遅着成功でも保護shellを復活させない", async () => {
@@ -832,7 +917,8 @@ test("Access logout中の兄弟タブはsessionを再取得せず遅着成功で
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -893,7 +979,8 @@ test("Access logoutはlock待機前に同じversionの再認証要求を通知�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -928,7 +1015,8 @@ test("Access logoutのlock待機中も開始通知を先に送り、完了通知
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -968,7 +1056,8 @@ test("Access logout待機中に新version loginが先行したら古いlogoutを
           user: { id: "new-user", email: "new@example.invalid" },
           workspaces: [],
           manuals: { status: "migration" },
-          members: { status: "migration" }
+          members: { status: "migration" },
+          authMode: "access"
         });
       }
       throw new Error("先行login後に古いlogoutを送ってはいけません");
@@ -978,7 +1067,8 @@ test("Access logout待機中に新version loginが先行したら古いlogoutを
     user: { id: "old-user", email: "old@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -1007,7 +1097,8 @@ test("lock APIなしでもAccess logoutの開始通知はlock待機前に送る"
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -1029,7 +1120,8 @@ test("Access logoutのversion保存に失敗してもversionなしの再認証�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   source.api.replaceCurrentSession(session);
   source.api.renderShell(session);
@@ -1058,7 +1150,8 @@ test("Access logoutの401・503・通信失敗でも兄弟タブ保護通知を�
       user: { id: "user-1", email: "user@example.invalid" },
       workspaces: [],
       manuals: { status: "migration" },
-      members: { status: "migration" }
+      members: { status: "migration" },
+      authMode: "access"
     };
     source.api.replaceCurrentSession(session);
     source.api.renderShell(session);
@@ -1080,7 +1173,8 @@ test("Access logoutの一時失敗はpassword画面を出さず再試行可能�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   api.replaceCurrentSession(session);
   api.renderShell(session);
@@ -1502,7 +1596,8 @@ test("Access modeのAJAX非JSON 401は再認証導線へ正規化する", async 
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
@@ -1522,7 +1617,8 @@ test("Access modeのJSON 401 codeなしも旧シェルを残さず再認証へ�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
@@ -1547,7 +1643,8 @@ test("Access終端401は認証世代を更新して兄弟タブへ一度だけ�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.storage.set(versionKey, "before-access-expiry");
   harness.api.replaceCurrentSession(session);
@@ -1576,7 +1673,8 @@ test("Access終端401の兄弟タブ再取得は同じ認証世代を再通知�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.storage.set(versionKey, "sibling-expired");
   harness.api.replaceCurrentSession(session);
@@ -1606,7 +1704,8 @@ test("Access終端通知後の兄弟タブ遅着成功は保護shellを復活さ
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: workspaceId, name: "機密ワークスペース", slug: "secret", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.storage.set("meccha-manual-authentication-version", "sibling-expired");
   harness.api.replaceCurrentSession(session);
@@ -1644,7 +1743,8 @@ test("localStorage失敗時も元のAccess401を維持し現在タブを再認�
     user: { id: "user-1", email: "user@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "Access workspace", slug: "access", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
@@ -1669,7 +1769,8 @@ test("versionなしのAccess logout通知後は通常通知と遅着sessionで�
     user: { id: "old-user", email: "old@example.invalid" },
     workspaces: [{ id: "workspace-1", name: "機密ワークスペース", slug: "secret", status: "active" }],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "migration" },
+    authMode: "access"
   };
   harness.api.replaceCurrentSession(session);
   harness.api.renderShell(session);
@@ -1769,7 +1870,8 @@ test("Access JWT終端401の一覧更新では旧シェルを破棄し、遅着�
       user: { id: "user-1", email: "user@example.invalid" },
       workspaces: [{ id: workspaceId, name: "機密ワークスペース", slug: "secret", status: "active" }],
       manuals: { status: "migration" },
-      members: { status: "migration" }
+      members: { status: "migration" },
+      authMode: "access"
     };
     harness.api.replaceCurrentSession(session);
     harness.api.renderShell(session);

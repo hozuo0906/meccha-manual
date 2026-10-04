@@ -133,7 +133,7 @@ jobs:
           fi
           if grep -Eq 'access-identity|auth' "$RUNNER_TEMP/codex-review-changed-paths.txt"; then
             npm run test:access-identity
-            npm run app:auth:test
+            npm run app:auth:unit
           fi
 
       - name: Run repository checks
