@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-da2e0c0ac36e1bf2";
+export const APP_ASSET_VERSION = "sha256-052bdd924765e9b1";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -4019,8 +4019,10 @@ async function logout() {
       return;
     }
     if (logoutStateGeneration !== sessionGeneration) return;
+    // Product logout already rendered the login screen before waiting for the
+    // revoke response. Keep that DOM so a user can finish provider loading or
+    // enter a password while the response is in flight.
     if (requestAccessMode) renderAccessLogoutComplete();
-    else renderLogin();
   } catch (error) {
     if (logoutStateGeneration !== sessionGeneration) return;
     if (isAccessReauthenticationError(error)) {

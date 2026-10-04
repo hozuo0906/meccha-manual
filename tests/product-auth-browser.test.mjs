@@ -114,7 +114,7 @@ async function seedProductBrowserSession(fixture, { expired }) {
   return token;
 }
 
-async function runProductSessionBrowser({ expired, providerFailureRetry = false }) {
+async function runProductSessionBrowser({ expired, providerFailureRetry = false, logoutDelayMs = 0 }) {
   const fixture = await createFixture("google");
   const token = await seedProductBrowserSession(fixture, { expired });
   const context = await chromium.launchPersistentContext("", {
@@ -145,10 +145,13 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
     try {
       if (providerFailureRetry && url.pathname === "/api/auth/providers") {
         providerConfigRequests += 1;
-        if (providerConfigRequests <= 2) {
+        if (providerConfigRequests <= 1) {
           await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "AUTH_PROVIDER_UNAVAILABLE" }) });
           return;
         }
+      }
+      if (logoutDelayMs > 0 && url.pathname === "/api/auth/logout") {
+        await new Promise((resolve) => setTimeout(resolve, logoutDelayMs));
       }
       const response = await worker.fetch(browserRequest(route), fixture.env, {});
       routeTrace.push(`${route.request().method()} ${url.pathname} ${response.status}`);
@@ -193,7 +196,7 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
         assert.equal(await page.locator("#email").inputValue(), "draft@example.test");
         assert.equal(await page.locator("#password").inputValue(), "draft-password");
         assert.equal(new URL(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/manuals");
-        assert.equal(providerConfigRequests, 3);
+        assert.equal(providerConfigRequests, 2);
         assert.equal(downloadCount, 0, "provider retry must not trigger a download");
       } else {
         await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
@@ -203,6 +206,13 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false 
       }
       assert.equal(fixture.database.prepare("SELECT revoked_at IS NOT NULL AS revoked FROM auth_sessions WHERE id = 'browser-product-session'").get().revoked, 1, routeTrace.join(" | "));
       assert.ok(routeTrace.some((entry) => entry.endsWith("/api/auth/logout 200")), routeTrace.join(" | "));
+      if (providerFailureRetry) {
+        assert.equal(providerConfigRequests, 2, "logout completion must not rerender the ready login UI");
+        assert.equal(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').count(), 1);
+        assert.equal(await page.locator("#email").inputValue(), "draft@example.test");
+        assert.equal(await page.locator("#password").inputValue(), "draft-password");
+        assert.equal(new URL(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/manuals");
+      }
     }
   } finally {
     await page.close();
@@ -520,5 +530,5 @@ test("expired browser product session receives 401 and renders the password logi
 });
 
 test("browser provider configuration failure renders retry and preserves return path and input", { timeout: 60_000 }, async () => {
-  await runProductSessionBrowser({ expired: false, providerFailureRetry: true });
+  await runProductSessionBrowser({ expired: false, providerFailureRetry: true, logoutDelayMs: 500 });
 });

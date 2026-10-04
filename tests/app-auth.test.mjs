@@ -3531,3 +3531,34 @@ test("参加コードの再発行は現在コード失効の確認をキャン�
     assert.match(harness.app.innerHTML, new RegExp(confirmResult ? secondCode : firstCode));
   }
 });
+
+test("product logout完了時は待機中に表示されたログイン入力を再描画で失わない", async () => {
+  const logoutResponse = deferred();
+  let providerCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/auth/providers") {
+        providerCalls += 1;
+        return Response.json({ providers: { google: true, chatgpt: false }, password: true });
+      }
+      if (path === "/api/auth/logout") return logoutResponse.promise;
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  const session = { user: { id: "user-1", email: "user@example.invalid" }, workspaces: [] };
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+
+  const logoutRequest = harness.api.logout();
+  harness.advanceTime(0);
+  await waitForCondition(() => harness.element("login-form")?.hidden === false, "ログイン入力を表示できませんでした");
+  harness.element("email").value = "draft@example.test";
+  harness.element("password").value = "draft-password";
+  logoutResponse.resolve(Response.json({ status: "ok" }));
+  await logoutRequest;
+
+  assert.equal(harness.element("email").value, "draft@example.test");
+  assert.equal(harness.element("password").value, "draft-password");
+  assert.equal(providerCalls, 1);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /api\/auth\/google\/start/);
+});
