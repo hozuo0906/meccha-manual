@@ -514,6 +514,8 @@ test("configured Google provider keeps a valid password session on Supabase and 
 
 test("legacy Supabase logout wins over Access environment fallback while Access assertion wins when present", async () => {
   const { database, binding } = await authDatabase();
+  const { privateKey, publicKey } = await generateKeyPair("RS256");
+  const accessPublicJwk = { ...await exportJWK(publicKey), kid: "mixed-logout-access", alg: "RS256", use: "sig" };
   const originalFetch = globalThis.fetch;
   const env = {
     GOOGLE_OIDC_CLIENT_ID: "google-mixed-client",
@@ -531,6 +533,7 @@ test("legacy Supabase logout wins over Access environment fallback while Access 
     calls.push(target);
     if (target.endsWith("/auth/v1/user")) return Response.json({ id: "legacy-user", email: "legacy@example.test" });
     if (target.endsWith("/auth/v1/logout?scope=local")) return new Response(null, { status: 204 });
+    if (target === "https://access.example/jwks") return Response.json({ keys: [accessPublicJwk] });
     throw new Error(`unexpected Supabase request: ${target}`);
   };
   try {
@@ -567,6 +570,29 @@ test("legacy Supabase logout wins over Access environment fallback while Access 
     assert.equal(calls.length, 2, "Access assertion must win without contacting Supabase");
     assert.equal(access.headers.get("set-cookie"), null);
 
+    const validAccessAssertion = await new SignJWT({ type: "app", sub: "access-subject" })
+      .setProtectedHeader({ alg: "RS256", kid: "mixed-logout-access" })
+      .setIssuer("https://access.example")
+      .setAudience("access-audience")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(privateKey);
+    const accessSuccess = await worker.fetch(new Request("https://app.example/api/auth/logout", {
+      method: "POST",
+      headers: {
+        origin: "https://app.example",
+        "content-type": "application/json",
+        cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh",
+        "Cf-Access-Jwt-Assertion": validAccessAssertion
+      },
+      body: "{}"
+    }), env, {});
+    assert.equal(accessSuccess.status, 200);
+    assert.deepEqual(await accessSuccess.json(), { status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
+    assert.match(accessSuccess.headers.get("set-cookie") ?? "", /__Host-mm_access=.*Max-Age=0/u);
+    assert.match(accessSuccess.headers.get("set-cookie") ?? "", /__Host-mm_refresh=.*Max-Age=0/u);
+    assert.equal(calls.filter((target) => target.includes("supabase.example.test")).length, 2, "successful Access logout must not contact Supabase");
+
     const invalidProduct = await worker.fetch(new Request("https://app.example/api/auth/logout", {
       method: "POST",
       headers: {
@@ -578,7 +604,7 @@ test("legacy Supabase logout wins over Access environment fallback while Access 
     }), env, {});
     assert.equal(invalidProduct.status, 200);
     assert.match(invalidProduct.headers.get("set-cookie") ?? "", /__Host-mm_product=.*Max-Age=0/u);
-    assert.equal(calls.length, 2, "invalid product cookies must not fall back to Supabase logout");
+    assert.equal(calls.filter((target) => target.includes("supabase.example.test")).length, 2, `invalid product cookies must not fall back to Supabase logout: ${calls.join(" | ")}`);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

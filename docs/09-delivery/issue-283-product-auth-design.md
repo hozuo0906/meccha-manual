@@ -12,7 +12,7 @@ Date: 2026-10-03
 
 ## 認証方式のsession契約
 
-`GET /api/session`は`authMode: "product" | "access"`を返し、画面はこの明示値で製品ログインとCloudflare Access再認証を分岐する。`manuals.status`と`members.status`は機能移行状態であり、認証方式の判定へ流用しない。password login成功時は旧製品sessionをserver-side revokeして製品cookieを削除し、明示的にlegacy sessionへ遷移する。product sessionの期限切れ401は製品ログインへ戻し、無効な製品cookieをAccessやSupabaseへ暗黙fallbackしない。product logoutは既存APP_JSのJSON成功契約に合わせて`200 {"status":"ok"}`を返す。
+`GET /api/session`は`authMode: "product" | "access"`を返し、画面はこの明示値で製品ログインとCloudflare Access再認証を分岐する。`manuals.status`と`members.status`は機能移行状態であり、認証方式の判定へ流用しない。password login成功時は旧製品sessionをserver-side revokeして製品cookieを削除し、明示的にlegacy sessionへ遷移する。product sessionの期限切れ401は製品ログインへ戻し、無効な製品cookieをAccessやSupabaseへ暗黙fallbackしない。product logoutは既存APP_JSのJSON成功契約に合わせて`200 {"status":"ok"}`を返す。Access assertionを伴うlogoutはAccess検証成功後に競合legacy cookieを削除し、検証失敗・応答失敗時はcookieを自動削除しない。
 
 ## 目的
 
@@ -31,6 +31,8 @@ Cloudflareアカウントへのログインを製品利用者へ要求せず、�
 - 認証を中断して下書きへ戻る操作
 
 ChatGPTの操作は商用client登録と利用資格が確認できるまで表示しない。利用者へ準備中の内部事情を説明する必要がある場合は、「このログイン方法は現在利用できません」とだけ表示する。
+
+ログイン方法の取得に失敗した初回表示・再読み込みでは、password backendの設定を確認できるまでpassword formを表示しない。エラーと再試行を表示し、取得成功時だけGoogle／ChatGPT／passwordの利用可能な導線へ更新する。再試行では入力値、return path、次に操作する欄のfocusを保持する。
 
 メールを選ぶと、メールアドレス入力と「確認コードを送る」を表示する。送信後は同じ画面で確認コード入力、「確認する」、「コードを再送する」を表示する。再送は待機時間と残り回数を示す。成功後は元のhandoffに戻り、認証前に選択した保存・共有・PDF等のoutputを続行する。
 

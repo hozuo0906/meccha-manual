@@ -76,7 +76,7 @@ Access modeのsession応答は、`MANUAL_ASSETS` bindingが利用できる環境
 
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
 
-Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明では同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
+Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返し、成功応答には競合する`__Host-mm_access`／`__Host-mm_refresh`の削除を付ける。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明ではlegacy cookieを自動削除せず、同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
 
 ## Workspace API
 

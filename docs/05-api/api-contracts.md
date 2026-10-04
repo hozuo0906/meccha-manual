@@ -238,4 +238,4 @@ Chrome拡張の`capture:status`は既存の`starting`、`recording`、`paused`�
 `capture:event`の送信開始からACK受領までの通常遅延は離脱警告の理由にしない。送信失敗が判明して保存成功を確認できないeventだけを再試行可能に保持し、再送成功を確認するまでbeforeunloadで警告する。再送にはevent IDの世代を付け、古いACKは新しい送信の保護状態を変更しない。サイト自身が登録したbeforeunloadの警告は拡張が抑止しない。
 ### Product認証provider取得の失敗時契約（2026-10-04）
 
-`/api/auth/providers`が非2xx、空応答、または通信失敗になった場合、Product session確認済みのログイン画面はpassword認証へフォールバックせず、エラーとprovider取得の再試行操作を表示する。再試行が成功した場合だけ設定済みproviderの導線を復元し、画面内の入力値とURLの`return`を保持する。Product session未確認時の既存password画面への復帰とlegacy Supabase認証の契約は維持する。旧login renderの遅延応答は現在のrenderへ反映しない。
+`/api/auth/providers`が非2xx、空応答、または通信失敗になった場合、Product session確認済みかどうかにかかわらず、ログイン方法を確認できるまでpassword認証へフォールバックせず、エラーとprovider取得の再試行操作を表示する。`password: true`を含む取得成功時だけpassword formを表示し、再試行が成功した場合は設定済みproviderの導線、画面内の入力値、URLの`return`を保持する。legacy Supabase認証の契約は維持する。旧login renderの遅延応答は現在のrenderへ反映しない。

@@ -661,3 +661,10 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - `/s/` viewer、token／grant API、assets は configured legacy cookie の有無に関係なく `handleShareLinkRoute` へ到達し、share 管理 API と manual 業務 route は保護 dispatch を維持する。Supabase 未設定の legacy cookie fail-closed、product invalid cookie、tenant／workspace 境界は既存回帰を維持した。
 - 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs tests/share-link-backend.test.mjs` 42/42、skip 0、exit 0。Windows `npm ci`／full `npm run check`、CI、正式 Review、remote SHA、deploy／merge はcommit／push前のこの担当では未確認。
 - 次のゲート: この担当が差分をcommit／pushしてremote SHAを照合した後、親PMが最新SHAでCI・正式Review・review threadを再取得する。
+
+## Issue #283／PR #284 Codex Review 5404149929 新規指摘修正（2026-10-04T12:58:03+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。この追補では、P1のAccess assertion成功後に競合する`__Host-mm_access`／`__Host-mm_refresh`を削除し、invalid assertion・検証障害・結果不明では削除しない境界を`apps/worker/src/index.ts`、`tests/product-auth.test.mjs`、API／Access契約へ同期した。product cookie優先、Supabase logoutの署名検証、Access設定fallbackの既存境界は維持する。
+- P2では初回表示・再読み込みを含む`productAuthSessionSeen=false`のprovider設定失敗をpassword formへfallbackさせず、日本語エラーと再試行を表示する。`password: true`を確認した再試行成功後だけpassword formを表示し、入力値・return path・focusを保持する。render世代／provider request世代の遅延応答抑止を維持し、`APP_ASSET_VERSION`を全assetの実hashへ同期した。前追補の「Product session未確認時のpassword fallback維持」は本決定で失効する。
+- 検証済み: `tests/app-auth.test.mjs` 118/118、`tests/product-auth.test.mjs` 33/33、`tests/worker-runtime.test.mjs` 71/71、`tests/product-auth-browser.test.mjs` 9/9、すべてskip 0・exit 0。`docs:check` 143 files、`encoding:check` 377 files、`git diff --check`、Worker harness／typecheckを直接Nodeで実行してexit 0を確認した。初回provider失敗→再試行成功、legacy cookie付きAccess logout成功、invalid Access assertionのcookie保持を実Worker相当／CFT browser回帰で確認した。実provider SSO、remote変更、staging／production反映、CI／正式Reviewは未確認。
+- `npm ci`はWindowsの既知`node_modules/.package-lock.json` unlink `EPERM`のため再試行せず、`npm run check`の全成功とは扱わない。今回の差分をcommit／push後、local／origin／PR head SHA、同SHAのCI／Codex Review／review threadを親PMが再取得する。deploy／mergeは行わない。

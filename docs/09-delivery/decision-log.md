@@ -735,3 +735,15 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: 移行中にUIが停止中のpassword loginを案内する矛盾、legacy cookie logoutがAccess assertion要求へ誤分岐する欠陥、legacy cookieによる公開share viewerの404を同時に解消し、既存のfail-closed境界を変えないため。
 - Boundary: Access／Supabase／Productのprovider設定、D1 schema、migration、外部認証、tenant query、共有OFF／token／grant認可、deployは変更しない。
 - Evidence: `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/share-link-backend.test.mjs`, `docs/05-api/api-contracts.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-110: Access logoutのlegacy cookie境界と初回provider失敗の再試行
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5404149929
+- Decision:
+  - Access assertionを伴うlogoutはAccess assertionの検証成功後だけ`__Host-mm_access`／`__Host-mm_refresh`を削除する。invalid assertion、検証障害、途中失敗ではlegacy cookieを削除しない。product cookieの優先とSupabase logoutの署名検証境界は維持する。
+  - 初回表示・再読み込みを含むprovider設定未確認状態ではpassword formへfallbackしない。`/api/auth/providers`の成功応答で`password: true`を確認した場合だけpassword formを表示し、失敗時は日本語エラーと再試行を示す。再試行ではrender世代、入力値、return path、focusを維持する。
+- Reason: Access logout後のreloadでlegacy accountが復活する競合と、provider設定障害をpassword対応済みと誤認して停止中backendへ送る初回UIを解消するため。
+- Boundary: Supabase remote logout、provider設定、D1 schema、migration、環境変数、依存、Access設定、production／staging反映は変更しない。
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/app-assets.ts`, `tests/product-auth.test.mjs`, `tests/app-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/05-api/cloudflare-access-d1-api.md`, `docs/01-product/requirements-traceability.md`

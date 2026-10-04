@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-052bdd924765e9b1";
+export const APP_ASSET_VERSION = "sha256-395405fbfdbad6a2";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1796,30 +1796,23 @@ function renderLogin(message = "") {
       const response = await fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" });
       const payload = response.ok ? await response.json() : null;
       if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
-      configuredAuthProviders = payload;
       const providers = payload?.providers;
       const buttons = document.getElementById("product-auth-buttons");
       const heading = document.getElementById("login-heading");
       if (!buttons) return;
-      if (!providers) {
-        if (!productAuthSessionSeen) {
-          const form = document.getElementById("login-form");
-          buttons.innerHTML = "";
-          if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
-          if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
-        } else {
-          renderProviderLoadFailure();
-          const retry = document.getElementById("product-auth-retry");
-          retry?.addEventListener("click", () => {
-            retry.disabled = true;
-            const heading = document.getElementById("login-heading");
-            if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
-            void loadProviderConfig();
-          });
-        }
+      if (!providers || typeof payload?.password !== "boolean") {
+        renderProviderLoadFailure();
+        const retry = document.getElementById("product-auth-retry");
+        retry?.addEventListener("click", () => {
+          retry.disabled = true;
+          const heading = document.getElementById("login-heading");
+          if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
+          void loadProviderConfig();
+        });
         return;
       }
-      const links = renderProductAuthLinks(providers, payload.password !== false);
+      configuredAuthProviders = payload;
+      const links = renderProductAuthLinks(providers, payload.password === true);
       buttons.innerHTML = links;
       if (providerLoadFailed) {
         clearBox("login-message");
@@ -1830,20 +1823,15 @@ function renderLogin(message = "") {
         const form = document.getElementById("login-form");
         if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
         if (heading) heading.textContent = productAuthInstruction(providers);
+        buttons.querySelector("a")?.focus?.();
       } else {
         const form = document.getElementById("login-form");
         if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
         if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+        document.getElementById("email")?.focus?.();
       }
     } catch {
       if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
-      if (!productAuthSessionSeen) {
-        const form = document.getElementById("login-form");
-        const heading = document.getElementById("login-heading");
-        if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
-        if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
-        return;
-      }
       renderProviderLoadFailure();
       const retry = document.getElementById("product-auth-retry");
       retry?.addEventListener("click", () => {

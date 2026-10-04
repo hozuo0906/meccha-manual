@@ -420,6 +420,38 @@ test("product session provider config failure exposes retry and preserves entere
   assert.equal(harness.element("login-message").className.includes("show"), false);
 });
 
+test("未確認の初回provider設定失敗はpasswordへfallbackせず、retry成功後だけpasswordを表示する", async () => {
+  let providerCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path !== "/api/auth/providers") throw new Error(`unexpected fetch: ${path}`);
+      providerCalls += 1;
+      if (providerCalls === 1) throw new Error("provider unavailable");
+      return Response.json({ providers: { google: true, chatgpt: false }, password: true });
+    }
+  });
+
+  harness.api.renderLogin();
+  harness.advanceTime(0);
+  await waitForCondition(() => providerCalls === 1 && harness.element("product-auth-buttons").innerHTML?.includes("product-auth-retry"), "初回provider設定失敗を表示できませんでした");
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /id="product-auth-retry"/);
+  assert.match(harness.element("login-message").className, /show/);
+
+  harness.element("email").value = "draft@example.test";
+  harness.element("password").value = "draft-password";
+  harness.element("product-auth-retry").listeners.get("click")();
+  harness.advanceTime(0);
+  await waitForCondition(() => providerCalls === 2 && !harness.element("product-auth-buttons").innerHTML.includes("product-auth-retry"), "provider retryが完了しませんでした");
+
+  assert.equal(harness.element("login-form").hidden, false);
+  assert.equal(harness.element("email").value, "draft@example.test");
+  assert.equal(harness.element("password").value, "draft-password");
+  assert.equal(harness.focusedId(), "email");
+  assert.match(harness.element("product-auth-buttons").innerHTML, /api\/auth\/google\/start/);
+  assert.equal(harness.element("login-message").className.includes("show"), false);
+});
+
 test("lock待機中に認証世代が変わったら古いrefreshを送信しない", async () => {
   const calls = [];
   const { api } = createHarness({

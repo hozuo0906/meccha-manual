@@ -114,9 +114,13 @@ async function seedProductBrowserSession(fixture, { expired }) {
   return token;
 }
 
-async function runProductSessionBrowser({ expired, providerFailureRetry = false, logoutDelayMs = 0 }) {
+async function runProductSessionBrowser({ expired, initialVisit = false, passwordSupported = false, providerFailureRetry = false, logoutDelayMs = 0 }) {
   const fixture = await createFixture("google");
-  const token = await seedProductBrowserSession(fixture, { expired });
+  if (passwordSupported) {
+    fixture.env.SUPABASE_URL = "https://supabase.example.test";
+    fixture.env.SUPABASE_ANON_KEY = "synthetic-anon-key";
+  }
+  const token = initialVisit ? null : await seedProductBrowserSession(fixture, { expired });
   const context = await chromium.launchPersistentContext("", {
     channel: process.platform === "win32" ? "chrome" : "chromium",
     headless: true,
@@ -125,15 +129,17 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false,
   const page = await context.newPage();
   let downloadCount = 0;
   page.on("download", () => { downloadCount += 1; });
-  await context.addCookies([{
-    name: "__Host-mm_product",
-    value: token,
-    domain: new URL(STAGING_ORIGIN).hostname,
-    path: "/",
-    secure: true,
-    httpOnly: true,
-    sameSite: "Lax"
-  }]);
+  if (token) {
+    await context.addCookies([{
+      name: "__Host-mm_product",
+      value: token,
+      domain: new URL(STAGING_ORIGIN).hostname,
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "Lax"
+    }]);
+  }
   const routeTrace = [];
   let providerConfigRequests = 0;
   await page.route("**/*", async (route) => {
@@ -168,7 +174,22 @@ async function runProductSessionBrowser({ expired, providerFailureRetry = false,
   try {
     const loginUrl = providerFailureRetry ? `${STAGING_ORIGIN}/?return=%2Fmanuals` : `${STAGING_ORIGIN}/`;
     await page.goto(loginUrl, { waitUntil: "networkidle", timeout: 15_000 });
-    if (expired) {
+    if (initialVisit) {
+      await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
+      await page.waitForSelector("#product-auth-retry", { timeout: 10_000 });
+      assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
+      assert.match((await page.locator("#login-heading").textContent())?.trim() ?? "", /読み込めませんでした/);
+      await page.locator("#email").evaluate((element) => { element.value = "draft@example.test"; });
+      await page.locator("#password").evaluate((element) => { element.value = "draft-password"; });
+      await page.locator("#product-auth-retry").click();
+      await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
+      assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "grid");
+      assert.equal(await page.locator("#email").inputValue(), "draft@example.test");
+      assert.equal(await page.locator("#password").inputValue(), "draft-password");
+      assert.equal(await page.evaluate(() => document.activeElement?.id), "email");
+      assert.equal(new URL(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/manuals");
+      assert.equal(providerConfigRequests, 2);
+    } else if (expired) {
       await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
       await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
       assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
@@ -590,4 +611,8 @@ test("expired browser product session receives 401 and renders the password logi
 
 test("browser provider configuration failure renders retry and preserves return path and input", { timeout: 60_000 }, async () => {
   await runProductSessionBrowser({ expired: false, providerFailureRetry: true, logoutDelayMs: 500 });
+});
+
+test("初回ログインのprovider設定失敗はpasswordへfallbackせずretry成功後にpasswordを表示する", { timeout: 60_000 }, async () => {
+  await runProductSessionBrowser({ initialVisit: true, passwordSupported: true, providerFailureRetry: true });
 });

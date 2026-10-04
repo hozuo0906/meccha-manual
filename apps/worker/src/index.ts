@@ -2389,7 +2389,10 @@ async function accessLogout(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     throw mapAccessIdentityError(error);
   }
-  return jsonResponse({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
+  // Access assertion is the selected logout boundary. Clear competing legacy
+  // cookies only after the assertion has been verified; invalid/failing Access
+  // requests must not erase credentials that were not authenticated here.
+  return jsonResponse({ status: "ok", redirectUrl: "/cdn-cgi/access/logout" }, undefined, clearSessionCookies());
 }
 
 function logoutRevokeFailureResponse(): Response {
