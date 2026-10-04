@@ -692,3 +692,12 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: provider-only画面でのパスワードフォームの一瞬の表示、不要な区切り、provider名と案内の不一致、隠しフォーム内のエラー消失を防ぎ、ログアウト後・期限切れ後にも利用可能な認証導線を実表示するため。
 - Boundary: provider登録・secret、session／API契約、Cloudflare Access、staging／production設定、AI／ChatGPT利用枠は変更しない。
 - Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`。unit 115/115、product-auth browser 5/5、worker-runtime 71/71、Worker harness、diff-checkを確認した。`npm ci`はWindowsのnode_modules lock unlink EPERM、`npm run check`はworktree内でnpm shimの解決失敗が残るため、これらは未確認のままとする。
+## DEC-106: Product provider取得失敗時の再試行表示
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision: Product session確認済みのログイン画面で`/api/auth/providers`の非2xx応答、空応答、通信失敗が起きた場合は、provider-onlyの状態を維持したままエラーと再試行操作を表示する。再試行成功時だけprovider導線を復元し、同じ画面の入力値とURLのreturn pathを保持する。古いlogin renderの遅着応答は現在のrenderへ反映しない。
+- Reason: provider取得失敗後に非表示のpassword form、空のproviderボタン、読み込み中表示が残り、Google／ChatGPTへ進めなくなる状態を解消するため。
+- Boundary: Product session未確認時の既存password formへの復帰、legacy Supabase／Access認証、provider設定、API応答契約、staging／production設定は変更しない。
+- Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`

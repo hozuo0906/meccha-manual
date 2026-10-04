@@ -105,6 +105,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
     FormData: HarnessFormData,
     Set,
     URL,
+    URLSearchParams,
     Date: HarnessDate,
     crypto: webcrypto,
     setTimeout(callback, delay = 0) {
@@ -380,6 +381,43 @@ test("refreshが終端的に失敗したら認証世代を更新して他タブ�
     assert.equal(broadcastMessages[0].message.type, "authentication-changed", terminalCode);
     assert.equal(broadcastMessages[0].message.reason, undefined, terminalCode);
   }
+});
+
+test("product session provider config failure exposes retry and preserves entered values", async () => {
+  let providerCalls = 0;
+  const harness = createHarness({
+    fetch: async (path) => {
+      if (path === "/api/session") return Response.json({ user: { id: "product-user-1" }, workspaces: [], manuals: { status: "ready" }, members: { status: "ready" }, authMode: "product" });
+      if (path === "/api/auth/providers") {
+        providerCalls += 1;
+        if (providerCalls === 1) throw new Error("provider unavailable");
+        return Response.json({ providers: { google: true, chatgpt: false }, password: false });
+      }
+      if (path === "/api/auth/logout") return Response.json({ status: "ok" });
+      throw new Error(`unexpected fetch: ${path}`);
+    }
+  });
+  await harness.api.loadSession();
+  harness.api.renderLogin();
+  harness.advanceTime(0);
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
+
+  assert.equal(providerCalls, 1);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /id="product-auth-retry"/);
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.match(harness.element("login-message").className, /show/);
+  harness.element("email").value = "draft@example.test";
+  harness.element("password").value = "draft-password";
+  harness.element("product-auth-retry").listeners.get("click")();
+  harness.advanceTime(0);
+  await waitForCondition(() => !harness.element("product-auth-buttons").innerHTML.includes("product-auth-retry"), "provider retry should resolve the provider buttons");
+
+  assert.equal(providerCalls, 2);
+  assert.match(harness.element("product-auth-buttons").innerHTML, /api\/auth\/google\/start/);
+  assert.match(harness.app.innerHTML, /id="login-form"[^>]*hidden/);
+  assert.equal(harness.element("email").value, "draft@example.test");
+  assert.equal(harness.element("password").value, "draft-password");
+  assert.equal(harness.element("login-message").className.includes("show"), false);
 });
 
 test("lock待機中に認証世代が変わったら古いrefreshを送信しない", async () => {

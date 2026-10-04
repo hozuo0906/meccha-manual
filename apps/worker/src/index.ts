@@ -341,18 +341,21 @@ function useAccessD1Routes(env: Env): boolean {
 
 function useProductD1Routes(env: Env, request?: Request): boolean {
   const providers = configuredProductProviders(env);
+  const legacyConfigured = inspectSupabaseConfig(env).configured;
 
   // Route selection follows the credential present on this request. A legacy
   // Supabase session must stay on the password route even while a product OIDC
-  // provider is configured; a product cookie remains fail-closed and wins over
-  // any legacy cookie so it cannot fall back to another authentication system.
+  // provider is configured and its backend is available. A product cookie
+  // remains fail-closed and wins over any legacy cookie so it cannot fall back
+  // to another authentication system. A legacy cookie alone cannot select a
+  // backend that is not configured.
   if (request) {
     if (hasProductSessionCookie(request)) return true;
     const cookieNames = new Set((request.headers.get("cookie") ?? "").split(";").map((part) => {
       const separator = part.indexOf("=");
       return (separator < 0 ? part : part.slice(0, separator)).trim();
     }));
-    if (cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) return false;
+    if ((cookieNames.has(COOKIE_ACCESS_TOKEN) || cookieNames.has(COOKIE_REFRESH_TOKEN)) && legacyConfigured) return false;
   }
   return providers.google || providers.chatgpt;
 }

@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-dd286b45229d7033";
+export const APP_ASSET_VERSION = "sha256-da2e0c0ac36e1bf2";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1003,6 +1003,7 @@ const app = document.getElementById("app");
 let currentSession = null;
 let configuredAuthProviders = null;
 let productAuthSessionSeen = false;
+let loginRenderSequence = 0;
 let sessionGeneration = 0;
 let sessionReloadSequence = 0;
 let currentWorkspaceSelection = null;
@@ -1710,6 +1711,7 @@ function productAuthInstruction(providers) {
 }
 
 function renderLogin(message = "") {
+  const currentLoginRender = ++loginRenderSequence;
   const providerConfigPending = configuredAuthProviders === null && !productAuthSessionSeen;
   const productOnlyLogin = productAuthSessionSeen || configuredAuthProviders?.password === false || providerConfigPending;
   const initialProviderLinks = configuredAuthProviders?.providers
@@ -1777,40 +1779,82 @@ function renderLogin(message = "") {
       event.currentTarget.removeAttribute("aria-busy");
     }
   });
-  setTimeout(() => fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
-    configuredAuthProviders = payload;
-    const providers = payload?.providers;
+  let providerRequestSequence = 0;
+  let providerLoadFailed = false;
+  const renderProviderLoadFailure = () => {
     const buttons = document.getElementById("product-auth-buttons");
-    const heading = document.getElementById("login-heading");
     if (!buttons) return;
-    if (!providers) {
-      if (!productAuthSessionSeen) {
+    buttons.innerHTML = '<button id="product-auth-retry" class="secondary-button" type="button">ログイン方法をもう一度読み込む</button>';
+    const heading = document.getElementById("login-heading");
+    if (heading) heading.textContent = "ログイン方法を読み込めませんでした。もう一度お試しください。";
+    providerLoadFailed = true;
+    setBox("login-message", "ログイン方法を読み込めませんでした。時間をおいて、もう一度お試しください。", "error");
+  };
+  const loadProviderConfig = async () => {
+    const requestSequence = ++providerRequestSequence;
+    try {
+      const response = await fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" });
+      const payload = response.ok ? await response.json() : null;
+      if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
+      configuredAuthProviders = payload;
+      const providers = payload?.providers;
+      const buttons = document.getElementById("product-auth-buttons");
+      const heading = document.getElementById("login-heading");
+      if (!buttons) return;
+      if (!providers) {
+        if (!productAuthSessionSeen) {
+          const form = document.getElementById("login-form");
+          buttons.innerHTML = "";
+          if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+          if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+        } else {
+          renderProviderLoadFailure();
+          const retry = document.getElementById("product-auth-retry");
+          retry?.addEventListener("click", () => {
+            retry.disabled = true;
+            const heading = document.getElementById("login-heading");
+            if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
+            void loadProviderConfig();
+          });
+        }
+        return;
+      }
+      const links = renderProductAuthLinks(providers, payload.password !== false);
+      buttons.innerHTML = links;
+      if (providerLoadFailed) {
+        clearBox("login-message");
+        providerLoadFailed = false;
+      }
+      if (payload.password === false) {
+        productAuthSessionSeen = true;
         const form = document.getElementById("login-form");
-        buttons.innerHTML = "";
+        if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
+        if (heading) heading.textContent = productAuthInstruction(providers);
+      } else {
+        const form = document.getElementById("login-form");
         if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
         if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
       }
-      return;
+    } catch {
+      if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
+      if (!productAuthSessionSeen) {
+        const form = document.getElementById("login-form");
+        const heading = document.getElementById("login-heading");
+        if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+        if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+        return;
+      }
+      renderProviderLoadFailure();
+      const retry = document.getElementById("product-auth-retry");
+      retry?.addEventListener("click", () => {
+        retry.disabled = true;
+        const heading = document.getElementById("login-heading");
+        if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
+        void loadProviderConfig();
+      });
     }
-    const links = renderProductAuthLinks(providers, payload.password !== false);
-    buttons.innerHTML = links;
-    if (payload.password === false) {
-      productAuthSessionSeen = true;
-      const form = document.getElementById("login-form");
-      if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
-      if (heading) heading.textContent = productAuthInstruction(providers);
-    } else {
-      const form = document.getElementById("login-form");
-      if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
-      if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
-    }
-  }).catch(() => {
-    if (productAuthSessionSeen) return;
-    const form = document.getElementById("login-form");
-    const heading = document.getElementById("login-heading");
-    if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
-    if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
-  }), 0);
+  };
+  setTimeout(() => { void loadProviderConfig(); }, 0);
   for (const field of [document.getElementById("email"), document.getElementById("password")]) {
     field.addEventListener("input", () => clearLoginFieldError(field));
   }

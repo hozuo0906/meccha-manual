@@ -486,6 +486,24 @@ test("configured Google provider keeps a valid password session on Supabase and 
   }
 });
 
+test("provider-only route ignores legacy cookies when the Supabase backend is not configured", async () => {
+  const env = {
+    APP_ENV: "staging",
+    APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com",
+    GOOGLE_OIDC_CLIENT_ID: "provider-only-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret"
+  };
+  for (const cookie of [
+    "__Host-mm_access=stale-legacy-access",
+    "__Host-mm_refresh=stale-legacy-refresh",
+    "__Host-mm_access=stale-legacy-access; __Host-mm_refresh=stale-legacy-refresh"
+  ]) {
+    const response = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/session`, { headers: { cookie } }), env, {});
+    assert.equal(response.status, 401, cookie);
+    assert.equal((await response.json()).code, "SESSION_REQUIRED", cookie);
+  }
+});
+
 test("password login revokes a competing product session and issues the new Supabase session", async () => {
   const { database, binding } = await authDatabase();
   const staleToken = "stale-product-session";

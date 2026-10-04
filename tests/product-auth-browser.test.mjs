@@ -114,7 +114,7 @@ async function seedProductBrowserSession(fixture, { expired }) {
   return token;
 }
 
-async function runProductSessionBrowser({ expired }) {
+async function runProductSessionBrowser({ expired, providerFailureRetry = false }) {
   const fixture = await createFixture("google");
   const token = await seedProductBrowserSession(fixture, { expired });
   const context = await chromium.launchPersistentContext("", {
@@ -133,6 +133,7 @@ async function runProductSessionBrowser({ expired }) {
     sameSite: "Lax"
   }]);
   const routeTrace = [];
+  let providerConfigRequests = 0;
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== STAGING_ORIGIN) {
@@ -140,6 +141,13 @@ async function runProductSessionBrowser({ expired }) {
       return;
     }
     try {
+      if (providerFailureRetry && url.pathname === "/api/auth/providers") {
+        providerConfigRequests += 1;
+        if (providerConfigRequests <= 2) {
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "AUTH_PROVIDER_UNAVAILABLE" }) });
+          return;
+        }
+      }
       const response = await worker.fetch(browserRequest(route), fixture.env, {});
       routeTrace.push(`${route.request().method()} ${url.pathname} ${response.status}`);
       await route.fulfill({
@@ -153,7 +161,8 @@ async function runProductSessionBrowser({ expired }) {
     }
   });
   try {
-    await page.goto(`${STAGING_ORIGIN}/`, { waitUntil: "networkidle", timeout: 15_000 });
+    const loginUrl = providerFailureRetry ? `${STAGING_ORIGIN}/?return=%2Fmanuals` : `${STAGING_ORIGIN}/`;
+    await page.goto(loginUrl, { waitUntil: "networkidle", timeout: 15_000 });
     if (expired) {
       await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
       await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
@@ -165,8 +174,23 @@ async function runProductSessionBrowser({ expired }) {
       await page.waitForSelector("#logout-button", { timeout: 10_000 });
       await page.locator("#logout-button").click();
       await page.waitForSelector("#login-form", { state: "attached", timeout: 10_000 });
-      await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
       assert.equal(await page.locator("#login-form").evaluate((element) => getComputedStyle(element).display), "none");
+      if (providerFailureRetry) {
+        await page.waitForSelector("#product-auth-retry", { timeout: 10_000 }).catch(async (error) => {
+          throw new Error(`${error.message}; providerConfigRequests=${providerConfigRequests}; routeTrace=${routeTrace.join(" | ")}; body=${await page.locator("body").innerText()}`);
+        });
+        assert.match((await page.locator("#login-heading").textContent())?.trim() ?? "", /読み込めませんでした/);
+        await page.locator("#email").evaluate((element) => { element.value = "draft@example.test"; });
+        await page.locator("#password").evaluate((element) => { element.value = "draft-password"; });
+        await page.locator("#product-auth-retry").click();
+        await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
+        assert.equal(await page.locator("#email").inputValue(), "draft@example.test");
+        assert.equal(await page.locator("#password").inputValue(), "draft-password");
+        assert.equal(new URL(await page.locator('#product-auth-buttons a[href^="/api/auth/google/start"]').getAttribute("href"), STAGING_ORIGIN).searchParams.get("return"), "/manuals");
+        assert.equal(providerConfigRequests, 3);
+      } else {
+        await page.waitForSelector('#product-auth-buttons a[href^="/api/auth/google/start"]', { timeout: 10_000 });
+      }
       for (let attempt = 0; attempt < 100 && !routeTrace.some((entry) => entry.endsWith("/api/auth/logout 200")); attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
@@ -486,4 +510,8 @@ test("browser product logout revokes the first-party session and returns to the 
 
 test("expired browser product session receives 401 and renders the password login UI", { timeout: 60_000 }, async () => {
   await runProductSessionBrowser({ expired: true });
+});
+
+test("browser provider configuration failure renders retry and preserves return path and input", { timeout: 60_000 }, async () => {
+  await runProductSessionBrowser({ expired: false, providerFailureRetry: true });
 });

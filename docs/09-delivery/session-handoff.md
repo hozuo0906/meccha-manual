@@ -635,3 +635,9 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 実測は`tests/app-auth.test.mjs` 115/115、`tests/product-auth-browser.test.mjs` 5/5、`tests/worker-runtime.test.mjs` 71/71、Worker harness、`git diff --check`が成功。親が同一headの関連認証・Office・D1回帰207/207、skip 0、exit 0（session 15526）を取得している。実provider SSO、remote D1/R2、native Officeアプリ、staging／production反映はこの作業では確認・実施していない。
 - `npm ci`はWindowsの`node_modules\\.package-lock.json` unlinkでEPERM、`npm run check`はworktree内でnpm shimを解決できず未完了。これらを成功扱いにせず、source回帰の既存Node直接実行結果と区別する。外部設定、deploy、mergeは行っていない。
 - このhandoff追記を含むdocs-only commitを作成・pushした後、親PMが最終headに対するCI、Codex Review、review thread、staging反映判断を再取得する。
+## Issue #283／PR #284 provider route・retry最終追補（2026-10-04）
+
+- 作業担当はP1のprovider-only＋legacy cookie経路を、既存server-config窓口のSupabase設定有無で分岐するよう修正した。Supabase未設定時は古い`__Host-mm_access`／`__Host-mm_refresh`だけでlegacy routeへ進まず、Product routeのsession必須応答を維持する。Supabase設定済みのpassword backend、Product cookie優先、mixed cookie fail-closed、Access／missing DB dispatchは変更していない。
+- P2のprovider取得非2xx／空応答／通信失敗では、Product session確認済みの画面にエラーと再試行を表示する。成功時だけprovider導線へ戻り、入力値・return pathを保持する。render世代とprovider request世代を照合し、古い非同期応答による画面上書きを抑止した。Product session未確認時の既存password fallbackは維持した。
+- `APP_ASSET_VERSION`をsourceと`tests/worker-runtime.test.mjs`の契約へ同期した。関連差分は`apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、本追補を含む契約・UX・trace・decision文書である。
+- 最終commit／remote SHAと、source回帰、browser retry回帰、既存関連回帰、`npm ci`／`npm run check`のWindows制約は、この追補後に実取得して親PMへ報告する。CI／Codex Review／thread解決、deploy／merge、staging／production設定変更は親PMの回収対象であり未実施。

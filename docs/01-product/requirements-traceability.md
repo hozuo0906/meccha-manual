@@ -190,3 +190,9 @@ Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product
 | 同上の失敗・空設定 | provider取得失敗時は未確認のProduct sessionに限り既存入力へ戻し、provider設定が空なら読み込み中のままにせず管理者への案内を表示する。隠したフォームの外にエラーを表示する | 同上 | `worker-runtime` 71/71、Worker harness OK |
 
 この追跡はrootログイン画面の表示と状態遷移に限る。実provider SSO、remote設定、staging／production反映、native Officeアプリの表示結果はこのローカル回帰の成功には含めない。
+## PR #284 最終レビュー追補（2026-10-04）
+
+| 追跡対象 | 利用者に見える挙動 | 実装・回帰 | 状態 |
+|---|---|---|---|
+| Product session確認済みのprovider取得失敗 | passwordフォームへ戻らず、エラーと再試行を表示する。再試行成功時も入力値とreturn pathを保持する | `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs` | 実Worker相当のunitとCFT browser回帰で確認 |
+| provider-onlyとlegacy cookieの併存 | Supabase設定がない場合、legacy cookieだけでlegacy routeへ切り替えずProduct routeを維持する。設定済みlegacy backendのpassword session選択は維持する | `apps/worker/src/index.ts`、`tests/product-auth.test.mjs` | legacy cookie 3組の実Worker回帰で401／SESSION_REQUIREDを確認 |
