@@ -33,6 +33,9 @@ async function installApiFixture(page, role, initiallyAuthenticated = false) {
     const pathname = new URL(request.url()).pathname;
     const json = (status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+    if (pathname === "/api/auth/providers" && request.method() === "GET") {
+      return json(200, { providers: { google: false, chatgpt: false }, password: true });
+    }
     if (pathname === "/api/auth/login" && request.method() === "POST") {
       authenticated = true;
       return json(200, { user: session.user });

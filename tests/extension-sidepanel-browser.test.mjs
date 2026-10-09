@@ -8,7 +8,7 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
-const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
+const START_READY_EXPRESSION = "document.readyState === 'complete' && document.visibilityState === 'visible' && innerWidth > 0 && innerHeight > 0 && document.documentElement.clientWidth > 0 && document.documentElement.clientHeight > 0 && (!globalThis.visualViewport || (visualViewport.width > 0 && visualViewport.height > 0)) && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
 
 const waitForExtensionValue = async (read, predicate, message) => {
   const deadline = Date.now() + 15_000;
@@ -71,6 +71,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const extensionId = new URL(worker.url()).hostname;
     const target = await context.newPage();
     await target.goto(baseUrl);
+    await target.bringToFront();
     const browserCdp = await context.browser().newBrowserCDPSession();
     const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
     await waitForActionListener(worker);
@@ -134,7 +135,6 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       browserCdp.send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id, method, params }) }).catch(reject);
     });
     await evaluateNative("document.readyState === 'complete'");
-    await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "synthetic target tab should be discoverable");
     const activeTabProbe = await worker.evaluate(async (id) => {
