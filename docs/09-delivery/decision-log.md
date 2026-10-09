@@ -682,7 +682,7 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 
 ## DEC-105: Product provider-onlyログインUIの可視性と状態表示
 
-- Status: Partially Superseded
+- Status: Accepted
 - Date: 2026-10-04
 - Issue: #283 / PR #284
 - Supersession (partial): DEC-110により、下記Decisionのうち「取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す」部分だけを失効する。初回表示・再読み込みを含むprovider設定未確認時はpassword formを表示せず、日本語エラーと再試行を示す。フォームの可視性、provider数の表示、空設定時の案内、その他の境界は本決定のまま維持する。
@@ -695,7 +695,7 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`。unit 115/115、product-auth browser 5/5、worker-runtime 71/71、Worker harness、diff-checkを確認した。`npm ci`はWindowsのnode_modules lock unlink EPERM、`npm run check`はworktree内でnpm shimの解決失敗が残るため、これらは未確認のままとする。
 ## DEC-106: Product provider取得失敗時の再試行表示
 
-- Status: Partially Superseded
+- Status: Accepted
 - Date: 2026-10-04
 - Issue: #283 / PR #284
 - Supersession (partial): DEC-110により、下記Boundaryの「Product session未確認時の既存password formへの復帰」部分だけを失効する。provider設定未確認時は、Product sessionの確認状態にかかわらず初回表示・再読み込みを含めpassword formへfallbackせず、日本語エラーと再試行を示す。Product session確認済みでのprovider取得失敗時のエラー・再試行・入力値・return path保持は本決定のまま維持する。
