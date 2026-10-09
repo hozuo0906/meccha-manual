@@ -60,6 +60,7 @@ async function loadMutatedWorker(name, replacements) {
     writeFile(join(directory, "onboarding-assets.ts"), await readFile("apps/worker/src/onboarding-assets.ts", "utf8"), "utf8"),
     writeFile(join(directory, "cloud-manual-assets.ts"), await readFile("apps/worker/src/cloud-manual-assets.ts", "utf8"), "utf8"),
     writeFile(join(directory, "cloud-manual-router.ts"), await readFile("apps/worker/src/cloud-manual-router.ts", "utf8"), "utf8"),
+    writeFile(join(directory, "product-auth.ts"), await readFile("apps/worker/src/product-auth.ts", "utf8"), "utf8"),
     writeFile(join(directory, "share-link-crypto.ts"), await readFile("apps/worker/src/share-link-crypto.ts", "utf8"), "utf8"),
     writeFile(join(directory, "share-link-router.ts"), await readFile("apps/worker/src/share-link-router.ts", "utf8"), "utf8"),
     writeFile(serverConfigPath, await readFile("apps/worker/src/server-config.ts", "utf8"), "utf8"),

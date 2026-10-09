@@ -72,11 +72,11 @@ Access modeのsession応答は、`MANUAL_ASSETS` bindingが利用できる環境
 - 上流鍵取得またはD1障害: 503
 - 内部JWT、subject、email、binding情報をエラーへ含めない
 
-ブラウザの保護API呼出しには`X-Requested-With: XMLHttpRequest`を付ける。Cloudflare AccessのAJAX session-management仕様では、期限切れsubrequestは401として扱い、画面の再入場または期限切れ案内へ遷移する。Access modeで認証済みだった画面が401（JSON／非JSON）を受けた場合、ブラウザは旧workspace・手順書・進行中応答を破棄し、保護対象アプリの`/`へ再入場する「ログインし直す」導線を表示する。固定のAccess内部endpointをアプリ契約へ埋め込まない。M3のAccess mode判定はsessionの`manuals.status`または`members.status`が`migration`であることに依存し、M4でsession契約を更新する際に再評価する。legacy session modeの非JSON 401はAccess再認証へ正規化しない。仕様根拠: [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)。
+ブラウザの保護API呼出しには`X-Requested-With: XMLHttpRequest`を付ける。Cloudflare AccessのAJAX session-management仕様では、期限切れsubrequestは401として扱い、画面の再入場または期限切れ案内へ遷移する。session応答の`authMode`（`access`または`product`）を認証方式の正本とし、`manuals.status`や`members.status`を認証方式の判定に使わない。Access modeで認証済みだった画面が401（JSON／非JSON）を受けた場合、ブラウザは旧workspace・手順書・進行中応答を破棄し、保護対象アプリの`/`へ再入場する「ログインし直す」導線を表示する。product modeで期限切れ401を受けた場合は製品ログイン画面へ戻る。固定のAccess内部endpointをアプリ契約へ埋め込まない。legacy session modeの非JSON 401はAccess再認証へ正規化しない。仕様根拠: [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)。
 
 独自password login、refresh token交換、Supabase sign-out APIは廃止対象とする。ログアウトはAccess session終了導線を使い、アプリ側状態と進行中応答を破棄する。
 
-Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返す。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明では同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
+Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済みAccess userに `200 { "status": "ok", "redirectUrl": "/cdn-cgi/access/logout" }` を返し、成功応答には競合する`__Host-mm_access`／`__Host-mm_refresh`の削除を付ける。ブラウザはそのURLへ遷移してAccess sessionを終了するが、URLの受領自体をcookie失効完了の証明とは扱わない。遷移前、途中の401／503／通信失敗、結果不明ではlegacy cookieを自動削除せず、同じversionの保護通知を維持し、service token、未認証request、allowlist外actorは拒否する。
 
 ## Workspace API
 
@@ -105,6 +105,7 @@ manual、revision、stepの既存HTTP URLと日本語UIエラー契約は可能�
 
 - C sliceのcreateはguest claim finalizeだけで、単独manual create／draft create endpointは公開しない。manual list/detailは認証済みworkspace所属へ限定する。
 - update: workspace、role、draft state、期待version、全step内容を同じ`PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft`のatomic operationで照合する。入力は`title`、`description`、`steps`、`expectedUpdatedAt`の固定DTOで、step配列の順序をpositionとし、既存stepは`id`、新規stepはid省略、`assetId`は同じworkspaceのmanual imageだけを許可する。競合は409で入力値を保持する。
+- updateのD1 batchは各DML直後の`SELECT changes()`で直接変更件数を照合する。trigger副作用を含む`meta.changes`をCAS成功判定へ使わず、保存成功を誤って409へ写像しない。
 - publish: manual pointerと期待draft IDを再照合し、公開版を不変化
 - next draft: 期待published IDから複製
 - archive: 期待manual versionを照合し、内容を保持して非破壊化
@@ -151,3 +152,11 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 - Access modeの`POST /api/auth/logout`はAccess JWTの検証だけで完了し、D1のapplication identity解決には依存しない。
 - Access modeの`GET /api/session`は`members.status: "migration"`も返し、メンバー管理UIをmember APIの移行完了まで無効化する。
 - capture/mobile-previewはAccess modeでも、Access JWT、D1 application identity、same-origin、workspace roleの認可確認を先に行う。認証済みowner/admin/editorに限り`503 BROWSER_EGRESS_NOT_VERIFIED`を返し、未認証・権限外の要求は認証・認可エラーを返す。legacy sessionへfallbackしない。
+
+### Issue #283 D1 member route and product shell update (2026-10-04)
+
+- D1 application routeの`GET/POST /api/workspaces/{workspaceId}/members`と`PATCH /api/workspaces/{workspaceId}/members/{userId}`は、Access／product actorを同じD1 workspace repositoryへ渡す。workspace固定query、active identity、membership、owner/admin mutation境界をWorkerとD1 constraintで再確認し、旧Supabase member handlerへfallbackしない。
+- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。ownerロールの付与・移管は引き続き拒否する。
+- 製品ログインのroot shellは製品／Access sessionでメールが返らない場合に架空のメールや個人情報を補わず「アカウント」と表示する。手順書リンクはD1 canonical `/manuals`へ遷移し、旧rootのSupabase作成入口やmanual POST 405を呼ばない。product logout後もprovider設定に応じた製品ログイン導線を維持し、password formへ戻さない。
+
+製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。

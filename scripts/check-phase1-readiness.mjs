@@ -133,8 +133,10 @@ if (!packageJson.scripts?.["phase1:e2e:test"]) {
   errors.push("package.json must define phase1:e2e:test.");
 }
 
-if (!packageJson.scripts?.["app:auth:test"]) {
-  errors.push("package.json must define app:auth:test.");
+for (const command of ["app:auth:unit", "app:auth:browser"]) {
+  if (!packageJson.scripts?.[command]) {
+    errors.push(`package.json must define ${command}.`);
+  }
 }
 
 if (!packageJson.scripts?.["phase1-migration:bundle"]) {
@@ -263,7 +265,8 @@ for (const command of [
   "npm run worker:bundle:check",
   "npm run worker:runtime:test",
   "npm run worker:runtime:mutation:test",
-  "npm run app:auth:test",
+  "npm run app:auth:unit",
+  "npm run app:auth:browser",
   "npx --no-install playwright install --with-deps chromium",
   "npm run phase1:e2e:test",
   "node --experimental-strip-types --check apps/worker/src/index.ts",

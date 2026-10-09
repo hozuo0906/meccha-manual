@@ -30,7 +30,9 @@ jobs:
         run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --test --test-reporter=tap tests/extension-editor-browser.test.mjs
       - id: office
         continue-on-error: true
-        run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --experimental-strip-types --test --test-reporter=tap tests/extension-office-export-browser.test.mjs tests/cloud-office-export-browser.test.mjs tests/extension-cloud-save-runtime-browser.test.mjs
+        run: timeout --signal=TERM --kill-after=10s 6m xvfb-run -a node --experimental-transform-types --test --test-concurrency=1 --test-reporter=tap tests/extension-office-export-browser.test.mjs tests/cloud-office-export-browser.test.mjs tests/extension-cloud-save-runtime-browser.test.mjs tests/office-auth-runtime-browser.test.mjs
+      - id: product-auth
+        run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --experimental-transform-types --test --test-reporter=tap tests/product-auth-browser.test.mjs
       - id: sidepanel
         run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-sidepanel-browser.test.mjs
         env:
@@ -60,7 +62,7 @@ jobs:
       - name: Require every browser and recording check
         if: always()
         env:
-          RESULTS: ${{ steps.native-recording.outcome }} ${{ steps.editor.outcome }} ${{ steps.office.outcome }} ${{ steps.sidepanel.outcome }} ${{ steps.captions.outcome }} ${{ steps.recorded.outcome }} ${{ steps.cloud.outcome }}
+          RESULTS: ${{ steps.native-recording.outcome }} ${{ steps.editor.outcome }} ${{ steps.office.outcome }} ${{ steps.product-auth.outcome }} ${{ steps.sidepanel.outcome }} ${{ steps.captions.outcome }} ${{ steps.recorded.outcome }} ${{ steps.cloud.outcome }}
         run: |
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then

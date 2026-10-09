@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+## OAuthログイン一時データの整理契約（Issue #283）
+
+OAuth start は provider／origin／return path／rate limit の拒否を先に確定し、副作用を発生させない。通過後に `oauth_transactions` の `expires_at` が現在時刻以前である行だけを最大100件選び、期限値が解釈できない行は保持する。削除と新しい transaction の INSERT は同一 `D1Database.batch()` で実行し、D1 の atomic rollback 境界を使う。失敗時は `503 AUTH_STORAGE_UNAVAILABLE` とし、既存行と新規行の部分成功を返さない。未期限切れの consumed transaction、`auth_sessions`、identity、workspace は掃除対象に含めない。新しい retention 期間、cron、環境変数、migration は追加しない。
+
 ## 目的
 
 ADR-0028に基づき、Cloudflare D1を業務データとファイルメタデータの正本にする。Postgres RLSの暗黙適用を前提にせず、Worker認可とworkspace固定queryを検証可能な契約として定義する。
@@ -20,21 +24,39 @@ ADR-0028に基づき、Cloudflare D1を業務データとファイルメタデ�
 
 ## 認証主体
 
-Access application JWTをWorkerが検証した後、検証済みissuerとsubjectの組をapplication identityへ解決する。
+Access経路では、Access application JWTをWorkerが検証した後、検証済みissuerとsubjectの組をapplication identityへ解決する。製品経路では、first-party providerの検証済みissuerとsubjectを同じapplication identityへ解決する。どちらの経路でも、未検証の値をD1 actorへ使わない。
 
 - emailだけをidentityの主キーにしない
 - 未検証headerをidentityへ使わない
 - Accessへ到達できても、D1上のactive identityまたはmembershipがなければ業務APIを拒否する
-- 検証後のactorを `access_user | service_token` として明示する。人間向け業務APIは `access_user` と空でないAccess `sub` を必須にし、空の `sub`、`common_name` を持つservice-token JWT、actor種別が曖昧なJWTをapplication userへ写像しない
-- service tokenはmachine専用routeだけに許可し、D1 identity/workspace/roleへ昇格させず業務データ操作を拒否する
+- Access経路の検証後actorを `access_user | service_token` として明示する。Accessの人間向け業務APIは `access_user` と空でないAccess `sub` を必須にし、空の `sub`、`common_name` を持つservice-token JWT、actor種別が曖昧なJWTをapplication userへ写像しない。製品callbackからbootstrapへ渡すactorの型上の`kind`は`product_user`である
+- service tokenはmachine専用routeだけに許可し、D1 identity/workspace/roleへ昇格させず業務データ操作を拒否する。`product_user`はcallbackからrepositoryへ渡す入力境界であり、D1列として保存しない
 - password、password hash、Access JWT、OTP、Access authorization cookieをD1へ保存しない
 - Access subject再発行、email変更、招待照合、退会後の再登録はOQ-029で確定する
+
+### 製品認証とAccessのセッション境界（ADR-0041）
+
+ここでいう認証方式の保存は`auth_sessions.auth_method`に限り、`identities`自体へ方式用のdiscriminator列は追加しない。
+
+製品ログインはfirst-partyのGoogle／ChatGPT OAuthから開始し、検証済みproviderの`issuer + subject`を既存の`identities`へ写像する。Googleは検証時に公式の`https://accounts.google.com`とlegacyの`accounts.google.com`を受け付けるが、保存するissuerは`https://accounts.google.com`へ統一し、verified emailを必須にする。ChatGPT（SIWC）は登録済みconfidential clientの`client_secret_basic`でtokenを交換し、登録済みclient IDと検証済みtoken subjectの組をSHA-256した値へ`siwc:`を付けたsubjectとする。同じsubjectでもclient IDが違えば別identityにする。email一致だけでidentityをlink、統合、復活させない。`identities.application_id`が製品・Access共通のactor IDであり、認証方式を保存する別のidentity discriminatorは設けない。製品callbackからbootstrapへ渡すactorの型上の`kind`は`product_user`だが、これはrepositoryの入力境界でありD1列として保存しない。
+
+`migrations/0008_product_auth_sessions.sql`の`auth_sessions`は、`id`（主キー）、`application_id`（`identities(application_id)`への`ON DELETE RESTRICT`外部キー）、`token_hash`（小文字hex 64文字、unique）、`auth_method`（`google | chatgpt`）、`issued_at`、`expires_at`、`revoked_at`を持つ。`expires_at > issued_at`、`revoked_at`はnullまたは`issued_at`以降というCHECKを持ち、`(token_hash, expires_at, revoked_at)`のactive lookup indexを持つ。`id`、`application_id`、`issued_at`はtriggerで不変とする。ブラウザへ一度だけ発行するSecure・HttpOnly・SameSite=Lax cookieの平文tokenはD1、R2、ログへ保存せず、session読取はhash照合、期限、失効、active identityを再確認する。ログアウトは`revoked_at IS NULL`を条件にした一回の更新で失効させる。
+
+ログアウトの同一cookie再送は、すでに失効済みでも状態を変えず成功として扱う。これはOAuth transactionのconsumeで変更件数1件を必須にするCASとは別の再送境界である。
+
+同migrationの`oauth_transactions`は、`id`（主キー）、`provider`（`google | chatgpt`）、`state_hash`（小文字hex 64文字、unique）、`nonce_hash`、`verifier_hash`（いずれも小文字hex 64文字）、`redirect_uri`、`return_path`、`created_at`、`expires_at`、`consumed_at`を持つ。`expires_at > created_at`、`consumed_at`はnullまたは`created_at`以降というCHECKを持ち、`(state_hash, expires_at, consumed_at)`のactive lookup indexを持つ。`id`、`provider`、`state_hash`、`created_at`はtriggerで不変とする。PKCE verifierとnonceはproviderとSHA-256(state)から導出したtransaction固有名の短命HttpOnly cookieへbindし、保存するのはhashだけである。state形式を検証できないcallbackはcookieを消去せず、別pending transactionへ影響させない。`return_path`はWorkerが同一originの`/`、`/onboarding/continue`、`/manuals`だけに制限する。
+
+callback処理はstate、provider、cookieのPKCE verifier binding、期限を確認してから`consumed_at IS NULL`条件のCAS更新を一回行い、変更件数1件でtransaction消費を確定する。消費後にcookieのnonce bindingを照合し、その後provider tokenの署名、audience、issuer、nonceを検証する。nonceまたはtoken検証など後続処理に失敗してもtransactionは消費済みのため、同じcallbackを再送せずログインを最初からやり直す。
+
+`/api/session`のD1応答は認証方式を`authMode: "product" | "access"`で返す。製品sessionは`application_id`へ解決した後、既存のPersonal Workspace bootstrapとworkspace固定queryを使う。製品sessionの不正・期限切れ・失効時にAccessやlegacy passwordへfallbackせず、Accessのservice tokenを人間向けactorへ写像しない。Accessの`access_user`は検証済みissuer／subjectとactive identity・membershipを必要とし、`service_token`はmachine専用経路（例: `/health/config`）に限定する。製品sessionとAccess sessionは別cookie・別検証経路だが、製品認証成功時はlegacy Supabase access／refresh cookieを端末から消去し、業務repositoryはどちらも解決済みの`actorId`と`workspaceId`を必須にし、active identity、membership、role、workspace statusを同じ固定条件で再確認する。
 
 ## 初期テーブル
 
 | テーブル | 主な責務 | 境界 |
 |---|---|---|
-| `identities` | Access issuer/subjectとapplication userの対応 | subjectはtrim後非空、issuer + subjectをunique。statusはactive/disabled。service tokenは保存しない |
+| `identities` | Accessまたは製品providerのissuer/subjectとapplication userの対応 | subjectはtrim後非空、issuer + subjectをunique。statusはactive/disabled。service tokenは保存しない |
+| `auth_sessions` | 製品sessionのhash、方式、期限、失効 | `application_id`を`identities`へ固定し、平文cookie tokenを保存しない。詳細はADR-0041追加schemaに従う |
+| `oauth_transactions` | 製品OAuthのstate、nonce、PKCE verifierのhashと一回消費 | provider、期限、同一originの戻り先を検証し、平文値を保存しない。詳細はADR-0041追加schemaに従う |
 | `profiles` | 表示名、locale、timezone | application user IDと1対1。必要最小限だけ返す |
 | `workspaces` | workspaceの名称、slug、状態 | 作成主体・作成日時・IDを不変にする |
 | `workspace_members` | user、workspace、role、status | workspace + userをunique。owner喪失をtransactionで拒否 |

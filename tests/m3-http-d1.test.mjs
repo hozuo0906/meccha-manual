@@ -104,7 +104,8 @@ test("Access userからD1 profile/workspacesへ解決する", async () => {
     profile: { id: "app-user-1", display_name: "テスト利用者", locale: "ja-JP", timezone: "Asia/Tokyo" },
     workspaces: [],
     manuals: { status: "migration" },
-    members: { status: "migration" }
+    members: { status: "ready" },
+    authMode: "access"
   });
 });
 
@@ -218,7 +219,66 @@ test("/health/config requires an allowlisted Access service token", async () => 
   assert.equal((await healthResponse.json()).status, "ok");
 });
 
-test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止する", async () => {
+test("Access member APIはworkspace固定D1 queryとrole boundaryを正本にする", async () => {
+  const workspaceResponse = await worker.fetch(await accessRequest("/api/workspaces", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ name: "Sales", slug: "sales" })
+  }), env, {});
+  assert.equal(workspaceResponse.status, 201);
+  const { workspaceId } = await workspaceResponse.json();
+
+  let response = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members`), env, {});
+  assert.equal(response.status, 200);
+  let payload = await response.json();
+  assert.equal(payload.currentUserRole, "owner");
+  assert.deepEqual(payload.members.map((member) => member.role), ["owner"]);
+
+  const secondUserId = "22222222-2222-4222-8222-222222222222";
+  database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)").run(secondUserId, issuer, "subject-2", now, now);
+  database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(secondUserId, "合成メンバー", "ja-JP", "Asia/Tokyo", now, now);
+  const joinCodeResponse = await worker.fetch(await accessRequest("/api/member-join-code", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: "{}"
+  }, { sub: "subject-2" }), env, {});
+  assert.equal(joinCodeResponse.status, 201);
+  const { joinCode } = await joinCodeResponse.json();
+
+  response = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ joinCode, role: "viewer" })
+  }), env, {});
+  assert.equal(response.status, 201);
+
+  response = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members`, {}, { sub: "subject-2" }), env, {});
+  assert.equal(response.status, 200);
+  payload = await response.json();
+  assert.equal(payload.currentUserRole, "viewer");
+  assert.deepEqual(payload.members.map((member) => member.userId), ["app-user-1", secondUserId]);
+
+  response = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members/33333333-3333-4333-8333-333333333333`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ role: "editor", status: "active" })
+  }, { sub: "subject-2" }), env, {});
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "ACCESS_FORBIDDEN");
+
+  response = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members/${secondUserId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ role: "editor", status: "active" })
+  }), env, {});
+  assert.equal(response.status, 200);
+
+  response = await worker.fetch(await accessRequest("/api/workspaces/11111111-1111-4111-8111-111111111111/members"), env, {});
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).code, "WORKSPACE_MEMBERS_NOT_FOUND");
+});
+
+test("Access modeはlegacy auth routeのみSupabase fallbackをかけず停止する", async () => {
   let supabaseCalled = false;
   globalThis.fetch = async () => {
     supabaseCalled = true;
@@ -226,9 +286,7 @@ test("Access modeはlegacy auth/member routeをSupabaseへfallbackせず停止�
   };
   for (const path of [
     "/api/auth/login",
-    "/api/auth/refresh",
-    "/api/workspaces/11111111-1111-4111-8111-111111111111/members",
-    "/api/workspaces/11111111-1111-4111-8111-111111111111/members/22222222-2222-4222-8222-222222222222"
+    "/api/auth/refresh"
   ]) {
     const response = await worker.fetch(request(path), env, {});
     assert.equal(response.status, 503);

@@ -27,7 +27,7 @@ const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import
 class LocalStatement {
   constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
   bind(...values) { return new LocalStatement(this.database, this.sql, values); }
-  async run() { const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async run() { if (/^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(this.sql)) return { success: true, results: [this.database.prepare(this.sql).get(...this.values)] }; const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
 }

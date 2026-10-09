@@ -43,3 +43,4 @@ Status: Accepted
 
 | ADR-0039 | Superseded | 記録単位のHMACによる表示値aliasの旧契約。ADR-0040で明示的な画像保護へ更新 |
 | ADR-0040 | Accepted | 無加工画像を端末へ保持し、利用者明示の置換・手動maskと認証不要のOffice出力を定める。PDF／cloud／shareの認証境界は維持 |
+| ADR-0041 | Proposed | 製品認証（自社メール・Google・将来のSIWC）と管理者Cloudflare Accessを分離する将来案。現行Access/D1運用は変更しない |
