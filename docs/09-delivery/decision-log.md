@@ -682,9 +682,10 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 
 ## DEC-105: Product provider-onlyログインUIの可視性と状態表示
 
-- Status: Accepted
+- Status: Partially Superseded
 - Date: 2026-10-04
 - Issue: #283 / PR #284
+- Supersession (partial): DEC-110により、下記Decisionのうち「取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す」部分だけを失効する。初回表示・再読み込みを含むprovider設定未確認時はpassword formを表示せず、日本語エラーと再試行を示す。フォームの可視性、provider数の表示、空設定時の案内、その他の境界は本決定のまま維持する。
 - Decision:
   - provider設定の取得中はメール／パスワードフォームを表示せず、「ログイン方法を読み込んでいます。」と案内する。取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す。
   - `password=false` のProduct環境では `.form[hidden] { display: none; }` を明示して、`.form { display: grid; }` による実表示の上書きを防ぐ。エラーメッセージは隠しフォームの外に置き、フォームを隠している間も表示できるようにする。
@@ -694,9 +695,10 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`。unit 115/115、product-auth browser 5/5、worker-runtime 71/71、Worker harness、diff-checkを確認した。`npm ci`はWindowsのnode_modules lock unlink EPERM、`npm run check`はworktree内でnpm shimの解決失敗が残るため、これらは未確認のままとする。
 ## DEC-106: Product provider取得失敗時の再試行表示
 
-- Status: Accepted
+- Status: Partially Superseded
 - Date: 2026-10-04
 - Issue: #283 / PR #284
+- Supersession (partial): DEC-110により、下記Boundaryの「Product session未確認時の既存password formへの復帰」部分だけを失効する。provider設定未確認時は、Product sessionの確認状態にかかわらず初回表示・再読み込みを含めpassword formへfallbackせず、日本語エラーと再試行を示す。Product session確認済みでのprovider取得失敗時のエラー・再試行・入力値・return path保持は本決定のまま維持する。
 - Decision: Product session確認済みのログイン画面で`/api/auth/providers`の非2xx応答、空応答、通信失敗が起きた場合は、provider-onlyの状態を維持したままエラーと再試行操作を表示する。再試行成功時だけprovider導線を復元し、同じ画面の入力値とURLのreturn pathを保持する。古いlogin renderの遅着応答は現在のrenderへ反映しない。
 - Reason: provider取得失敗後に非表示のpassword form、空のproviderボタン、読み込み中表示が残り、Google／ChatGPTへ進めなくなる状態を解消するため。
 - Boundary: Product session未確認時の既存password formへの復帰、legacy Supabase／Access認証、provider設定、API応答契約、staging／production設定は変更しない。
