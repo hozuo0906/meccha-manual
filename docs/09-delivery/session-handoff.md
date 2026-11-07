@@ -9,6 +9,7 @@ Status: Accepted
 - localの記録品質17/17、全画面品質1/1、修正後sidepanel unit4/4、認証・Worker224/224が成功。指定UI一括は8成功後にpage crashとChrome起動SIGTRAPで25環境失敗。labはtimeout。check初回の旧fixture4失敗を修正したが、再実行はnpm write EPERMで停止。全体検証成功・release合格ではない。
 - 検証途中でrepoと/tmp、Git indexへのwriteがOSに拒否されたため、31変更blobのlocal SHA一致を検証してGitHub Appで保存した。local HEADはbaseのまま、最終報告書・引き継ぎ・最新PRの正本はremote版。local差分を破棄せず、書込み可能な環境でremote headへ同期して再開する。
 - 初期head7161418のfull checkはDocs CIで成功。Legacy共有読者の復帰見出しgeometry3件の実表示失敗を確認し、成功messageの高さ確定後にscroll位置を決める順序へ修正。認可は不変、最新headのCIで再検証する。旧headの成功を流用しない。
+- 初回Codex ReviewのP2 2件（閲覧専用の出力消失4503789569、busy失敗後focus4503789571）を妥当と確認し、出力panel保持と元/別focus保持を追加回帰付きで修正。local Chromeはwrite拒否のため未実行で、最新CI・再レビュー・thread返信/解決を別確認する。
 - 詳細は[UI回収報告書](ui-recovery-2026-11-08.md)。新Draftの最新head CI・Reviewは別取得し、PR本文で確認日時と結果を照合する。
 - 次の1マイルストーンは最新headでfull check、品質lab、sidepanel/editor/cloudと認証・Office回帰を完走し、Review/threadとUI受入を照合すること。土台P2は次回親PMが2026-11-14までに再triage。自律監視・終了後の継続実行なし。
 

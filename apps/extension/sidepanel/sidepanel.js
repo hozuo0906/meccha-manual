@@ -679,8 +679,11 @@ async function withError(action, fallback, button, pendingLabel) {
       button.removeAttribute?.("aria-busy");
     }
     syncControlAvailability();
-    if (hadFocus && button?.getClientRects?.().length === 0) {
-      [pause, resume, restore, start, finish].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+    const focusUnclaimed = !document.activeElement || document.activeElement === document.body || document.activeElement === button;
+    if (hadFocus && focusUnclaimed) {
+      const target = !button.hidden && !button.disabled && button.getClientRects?.().length
+        ? button : [pause, resume, restore, start, finish].find((candidate) => !candidate.hidden && !candidate.disabled && candidate.getClientRects?.().length);
+      target?.focus({ preventScroll: true });
     }
   }
 }
@@ -763,9 +766,11 @@ finish.addEventListener("click", async () => {
     finish.textContent = originalLabel;
     finish.removeAttribute?.("aria-busy");
     syncControlAvailability();
-    if (hadFocus && finish.hidden) {
-      if (statusOverride.includes("編集画面を開けません")) status.focus?.();
-      else [restore, start, resume, pause].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+    const focusUnclaimed = !document.activeElement || document.activeElement === document.body || document.activeElement === finish;
+    if (hadFocus && focusUnclaimed) {
+      if (!finish.hidden && !finish.disabled) finish.focus({ preventScroll: true });
+      else if (statusOverride.includes("編集画面を開けません")) status.focus?.();
+      else [restore, start, resume, pause].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus({ preventScroll: true });
     }
   }
 });

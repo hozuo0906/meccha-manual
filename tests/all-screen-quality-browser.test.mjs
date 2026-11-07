@@ -77,6 +77,14 @@ test('all-screen source render inventory covers public, library, authentication,
       mode='library-loading';await page.goto(origin+'/manuals',{waitUntil:'domcontentloaded'});await page.locator('[aria-busy=true]').waitFor();await checkpoint(page,'library-loading-'+width);mode='library';release?.();await page.getByRole('button',{name:manual.title,exact:true}).waitFor();
       await page.getByRole('searchbox').fill('見つからない検索語');await page.getByText(/一致する手順書がありません/).waitFor();await checkpoint(page,'library-search-empty-'+width);await page.getByRole('searchbox').fill('');
       await page.getByRole('button',{name:manual.title,exact:true}).click();await page.locator('.cloud-step').waitFor();assert.equal(await page.locator('[data-manual-save]').isDisabled(),true);assert.equal(await page.getByText('閲覧専用',{exact:true}).isVisible(),true);await checkpoint(page,'cloud-readonly-text-step-'+width);
+      if(width<=1100)await page.getByRole('button',{name:'出力',exact:true}).click();
+      for(const [label,extension] of [['Wordで書き出す','.docx'],['PowerPointで書き出す','.pptx']]){
+        const action=page.getByRole('button',{name:label,exact:true});assert.equal(await action.isEnabled(),true);
+        const [download]=await Promise.all([page.waitForEvent('download'),action.click()]);assert.ok(download.suggestedFilename().endsWith(extension));assert.equal(await download.failure(),null);
+      }
+      assert.equal(await page.getByRole('button',{name:'矢印・文字を追加',exact:true}).count(),0);
+      await page.getByRole('button',{name:'PDF・印刷プレビュー',exact:true}).click();await page.locator('.manual-print-step').waitFor();await page.getByRole('button',{name:'編集に戻る',exact:true}).click();
+
       for(const state of ['setup-unavailable','setup-invalid']){mode=state;await page.goto(origin+'/onboarding/continue');await page.locator('#bootstrap:disabled').waitFor();await checkpoint(page,state+'-'+width);}
       await page.goto(origin+'/s/');await page.getByText(/共有リンク/).first().waitFor();await checkpoint(page,'reader-link-missing-'+width);
       await page.goto(origin+'/s/#token='+'T'.repeat(43));await page.locator('#share-auth:not([hidden])').waitFor();await checkpoint(page,'reader-passcode-'+width);await page.getByRole('button',{name:'手順書を表示'}).click();await checkpoint(page,'reader-passcode-validation-'+width);

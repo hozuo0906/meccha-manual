@@ -44,9 +44,11 @@ async function withBusy(button, label, action) {
     button.textContent = originalLabel;
     button.removeAttribute?.("aria-busy");
     syncControlAvailability();
-    if (hadFocus && button.getClientRects?.().length === 0) {
-      if (status.textContent.includes("編集画面を開けません")) status.focus?.();
-      else [resume, restore, finish, start].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus();
+    const focusUnclaimed = !document.activeElement || document.activeElement === document.body || document.activeElement === button;
+    if (hadFocus && focusUnclaimed) {
+      if (!button.hidden && !button.disabled && button.getClientRects?.().length) button.focus({ preventScroll: true });
+      else if (status.textContent.includes("編集画面を開けません")) status.focus?.();
+      else [resume, restore, finish, start].find((target) => !target.hidden && !target.disabled && target.getClientRects?.().length)?.focus({ preventScroll: true });
     }
   }
 }

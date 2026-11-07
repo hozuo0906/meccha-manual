@@ -66,3 +66,10 @@ repo内の最終報告書と引き継ぎはremote版を正とする。local報�
 `7161418`のDocs CI `42415111376` / job `128531391241`でnpm ci・diff・npm run check全体成功を実ログ確認。Legacy CI `42415111259` / job `128531390893`は共有読者の1366/1024/390pxの復帰見出しgeometry 3件で失敗した。これはlocal環境失敗とは別の実表示欠陥である。
 
 共有権限の再検証後にrenderで復帰scrollを決め、その後に成功messageを非表示相当へ切り替えたため、message分の高さだけ見出しが固定navigationへ潜る。成功messageとauth領域を確定してからrender・位置復元する順序へ修正した。token/grant/期限・認可の判定と通信は変更しない。既存3幅のgeometry assertionを弱めず回帰として使い、最新headのCIで確認する。旧headの成功を新headへ流用しない。
+
+## 初回レビューP2の修正（2026-11-08T06:27:46+09:00）
+
+- 指摘4503789569 / thread `PRRT_kwDOTpNknc6065DB`: 閲覧専用のtools領域全体をCSSで隠すとPDF・Word・PowerPointも失われる。妥当。編集用controlsだけを構築せず、出力と再読込のpanelを残し、狭幅のボタンは「出力」とする。all-screen fixtureの両幅でWord/PPT実downloadとPDF preview、編集controls不在を検証する。
+- 指摘4503789571 / thread `PRRT_kwDOTpNknc6065DC`: busyでdisabledにした元buttonが失敗後も表示される場合、focusがbodyへ外れたままになる。妥当。popupのwithBusy、sidepanelのwithError/finishで、元のfocusが他要素へ移っていなければ元buttonか次操作へ戻す。明示移動したfocusは保持する。記録品質fixtureに両surfaceの開始・復元・終了失敗とEnter/Space再試行、別focus保持の2browser回帰を追加。
+- 修正はlocal write拒否のためメモリ上で作成。cloud sourceの小差分を同じlocal sourceへメモリ適用してGit blob SHAと既存7asset hash規則を検証し、APP_ASSET_VERSIONを`sha256-d525397c78eb2a69`へ更新。最新headのCIで通常の構文・型・full check・browserを確認する。追加回帰のlocal Chrome成功は主張しない。
+- 両threadは修正commit、回帰、最新SHAレビューの根拠を返信してから解決する。旧headのレビューを新head完了として流用しない。

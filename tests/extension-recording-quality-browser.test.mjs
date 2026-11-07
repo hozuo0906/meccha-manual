@@ -399,3 +399,27 @@ test('unit: sidepanel failed finish only offers the available retry action in it
   assert.doesNotMatch(view.elements.get('#liveDescription').textContent,/再開/);
   assert.match(view.elements.get('#liveDescription').textContent,/終了をもう一度/);
 });
+
+for (const surface of ["popup", "sidepanel"]) {
+  test(`${surface} restores keyboard retry focus after failed start, restore and finish without stealing a moved focus`, {timeout:45_000}, async () => withBrowser(async (browser, base) => {
+    const page = await browser.newPage({viewport:{width:360,height:720},reducedMotion:"reduce"});
+    const url = `${base}/${surface}/${surface}.html`;
+    for (const [scenario,buttonId,message] of [["", "start", "capture:start"], ["restore", "restore", "capture:restore"], ["recording", "finish", "capture:finish"]]) {
+      await page.goto(url + (scenario ? "?scenario=" + scenario : ""));
+      const button=page.locator("#"+buttonId);await button.waitFor();await page.waitForFunction(id=>!document.querySelector("#"+id).disabled,buttonId);
+      await page.evaluate(type=>{fixture.failure=type;fixture.delay=120;},message);
+      await button.focus();await page.keyboard.press("Enter");
+      await page.waitForFunction(id=>!document.querySelector("#"+id).disabled&&!document.querySelector("#"+id).hasAttribute("aria-busy"),buttonId);
+      assert.equal(await button.evaluate(node=>node===document.activeElement),true,"failed action restores the original retry button");
+      await page.keyboard.press("Space");
+      await page.waitForFunction(type=>fixture.messages.filter(value=>value===type).length===2,message);
+      await page.waitForFunction(id=>!document.querySelector("#"+id).disabled,buttonId);
+      await page.evaluate(()=>{fixture.delay=450;});
+      await button.focus();await page.keyboard.press("Enter");await page.waitForFunction(id=>document.querySelector("#"+id).disabled,buttonId);
+      await page.locator("#status").focus();
+      await page.waitForFunction(id=>!document.querySelector("#"+id).disabled,buttonId);
+      assert.equal(await page.locator("#status").evaluate(node=>node===document.activeElement),true,"an explicitly moved focus is preserved");
+    }
+    await page.close();
+  }));
+}
