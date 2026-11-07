@@ -39,6 +39,8 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 
 共有停止の4xxはAPIが返した案内を表示し、5xx・通信失敗は結果不明として画面に同じ共有リンクを保持する。利用者は画面を閉じず、同じ`shareLinkId`で停止を再試行できる。
 
+FR-004／FR-005／FR-012のクラウド編集では、共有作成・停止の応答待ち中は画像編集開始を抑止し、成功応答の全体再描画による編集中dialogの破棄と保存・手順切替の停止を防ぐ。`tests/cloud-manual-sharing-failure-browser.test.mjs`の遅延POST／DELETE回帰で、パネルを閉じた後の編集開始拒否と、応答後の画像適用・保存・手順切替・再編集を確認する。画像編集中の共有開始抑止も同じ回帰で確認する（PR #285、2026-11-08追補）。
+
 ## Cクラウド保存の追跡
 
 FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`の認証後準備表示とsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。拡張editorに画像がない手順は最後の画面で補完せず、再記録を案内する。各操作と画像IDを収集するcapture側の実装は別担当の契約で同期する。

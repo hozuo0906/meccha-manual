@@ -203,3 +203,121 @@ test("cloud sharing keeps explicit failures, dirty edits, and stale delayed resp
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+for (const method of ["POST", "DELETE"]) {
+  test(`cloud image editing waits for delayed share ${method} and remains usable afterwards`, { timeout: 60_000 }, async () => {
+    let releaseShare;
+    let markShareStarted;
+    const shareStarted = new Promise((resolve) => { markShareStarted = resolve; });
+    const shareResponse = new Promise((resolve) => { releaseShare = resolve; });
+    let png;
+    let share = method === "DELETE" ? { shareLinkId: "synthetic-share", expiresAt: new Date(Date.now() + 86_400_000).toISOString(), permission: "read_only" } : null;
+    let draft = { id: "draft", title: "共有と画像の排他", description: "合成fixture", updatedAt: "v1", contentVersion: "a".repeat(32) };
+    let steps = [1, 2].map((position) => ({ id: `step-${position}`, position, title: `手順${position}`, instruction: "内容を確認する", assetId: "image", assetUrl: "/api/workspaces/team/assets/image", annotations: [{ id: `rectangle-${position}`, type: "rectangle", x: .1, y: .1, width: .2, height: .2, color: "#df4a36", strokeWidth: 4 }] }));
+    const mutations = [];
+    const server = createServer(async (request, response) => {
+      const path = new URL(request.url, "http://127.0.0.1").pathname;
+      const send = (body, type = "application/json") => { response.writeHead(200, { "content-type": type, "cache-control": "no-store" }); response.end(type === "application/json" ? JSON.stringify(body) : body); };
+      if (path === "/manuals") return send(renderCloudManualsPage({ workspaceId: "team" }), "text/html; charset=utf-8");
+      if (path === "/assets/cloud-manual.js") return send(CLOUD_MANUAL_JS, "application/javascript");
+      if (path === "/assets/editor-tools.js") return send(EDITOR_TOOLS_JS, "application/javascript");
+      if (path === "/assets/cloud-manual.css") return send(CLOUD_MANUAL_CSS, "text/css");
+      if (path === "/api/workspaces/team/manuals") return send({ manuals: [{ id: "manual", title: draft.title }] });
+      if (path === "/api/workspaces/team/manuals/manual") return send({ manual: { id: "manual", title: draft.title }, draft, steps, permissions: { canEdit: true } });
+      if (path === "/api/workspaces/team/assets/image") return send(png, "image/png");
+      if (path.endsWith("/share-links")) {
+        if (request.method === "GET") return send({ share });
+        // Do not resolve the mutation until the image-start attempt has run.
+        let body = ""; for await (const chunk of request) body += chunk;
+        mutations.push(request.method);
+        markShareStarted();
+        await shareResponse;
+        if (request.method === "POST") {
+          share = { shareLinkId: "synthetic-share", expiresAt: JSON.parse(body).expiresAt, permission: "read_only", viewerPath: "/s/" };
+          return send(share);
+        }
+        share = null;
+        return send({ revoked: true });
+      }
+      if (request.method === "PUT") {
+        for await (const _chunk of request) { /* Drain the synthetic image. */ }
+        mutations.push("PUT");
+        return send({ assetId: "image", assetUrl: "/api/workspaces/team/assets/image" });
+      }
+      if (path.endsWith("/draft") && request.method === "PATCH") {
+        let body = ""; for await (const chunk of request) body += chunk;
+        const saved = JSON.parse(body);
+        draft = { ...draft, title: saved.title, description: saved.description, updatedAt: "v2" };
+        steps = saved.steps.map((step, index) => ({ ...step, position: index + 1, assetUrl: "/api/workspaces/team/assets/image" }));
+        mutations.push("PATCH");
+        return send({ updatedAt: draft.updatedAt });
+      }
+      response.writeHead(404).end();
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    let browser;
+    try {
+      browser = await chromium.launch({ channel: "chromium", headless: true });
+      const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, locale: "ja-JP" });
+      page.setDefaultTimeout(5000);
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      png = Buffer.from(await page.evaluate(() => {
+        const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 180;
+        const context = canvas.getContext("2d"); context.fillStyle = "#ffffff"; context.fillRect(0, 0, 320, 180);
+        return canvas.toDataURL("image/png").split(",")[1];
+      }), "base64");
+      const origin = `http://127.0.0.1:${server.address().port}`;
+      await page.goto(`${origin}/manuals`);
+      await page.locator("#cloud-list button").first().click();
+      await page.getByRole("button", { name: "共有", exact: true }).click();
+      if (method === "POST") {
+        await page.locator("[data-share-passcode]").fill("Synthetic passcode");
+        await page.locator("[data-share-confirm]").check();
+        await page.getByRole("button", { name: "共有リンクを作成", exact: true }).click();
+      } else {
+        page.once("dialog", (dialog) => dialog.accept());
+        await page.getByRole("button", { name: "共有を停止", exact: true }).click();
+      }
+      await shareStarted;
+      await page.locator(".manual-share-drawer").getByRole("button", { name: "閉じる", exact: true }).click();
+      for (const name of ["矢印・文字を追加", "切り抜き"]) {
+        await page.getByRole("button", { name, exact: true }).click();
+        await page.waitForFunction(() => document.querySelector("#cloud-message.warning")?.textContent === "共有操作の完了後に画像を編集してください。" || Boolean(document.querySelector("#imageEditorDialog canvas")));
+        assert.equal(await page.locator("#imageEditorDialog").count(), 0, "Pending share must not open an image editor that its response would detach");
+        assert.equal(await page.locator("#cloud-message.warning").textContent(), "共有操作の完了後に画像を編集してください。");
+      }
+      assert.deepEqual(mutations, [method]);
+      releaseShare();
+      await page.locator("#cloud-message.success").filter({ hasText: method === "POST" ? "共有リンクを作成しました" : "共有リンクを停止しました" }).waitFor();
+      assert.equal(await page.locator("#imageEditorDialog").count(), 0);
+
+      // No reload: the same screen can edit, apply, save, switch, and reopen.
+      await page.getByRole("button", { name: "矢印・文字を追加", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector("#imageEditorDialog canvas")?.width === 320 && !document.querySelector("[data-editor-save]")?.disabled);
+      assert.equal(await page.locator(".manual-share").isDisabled(), true, "An open editor also prevents starting sharing");
+      await page.locator("[data-editor-selection] button").filter({ hasText: /四角/ }).first().click();
+      await page.locator("[data-editor-color]").fill("#a14eba");
+      await page.locator("[data-editor-color]").dispatchEvent("input");
+      await page.locator("[data-editor-save]").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "detached" });
+      await page.getByRole("button", { name: "変更を保存", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".cloud-save-state")?.textContent === "クラウドに保存済み");
+      assert.equal(steps[0].annotations[0].color, "#a14eba");
+      await page.locator('[data-step-key="step-2"] button, button[data-step-key="step-2"]').first().click();
+      assert.equal(await page.locator(".cloud-step").getAttribute("data-step-key"), "step-2");
+      await page.getByRole("button", { name: "切り抜き", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector("#imageEditorDialog canvas")?.width === 320 && !document.querySelector("[data-editor-save]")?.disabled);
+      await page.locator("[data-editor-cancel]").first().click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "detached" });
+      assert.equal(await page.locator(".manual-share").isDisabled(), false);
+      assert.deepEqual(mutations, [method, "PUT", "PATCH"]);
+      assert.deepEqual(errors, []);
+    } finally {
+      releaseShare();
+      await browser?.close();
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+}

@@ -588,3 +588,11 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - ADR-0040を現行契約とし、製品appsから呼出しのない`capture/screenshot.js`の自動分類・overlay・HMAC割当と専用mask試験を除去する。caption・幾何allowlist、recorderのprivateValueContext、既存加工済み画像の互換表示、手動の黒塗りは保持する。
 - 旧alias名のstate/browser試験は自動alias boundaryを呼ばず、入力値非収集・自動経路不在を確認する現行回帰なので保持する。semantic browser試験はraw pixel保持とcaption保護へ同期する。
 - migrationは0006→0007を含む。remote適用・deploy・mergeは行わず、検証結果と未確認項目を新規Draft PRへ記録する。
+
+### 2026-11-08: 共有応答待ちとクラウド画像編集の排他
+
+- Status: Accepted
+- 対象: PR #285、review comment `4503895303`。
+- Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
+- Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
+- Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。
