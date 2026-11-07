@@ -99,7 +99,7 @@ test("native raw capture retains pixels while suppressing private table captions
     await page.locator(selector).click();
     const session = await until(state, (s) => s.events.length > previous && s.stepImageRefs.some((r) => r.eventId === s.events.at(-1).eventId && ["ready", "protected", "failed"].includes(r.status)), "Native semantic capture did not finish");
     const event = session.events.at(-1), ref = session.stepImageRefs.find((r) => r.eventId === event.eventId);
-    assert.equal(ref.status, "protected", `Ambiguous semantic cells require a protected stored image, received ${ref.reason}`);
+    assert.equal(ref.status, "protected", `Raw images require manual review before output, received ${ref.reason}`);
     const image = await worker.evaluate(({ eventId, sessionId }) => new Promise((resolve, reject) => {
       const request = indexedDB.open("meccha-manual-capture-live", 1);
       request.onerror = () => reject(new Error("Cannot read native capture store"));
@@ -113,7 +113,7 @@ test("native raw capture retains pixels while suppressing private table captions
   assert.ok(image?.dataUrl?.startsWith("data:image/"));
   assert.equal(image.privacyReview.reviewRequired, true);
   assert.deepEqual(image.privacyReview.reasonCodes, ["manual_image_review"]);
-  assert.equal(image.privacyReview.replacements, undefined);
+  assert.deepEqual(image.privacyReview.replacements, []);
   const rawPixels = await pixelCounts(page, image.dataUrl, before);
   for (const id of ids) assert.ok(rawPixels[id].original > 15, `${id}: raw capture retains synthetic glyphs pending manual review`);
   assert.deepEqual(await rectangles(page, ids), before, "No table/definition-list layout changes are allowed");
