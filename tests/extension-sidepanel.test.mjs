@@ -9,7 +9,7 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   const source = await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/sidepanel/sidepanel.css", import.meta.url), "utf8");
   const popupHtml = await readFile(new URL("../apps/extension/popup/popup.html", import.meta.url), "utf8");
-  const privacyNote = "入力した文字は手順の説明に記録しませんが、画像に写る場合があります。個人情報は、記録後に画像を編集して隠してください。";
+  const privacyNote = "画像は加工せず端末へ保持します。入力値そのものは操作文へ保存しません。記録後に画像を確認し、必要な置換・黒塗りを画像編集で適用してください。";
   assert.equal(manifest.version, "0.1.9");
   assert.equal(manifest.permissions.includes("sidePanel"), true);
   assert.equal(manifest.action.default_popup, undefined);
@@ -56,14 +56,15 @@ test("sidepanel is the action surface and keeps recording controls explicit", as
   assert.match(html, /id="finish"/);
   assert.match(html, /id="pause"/);
   assert.ok(html.includes(`<p class="privacy-note">${privacyNote}</p>`));
-  assert.ok(popupHtml.includes(`<p class="privacy-note">${privacyNote}</p>`));
+  assert.ok(popupHtml.includes(privacyNote));
+  assert.doesNotMatch(html + popupHtml, /架空値へ置換します|自動で隠す|画像でも隠します/);
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.live-progress \{[^}]*position: sticky/);
 });
 
 async function imageStatusHarness() {
   const source = await readFile(new URL("../apps/extension/sidepanel/sidepanel.js", import.meta.url), "utf8");
-  const context = { failedDisplayImages: new Set() };
+  const context = { failedDisplayImages: new Set(), liveImagesUnavailable: false };
   vm.runInNewContext(source.slice(source.indexOf("function imageStateFor("), source.indexOf("function updateLiveLatestVisibility(")) +
     "\nglobalThis.state = imageStateFor; globalThis.label = imageStatusFor; globalThis.summary = imageSummaryFor; globalThis.reason = imageReasonText; globalThis.review = imageReviewText;", context);
   return context;
