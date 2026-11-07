@@ -628,6 +628,10 @@ async function cloudManualPage(request: Request, env: Env): Promise<Response> {
   try {
     auth = await authenticateD1User(request, env);
   } catch (error) {
+    if (error instanceof AppError && error.status === 401 && error.code === "SESSION_REQUIRED"
+      && useProductD1Routes(env, request) && (request.headers.get("accept") ?? "").includes("text/html")) {
+      return new Response(null, { status: 302, headers: { location: "/?return=%2Fmanuals", "cache-control": "no-store" } });
+    }
     if (error instanceof D1RepositoryError) throw d1ErrorResponse(error, "profile");
     throw error;
   }

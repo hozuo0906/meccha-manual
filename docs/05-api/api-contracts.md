@@ -31,6 +31,8 @@ callback後のD1 bootstrap拒否は、disabled identityなら`403 AUTH_IDENTITY_
 
 本書はsection単位で状態を管理する。Supabase Auth／refresh／PostgREST／RPCに依存する「Phase 1ハーネス」sectionだけを[Cloudflare Access / D1 API移行契約](cloudflare-access-d1-api.md)によりSupersededとする。課金API、Business OS cloud runner、Discord Interaction、Browser Run egress、共通エラー形式の契約は引き続きAcceptedである。「将来の正式API」は各Scope CheckでAccepted化するまでProposedとする。
 
+製品認証を使う `GET /manuals` のHTML要求が `401 SESSION_REQUIRED` となる場合、cookieを発行・消去せず、`no-store` の302で固定 `/?return=%2Fmanuals` へ戻す。JSON要求と業務APIの401、Access assertionの拒否、403、storageの503はredirectへ変えない。passwordフォーム表示済みのprovider設定再取得では入力値とフォーカスを保持し、初めてフォームを表示するときだけメール欄へ初期フォーカスを置く。
+
 ## 共通
 
 - 保護APIの認証主体はWorkerが検証したCloudflare Access application JWTとする。

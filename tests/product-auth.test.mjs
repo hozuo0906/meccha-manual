@@ -1511,3 +1511,30 @@ test("Google/SIWC provider transient and verification failures keep their callba
     }
   }
 });
+
+test("manuals HTMLの製品認証切れだけログインへ戻しAPIとstorage拒否を維持する", async () => {
+  const { database, binding } = await authDatabase();
+  try {
+    for (const provider of [
+      { GOOGLE_OIDC_CLIENT_ID: "google-page-client", GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret" },
+      { OPENAI_SIWC_CLIENT_ID: "chatgpt-page-client", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }
+    ]) {
+      const env = { APP_ENV: "staging", APP_BASE_URL: "https://meccha-manual-staging.meccha-iiyatsu.com", DB: binding, MANUAL_ASSETS: {}, ...provider };
+      for (const cookie of ["", "__Host-mm_product=expired-product-session"]) {
+        const html = await worker.fetch(new Request(`${env.APP_BASE_URL}/manuals`, { headers: { accept: "text/html", cookie } }), env, {});
+        assert.equal(html.status, 302);
+        assert.equal(html.headers.get("location"), "/?return=%2Fmanuals");
+        assert.equal(html.headers.get("cache-control"), "no-store");
+        assert.equal(html.headers.get("set-cookie"), null);
+        for (const [path, accept] of [["/manuals", "application/json"], ["/api/workspaces", "text/html"]]) {
+          const api = await worker.fetch(new Request(`${env.APP_BASE_URL}${path}`, { headers: { accept, cookie } }), env, {});
+          assert.equal(api.status, 401);
+          assert.equal((await api.json()).code, "SESSION_REQUIRED");
+        }
+      }
+      const storage = await worker.fetch(new Request(`${env.APP_BASE_URL}/manuals`, { headers: { accept: "text/html", cookie: "__Host-mm_product=expired-product-session" } }), { ...env, DB: undefined }, {});
+      assert.equal(storage.status, 503);
+      assert.equal(storage.headers.get("location"), null);
+    }
+  } finally { database.close(); }
+});

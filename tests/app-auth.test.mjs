@@ -3594,3 +3594,26 @@ test("product logout完了時は待機中に表示されたログイン入力を
   assert.equal(providerCalls, 1);
   assert.match(harness.element("product-auth-buttons").innerHTML, /api\/auth\/google\/start/);
 });
+
+test("provider再取得成功時は表示済みpassword入力のフォーカスと値を保持する", async () => {
+  const pending = deferred();
+  let calls = 0;
+  const harness = createHarness({ fetch: async () => {
+    calls += 1;
+    return calls === 1 ? Response.json({ providers: { google: true, chatgpt: false }, password: true }) : pending.promise;
+  } });
+  harness.api.renderLogin();
+  harness.advanceTime(0);
+  await waitForCondition(() => harness.element("login-form").hidden === false, "初回フォームが表示されませんでした");
+  assert.equal(harness.focusedId(), "email");
+  harness.api.renderLogin();
+  harness.advanceTime(0);
+  harness.element("email").value = "synthetic@example.test";
+  harness.element("password").value = "synthetic-password";
+  harness.element("password").focus();
+  pending.resolve(Response.json({ providers: { google: false, chatgpt: true }, password: true }));
+  await waitForCondition(() => harness.element("product-auth-buttons").innerHTML.includes("chatgpt/start"), "provider再取得が完了しませんでした");
+  assert.equal(harness.focusedId(), "password");
+  assert.equal(harness.element("email").value, "synthetic@example.test");
+  assert.equal(harness.element("password").value, "synthetic-password");
+});

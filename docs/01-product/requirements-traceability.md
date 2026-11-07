@@ -6,6 +6,8 @@ Issue #283 auth route regression は、product cookie → Access assertion → c
 
 Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は機能の移行状態を示し、認証方式判定には使わない。D1 member routeが有効な環境では`members.status: "ready"`を返す。password login成功時の製品session revoke/clear、product OAuth成功時のlegacy access／refresh cookie clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。OAuthの同一provider並行start、callback順序、cancel、未知／不正stateはtransaction固有cookieのunit回帰で確認する。
 
+Issue #283 / PR #287の追加回帰: 未認証・期限切れ製品利用者のHTML `/manuals` 再訪は固定ログイン先へ戻し、JSON/APIの401とstorageの503を維持する（`tests/product-auth.test.mjs`）。passwordフォームを表示済みのprovider再取得では、編集中の値とフォーカスを保持する（`tests/app-auth.test.mjs`）。
+
 ### Issue #283 製品認証の実装対応
 
 | 要求 | 実装／検証 | 状態 |

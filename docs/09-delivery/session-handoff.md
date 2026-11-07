@@ -1,3 +1,15 @@
+## PR #287 追加レビュー修正とlocal書込み障害
+
+Status: Accepted
+
+確認日時: 2026-11-07T22:50:33+09:00（Asia/Tokyo）。
+
+- Draft #287、base `codex/foundation-no-automask-20261107`。本体・テスト修正はgit push、以後の保存はlocal object書込み拒否を受けGitHub Appで行う。
+- `e1e517f`の新規P2 2件（HTML `/manuals` 再訪のログイン導線、provider再取得時のpasswordフォーカス）を再現し修正。メモリ上のsource差替えで認証153/153成功。最新commitの通常CI／Codex Reviewは別確認する。
+- local HEADは`547a495`。書込み失敗でlocal `tests/app-auth.test.mjs` が0 byte、元blobは `4f7eb0a080b48014026d24c44f7c55df983cfe64` に保全済み。復元も拒否されている。指定repo外報告書も0 byte。local差分を完成扱い・再pushせず、書込み可能な環境で最新PR headから復元する。
+- 完成本文と根拠は[認証移植報告書](auth-port-2026-11-07.md)のremote版とPR本文。今回merge／deploy／環境設定変更・他PRコメントなし。
+- 次の1マイルストーン候補は#280のUI hunk回収だが、この書込み制限と最新SHAゲートを先に確認する。自律監視なし。
+
 ## 2026-11-07 マイルストーン2: 製品認証の移植
 
 Status: Accepted

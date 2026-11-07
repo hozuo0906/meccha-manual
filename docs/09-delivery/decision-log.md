@@ -762,3 +762,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Reason: Access logout後のreloadでlegacy accountが復活する競合と、provider設定障害をpassword対応済みと誤認して停止中backendへ送る初回UIを解消するため。
 - Boundary: Supabase remote logout、provider設定、D1 schema、migration、環境変数、依存、Access設定、production／staging反映は変更しない。
 - Evidence: `apps/worker/src/index.ts`, `apps/worker/src/app-assets.ts`, `tests/product-auth.test.mjs`, `tests/app-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/05-api/cloudflare-access-d1-api.md`, `docs/01-product/requirements-traceability.md`
+
+
+## PR #287: 製品ログイン再訪と入力フォーカスの復帰境界
+
+- Status: Accepted
+- Date: 2026-11-07
+- Issue: #283 / PR #287 / review comments 4501953348・4501953350
+- Decision: 製品認証のHTML `/manuals` 再訪だけを固定ログイン先へ戻し、APIの401・権限拒否・storage障害は保持する。provider再取得成功時は表示済みpasswordフォームのフォーカスと入力を保持し、初回表示だけ初期フォーカスを置く。
+- Reason: ブックマーク再訪時のJSON行止まりと、遅いprovider応答でpassword入力先が可視email欄へ移る不具合を解消する。認証fallbackやcookie境界は緩めない。
+- Evidence: `tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`。local書込み障害のため保存済みGit sourceをメモリ上で検証し、GitHub保存後のCIと最新SHAレビューを別確認する。

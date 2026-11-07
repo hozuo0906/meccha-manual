@@ -1826,9 +1826,10 @@ function renderLogin(message = "") {
         buttons.querySelector("a")?.focus?.();
       } else {
         const form = document.getElementById("login-form");
+        const wasHidden = form?.hidden !== false;
         if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
         if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
-        document.getElementById("email")?.focus?.();
+        if (wasHidden) document.getElementById("email")?.focus?.();
       }
     } catch {
       if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
