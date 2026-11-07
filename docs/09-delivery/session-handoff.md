@@ -1,3 +1,15 @@
+## 2026-11-07 マイルストーン1: 自動置換なしの土台
+
+Status: Accepted
+
+確認日時: 2026-11-07T21:49:03+09:00（Asia/Tokyo）。今回の指示は新規Draft PRまでであり、既存のmerge／環境変更承認を適用しない。以下の過去checkpointは履歴である。
+
+- main `3c62ca5`からbranch `codex/foundation-no-automask-20261107`を作成し、PR #279を含む#282 head `573b921`の最終treeを回収。製品appsの差分は未使用の自動mask専用`capture/screenshot.js`削除だけ。raw画像、明示確認、caption・幾何・privateValueContext、保存、手動編集、Officeを維持する。
+- migrationは0006→0007を含む。0008、#280、#284は回収せず、既存PRコメント・merge・deploy・remote環境変更は行わない。
+- `npm run check`と指定の個別Core検査が成功。editor browser 28/28、native raw記録1/1、sidepanel3/3、caption6/6、semantic2/2、Office／手動個人情報編集、cloud／share／onboarding全32ケースを確認した。実記録2手順・2画像のlocal Worker保存・共有・画像bytes一致・共有失効拒否も成功。
+- runtime本体6/6成功。first-accessだけはproxy tunnelによるnavigation失敗で対象経路未実行。remote Access／D1／R2、実Officeアプリ、3表示モードの全native通し受入は未確認。CI／Reviewは新規Draft headで別に確認する。
+- 根拠、初回失敗の切り分け、P2持越しと再triage期限は[検証報告書](foundation-2026-11-07.md)。保存先は新規Draft PRとこのbranch。次の1マイルストーン候補は#284の認証＋統合修正移植だが、今回は未着手。自律監視やセッション後の開発継続は設定しない。
+
 ## Issue #281 / Draft PR #282 最新checkpoint
 
 Status: Accepted

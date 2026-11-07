@@ -550,7 +550,8 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 
 ### DEC-090: 画像中心の編集と記録画像の状態を一貫させる
 
-- Status: Accepted
+- Status: Partially Superseded
+- 自動mask・架空値表示部分はADR-0040でSuperseded。画像状態・予約・編集・保存の境界は継続する。
 - Date: 2026-10-01
 - Decision: 編集は選択した一手順を中央に表示し、左を移動、右を文脈に合う道具、上部を保存先・保存状態・共有に固定する。追加は選択直後、移動・削除・取り消し後も手順IDで位置を保持する。画像追加はdecode開始から端末への確定保存まで処理中とし、その途中の保存・共有から新しい画像を黙って省かない。
 - Decision: 通常のinput/textarea/selectの値は実業務DOMへ代入せず、検証済みの一時描画層で架空値に置換する。枠・ラベル・checkbox/radioの状態は残す。秘密値は読まず固定の保護表示にする。不明な欄やcanvas/iframe/closed shadowは安全な保護と要確認を区別する。カスタム編集領域・変形した入力欄等の安全な置換を証明できなければfail closedとする。DEC-088/089の候補走査、mutation、capture前後検証は緩和しない。
@@ -561,6 +562,8 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Verification: [100点の独立UIレビュー基準](../02-ux/manual-editor-review-rubric.md)。各評価者80点以上と必須安全条件を別々に満たす。未実行の実Chrome検証や実SSOをNode/static検査で代用しない。
 
 ### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
+
+Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 
 同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
 
