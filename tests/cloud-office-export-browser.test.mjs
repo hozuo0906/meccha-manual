@@ -52,7 +52,8 @@ async function inspectPng(page, bytes, xRatio, yRatio) {
 test("cloud Office actions download both formats and refuse a failed image", { timeout: 180_000 }, async () => {
   let imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
   let assetStatus = 200;
-  let assetDelayMs = 0;
+  let assetResponseGate = null;
+  let notifyAssetRequested = () => {};
   const requests = [];
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://localhost").pathname;
@@ -76,7 +77,7 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     });
     if (path === "/api/workspaces/team/manuals/manual/share-links") return send({ share: null });
     if (path === "/api/workspaces/team/assets/asset-1") {
-      if (assetDelayMs) await new Promise((resolve) => setTimeout(resolve, assetDelayMs));
+      if (assetResponseGate) { notifyAssetRequested(); await assetResponseGate; }
       return assetStatus === 200 ? send(imageBytes, "image/png") : send({ message: "asset failed" }, "application/json", assetStatus);
     }
     send({ message: "not found" }, "application/json", 404);
@@ -131,11 +132,18 @@ test("cloud Office actions download both formats and refuse a failed image", { t
     await page.locator("#cloud-message").filter({ hasText: "画像を読み込めない" }).waitFor();
     assert.match(await page.locator("#cloud-message").textContent(), /書き出しませんでした/);
     assetStatus = 200;
-    assetDelayMs = 100;
-    await word.click();
-    await page.locator(".manual-title").fill("編集中のタイトル");
+    let releaseAssetResponse;
+    const assetRequested = new Promise((resolve) => { notifyAssetRequested = resolve; });
+    assetResponseGate = new Promise((resolve) => { releaseAssetResponse = resolve; });
+    try {
+      await word.click();
+      await assetRequested;
+      await page.locator(".manual-title").fill("編集中のタイトル");
+    } finally {
+      releaseAssetResponse();
+      assetResponseGate = null;
+    }
     await page.locator("#cloud-message").filter({ hasText: "編集中の内容が変わったため" }).waitFor();
-    assetDelayMs = 0;
 
     let oversizedArrayBufferCalls = 0;
     await page.evaluate(() => {
