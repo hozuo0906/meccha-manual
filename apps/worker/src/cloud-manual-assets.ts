@@ -165,6 +165,7 @@ export const CLOUD_MANUAL_JS = `(() => {
   function downloadOfficeBytes(bytes, fileName, mimeType) { const blob = new Blob([bytes], { type: mimeType }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = fileName; link.rel = "noopener"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0); }
   function officeImageError(index) { const error = new Error("office-image-failed"); error.code = "office-image-failed"; error.stepIndex = index; return error; }
   function officeExportChanged() { const error = new Error("office-export-changed"); error.code = "office-export-changed"; return error; }
+  function blobToDataUrl(blob) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("image-data-url-failed")); reader.onerror = () => reject(reader.error || new Error("image-data-url-failed")); reader.onabort = () => reject(new Error("image-data-url-aborted")); reader.readAsDataURL(blob); }); }
   async function renderOfficeImage(step, index, imageBudget, tools) {
     if (!step?.assetId) return null;
     const source = imageUrlFor(step);
@@ -173,9 +174,8 @@ export const CLOUD_MANUAL_JS = `(() => {
     try { response = await fetch(source, { credentials: "same-origin", cache: "no-store" }); } catch { throw officeImageError(index); }
     if (!response.ok) throw officeImageError(index);
     const sourceBlob = await response.blob();
-    const sourceUrl = URL.createObjectURL(sourceBlob);
     try {
-      const image = new Image(); image.src = sourceUrl; await image.decode();
+      const image = new Image(); image.src = await blobToDataUrl(sourceBlob); await image.decode();
       imageTools().assertImageDimensions(image.naturalWidth, image.naturalHeight);
       const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
       imageTools().drawScreenshot(canvas.getContext("2d"), image, { annotations: Array.isArray(step.annotations) ? step.annotations : [], masks: [] });
@@ -185,7 +185,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     } catch (error) {
       if (error?.code === "office-image-failed" || error?.code === "office-image-budget") throw error;
       throw officeImageError(index);
-    } finally { URL.revokeObjectURL(sourceUrl); }
+    }
   }
   async function exportOffice(format, button) {
     if (officeExportBusy || saveInFlight) return;

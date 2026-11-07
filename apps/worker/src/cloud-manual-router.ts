@@ -7,6 +7,7 @@ import { D1IdentityRepository } from "./infra/d1/identity-repository.ts";
 import { D1RepositoryError } from "./infra/d1/d1-errors.ts";
 import type { D1DatabaseLike } from "./infra/d1/d1-types.ts";
 import { inspectAppRuntimeConfig } from "./server-config.ts";
+import { configuredProductProviders, getProductSession, hasProductSessionCookie } from "./product-auth.ts";
 import {
   CloudManualRepository,
   type ClaimIntentRecord,
@@ -16,9 +17,9 @@ import {
   type ManualDetailRecord,
   type ManualStepMutationInput
 } from "./infra/d1/cloud-manual-repository.ts";
-import type { AccessBindings, AppRuntimeBindings } from "./server-config.ts";
+import type { AccessBindings, AppRuntimeBindings, ProductAuthBindings } from "./server-config.ts";
 
-export interface CloudManualEnv extends AccessBindings, AppRuntimeBindings {
+export interface CloudManualEnv extends AccessBindings, AppRuntimeBindings, ProductAuthBindings {
   DB?: D1DatabaseLike;
   MANUAL_ASSETS?: R2Bucket;
 }
@@ -74,8 +75,19 @@ function ensureDb(env: CloudManualEnv): D1DatabaseLike {
 
 function identityRepository(db: D1DatabaseLike): ApplicationIdentityRepository { return new D1IdentityRepository(db); }
 
+function requireProductOrAccessSession(request: Request, env: CloudManualEnv): void {
+  const providers = configuredProductProviders(env);
+  if ((providers.google || providers.chatgpt) && !request.headers.get("Cf-Access-Jwt-Assertion")?.trim()) {
+    throw new CloudManualError(401, "SESSION_REQUIRED", "ログインしてください。");
+  }
+}
+
 async function auth(request: Request, env: CloudManualEnv): Promise<{ actorId: string; repository: CloudManualRepository }> {
   const db = ensureDb(env);
+  const productSession = await getProductSession(request, env);
+  if (productSession) return { actorId: productSession.applicationId, repository: new CloudManualRepository(db) };
+  if (hasProductSessionCookie(request)) throw new CloudManualError(401, "SESSION_REQUIRED", "ログインの有効期限が切れました。ログインをやり直してください。");
+  requireProductOrAccessSession(request, env);
   let result;
   try {
     result = await authenticateApplicationRequest(request, env, identityRepository(db));

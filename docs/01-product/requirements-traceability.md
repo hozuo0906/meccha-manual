@@ -2,6 +2,20 @@
 
 Status: Accepted
 
+Issue #283 auth route regression は、product cookie → Access assertion → configured legacy Supabase cookie の credential precedence と、Supabase 未設定 legacy cookie の fail-closed 境界を `tests/product-auth.test.mjs` で検証する。OAuth start は`APP_BASE_URL`とrequest originの完全一致を先に確認し、別名originではlimiter／D1／cookie／redirectの副作用を発生させない。OAuth start の既存期限（10分）を超えた transaction は start 1回につき最大100件だけ cleanup し、cleanup と INSERT の atomic batch、101件目の継続 start、未期限切れ consumed 行の保持、storage failure 分類を同じテストで確認する。
+
+Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は機能の移行状態を示し、認証方式判定には使わない。D1 member routeが有効な環境では`members.status: "ready"`を返す。password login成功時の製品session revoke/clear、product OAuth成功時のlegacy access／refresh cookie clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。OAuthの同一provider並行start、callback順序、cancel、未知／不正stateはtransaction固有cookieのunit回帰で確認する。
+
+### Issue #283 製品認証の実装対応
+
+| 要求 | 実装／検証 | 状態 |
+|---|---|---|
+| first-party Google／ChatGPT認証とD1 membership | `apps/worker/src/product-auth.ts`、既存`D1OnboardingRepository`、`migrations/0008_product_auth_sessions.sql` | 実装済み（provider外部登録・secret bindingは未完了） |
+| session安全境界 | token hashのみの`auth_sessions`、期限・revocation、Secure/HttpOnly cookie、失効cookieのAccess fallback禁止、provider設定時のcookie自然消去・Access assertionなしを`401 SESSION_REQUIRED`へ固定、OAuth transactionごとのcookie分離、D1欠落時もmanual／share dispatchを維持してstorage境界へ分類、Access migration guard時のpassword provider表示抑止、legacy logoutのcredential優先 | `tests/product-auth.test.mjs`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs` で確認済み |
+| OIDC検証 | Google verified email、SIWC client_secret_basic、issuer/audience/signature/nonce、SIWC subject scope、callback/start失敗時の許可済み戻り先と日本語復帰、limiter拒否と不明結果の429/503分類、別名originの副作用0 | `tests/product-auth.test.mjs` のunit/API、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs` で確認済み |
+| tenant／管理境界 | 既存D1固定workspace query、Access service token・health分離 | 既存契約を維持、回帰確認対象 |
+| rootの製品ログイン／手順書導線 | product／Access sessionの中立的なアカウント表示、`/manuals` canonical link、logout後のprovider-only login。D1 member routeの正常・権限外・越境negativeを`tests/m3-http-d1.test.mjs`、shell／logout回帰を`tests/app-auth.test.mjs`で確認 | 修正済み（実Google SSO後の保存・Office出力は親のstaging／実環境検証範囲） |
+
 ## 現行MVP
 
 Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットresponsive captureの現行MVPは次を正とする。
@@ -31,7 +45,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
 | FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035, ADR-0036, ADR-0038 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示、注釈焼き込み・raw注釈非送信回帰 | MVP / Extension MVP |
 | FR-023 | Markdown / HTML export | export APIs after auth+claim | exports / entitlements when enabled | ADR-0033 | 形式別export tests when enabled | NEXT / EPIC-08 |
-| FR-024 | Chrome Extension editor / Office出力 | output gate → authenticated workspace claim → local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、認証済みhandoff metadata、端末download | ADR-0040、`manual-local-office-export-api` | AC-064、AC-065、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、認証後のWord/PPT復帰 | MVP / Extension 0.1.9 |
+| FR-024 | Chrome Extension editor / Office出力 | output gate → authenticated workspace claim → local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、認証済みhandoff metadata、端末download | ADR-0040、`manual-local-office-export-api` | AC-064、AC-065、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、認証後のWord/PPT復帰 | MVP / Extension 0.1.9 |
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
@@ -159,6 +173,7 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 | 認証済みterminal expiry後の再保存／共有と変更済み原本の保持 | status GETのD1 terminal CAS、bounded handoff.expired、draft gate | cloud-manual-cのexpired create/update race・権限取消、extension-retained-cloud-draftのidentity negative、onboarding-recovery-actionsのsave/share/変更/reload |
 | 編集画像の失敗で旧画像を失わない | immutable edit asset予約、条件付きR2、PATCH CAS | cloud-manual-cのedited image upload／tampering／concurrency |
 | 保存済み画像A→B→undo Aの再保存 | migration 0007 first_attached_at、same-manual provenance | cloud-manual-cのsaved edited image・rollback・古い未添付／tenant／manual／role negative |
+| D1 trigger副作用を含む保存成功の直接変更件数照合 | DEC-103、D1 batch内`SELECT changes()`、CAS／rollback | cloud-manual-cの画像なし・画像あり保存、stale409、途中失敗rollback、share-link-backend |
 | チーム書式の権限・tenant境界と共有版固定 | branding versions、private logos、published snapshot | cloud-manual-c branding、share-link-backend published branding、manual-raster |
 
 ブラウザーの視覚・操作確認、remote migration適用、公開配備は上表のローカル単体テストと別に検証する。
@@ -166,3 +181,20 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 | ローカル固有の色・ロゴを保存・共有・印刷へ維持 | claim branding snapshot、safe logo chunk、source_claim_id、draft CAS | cloud-manual-c manual branding、onboarding-recovery-actions rasterized branding、share-link-backend local manual branding |
 
 2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、認証・workspace claim後の端末Office生成を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
+
+Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs`で検証する。prepare／bind／run拒否と消費CAS競合を区別し、callback成功・エラーリンク復帰ともReferer無しを確認する。
+
+## ProductログインUI実表示の追跡（2026-10-04）
+
+| 追跡対象 | 利用者に見える挙動 | 実装・回帰 | 状態 |
+|---|---|---|---|
+| FR-001／FR-002のoutput gate後認証 | 認証方法の取得中は入力欄を表示せず、provider-only環境では利用可能なproviderだけを案内する。providerが1つなら単独案内、2つなら必要な場合だけ「または」を表示する | `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs` | source commit `4cc027ddde4ba34ffacd134c19b317f2f95d379b`で実装、unit 115/115・browser 5/5 |
+| 同上の失敗・空設定 | provider取得失敗時はProduct session未確認を含め、password supportを確認するまで既存password formへ戻さず、エラーと再試行を表示する。provider設定が空なら読み込み中のままにせず管理者への案内を表示し、隠したフォームの外にエラーを表示する | 同上 | `worker-runtime` 71/71、Worker harness OK |
+
+この追跡はrootログイン画面の表示と状態遷移に限る。実provider SSO、remote設定、staging／production反映、native Officeアプリの表示結果はこのローカル回帰の成功には含めない。
+## PR #284 最終レビュー追補（2026-10-04）
+
+| 追跡対象 | 利用者に見える挙動 | 実装・回帰 | 状態 |
+|---|---|---|---|
+| Product session未確認を含むprovider取得失敗 | password supportを確認できるまでpasswordフォームへ戻らず、エラーと再試行を表示する。再試行成功時も入力値、return path、focusを保持する | `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs` | 実Worker相当のunitとCFT browser回帰で確認 |
+| provider-onlyとlegacy cookieの併存 | Supabase設定がない場合、legacy cookieだけでlegacy routeへ切り替えずProduct routeを維持する。設定済みlegacy backendのpassword session選択は維持する | `apps/worker/src/index.ts`、`tests/product-auth.test.mjs` | legacy cookie 3組の実Worker回帰で401／SESSION_REQUIREDを確認 |
