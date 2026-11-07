@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { installSensitiveMasks, verifySensitiveMasks, removeSensitiveMasks } from "../apps/extension/capture/screenshot.js";
 
 test("real extension API masks standard/custom closed-shadow top-layer controls and canvas", async () => {
@@ -78,7 +78,7 @@ test("real extension API masks standard/custom closed-shadow top-layer controls 
     });
     assert.equal(lateDialog, true);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
-    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "new protected regions invalidate the returned review metadata");
     assert.ok(await page.evaluate(() => testDialogs.every((dialog) => dialog.getClientRects().length > 0 && getComputedStyle(dialog).opacity === "0")));
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("canvas")).opacity), "0");
     const maskedPixel = await pngPixel(await page.screenshot({ type: "png" }), dialogCenter.x, dialogCenter.y);
@@ -250,7 +250,7 @@ test("CDP IME composition remains focused through mask paint and commit", async 
     assert.equal(committed.value, "確定");
     assert.equal(committed.events.filter(({ type }) => type === "compositionend").length, 1);
     assert.equal(committed.events.some(({ type, key }) => type === "blur" || type === "change" || type === "submit" || key === "Enter"), false);
-    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false, "a changed value must be recaptured rather than using a stale fictional mapping");
     await inject(removeSensitiveMasks);
   } finally {
     await context?.close();

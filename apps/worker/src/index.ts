@@ -1,3 +1,4 @@
+import { EDITOR_TOOLS_JS } from "./editor-tools-assets.ts";
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
 import { AccessIdentityError, authenticateApplicationRequest, requireHumanActor, verifyAccessJwt, type ApplicationIdentityRepository } from "./access-identity.ts";
@@ -2328,6 +2329,10 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js" && !env.MANUAL_ASSETS) {
     return cloudManualMigrationResponse();
+  }
+  if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/editor-tools.js") {
+    if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
+    return assetResponse(EDITOR_TOOLS_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
   }
   if (useAccessD1Routes(env) && request.method === "GET" && url.pathname === "/assets/cloud-manual.js") {
     return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);

@@ -51,6 +51,8 @@ Status: Accepted
 - PDF等のサーバーoutput生成。
 - Teamへの引き継ぎ。
 
+Word／PowerPointへの書き出しもoutput gateを通る導線とする。editorの「Officeへ書き出す」から選択した形式を保持してログイン・workspace claimへ進み、認証済みなら再ログインせず編集画面へ戻って生成する。workspace claimに必要なcloud保存は行うが、Office生成成功だけで公開・共有リンク作成・権限変更は自動で開始しない。処理中・失敗・要確認画像がある場合は出力を止め、確認対象と次の操作を日本語で案内する。
+
 これらを選んだ瞬間を `output gate` と呼び、アカウント作成を要求する。
 
 ## アカウント作成画面
@@ -171,9 +173,9 @@ output gateの対象:
 - PDF出力。
 - Teamへの引き継ぎ。
 
-未認証なら認証へ進み、認証済みならそのまま実行する。
+未認証なら認証へ進み、認証済みなら再ログインせずそのまま実行する。保存・共有・PDF・Word・PowerPointの選択形式と下書きのfingerprintを復帰時に照合する。
 
-認証後は `guest draft claim -> 元のoutput` の順で自動継続する。利用者へ同じボタンをもう一度押させない。
+認証後は `guest draft claim -> 元のoutput` の順で自動継続する。Officeは `guest draft claim -> 元のOffice形式` とし、利用者へ同じボタンをもう一度押させない。
 
 ### 共有
 
@@ -212,7 +214,7 @@ Activationは次を満たした時点とする。
 
 output gateは、編集内容を確認してから保存先の準備画面へ進む。キャンセル時は編集中の値と拡張機能のlocal原本を保持する。
 
-保存先の準備画面へ進む場合、拡張機能は本文・画像・ログイン情報を送らず、256bit相当のhandoff識別子とlocal draftの参照情報だけを拡張機能のlocal領域へ保持する。owner限定staging配布版のhandoff識別子は`https://meccha-manual-staging.meccha-iiyatsu.com`のURL fragmentにだけ置き、production・preview・localhost等のoriginは拒否する。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して保存をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。専用WorkerのWeb画面は、信頼済み`APP_ENV`と環境別に固定した`APP_BASE_URL`が一致し、request originも完全一致する場合だけ保存操作を有効化する。production originまたはAccess環境が未準備の限定配布版では保存操作を無効化し、日本語の準備中表示に留める。
+保存先の準備画面へ進む場合、拡張機能は本文・画像・ログイン情報を送らず、256bit相当のhandoff識別子、local draftの参照情報、選択済みactionを保持する。Officeは `officeFormat=docx|pptx` とlaunch単位の準備記録を追加し、認証後の同一tab・同一形式・同一fingerprintだけを復帰させる。owner限定staging配布版のhandoff識別子は`https://meccha-manual-staging.meccha-iiyatsu.com`のURL fragmentにだけ置き、production・preview・localhost等のoriginは拒否する。認証後のWeb画面は、同一タブの`sessionStorage`にhandoffごとの履歴として保持したmetadataから、そのhandoffに紐づく`operationId`だけを同一originの`POST /api/onboarding/bootstrap`へ送る。履歴はA-B-Aの遷移でもhandoffごとに分離し、作成から15分をTTLとする。期限切れmetadataは、`expired` tombstoneの保存に成功した場合に限り再読込後も失効状態として保持し、同じhandoffIdのoperationを再開・再送せず、拡張機能で新しいhandoffを発行して保存をやり直す。保存に失敗した現在ページは操作を停止するが、再読込後の失効状態の耐久性は保証しない。hash-onlyのfragment遷移はCTAを即時無効化して再読込し、遷移先のhandoffを再検証する。本文・画像・下書きはWebの`sessionStorage`へ転送しない。専用WorkerのWeb画面は、信頼済み`APP_ENV`と環境別に固定した`APP_BASE_URL`が一致し、request originも完全一致する場合だけ保存操作を有効化する。production originまたはAccess環境が未準備の限定配布版では保存操作を無効化し、日本語の準備中表示に留める。
 
  Access認証後の復帰はURL監視に依存せず、通常は同一originのWeb画面が`handoff.access-return` external messageを送る。初回AccessでWeb側JSが一度も実行されない場合だけ、stagingの`/onboarding/continue`に限定したcontent scriptがpayloadなしの内部通知を送り、拡張機能がsenderのtab IDに束縛された未確認handoffを照合する。拡張機能は固定origin・top-level frame・tab ID、handoff ID、launch ID、拡張ID、operation identity、action、draft fingerprint、元の期限、既存ready recordを照合した場合だけ、同じfragmentを最大3回まで再付与する。期限切れでも`finalize-pending`／`completion-pending`の結果回収identityがある場合はGET専用の回収だけを許可し、通常の期限切れhandoffの書き込みは拒否する。別tab、同tabの別navigation、通常のfragment除去、取消済み、完了済み、metadata不一致は復帰として扱わず、認証情報・本文・画像はメッセージや復帰URLへ含めない。Web画面へextension IDやhandoff capabilityをquery／fragmentで追加露出しない。
 

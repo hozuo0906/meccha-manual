@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import nodeTest from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../apps/extension/capture/screenshot.js";
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
@@ -25,7 +25,7 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
       <dt>住所</dt><dd id="address">東京都千代田区1-2-3</dd>
       <dt>電話</dt><dd id="phone">03-1234-5678</dd>
       <dt>メール</dt><dd id="email">customer@example.com</dd>
-    </dl>`);
+    </dl><div contenteditable style="position:absolute;top:2000px">画面外の合成編集領域</div>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
@@ -38,10 +38,16 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
     assert.equal(mask.privacyMaskedCount, 4);
+    assert.equal(mask.privacyReview.replacements.length, 4);
+    assert.doesNotMatch(JSON.stringify(mask.privacyReview), /佐藤花子|customer@example\.com|03-1234-5678|東京都千代田区1-2-3/);
+    assert.ok(mask.privacyReview.replacements.every(region => [region.x, region.y, region.width, region.height].every(value => Number.isFinite(value) && value >= 0 && value <= 1)));
+
     await waitForPaint(page);
     const overlayState = await page.evaluate(() => ({
       count: document.querySelectorAll(".meccha-manual-pii-overlay").length,
@@ -50,7 +56,10 @@ test("PII candidates are replaced in pixels with temporary dummy overlays and re
     }));
     const rawState = await inject(() => JSON.stringify(globalThis.__mecchaManualScreenshotMasks) || "");
     assert.equal(overlayState.count, 4);
-    assert.deepEqual(overlayState.values.sort(), ["100-0000 東京都千代田区", "03-0000-0000", "manual@example.invalid", "山田太郎"].sort());
+    assert.ok(overlayState.values.some((value) => /^山田 花子\d+$/.test(value)));
+    assert.ok(overlayState.values.some((value) => /^サンプル県 例示市 テスト町/.test(value)));
+    assert.ok(overlayState.values.some((value) => /^000-0\d{3}-\d{4}$/.test(value)));
+    assert.ok(overlayState.values.some((value) => /^sample\d{6}@example\.invalid$/.test(value)));
     assert.deepEqual(overlayState.original, ["佐藤花子", "東京都千代田区1-2-3", "03-1234-5678", "customer@example.com"]);
     assert.equal(rawState.includes("佐藤花子"), false);
     assert.equal(rawState.includes("customer@example.com"), false);
@@ -117,6 +126,8 @@ test("repeated PII text nodes are all replaced and transformed body geometry fai
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const beforeRects = await page.evaluate(() => ["email-one", "email-two", "phone-one", "phone-two", "postal-one", "postal-two"].map((id) => {
       const rect = document.getElementById(id).getBoundingClientRect();
@@ -192,6 +203,8 @@ test("PII split across adjacent rendered text nodes is replaced and restored", a
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
     const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.bringToFront();
+    await waitForPaint(page);
     const before = await page.screenshot({ type: "png" });
     const beforeRects = await page.evaluate(() => ["split-email", "split-phone", "split-postal"].map((id) => {
       const rect = document.getElementById(id).getBoundingClientRect();
@@ -524,8 +537,9 @@ test("bounded split recovery keeps complete suffixes, precedence, and boundary f
 
     const complete = await run("/complete");
     assert.equal(complete.mask.privacyMaskedCount, 2);
-    assert.deepEqual(complete.state.overlays.map(({ text }) => text).sort(), ["100-0000 東京都千代田区", "manual@example.invalid"]);
-    const completeEmailOverlay = complete.state.overlays.find(({ text }) => text === "manual@example.invalid");
+    assert.ok(complete.state.overlays.some(({ text }) => /^サンプル県 例示市 テスト町/.test(text)));
+    assert.ok(complete.state.overlays.some(({ text }) => /^sample\d{6}@example\.invalid$/.test(text)));
+    const completeEmailOverlay = complete.state.overlays.find(({ text }) => /^sample\d{6}@example\.invalid$/.test(text));
     assert.equal(complete.state.completeRange.text, "alice@example.com");
     assert.ok(Math.abs(completeEmailOverlay.width - complete.state.completeRange.width) < 1, "complete adjacent email suffix is protected");
     assert.equal(complete.verified, true);
@@ -722,7 +736,7 @@ test("open shadow text is replaced and later shadow mutations fail closed", asyn
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
     assert.equal(mask.privacyMaskedCount, 1);
-    assert.equal(await page.locator(".meccha-manual-pii-overlay").textContent(), "manual@example.invalid");
+    assert.match(await page.locator(".meccha-manual-pii-overlay").textContent(), /^sample\d{6}@example\.invalid$/);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     await page.evaluate(() => document.querySelector("open-pii-host").shadowRoot.querySelector("#shadow-email").firstChild.nodeValue = "changed@example.com");
     await page.evaluate(() => new Promise((resolve) => queueMicrotask(resolve)));
@@ -1954,7 +1968,7 @@ test("same text range chooses postal masking over the broader phone pattern", as
     const mask = await inject(installSensitiveMasks);
     assert.equal(mask.applied, true);
     assert.equal(mask.privacyMaskedCount, 1);
-    assert.equal(await page.locator(".meccha-manual-pii-overlay").textContent(), "100-0000 東京都千代田区");
+    assert.match(await page.locator(".meccha-manual-pii-overlay").textContent(), /^サンプル県 例示市 テスト町/);
     assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
     await inject(removeSensitiveMasks);
     assert.equal(await page.locator("#postal").textContent(), "060-0001");
@@ -2309,4 +2323,167 @@ test("PII overlay ownership, arbitrary attributes, and candidate scan budgets st
     await context?.close();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+nodeTest("privacy capture returns only safe review metadata and rejects exhausted budgets before capture", async () => {
+  const privacyReview = { replacementCount: 2, protectedRegionCount: 1, reviewRequired: true, reasonCodes: ["unsupported_canvas"] };
+  let removed = 0, captures = 0;
+  const options = {
+    applyMasks: async () => ({ applied: true, token: "synthetic-token", privacyReview }),
+    verifyMasks: async () => true,
+    capture: async () => { captures += 1; return "data:image/png;base64,AA"; },
+    removeMasks: async () => { removed += 1; },
+    includePrivacyMetadata: true
+  };
+  assert.deepEqual(await captureWithMaskBoundary(options), { dataUrl: "data:image/png;base64,AA", privacyReview });
+  assert.equal(removed, 1);
+  await assert.rejects(captureWithMaskBoundary({ ...options, applyMasks: async () => ({ applied: true, token: "synthetic-token", reason: "SCREENSHOT_BUDGET_EXCEEDED" }) }), /SCREENSHOT_BUDGET_EXCEEDED/);
+  assert.equal(captures, 1);
+  assert.equal(removed, 2);
+});
+
+test("semantic form interiors preserve frames, labels, choices, original values and focus", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>
+      body { font:16px Arial; background:#fff; margin:12px }
+      form { display:grid; grid-template-columns:120px 300px; gap:6px }
+      input:not([type=checkbox]):not([type=radio]), select, textarea { width:290px; border:3px solid rgb(12,34,56); background:rgb(240,248,255); padding:4px; box-sizing:border-box }
+    </style><form>
+      <label for="person1">氏名</label><input id="person1" autocomplete="name" value="合成顧客カナリア">
+      <label for="person2">担当者名</label><input id="person2" autocomplete="name" value="合成顧客カナリア">
+      <label for="company">会社名</label><input id="company" autocomplete="organization" value="合成会社カナリア">
+      <label for="address">住所</label><textarea id="address" autocomplete="street-address">合成住所カナリア</textarea>
+      <label for="email">メール</label><input id="email" type="email" value="synthetic-canary@example.test">
+      <label for="email2">メール確認</label><input id="email2" type="email" value="synthetic-canary@example.test">
+      <label for="phone">電話</label><input id="phone" type="tel" value="090-1234-9876">
+      <label for="customer">顧客番号</label><input id="customer" value="C-CANARY-999">
+      <label for="employee">社員番号</label><input id="employee" value="EMP-CANARY-999">
+      <label for="birthday">生年月日</label><input id="birthday" type="date" value="1977-04-15">
+      <label for="password">パスワード</label><input id="password" type="password" value="SYNTHETIC-SECRET-CANARY">
+      <label for="assignee">担当者</label><select id="assignee"><option>未選択</option><option selected>合成選択カナリア</option></select>
+      <label for="quantity">数量</label><input id="quantity" type="number" value="120">
+      <label for="checked">有効</label><input id="checked" type="checkbox" checked>
+      <label for="radio">基本プラン</label><input id="radio" type="radio" checked>
+      <span>次の操作</span><input id="submit" type="button" value="参照">
+    </form><script>
+      window.events = [];
+      for (const type of ['input','change','blur','submit']) addEventListener(type, event => events.push(event.type), true);
+    </script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    await page.locator("#person1").focus();
+    const original = await page.evaluate(() => {
+      document.querySelector("#person1").setSelectionRange(1, 3);
+      events.length = 0;
+      return { values: [...document.querySelectorAll("input,textarea,select")].map(element => element.value), labels: [...document.querySelectorAll("label")].map(element => element.textContent) };
+    });
+    const mask = await inject(installSensitiveMasks, [{ recordId: "synthetic-record-1" }]);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyReview.replacementCount, 12);
+    assert.equal(mask.privacyReview.reviewRequired, false);
+    await waitForPaint(page);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    const safe = await inject(() => globalThis.__mecchaManualScreenshotMasks.privacyOverlays.map(item => ({ id: item.target.id, value: item.replacement, rect: item.protectedRect })));
+    const names = safe.filter(item => item.id.startsWith("person")).map(item => item.value);
+    assert.equal(new Set(names).size, 1, "identical displayed values share an alias without inferring person identity");
+    assert.equal(safe.find(item => item.id === "email").value, safe.find(item => item.id === "email2").value);
+    assert.match(safe.find(item => item.id === "company").value, /^株式会社サンプル/);
+    assert.match(safe.find(item => item.id === "customer").value, /^C\d{6}$/);
+    assert.match(safe.find(item => item.id === "employee").value, /^EMP\d{6}$/);
+    assert.match(safe.find(item => item.id === "birthday").value, /^2000-\d{2}-\d{2}$/);
+    assert.equal(safe.find(item => item.id === "password").value, "••••••••");
+    assert.doesNotMatch(JSON.stringify({ mask, safe }), /合成顧客カナリア|合成住所カナリア|synthetic-canary|C-CANARY|EMP-CANARY|1977-04-15|SYNTHETIC-SECRET/);
+    const ui = await page.evaluate(() => ({
+      values: [...document.querySelectorAll("input,textarea,select")].map(element => element.value),
+      labels: [...document.querySelectorAll("label")].map(element => element.textContent),
+      active: document.activeElement.id, selection: [document.activeElement.selectionStart, document.activeElement.selectionEnd], events,
+      choices: [document.querySelector("#checked").checked, document.querySelector("#radio").checked, document.querySelector("#assignee").selectedIndex],
+      opacity: [...document.querySelectorAll("input,textarea,select,form")].map(element => getComputedStyle(element).opacity),
+      border: getComputedStyle(document.querySelector("#person1")).borderLeftWidth,
+      blocked: [...document.querySelectorAll(".meccha-manual-pii-overlay")].some(element => getComputedStyle(element).pointerEvents !== "none")
+    }));
+    assert.deepEqual(ui.values, original.values);
+    assert.deepEqual(ui.labels, original.labels);
+    assert.deepEqual(ui.choices, [true, true, 1]);
+    assert.ok(ui.opacity.every(opacity => opacity === "1"));
+    assert.equal(ui.border, "3px");
+    assert.equal(ui.active, "person1");
+    assert.deepEqual(ui.selection, [1, 3]);
+    assert.deepEqual(ui.events, []);
+    assert.equal(ui.blocked, false);
+    const localState = await inject(() => JSON.stringify([...globalThis.__mecchaManualPrivacyRecord.allocations]));
+    assert.doesNotMatch(localState, /合成|synthetic-canary|SYNTHETIC-SECRET|1977-04-15/);
+    await inject(removeSensitiveMasks);
+    const again = await inject(installSensitiveMasks, [{ recordId: "synthetic-record-1" }]);
+    assert.equal(await inject(verifySensitiveMasks, [again.token]), true);
+    assert.deepEqual(await inject(() => globalThis.__mecchaManualScreenshotMasks.privacyOverlays.map(item => item.replacement)), safe.map(item => item.value));
+    await page.evaluate(() => { document.querySelector("#person1").value = "別の合成カナリア"; });
+    assert.equal(await inject(verifySensitiveMasks, [again.token]), false, "property changes without mutation events invalidate the captured value snapshot");
+    await inject(removeSensitiveMasks, [{ endRecord: true }]);
+    assert.equal(await inject(() => Boolean(globalThis.__mecchaManualPrivacyRecord)), false);
+    assert.equal(await page.locator(".meccha-manual-pii-overlay").count(), 0);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("unreadable surfaces report review and content-visibility cannot hide protection overlays", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(`<!doctype html><style>body{font:18px Arial}canvas,iframe,private-view{display:block;width:240px;height:40px}</style>
+      <input aria-label="氏名" value="合成個人名カナリア"><canvas></canvas><iframe srcdoc="synthetic iframe"></iframe><private-view></private-view>
+      <script>document.querySelector('private-view').attachShadow({mode:'closed'}).innerHTML='<span>synthetic closed shadow</span>';</script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const extensionPath = fileURLToPath(new URL("./fixtures/mask-extension", import.meta.url));
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] });
+    const extension = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId = await extension.evaluate(async () => (await chrome.tabs.query({ url: "http://127.0.0.1/*" }))[0].id);
+    const inject = async (fn, args = []) => (await extension.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask = await inject(installSensitiveMasks);
+    assert.equal(mask.applied, true);
+    assert.equal(mask.privacyReview.reviewRequired, true);
+    assert.deepEqual(mask.privacyReview.reasonCodes.sort(), ["unsupported_canvas", "unsupported_closed_shadow", "unsupported_iframe"]);
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), true);
+    await page.evaluate(() => document.querySelector(".meccha-manual-pii-overlay").style.setProperty("content-visibility", "hidden", "important"));
+    assert.equal(await inject(verifySensitiveMasks, [mask.token]), false);
+    await inject(removeSensitiveMasks, [{ endRecord: true }]);
+  } finally {
+    await context?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("unsupported editable regions preserve the rest of the useful screenshot", async () => {
+  const server=createServer((_req,res)=>{res.setHeader("content-type","text/html; charset=utf-8");res.end('<!doctype html><meta charset="utf-8"><style>body{font:18px sans-serif}main{padding:20px}button{margin:20px}</style><main><label>氏名 <input name="name" value="合成カナリア氏名"></label><div id="custom" contenteditable>合成カスタム値<span>合成子要素値</span></div><button id="save">保存</button></main>');});
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+  const extensionPath=fileURLToPath(new URL("./fixtures/mask-extension",import.meta.url));let context;
+  try {
+    context=await chromium.launchPersistentContext("",{channel:"chromium",headless:true,args:[`--disable-extensions-except=${extensionPath}`,`--load-extension=${extensionPath}`]});
+    const worker=context.serviceWorkers()[0]||await context.waitForEvent("serviceworker");const page=await context.newPage();await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const tabId=await worker.evaluate(async()=>(await chrome.tabs.query({url:"http://127.0.0.1/*"}))[0].id);
+    const inject=async(fn,args=[]) => (await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${fn.toString()},args:${JSON.stringify(args)}})`))[0].result;
+    const mask=await inject(installSensitiveMasks,[{recordId:"unsupported-editable-fixture"}]);await waitForPaint(page);
+    assert.equal(mask.applied,true);assert.equal(mask.privacyReview.reviewRequired,true);assert.ok(mask.privacyReview.reasonCodes.includes("unsupported_editable"));
+    assert.equal(await inject(verifySensitiveMasks,[mask.token]),true);
+    assert.deepEqual(await page.evaluate(()=>({custom:getComputedStyle(document.querySelector("#custom")).opacity,child:getComputedStyle(document.querySelector("#custom span")).opacity,save:getComputedStyle(document.querySelector("#save")).opacity,value:document.querySelector("input").value})),{custom:"0",child:"0",save:"1",value:"合成カナリア氏名"});
+    await inject(removeSensitiveMasks);assert.equal(await page.locator("#custom").textContent(),"合成カスタム値合成子要素値");
+  } finally {await context?.close();server.closeAllConnections?.();await new Promise(resolve=>server.close(resolve));}
 });
