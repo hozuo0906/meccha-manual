@@ -93,6 +93,7 @@ async function seedImageEditorDraft(page, baseUrl, id, count = 22) {
     });
   }, { draftId: id, count });
   await page.goto(baseUrl + "/editor/editor.html#" + id);
+  await page.locator(".step-article").waitFor({ state: "visible" });
 }
 
 function canvasPoint(box, x, y) {
