@@ -200,3 +200,7 @@ Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product
 |---|---|---|---|
 | Product session未確認を含むprovider取得失敗 | password supportを確認できるまでpasswordフォームへ戻らず、エラーと再試行を表示する。再試行成功時も入力値、return path、focusを保持する | `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs` | 実Worker相当のunitとCFT browser回帰で確認 |
 | provider-onlyとlegacy cookieの併存 | Supabase設定がない場合、legacy cookieだけでlegacy routeへ切り替えずProduct routeを維持する。設定済みlegacy backendのpassword session選択は維持する | `apps/worker/src/index.ts`、`tests/product-auth.test.mjs` | legacy cookie 3組の実Worker回帰で401／SESSION_REQUIREDを確認 |
+
+## 2026-11-08 UI回収の対応
+
+FR-004/005/007、NFR-003/004/005/007、MVP-AC-002/004/007/008/009の表示・操作品質を[全画面品質台帳](../02-ux/all-screen-quality-matrix.md)に対応づける。`extension-recording-quality-browser`はpopup/sidepanelの44px・連打・状態取得失敗・復旧・scroll、`extension-editor-browser`は保存失敗・選択目次復帰・欠落下書き、`all-screen-quality-browser`はLP/製品認証/一覧/読者の表示、`ui-quality-lab-browser`は合成画像・keyboard・contrast・PDFを検査する。認証は#287とADR-0041、画像はADR-0040を維持する。native記録・Worker/API認可の既存回帰は表示fixtureで代用しない。実行結果と未実行は[回収報告書](../09-delivery/ui-recovery-2026-11-08.md)へ記録する。

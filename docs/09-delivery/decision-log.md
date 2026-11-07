@@ -772,3 +772,10 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: 製品認証のHTML `/manuals` 再訪だけを固定ログイン先へ戻し、APIの401・権限拒否・storage障害は保持する。provider再取得成功時は表示済みpasswordフォームのフォーカスと入力を保持し、初回表示だけ初期フォーカスを置く。
 - Reason: ブックマーク再訪時のJSON行止まりと、遅いprovider応答でpassword入力先が可視email欄へ移る不具合を解消する。認証fallbackやcookie境界は緩めない。
 - Evidence: `tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`。local書込み障害のため保存済みGit sourceをメモリ上で検証し、GitHub保存後のCIと最新SHAレビューを別確認する。
+
+### 2026-11-08: PR #280の状態・回復UIを現行契約へ回収
+
+- Status: Accepted
+- Decision: #280 `a44dde8..f750a3d` のUI hunkだけを認証base `cc83e1a` へ適合させる。開始・終了・復旧のbusy制御、実scroll領域への追従、選択目次の復帰、欠落下書き、一覧loading/error/retry、共有読者とLPを対象とする。期限切れhandoffは旧操作を再送せず、原本から新しく始める既存境界を番号付きで案内する。
+- Boundary: ADR-0040の無加工画像＋利用者確認＋手動編集、ADR-0041の製品認証とOffice復帰を正とする。旧自動mask/alias文言・workflowを移植しない。#280独自のDEC-091番号は現行認証・復帰決定と衝突するため採番を流用しない。新しい依存・env・DB・権限・認証方式を追加しない。
+- Verification: [全画面品質台帳](../02-ux/all-screen-quality-matrix.md)の合成表示・native記録・保存認可・lab/PDFを分ける。受賞、全画面の点数合格、field性能、remote SSO成功は今回の自動試験から主張しない。
