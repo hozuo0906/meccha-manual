@@ -13,7 +13,7 @@ const fixture = `
 const image = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#f2f6f7"/><rect width="640" height="46" fill="#193039"/><text x="24" y="30" fill="white" font-size="18">サンプル業務画面</text><rect x="28" y="74" width="584" height="240" rx="8" fill="white" stroke="#d7e2e5"/><text x="52" y="114" fill="#183039" font-size="22">申請内容を確認</text><rect x="52" y="140" width="530" height="52" fill="#edf2f3"/><text x="68" y="173" fill="#526671" font-size="18">テスト用の申請情報</text><rect x="420" y="242" width="160" height="46" rx="7" fill="#087f7a"/><text x="478" y="272" fill="white" font-size="18">確認</text></svg>');
 const listeners = new Set();
 window.fixture = {
- state: {}, drafts: [], images: [], messages: [], delay: 0, failure: null, statusFailure: false, draftsFailure: false, imagesFailure: false, tabsUnavailable: false, noActiveTab: false, editorOpens: 0,
+ state: {}, drafts: [], images: [], messages: [], statusRequests: 0, delay: 0, failure: null, statusFailure: false, draftsFailure: false, imagesFailure: false, tabsUnavailable: false, noActiveTab: false, editorOpens: 0,
  setState(phase, count = 0) {
    this.state = {phase, recording: phase === 'recording', sessionId: 'synthetic-session', mode: 'pc',
      events: Array.from({length:count}, (_,i) => ({eventId:'event-'+i, at:i, kind:'click', labelSource:'caption', label:'申請内容を確認する'})),
@@ -29,6 +29,7 @@ window.chrome = {
    onMessage: {addListener: callback=>listeners.add(callback),removeListener: callback=>listeners.delete(callback)},
    sendMessage: async message => {
      if(message.type==='capture:status') {
+       fixture.statusRequests++;
        if(fixture.statusFailure) throw Error('SYNTHETIC_OFFLINE');
        return {ok:true,value:structuredClone(fixture.state)};
      }
@@ -414,9 +415,11 @@ for (const surface of ["popup", "sidepanel"]) {
       await page.keyboard.press("Space");
       await page.waitForFunction(type=>fixture.messages.filter(value=>value===type).length===2,message);
       await page.waitForFunction(id=>!document.querySelector("#"+id).disabled,buttonId);
-      await page.evaluate(()=>{fixture.delay=450;});
+      await page.evaluate(()=>{fixture.delay=1100;});
       await button.focus();await page.keyboard.press("Enter");await page.waitForFunction(id=>document.querySelector("#"+id).disabled,buttonId);
       await page.locator("#status").focus();
+      const statusReads=await page.evaluate(()=>fixture.statusRequests);
+      if(surface==="sidepanel")await page.waitForFunction(({id,reads})=>fixture.statusRequests>reads&&document.querySelector("#"+id).disabled,{id:buttonId,reads:statusReads});
       await page.waitForFunction(id=>!document.querySelector("#"+id).disabled,buttonId);
       assert.equal(await page.locator("#status").evaluate(node=>node===document.activeElement),true,"an explicitly moved focus is preserved");
     }

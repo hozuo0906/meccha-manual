@@ -23,6 +23,14 @@ PR #287の認証・Office復帰、migration、backend認可は変更しない。
 
 `editor-tools-assets.ts`は`node scripts/build-editor-tools.mjs`でsourceから再生成し、checkで一致を確認した。APP_ASSET_VERSIONは既存の7asset連結SHA-256規則から`sha256-22cb1806eaa1fa5c`へ更新した。新規依存、環境変数、権限、DB変更は追加していない。生成EDITOR_TOOLS_JS（95,398 bytes、SHA-256 `629f9794a3ca97fa85ce2e552df577cd746094b9bb7bb92fc039915ec22d27de`）とHTMLはbaseと同一で、生成物の差分はCSSだけ。自動承認レビューが当初この既存の手動置換機能を自動置換と判定してblob保存を拒否したが、ADR-0040:18-19とbyte一致を追加検証し、同じ保存が許可・成功した。禁止された自動記録処理の再導入はない。
 
+## 検証の読み方（ローカルとCIを区別）
+
+ローカルのlab timeoutと、後続のGitHub CIでのlab成功は**別環境・別実行**である。ローカル成功への訂正ではない。
+
+- ローカル: 初期回収sourceの `ui-quality-lab-browser.test.mjs` 単独実行は150秒timeout、成功0件。repo/tmp write EPERM発生下のため未完了を維持する。
+- GitHub CI: head `a3c5e2749f5cd3b6f25d2fbbb0a009963dd8c4e3`、[run 42416124500](https://github.com/hozuo0906/meccha-manual/actions/runs/42416124500)、job `128534505350` の取得済み実ログに、`2026-11-07T21:36:13.5779301Z ok 53 - reproducible image-heavy lab, keyboard, contrast and actual PDF evidence`（3919.56609ms）がある。これがCIのlab成功の証拠である。
+- 同じCI job全体は**失敗**。sidepanel focus回帰1件が `not ok 25`、集計52/53であるため、lab単体成功からjob全体成功を主張しない。最新のpolling修正headの結果は別途取得する。
+
 ## ローカル検証と実行境界
 
 Node `v24.22.1`、既設Google Chrome for Testing `156.0.8078.47`、合成データ・一時profileで実施した。このcloneはnode_modulesが無かったため、既存lockfileに対する`npm ci --ignore-scripts --no-audit --no-fund`で49packagesを復元（exit 0）。package.json/lockfileは変更していない。remote設定・資格情報・deployは変更していない。
@@ -31,7 +39,7 @@ Node `v24.22.1`、既設Google Chrome for Testing `156.0.8078.47`、合成デー
 |---|---|
 | `extension-recording-quality-browser.test.mjs`個別 | 17/17、fail 0・skip 0、exit 0。popup/sidepanel状態・連打・44px・scroll・read失敗と復旧 |
 | `all-screen-quality-browser.test.mjs`個別 | 1/1、fail 0・skip 0、exit 0。現行製品認証・一覧・読者・LP、広幅/狭幅とlayout幅 |
-| `ui-quality-lab-browser.test.mjs`個別 | 150秒timeout。後述のOS書込み拒否発生と重なり、完了していない。PDF/contrast/性能の成功を主張しない |
+| **ローカル** `ui-quality-lab-browser.test.mjs`個別 | 150秒timeout。後述のOS書込み拒否発生と重なり、完了していない。PDF/contrast/性能の成功を主張しない |
 | sidepanel/editor/cloud-manual UIの直列一括 | 33件中8成功・25失敗、skip 0、exit 1。cloud UI 1件とeditor先頭7件は成功。以後はpage crash、Chrome新規profile起動SIGTRAPで対象経路を未検証。sidepanelのnative3件も環境失敗 |
 | `npm run check`初回 | docs/brand/Worker/generated/typecheck/bundle/runtime/mutation/capture通過後、extension suiteの旧privacy文言とVM fixtureのread状態未注入で4失敗。fixtureを現行文言と`liveImagesUnavailable:false`へ修正 |
 | 上記修正後sidepanel unit | `node --test --test-isolation=none tests/extension-sidepanel.test.mjs` 4/4、fail 0・skip 0、exit 0 |
@@ -73,3 +81,11 @@ repo内の最終報告書と引き継ぎはremote版を正とする。local報�
 - 指摘4503789571 / thread `PRRT_kwDOTpNknc6065DC`: busyでdisabledにした元buttonが失敗後も表示される場合、focusがbodyへ外れたままになる。妥当。popupのwithBusy、sidepanelのwithError/finishで、元のfocusが他要素へ移っていなければ元buttonか次操作へ戻す。明示移動したfocusは保持する。記録品質fixtureに両surfaceの開始・復元・終了失敗とEnter/Space再試行、別focus保持の2browser回帰を追加。
 - 修正はlocal write拒否のためメモリ上で作成。cloud sourceの小差分を同じlocal sourceへメモリ適用してGit blob SHAと既存7asset hash規則を検証し、APP_ASSET_VERSIONを`sha256-d525397c78eb2a69`へ更新。最新headのCIで通常の構文・型・full check・browserを確認する。追加回帰のlocal Chrome成功は主張しない。
 - 両threadは修正commit、回帰、最新SHAレビューの根拠を返信してから解決する。旧headのレビューを新head完了として流用しない。
+
+## pollingをまたぐ明示focus保持の追加修正（2026-11-08T06:38:53+09:00）
+
+`a3c5e27`のDocs CI `42416124438` / job `128534504831` はfull checkまで成功、Legacyも共有読者を含め成功。Privacy CI `42416124500` / job `128534505350`はnative記録1、editor29、Office/runtime5、製品認証9、sidepanel3、caption6、記録保存連携まで成功した。cloud/追加品質は53件中52成功・1失敗。このGitHub CI内の閲覧専用Word/PPT実download・PDF previewは成功。lab単体も上記ok53で成功したが、sidepanelで別要素へ明示移動したfocusの保持が失敗したため、全体成功ではない。
+
+原因はbusy中の定期pollがstatusOverride未設定のidle表示で状態文を一瞬空にし、CSS :emptyによりfocus対象statusを非表示にしたこと。busy中の通常状態文は維持し、一覧/画像read障害や明示errorの案内は引き続き描画する。回帰は1100msの保留とstatus read回数で、実際のpollをまたいだことを確認してからfocus保持を検証する。期待値を緩めず、同じ原因を単なる再実行で通さない。guardをメモリ適用した既存記録品質unitは13/13・fail0/skip0・exit0。最新sourceの通常browser/全CIを別確認する。
+
+最新のCI・Review・thread状態はPR #288本文とIssue #70で対象headに対応づけて更新する。この報告書の各checkpointは記載したSHAの証跡であり、後続headの成功と同一視しない。

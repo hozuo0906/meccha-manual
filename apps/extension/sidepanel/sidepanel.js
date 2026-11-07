@@ -487,6 +487,8 @@ function renderStatus(state = {}, imageEntries = []) {
         : state.phase === "finish_failed" ? "ここまでの記録は残っています。終了をもう一度お試しください。"
           : "ここまでの記録は残っています。再開または終了を選んでください。";
   if (!state.events?.length) liveCurrentStatus.textContent = state.phase === "recording" ? "操作を待っています" : "手順はまだありません";
+  // Polling must not collapse the pending status or blur a user reading it.
+  if (operationInFlight && !statusOverride && !draftListUnavailable && !liveImagesUnavailable) return;
   if (statusOverride) status.textContent = statusOverride;
   else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に記録を再開できません。対象タブで再開するか、記録を終了して編集してください。";
