@@ -1,3 +1,15 @@
+## 2026-11-07 マイルストーン2: 製品認証の移植
+
+Status: Accepted
+
+確認日時: 2026-11-07T22:32:08+09:00（Asia/Tokyo）。ユーザーの指定はcommit／push／土台baseのDraft PRまでであり、merge／deploy／環境変更と他PRへのコメントは禁止。
+
+- branch `codex/auth-port-from-284-20261107`、base `codex/foundation-no-automask-20261107` / `6f54686`。#282→#284のnet差分を本体`f3f6b2e`へ回収済み。引き継いだ画像取得・編集競合のテスト同期修正は`547a495`。
+- `npm run check`全体がexit 0。製品認証unit151/151、Access identity17/17、Access fetch5/5、D1 HTTP39/39、bootstrap mutation1/1。認証・Office browserは14/14、既存Access保存runtimeは6/6成功。
+- 初回Access復帰runtimeだけはproxy tunnelでnavigationが失敗し未検証。実SSO／remote D1/R2／実Office描画は未実行。メール確認コードは未実装、ChatGPT既定OFF、email-only link禁止、自動mask廃止を維持する。
+- 詳細と実行境界は[認証移植検証報告書](auth-port-2026-11-07.md)。CI／最新headのCodex Review／Latest Review GateはDraft作成後の別確認であり、merge／release完了とは扱わない。Issue #70はclosed／not_plannedを確認し、今回更新しない。
+- 次の1マイルストーン候補は#280のUI改善のhunk単位回収。今回は未着手、自律監視なし。
+
 ## 2026-11-07 マイルストーン1: 自動置換なしの土台
 
 Status: Accepted
