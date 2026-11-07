@@ -491,7 +491,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272
 - Decision:
@@ -503,7 +504,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272 / PR #277
 - Decision:
@@ -576,3 +578,10 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Supersedes: 2026-10-03のOffice local-only no-login境界（履歴として保持）。
 - Boundary: 認証前のlocal draftとキャンセル復帰、共有リンク自動OFF、画像の明示置換・黒塗り、既存PDF認証境界を維持する。暗号proofや新DB／envは追加しない。
 - Evidence: `apps/extension/editor/handoff.js`、`apps/extension/editor/editor.js`、`apps/extension/background/cloud-claim.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、`tests/extension-cloud-claim.test.mjs`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/09-delivery/open-questions.md`。
+### 2026-11-07: 自動置換なしの土台回収と旧実装の除去
+
+- Status: Accepted
+- 回収元: main `3c62ca5`を起点に、PR #279を含むPR #282 head `573b921`の最終treeを回収する。PR #280／#284とmigration 0008は含めない。
+- ADR-0040を現行契約とし、製品appsから呼出しのない`capture/screenshot.js`の自動分類・overlay・HMAC割当と専用mask試験を除去する。caption・幾何allowlist、recorderのprivateValueContext、既存加工済み画像の互換表示、手動の黒塗りは保持する。
+- 旧alias名のstate/browser試験は自動alias boundaryを呼ばず、入力値非収集・自動経路不在を確認する現行回帰なので保持する。semantic browser試験はraw pixel保持とcaption保護へ同期する。
+- migrationは0006→0007を含む。remote適用・deploy・mergeは行わず、検証結果と未確認項目を新規Draft PRへ記録する。

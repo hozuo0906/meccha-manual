@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
-import { captureWithMaskBoundary, installSensitiveMasks, removeSensitiveMasks, verifySensitiveMasks } from "../apps/extension/capture/screenshot.js";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(read, accept, message) {
@@ -85,11 +84,10 @@ async function pixelCounts(page, dataUrl, boxes) {
   }, { dataUrl, boxes });
 }
 
-test("native capture protects long-label and span-aware table values in pixels and captions", { timeout: 90_000 }, async (t) => {
+test("native raw capture retains pixels while suppressing private table captions", { timeout: 90_000 }, async (t) => {
   const { worker, page, command, tabId } = await launchFixture(t);
   const ids = ["long-value", "column-a", "column-copy", "column-b", "span-name", "ambiguous", "explicit-value", "zero-first", "zero-second", "all-th-explicit", "all-th-implicit"];
   const before = await rectangles(page, ids);
-  const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const originals = await page.locator("body").textContent();
   const beforeImage = `data:image/png;base64,${(await page.screenshot()).toString("base64")}`;
   const unmasked = await pixelCounts(page, beforeImage, before);
@@ -113,25 +111,11 @@ test("native capture protects long-label and span-aware table values in pixels a
   assert.equal(event.label, "ボタン");
   assert.equal(event.labelSource, undefined);
   assert.ok(image?.dataUrl?.startsWith("data:image/"));
-  const replacements = image.privacyReview.replacements;
-  const find = (id) => replacements.find((item) => {
-    const rect = before[id];
-    return Math.abs(item.x * viewport.width - (rect.x + 2)) < 4 && Math.abs(item.y * viewport.height - (rect.y + 2)) < 4;
-  });
-  for (const id of ids) assert.ok(find(id), `${id}: stored image must record its replacement`);
-  assert.equal(find("column-a").kind, "name");
-  assert.equal(find("column-copy").id, find("column-a").id);
-  assert.notEqual(find("column-b").id, find("column-a").id);
-  assert.equal(find("span-name").kind, "name");
-  assert.equal(find("all-th-explicit").kind,"name");assert.equal(find("all-th-implicit").kind,"name");
-  assert.equal(find("ambiguous").kind, "unknown");
-  assert.equal(find("ambiguous").text, "サンプル値");
-  assert.equal(find("zero-first").id, find("zero-second").id);
-  const protectedPixels = await pixelCounts(page, image.dataUrl, before);
-  for (const id of ids) {
-    assert.equal(protectedPixels[id].original, 0, `${id}: native PNG must contain no original-colored canary glyphs`);
-    assert.ok(protectedPixels[id].ink > 10, `${id}: readable replacement must remain`);
-  }
+  assert.equal(image.privacyReview.reviewRequired, true);
+  assert.deepEqual(image.privacyReview.reasonCodes, ["manual_image_review"]);
+  assert.equal(image.privacyReview.replacements, undefined);
+  const rawPixels = await pixelCounts(page, image.dataUrl, before);
+  for (const id of ids) assert.ok(rawPixels[id].original > 15, `${id}: raw capture retains synthetic glyphs pending manual review`);
   assert.deepEqual(await rectangles(page, ids), before, "No table/definition-list layout changes are allowed");
   assert.equal(await page.locator("body").textContent(), originals, "Original DOM values stay unchanged");
   await delay(650);
@@ -152,8 +136,8 @@ test("native capture protects long-label and span-aware table values in pixels a
   for (const value of canaries) assert.equal(exported.includes(value), false, "Saved draft captions/metadata must exclude every original canary");
 });
 
-test("semantic label/table exhaustion and transient column changes fail closed", { timeout: 90_000 }, async (t) => {
-  const { page, inject } = await launchFixture(t);
+test("caption label and table budgets suppress private values", { timeout: 90_000 }, async (t) => {
+  const { page } = await launchFixture(t);
   // Exercise the actual recorder without recording images on every click.
   const recorder = await readFile(new URL("../apps/extension/content/recorder.js", import.meta.url), "utf8");
   const start = recorder.indexOf("  const semanticKind = ");
@@ -161,33 +145,6 @@ test("semantic label/table exhaustion and transient column changes fail closed",
   const contextFor = async (id) => page.evaluate(({ source, id }) => new Function("element", `${source}; return privateValueContext(element);`)(document.getElementById(id)), { source: recorder.slice(start, end), id });
   await page.evaluate(() => { document.querySelector("dt").textContent = "X".repeat(4097); });
   assert.equal(await contextFor("long-name"), true, "Label exhaustion must suppress original captions even with no marker in the prefix");
-  let result = await inject(installSensitiveMasks);
-  assert.equal(result.applied, true);
-  assert.ok(result.privacyReview.replacements.some((item) => item.kind === "unknown"));
-  assert.equal(await inject(verifySensitiveMasks, [result.token]), true);
-  await inject(removeSensitiveMasks);
-
   await page.evaluate(() => { document.body.innerHTML = '<table><thead><tr><th colspan="1000">氏名</th></tr></thead><tbody><tr><td colspan="1000" rowspan="5"><button id="budget">Synthetic Budget Person</button></td></tr><tr></tr><tr></tr><tr></tr><tr></tr></tbody></table>'; });
   assert.equal(await contextFor("budget"), true, "Table span budget exhaustion must suppress original captions");
-  result = await inject(installSensitiveMasks);
-  assert.equal(result.applied, false);
-  assert.equal(result.reason, "SCREENSHOT_BUDGET_EXCEEDED");
-  let captures = 0;
-  await assert.rejects(captureWithMaskBoundary({ applyMasks: () => inject(installSensitiveMasks), capture: async () => { captures += 1; return "data:image/png;base64,unused"; }, removeMasks: () => inject(removeSensitiveMasks) }), /SCREENSHOT_BUDGET_EXCEEDED/);
-  assert.equal(captures, 0, "Never capture unredacted pixels as a budget fallback");
-
-  await page.evaluate(() => { document.body.innerHTML = '<table><thead><tr><th id="header">区分</th></tr></thead><tbody><tr><td><button id="transient">Synthetic Transient Person</button></td></tr></tbody></table>'; });
-  result = await inject(installSensitiveMasks);
-  assert.equal(result.applied, true);
-  assert.equal(await inject(verifySensitiveMasks, [result.token]), true);
-  await page.evaluate(() => { const text = document.getElementById("header").firstChild; text.nodeValue = "氏名"; text.nodeValue = "区分"; });
-  assert.equal(await inject(verifySensitiveMasks, [result.token]), false, "A temporary private column heading must invalidate the capture");
-  await inject(removeSensitiveMasks);
-});
-
-test("caption and screenshot table classifiers remain identical", async () => {
-  const sources = await Promise.all(["../apps/extension/capture/screenshot.js", "../apps/extension/content/recorder.js"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
-  const body = (source) => source.slice(source.indexOf("    const semanticTableKinds = "), source.indexOf("      return kinds;", source.indexOf("    const semanticTableKinds = ")) + "      return kinds;\n    };".length);
-  assert.ok(body(sources[0]).includes("const semanticTableKinds"));
-  assert.equal(body(sources[0]), body(sources[1]));
 });

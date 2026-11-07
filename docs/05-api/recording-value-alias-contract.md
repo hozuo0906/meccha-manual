@@ -29,7 +29,9 @@ Status: Superseded
 
 HMAC計算のawait中は、documentと検査可能なshadow rootのmutationを監視する。入力、変更、スクロール、resize、pagehideも監視し、処理完了時は候補の接続と値の完全一致を再確認する。inputイベントやMutationObserverを発生させないvalue property更新も拒否する。既存のpaint後・capture前後の候補集合、幾何、描画、不透明性の検証は維持する。
 
-## 検証
+## 旧契約の検証記録（現行の合格条件ではない）
+
+以下は旧版での検証責務の履歴である。同名の現行テストは自動aliasの非実行と入力値非収集を確認し、旧boundaryは再実行しない。
 
 - tests/extension-record-alias-state.test.mjs: service worker再生成時の保持、終了時の破棄、別記録の分離、append-only・重複・容量検証、公開応答のallowlist、storage.session保存失敗
 - tests/extension-record-alias-browser.test.mjs: 実MV3と実captureVisibleTabを使い、異なる2documentと出現順序の逆転で同一値のalias一致、異値の分離、元フォーム値・イベント不変、draftとlocal/statusから原文・鍵・digestが除外されること、新記録のnamespace変更、非同期計算中のproperty変更拒否を確認する

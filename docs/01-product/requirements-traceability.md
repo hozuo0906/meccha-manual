@@ -82,7 +82,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。安全な短いcaptionを採用した拡張機能内eventだけ`labelSource: "caption"`を付加し、未指定値は後方互換のsemantic fallbackとして扱う。この補助fieldはguest capture APIへ送信しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
-- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。PII overlay境界は`tests/extension-pii-mask-browser.test.mjs`で、64件超のPII候補拒否、64件超のPII候補なしclass変更の許可、4096 node走査上限の成功／超過拒否、一時PII変更の拒否を実ブラウザで検証する。
+- 新規画像はrawのまま端末に保持し、手動確認前の出力・cloud claimを拒否する。`tests/extension-native-recording-browser.test.mjs`、`tests/extension-record-alias-state.test.mjs`、`tests/extension-semantic-context-browser.test.mjs`で自動置換の非実行、caption非収集、手動確認境界を検証する。旧自動overlay試験はADR-0040により廃止した。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 - 通常の`capture:event`送信中は離脱警告を出さず、送信失敗が判明して保存成功を確認できないeventとretain中の未保存batchだけをbeforeunload保護対象とする。再送成功まで失敗保護を保持し、送信世代を照合して遅着ACKによる新しいeventの消去を防ぐ。
  - 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。現在地表示は保存済み下書き一覧まで含むサイドパネル全体で固定し、終了時はeditorが下書き取得と初回renderを完了した`editor:ready`を確認できた場合だけサイドパネルを閉じる。結果不明・復元待ち・editorの下書き取得／render失敗・readyタイムアウトでは復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。
@@ -142,9 +142,9 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 
 ## 2026-10-01 画像中心編集の追跡
 
-- DEC-090: 通常入力欄の架空値表示、content-visibility:hidden除外、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gate
-- 実装: apps/extension/capture/screenshot.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
-- 検査: tests/extension-pii-mask-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
+- DEC-090の自動架空値表示はADR-0040により失効。現行はraw撮影と明示確認、caption保護、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gateを維持する。
+- 実装: apps/extension/capture/privacy.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
+- 検査: tests/extension-native-recording-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
 - raw captureは同じ画像bytesを端末draftへ保持し、`manual_image_review`の明示確認まで`protected`としてOffice/cloudを拒否する。確認後の同一bytes出力と未確認拒否は、`extension-finish-recovery.test.mjs`、`extension-cloud-claim.test.mjs`、`extension-capture-completion-browser.test.mjs`で追跡する。
 - 実画面受入: docs/02-ux/manual-editor-review-rubric.md。各独立評価者80点以上と安全条件の両方が必要。未実行は合格扱いにしない
 

@@ -4,12 +4,6 @@ import test from "node:test";
 import vm from "node:vm";
 import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js";
 import { MAX_RECOVERY_EVENTS, mergeRecoveryEvents, nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
-import {
-  captureWithMaskBoundary,
-  installSensitiveMasks,
-  removeSensitiveMasks,
-  verifySensitiveMasks
-} from "../apps/extension/capture/screenshot.js";
 import { addMask, addStep } from "../apps/extension/editor/draft-model.js";
 
 test("event merge preserves all four scroll directions", () => {
@@ -476,103 +470,4 @@ test("recorder drains pending click/navigation operations and coalesces duplicat
   assert.match(source, /if \(pendingNavigation\) pendingEvents\.push\(pendingNavigation\)/);
   assert.match(source, /Math\.max\(Math\.abs\(deltaX\), Math\.abs\(deltaY\)\)/);
   assert.match(source, /deltaX < 0 \? "left" : "right"/);
-});
-
-test("screenshot privacy disables transitions, verifies document identity, and restores inline style", async () => {
-  const originalDocument = globalThis.document;
-  const originalGetComputedStyle = globalThis.getComputedStyle;
-  const originalMasks = globalThis.__mecchaManualScreenshotMasks;
-  const originalChrome = globalThis.chrome;
-  const originalHTMLElement = globalThis.HTMLElement;
-
-  class FakeStyle {
-    constructor() {
-      this.values = new Map([["visibility", "visible"], ["transition", "visibility 2s"], ["animation", "pulse 1s"]]);
-      this.priorities = new Map();
-    }
-    getPropertyValue(name) { return this.values.get(name) || ""; }
-    getPropertyPriority(name) { return this.priorities.get(name) || ""; }
-    setProperty(name, value, priority = "") { this.values.set(name, value); this.priorities.set(name, priority); }
-    removeProperty(name) { this.values.delete(name); this.priorities.delete(name); }
-  }
-
-  const style = new FakeStyle();
-  const element = {
-    localName: "private-input",
-    style,
-    shadowRoot: null,
-    matches: () => false,
-    getBoundingClientRect: () => ({ left: 1, top: 1, width: 180, height: 32 })
-  };
-  let backdropStyle;
-  const closedRoot = {
-    host: element,
-    append(styleElement) { backdropStyle = styleElement; },
-    querySelectorAll() { return []; }
-  };
-  const root = {
-    createElement() {
-      return backdropStyle = {
-        textContent: "",
-        isConnected: true,
-        getRootNode: () => closedRoot,
-        remove() { this.isConnected = false; }
-      };
-    },
-    querySelectorAll(selector) { return selector === "*" ? [element] : []; }
-  };
-
-  try {
-    globalThis.HTMLElement = Object;
-    globalThis.chrome = { dom: { openOrClosedShadowRoot: () => closedRoot } };
-    globalThis.document = root;
-    globalThis.getComputedStyle = (target) => ({
-      visibility: target.style.getPropertyValue("visibility") || "visible",
-      display: target.style.getPropertyValue("display") || "block",
-      opacity: target.style.getPropertyValue("opacity") || "1"
-    });
-    delete globalThis.__mecchaManualScreenshotMasks;
-    const result = await installSensitiveMasks();
-    assert.equal(result.applied, true);
-    assert.equal(typeof result.token, "string");
-    assert.equal(style.getPropertyValue("transition"), "none");
-    assert.equal(style.getPropertyValue("animation"), "none");
-    // Opacity masks preserve focus; visibility:hidden would blur a live input.
-    assert.equal(style.getPropertyValue("visibility"), "visible");
-    assert.equal(style.getPropertyValue("opacity"), "0");
-    assert.equal(verifySensitiveMasks(result.token), true);
-    assert.equal(style.getPropertyValue("display"), "");
-    // Closed-shadow descendants are masked individually so top-layer pixels remain hidden.
-    style.setProperty("opacity", "1");
-    assert.equal(verifySensitiveMasks(result.token), false);
-    style.setProperty("opacity", "0");
-    assert.equal(verifySensitiveMasks("wrong-token"), false);
-    removeSensitiveMasks();
-    assert.equal(style.getPropertyValue("visibility"), "visible");
-    assert.equal(style.getPropertyValue("transition"), "visibility 2s");
-    assert.equal(style.getPropertyValue("animation"), "pulse 1s");
-    assert.equal(style.getPropertyValue("opacity"), "");
-    assert.equal(style.getPropertyValue("display"), "");
-  } finally {
-    if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;
-    if (originalHTMLElement === undefined) delete globalThis.HTMLElement; else globalThis.HTMLElement = originalHTMLElement;
-    if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
-    if (originalGetComputedStyle === undefined) delete globalThis.getComputedStyle; else globalThis.getComputedStyle = originalGetComputedStyle;
-    if (originalMasks === undefined) delete globalThis.__mecchaManualScreenshotMasks; else globalThis.__mecchaManualScreenshotMasks = originalMasks;
-  }
-});
-
-test("captured image is discarded when mask identity is invalidated by document replacement", async () => {
-  let removed = false;
-  await assert.rejects(captureWithMaskBoundary({
-    applyMasks: async () => ({ applied: true, token: "document-1" }),
-    capture: async () => "data:image/jpeg;base64,AA",
-    verifyMasks: async () => false,
-    removeMasks: async () => { removed = true; }
-  }), /SCREENSHOT_MASK_INVALIDATED/);
-  assert.equal(removed, true);
-});
-
-test("missing privileged shadow inspection fails closed before screenshot capture", async () => {
-  assert.deepEqual(await installSensitiveMasks(), { applied: false });
 });
