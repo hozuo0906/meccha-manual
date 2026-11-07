@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-確認日時: 2026-11-08T06:07:55+09:00（Asia/Tokyo）。実行主体は本セッションのみ。今回の到達点は指定baseへのDraft保存であり、merge・deploy・商用公開ではない。
+確認日時: 2026-11-08T06:20:33+09:00（Asia/Tokyo）。実行主体は本セッションのみ。今回の到達点は指定baseへのDraft保存であり、merge・deploy・商用公開ではない。
 
 ## 対象と回収範囲
 
@@ -60,3 +60,9 @@ repo内の最終報告書と引き継ぎはremote版を正とする。local報�
 土台からのP2持越し（期限後Office形式再選択、stale cloudRef復旧UX、長大XMLメモリ）は本回収の新規欠陥と混同しない。担当は次回親PM、再triage期限2026-11-14。今回のUI回収で解消したと主張しない。
 
 次の1マイルストーンは、書込み可能な環境または新DraftのCIで最新headのfull check・品質lab・sidepanel/editor/cloudと認証/Office回帰を完走し、最新SHAのReviewと未解決threadを照合すること。継続監視やセッション終了後の開発実行は登録しない。
+
+## CIの共有読者復帰位置の修正（2026-11-08T06:20:33+09:00）
+
+`7161418`のDocs CI `42415111376` / job `128531391241`でnpm ci・diff・npm run check全体成功を実ログ確認。Legacy CI `42415111259` / job `128531390893`は共有読者の1366/1024/390pxの復帰見出しgeometry 3件で失敗した。これはlocal環境失敗とは別の実表示欠陥である。
+
+共有権限の再検証後にrenderで復帰scrollを決め、その後に成功messageを非表示相当へ切り替えたため、message分の高さだけ見出しが固定navigationへ潜る。成功messageとauth領域を確定してからrender・位置復元する順序へ修正した。token/grant/期限・認可の判定と通信は変更しない。既存3幅のgeometry assertionを弱めず回帰として使い、最新headのCIで確認する。旧headの成功を新headへ流用しない。

@@ -346,7 +346,8 @@ const SHARE_JS = `(() => {
       const data = await request('/s/api/content', { method: 'POST', headers: { 'X-Share-Grant': grant }, body: '{}', signal: accessController.signal });
       if (epoch !== accessEpoch || document.visibilityState === 'hidden') return;
       if (!armExpiry(data?.expiresAt)) return;
-      render(data); setState('ready'); auth.hidden = true; setMessage('共有された手順書を表示しています。');
+      // Settle the final message height before restoring the selected heading.
+      auth.hidden = true; setMessage('共有された手順書を表示しています。'); render(data); setState('ready');
     } catch (failure) {
       if (epoch !== accessEpoch || failure.name === 'AbortError') return;
       if (deadline <= Date.now()) { endAccess(true); return; }
