@@ -811,3 +811,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Reason: 初回利用者が保存先の意味を理解できるようにし、通常画面の全体リネームや説明の反復を避ける。Issue #232の一般的な内部語彙非露出方針のうち、ワークスペースを隠す部分だけを本決定で具体化する。revision／entitlement等の内部用語の非露出は維持する。
 - Boundary: 手順ステップ・保存確認サマリー・通常画面の文言は変更しない。共通資産hashの版定数だけを実内容へ同期し、API・イベント・認証・DB・拡張・brand-siteは変更しない。
 - Verification: onboarding unitで既定HTML1回・Office差し替え・通常asset非露出、既存browser回帰で保存・共有復旧・Word・PowerPoint表示時の1回とサマリー非露出を確認する。
+
+## DEC-111: 拡張なしの受入用サンプルはブラウザ内の閲覧に限定する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: 主目的をMuseのChrome拡張なしでのWebエディタ受入テストに限定し、`/manuals/sample`から認証不要で合成fixtureを通常エディタの`detailData`／`editorState`へ投入する。段階Aのmode権限は編集・write・出力を許可しない。タイトル・手順文・順序・削除・画像差し替え・保存・共有・PDF／Office出力を制限し、サンプル明示をtoolbarと画像拡大内に出す。
+- Boundary: 固定fixtureと同梱PNGの表示だけでブラウザ内完結とし、D1/R2にguest content、workspace、revision、assetを作らないためADR-0032の境界内である。ADR-0032本文は変更しない。新規API、migration、analytics、外部AI、自動置換を追加しない。API共通呼出しとworkspace URL構築をmodeで拒否し、個別の編集・保存・共有・出力入口にもgateを置く。通常モードの認証・認可は維持する。
+- Entry: ログイン画面と手順書0件の空状態にだけ「サンプルを見る」を添える。空状態の現行cloud版と既存app shell版を揃え、検索0件・取得失敗・既存手順書のある一覧やLPには置かない。
+- Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
+- Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。

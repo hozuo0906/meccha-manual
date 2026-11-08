@@ -1,3 +1,4 @@
+import { MANUAL_SAMPLE_IMAGE_PATHS } from "./manual-sample-assets.ts";
 import { EDITOR_TOOLS_JS } from "./editor-tools-assets.ts";
 import { APP_CSS, APP_HTML, APP_JS } from "./app-assets.ts";
 import { APP_ASSET_VERSION } from "./app-assets.ts";
@@ -2526,6 +2527,22 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   const hasCurrentAssetVersion = url.searchParams.get("v") === APP_ASSET_VERSION;
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
+
+  // Exact public sample routes never resolve identity, workspace, D1 or R2.
+  if (request.method === "GET" && url.pathname === "/manuals/sample") {
+    return htmlResponse(renderCloudManualsPage({ mode: "sample", assetVersion: APP_ASSET_VERSION }));
+  }
+  if (request.method === "GET" && url.pathname === "/assets/manual-sample.css") {
+    return assetResponse(CLOUD_MANUAL_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
+  }
+  if (request.method === "GET" && url.pathname === "/assets/manual-sample.js") {
+    return assetResponse(CLOUD_MANUAL_JS, "application/javascript; charset=utf-8", hasCurrentAssetVersion);
+  }
+  const sampleImagePath = MANUAL_SAMPLE_IMAGE_PATHS[url.pathname];
+  if (request.method === "GET" && sampleImagePath) {
+    if (!env.ASSETS) return new Response("Not Found", { status: 404 });
+    return env.ASSETS.fetch(new Request(new URL(sampleImagePath, request.url), { method: "GET", headers: request.headers }));
+  }
 
   const brandAsset = await brandAssetResponse(request, env);
   if (brandAsset) return brandAsset;

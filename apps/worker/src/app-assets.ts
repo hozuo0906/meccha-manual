@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-daea9b8e6d875f8a";
+export const APP_ASSET_VERSION = "sha256-fde69b674c613064";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1739,6 +1739,7 @@ function renderLogin(message = "") {
           '<h2>ログイン</h2>' +
           '<p id="login-heading">' + (productOnlyLogin ? productAuthInstruction(configuredAuthProviders?.providers) : '登録済みのメールアドレスとパスワードを入力してください。') + '</p>' +
         '</div>' +
+        '<p><a href="/manuals/sample">サンプルを見る</a></p>' +
         '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite">' + initialProviderLinks + '</div>' +
         '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
         '<form id="login-form" class="form" novalidate' + (productOnlyLogin ? ' hidden aria-hidden="true"' : '') + '>' +
@@ -2682,7 +2683,7 @@ function manualListHtml(currentWorkspace) {
   } else if (state.status === "error") {
     body = '<div class="empty"><p>手順書一覧を表示できませんでした。もう一度読み込んでください。</p><button id="manuals-retry-button" class="secondary-button" type="button">再読み込み</button></div>';
   } else if (state.items.length === 0) {
-    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '</div>';
+    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '<p><a href="/manuals/sample">サンプルを見る</a></p></div>';
   } else {
     body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
       '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +

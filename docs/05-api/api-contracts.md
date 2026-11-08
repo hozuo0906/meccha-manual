@@ -2,6 +2,12 @@
 
 Status: Accepted
 
+## 公開の静的サンプル（段階A、DEC-111）
+
+`GET /manuals/sample`と専用JS／CSS（`/assets/manual-sample.js`、`/assets/manual-sample.css`）は認証不要の静的資産とする。画像配信は`GET /manuals/sample/images/{name}.png`の1経路で、`list`／`form`／`complete`だけを同梱PNGへ対応づけ、未知名・非GET・資産binding欠落は404とする。fixtureの画像にdata URLや外部画像を使わない。
+
+sample modeは通常エディタの編集状態へ固定fixtureを投入するが、全API呼出しとworkspace URL構築をmodeで拒否し、`/api/`へのPOST／PATCH／PUT／DELETEは0回とする。identity／workspace解決、D1/R2、guest content永続化、claim、Product Eventを使用しない。既存`/manuals`・業務APIの認証・認可境界は維持する。新規API・migrationはない。
+
 ### Issue #283 認証資格情報の優先順位と OAuth start 一時データ整理（2026-10-04）
 
 業務 route の選択は環境設定の fallback より request credential を先に評価する。product cookie は常に product D1 route を選び、存在するだけでも不正値を Access／Supabase へ fallback しない。Access assertion は Access の issuer・audience・JWKS、human actor、active identity、workspace／role 認可を通す。product cookie がなく、Supabase が設定済みの legacy access／refresh cookie がある場合は、Access と product provider が設定済みでも legacy Supabase route を選ぶ。Supabase 未設定の legacy cookie は認証根拠として扱わず、設定済み product provider または Access の fail-closed 応答へ進む。

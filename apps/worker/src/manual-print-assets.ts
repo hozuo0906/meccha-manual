@@ -3,6 +3,7 @@ export const MANUAL_PRINT_CSS = `.manual-print-preview{position:fixed;inset:0;z-
 export const MANUAL_PRINT_JS = `
   const printBlobDataUrl=blob=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("画像を読み込めませんでした。"));reader.readAsDataURL(blob);});
   async function openPrintPreview(trigger) {
+    if (!mode.canOutput) return;
     if(dirty||saveInFlight||activeCloudImageEditor||cloudImageBusy||pendingImageJobs.size){setMessage("変更を保存してから、PDF・印刷を開いてください。","warning");return;}
     const snapshot=clone(detailData);if(!snapshot?.draft)return;
     const preview=make("section","","manual-print-preview");preview.setAttribute("aria-label","PDF・印刷プレビュー");const toolbar=make("div","","manual-print-toolbar"),status=make("p","保存済みの手順書を読み込んでいます…"),close=make("button","編集に戻る","secondary"),print=make("button","PDF / 印刷","primary");close.type=print.type="button";print.disabled=true;status.setAttribute("role","status");toolbar.append(status,close,print);preview.append(toolbar);document.body.append(preview);let closed=false;const urls=[];

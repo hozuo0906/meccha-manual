@@ -1,3 +1,13 @@
+## 2026-11-08 拡張なしの受入用サンプル（段階A）
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T18:41:05+09:00（Asia/Tokyo）。branch `codex/sample-mode-stage-a-20261108`、base／着手HEAD `7cb76e4450105994da7dd1f7b8f3ff0f4b166555`。前任の未commit実装を確認・継続し、今回はユーザー指定により実装・検証・文書同期・ローカルcommitまで。push／PR作成は監督側が行うため未実施、Issue #70はread-onlyで実取得し書込みなし。
+
+- `/manuals/sample`から認証・拡張不要で架空の備品貸出申請6手順／合成PNG3枚を通常エディタの編集状態へ投入する。sample modeで編集・API write・出力を遮断し、toolbar／画像拡大内でサンプルを明示。D1/R2／guest content／偽workspaceなし。入口はログインと0件空状態だけ、LP・ADR-0032本文・migration・拡張製品コードは変更しない。DEC-111・UX・API・traceability・品質台帳を同期した。
+- 全体`npm run check`は実行`11821`、exit 0、56段階完走、Node test summary集計779/779・fail 0／skip 0。sample unit 3件を全体checkへ追加。10ファイル直列回帰`56504`は50/50、既存作成編集E2E`70955`は28/28、双方exit 0。1366/1024/390pxで全手順・画像・keyboard・API write 0回、既存保護routeの認証拒否を確認した。asset hash `sha256-fde69b674c613064`。先行失敗と実行環境の詳細は[実施報告書](sample-mode-stage-a-2026-11-08.md)を正とする。
+- 次の1マイルストーンは監督側でローカルcommitを確認してpush／PRを行い、最新SHAのCI・正式Codex Review・threadとMuse本人の拡張なし受入を照合すること。実SSO、remote D1/R2、Access policy、deploy、人のscreen readerは未実施。既存と今回の未追跡artifactは保持し、成果物commitから除外する。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 初回導線のワークスペース説明（#232／232-4）
 
 Status: Accepted
