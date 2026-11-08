@@ -77,3 +77,34 @@ Phase 2 E2E全件は未実行（変更対象の既存1件を選択実行）。�
 最終文書確認日時: 2026-11-08T14:46:45+09:00（Asia/Tokyo）。
 
 表示確認: 合成タイトル・共有目的・更新・ロゴを表示したPC／狭幅のスクリーンショットを目視確認した。ブランド画像はこの一時サーバーでは404とし、既存の画像非表示fallbackを利用した。表示証跡は合成データのみの一時成果物で、配信の成功証跡にはしない。
+
+## PR #289 Codex Review P2: 確認後の転送snapshot再準備
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T15:00:50+09:00（Asia/Tokyo）。対象PR #289（関連Issue #272／#232）、branch `codex/acceptance-fixes-20261108`、着手HEAD／レビュー対象 `ee62714ceaa65b1ad0764dd54677d4be569ac651`。修正commit: `909baaa0d085006b50261203db649e47822b7969`（`fix: refresh claim snapshot after save confirmation`）。本節の報告追記は別commitとし、修正と一緒に同branchへ保存する。
+
+### 修正内容と自己レビュー
+
+- P2は妥当。確認画面で10分を超えて待つと、15分のhandoff TTL内でも画像／ロゴ用snapshotが失効する経路を確認した。
+- `confirmSave`がtrueを返し、既存の`ensureFinalizeWriteAllowed`検査を通過した後、intent作成・転送前に同じhandoffで`handoff.prepare`を再実行する。確認表示時のfingerprintとの不一致では、既存の日本語文で停止し、intent作成・asset／logo転送・finalizeを始めない。一致時は再準備結果のdraft／assets／cloudRef／brandingを正としてmanual構築から完了通知まで進める。
+- 取消、15分TTL切れ時の既存catchと期限切れ案内、completed／completion-pending／`reconcileFinalize`で確定する結果回収の順序を保持した。新しい内容の送信経路だけを再準備対象とする。認可、元のTTL、原本保持、metadata以外のWeb storage非保存を維持し、ログやanalyticsへの情報追加はない。
+- `APP_ASSET_VERSION`のみ既存の内容hash規約に従って`sha256-0eb68303cff76742`へ更新した。拡張製品コード、ハンドオフschema、API endpoint、D1、依存、環境変数の追加・変更はない。既存契約を満たす不具合修正として、関係するUX／coordinator契約／トレーサビリティを局所更新した。
+
+### 検証
+
+環境: Node v24.22.1、既設Playwright Chromium 1248、合成fixture・ローカルHTTP。browserは既存の`MECCHA_TEST_CHROME_PATH`で実行バイナリを指定した。実行IDはexec session ID。
+
+| 検査 | 結果 | 実行ID |
+|---|---|---|
+| 対象回帰: `node --experimental-strip-types --test tests/worker-runtime.test.mjs tests/onboarding-ui.test.mjs tests/onboarding-recovery-actions.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs` | 108/108、fail 0、skip 0、exit 0 | 48793 |
+| 上記成功後の全体`npm run check` | Node test summary集計773/773、fail 0、skip 0、最終secret／encodingまで成功、exit 0 | 97526 |
+| `git diff --check`／`git diff --cached --check` | 成功 | — |
+
+回帰では、(a) 実拡張handlerの旧ロゴsnapshotが11分後に`DRAFT_CHANGED`で拒否されることを先に確認し、利用者の確認後の再準備でロゴupload・保存が成功すること、(b) browser時計を11分進めても画像upload・保存が成功すること、(c) 確認待ち中に再準備のfingerprintが変わった場合はintent／upload／finalize 0件、asset／logo転送開始0件で下書きの変更を日本語表示することを確認した。15分TTL切れ時のprepareは初回1回だけ、GETによる確定結果回収はprepare 0回という境界も検証した。
+
+先行失敗は最終成功と区別する。初回対象実行91866は既定Chromium 1234の欠落で21/37成功・16失敗となり、既設1248を指定した78401では37/37成功した。初回全体check 41781はasset版定数の不一致でWorker 70/71となり、版定数を更新した。次の対象実行39892は107/108で、既存fixtureの100回setImmediate待機が確認画面の非同期準備より先に尽きる競合を検出した。assertionを保持し、実時間5秒上限の条件待機へ直して48793で108/108を確認した。制限内実行が返したファイル単位の1件表示はassertion件数の証拠に採用していない。
+
+### 未実行事項と次の1マイルストーン
+
+今回の未実行事項: 最新SHAのGitHub CI確認、正式Codex Review、review threadへの返信・解決、PR／Issue更新、merge、配信、Phase 2 E2E全件、実provider SSO、remote D1/R2、実利用受入。PR／Issueへの書込みは禁止のためIssue #70も更新しない。実環境や利用者による受入の成功とは扱わない。次の1マイルストーンは監督Museによるpush済みSHAでのCI・正式再レビュー・当該thread対応と受入判定。今回の担当はcommit／pushとremote一致確認後に終了し、自律監視や終了後の継続実行は登録しない。
