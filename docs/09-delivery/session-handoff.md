@@ -1,3 +1,18 @@
+## 2026-11-08 Teamの管理責任者移管（DEC-113）
+
+Status: Accepted
+
+確認日時: 2026-11-08T20:47:29+09:00（Asia/Tokyo）。対象FR-003、branch `codex/owner-transfer-20261108`、base main／origin/main `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。開始時clean・base一致を確認し、既存の指定branchを使用した。対象専用Issue／PRは今回作成しない。Issue #70はread-onlyで実取得し、ユーザー指定の「作業ツリーとcommitまで」に従い書込み・push・mergeを行わない。
+
+- active owner本人から同じstandard workspaceのactive非ownerへの移管を実装。対象をowner、元ownerをadminにする。Personal・自己・既存owner・removed/invited・disabled・越境・旧owner再移管を拒否する。メール送信なし。
+- migration 0009のpermit発行→昇格→降格→既存`member.updated`監査→permit削除を1回のD1 batchにまとめ、5段階すべての直接変更件数1件をSQL内assertionで検査する。0件・途中失敗は全体rollback。有効permitなしraw UPDATE昇格と既存last-owner保護を維持する。DEC-113（DEC-112は並行PR #296使用済み）、D1/API・AC・FR-003・品質台帳を同期した。
+- UIは対象と自身admin降格のconfirm、取消、保存中排他、成功／競合／結果不明時の一覧照合を既存の認証世代管理へ接続した。asset hashは`sha256-0b329807fecbc143`。
+- 全体`npm run check`実行69446はexit 0、56段階を最終secret／encodingまで完走。repository 48/48、HTTP 19/19、UI unit 130/130、実Miniflare D1 binding 3/3（90232）、合成product認証browser 10/10（16144）、いずれもfail 0／skip 0。資産hash契約を含むWorker runtimeとtypecheck、D1境界checker、diff確認も成功。先行sandbox失敗、checkerの旧前提、browser fixture修正は[実施報告書](owner-transfer-2026-11-08.md)へ分けて記録した。
+- API・D1・契約commitは`ecfe6f6bd10fc31aa356d73e187cc62d2206e8a8`、UI／回帰／本checkpointは後続の同一commitに保存する。最終SHA・cleanはcommit後に取得して完了報告へ添える。local保存のみで、remote SHA一致・GitHub CI・正式Codex Reviewは未確認。remote D1の0009適用、実SSO、staging／production反映、商用release受入は未実施。
+- 次の1マイルストーンはMuseによる最終local SHAの検品と、別途指示によるGitHub保存・最新SHAのCI／正式Review／thread照合、remote migrationの受入。実装担当は検証・commit後に終了し、自律監視・終了後の継続実行は登録しない。
+
+---
+
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 
 Status: Accepted
