@@ -8,7 +8,7 @@ import { MANUAL_SAMPLE_DETAIL, MANUAL_SAMPLE_IMAGE_PATHS } from "../apps/worker/
 
 const origin = "https://meccha-manual-staging.meccha-iiyatsu.com";
 
-test("unauthenticated sample renders every step and image; all viewing and attempted editing actions send zero API writes at three widths", { timeout: 120_000 }, async () => {
+test("unauthenticated sample edits only in memory, resets fixture and sends zero API requests at three widths", { timeout: 120_000 }, async () => {
   const browser = await chromium.launch({ channel: "chromium", headless: true });
   const storageCalls = [];
   const deny = () => { storageCalls.push("business storage"); throw new Error("unexpected business storage access"); };
@@ -38,12 +38,14 @@ test("unauthenticated sample renders every step and image; all viewing and attem
       await page.route(origin + "/**", async (route) => {
         const request = route.request();
         const result = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), ...(request.postDataBuffer() ? { body: request.postDataBuffer() } : {}) }), env, {});
-        await route.fulfill({ status: result.status, headers: Object.fromEntries(result.headers), body: Buffer.from(await result.arrayBuffer()) });
+        await route.fulfill({ status: result.status, headers: Object.fromEntries(result.headers), body: new URL(request.url()).pathname === "/assets/manual-sample.js"
+          ? (await result.text()).replace('  const librarySettings=', '  globalThis.sampleSnapshot = () => JSON.parse(JSON.stringify({ editorState, dirty, undo: undoStack.length, redo: redoStack.length }));\n  const librarySettings=')
+          : Buffer.from(await result.arrayBuffer()) });
       });
       const response = await page.goto(origin + "/manuals/sample?shareManualId=ignored");
       assert.equal(response.status(), 200);
       const badge = page.locator(".cloud-save-state");
-      await badge.filter({ hasText: "サンプル・閲覧のみ" }).waitFor();
+      await badge.filter({ hasText: "サンプル・保存されません" }).waitFor();
       assert.equal(await page.locator("#cloud-manuals").getAttribute("data-workspace-id"), "");
       assert.equal(await page.getByLabel("タイトル", { exact: true }).inputValue(), MANUAL_SAMPLE_DETAIL.draft.title);
       const openSteps = async () => { if (width <= 760) await page.locator(".manual-mobile-actions").getByRole("button", { name: "手順", exact: true }).click(); };
@@ -54,7 +56,7 @@ test("unauthenticated sample renders every step and image; all viewing and attem
         await page.locator(`.manual-step-nav button[data-step-key="${step.clientKey}"]`).click();
         assert.equal(await page.getByLabel(`手順 ${index + 1}のタイトル`, { exact: true }).inputValue(), step.title);
         assert.equal(await page.getByLabel(`手順 ${index + 1}の説明`, { exact: true }).inputValue(), step.instruction);
-        assert.equal(await page.getByLabel(`手順 ${index + 1}の説明`, { exact: true }).isDisabled(), true);
+        assert.equal(await page.getByLabel(`手順 ${index + 1}の説明`, { exact: true }).isDisabled(), false);
         await page.waitForFunction(() => { const image = document.querySelector(".cloud-step-image"); return image?.complete && image.naturalWidth === 800 && !image.hidden; });
         assert.equal(new URL(await page.locator(".cloud-step-image").getAttribute("src"), origin).pathname, step.assetUrl);
         assert.equal(await badge.isVisible(), true);
@@ -69,46 +71,144 @@ test("unauthenticated sample renders every step and image; all viewing and attem
       }
       await page.getByText("手順書の説明", { exact: true }).click();
       assert.equal(await page.getByLabel("説明", { exact: true }).inputValue(), MANUAL_SAMPLE_DETAIL.draft.description);
-      assert.equal(await page.getByLabel("説明", { exact: true }).isDisabled(), true);
+      assert.equal(await page.getByLabel("説明", { exact: true }).isDisabled(), false);
+      const state = () => page.evaluate(() => globalThis.sampleSnapshot());
+      const keys = () => page.locator(".manual-step-nav ol button").evaluateAll(buttons => buttons.map(button => button.dataset.stepKey));
+      const closePanels = async () => { if (await page.locator(".manual-panel-backdrop:visible").count()) await page.keyboard.press("Escape"); };
+      const history = async (name) => { await openTools(); await page.getByRole("button", { name, exact: true }).click(); };
+      await page.getByLabel("タイトル", { exact: true }).fill("編集したサンプル");
+      await page.getByLabel("説明", { exact: true }).fill("説明を編集しました");
+      assert.equal((await state()).editorState.title, "編集したサンプル");
+      assert.equal((await state()).editorState.description, "説明を編集しました");
+      await history("取り消す");
+      assert.equal((await state()).editorState.description, MANUAL_SAMPLE_DETAIL.draft.description);
+      await history("やり直す");
+      await closePanels();
+      await page.getByText("手順書の説明", { exact: true }).click();
+      assert.equal(await page.getByLabel("説明", { exact: true }).inputValue(), "説明を編集しました");
+      await page.getByText("手順書の説明", { exact: true }).click();
+
       await openSteps();
-      const first = page.locator(".manual-step-nav ol button").first();
-      await first.focus();
-      await page.keyboard.press("ArrowUp");
+      await page.locator('.manual-step-nav button[data-step-key="sample-step-1"]').click();
+      await openSteps();
+      await page.locator('.manual-step-nav button[data-step-key="sample-step-1"]').focus();
       await page.keyboard.press("ArrowDown");
+      assert.equal(await page.locator('.manual-step-nav [aria-current="step"]').getAttribute("data-step-key"), "sample-step-2");
+      await page.keyboard.press("ArrowUp");
+      assert.equal(await page.locator('.manual-step-nav [aria-current="step"]').getAttribute("data-step-key"), "sample-step-1");
+      await closePanels();
+      await page.getByLabel("手順 1のタイトル", { exact: true }).fill("編集した手順");
+      await page.getByLabel("手順 1の説明", { exact: true }).fill("操作を編集しました");
+      assert.equal((await state()).editorState.steps[0].title, "編集した手順");
+      assert.equal((await state()).editorState.steps[0].instruction, "操作を編集しました");
+      await page.getByRole("button", { name: "下へ", exact: true }).click();
+      assert.equal((await keys())[1], "sample-step-1");
+      assert.equal(await page.getByLabel("手順 2の説明", { exact: true }).inputValue(), "操作を編集しました");
+      await page.getByRole("button", { name: "上へ", exact: true }).click();
+      await openSteps();
+      const first = page.locator('.manual-step-nav button[data-step-key="sample-step-1"]');
+      await first.focus();
       await page.keyboard.press("Alt+ArrowDown");
-      assert.deepEqual(await page.locator(".manual-step-nav ol button").evaluateAll((buttons) => buttons.map((button) => button.dataset.stepKey)), MANUAL_SAMPLE_DETAIL.steps.map((step) => step.clientKey));
-      if (width <= 760) {
-        await page.keyboard.press("Escape");
-        assert.equal(await page.locator(".manual-mobile-actions").getByRole("button", { name: "手順", exact: true }).evaluate((button) => document.activeElement === button), true);
-        await openSteps();
-        await page.locator(".manual-panel-backdrop").click({ position: { x: width - 2, y: 10 } });
+      assert.equal((await state()).editorState.steps[1].clientKey, "sample-step-1");
+      await page.keyboard.press("Alt+ArrowUp");
+      assert.deepEqual(await keys(), MANUAL_SAMPLE_DETAIL.steps.map(step => step.clientKey));
+      await closePanels();
+      // Undo/redo shortcuts outside inputs use the shared memory history.
+      await page.locator("[data-manual-save]").focus();
+      await page.keyboard.press("Control+z");
+      assert.equal((await state()).editorState.steps[1].clientKey, "sample-step-1");
+      await page.locator("[data-manual-save]").focus();
+      await page.keyboard.press("Control+Shift+z");
+      assert.equal((await state()).editorState.steps[0].clientKey, "sample-step-1");
+
+      await openSteps();
+      await page.locator("[data-step-add]").focus();
+      await page.keyboard.press("Enter");
+      assert.equal(await page.locator(".cloud-image-empty").textContent(), "説明のみの手順");
+      assert.equal(await page.getByLabel("手順 2の説明", { exact: true }).evaluate(input => input === document.activeElement), true);
+      await page.keyboard.type("Keyboard instruction");
+      const added = (await state()).editorState.steps[1];
+      assert.equal(added.instruction, "Keyboard instruction");
+      assert.equal(added.assetId, undefined);
+      assert.equal(added.assetUrl, undefined);
+      assert.equal((await state()).editorState.steps.length, 7);
+      await openTools();
+      const addImage = page.getByRole("button", { name: "画像を追加する", exact: true });
+      assert.equal(await addImage.isDisabled(), true);
+      await addImage.dispatchEvent("click");
+      await closePanels();
+      await page.getByRole("button", { name: "この手順を削除", exact: true }).click();
+      assert.equal((await state()).editorState.steps.length, 6);
+      await history("取り消す");
+      assert.equal((await state()).editorState.steps[1].instruction, "Keyboard instruction");
+      await history("やり直す");
+      assert.equal((await state()).editorState.steps.length, 6);
+      await closePanels();
+      assert.equal(await badge.textContent(), "サンプル・保存されません");
+      assert.equal(await page.locator(".manual-toolbar").getByText(/クラウドに未保存/).count(), 0);
+      await page.locator("[data-manual-save]").click();
+      assert.match(await page.locator("#cloud-message").textContent(), /保存するにはアカウント登録／ログインが必要/);
+      await page.locator(".manual-editor").dispatchEvent("submit");
+      assert.match(await page.locator("#cloud-message").textContent(), /アカウント登録／ログイン/);
+      for (const selector of [".manual-share", ".manual-mobile-actions .primary"]) {
+        assert.equal(await page.locator(selector).isDisabled(), true);
+        assert.match(await page.locator(selector).getAttribute("title"), /登録／ログイン/);
+        await page.locator(selector).dispatchEvent("click");
       }
-      for (const name of ["PDF・印刷プレビュー", "Wordで書き出す", "PowerPointで書き出す"]) {
+      await page.locator(".share-form").dispatchEvent("submit");
+      assert.equal(await page.locator(".share-form button[type=submit]").isDisabled(), true);
+      assert.equal(await page.locator(".manual-share-drawer").isVisible(), false);
+      for (const name of ["PDF・印刷プレビュー", "Wordで書き出す", "PowerPointで書き出す", "チームの見た目", "矢印・文字を追加", "切り抜き", "画像を差し替える"]) {
         await openTools();
         const button = page.getByRole("button", { name, exact: true });
         assert.equal(await button.isDisabled(), true);
-        await button.dispatchEvent("click"); // Disabled DOM alone must not be the write boundary.
+        await button.dispatchEvent("click"); // Exercise handler gates even on disabled DOM.
       }
-      await page.locator("[data-manual-save]").dispatchEvent("click");
-      await page.locator(".manual-share").dispatchEvent("click");
-      await page.locator(".manual-mobile-actions .primary").dispatchEvent("click");
-      await page.locator(".share-form").dispatchEvent("submit");
-      await page.locator("[data-step-add]").dispatchEvent("click");
-      await page.locator(".cloud-step-actions button").evaluateAll((buttons) => buttons.forEach((button) => button.dispatchEvent(new MouseEvent("click", { bubbles: true }))));
-      await page.getByLabel("タイトル", { exact: true }).evaluate((input) => { input.value = "attempted edit"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-      await page.keyboard.press("Control+z");
-      await page.keyboard.press("Control+Shift+z");
-      if (width <= 1100 && !await page.getByRole("button", { name: "サンプルを読み直す", exact: true }).isVisible()) await openTools();
+      await page.locator('.cloud-image-tools input[type=file]').setInputFiles({ name: "synthetic.png", mimeType: "image/png", buffer: await readFile(new URL("../apps/worker/brand-assets/assets/manual-sample/list.png", import.meta.url)) });
+      assert.equal(await page.locator(".image-editor-dialog,.branding-dialog,.manual-print-dialog").count(), 0);
+      await openTools();
+      const note = page.locator(".manual-context-tools > .cloud-note").first();
+      assert.match(await note.textContent(), /編集できます/);
+      assert.match(await note.textContent(), /ページを離れると編集内容は消えます/);
+      assert.equal(await note.isVisible(), true);
+      await closePanels();
+
+      if (width === 1366) {
+        await page.locator("[data-step-add]").evaluate(button => { for (let i = 0; i < 195; i++) button.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+        assert.equal((await state()).editorState.steps.length, 200);
+        assert.equal(await page.locator("[data-step-add]").isDisabled(), true);
+      }
+      await openTools();
+      const beforeReload = await state();
+      page.once("dialog", async dialog => { assert.equal(dialog.type(), "confirm"); await dialog.dismiss(); });
       await page.getByRole("button", { name: "サンプルを読み直す", exact: true }).click();
+      assert.deepEqual(await state(), beforeReload, "cancel reload keeps edits and history");
+      page.once("dialog", async dialog => { assert.match(dialog.message(), /編集中の変更を破棄/); await dialog.accept(); });
+      await page.getByRole("button", { name: "サンプルを読み直す", exact: true }).click();
+      const reset = await state();
+      assert.equal(reset.editorState.title, MANUAL_SAMPLE_DETAIL.draft.title);
+      assert.equal(reset.editorState.description, MANUAL_SAMPLE_DETAIL.draft.description);
+      assert.deepEqual(reset.editorState.steps, MANUAL_SAMPLE_DETAIL.steps);
+      assert.equal(reset.dirty, false);
+      assert.equal(reset.undo, 0);
+      assert.equal(reset.redo, 0);
       assert.equal(await page.getByLabel("タイトル", { exact: true }).inputValue(), MANUAL_SAMPLE_DETAIL.draft.title);
       assert.equal(await page.locator(".manual-step-nav ol button").count(), 6);
+      await openTools();
+      assert.equal(await page.getByRole("button", { name: "取り消す", exact: true }).isDisabled(), true);
+      assert.equal(await page.getByRole("button", { name: "やり直す", exact: true }).isDisabled(), true);
+      // No pending edits: reload does not ask for confirmation.
+      const unexpectedDialog = dialog => { errors.push("unexpected clean reload confirmation"); dialog.dismiss(); };
+      page.on("dialog", unexpectedDialog);
+      await page.getByRole("button", { name: "サンプルを読み直す", exact: true }).click();
+      page.off("dialog", unexpectedDialog);
       await page.waitForFunction(() => document.querySelector(".cloud-step-image")?.naturalWidth === 800);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `no horizontal page overflow at ${width}`);
       assert.deepEqual(apiReads, [], "sample requires no API reads");
       assert.deepEqual(writes, [], "sample sends zero API writes");
       if (width === 390) {
         await mkdir(".artifacts/manual-sample", { recursive: true });
-        await page.screenshot({ path: ".artifacts/manual-sample/sample-390.png" });
+        await page.screenshot({ path: ".artifacts/manual-sample/sample-stage-b-390.png" });
       }
       await page.getByRole("button", { name: "ログイン画面へ戻る", exact: true }).click();
       const entry = page.getByRole("link", { name: "サンプルを見る", exact: true });

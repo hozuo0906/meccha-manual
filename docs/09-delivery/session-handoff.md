@@ -1,3 +1,14 @@
+## 2026-11-08 拡張なしの受入用サンプル（段階B）
+
+Status: Accepted
+
+確認日時: 2026-11-08T19:28:57+09:00（Asia/Tokyo）。監督Claudeの指示、branch `codex/sample-mode-stage-b-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`（段階A PR #291マージ済みをlocal gitで照合）。今回は実装・検証・文書同期・ローカルcommitまで。push／PR作成／mergeは監督側。Issue #70はread-only取得し、段階A／Bの未同期を確認した。外部書込みは行わない。
+
+- sampleのcanEditだけをtrueへ変更し、文章編集・手順追加（上限200件）／削除／ボタン・Alt矢印の並べ替え・undo／redoをタブ内メモリで許可する。読み直しは変更破棄確認後にfixture・履歴を初期化する。保存は登録案内、共有・PDF／Office・画像編集全般・brandingは遮断を維持する。共通API gateと個別入口を併用し、偽workspace／guest永続化・D1/R2なし、初期・編集後の保存不可と離脱時消失を明示した。DEC-112、UX・API・traceability・品質台帳を同期、ADR-0032本文・拡張製品コード・LP・API／migration／依存／環境変数は無変更。
+- 全体`npm run check`は実行`68196`、exit 0、Node summary 24組の集計780/780・fail 0／skip 0／cancelled 0。sample単体4件とmutation 3件、内容hash回帰を含み、asset hashは`sha256-0c09a389feb49956`。sample最終browser `47522`は2/2・fail 0／skip 0／exit 0で、1366/1024/390pxの画面・内部状態・keyboard・200件上限・fixture復元とAPI read／write／storage呼出し0を確認。
+- 通常モード等の7ファイル直列回帰`16037`は37/38・fail 0／cancelled 1／skip 0／exit 1。cloud保存・画像編集・branding・PDF・共有・Office側の9件は成功。既存拡張editorの認証引き継ぎ1件が25秒timeoutで、同じ元テストの単独実行`59165`もcancelled 1。拡張製品コード・該当テスト・launcherはbaseと差分0。/tmpコピーの総時間上限だけを60秒にした診断`32942`は1/1・exit 0、本体49.9秒で元assertionが成功したが、元の25秒gateや全体回帰の成功へ読み替えない。sandbox起動制約と詳細は[段階B実施報告書](sample-mode-stage-b-2026-11-08.md)を正とする。
+- 成果物状態はローカル修正済み・未push（本記録と同時にcommit保存する）。次の1マイルストーンは監督側でローカルcommitを確認してpush／PRを行い、最新SHAのCI・正式Codex Review・thread、既存25秒timeoutのtriageと編集受入を照合すること。npm ci、正式Review、実SSO／remote D1/R2／Access policy、実Office描画、人のscreen reader、deployは未実施。既存`.artifacts/`を保持してcommit対象外とし、保存・報告後は終了する。自律監視・終了後の継続実行は登録しない。ローカル画像編集は追加1〜2日規模の別段、形態Dは契約決定後の別見積もり。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 
 Status: Accepted

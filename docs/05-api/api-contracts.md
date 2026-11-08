@@ -2,11 +2,11 @@
 
 Status: Accepted
 
-## 公開の静的サンプル（段階A、DEC-111）
+## 公開の静的サンプル（段階B、DEC-111／DEC-112）
 
 `GET /manuals/sample`と専用JS／CSS（`/assets/manual-sample.js`、`/assets/manual-sample.css`）は認証不要の静的資産とする。画像配信は`GET /manuals/sample/images/{name}.png`の1経路で、`list`／`form`／`complete`だけを同梱PNGへ対応づけ、未知名・非GET・資産binding欠落は404とする。fixtureの画像にdata URLや外部画像を使わない。
 
-sample modeは通常エディタの編集状態へ固定fixtureを投入するが、全API呼出しとworkspace URL構築をmodeで拒否し、`/api/`へのPOST／PATCH／PUT／DELETEは0回とする。identity／workspace解決、D1/R2、guest content永続化、claim、Product Eventを使用しない。既存`/manuals`・業務APIの認証・認可境界は維持する。新規API・migrationはない。
+sample modeは通常エディタの編集状態へ固定fixtureを投入し、文章・手順構成とundo／redoをタブ内メモリだけで編集できる（canEdit=true、canWrite=false、canOutput=false）。全API呼出しとworkspace URL構築をmodeで拒否し、`/api/`へのread／writeはともに0回とする。読み直しは変更破棄確認後のfixture再投入と履歴初期化で完結し、保存は登録／ログインの案内だけを表示する。共有・PDF／Office・画像編集・brandingは個別入口でも遮断する。identity／workspace解決、D1/R2、guest content永続化、claim、Product Eventを使用しない。既存`/manuals`・業務APIの認証・認可境界は維持する。新規API・migrationはない。
 
 ### Issue #283 認証資格情報の優先順位と OAuth start 一時データ整理（2026-10-04）
 
