@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+## 段階D: 登録後サンプル投入の追加証跡
+
+DEC-115のcloud一覧0件／常設panel、編集詳細と「サンプル」badge、通常アーカイブを対象にする。`tests/sample-manual-import-browser.test.mjs`で1366×900／1024×900／390×900を確認し、本文なし明示POST、二重送信拒否、失敗後再試行、未保存変更保持（POST・一覧／詳細／共有情報GET待機中、focus・元選択を含む）、アーカイブ取消と再投入、横overflowなし、pageerrorなしを検証する。編集toolsのtoggleはcloudの幅分岐（760px以下「編集」、1100px以下「画像・編集」）を使う。閲覧専用サンプルの「操作案内」と区別する。`tests/sample-manual-import-ui.test.mjs`で遅延中の遷移・認証失敗・再読込失敗も確認する。実ユーザー／remote環境・人のscreen reader検証は別ゲート。
+
 Date: 2026-11-08
 
 PR #280の品質fixtureを、無加工画像・利用者確認（ADR-0040）と製品認証（ADR-0041）の現行契約へ適合させる。旧PRの採点・実行履歴・自動置換前提を現在の証拠として引き継がない。
