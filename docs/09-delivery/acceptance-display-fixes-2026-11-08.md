@@ -72,6 +72,8 @@ workspaceRoleLabelsの直接参照を個別に確認した。
 - 実MV3 runtime一括74860は6/7成功、初回Accessだけ`page.goto`の`ERR_TUNNEL_CONNECTION_FAILED`でexit 1。テストはhost-resolverで合成HTTPSサーバーへ接続するが、proxy tunnelで最初の遷移が止まった。/tmpのテスト専用起動ラッパーで同じChromiumへ`--no-proxy-server`を付け、同じテスト・assertionを19900で実行した結果1/1成功。製品・テスト・remote設定は変更せず、別実行を単一の7/7成功へ合算しない。
 - 最初のPhase 2 E2E（45154）は/tmpの一時configから相対webServerコマンドを実行し、`/tmp/tests/fixtures/phase1-browser-server.mjs`不在でテスト開始前に停止した。一時configのwebServer.cwdをrepoへ固定して32979で再実行した。repoの設定・テスト本体は変更していない。
 
+- 最初のcommit実行はこのシェルのGit author未設定でexit 128。global設定は変更せず、commitコマンド限定でCodexの作業用identityを指定して保存に成功した。
+
 ## 既存テストの変更と理由
 
 - `tests/onboarding-bootstrap.test.mjs`: 既存の初回HTTP／repository再送完全一致を維持し、名前のassertionを追加。改名・A/B分離・故障注入negativeを追加した。応答shapeの完全一致期待値を削る変更はない。
@@ -93,9 +95,11 @@ FR-001／002／022、NFR-001／004／008、MVP-AC-008〜013、ADR-0032、test-st
 
 ## 保存結果・未実行事項・次の1マイルストーン
 
-実装・契約・回帰・本報告書・checkpointを同じ修正commitへ含め、`origin/codex/acceptance-display-fixes-20261108`へ保存する。確定commit SHAと保存確認は後続の文書commitへ記録する。
+実装・契約・回帰・本報告書・checkpointの修正commitは`7a7fa8acbeb517b1cb4fd6f67970a1934e6b21f1`（`fix: 保存先名と状態表示のフォールバックを統一`）。2026-11-08T19:31:56+09:00（Asia/Tokyo）に`origin/codex/acceptance-display-fixes-20261108`へのpush成功と`git ls-remote`によるlocal／remote SHA一致を確認した。本保存確認の追記2ファイルは後続の文書commitとして同じbranchへ保存する。最終headは本ファイルの最新commitとセッション最終応答で特定できる。
 
-最終検証確認日時: 2026-11-08T19:30:29+09:00（Asia/Tokyo）。全体check後の文書・秘密値・encoding・diff確認も成功（65735）。新たな実装変更はない。
+PR作成・Issue #70更新・mergeは実施していない。合成browser生成の未追跡artifactは成果物commitへ含めず保持する。実行・検証は終了し、保存後に継続する処理や監視は登録していない。
+
+最終検証確認日時: 2026-11-08T19:30:29+09:00（Asia/Tokyo）。全体check後の文書・秘密値・encoding・diff確認（65735）と、新規報告書stage後の文書156件・秘密値470追跡ファイル・encoding401ファイル（11803）も成功。新たな実装変更はない。
 
 `npm ci`は監督側担当として未実施。実providerのSSO／実Access policy、remote D1/R2、production／staging配信、実Officeアプリ描画、人のscreen reader・利用者受入、PR作成・GitHub CI・最新SHAの正式Codex Review・Issue #70更新・mergeは未実施。ローカルの合成試験を実環境の成功へ置き換えない。
 
