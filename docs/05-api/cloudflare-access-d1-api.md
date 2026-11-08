@@ -90,12 +90,33 @@ Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済み
 | `POST /api/member-join-code` | active identity。短命・単回使用 |
 | `POST /api/workspaces/{id}/members` | owner/admin |
 | `PATCH /api/workspaces/{id}/members/{userId}` | owner/admin。owner変更は禁止 |
+| `POST /api/workspaces/{id}/owner-transfer` | active owner本人。standard workspaceのみ（DEC-114） |
 
 WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないworkspace、別workspace、停止memberは存在を推測できない応答へ統一する。
 
 `POST /api/workspaces`のD1 atomic batchは、最初の`INSERT SELECT`でactive identityを再確認する。Access認証後、batch開始前に主体がdisabledへ変わり、このidentity fenceが0行になった場合は`403 ACCESS_ACTOR_FORBIDDEN`へ写像する。その他の業務上の403（通常の`forbidden`）は`403 ACCESS_FORBIDDEN`のままとし、ブラウザは認証主体失効として保護shell全体を終端化しない。
 
 `GET /api/session`と`GET /api/workspaces`の所属workspace一覧は最大1000件までを完全な一覧として返し、1001件目を検出した場合は `409 WORKSPACES_LIMIT_EXCEEDED` とする。D1 repositoryでsentinel行を取得して超過を検出し、先頭1000件だけの成功応答へ切り詰めない。
+
+## 管理責任者の移管（DEC-114）
+
+`POST /api/workspaces/{workspaceId}/owner-transfer`は同一origin・JSON必須で、bodyは`{ "targetUserId": "UUID" }`の1項目だけを受け付ける。成功は`200 { "status": "ok" }`。認証済みのactive owner本人から、同一のactiveなstandard workspaceに所属するactive identity・active membershipのadmin/editor/viewerへだけ移管する。対象はowner、元ownerはadminになる。Personal Workspaceはcreated_byと本人ownerの境界を維持して拒否する。
+
+| HTTP | code | 意味 |
+|---|---|---|
+| 400 | OWNER_TRANSFER_INPUT_INVALID | targetUserIdの欠落・非UUID・余分なfield |
+| 403 | OWNER_TRANSFER_FORBIDDEN | 現在のactive owner本人でない、workspaceが不明・非active・別tenant（同一応答） |
+| 409 | OWNER_TRANSFER_TARGET_INVALID | 非メンバー、別workspace、removed/invited、identity disabled、既存owner（同一応答） |
+| 409 | OWNER_TRANSFER_SELF | 自己移管 |
+| 409 | OWNER_TRANSFER_PERSONAL_WORKSPACE | Personal Workspace |
+| 409 | OWNER_TRANSFER_CONFLICT | batch前の認可・対象変更、permit競合、直接変更件数0件 |
+| 503 | OWNER_TRANSFER_UNAVAILABLE | storage障害・結果検証不能。下位例外は返さない |
+
+認証失敗・service actor・disabled actor、origin、JSON形式、body上限は共通の401/403/400/413/415契約を使う。owner以外には対象・kindを照会した結果を返さず、owner確認後にPersonal→自己→対象の順で分類する。認証の資格情報優先順位は共通契約に従い、この専用endpointはD1のみを使用する。legacy Supabase RPCへfallbackしない。
+
+permit発行、昇格、降格、`member.updated`監査（actor=元owner、target=新owner、固定metadata）、permit削除を1回のD1 batchで確定する。各DMLの直接変更件数をSQL内で検査し、途中失敗・0件は全体rollbackする。通常add/updateは引き続き`409 OWNER_TRANSFER_REQUIRED`で「管理責任者に移管」導線を案内する。メール送信は行わない。
+
+UIはactive ownerに自分以外のactive非ownerメンバーへのボタンを表示する。対象と自身のadmin降格をconfirmで明示し、保存中は二重実行を防ぐ。成功後、409競合・503結果不明・通信失敗時は自動再送せず一覧を取得して役割を照合する。認証切替時の古い応答破棄・結果照合は既存メンバー変更契約を維持する。
 
 ## Manual API
 
@@ -156,7 +177,7 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 ### Issue #283 D1 member route and product shell update (2026-10-04)
 
 - D1 application routeの`GET/POST /api/workspaces/{workspaceId}/members`と`PATCH /api/workspaces/{workspaceId}/members/{userId}`は、Access／product actorを同じD1 workspace repositoryへ渡す。workspace固定query、active identity、membership、owner/admin mutation境界をWorkerとD1 constraintで再確認し、旧Supabase member handlerへfallbackしない。
-- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。ownerロールの付与・移管は引き続き拒否する。
+- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。通常メンバーAPIのownerロール付与・変更は拒否し、移管はDEC-114の専用APIに限定する。
 - 製品ログインのroot shellは製品／Access sessionでメールが返らない場合に架空のメールや個人情報を補わず「アカウント」と表示する。手順書リンクはD1 canonical `/manuals`へ遷移し、旧rootのSupabase作成入口やmanual POST 405を呼ばない。product logout後もprovider設定に応じた製品ログイン導線を維持し、password formへ戻さない。
 
 製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。

@@ -11,6 +11,7 @@ export interface ProductUserActor {
 export interface BootstrapResult {
   status: "ready";
   workspaceId: string;
+  workspaceName: string;
   createdIdentity: boolean;
 }
 
@@ -72,11 +73,12 @@ export class D1OnboardingRepository {
             AND NOT EXISTS (SELECT 1 FROM onboarding_signup_events e WHERE e.application_id = o.application_id)`, operationId)
       ]);
       if (result.some((item) => !item.success)) throw new D1RepositoryError("unavailable");
-      const saved = await bind(`SELECT o.workspace_id, o.created_identity FROM onboarding_bootstrap_operations o
+      const saved = await bind(`SELECT o.workspace_id, w.name AS workspace_name, o.created_identity FROM onboarding_bootstrap_operations o
+        JOIN workspaces w ON w.id = o.workspace_id
         WHERE o.application_id = (${identity}) AND o.operation_id = ?3 AND o.workspace_id = (${authorized})`, operationId)
-        .first<{ workspace_id: string; created_identity: number }>();
+        .first<{ workspace_id: string; workspace_name: string; created_identity: number }>();
       if (!saved) { await this.assertAvailable(actor); throw new D1RepositoryError("unavailable"); }
-      return { status: "ready", workspaceId: saved.workspace_id, createdIdentity: saved.created_identity === 1 };
+      return { status: "ready", workspaceId: saved.workspace_id, workspaceName: saved.workspace_name, createdIdentity: saved.created_identity === 1 };
     } catch (error) {
       if (error instanceof D1RepositoryError) throw error;
       // Distinguish a concurrent authorization change from transient storage failure.

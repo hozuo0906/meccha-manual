@@ -1,0 +1,15 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-cloud-sharing-mock-API",
+  "screenshot": "share-revoke-server-result-unknown.png",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "status": "共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。",
+  "observations": {
+    "operation": "revoke-503",
+    "responseStatus": 503,
+    "retryTargetsSameLink": true
+  }
+}

@@ -700,7 +700,7 @@ async function addD1WorkspaceMember(request: Request, env: Env, workspaceId: str
     throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
   }
   if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
-    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・追加は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更は、メンバー管理の「管理責任者に移管」から行ってください。" : "権限は管理者・編集者・閲覧者から選択してください。");
   }
   try {
     await repository.consumeJoinCode(actorId, workspaceId, body.joinCode.trim(), body.role, new Date().toISOString());
@@ -716,7 +716,7 @@ async function updateD1WorkspaceMember(request: Request, env: Env, workspaceId: 
   const { actorId, repository } = await authenticateD1User(request, env);
   const body = await readJsonBody<{ role?: unknown; status?: unknown }>(request);
   if (body.role !== "admin" && body.role !== "editor" && body.role !== "viewer") {
-    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更・移管は、専用の移管手続きが利用できるまで行えません。" : "権限は管理者・編集者・閲覧者から選択してください。");
+    throw new AppError(body.role === "owner" ? 409 : 400, body.role === "owner" ? "OWNER_TRANSFER_REQUIRED" : "MEMBER_ROLE_INVALID", body.role === "owner" ? "管理責任者の変更は、メンバー管理の「管理責任者に移管」から行ってください。" : "権限は管理者・編集者・閲覧者から選択してください。");
   }
   if (body.status !== "active" && body.status !== "removed") throw new AppError(400, "MEMBER_STATUS_INVALID", "メンバー状態の指定が正しくありません。");
   try {
@@ -724,6 +724,36 @@ async function updateD1WorkspaceMember(request: Request, env: Env, workspaceId: 
     return jsonResponse({ status: "ok" });
   } catch (error) {
     throw d1ErrorResponse(error, "members_update");
+  }
+}
+
+async function transferD1WorkspaceOwnership(request: Request, env: Env, workspaceId: string): Promise<Response> {
+  requireWorkspaceId(workspaceId);
+  const { actorId, repository } = await authenticateD1User(request, env);
+  const body = await readJsonBody<{ targetUserId?: unknown }>(request);
+  if (Object.keys(body).some((key) => key !== "targetUserId")
+    || typeof body.targetUserId !== "string" || !UUID_PATTERN.test(body.targetUserId)) {
+    throw new AppError(400, "OWNER_TRANSFER_INPUT_INVALID", "移管先のメンバーを正しく指定してください。");
+  }
+  try {
+    await repository.transferOwnership(actorId, workspaceId, body.targetUserId, new Date().toISOString());
+    return jsonResponse({ status: "ok" });
+  } catch (error) {
+    if (error instanceof D1RepositoryError) {
+      switch (error.code) {
+        case "forbidden":
+          throw new AppError(403, "OWNER_TRANSFER_FORBIDDEN", "現在の管理責任者本人だけが移管できます。");
+        case "owner_transfer_self":
+          throw new AppError(409, "OWNER_TRANSFER_SELF", "自分自身には管理責任者を移管できません。");
+        case "owner_transfer_target_invalid":
+          throw new AppError(409, "OWNER_TRANSFER_TARGET_INVALID", "移管先は同じワークスペースの有効な管理者・編集者・閲覧者から選択してください。");
+        case "owner_transfer_personal":
+          throw new AppError(409, "OWNER_TRANSFER_PERSONAL_WORKSPACE", "Personal Workspaceの管理責任者は移管できません。");
+        case "conflict":
+          throw new AppError(409, "OWNER_TRANSFER_CONFLICT", "メンバーの状態が変わったため移管できませんでした。一覧を更新して確認してください。");
+      }
+    }
+    throw new AppError(503, "OWNER_TRANSFER_UNAVAILABLE", "移管結果を確認できません。一覧を更新して管理責任者を確認してください。");
   }
 }
 
@@ -2129,7 +2159,7 @@ function throwMemberRpcFailure(
     throw new AppError(403, "MEMBER_MANAGE_FORBIDDEN", "メンバーを変更する権限がありません。");
   }
   if (message.includes("MM_OWNER_TRANSFER_REQUIRED")) {
-    throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更・停止は、専用の移管手続きが利用できるまで行えません。");
+    throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更は、メンバー管理の「管理責任者に移管」から行ってください。");
   }
   if (message.includes("MM_JOIN_CODE_UNAVAILABLE")) {
     throw new AppError(409, "JOIN_CODE_UNAVAILABLE", "参加コードを利用できません。有効期限または入力内容を確認し、本人に再発行を依頼してください。");
@@ -2270,7 +2300,7 @@ async function getWorkspaceMembers(request: Request, env: Env, workspaceId: stri
 function requireManageableRole(value: unknown): "admin" | "editor" | "viewer" {
   if (value !== "admin" && value !== "editor" && value !== "viewer") {
     if (value === "owner") {
-      throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更・停止は、専用の移管手続きが利用できるまで行えません。");
+      throw new AppError(409, "OWNER_TRANSFER_REQUIRED", "管理責任者の変更は、メンバー管理の「管理責任者に移管」から行ってください。");
     }
     throw new AppError(400, "MEMBER_ROLE_INVALID", "権限は管理者・編集者・閲覧者から選択してください。");
   }
@@ -2526,6 +2556,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   const hasCurrentAssetVersion = url.searchParams.get("v") === APP_ASSET_VERSION;
   const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
+  const ownerTransferMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/owner-transfer$/);
   const workspaceMemberMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
 
   // Exact public sample routes never resolve identity, workspace, D1 or R2.
@@ -2638,6 +2669,9 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
   }
   if (request.method === "POST" && url.pathname === "/api/member-join-code") {
     return useD1ApplicationRoutes(env, request) ? createD1WorkspaceJoinCode(request, env) : createWorkspaceJoinCode(request, env);
+  }
+  if (request.method === "POST" && ownerTransferMatch?.[1]) {
+    return transferD1WorkspaceOwnership(request, env, ownerTransferMatch[1]);
   }
   if (request.method === "GET" && workspaceMembersMatch?.[1]) {
     return useD1ApplicationRoutes(env, request)

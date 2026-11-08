@@ -1,0 +1,21 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-onboarding-mocked-service-and-extension",
+  "screenshot": "onboarding-terminal-save.png",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "status": "保存準備の期限が切れました。元の下書きと新しい編集は、この端末に保持しています。下の手順で編集画面に戻ると、もう一度保存・共有できます。",
+  "actionLabel": "この保存操作は期限切れです",
+  "actionDisabled": true,
+  "observations": {
+    "operation": "expired-claim-recovery",
+    "requestedAction": "save",
+    "requestMethods": [
+      "GET"
+    ],
+    "terminalState": "expired",
+    "recoveryCleared": true
+  }
+}

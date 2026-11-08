@@ -2,11 +2,11 @@
 
 Status: Accepted
 
-## 公開の静的サンプル（段階A、DEC-111）
+## 公開の静的サンプル（段階B、DEC-111／DEC-113）
 
 `GET /manuals/sample`と専用JS／CSS（`/assets/manual-sample.js`、`/assets/manual-sample.css`）は認証不要の静的資産とする。画像配信は`GET /manuals/sample/images/{name}.png`の1経路で、`list`／`form`／`complete`だけを同梱PNGへ対応づけ、未知名・非GET・資産binding欠落は404とする。fixtureの画像にdata URLや外部画像を使わない。
 
-sample modeは通常エディタの編集状態へ固定fixtureを投入するが、全API呼出しとworkspace URL構築をmodeで拒否し、`/api/`へのPOST／PATCH／PUT／DELETEは0回とする。identity／workspace解決、D1/R2、guest content永続化、claim、Product Eventを使用しない。既存`/manuals`・業務APIの認証・認可境界は維持する。新規API・migrationはない。
+sample modeは通常エディタの編集状態へ固定fixtureを投入し、文章・手順構成とundo／redoをタブ内メモリだけで編集できる（canEdit=true、canWrite=false、canOutput=false）。全API呼出しとworkspace URL構築をmodeで拒否し、`/api/`へのread／writeはともに0回とする。読み直しは変更破棄確認後のfixture再投入と履歴初期化で完結し、保存は登録／ログインの案内だけを表示する。共有・PDF／Office・画像編集・brandingは個別入口でも遮断する。identity／workspace解決、D1/R2、guest content永続化、claim、Product Eventを使用しない。既存`/manuals`・業務APIの認証・認可境界は維持する。新規API・migrationはない。
 
 ### Issue #283 認証資格情報の優先順位と OAuth start 一時データ整理（2026-10-04）
 
@@ -73,6 +73,7 @@ Status: Superseded
 | `POST /api/member-join-code` | ログイン中の本人用参加コードを発行 | authenticated。同一origin + JSON必須。10分有効・単回使用 |
 | `POST /api/workspaces/{id}/members` | 本人発行の参加コードを利用して追加 | owner/admin。同一origin + JSON必須。owner付与は禁止 |
 | `PATCH /api/workspaces/{id}/members/{userId}` | admin/editor/viewer変更または利用停止 | owner/admin。同一origin + JSON必須。owner変更は禁止 |
+| `POST /api/workspaces/{id}/owner-transfer` | D1の管理責任者移管（DEC-114） | active owner本人、同一standard workspace、同一origin + JSON必須 |
 
 `GET /api/session`と`GET /api/workspaces`のworkspace一覧は、現在ユーザーが所属する削除済み以外のworkspaceについて、`id`、`name`、`slug`、`status`、`created_at`だけを返す。PostgREST取得は`limit=1001`と`Prefer: count=exact`で打ち切り、`Content-Range`の範囲・返却件数・総数を完全照合する。1000件を超える場合は`409 WORKSPACES_LIMIT_EXCEEDED`として管理者による整理を案内し、件数にかかわらずheader欠落・形式不正・不整合は502とする。上流401はCookieを変更せず`SESSION_REFRESH_REQUIRED`へ写像し、profileとworkspaceの片方だけが401の場合も他方の失敗よりrefreshを優先する。両読取は5秒でtimeoutする。403と上流障害を区別し、不正・過大な2xx本文は空一覧として扱わない。
 
@@ -82,7 +83,7 @@ Status: Superseded
 
 メンバー追加はメールアドレスを受け付けない。参加者本人が`POST /api/member-join-code`へ空JSON objectを送り、今回だけ表示される参加コードをowner/adminへ渡す。owner/adminは`POST /api/workspaces/{id}/members`へ`{ "joinCode": "mmj_...", "role": "viewer" }`を送る。コードは256 bit乱数、10分有効、単回使用で、DBにはSHA-256 digestだけを保存する。無効・期限切れ・失効・使用済みは`409 JOIN_CODE_UNAVAILABLE`へまとめる。activeメンバーは1workspace最大1000人とし、追加・再参加はworkspace lock中に上限を検査して`409 WORKSPACE_MEMBERS_LIMIT_EXCEEDED`で拒否する。発行または利用の応答が不明な場合、コードを再送せず、発行は再発行、利用はメンバー一覧再取得で照合する。ブラウザからWorkerまでの通信切断、非JSON応答、応答本文破損も利用結果不明として一覧を再取得する。ブラウザは発行者へBearer credentialの影響と1対1の共有先を明示し、期限到達時に平文をDOMとメモリstateから消去してコピーを止める。再発行は現在コードの即時失効を確認してから行う。発行中に認証変更通知を受けた場合、同一ユーザーでは遅延した成功・失敗を確定して発行中状態を終了し、別ユーザーでは保留状態と遅延した平文を破棄する。追加できるroleはadmin/editor/viewerだけで、owner付与は`409 OWNER_TRANSFER_REQUIRED`とする。`created_by`はcaller入力を受けずDB triggerで`auth.uid()`へ固定する。
 
-メンバー変更はdesired roleとstatusを同時に送る冪等な更新とし、statusは`active`または`removed`だけを受け付ける。ただし、`invited`と停止済みを含む非active membershipをPATCHで`active`へ戻すことはできず、本人が新しく発行した参加コードを利用した場合だけ再参加できる。`removed`への変更応答は初回・冪等再実行ともプロフィールを参照せず、`displayName`を固定ラベル`利用停止済み`へ置換する。ownerの付与、降格、停止、削除は専用移管フローがAcceptedになるまでAPIとDB triggerの両方で拒否する。ブラウザは利用停止とadminへの昇格前に、対象者と影響を示して確認し、自分自身の利用停止を表示と処理の両方で拒否する。RPC送信後に結果を確認できない場合は`502 MEMBER_CHANGE_RESULT_UNKNOWN`を返し、ブラウザは再送結果を推測せず最新一覧を取得して確認する。保存中に別タブの認証変更通知を受けた場合は、同じユーザーであることと保留中RPCの決着を待ってから最新一覧を再取得し、別ユーザーへ変わった場合は旧ユーザーの保留状態を破棄する。
+メンバー変更はdesired roleとstatusを同時に送る冪等な更新とし、statusは`active`または`removed`だけを受け付ける。ただし、`invited`と停止済みを含む非active membershipをPATCHで`active`へ戻すことはできず、本人が新しく発行した参加コードを利用した場合だけ再参加できる。`removed`への変更応答は初回・冪等再実行ともプロフィールを参照せず、`displayName`を固定ラベル`利用停止済み`へ置換する。通常メンバーAPIではownerの付与、降格、停止、削除を拒否する。D1の移管だけはDEC-114でAcceptedとし、`POST /api/workspaces/{id}/owner-transfer`（body `{ targetUserId }`、成功 `{ status: "ok" }`）へ限定する。active owner本人から同一standard workspaceのactive非ownerへの昇格と自身のadmin降格を原子的に実行する。Personal Workspace・自己移管・越境は拒否する。詳細とエラー分類は[Cloudflare Access / D1契約](cloudflare-access-d1-api.md#管理責任者の移管dec-113)を正とし、移行前Supabase RPCへ追加しない。ブラウザは利用停止とadminへの昇格前に、対象者と影響を示して確認し、自分自身の利用停止を表示と処理の両方で拒否する。RPC送信後に結果を確認できない場合は`502 MEMBER_CHANGE_RESULT_UNKNOWN`を返し、ブラウザは再送結果を推測せず最新一覧を取得して確認する。保存中に別タブの認証変更通知を受けた場合は、同じユーザーであることと保留中RPCの決着を待ってから最新一覧を再取得し、別ユーザーへ変わった場合は旧ユーザーの保留状態を破棄する。
 
 ### 将来の正式API
 

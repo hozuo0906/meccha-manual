@@ -819,6 +819,8 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
 test("onboarding confirms summaries before new or resumed transmissions, supports cancel and expiry, and hides error codes", { timeout: 60_000 }, async () => {
   const requests = [];
   const intentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const namedWorkspace = '<img src=x onerror=alert(1)> 合成保存先 & "確認"';
+  let bootstrapName = namedWorkspace;
   const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
     if (serveOnboardingBrand(path, response)) return;
@@ -831,7 +833,7 @@ test("onboarding confirms summaries before new or resumed transmissions, support
     if (path.startsWith("/api/")) {
       for await (const _chunk of request) { /* Drain synthetic request only. */ }
       requests.push({ path, method: request.method });
-      const payload = path.endsWith("/bootstrap") ? { status: "ready" } : path.endsWith("/claim-intents") ? { claimIntentId: intentId }
+      const payload = path.endsWith("/bootstrap") ? { status: "ready", workspaceId: "workspace", workspaceName: bootstrapName } : path.endsWith("/claim-intents") ? { claimIntentId: intentId }
         : request.method === "GET" ? { status: "pending" } : request.method === "PUT" ? { status: "staged" } : { status: "claimed", manualId: "manual-confirmed" };
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(payload)); return;
     }
@@ -857,7 +859,7 @@ test("onboarding confirms summaries before new or resumed transmissions, support
           if (fixture.error) return { ok: false, error: fixture.error };
           if (fixture.invalid) return { ok: true, draft: {}, assets: [] };
           globalThis.__snapshotExpiresAt = Date.now() + 10 * 60 * 1000;
-          return { ok: true, draftFingerprint: (fixture.changedFingerprint ? "b" : "a").repeat(64), draft: { title: fixture.title ?? "<img src=x onerror=alert(1)> 合成手順書", steps: [{ screenshotId: "shot", instruction: "開く" }, { instruction: "確認する" }], ...(fixture.logo ? { branding: { hasLogo: true } } : {}) }, assets: [{ assetSlot: 0, screenshotId: "shot" }], ...(fixture.update ? { cloudRef: { workspaceId: "workspace", manualId: "manual" } } : {}) };
+          return { ok: true, draftFingerprint: (fixture.changedFingerprint ? "b" : "a").repeat(64), draft: { title: fixture.title ?? "<img src=x onerror=alert(1)> 合成手順書", steps: [{ screenshotId: "shot", instruction: "開く" }, { instruction: "確認する" }], ...(fixture.logo ? { branding: { hasLogo: true } } : {}) }, assets: [{ assetSlot: 0, screenshotId: "shot" }], ...(fixture.update ? { cloudRef: { workspaceId: fixture.otherWorkspace ? "other-workspace" : "workspace", manualId: "manual" } } : {}) };
         }
         if (message.type === "handoff.asset.start") return Date.now() >= globalThis.__snapshotExpiresAt ? { ok: false, error: "DRAFT_CHANGED" } : { ok: true, totalChunks: 1, contentType: "image/png", sha256: "b".repeat(64), byteLength: 1 };
         if (message.type === "handoff.asset.chunk") return { ok: true, sequence: fixture.badChunk ? 2 : 0, chunk: "AA==" };
@@ -866,6 +868,7 @@ test("onboarding confirms summaries before new or resumed transmissions, support
     }, { intentId });
     let scenario = 0;
     const begin = async (fixture = {}, action = "save", format = "") => {
+      bootstrapName = Object.hasOwn(fixture, "workspaceName") ? fixture.workspaceName : namedWorkspace;
       await page.goto(`http://127.0.0.1:${server.address().port}/onboarding/continue`);
       await page.evaluate(() => sessionStorage.clear());
       requests.length = 0;
@@ -887,6 +890,9 @@ test("onboarding confirms summaries before new or resumed transmissions, support
         : "ログインを確認したあと、手順書をワークスペース（手順書を保存する場所です）に保存します。");
       assert.equal((await page.locator("body").innerText()).split("手順書を保存する場所です").length - 1, 1);
       assert.doesNotMatch(await page.locator("#save-summary").innerText(), /ワークスペース|手順書を保存する場所です/u);
+      assert.equal(await page.locator("#save-workspace").isVisible(), !fixture.resume);
+      assert.equal(await page.locator("#save-workspace").textContent(), fixture.resume ? "" : "保存先：" + namedWorkspace);
+      assert.equal(await page.locator("#save-workspace img").count(), 0, "workspace name is text, never HTML");
       assert.equal(await page.locator("#save-title").textContent(), fixture.title === "" ? "無題の手順書" : "<img src=x onerror=alert(1)> 合成手順書");
       assert.equal(await page.locator("#save-title img").count(), 0, "title is text, never HTML");
       assert.equal(await page.locator("#save-counts").textContent(), "2手順・画像1枚");
@@ -902,9 +908,17 @@ test("onboarding confirms summaries before new or resumed transmissions, support
       assert.match(await page.locator("#status").textContent(), /何も送信していません.*下書きは拡張機能に残っています.*編集画面のタブ/);
       assert.equal(requests.filter(r => r.method !== "GET" && !r.path.endsWith("/bootstrap")).length, 0);
     }
+    for (const fixture of [{ workspaceName: undefined }, { workspaceName: "" }, { workspaceName: "  " }, { workspaceName: null }, { update: true }, { update: true, otherWorkspace: true }]) {
+      await begin(fixture);
+      await page.locator("#save-summary:not([hidden])").waitFor();
+      assert.equal(await page.locator("#save-workspace").isVisible(), !!fixture.update && !fixture.otherWorkspace);
+      assert.equal(await page.locator("#save-workspace").textContent(), fixture.update && !fixture.otherWorkspace ? "保存先：" + namedWorkspace : "");
+      await page.locator("#save-cancel").click();
+    }
     await begin({}, "share");
     await page.locator("#save-summary:not([hidden])").waitFor();
     assert.equal(await page.locator("#save-purpose").textContent(), "目的：共有のための保存");
+    assert.equal(await page.locator("#save-workspace").textContent(), "保存先：" + namedWorkspace);
     assert.equal(requests.length, 1);
     await page.locator("#save-confirm").evaluate(button => { button.click(); button.click(); });
     await page.getByRole("button", { name: "共有設定を開く", exact: true }).waitFor();

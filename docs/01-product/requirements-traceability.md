@@ -2,11 +2,11 @@
 
 Status: Accepted
 
-## 2026-11-08 拡張なし受入用サンプル（段階A）
+## 2026-11-08 拡張なし受入用サンプル（段階B）
 
 | 関連要件／受入条件 | 実装・契約 | 回帰 |
 |---|---|---|
-| FR-004／FR-005の閲覧・編集境界、NFR-001／NFR-004、ADR-0032、DEC-111 | `/manuals/sample`から合成6手順／3画像を通常Webエディタの編集状態へ投入。modeで編集・write・出力禁止。偽workspaceとguest永続化なし | `manual-sample.test.mjs`（静的配信・共通API gate・既存routeの認証拒否）、`manual-sample-browser.test.mjs`（全手順・画像・1366/1024/390px・keyboard・無効操作のdispatchを含むwrite 0回） |
+| FR-004／FR-005の閲覧・編集境界、NFR-001／NFR-004、ADR-0032、DEC-111／DEC-113 | `/manuals/sample`から合成6手順／3画像を通常Webエディタの編集状態へ投入。文章・手順構成・undo／redoをメモリ内編集、確認後fixture再投入。保存不可・離脱時消失を明示。保存は登録案内、共有／出力／画像編集／brandingは禁止。偽workspaceとguest永続化なし | `manual-sample.test.mjs`（静的配信・共通API gate・既存routeの認証拒否）、`manual-sample-browser.test.mjs`（文章編集・追加上限200／削除／ボタンとAlt矢印並べ替え・undo／redo・読み直し確認／取消・1366/1024/390px・keyboard・無効操作dispatchを含むread／write 0回） |
 | 初回導線の限定入口 | ログインと0件一覧だけに「サンプルを見る」。LP・検索0件・既存一覧は非表示 | `manual-sample-browser.test.mjs`、`manual-editor-ui.test.mjs` |
 
 ## 2026-11-08 受入第一弾（#272／#232）
@@ -46,7 +46,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 |---|---|---|---|---|---|---|
 | FR-001 | OUTPUT-GATE, Access認証 | Access JWT検証、`POST /api/onboarding/bootstrap` | identities, profiles | ADR-0028, ADR-0032 | MVP-AC-007, 008, 009 | Extension MVP / EPIC-02 |
 | FR-002 | 認証後はPersonal Workspace自動準備 | `POST /api/onboarding/bootstrap` | workspaces, workspace_members, identities, profiles | ADR-0028, ADR-0032 | MVP-AC-008, 009 | Extension MVP / EPIC-02 |
-| FR-003 | Team設定 | workspace member APIs | workspace_members | ADR-0028, ADR-0025 | AC-007, AC-008, AC-009, AC-014 | NEXT / EPIC-02 |
+| FR-003 | Team設定・管理責任者移管 | workspace member APIs、POST owner-transfer | workspace_members、workspace_owner_transfer_permits、audit_logs | ADR-0028, ADR-0025, DEC-114 | AC-007, AC-008, AC-009, AC-014、d1-workspace / m3-http-d1 / d1-binding / app-auth | メンバー管理・standard workspaceのowner移管をローカル実装・検証済み（[報告書](../09-delivery/owner-transfer-2026-11-08.md)）。remote D1適用・CI・正式Review未実施 / EPIC-02 |
 | FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038 | AC-010, AC-011, AC-017、Phase2 manual tests、画像中心editor／保存状態UI、画像編集dialog回帰 | EPIC-06 |
 | FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038 | manual edit/reorder tests、画像欠落時の再記録案内、注釈・mask編集回帰 | EPIC-06 |
 | FR-006 | Manual editor | local deterministic suggestion | - | ADR-0009 | manual instruction template tests | EPIC-06 |
