@@ -821,3 +821,14 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Entry: ログイン画面と手順書0件の空状態にだけ「サンプルを見る」を添える。空状態の現行cloud版と既存app shell版を揃え、検索0件・取得失敗・既存手順書のある一覧やLPには置かない。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
+
+
+## DEC-112: 保存確認に認可済み保存名を表示し、未知の状態・種類を日本語へ統一する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: bootstrapの応答を`{ status, workspaceId, workspaceName, createdIdentity }`へ拡張する。operationのworkspace IDと既存`authorized`述語（actor本人のactive Personal Workspaceとactive owner membership）で固定された行だけへJOINし、現在のDB保存名を返す。再送でも同じ認可を通し、改名後は同じ／別operationIdとも現在名を返す。名前をoperationへ複製しない。
+- UX: bootstrap完了後・送信確認前のサマリーに「保存先：{workspaceName}」をtextContentで表示する。空・欠落時や既存手順書の更新先がbootstrap先と異なる場合は隠し、別保存先名を補完しない。保存・共有・Officeで条件を共通化し、結果回収でbootstrapを追加しない。先行の「APIが名前を返さないため表示しない」判断は本決定で置き換える。
+- Display: manual状態5値の表示は維持し、一覧と基本情報で単一の解決関数を使い、辞書外は「状態不明」とする。手順種別4値もカード／プレビューで解決を統一し、辞書外は画面の「種類」に合わせ「種類不明」とする。継承プロパティを除き辞書のown keyだけを許す。操作種別は固定辞書のoption生成だけ、workspace権限の直接参照は固定配列またはvalidWorkspaceMembersPayloadのallowlist通過後だけであり、欠陥のない箇所は変更しない。
+- Boundary: D1 schema／migration／制約、認証、許可workspace、claim契約、拡張製品コード、依存、環境変数を変更しない。自動マスキング／自動置換や外部AIを追加しない。#231のapp-assets分割は表示解決の局所変更に不要なため対象外とする。
+- Evidence: `tests/onboarding-bootstrap.test.mjs`、`tests/onboarding-bootstrap-mutation.test.mjs`、`tests/onboarding-ui-browser.test.mjs`、`tests/manual-editor-ui.test.mjs`、[実施報告書](acceptance-display-fixes-2026-11-08.md)。

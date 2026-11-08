@@ -89,15 +89,68 @@ test("first authenticated bootstrap provisions the complete atomic result; repla
   assert.equal(response.status, 200);
   const first = await response.json();
   assert.equal(first.createdIdentity, true);
+  assert.equal(first.workspaceName, "Personal Workspace");
   assert.deepEqual(await repository.bootstrap(actor, operation), first);
   const again = await repository.bootstrap(actor, "bootstrap-operation-0002");
   assert.equal(again.workspaceId, first.workspaceId);
   assert.equal(again.createdIdentity, false);
+  assert.equal(again.workspaceName, first.workspaceName);
   for (const table of ["identities", "profiles", "workspaces", "workspace_members", "audit_logs", "onboarding_signup_events"]) assert.equal(count(table), 1, table);
   assert.equal(count("onboarding_bootstrap_operations"), 2);
   const event = database.prepare("SELECT * FROM onboarding_signup_events").get();
   assert.equal(event.event_id, `meccha-manual:onboarding:v1:signup_completed:${event.application_id.length}:${event.application_id}:${operation}`);
   assert.equal(event.operation_id, operation);
+});
+
+
+test("bootstrap returns the current authorized workspace name after a rename and on replay", async () => {
+  const first = await repository.bootstrap(actor, operation);
+  const renamed = "合成保存先 <経理> & 確認";
+  database.prepare("UPDATE workspaces SET name=? WHERE id=?").run(renamed, first.workspaceId);
+  const next = await repository.bootstrap(actor, "bootstrap-after-rename");
+  assert.equal(next.workspaceId, first.workspaceId);
+  assert.equal(next.workspaceName, renamed);
+  assert.deepEqual(await repository.bootstrap(actor, "bootstrap-after-rename"), next);
+  assert.equal((await repository.bootstrap(actor, operation)).workspaceName, renamed);
+});
+
+test("actor B bootstrap returns only B's workspace name and never actor A's name", async () => {
+  const first = await repository.bootstrap(actor, operation);
+  database.prepare("UPDATE workspaces SET name=? WHERE id=?").run("合成A専用保存先", first.workspaceId);
+  const other = { ...actor, subject: "other-human" };
+  const second = await repository.bootstrap(other, operation);
+  database.prepare("UPDATE workspaces SET name=? WHERE id=?").run("合成B専用保存先", second.workspaceId);
+  const response = await worker.fetch(await request({ operationId: "bootstrap-other-name" }, { sub: other.subject }), env, {});
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.workspaceId, second.workspaceId);
+  assert.equal(payload.workspaceName, "合成B専用保存先");
+  assert.equal(JSON.stringify(payload).includes("合成A専用保存先"), false);
+});
+
+test("a corrupted B operation pointing to A fails at the final authorized read without exposing A's name", async () => {
+  const first = await repository.bootstrap(actor, operation);
+  const other = { ...actor, subject: "other-human" };
+  const second = await repository.bootstrap(other, operation);
+  database.prepare("UPDATE workspaces SET name=? WHERE id=?").run("合成A専用保存先", first.workspaceId);
+  database.prepare("UPDATE workspaces SET name=? WHERE id=?").run("合成B専用保存先", second.workspaceId);
+  const corrupt = () => database.prepare("UPDATE onboarding_bootstrap_operations SET workspace_id=? WHERE workspace_id=?")
+    .run(first.workspaceId, second.workspaceId);
+  assert.throws(corrupt, /bootstrap operation identity is immutable/, "normal D1 writes reject the corruption");
+  // Deliberately bypass only the immutable-update guard to exercise the final read defense.
+  database.exec("DROP TRIGGER onboarding_bootstrap_operation_identity_immutable");
+  corrupt();
+  const batch = db.batch;
+  let batchCompleted = false;
+  db.batch = async (statements) => { const result = await batch(statements); batchCompleted = true; return result; };
+  await assert.rejects(repository.bootstrap(other, operation), { code: "unavailable" });
+  assert.equal(batchCompleted, true, "the final read, rather than a failed write, rejects the corrupt operation");
+  const response = await worker.fetch(await request({ operationId: operation }, { sub: other.subject }), env, {});
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.code, "D1_UNAVAILABLE");
+  assert.equal(JSON.stringify(payload).includes("合成A専用保存先"), false);
+  assert.equal("workspaceName" in payload, false);
 });
 
 test("direct storage rejects malformed operation IDs even outside the repository", async () => {
