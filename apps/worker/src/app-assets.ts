@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-fde69b674c613064";
+export const APP_ASSET_VERSION = "sha256-5a26091b9408e765";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2536,7 +2536,7 @@ function setManualMutationBusyState(isBusy, messageId = "", message = "") {
       }
     }
   }
-  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-reading-preview-button")) {
+  for (const control of document.querySelectorAll("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-restore-button, #manual-reading-preview-button")) {
     if (isBusy) {
       if (!control.hasAttribute("data-manual-disabled-before")) {
         control.setAttribute("data-manual-disabled-before", control.disabled ? "true" : "false");
@@ -2813,7 +2813,8 @@ function manualDetailHtml(currentWorkspace) {
     return '<section class="section"><div class="empty"><p>手順書を表示できませんでした。</p><button id="manual-detail-retry-button" class="secondary-button" type="button">もう一度読み込む</button></div></section>';
   }
   const value = state.value;
-  const canEdit = Boolean(value.permissions?.canEdit);
+  const isArchived = value.manual.status === "archived";
+  const canEdit = Boolean(value.permissions?.canEdit) && !isArchived;
   const draft = value.draft;
   const hasEditableDraft = draft?.state === "draft";
   const steps = value.steps || [];
@@ -2839,7 +2840,12 @@ function manualDetailHtml(currentWorkspace) {
         '<button id="manual-publish-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>この内容を公開</button>' +
       '</section>'
     : '';
-  const archiveActions = canEdit
+  const archiveActions = isArchived && value.permissions?.canEdit
+    ? '<section class="workspace-form" aria-labelledby="manual-restore-heading"><h2 id="manual-restore-heading">アーカイブからの復元</h2>' +
+        '<p>アーカイブ前の状態へ戻します。失効していない期限内の共有リンクは再び有効になります。</p>' +
+        '<button id="manual-restore-button" class="primary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>アーカイブから復元</button>' +
+      '</section>'
+    : canEdit
     ? '<section class="workspace-form" aria-labelledby="manual-archive-heading"><h2 id="manual-archive-heading">アーカイブ</h2>' +
         '<p>手順書を一覧から非表示にします。下書き・公開版・手順は削除せず保持します。</p>' +
         '<button id="manual-archive-button" class="danger-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>手順書をアーカイブ</button>' +
@@ -2917,6 +2923,7 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   document.getElementById("manual-draft-form")?.addEventListener("submit", updateManualDraftFromUi);
   document.getElementById("manual-publish-button")?.addEventListener("click", publishManualFromUi);
   document.getElementById("manual-archive-button")?.addEventListener("click", archiveManualFromUi);
+  document.getElementById("manual-restore-button")?.addEventListener("click", restoreManualFromUi);
   document.getElementById("manual-create-draft-button")?.addEventListener("click", createManualDraftFromUi);
   document.getElementById("manual-step-add-form")?.addEventListener("submit", addManualStepFromUi);
   for (const form of document.querySelectorAll(".manual-step-form")) form.addEventListener("submit", updateManualStepFromUi);
@@ -3439,6 +3446,17 @@ function archiveManualFromUi() {
   return runDetailMutation(
     (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/archive", { method: "POST", body: JSON.stringify({ expectedUpdatedAt }) }),
     "手順書をアーカイブしました。",
+    { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true }
+  );
+}
+
+function restoreManualFromUi() {
+  const expectedUpdatedAt = manualDetailState.value?.manual?.updatedAt;
+  if (!expectedUpdatedAt) return;
+  if (!window.confirm("この手順書をアーカイブから復元しますか？ アーカイブ前の状態に戻り、失効していない期限内の共有リンクは再び有効になります。")) return;
+  return runDetailMutation(
+    (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/restore", { method: "POST", body: JSON.stringify({ expectedUpdatedAt }) }),
+    "手順書をアーカイブから復元しました。",
     { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true }
   );
 }
