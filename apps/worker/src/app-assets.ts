@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-d525397c78eb2a69";
+export const APP_ASSET_VERSION = "sha256-4caa5e44061a8e31";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -4054,5 +4054,25 @@ async function logout() {
   }
 }
 
-loadSession();
+async function startApp() {
+  const params = new URLSearchParams(window.location.search);
+  if (window.location.pathname !== "/" || params.get("auth") !== "complete") return loadSession();
+  // OAuth callback has already changed the shared HttpOnly cookie. Use the
+  // password-login fence before resuming any workspace/claim/output screen.
+  renderAuthenticationReload();
+  try {
+    try {
+      await withAuthenticationLock(async () => advanceAuthenticationVersion());
+    } finally {
+      // Even unavailable coordination must invalidate sibling tabs' old UI.
+      announceAuthenticationChange();
+    }
+    const returnPath = params.get("return");
+    window.location.replace(["/", "/manuals", "/onboarding/continue"].includes(returnPath) ? returnPath : "/");
+  } catch (error) {
+    renderLogin(error.message);
+  }
+}
+
+startApp();
 `;

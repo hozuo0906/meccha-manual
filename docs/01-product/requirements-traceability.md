@@ -8,6 +8,8 @@ Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" |
 
 Issue #283 / PR #287の追加回帰: 未認証・期限切れ製品利用者のHTML `/manuals` 再訪は固定ログイン先へ戻し、JSON/APIの401とstorageの503を維持する（`tests/product-auth.test.mjs`）。passwordフォームを表示済みのprovider再取得では、編集中の値とフォーカスを保持する（`tests/app-auth.test.mjs`）。
 
+PR #287のOAuth主体変更P2（2026-11-08、FR-001／FR-002、NFR-001／NFR-004、AC-016、ADR-0041）: callback成功302をrootの完了処理へ接続し、既存Web Lock・認証世代更新・BroadcastChannel通知を経て元操作へ復帰する。`tests/app-auth.test.mjs`で共有Cookieがuser-Aからuser-Bへ変わる二タブ、旧画面からの作成防止、lock待機、同期不能、固定戻り先、通常読込の通知反復不在を検証する。`tests/product-auth.test.mjs`で成功Locationの契約、`tests/product-auth-browser.test.mjs`と`tests/office-auth-runtime-browser.test.mjs`でGoogle／ChatGPTのhandoff・Office復帰を確認する。
+
 ### Issue #283 製品認証の実装対応
 
 | 要求 | 実装／検証 | 状態 |
@@ -54,6 +56,8 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 ## 共有停止時の結果不明回復
 
 共有停止の4xxはAPIが返した案内を表示し、5xx・通信失敗は結果不明として画面に同じ共有リンクを保持する。利用者は画面を閉じず、同じ`shareLinkId`で停止を再試行できる。
+
+FR-004／FR-005／FR-012のクラウド編集では、共有作成・停止の応答待ち中は画像編集開始を抑止し、成功応答の全体再描画による編集中dialogの破棄と保存・手順切替の停止を防ぐ。`tests/cloud-manual-sharing-failure-browser.test.mjs`の遅延POST／DELETE回帰で、パネルを閉じた後の編集開始拒否と、応答後の画像適用・保存・手順切替・再編集を確認する。画像編集中の共有開始抑止も同じ回帰で確認する（PR #285、2026-11-08追補）。
 
 ## Cクラウド保存の追跡
 

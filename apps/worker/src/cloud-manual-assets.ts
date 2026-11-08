@@ -266,6 +266,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     pendingImageJobs.delete(key);return result;
   }
   async function openCloudImageEditor(step, workspace, center, tools, rerender, options={}) {
+    if(shareBusy){setMessage("共有操作の完了後に画像を編集してください。","warning");return;}
     if(activeCloudImageEditor||cloudImageBusy||saveInFlight)return;
     cloudImageBusy=true;setMessage("画像を準備しています…");
     const key=stepKey(step),manualId=detailData.manual.id,originalAssetId=step.assetId,returnFocus=document.activeElement;
