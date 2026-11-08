@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 const appPath = "apps/worker/src/app-assets.ts";
 
@@ -151,4 +152,35 @@ test("Access member migration中はjoin-code発行UIも無効化する", async (
   const source = await readFile(appPath, "utf8");
   assert.match(source, /memberMigration[\s\S]{0,1000}renderWorkspaceJoinCodeIssuer/);
   assert.match(source, /参加コードの発行はメンバー管理の移行が完了するまで利用できません。/);
+});
+
+
+test("editable empty manual list prioritizes creation and its CTA focuses the title field", async () => {
+  const source = await readFile(appPath, "utf8");
+  const render = source.slice(source.indexOf("function manualListHtml("), source.indexOf("function stepTypeOptions("));
+  for (const canEdit of [true, false]) {
+    const html = runInNewContext(render + "; manualListHtml({ id: 'workspace' })", {
+      manualsState: { status: "loaded", items: [] },
+      workspaceMembersState: { workspaceId: "workspace", currentUserRole: canEdit ? "editor" : "viewer" },
+      manualCanEdit: () => canEdit, manualMutationInFlight: false
+    });
+    if (canEdit) {
+      assert.match(html, /id="manuals-create-button" class="primary-button" type="button">手順書を作る/);
+      assert.match(html, /フォームから最初の手順書を作成できます/);
+    } else {
+      assert.doesNotMatch(html, /manuals-create-button|manual-create-form/);
+      assert.match(html, /編集者以上の権限を持つメンバーが作成できます/);
+    }
+  }
+  const start = source.indexOf('  document.getElementById("manuals-create-button")');
+  const end = source.indexOf('  document.getElementById("manual-detail-retry-button")', start);
+  let click;
+  let focused = false;
+  let scrolled = false;
+  runInNewContext(source.slice(start, end), { document: { getElementById(id) {
+    return id === "manuals-create-button" ? { addEventListener(event, callback) { assert.equal(event, "click"); click = callback; } } : { focus() { focused = true; }, scrollIntoView() { scrolled = true; } };
+  } } });
+  click();
+  assert.equal(focused, true);
+  assert.equal(scrolled, true);
 });

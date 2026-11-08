@@ -74,7 +74,7 @@ Status: Accepted
 - PDF出力。
 - Teamへの引き継ぎ。
 
-output gateでは利用者が押した目的を保持する。認証後に別のダッシュボードへ飛ばして操作文脈を失わせず、`bootstrap -> guest claim -> 元output` を自動継続する。
+output gateでは利用者が押した目的を保持する。認証後に別のダッシュボードへ飛ばして操作文脈を失わせず、`bootstrap -> 保存内容の確認 -> guest claim -> 元output` と進む。保存準備画面で利用者が「この内容で保存する」を押してから送信し、claim後は元outputを自動継続する。
 
 ## 文言
 

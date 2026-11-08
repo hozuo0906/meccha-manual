@@ -48,6 +48,7 @@ test("guest share claim returns to manual sharing settings without auto-issuing 
     }, { handoffId, operationId, claimIntentId, draftFingerprint });
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoffId}&extensionId=${extensionId}&action=share`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "この内容で保存する" }).click();
     await page.getByRole("button", { name: "共有設定を開く" }).waitFor({ timeout: 3_000 });
     assert.equal(bootstrapCalls, 1);
     assert.equal(claimIntentCalls, 1);

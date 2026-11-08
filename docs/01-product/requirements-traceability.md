@@ -2,6 +2,16 @@
 
 Status: Accepted
 
+## 2026-11-08 受入第一弾（#272／#232）
+
+| 対象要件／受入条件 | 画面契約・実装 | 回帰 |
+|---|---|---|
+| FR-001／FR-002／FR-011／FR-022、MVP-AC-010／011／013 | `onboarding-assets.ts`: prepare・fingerprint照合後の保存サマリーと送信確認、取消、確認後TTL検査、確定結果回収の継続 | `onboarding-ui-browser.test.mjs`、`onboarding-recovery-actions.test.mjs`、`onboarding-share-browser.test.mjs` |
+| #272／#232、NFR-004の情報露出・日本語案内 | `onboarding-assets.ts`: 既知コードの日本語化、未知コード非表示、タイトルtextContent | `onboarding-ui.test.mjs`、`onboarding-ui-browser.test.mjs` |
+| FR-004／FR-011、#232の初回空状態 | `app-assets.ts`: 編集権限のある0件一覧の「手順書を作る」からタイトル入力へ移動 | `manual-editor-ui.test.mjs`、`e2e/phase2-manual-editor.spec.mjs` |
+
+契約は`docs/02-ux/onboarding.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、ADR-0032の送信確認境界に同期する。外部認証・実環境への配信と受入の合否はローカル回帰と区別する。
+
 Issue #283 auth route regression は、product cookie → Access assertion → configured legacy Supabase cookie の credential precedence と、Supabase 未設定 legacy cookie の fail-closed 境界を `tests/product-auth.test.mjs` で検証する。OAuth start は`APP_BASE_URL`とrequest originの完全一致を先に確認し、別名originではlimiter／D1／cookie／redirectの副作用を発生させない。OAuth start の既存期限（10分）を超えた transaction は start 1回につき最大100件だけ cleanup し、cleanup と INSERT の atomic batch、101件目の継続 start、未期限切れ consumed 行の保持、storage failure 分類を同じテストで確認する。
 
 Issue #283の認証状態遷移は、`GET /api/session`の`authMode: "product" | "access"`を正本とする。`manuals.status`と`members.status`は機能の移行状態を示し、認証方式判定には使わない。D1 member routeが有効な環境では`members.status: "ready"`を返す。password login成功時の製品session revoke/clear、product OAuth成功時のlegacy access／refresh cookie clear、product logoutのJSON成功応答、期限切れproduct 401の製品ログイン復帰を`tests/product-auth.test.mjs`と`tests/app-auth.test.mjs`で確認する。OAuthの同一provider並行start、callback順序、cancel、未知／不正stateはtransaction固有cookieのunit回帰で確認する。

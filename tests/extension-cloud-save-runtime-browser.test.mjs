@@ -245,6 +245,7 @@ test("actual MV3 coordinator completes authenticated Office docx and pptx claims
           } catch { return false; }
         }, null, { timeout: 10_000 });
         await page.locator("#bootstrap").click();
+        await page.getByRole("button", { name: "この内容で保存する" }).click();
         await waitForCompleted(worker, handoffStorageKey(handoffId));
         const completed = await getStorage(worker, handoffStorageKey(handoffId));
         assert.equal(completed.outputAction, "office");

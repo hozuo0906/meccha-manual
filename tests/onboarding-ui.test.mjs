@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { inflateSync } from "node:zlib";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffId, createHandoffMetadata, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
 import { getOnboardingOrigin } from "../apps/extension/onboarding-config.js";
@@ -274,4 +275,19 @@ test("worker serves and decodes the onboarding brand PNGs through the configured
     const decoded = decodePngScanlines(body);
     assert.deepEqual(decoded, { width: 1254, height: 1254 }, path);
   }
+});
+
+
+test("onboarding display boundary translates known codes, suppresses unknown codes, and preserves Japanese guidance", () => {
+  const helpers = ONBOARDING_JS.slice(ONBOARDING_JS.indexOf("  const genericErrorGuidance"), ONBOARDING_JS.indexOf("  async function extensionMessage"));
+  const display = runInNewContext(helpers + "; displayError");
+  for (const code of ["HANDOFF_EXPIRED_OR_UNKNOWN", "HANDOFF_REQUEST_REJECTED", "CLAIM_TOO_LARGE", "DRAFT_INVALID", "DRAFT_FINGERPRINT_REQUIRED", "EXTENSION_HANDOFF_REQUIRED", "EXTENSION_MESSAGE_UNAVAILABLE", "HANDOFF_FAILED", "CLAIM_RESULT_INVALID", "CLOUD_STATE_UNAVAILABLE", "CHUNK_SEQUENCE_INVALID", "OFFICE_RETURN_REJECTED", "UNKNOWN_INTERNAL_CODE", "保存できません: UNKNOWN_INTERNAL_CODE"]) {
+    const text = display({ message: code });
+    assert.equal(text.includes(code), false);
+    assert.doesNotMatch(text, /[A-Z]+(?:_[A-Z]+)+/u);
+    assert.match(text, /下書き.*(残|保持)/u);
+  }
+  const japanese = "画像を保存できませんでした。下書きは保持されています。編集画面からやり直してください。";
+  assert.equal(display({ message: japanese }), japanese);
+  assert.match(display({ message: "__proto__" }), /下書き/);
 });

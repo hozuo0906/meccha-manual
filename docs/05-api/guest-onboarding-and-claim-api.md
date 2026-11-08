@@ -360,3 +360,10 @@ DEC-090のimageStateを持つdraftでは、queued/capturing/failed/unavailable/p
 ### ローカルの色・ロゴの保持（ADR-0038）
 
 `draft.branding`はprepare時にfingerprintへ固定し、色・ロゴ有無だけをWebへ返す。ロゴはCanvas再描画済みPNG/WebPを`handoff.logo.start/chunk`で転送し、認証後の`PUT /api/onboarding/claim-intents/{id}/branding/logo`へ送る。finalizeの`manual.branding:{themeColor,logoId}`を手順書固有のimmutable snapshotとして保存する。チーム全体の設定は変更せず、通常のcloud編集・共有・印刷でも固定版を保持する。詳細と上限・認可は[統一編集器の保存API](./unified-editor-storage-api.md)を参照する。
+
+
+### 保存準備画面の送信確認境界（2026-11-08）
+
+Web coordinatorは`handoff.prepare`成功・draft fingerprint照合後、claim intent作成とasset／logo uploadの前に利用者の「この内容で保存する」を待つ。表示を許す情報はタイトル、手順数、画像数、既存output intentから判定した目的、cloudRefの有無による新規／更新、brandingのロゴ有無だけとする。タイトルは`textContent`で表示し、本文・画像・識別情報をDOMやWeb storageへ追加しない。ワークスペース名を推測しない。bootstrapは従来どおりoperation metadataだけを送る。
+
+確認待ちはTTLを延長せず、続行直前に`ensureFinalizeWriteAllowed`を通す。取消時は以降のcontent writeを行わずlocal原本を保持する。`pending`で同一intentへの再送が必要な場合も確認対象とし、`completed`／`completion-pending`およびGET照会で確定した結果の回収は確認待ちにしない。Webのin-flight guardで準備中・確認待ちの二重起動を抑止する。既存message schema、endpoint、認証・workspace境界、D1制約は変更しない。

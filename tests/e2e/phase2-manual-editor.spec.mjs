@@ -605,6 +605,11 @@ test("編集者は手順書作成から手順追加・手修正文保持まで�
   await openManualScreen(page);
 
   await expect(page.getByText("手順書はまだありません。" )).toBeVisible();
+  const create = page.getByRole("button", { name: "手順書を作る", exact: true });
+  await expect(create).toHaveClass("primary-button");
+  await create.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#manual-create-title")).toBeFocused();
   await page.locator("#manual-create-title").fill("入会受付手順");
   await page.locator("#manual-create-description").fill("受付担当者向け");
   await page.getByRole("button", { name: "手順書を作成" }).click();

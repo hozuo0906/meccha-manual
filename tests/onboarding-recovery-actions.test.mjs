@@ -49,10 +49,11 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     const cloudRef = { workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", manualId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", revisionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", updatedAt: "2026-10-01T00:01:00.000Z", contentVersion: "a".repeat(32) };
     const session = new Map(); const messages = []; const requests = [];
     const button = { textContent: "", listeners: new Map(), addEventListener(type, callback) { this.listeners.set(type, callback); }, removeEventListener(type) { this.listeners.delete(type); } };
-    const status = { textContent: "", className: "" };
+    const status = { textContent: "", className: "", focus() {} };
+    const summaryNodes = new Map();
     const location = { hash: url.hash, pathname: url.pathname, search: url.search, href: url.href };
     const context = {
-      document: { querySelector(selector) { return selector === "#onboarding" ? { dataset: { bootstrapEnabled: "true" } } : selector === "#status" ? status : button; } },
+      document: { querySelector(selector) { return selector === "#onboarding" ? { dataset: { bootstrapEnabled: "true" } } : selector === "#status" ? status : selector.startsWith("#save-") ? (summaryNodes.get(selector) || (summaryNodes.set(selector, { focus() {} }), summaryNodes.get(selector))) : button; } },
       window: { addEventListener() {} }, location,
       history: { replaceState() { location.hash = ""; } },
       sessionStorage: { getItem(key) { return session.get(key) ?? null; }, setItem(key, value) { session.set(key, value); } },
@@ -76,7 +77,14 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     };
     runInNewContext(ONBOARDING_JS, context);
     assert.equal(typeof button.listeners.get("click"), "function", status.textContent);
-    await button.listeners.get("click")();
+    const running = button.listeners.get("click")();
+    if (serverStatus === "pending" && !changed) {
+      for (let attempt = 0; attempt < 100 && !summaryNodes.get("#save-confirm")?.onclick; attempt += 1) await new Promise(resolve => setImmediate(resolve));
+      assert.equal(typeof summaryNodes.get("#save-confirm")?.onclick, "function", status.textContent);
+      assert.equal(requests.some(request => request.method !== "GET"), false, "pending retries wait for confirmation before uploads and finalize");
+      summaryNodes.get("#save-confirm").onclick();
+    }
+    await running;
     assert.ok(messages.every((message) => message.action === "save"), "every recovery/claim message preserves the original save action");
     assert.equal(requests.filter((request) => request.path === "/api/onboarding/claim-intents").length, 0);
     assert.equal(requests.filter((request) => request.path === "/api/onboarding/bootstrap").length, 0);

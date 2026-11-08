@@ -1,3 +1,13 @@
+## 2026-11-08 受入第一弾: 保存内容確認・エラー案内・空状態CTA
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T14:45:20+09:00（Asia/Tokyo）。対象Issue #272／#232、branch `codex/acceptance-fixes-20261108`、着手HEAD `2cfdee4136e885482fa8c14955fe93dc8a1bf927`。今回の許可範囲は指定3点の修正・検証・報告書・commit／指定branchへのpushまで。PR作成・merge・Issue書込みは行わず、Issue #70も依頼に従って未更新とする。
+
+- 保存先準備後にタイトル・件数・目的・新規／更新・ロゴ有無を確認し、「この内容で保存する」まで本文・画像の送信を待つ。取消はlocal原本を保持して編集タブへの復帰を案内する。待機後も元TTLでwrite検査を通し、確定結果の回収は妨げない。未知コード非表示と編集可能な空一覧の作成CTAを追加した。拡張製品コード・API・D1・外部AI・自動mask／自動置換は変更しない。
+- 対象unit／browser 5ファイル45/45、CTAを含む既存作成編集E2E 1/1、実MV3・合成認証Office連携3/3はexit 0。全体`npm run check`（57849）はexit 0、56段階とNode test summary集計772/772・fail 0／skip 0で完走した。詳細・先行失敗・未実行事項・既存テスト更新理由は[修正報告書](acceptance-fixes-2026-11-08.md)を正とする。
+- 次の1マイルストーンはMuseによるpush済み実SHAでのPR・CI・正式Codex Reviewと利用者受入の照合。実SSO／remote D1/R2／production・staging配信／実Office描画は未実行。保存・報告後は終了し、自律監視・継続実行は登録しない。以下の過去checkpointは履歴として保持する。
+
 ## 2026-11-08 PR #288: 一覧の再試行失敗後のフォーカス復帰
 
 Status: Accepted
