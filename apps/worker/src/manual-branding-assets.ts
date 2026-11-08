@@ -6,6 +6,7 @@ export const MANUAL_BRANDING_JS = `
   function applyManualBranding(data) { const branding=data?.branding;const color=/^#[0-9a-f]{6}$/i.test(branding?.themeColor||"")?branding.themeColor:"#087f7a";root.style.setProperty("--manual-accent",color);root.style.setProperty("--manual-foreground",brandingForeground(color)); }
   function safeBrandLogoUrl(value) { if(typeof value!=="string")return null;try{const u=new URL(value,location.origin);return u.origin===location.origin&&u.pathname.startsWith(workspacePath()+"/branding/logos/")&&!u.search&&!u.hash?u.href:null;}catch{return null;} }
   async function openBrandingSettings(trigger) {
+    if (!mode.canWrite) return;
     if(document.querySelector(".branding-dialog"))return;
     const dialog=make("dialog","","branding-dialog");dialog.setAttribute("aria-label","チームの見た目");
     const close=make("button","閉じる","secondary");close.type="button";close.addEventListener("click",()=>dialog.close());dialog.append(close,make("h2","チームの見た目"),make("p","チームカラーとロゴを設定します。新しい手順書の標準になります。手順書ごとに設定した見た目と、作成済みの共有リンクは変わりません。","cloud-note"));

@@ -55,7 +55,7 @@ async function loadMutatedWorker(name, replacements) {
   await mkdir(d1Directory, { recursive: true });
   await Promise.all([
     writeFile(indexPath, source, "utf8"),
-    ...["editor-tools-assets.ts", "manual-branding-assets.ts", "manual-print-assets.ts", "manual-raster.ts", "manual-annotations.ts"].map(async(file)=>writeFile(join(directory,file),await readFile(`apps/worker/src/${file}`,"utf8"),"utf8")),
+    ...["editor-tools-assets.ts", "manual-sample-assets.ts", "manual-branding-assets.ts", "manual-print-assets.ts", "manual-raster.ts", "manual-annotations.ts"].map(async(file)=>writeFile(join(directory,file),await readFile(`apps/worker/src/${file}`,"utf8"),"utf8")),
     writeFile(assetsPath, await readFile("apps/worker/src/app-assets.ts", "utf8"), "utf8"),
     writeFile(join(directory, "onboarding-assets.ts"), await readFile("apps/worker/src/onboarding-assets.ts", "utf8"), "utf8"),
     writeFile(join(directory, "cloud-manual-assets.ts"), await readFile("apps/worker/src/cloud-manual-assets.ts", "utf8"), "utf8"),

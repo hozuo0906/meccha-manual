@@ -164,6 +164,7 @@ test("editable empty manual list prioritizes creation and its CTA focuses the ti
       workspaceMembersState: { workspaceId: "workspace", currentUserRole: canEdit ? "editor" : "viewer" },
       manualCanEdit: () => canEdit, manualMutationInFlight: false
     });
+    assert.match(html, /href="\/manuals\/sample">サンプルを見る/);
     if (canEdit) {
       assert.match(html, /id="manuals-create-button" class="primary-button" type="button">手順書を作る/);
       assert.match(html, /フォームから最初の手順書を作成できます/);

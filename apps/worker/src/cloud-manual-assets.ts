@@ -1,3 +1,4 @@
+import { MANUAL_SAMPLE_DETAIL } from "./manual-sample-assets.ts";
 import { MANUAL_PRINT_CSS, MANUAL_PRINT_JS } from "./manual-print-assets.ts";
 import { MANUAL_BRANDING_CSS, MANUAL_BRANDING_JS } from "./manual-branding-assets.ts";
 import { EDITOR_TOOLS_CSS, EDITOR_DIALOG_HTML } from "./editor-tools-assets.ts";
@@ -53,7 +54,22 @@ export const CLOUD_MANUAL_JS = `(() => {
   const message = document.querySelector("#cloud-message");
   const list = document.querySelector("#cloud-list");
   const detail = document.querySelector("#cloud-detail");
+  const editorMode = root?.dataset.editorMode === "sample" ? "sample" : "cloud";
+  const mode = Object.freeze(editorMode === "sample"
+    ? { canEdit: false, canWrite: false, canOutput: false }
+    : { canEdit: true, canWrite: true, canOutput: true });
+  const sampleDetail = editorMode === "sample" ? ${JSON.stringify(MANUAL_SAMPLE_DETAIL)} : null;
   const workspaceId = root?.dataset.workspaceId || "";
+  // All business requests, including future callers, pass this mode boundary.
+  function requireCloudWrite() { if (!mode.canWrite) throw new Error("サンプルでは保存・共有できません。"); }
+  function initializeEditor(data) {
+    detailData = data;
+    editorState = {
+      title: data.draft?.title || data.manual?.title || "",
+      description: data.draft?.description || "",
+      steps: Array.isArray(data.steps) ? clone(data.steps).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) : []
+    };
+  }
   let manuals = [];
   let selected = null;
   let detailData = null;
@@ -80,15 +96,15 @@ export const CLOUD_MANUAL_JS = `(() => {
   function validPasscode(value) { const text = String(value || ""); return Array.from(text).length >= 12 && Array.from(text).length <= 128 && new TextEncoder().encode(text).byteLength <= 512 && !/[\\u0000-\\u001f\\u007f-\\u009f]/.test(text); }
   async function loadShareMetadata(manualId) { try { const result = await json(shareEndpoint(manualId)); return { state: result?.share || null, error: null }; } catch (error) { return { state: null, error }; } }
   function shareIsActive() { return Boolean(shareState && !shareState.revokedAt); }
-  async function revokeShare(manualId) { if (!shareState?.shareLinkId) return; if (shareBusy) { setMessage("別の共有操作を処理中です。完了後にお試しください。", "warning"); return; } const serial = requestSerial; const linkId = shareState.shareLinkId; const request = { serial, manualId }; shareRequest = request; shareBusy = true; try { await json(shareEndpoint(manualId), { method: "DELETE", body: JSON.stringify({ shareLinkId: linkId }) }); if (serial !== requestSerial || detailData?.manual?.id !== manualId) return; shareState = null; shareToken = null; sharePending = null; setMessage("共有リンクを停止しました。必要なら新しいリンクを作成してください。", "success"); shareBusy = false; shareRequest = null; renderDetail(detailData); } catch (error) { if (serial === requestSerial) { if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) setMessage(error.message || "共有リンクを停止できません。", "error"); else setMessage("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", "warning"); } } finally { if (shareRequest === request) { shareBusy = false; shareRequest = null; } } }
+  async function revokeShare(manualId) { if (!mode.canWrite) return; if (!shareState?.shareLinkId) return; if (shareBusy) { setMessage("別の共有操作を処理中です。完了後にお試しください。", "warning"); return; } const serial = requestSerial; const linkId = shareState.shareLinkId; const request = { serial, manualId }; shareRequest = request; shareBusy = true; try { await json(shareEndpoint(manualId), { method: "DELETE", body: JSON.stringify({ shareLinkId: linkId }) }); if (serial !== requestSerial || detailData?.manual?.id !== manualId) return; shareState = null; shareToken = null; sharePending = null; setMessage("共有リンクを停止しました。必要なら新しいリンクを作成してください。", "success"); shareBusy = false; shareRequest = null; renderDetail(detailData); } catch (error) { if (serial === requestSerial) { if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) setMessage(error.message || "共有リンクを停止できません。", "error"); else setMessage("共有リンクを停止できたか確認できません。画面を閉じずに、共有設定の停止ボタンから同じリンクの停止を再試行してください。", "warning"); } } finally { if (shareRequest === request) { shareBusy = false; shareRequest = null; } } }
   function shareUrl() { return location.origin + (shareState?.viewerPath || "/s/") + "#token=" + encodeURIComponent(shareToken || ""); }
-  async function issueShare(manualId, form) { if (shareBusy) { setMessage("別の共有操作を処理中です。完了後にお試しください。", "warning"); return; } if (shareIsActive()) return; if (activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size) { setMessage("画像の編集・保存を完了してください。", "warning"); return; } if (dirty) { setMessage("未保存の変更があります。先に変更を保存してください。", "warning"); return; } const draftId = detailData?.draft?.id; const contentVersion = detailData?.draft?.contentVersion; const passcode = form.querySelector("[data-share-passcode]")?.value || ""; const expiry = form.querySelector("[data-share-expires]")?.value || ""; const confirmed = form.querySelector("[data-share-confirm]")?.checked === true; if (!validPasscode(passcode)) { setMessage("パスコードは12〜128文字、512バイト以内で入力してください。", "error"); return; } if (!confirmed) { setMessage("共有内容と期限を確認してから作成してください。", "error"); return; } const parsedExpiry = Date.parse(expiry); const expiresAt = Number.isFinite(parsedExpiry) ? new Date(parsedExpiry).toISOString() : ""; const max = Date.now() + 30 * 24 * 60 * 60 * 1000; if (!Number.isFinite(parsedExpiry) || parsedExpiry <= Date.now() || parsedExpiry > max) { setMessage("有効期限は現在から30日以内で指定してください。", "error"); return; } const serial = requestSerial; const request = { serial, manualId }; shareRequest = request; const pending = sharePending && sharePending.manualId === manualId && sharePending.draftId === draftId && sharePending.contentVersion === contentVersion ? sharePending : { manualId, draftId, contentVersion, body: { operationId: randomBase64Url(), token: randomBase64Url(), passcode, expiresAt, expectedDraftRevisionId: draftId, expectedContentVersion: contentVersion, confirmed: true } }; if (sharePending && pending === sharePending && (passcode !== pending.body.passcode || expiresAt !== pending.body.expiresAt || !confirmed)) { setMessage("前回の作成結果が不明です。前回と同じ内容で再試行してください。", "warning"); shareRequest = null; return; } sharePending = pending; let issued = false; shareBusy = true; try { const result = await json(shareEndpoint(manualId), { method: "POST", body: JSON.stringify(pending.body) }); if (serial !== requestSerial || detailData?.manual?.id !== manualId) return; shareToken = pending.body.token; shareState = { shareLinkId: result.shareLinkId, expiresAt: result.expiresAt, revokedAt: null, permission: result.permission, viewerPath: result.viewerPath || "/s/" }; sharePending = null; issued = true; setMessage("共有リンクを作成しました。作成時点の内容が共有されます。", "success"); } catch (error) { if (serial === requestSerial) { shareToken = null; if ([400, 403, 409].includes(error.status)) { sharePending = null; setMessage(error.message, "error"); } else setMessage("共有リンクの作成結果を確認できません。前回と同じ内容で再試行してください。", "warning"); } } finally { if (shareRequest === request) { shareBusy = false; shareRequest = null; if (issued) renderDetail(detailData); } } }
+  async function issueShare(manualId, form) { if (!mode.canWrite) return; if (shareBusy) { setMessage("別の共有操作を処理中です。完了後にお試しください。", "warning"); return; } if (shareIsActive()) return; if (activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size) { setMessage("画像の編集・保存を完了してください。", "warning"); return; } if (dirty) { setMessage("未保存の変更があります。先に変更を保存してください。", "warning"); return; } const draftId = detailData?.draft?.id; const contentVersion = detailData?.draft?.contentVersion; const passcode = form.querySelector("[data-share-passcode]")?.value || ""; const expiry = form.querySelector("[data-share-expires]")?.value || ""; const confirmed = form.querySelector("[data-share-confirm]")?.checked === true; if (!validPasscode(passcode)) { setMessage("パスコードは12〜128文字、512バイト以内で入力してください。", "error"); return; } if (!confirmed) { setMessage("共有内容と期限を確認してから作成してください。", "error"); return; } const parsedExpiry = Date.parse(expiry); const expiresAt = Number.isFinite(parsedExpiry) ? new Date(parsedExpiry).toISOString() : ""; const max = Date.now() + 30 * 24 * 60 * 60 * 1000; if (!Number.isFinite(parsedExpiry) || parsedExpiry <= Date.now() || parsedExpiry > max) { setMessage("有効期限は現在から30日以内で指定してください。", "error"); return; } const serial = requestSerial; const request = { serial, manualId }; shareRequest = request; const pending = sharePending && sharePending.manualId === manualId && sharePending.draftId === draftId && sharePending.contentVersion === contentVersion ? sharePending : { manualId, draftId, contentVersion, body: { operationId: randomBase64Url(), token: randomBase64Url(), passcode, expiresAt, expectedDraftRevisionId: draftId, expectedContentVersion: contentVersion, confirmed: true } }; if (sharePending && pending === sharePending && (passcode !== pending.body.passcode || expiresAt !== pending.body.expiresAt || !confirmed)) { setMessage("前回の作成結果が不明です。前回と同じ内容で再試行してください。", "warning"); shareRequest = null; return; } sharePending = pending; let issued = false; shareBusy = true; try { const result = await json(shareEndpoint(manualId), { method: "POST", body: JSON.stringify(pending.body) }); if (serial !== requestSerial || detailData?.manual?.id !== manualId) return; shareToken = pending.body.token; shareState = { shareLinkId: result.shareLinkId, expiresAt: result.expiresAt, revokedAt: null, permission: result.permission, viewerPath: result.viewerPath || "/s/" }; sharePending = null; issued = true; setMessage("共有リンクを作成しました。作成時点の内容が共有されます。", "success"); } catch (error) { if (serial === requestSerial) { shareToken = null; if ([400, 403, 409].includes(error.status)) { sharePending = null; setMessage(error.message, "error"); } else setMessage("共有リンクの作成結果を確認できません。前回と同じ内容で再試行してください。", "warning"); } } finally { if (shareRequest === request) { shareBusy = false; shareRequest = null; if (issued) renderDetail(detailData); } } }
   function setMessage(text, kind = "") { const nearby = detail?.querySelector(".share-feedback"); if (nearby) { nearby.textContent = shareOpen ? text : ""; nearby.dataset.kind = kind; } message.textContent = text; message.className = ("cloud-message " + kind).trim(); }
   function make(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
-  function workspacePath() { if (!workspaceId) throw new Error("ワークスペースを確認できません。"); return "/api/workspaces/" + encodeURIComponent(workspaceId); }
-  async function json(url, init = {}) { const headers = { Accept: "application/json", "X-Requested-With": "XMLHttpRequest", ...(init.body ? { "Content-Type": "application/json" } : {}), ...(init.headers || {}) }; const response = await fetch(url, { ...init, credentials: "same-origin", cache: "no-store", headers }); let body = null; try { body = await response.json(); } catch {} if (!response.ok) { const error = new Error(body?.message || "手順書を確認できませんでした。"); error.status = response.status; error.code = body?.code; throw error; } return body; }
-  function renderList() { list.replaceChildren(); const query=String(document.querySelector("#manual-search")?.value||"").trim().toLocaleLowerCase("ja");const visible=manuals.filter(manual=>String(manual.title||"").toLocaleLowerCase("ja").includes(query));if(!visible.length){if(query){list.append(make("p","一致する手順書がありません。検索する言葉を変えてください。","cloud-empty-library"));return;}const empty=make("section","","cloud-empty-library");empty.append(make("h3","最初の手順書をつくりましょう"));const guide=make("ol");for(const text of ["記録したい業務画面をChromeで開きます。","Chromeの拡張機能から「めっちゃマニュアル」を選び、操作を記録します。","記録を終了して内容を確認し、「クラウドに保存」を選びます。"]){guide.append(make("li",text));}const refresh=make("button","保存後に一覧を更新","secondary");refresh.type="button";refresh.addEventListener("click",()=>loadManuals());empty.append(guide,refresh);list.append(empty);return;}for(const manual of visible){const button=make("button","","cloud-list-button");button.type="button";button.disabled=saveInFlight;button.setAttribute("aria-label",manual.title||"名称未設定");button.setAttribute("aria-current",selected?.id===manual.id?"true":"false");button.append(make("span","手順書","manual-list-kicker"),make("strong",manual.title||"名称未設定"));const when=Date.parse(manual.updatedAt);button.append(make("span",Number.isFinite(when)?"更新 "+new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium"}).format(when):"クラウドに保存済み","manual-list-meta"));button.addEventListener("click",()=>{if(!saveInFlight)openManual(manual.id);});list.append(button);} }
+  function workspacePath() { requireCloudWrite(); if (!workspaceId) throw new Error("ワークスペースを確認できません。"); return "/api/workspaces/" + encodeURIComponent(workspaceId); }
+  async function json(url, init = {}) { requireCloudWrite(); const headers = { Accept: "application/json", "X-Requested-With": "XMLHttpRequest", ...(init.body ? { "Content-Type": "application/json" } : {}), ...(init.headers || {}) }; const response = await fetch(url, { ...init, credentials: "same-origin", cache: "no-store", headers }); let body = null; try { body = await response.json(); } catch {} if (!response.ok) { const error = new Error(body?.message || "手順書を確認できませんでした。"); error.status = response.status; error.code = body?.code; throw error; } return body; }
+  function renderList() { list.replaceChildren(); const query=String(document.querySelector("#manual-search")?.value||"").trim().toLocaleLowerCase("ja");const visible=manuals.filter(manual=>String(manual.title||"").toLocaleLowerCase("ja").includes(query));if(!visible.length){if(query){list.append(make("p","一致する手順書がありません。検索する言葉を変えてください。","cloud-empty-library"));return;}const empty=make("section","","cloud-empty-library");empty.append(make("h3","最初の手順書をつくりましょう"));const guide=make("ol");for(const text of ["記録したい業務画面をChromeで開きます。","Chromeの拡張機能から「めっちゃマニュアル」を選び、操作を記録します。","記録を終了して内容を確認し、「クラウドに保存」を選びます。"]){guide.append(make("li",text));}const refresh=make("button","保存後に一覧を更新","secondary");refresh.type="button";refresh.addEventListener("click",()=>loadManuals());const sample=make("a","サンプルを見る");sample.href="/manuals/sample";empty.append(guide,refresh,make("p"));empty.lastChild.append(sample);list.append(empty);return;}for(const manual of visible){const button=make("button","","cloud-list-button");button.type="button";button.disabled=saveInFlight;button.setAttribute("aria-label",manual.title||"名称未設定");button.setAttribute("aria-current",selected?.id===manual.id?"true":"false");button.append(make("span","手順書","manual-list-kicker"),make("strong",manual.title||"名称未設定"));const when=Date.parse(manual.updatedAt);button.append(make("span",sampleDetail?"サンプル・閲覧のみ":Number.isFinite(when)?"更新 "+new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium"}).format(when):"クラウドに保存済み","manual-list-meta"));button.addEventListener("click",()=>{if(!saveInFlight)openManual(manual.id);});list.append(button);} }
   function imageUrlFor(step) {
     const candidate = step?.assetUrl;
     if (typeof candidate !== "string" || !candidate) return null;
@@ -108,7 +124,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const retry = make("button", "画像をもう一度読み込む", "cloud-image-retry"); retry.type = "button"; retry.hidden = true;
     const expand = make("button", "画像を拡大して確認", "secondary cloud-image-expand"); expand.type="button";expand.hidden=true;
     const inspection=make("dialog","","cloud-image-inspection");inspection.setAttribute("aria-label","手順画像を拡大して確認");
-    const inspectionHeading=make("h2","手順 "+(index+1)+"の画像");const inspectionTools=make("div","","cloud-inspection-tools");
+    const inspectionHeading=make("h2",(sampleDetail?"サンプル · ":"")+"手順 "+(index+1)+"の画像");const inspectionTools=make("div","","cloud-inspection-tools");
     const fit=make("button","全体表示","secondary"),actual=make("button","原寸表示","secondary"),close=make("button","閉じる","secondary");
     for(const control of [fit,actual,close])control.type="button";
     const stage=make("div","","cloud-inspection-stage");stage.tabIndex=0;stage.setAttribute("aria-label","拡大画像。矢印キーでスクロールできます");const preview=make("img");preview.alt=image.alt;stage.append(preview);
@@ -136,7 +152,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     card.append(status, error, retry, image, expand, inspection); parent.append(card);
     image.src = imageUrl;
   }
-  function markChanged() { dirty = true; editVersion += 1; if (saveState) { saveState.textContent = "クラウドに未保存"; saveState.dataset.state = "dirty"; } }
+  function markChanged() { if (!mode.canEdit) return; dirty = true; editVersion += 1; if (saveState) { saveState.textContent = "クラウドに未保存"; saveState.dataset.state = "dirty"; } }
   function codePointLength(value) { return Array.from(String(value || "")).length; }
   function syncManualListTitle(manualId, title) {
     const manual = manuals.find((item) => item.id === manualId);
@@ -219,6 +235,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     }
   }
   async function exportOffice(format, button) {
+    if (!mode.canOutput) return;
     if (officeExportBusy || saveInFlight) return;
     if (!detailData || !editorState) { setMessage("\u5148\u306b\u624b\u9806\u66f8\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning"); return; }
     if (activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size) { setMessage("\u753b\u50cf\u306e\u7de8\u96c6\u30fb\u4fdd\u5b58\u3092\u5b8c\u4e86\u3057\u3066\u304b\u3089Office\u51fa\u529b\u3092\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", "warning"); return; }
@@ -266,6 +283,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     pendingImageJobs.delete(key);return result;
   }
   async function openCloudImageEditor(step, workspace, center, tools, rerender, options={}) {
+    if (!mode.canEdit) return;
     if(shareBusy){setMessage("共有操作の完了後に画像を編集してください。","warning");return;}
     if(activeCloudImageEditor||cloudImageBusy||saveInFlight)return;
     cloudImageBusy=true;setMessage("画像を準備しています…");
@@ -304,7 +322,7 @@ export const CLOUD_MANUAL_JS = `(() => {
   function stepKey(step) { return step.id || step.clientKey; }
   function checkpointEditor() { undoStack.push({ state: clone(editorState), selectedStepKey }); if (undoStack.length > 40) undoStack.shift(); redoStack = []; }
   function restoreEditorHistory(from, to) {
-    if (!from.length || saveInFlight || activeCloudImageEditor || cloudImageBusy || !editorState) return;
+    if (!mode.canEdit || !from.length || saveInFlight || activeCloudImageEditor || cloudImageBusy || !editorState) return;
     to.push({ state: clone(editorState), selectedStepKey });
     const snapshot = from.pop(); editorState = snapshot.state; selectedStepKey = snapshot.selectedStepKey;
     markChanged(); renderDetail(detailData);
@@ -314,24 +332,30 @@ export const CLOUD_MANUAL_JS = `(() => {
     detail.replaceChildren(); root.querySelector(".manual-library").hidden = Boolean(data && editorState); root.classList.toggle("is-editing", Boolean(data && editorState));
     if (!data || !editorState) { detail.append(make("p", "一覧から手順書を選んでください。", "cloud-note")); return; }
     applyManualBranding(data);
-    const canEdit = data.permissions?.canEdit !== false;
+    const canEdit = mode.canEdit && data.permissions?.canEdit !== false;
     const form = make("section", "", "manual-editor");
     const toolbar = make("header", "", "manual-toolbar");
     const back = make("button", "手順書一覧", "secondary manual-back"); back.type = "button"; back.setAttribute("aria-label", "手順書一覧");
-    back.addEventListener("click", () => { const panel = root.querySelector(".manual-library"); panel.hidden = !panel.hidden; back.setAttribute("aria-expanded", String(!panel.hidden)); if (!panel.hidden) panel.querySelector("button")?.focus(); });
+    back.addEventListener("click", () => { if (sampleDetail) return; const panel = root.querySelector(".manual-library"); panel.hidden = !panel.hidden; back.setAttribute("aria-expanded", String(!panel.hidden)); if (!panel.hidden) panel.querySelector("button")?.focus(); });
     back.setAttribute("aria-expanded", "false");
     const title = document.createElement("input"); title.className = "manual-title"; title.dataset.codePointMax = "64"; title.value = editorState.title; title.disabled = !canEdit; title.setAttribute("aria-label", "タイトル");
     title.addEventListener("focus", () => { title.__before = title.value; });
-    title.addEventListener("input", () => { if (title.__before !== undefined) { const current = editorState.title; editorState.title = title.__before; checkpointEditor(); editorState.title = current; title.__before = undefined; } editorState.title = title.value; markChanged(); });
+    title.addEventListener("input", () => { if (!canEdit) return; if (title.__before !== undefined) { const current = editorState.title; editorState.title = title.__before; checkpointEditor(); editorState.title = current; title.__before = undefined; } editorState.title = title.value; markChanged(); });
     saveState = make("span", !canEdit ? "閲覧専用" : dirty ? "クラウドに未保存" : "クラウドに保存済み", "cloud-save-state"); saveState.dataset.state = dirty ? "dirty" : "saved"; saveState.setAttribute("role", "status"); saveState.setAttribute("aria-live", "polite");
     const save = make("button", "変更を保存", "primary"); save.type = "button"; save.dataset.manualSave="true"; save.addEventListener("click",()=>saveManual(data.manual.id,save)); save.disabled = !canEdit || saveInFlight;
     const share = make("button", "共有", "secondary manual-share"); share.type = "button"; share.setAttribute("aria-expanded", String(shareOpen));
+    if (sampleDetail) {
+      saveState.textContent = "サンプル・閲覧のみ";
+      share.disabled = true;
+      back.textContent = "戻る"; back.setAttribute("aria-label", "ログイン画面へ戻る");
+      back.addEventListener("click", () => { location.href = "/"; });
+    }
     toolbar.append(back, title, saveState, save, share);
     const brandLogo=safeBrandLogoUrl(data.branding?.logoUrl);if(brandLogo){const logo=make("img","","manual-team-logo");logo.src=brandLogo;logo.alt="チームのロゴ";logo.addEventListener("error",()=>logo.remove());toolbar.insertBefore(logo,title);}
     const descriptionDetails = make("details", "", "manual-description"); const descriptionSummary = make("summary", "手順書の説明");
     const description = document.createElement("textarea"); description.dataset.codePointMax = "10000"; description.value = editorState.description; description.disabled = !canEdit; description.setAttribute("aria-label", "説明");
     description.addEventListener("focus", () => { description.__before = description.value; });
-    description.addEventListener("input", () => { if (description.__before !== undefined) { const current = editorState.description; editorState.description = description.__before; checkpointEditor(); editorState.description = current; description.__before = undefined; } editorState.description = description.value; markChanged(); });
+    description.addEventListener("input", () => { if (!canEdit) return; if (description.__before !== undefined) { const current = editorState.description; editorState.description = description.__before; checkpointEditor(); editorState.description = current; description.__before = undefined; } editorState.description = description.value; markChanged(); });
     descriptionDetails.append(descriptionSummary, description);
     const workspace = make("div", "", "manual-workspace"); workspace.dataset.readOnly=String(!canEdit);
     form.dataset.readOnly=String(!canEdit);
@@ -356,6 +380,11 @@ export const CLOUD_MANUAL_JS = `(() => {
     officeActions.append(wordExport, powerpointExport); office.append(officeActions);
     if (canEdit) tools.append(make("h2", "画像を調整"), imageButtons, make("h2", "編集履歴"), undo, redo, reload, make("h2","手順書の設定"),branding,print,office);
     else tools.append(make("h2", "手順書の出力"), print, office, reload);
+    if (sampleDetail) {
+      print.disabled = wordExport.disabled = powerpointExport.disabled = true;
+      tools.prepend(make("p", "サンプルは閲覧のみです。編集・保存・共有・出力はできません。", "cloud-note"));
+      reload.textContent = "サンプルを読み直す";
+    }
     const add = make("button", "手順を追加", "secondary"); add.dataset.stepAdd = "true"; add.type = "button";
     function revealSelectedStep() {
       const current=navList.querySelector('[aria-current="step"]'); if(!current||!navList.clientHeight)return;
@@ -384,7 +413,7 @@ export const CLOUD_MANUAL_JS = `(() => {
         const replace=make("button",imageUrlFor(step)?"画像を差し替える":"画像を追加する","secondary");replace.type="button";replace.disabled=!canEdit;
         const file=document.createElement("input");file.type="file";file.accept="image/png,image/jpeg,image/webp";file.hidden=true;
         replace.addEventListener("click",()=>{if(!activeCloudImageEditor&&!cloudImageBusy)file.click();});
-        file.addEventListener("change",async()=>{const selectedFile=file.files?.[0];if(!selectedFile)return;cloudImageBusy=true;replace.disabled=true;setMessage("画像を確認しています…");try{const normalized=await imageTools().normalizeUploadedImage(selectedFile);cloudImageBusy=false;closePanels();await openCloudImageEditor(step,workspace,canvas,tools,renderSteps,{dataUrl:normalized.dataUrl,replace:true});}catch(error){cloudImageBusy=false;setMessage(error.message||"画像を読み込めませんでした。","error");}finally{replace.disabled=!canEdit;file.value="";}});imageButtons.append(replace,file);
+        file.addEventListener("change",async()=>{if(!canEdit)return;const selectedFile=file.files?.[0];if(!selectedFile)return;cloudImageBusy=true;replace.disabled=true;setMessage("画像を確認しています…");try{const normalized=await imageTools().normalizeUploadedImage(selectedFile);cloudImageBusy=false;closePanels();await openCloudImageEditor(step,workspace,canvas,tools,renderSteps,{dataUrl:normalized.dataUrl,replace:true});}catch(error){cloudImageBusy=false;setMessage(error.message||"画像を読み込めませんでした。","error");}finally{replace.disabled=!canEdit;file.value="";}});imageButtons.append(replace,file);
         const item = make("article", "", "cloud-step"); item.dataset.stepKey = key;
         const stepHeader = make("div", "", "manual-step-heading"); stepHeader.append(make("span", "現在の位置 " + (index + 1) + " / " + editorState.steps.length));
         const stepTitle = document.createElement("input"); stepTitle.dataset.codePointMax = "128"; stepTitle.value = step.title || ""; stepTitle.disabled = !canEdit; stepTitle.setAttribute("aria-label", "手順 " + (index + 1) + "のタイトル"); stepHeader.append(stepTitle); item.append(stepHeader);
@@ -392,25 +421,26 @@ export const CLOUD_MANUAL_JS = `(() => {
         const instructionLabel = make("label", "操作の説明"); const instruction = document.createElement("textarea"); instruction.dataset.codePointMax = "4000"; instruction.value = step.instruction || ""; instruction.disabled = !canEdit; instruction.setAttribute("aria-label", "手順 " + (index + 1) + "の説明"); instructionLabel.append(instruction);
         for (const [field, property] of [[stepTitle, "title"], [instruction, "instruction"]]) {
           field.addEventListener("focus", () => { field.__before = field.value; });
-          field.addEventListener("input", () => { if (field.__before !== undefined) { const current = step[property]; step[property] = field.__before; checkpointEditor(); step[property] = current; field.__before = undefined; } step[property] = field.value; if (property === "title") choose.textContent = (index + 1) + "  " + field.value; markChanged(); });
+          field.addEventListener("input", () => { if (!canEdit) return; if (field.__before !== undefined) { const current = step[property]; step[property] = field.__before; checkpointEditor(); step[property] = current; field.__before = undefined; } step[property] = field.value; if (property === "title") choose.textContent = (index + 1) + "  " + field.value; markChanged(); });
         }
         const actions = make("div", "", "cloud-step-actions");
-        for (const [label, offset] of [["上へ", -1], ["下へ", 1]]) { const button = make("button", label, "secondary"); button.type = "button"; button.disabled = !canEdit || index + offset < 0 || index + offset >= editorState.steps.length; button.addEventListener("click", () => { checkpointEditor(); [editorState.steps[index], editorState.steps[index + offset]] = [editorState.steps[index + offset], editorState.steps[index]]; markChanged(); renderSteps(); }); actions.append(button); }
+        for (const [label, offset] of [["上へ", -1], ["下へ", 1]]) { const button = make("button", label, "secondary"); button.type = "button"; button.disabled = !canEdit || index + offset < 0 || index + offset >= editorState.steps.length; button.addEventListener("click", () => { if (!canEdit) return; checkpointEditor(); [editorState.steps[index], editorState.steps[index + offset]] = [editorState.steps[index + offset], editorState.steps[index]]; markChanged(); renderSteps(); }); actions.append(button); }
         const remove = make("button", "この手順を削除", "secondary danger"); remove.type = "button"; remove.disabled = !canEdit;
-        remove.addEventListener("click", () => { checkpointEditor(); editorState.steps.splice(index, 1); selectedStepKey = stepKey(editorState.steps[Math.min(index, editorState.steps.length - 1)] || {}); markChanged(); renderSteps(true); }); actions.append(remove);
+        remove.addEventListener("click", () => { if (!canEdit) return; checkpointEditor(); editorState.steps.splice(index, 1); selectedStepKey = stepKey(editorState.steps[Math.min(index, editorState.steps.length - 1)] || {}); markChanged(); renderSteps(true); }); actions.append(remove);
         item.append(instructionLabel, actions); canvas.append(item); if (focus) instruction.focus();
       });
       if (!editorState.steps.length) canvas.append(make("p", "手順を追加して、説明を書き始めましょう。", "cloud-image-empty"));
       undo.disabled = !canEdit || !undoStack.length || saveInFlight; redo.disabled = !canEdit || !redoStack.length || saveInFlight;
       revealSelectedStep();
     }
-    add.addEventListener("click", () => { if (editorState.steps.length >= 200) return; checkpointEditor(); const index = editorState.steps.findIndex((step) => stepKey(step) === selectedStepKey); const step = { type: "action", title: "新しい手順", instruction: "", actionType: null, targetText: null, url: null, clientKey: "local-" + crypto.randomUUID() }; editorState.steps.splice(index + 1, 0, step); selectedStepKey = stepKey(step); markChanged(); renderSteps(true); });
+    add.addEventListener("click", () => { if (!canEdit) return; if (editorState.steps.length >= 200) return; checkpointEditor(); const index = editorState.steps.findIndex((step) => stepKey(step) === selectedStepKey); const step = { type: "action", title: "新しい手順", instruction: "", actionType: null, targetText: null, url: null, clientKey: "local-" + crypto.randomUUID() }; editorState.steps.splice(index + 1, 0, step); selectedStepKey = stepKey(step); markChanged(); renderSteps(true); });
     const closeNav=make("button","閉じる","secondary manual-panel-close");closeNav.type="button";closeNav.addEventListener("click",closePanels);
     const closeTools=make("button","閉じる","secondary manual-panel-close");closeTools.type="button";closeTools.addEventListener("click",closePanels);tools.prepend(closeTools);
-    const toolsToggle=make("button",canEdit?"画像・編集":"出力","secondary manual-tools-toggle");toolsToggle.type="button";toolsToggle.addEventListener("click",()=>openPanel(tools,toolsToggle));toolbar.insertBefore(toolsToggle,save);
-    const mobileActions=make("div","","manual-mobile-actions");const mobileSteps=make("button","手順","secondary"),mobileTools=make("button",canEdit?"編集":"出力","secondary"),mobileShare=make("button","共有","primary");
+    const toolsToggle=make("button",sampleDetail?"操作案内":canEdit?"画像・編集":"出力","secondary manual-tools-toggle");toolsToggle.type="button";toolsToggle.addEventListener("click",()=>openPanel(tools,toolsToggle));toolbar.insertBefore(toolsToggle,save);
+    const mobileActions=make("div","","manual-mobile-actions");const mobileSteps=make("button","手順","secondary"),mobileTools=make("button",sampleDetail?"操作案内":canEdit?"編集":"出力","secondary"),mobileShare=make("button","共有","primary");
     for(const control of [mobileSteps,mobileTools,mobileShare])control.type="button";
     mobileSteps.addEventListener("click",()=>openPanel(nav,mobileSteps));mobileTools.addEventListener("click",()=>openPanel(tools,mobileTools));
+    mobileShare.disabled=!mode.canWrite;
     let shareReturnFocus=share;mobileShare.addEventListener("click",()=>{closePanels();shareReturnFocus=mobileShare;share.click();});mobileActions.append(mobileSteps,mobileTools,mobileShare);
     nav.append(navHeading, closeNav, add, navList); workspace.append(nav, canvas, tools); form.append(toolbar, descriptionDetails, workspace, mobileActions, backdrop);
     form.addEventListener("keydown",event=>{if(event.key==="Escape"&&!backdrop.hidden){event.preventDefault();closePanels();}});
@@ -420,7 +450,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const closeShare = make("button", "閉じる", "secondary"); closeShare.type = "button"; closeShare.addEventListener("click", () => { shareOpen = false; panel.hidden = true; panel.querySelector(".share-feedback").textContent = ""; share.setAttribute("aria-expanded", "false"); shareReturnFocus?.focus(); }); panel.prepend(closeShare);
     panel.insertBefore(make("p", editorState.title + " · " + editorState.steps.length + "手順 · 画像" + editorState.steps.filter((step) => imageUrlFor(step)).length + "枚", "cloud-note"), closeShare.nextSibling);
     const panelMessage = make("p", shareToken && shareIsActive() ? "共有リンクを作成しました。" : dirty ? "未保存の変更があります。保存してから共有できます。" : "画像・説明・期限を確認してからリンクを作成してください。", "share-feedback"); panelMessage.dataset.kind=shareToken&&shareIsActive()?"success":dirty?"warning":"";panelMessage.setAttribute("role", "status"); panelMessage.setAttribute("aria-live", "polite"); panel.append(panelMessage);
-    share.addEventListener("click", (event) => { closePanels(); if(event.isTrusted)shareReturnFocus=share; shareOpen = !shareOpen; panel.hidden = !shareOpen; share.setAttribute("aria-expanded", String(shareOpen)); if (shareOpen) closeShare.focus(); });
+    share.addEventListener("click", (event) => { if (!mode.canWrite) return; closePanels(); if(event.isTrusted)shareReturnFocus=share; shareOpen = !shareOpen; panel.hidden = !shareOpen; share.setAttribute("aria-expanded", String(shareOpen)); if (shareOpen) closeShare.focus(); });
     panel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeShare.click(); } });
     detail.append(form, panel); renderSteps();
   }
@@ -459,6 +489,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     return false;
   }
   async function saveManual(manualId, saveButton) {
+    if (!mode.canWrite) return;
     if (!editorState || saveInFlight) return;
     if (activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size) { setMessage("画像の編集・保存を完了してから手順書を保存してください。", "warning"); return; }
     const snapshot = clone(editorState);
@@ -518,6 +549,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     }
   }
   async function loadManuals(openId = "", options = {}) {
+    if (sampleDetail) { manuals = [sampleDetail.manual]; selected = manuals[0]; renderList(); return openManual(selected.id); }
     const serial = ++requestSerial;
     const returnFocus = document.activeElement;
     const hadListFocus = list.contains(returnFocus);
@@ -549,6 +581,14 @@ export const CLOUD_MANUAL_JS = `(() => {
     }
   }
   async function openManual(id, options = {}) {
+    if (sampleDetail) {
+      initializeEditor(sampleDetail);
+      selectedStepKey = stepKey(editorState.steps[0]);
+      shareOpen = false; dirty = false;
+      renderDetail(detailData);
+      setMessage("サンプルは閲覧のみです。内容はブラウザ内で表示しています。");
+      return true;
+    }
     if (saveInFlight && !options.force) return;
     if(activeCloudImageEditor||cloudImageBusy){setMessage("画像の変更を適用するか、閉じてから手順書を切り替えてください。","warning");return;}
     if (dirty && !options.force && !window.confirm("編集中の変更を破棄して別の手順書を開きますか？")) return;
@@ -564,12 +604,7 @@ export const CLOUD_MANUAL_JS = `(() => {
       const data = await json(workspacePath() + "/manuals/" + encodeURIComponent(id));
       if (serial !== requestSerial) return;
       if (options.expectedUpdatedAt && (data?.draft?.updatedAt !== options.expectedUpdatedAt || !savedSnapshotMatches(options.expectedSnapshot, data))) return false;
-      detailData = data;
-      editorState = {
-        title: data.draft?.title || data.manual?.title || "",
-        description: data.draft?.description || "",
-        steps: Array.isArray(data.steps) ? clone(data.steps).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) : []
-      };
+      initializeEditor(data);
       if (!sameManual) { selectedStepKey = stepKey(editorState.steps[0] || {}); undoStack = []; redoStack = []; shareOpen = new URLSearchParams(location.search).has("shareManualId"); }
       else if (!editorState.steps.some((step) => stepKey(step) === selectedStepKey)) selectedStepKey = stepKey(editorState.steps[Math.max(0, selectedIndex)] || editorState.steps[0] || {});
       dirty = false;
@@ -594,12 +629,14 @@ export const CLOUD_MANUAL_JS = `(() => {
   }
   addEventListener("beforeunload",event=>{if(dirty||saveInFlight||activeCloudImageEditor||cloudImageBusy){event.preventDefault();event.returnValue="";}});
   document.querySelector("#manual-search")?.addEventListener("input",renderList);
-  const librarySettings=make("button","チームの見た目","secondary");librarySettings.type="button";librarySettings.addEventListener("click",()=>openBrandingSettings(librarySettings));header?.append(librarySettings);
-  if (!workspaceId) setMessage("ワークスペースを確認できません。", "error"); else loadManuals(new URLSearchParams(location.search).get("shareManualId") || "");
+  const librarySettings=make("button","チームの見た目","secondary");librarySettings.type="button";librarySettings.addEventListener("click",()=>openBrandingSettings(librarySettings));if (mode.canWrite) header?.append(librarySettings);
+  if (sampleDetail) loadManuals(); else if (!workspaceId) setMessage("ワークスペースを確認できません。", "error"); else loadManuals(new URLSearchParams(location.search).get("shareManualId") || "");
 })();`;
 
-export function renderCloudManualsPage({ workspaceId = "", assetVersion = "" } = {}) {
+export function renderCloudManualsPage({ workspaceId = "", assetVersion = "", mode = "cloud" } = {}) {
+  const sample = mode === "sample";
+  const assetName = sample ? "manual-sample" : "cloud-manual";
   const version = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : "";
   const safeWorkspaceId = String(workspaceId).replace(/[&<>"']/g, "");
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/cloud-manual.css${version}"></head><body><main id="cloud-manuals" class="cloud-shell" data-workspace-id="${safeWorkspaceId}"><header class="cloud-header"><div><p aria-hidden="true" class="cloud-brand-name">めっちゃマニュアル</p><h1>保存した手順書</h1><p class="cloud-note">いつもの仕事を、誰でも迷わず進められる手順書に。</p></div></header><p id="cloud-message" class="cloud-message" role="status" aria-live="polite"></p><div class="cloud-grid"><section class="cloud-panel manual-library" aria-labelledby="cloud-list-heading"><h2 id="cloud-list-heading">手順書一覧</h2><label for="manual-search" class="sr-only">手順書を検索</label><input id="manual-search" class="manual-search" type="search" placeholder="手順書を検索"><div id="cloud-list" class="cloud-list"></div></section><section class="cloud-panel" aria-labelledby="cloud-detail-heading"><h2 id="cloud-detail-heading" class="sr-only">手順書の内容</h2><div id="cloud-detail"><p class="cloud-note">一覧から手順書を選んでください。</p></div></section></div></main><script src="/assets/editor-tools.js${version}" defer></script><script src="/assets/cloud-manual.js${version}" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${sample ? "サンプル | " : ""}手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/${assetName}.css${version}"></head><body><main id="cloud-manuals" class="cloud-shell" data-workspace-id="${sample ? "" : safeWorkspaceId}" data-editor-mode="${sample ? "sample" : "cloud"}"><header class="cloud-header"><div><p aria-hidden="true" class="cloud-brand-name">めっちゃマニュアル</p><h1>${sample ? "サンプルの手順書（閲覧のみ）" : "保存した手順書"}</h1><p class="cloud-note">いつもの仕事を、誰でも迷わず進められる手順書に。</p></div></header><p id="cloud-message" class="cloud-message" role="status" aria-live="polite"></p><div class="cloud-grid"><section class="cloud-panel manual-library" aria-labelledby="cloud-list-heading"><h2 id="cloud-list-heading">手順書一覧</h2><label for="manual-search" class="sr-only">手順書を検索</label><input id="manual-search" class="manual-search" type="search" placeholder="手順書を検索"><div id="cloud-list" class="cloud-list"></div></section><section class="cloud-panel" aria-labelledby="cloud-detail-heading"><h2 id="cloud-detail-heading" class="sr-only">手順書の内容</h2><div id="cloud-detail"><p class="cloud-note">一覧から手順書を選んでください。</p></div></section></div></main>${sample ? "" : `<script src="/assets/editor-tools.js${version}" defer></script>`}<script src="/assets/${assetName}.js${version}" defer></script></body></html>`;
 }
