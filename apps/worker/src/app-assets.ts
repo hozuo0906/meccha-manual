@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-c85219fd48d641bb";
+export const APP_ASSET_VERSION = "sha256-552dbe11f7257e14";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2805,7 +2805,7 @@ function openManualReadingPreview() {
   const description = value.draft?.description || "";
   const steps = Array.isArray(value.steps) ? value.steps : [];
   const stepsHtml = steps.length
-    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabels[step.type] || step.type || "-") + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
+    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabel(step.type)) + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
     : '<p role="status">この手順書には手順がありません。</p>';
   const overlay = document.createElement("dialog");
   overlay.className = "manual-reading-preview";
