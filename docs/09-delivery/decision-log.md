@@ -2,6 +2,61 @@
 
 Status: Accepted
 
+### DEC-091: Product auth first-party session foundation
+
+- Date: 2026-10-03 / Issue #283 / ADR-0041
+- Decision: GoogleとSIWCを同じfirst-party session境界へ接続し、既存`identities(issuer, subject)`とD1 Personal Workspace bootstrapを再利用する。`auth_sessions`と`oauth_transactions`はhash・期限・一回消費だけを保存し、Access service token／healthを製品cookieから分離する。Googleはverified email、SIWCはconfidential `client_secret_basic`とclient ID scoped subjectを使う。メール確認、明示的link、SIWC商用client登録・plan usage、remote migrationとsecret bindingは次unitとする。
+- Evidence: `apps/worker/src/product-auth.ts`, `migrations/0008_product_auth_sessions.sql`, `tests/product-auth.test.mjs`
+
+### DEC-094: Product auth bootstrap refusal and storage failure mapping
+
+- Date: 2026-10-03 / Issue #283
+- Decision: Product auth callback maps a disabled identity to `403 AUTH_IDENTITY_FORBIDDEN` and a suspended or deleted Personal Workspace to `403 AUTH_WORKSPACE_UNAVAILABLE`, both without issuing a session. D1 session-read and bootstrap storage failures map to `503 AUTH_STORAGE_UNAVAILABLE` with a Japanese retry instruction. `workspace.created` is emitted only when the Personal Workspace row is created and has no prior creation audit.
+- Reason: Preserve fail-closed identity and workspace boundaries while giving callback and logout callers an actionable response, and keep provisioning audit logs idempotent across re-login.
+- Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/infra/d1/onboarding-repository.ts`, `tests/product-auth.test.mjs`
+
+### DEC-096: Product auth callback referrer and storage failure boundaries
+
+- Date: 2026-10-04 / Issue #283 / PR #284
+- Decision: Product auth success redirects and callback JSON/HTML errors send `Referrer-Policy: no-referrer`. OAuth transaction and session storage `prepare`/`bind`/`run` failures map to `503 AUTH_STORAGE_UNAVAILABLE` without issuing a redirect or session; validation and replay responses remain unchanged.
+- Reason: Prevent callback `code`/`state` values from entering a later same-origin `Referer` header and keep transient D1 failures retryable without leaking implementation errors.
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`
+
+### DEC-097: 製品認証limiterとconsume済みcallback戻り境界
+
+- Date: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5401676113
+- Decision: 製品認証開始ではlimiter結果が明示的に`success: false`の場合だけ`429 AUTH_RATE_LIMITED`へ分類する。binding欠落、limiter例外、不正または不明な結果は、OAuth transactionを作成する前に再試行可能な`503 AUTH_RATE_LIMIT_UNAVAILABLE`へ分類する。transactionを検証してconsumeした後のnonce binding失敗などcallbackエラーは、再検証済みの固定`return_path`だけを引き継ぎ、不正または外部の保存pathは破棄して表示・redirectしない。
+- Reason: quota拒否とlimiter利用不能を区別し、consume済みtransactionのreplay保護を維持しながら、改変されたtransaction dataを信頼せずOffice／onboardingの再試行contextを保持するため。
+- Evidence: `apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
+
+### DEC-099: 製品provider設定時の業務route認証境界
+
+- Date: 2026-10-04 / Issue #283
+- Decision: `cloud-manual-router.ts` と `share-link-router.ts` は、製品sessionが解決できず製品cookieも存在しない場合、製品provider設定済みかつAccess assertionなしならAccess検証へfallbackせず`401 SESSION_REQUIRED`を返す。自然期限切れでブラウザからcookieが消えた場合も同じ境界とする。Access assertionがある場合は従来どおりJWT、service主体、identity、D1の検証へ進める。不正・失効した製品cookieは引き続きAccessへfallbackしない。
+- Reason: 製品ログインの期限切れをAccess設定不足の`503 ACCESS_CONFIG_UNAVAILABLE`へ誤分類せず、製品ログインを再開できる状態へ戻しながら、明示されたAccess認証と業務のtenant・service主体境界を維持するため。
+- Evidence: `apps/worker/src/cloud-manual-router.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`、`docs/05-api/api-contracts.md`
+
+### DEC-100: 製品provider設定時の業務route dispatchとD1欠落境界
+
+- Date: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5402031810
+- Decision: 製品providerが設定されたmanual／share業務routeは、D1 bindingの有無から独立してdispatchする。D1が欠落した場合はmanual helperの`503 D1_UNAVAILABLE`、share helperの`503 SHARE_MIGRATION_IN_PROGRESS`へ到達させ、製品cookieの期限切れ401へ誤分類しない。request credentialの優先順、legacy password cookieのSupabase route、Accessのservice／machine／tenant境界は維持する。
+- Reason: provider設定済みの製品専用環境でDB bindingが一時的または移行中に欠落しても、業務APIを404へ変換せず、既存helperが定義したstorage障害として利用者へ返すため。認証方式の選択をDB availabilityに結び付けないことで、legacy／Accessの既存境界も変えない。
+- Evidence: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
+
+### DEC-101: 製品認証providerの上流障害とtoken／JWKSエラー分類
+
+- 日付: 2026-10-04 / Issue #283 / PR #284 / Codex Review 5402139079
+- 決定: Google／SIWCのtokenまたはJWKS endpointのHTTP `429`／`5xx`、接続失敗、timeoutは再試行可能な`503 AUTH_PROVIDER_UNAVAILABLE`として保持する。実際のcode拒否など4xxだけを`401 AUTH_CODE_INVALID`へ写像する。JWTのissuer／audience／署名などの検証失敗は`401 AUTH_IDENTITY_INVALID`とし、transactionとJWTのnonce不一致など既存のnonce境界は既存の拒否分類を維持する。bounded provider fetchで既に分類した`ProductAuthError`（timeout、上流障害、応答上限超過を含む）は保持する。検証済み固定`return_path`、transactionの一度限りconsume境界、秘密値非露出は変更しない。
+- 理由: providerの可用性障害やJWKSの通信／サイズ障害を利用者のcodeまたはidentity拒否へ変換せず、callbackの安全なonboarding／Office再試行先と障害分類を維持するため。
+- 根拠: `apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`
+
+### DEC-095: Product auth route and callback return boundaries
+
+- Date: 2026-10-03 / Issue #283 / PR #284
+- Decision: Product route selection follows the request credential: a valid legacy password cookie remains on the Supabase route while a product cookie selects D1 and is never allowed to fall back to password or Access after validation failure. Google accepts only the documented canonical HTTPS issuer and exact legacy bare issuer, storing the canonical HTTPS issuer with the same `sub`. After a state, verifier, nonce, and transaction return path are verified, browser callback failures keep their Japanese error status/message and expose a link to that fixed same-origin path so onboarding and Office handoff sessionStorage survives cancel and retry; invalid or untrusted transactions use the generic Japanese error page instead. Unexpected D1 failures use a safe retryable 503 while retaining the verified return link.
+- Reason: Prevent a configured provider from hijacking legacy password sessions, avoid issuer-based duplicate identities, and preserve the user's selected Office format across a provider cancel or retry without introducing an open redirect.
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `tests/office-auth-runtime-browser.test.mjs`, `docs/05-api/api-contracts.md`
+
 | ID | 日付 | 決定 | 理由 |
 |---|---|---|---|
 | DEC-093 | 2026-10-01 | 初回Access復帰でfragment再付与後の旧document由来の遅着`hashchange`は、`event.newURL`のfragmentと現在の`location.hash`が一致しない場合に無視する。現在のfragmentと一致するhash-only遷移は従来どおりCTAを無効化して再読込し、遷移先を再検証する | `history.replaceState`後の遅着イベントがhashless画面を再読込すると、初回復帰のbootstrapではなくresume経路が選択され、保存操作が失敗し得るため。stale eventの副作用を0回にし、通常のfragment遷移の安全境界を維持する |
@@ -491,7 +546,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272
 - Decision:
@@ -503,7 +559,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272 / PR #277
 - Decision:
@@ -545,3 +602,196 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: 手順を追加した直後に利用者が任意の画像を迷わず添付でき、既存画像の機密情報をファイルメタデータごと持ち込まず、画像編集時も現在地と確定操作を見失わないようにするため。
 - Boundary: 画像内の個人情報の自動検出・置換、記録中のスクロール、保存handoff、Worker、DB、Access、production反映はこの決定の対象外とする。
 - 2026-10-01 UX補足: 画像編集dialogの読み込み中はキャンセル操作へフォーカスを置き、読み込み完了後の選択ツールへのフォーカス復帰は利用者が別操作へ移っていない場合だけ行う。クラウド編集では保存状態を保存操作の近くに表示し、未保存時は変更を反映するための保存を案内する。共有リンクの作成は引き続き明示操作と保存済み内容を前提にする。
+
+### DEC-090: 画像中心の編集と記録画像の状態を一貫させる
+
+- Status: Partially Superseded
+- 自動mask・架空値表示部分はADR-0040でSuperseded。画像状態・予約・編集・保存の境界は継続する。
+- Date: 2026-10-01
+- Decision: 編集は選択した一手順を中央に表示し、左を移動、右を文脈に合う道具、上部を保存先・保存状態・共有に固定する。追加は選択直後、移動・削除・取り消し後も手順IDで位置を保持する。画像追加はdecode開始から端末への確定保存まで処理中とし、その途中の保存・共有から新しい画像を黙って省かない。
+- Decision: 通常のinput/textarea/selectの値は実業務DOMへ代入せず、検証済みの一時描画層で架空値に置換する。枠・ラベル・checkbox/radioの状態は残す。秘密値は読まず固定の保護表示にする。不明な欄やcanvas/iframe/closed shadowは安全な保護と要確認を区別する。カスタム編集領域・変形した入力欄等の安全な置換を証明できなければfail closedとする。DEC-088/089の候補走査、mutation、capture前後検証は緩和しない。
+- Decision: 同じ記録・同じDOM対象の架空値は有限の端末内対応で保ち、原文対応表を永続保存・送信しない。現段階はnavigationをまたぐentity対応や任意の氏名検出を保証しない。一般の画像内文字を自動変換済みとは表示しない。
+- Decision: 500ms以内の次の撮影は即座に捨てず、上限内で予約する。対象document・event世代・DOM・入力・scrollが変わった場合は過去の手順へ現在の画像を付けず、理由を残す。終端状態を含む各step.imageStateを端末に保存し、未処理・失敗・安全な未対応保護・意図的画像なしを区別する。
+- Decision: クリック対象の矩形はtop frameの可視geometryを検証できる場合だけ注釈として追加し、色を編集できる。説明は「【参照】をクリック」のように自然な日本語にする。
+- Boundary: 外部AI、追加の拡張権限、実顧客データ、remote DB migration、公開・deployを追加しない。現段階のロゴ・テーマ設定は端末プレビューに限定し、workspace設定・保存済み画像編集・共有/PDFの整合は別の実装段階で契約と試験を揃えるまで完成扱いにしない。
+- Verification: [100点の独立UIレビュー基準](../02-ux/manual-editor-review-rubric.md)。各評価者80点以上と必須安全条件を別々に満たす。未実行の実Chrome検証や実SSOをNode/static検査で代用しない。
+
+### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
+
+Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
+
+同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
+
+### 2026-10-03: 0.1.9の明示画像保護と端末Office出力
+
+- Status: Accepted
+- Decision: ADR-0039と`recording-value-alias-contract`をSupersededとし、新規記録は撮影時に画像を加工せず端末へ保持する。入力値そのものは操作文・eventへ保存せず、置換と黒塗りは利用者が画像編集で明示適用する。手動maskは継続し、Office出力は最新のannotation・replacement・maskをflattenしたedited画像だけを使う。
+- Boundary: Word／PowerPointはログインなしのlocal-only downloadとする。snapshot変更、画像decode、flatten、生成失敗は古い生成物や画像欠落を成功扱いにせず日本語で再試行を案内する。PDFはFR-014の認証・claim後output gate、公開OFF、共有cloud認証を維持する。
+- Evidence: `apps/extension/editor/editor.js`、`apps/extension/editor/editor.html`、`apps/extension/sidepanel/sidepanel.html`、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、`tests/cloud-office-export-browser.test.mjs`、`tests/office-export.test.mjs`、`docs/05-api/manual-local-office-export-api.md`。SSOなしChromeでのlocal downloadとfixtureへのcloud POSTなしを確認し、実Word／PowerPointアプリの読込・描画は未実行と記録する。
+
+### 2026-10-03: Office出力を認証済みhandoff後に限定
+
+- Status: Accepted
+- Decision: ユーザーの明示回答により、Word／PowerPointも既存のoutput gateを通す。guestには作成・編集を許可し、形式選択時は `outputAction=office` と `officeFormat=docx|pptx` をhandoffへ固定して、ログイン・Personal Workspace claim後に同じ形式へ戻る。認証済みsessionでは再ログインを要求しない。Office completionは既存の `finalize-pending` の operation／claim intent／draft fingerprint／cloudRef、固定staging origin・continue path・top-level tab・launch recordを照合した通知だけを受理し、一度だけlocal snapshotから生成する。料金は既存plan契約の確認に限り、Stripe／paywallは追加しない。
+- Supersedes: 2026-10-03のOffice local-only no-login境界（履歴として保持）。
+- Boundary: 認証前のlocal draftとキャンセル復帰、共有リンク自動OFF、画像の明示置換・黒塗り、既存PDF認証境界を維持する。暗号proofや新DB／envは追加しない。
+- Evidence: `apps/extension/editor/handoff.js`、`apps/extension/editor/editor.js`、`apps/extension/background/cloud-claim.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、`tests/extension-cloud-claim.test.mjs`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/09-delivery/open-questions.md`。
+### 2026-11-07: 自動置換なしの土台回収と旧実装の除去
+
+- Status: Accepted
+- 回収元: main `3c62ca5`を起点に、PR #279を含むPR #282 head `573b921`の最終treeを回収する。PR #280／#284とmigration 0008は含めない。
+- ADR-0040を現行契約とし、製品appsから呼出しのない`capture/screenshot.js`の自動分類・overlay・HMAC割当と専用mask試験を除去する。caption・幾何allowlist、recorderのprivateValueContext、既存加工済み画像の互換表示、手動の黒塗りは保持する。
+- 旧alias名のstate/browser試験は自動alias boundaryを呼ばず、入力値非収集・自動経路不在を確認する現行回帰なので保持する。semantic browser試験はraw pixel保持とcaption保護へ同期する。
+- migrationは0006→0007を含む。remote適用・deploy・mergeは行わず、検証結果と未確認項目を新規Draft PRへ記録する。
+
+
+## DEC-098: 製品OAuthのtransaction cookieを並行開始ごとに分離する
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - Google／ChatGPTの各startは、providerとboundedなstateのSHA-256から導出したtransaction固有のSecure・HttpOnly・SameSite=Lax cookie名へPKCE verifier／nonceをbindする。同じproviderの二つのpending startがあっても、callbackはstateに対応するcookieだけを読む。
+  - callback／errorは、そのstateから導出できるtransaction cookieだけを消去する。形式不正・未知stateでは別pending transactionのcookieを消去せず、既存のstate hash、PKCE verifier／nonce hash、consume CAS、期限、provider token検証の境界を維持する。
+  - product OAuth成功時は競合するlegacy Supabase access／refresh cookieを端末から消去する。Supabase remote logoutは追加せず、成功後のproduct logoutはD1 product sessionの失効とproduct cookieの消去を既存契約どおり行う。callback失敗ではlegacy cookieを消去しない。
+- Reason: 固定provider cookieの上書きで別tabのpending loginを壊したり、先行callbackのerror cleanupで後続loginを壊したりする経路を閉じる。product logout後のreloadで旧legacy accountへ戻らない状態遷移を、provider remote状態に依存せず端末cookie境界で保証する。
+- Boundary: D1 schema／migration、provider登録、remote Supabase／Google／ChatGPT logout、production secret binding、実provider SSOは変更しない。state／verifier／nonce／legacy credentialのraw valueはログやD1へ保存せず、文書にも記録しない。
+- Evidence: `apps/worker/src/product-auth.ts`、`apps/worker/src/index.ts`、`tests/product-auth.test.mjs`、`docs/05-api/api-contracts.md`、`docs/04-data/d1-and-storage.md`、`docs/04-data/d1-workspace-schema.md`、`docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`。
+
+## DEC-102: D1 member routeと製品ログインroot導線を現行契約へ同期する
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - D1 application routeのmember一覧・追加・更新は、Access／product actor、workspace固定query、active membership、owner/admin mutation境界を同じD1 repositoryで検証し、旧Supabase member handlerへfallbackしない。`GET /api/session`の`members.status`は有効化後に`ready`を返す。
+  - product／Access sessionにメールがないroot shellは「アカウント」と表示し、手順書リンクをcanonical `/manuals`へ固定する。旧rootのSupabase作成入口を製品ログイン後の導線に残さず、手順書POST 405をUIから誘発しない。
+  - provider passwordが無効な製品環境では、logout後もprovider-only loginを維持し、架空のメールやpassword formを表示しない。
+- Reason: 実Google SSO後のrootでメール未設定表示とメンバー権限loadingが停止し、logout後にpassword formへ戻る不整合を、D1現行契約の状態・認可・canonical manual surfaceへ最小修正するため。
+- Boundary: guest導線、manual新規作成API、外部staging設定、remote migration、実ユーザー操作データ、秘密値、production反映は変更しない。
+- Evidence: `apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/m3-http-d1.test.mjs`、`tests/app-auth.test.mjs`、`docs/05-api/cloudflare-access-d1-api.md`。
+
+## DEC-104: Cloud Office画像はWorker CSP許可済みのdata URLでdecodeする
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision: Cloud manualの画像取得は、既存のsame-origin asset fetchで得たBlobを`FileReader.readAsDataURL`でdata URLへ変換してから`Image.decode`へ渡す。Workerの`img-src 'self' data:`は維持し、`blob:`をCSPへ追加しない。Office生成は既存どおりブラウザ内で行い、asset URLへ秘密値を付加しない。
+- Reason: 実Worker CSPではBlob URLが画像decodeで拒否される一方、CSPで許可済みのdata URLはdecodeできるため。data URL化は既存の画像importと同じFileReader経路で、認可・tenant境界・画像寸法・画像予算・編集済み画像のflattenを変更しない。
+- Boundary: Office download helper、auth、asset保存、staging／production設定、native Officeアプリ描画はこの決定の対象外。IABのdownload event未取得は生成成功とは扱わず、CFTのdownload証跡と分離する。
+- Evidence: `apps/worker/src/cloud-manual-assets.ts`、`tests/cloud-office-export-browser.test.mjs`
+
+## DEC-103: D1 trigger加算を含むmanual保存の直接変更件数照合
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - manual draft PATCH、claim finalize、既存manual更新claim、share snapshot作成のD1 batchでは、各DML直後に同じbatch内で`SELECT changes()`を実行し、その直接変更件数を期待値と照合する。
+  - D1 `meta.changes`はtriggerによる副作用を含むため、CASの成否判定には使用しない。transaction、workspace／actor認可、再送時のcompleted receipt、途中失敗rollbackは既存契約を維持する。
+- Reason: `manual_revision_sync_draft`などのtriggerがmanual rowを更新すると、remote D1の累積変更件数だけが増え、保存済みなのに409へ写像されるため。
+- Boundary: migration、trigger定義、R2、Office出力、staging／production設定は変更しない。D1 batchの直接変更件数照合とそのSQLite回帰mockだけを更新する。
+- Evidence: `apps/worker/src/infra/d1/d1-types.ts`、`apps/worker/src/infra/d1/cloud-manual-repository.ts`、`apps/worker/src/share-link-router.ts`、`tests/cloud-manual-c.test.mjs`、`tests/share-link-backend.test.mjs`。
+
+## DEC-105: Product provider-onlyログインUIの可視性と状態表示
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Supersession (partial): DEC-110により、下記Decisionのうち「取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す」部分だけを失効する。初回表示・再読み込みを含むprovider設定未確認時はpassword formを表示せず、日本語エラーと再試行を示す。フォームの可視性、provider数の表示、空設定時の案内、その他の境界は本決定のまま維持する。
+- Decision:
+  - provider設定の取得中はメール／パスワードフォームを表示せず、「ログイン方法を読み込んでいます。」と案内する。取得失敗または不正応答でProduct sessionが未確認の場合は、既存のメール／パスワード入力へ戻す。
+  - `password=false` のProduct環境では `.form[hidden] { display: none; }` を明示して、`.form { display: grid; }` による実表示の上書きを防ぐ。エラーメッセージは隠しフォームの外に置き、フォームを隠している間も表示できるようにする。
+  - providerが1つだけならprovider名を案内し、2つのproviderが利用できる場合だけ「または」を表示する。provider設定が空の場合は読み込み中のままにせず、利用できるログイン方法がないことと次の問い合わせ先を案内する。
+- Reason: provider-only画面でのパスワードフォームの一瞬の表示、不要な区切り、provider名と案内の不一致、隠しフォーム内のエラー消失を防ぎ、ログアウト後・期限切れ後にも利用可能な認証導線を実表示するため。
+- Boundary: provider登録・secret、session／API契約、Cloudflare Access、staging／production設定、AI／ChatGPT利用枠は変更しない。
+- Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`。unit 115/115、product-auth browser 5/5、worker-runtime 71/71、Worker harness、diff-checkを確認した。`npm ci`はWindowsのnode_modules lock unlink EPERM、`npm run check`はworktree内でnpm shimの解決失敗が残るため、これらは未確認のままとする。
+## DEC-106: Product provider取得失敗時の再試行表示
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Supersession (partial): DEC-110により、下記Boundaryの「Product session未確認時の既存password formへの復帰」部分だけを失効する。provider設定未確認時は、Product sessionの確認状態にかかわらず初回表示・再読み込みを含めpassword formへfallbackせず、日本語エラーと再試行を示す。Product session確認済みでのprovider取得失敗時のエラー・再試行・入力値・return path保持は本決定のまま維持する。
+- Decision: Product session確認済みのログイン画面で`/api/auth/providers`の非2xx応答、空応答、通信失敗が起きた場合は、provider-onlyの状態を維持したままエラーと再試行操作を表示する。再試行成功時だけprovider導線を復元し、同じ画面の入力値とURLのreturn pathを保持する。古いlogin renderの遅着応答は現在のrenderへ反映しない。
+- Reason: provider取得失敗後に非表示のpassword form、空のproviderボタン、読み込み中表示が残り、Google／ChatGPTへ進めなくなる状態を解消するため。
+- Boundary: Product session未確認時の既存password formへの復帰、legacy Supabase／Access認証、provider設定、API応答契約、staging／production設定は変更しない。
+- Evidence: `apps/worker/src/app-assets.ts`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`
+
+## DEC-107: 認証資格情報の優先順位とOAuthログイン一時データの上限付き整理
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284
+- Decision:
+  - Worker route は request credential を環境設定の fallback より先に評価する。product cookie は不正値を含めて product route を選び、Access assertion は Access の issuer・audience・JWKS と human actor の active identity、workspace、role 認可へ進む。product cookie がなく Supabase が設定済みの legacy cookie がある場合は、Access／provider 設定が同時に存在しても Supabase password route を選び、Supabase 未設定の legacy cookie は根拠にしない。
+  - OAuth start は provider、origin、return path、rate limit の拒否後にだけ、既存の `expires_at <= 現在時刻` かつ解釈可能な期限切れ transaction を最大100件削除する。削除と新規 INSERT は同一 D1 batch とし、失敗は `503 AUTH_STORAGE_UNAVAILABLE`、部分成功なしとする。未期限切れ consumed transaction、auth session、identity、workspace、既存10分期限契約は変更しない。
+- Reason: Access 設定の存在だけで valid legacy session を D1 へ誤進入させず、期限切れ OAuth state の無制限蓄積を bounded cleanup で抑えながら、認証境界と結果不明時の fail-closed を保つため。
+- Boundary: schema／migration、cron、retention 期間、環境変数、provider secret、remote 認証設定は追加・変更しない。
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/product-auth.ts`, `tests/product-auth.test.mjs`, `docs/05-api/api-contracts.md`, `docs/04-data/d1-and-storage.md`, `docs/04-data/d1-workspace-schema.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-108: OAuth startのcanonical origin検証とブラウザ復帰
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5403958304
+- Decision:
+  - Product OAuth startはprovider、request URLのoriginと設定済み`APP_BASE_URL`の完全一致、許可されたreturn pathを、rate limiter呼出しとD1 cleanup／INSERTより前に検証する。preview、workers.dev、その他のaliasは`400 AUTH_ORIGIN_INVALID`または入力拒否として副作用なしで停止する。
+  - HTMLを要求するstart失敗は、既存のlogin画面のCSSとsecurity headersを使った日本語の復帰画面を返し、検証済みcanonical originの許可return pathだけを「元の画面へ戻る」に使う。runtime設定が未取得でも、request originが既存allowlistの正規originと一致する場合だけそのoriginを使い、aliasや未検証URLにはリンクしない。JSON clientのbodyとstatus分類は維持する。
+- Reason: OAuth開始前のorigin／return境界を副作用より先に固定し、alias経由の開始とopen redirectを拒否する。ブラウザではraw JSONへ遷移させず、失敗理由と利用者の次操作を日本語で示し、同じOffice handoffへ安全に戻れるようにする。
+- Boundary: callback検証、provider設定、limiter／D1の既存status分類、migration、secret、deploy、Office出力仕様は変更しない。
+- Evidence: `apps/worker/src/product-auth.ts`, `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/03-architecture/adrs/ADR-0041-product-auth-and-administrator-access.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-109: Access migration guardとmixed credentialのentry dispatch
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5404074857
+- Decision: Access migration guardはlegacy password login／refreshの503を維持し、`/api/auth/providers`の`password`をAccess設定時にfalseへ同期する。既存legacy cookieのsession／logoutはproduct cookie、Access assertion、configured legacy cookieの順で選択する。`/s/`配下の公開share viewer、token／grant API、assetだけはcredential-selected routeから独立してdispatchし、share管理APIとmanual業務routeの認証境界は維持する。
+- Reason: 移行中にUIが停止中のpassword loginを案内する矛盾、legacy cookie logoutがAccess assertion要求へ誤分岐する欠陥、legacy cookieによる公開share viewerの404を同時に解消し、既存のfail-closed境界を変えないため。
+- Boundary: Access／Supabase／Productのprovider設定、D1 schema、migration、外部認証、tenant query、共有OFF／token／grant認可、deployは変更しない。
+- Evidence: `apps/worker/src/index.ts`, `tests/product-auth.test.mjs`, `tests/share-link-backend.test.mjs`, `docs/05-api/api-contracts.md`, `docs/01-product/requirements-traceability.md`
+
+## DEC-110: Access logoutのlegacy cookie境界と初回provider失敗の再試行
+
+- Status: Accepted
+- Date: 2026-10-04
+- Issue: #283 / PR #284 / Codex Review 5404149929
+- Decision:
+  - Access assertionを伴うlogoutはAccess assertionの検証成功後だけ`__Host-mm_access`／`__Host-mm_refresh`を削除する。invalid assertion、検証障害、途中失敗ではlegacy cookieを削除しない。product cookieの優先とSupabase logoutの署名検証境界は維持する。
+  - 初回表示・再読み込みを含むprovider設定未確認状態ではpassword formへfallbackしない。`/api/auth/providers`の成功応答で`password: true`を確認した場合だけpassword formを表示し、失敗時は日本語エラーと再試行を示す。再試行ではrender世代、入力値、return path、focusを維持する。
+- Reason: Access logout後のreloadでlegacy accountが復活する競合と、provider設定障害をpassword対応済みと誤認して停止中backendへ送る初回UIを解消するため。
+- Boundary: Supabase remote logout、provider設定、D1 schema、migration、環境変数、依存、Access設定、production／staging反映は変更しない。
+- Evidence: `apps/worker/src/index.ts`, `apps/worker/src/app-assets.ts`, `tests/product-auth.test.mjs`, `tests/app-auth.test.mjs`, `tests/product-auth-browser.test.mjs`, `docs/05-api/api-contracts.md`, `docs/05-api/cloudflare-access-d1-api.md`, `docs/01-product/requirements-traceability.md`
+
+
+## PR #287: 製品ログイン再訪と入力フォーカスの復帰境界
+
+- Status: Accepted
+- Date: 2026-11-07
+- Issue: #283 / PR #287 / review comments 4501953348・4501953350
+- Decision: 製品認証のHTML `/manuals` 再訪だけを固定ログイン先へ戻し、APIの401・権限拒否・storage障害は保持する。provider再取得成功時は表示済みpasswordフォームのフォーカスと入力を保持し、初回表示だけ初期フォーカスを置く。
+- Reason: ブックマーク再訪時のJSON行止まりと、遅いprovider応答でpassword入力先が可視email欄へ移る不具合を解消する。認証fallbackやcookie境界は緩めない。
+- Evidence: `tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`。local書込み障害のため保存済みGit sourceをメモリ上で検証し、GitHub保存後のCIと最新SHAレビューを別確認する。
+
+### 2026-11-08: PR #280の状態・回復UIを現行契約へ回収
+
+- Status: Accepted
+- Decision: #280 `a44dde8..f750a3d` のUI hunkだけを認証base `cc83e1a` へ適合させる。開始・終了・復旧のbusy制御、実scroll領域への追従、選択目次の復帰、欠落下書き、一覧loading/error/retry、共有読者とLPを対象とする。期限切れhandoffは旧操作を再送せず、原本から新しく始める既存境界を番号付きで案内する。
+- Boundary: ADR-0040の無加工画像＋利用者確認＋手動編集、ADR-0041の製品認証とOffice復帰を正とする。旧自動mask/alias文言・workflowを移植しない。#280独自のDEC-091番号は現行認証・復帰決定と衝突するため採番を流用しない。新しい依存・env・DB・権限・認証方式を追加しない。
+- Verification: [全画面品質台帳](../02-ux/all-screen-quality-matrix.md)の合成表示・native記録・保存認可・lab/PDFを分ける。受賞、全画面の点数合格、field性能、remote SSO成功は今回の自動試験から主張しない。
+
+### 2026-11-08: 共有応答待ちとクラウド画像編集の排他
+
+- Status: Accepted
+- 対象: PR #285、review comment `4503895303`。
+- Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
+- Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
+- Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。
+
+### 2026-11-08: クラウド一覧の再試行失敗後のフォーカス復帰
+
+- Status: Accepted
+- 対象: PR #288、review comment `4504498692`。
+- Decision: `loadManuals`開始時に一覧内のフォーカスを記録し、再失敗後に新しく描画した再試行ボタンへ復帰する。既存popupの`hadFocus`／`focusUnclaimed`と同じ条件で、応答時にフォーカスがbody・元要素・未設定の場合だけ`preventScroll`付きで戻す。検索欄など別要素へ移った場合と初回取得失敗では自動復帰しない。
+- Reason: 読み込み表示で元のボタンを削除しても、Enter／Spaceで連続して再試行できるようにする。既存のrequest serialによる古い応答破棄を維持し、新しい共通モジュールやグローバル状態は追加しない。
+- Verification: `tests/cloud-manual-ui-browser.test.mjs`の合成APIによる遅延503と実Chromiumで、連続再試行・待機中の検索欄のフォーカス保持を検証する。

@@ -5,10 +5,10 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
-const START_READY_EXPRESSION = "document.readyState === 'complete' && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
+const START_READY_EXPRESSION = "document.readyState === 'complete' && document.visibilityState === 'visible' && innerWidth > 0 && innerHeight > 0 && document.documentElement.clientWidth > 0 && document.documentElement.clientHeight > 0 && (!globalThis.visualViewport || (visualViewport.width > 0 && visualViewport.height > 0)) && (() => { const start = document.querySelector('#start'); const startSection = document.querySelector('#startSection'); const finish = document.querySelector('#finish'); const status = document.querySelector('#status'); return Boolean(start && startSection && finish && status && !start.hidden && !start.disabled && start.getClientRects().length > 0 && !startSection.hidden && finish.hidden); })()";
 
 const waitForExtensionValue = async (read, predicate, message) => {
   const deadline = Date.now() + 15_000;
@@ -53,7 +53,7 @@ const waitForSidePanelTarget = async (worker, browserCdp, extensionId) => {
 test("real MV3 action opens sidepanel and records separate step images", { timeout: 60_000 }, async () => {
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    const fixture = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>&#30003;&#35531;&#31649;&#29702;</title><style>:root{font-family:system-ui,sans-serif;color:#17324d;background:#eef4f7}body{margin:0;padding:32px}.app{max-width:920px;margin:auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 12px 36px #17324d22}.top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #d9e5eb;padding-bottom:18px}.eyebrow{font-size:12px;color:#39758d;letter-spacing:.12em}.state{background:#e4f4ec;color:#21714d;border-radius:999px;padding:8px 14px;font-weight:700}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:22px 0}.card{border:1px solid #d9e5eb;border-radius:14px;padding:18px;background:#fbfdfe}.card h2{font-size:18px;margin:0 0 10px}.meta{color:#617685;font-size:13px}.action{background:#216b84;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:16px;cursor:pointer}.notice{background:#fff4d6;border-left:4px solid #e3a62f;padding:12px 16px;margin-top:12px}</style></head><body><main class="app"><div class="top"><div><div class="eyebrow">&#26989;&#21209;&#12509;&#12540;&#12479;&#12523; / &#30003;&#35531;&#31649;&#29702;</div><h1>&#20170;&#36913;&#12398;&#30003;&#35531;&#19968;&#35239;</h1></div><span class="state" id="state">&#21463;&#20184;&#20013;</span></div><div class="cards"><article class="card"><h2>&#20132;&#36890;&#36027;&#31934;&#31639;</h2><p class="meta">&#21942;&#26997;&#37096; &#12539; &#23665;&#30000; &#22826;&#37070;　2026/09/26</p><p>&#26481;&#20140;&#39365;&#12363;&#12425;&#35386;&#21839;&#20808;&#12414;&#12391;&#12398;&#20132;&#36890;&#36027;&#12434;&#30003;&#35531;&#12375;&#12390;&#12356;&#12414;&#12377;&#12290;</p></article><article class="card"><h2>&#20633;&#21697;&#36092;&#20837;</h2><p class="meta">&#31649;&#29702;&#37096; &#12539; &#20304;&#34276; &#33457;&#23376;　2026/09/25</p><p>&#20250;&#35696;&#23460;&#29992;&#12514;&#12491;&#12479;&#12540;&#12398;&#36092;&#20837;&#30003;&#35531;&#12391;&#12377;&#12290;</p></article></div><div class="notice" id="notice">&#30906;&#35469;&#12364;&#24517;&#35201;&#12394;&#30003;&#35531;&#12364;&#12354;&#12426;&#12414;&#12377;&#12290;</div><button id="do" class="action">&#30003;&#35531;&#12434;&#30906;&#35469;&#12377;&#12427;</button></main><script>const state=document.querySelector("#state");const notice=document.querySelector("#notice");const button=document.querySelector("#do");button.addEventListener("pointerdown",()=>{if(state.textContent==="\u53d7\u4ed8\u4e2d"){state.textContent="\u627f\u8a8d\u5f85\u3061";state.style.background="#e8eafd";state.style.color="#4250a0";notice.textContent="2\u4ef6\u306e\u7533\u8acb\u304c\u627f\u8a8d\u5f85\u3061\u3067\u3059\u3002\u5185\u5bb9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";button.textContent="\u627f\u8a8d\u5f85\u3061\u3092\u8868\u793a";}else{state.textContent="\u78ba\u8a8d\u6e08\u307f";state.style.background="#e4f4ec";state.style.color="#21714d";notice.textContent="\u627f\u8a8d\u5f85\u3061\u306e\u7533\u8acb\u3092\u8868\u793a\u3057\u3066\u3044\u307e\u3059\u3002";button.textContent="\u78ba\u8a8d\u6e08\u307f";}});</script></body></html>`;
+    const fixture = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>&#30003;&#35531;&#31649;&#29702;</title><style>:root{font-family:system-ui,sans-serif;color:#17324d;background:#eef4f7}body{margin:0;padding:32px}.app{max-width:920px;margin:auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 12px 36px #17324d22}.top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #d9e5eb;padding-bottom:18px}.eyebrow{font-size:12px;color:#39758d;letter-spacing:.12em}.state{background:#e4f4ec;color:#21714d;border-radius:999px;padding:8px 14px;font-weight:700}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:22px 0}.card{border:1px solid #d9e5eb;border-radius:14px;padding:18px;background:#fbfdfe}.card h2{font-size:18px;margin:0 0 10px}.meta{color:#617685;font-size:13px}.action{background:#216b84;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:16px;cursor:pointer}.notice{background:#fff4d6;border-left:4px solid #e3a62f;padding:12px 16px;margin-top:12px}</style></head><body><main class="app"><div class="top"><div><div class="eyebrow">&#26989;&#21209;&#12509;&#12540;&#12479;&#12523; / &#30003;&#35531;&#31649;&#29702;</div><h1>&#20170;&#36913;&#12398;&#30003;&#35531;&#19968;&#35239;</h1></div><span class="state" id="state">&#21463;&#20184;&#20013;</span></div><div class="cards"><article class="card"><h2>&#20132;&#36890;&#36027;&#31934;&#31639;</h2><p class="meta">&#21942;&#26997;&#37096; &#12539; &#23665;&#30000; &#22826;&#37070;　2026/09/26</p><p>&#26481;&#20140;&#39365;&#12363;&#12425;&#35386;&#21839;&#20808;&#12414;&#12391;&#12398;&#20132;&#36890;&#36027;&#12434;&#30003;&#35531;&#12375;&#12390;&#12356;&#12414;&#12377;&#12290;</p></article><article class="card"><h2>&#20633;&#21697;&#36092;&#20837;</h2><p class="meta">&#31649;&#29702;&#37096; &#12539; &#20304;&#34276; &#33457;&#23376;　2026/09/25</p><p>&#20250;&#35696;&#23460;&#29992;&#12514;&#12491;&#12479;&#12540;&#12398;&#36092;&#20837;&#30003;&#35531;&#12391;&#12377;&#12290;</p></article></div><div class="notice" id="notice">&#30906;&#35469;&#12364;&#24517;&#35201;&#12394;&#30003;&#35531;&#12364;&#12354;&#12426;&#12414;&#12377;&#12290;</div><button id="do" class="action">参照</button></main><script>const state=document.querySelector("#state");const notice=document.querySelector("#notice");const button=document.querySelector("#do");button.addEventListener("pointerdown",()=>{if(state.textContent==="\u53d7\u4ed8\u4e2d"){state.textContent="\u627f\u8a8d\u5f85\u3061";state.style.background="#e8eafd";state.style.color="#4250a0";notice.textContent="2\u4ef6\u306e\u7533\u8acb\u304c\u627f\u8a8d\u5f85\u3061\u3067\u3059\u3002\u5185\u5bb9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";}else{state.textContent="\u78ba\u8a8d\u6e08\u307f";state.style.background="#e4f4ec";state.style.color="#21714d";notice.textContent="\u627f\u8a8d\u5f85\u3061\u306e\u7533\u8acb\u3092\u8868\u793a\u3057\u3066\u3044\u307e\u3059\u3002";}});</script></body></html>`;
 
     response.end(fixture);
   });
@@ -71,6 +71,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const extensionId = new URL(worker.url()).hostname;
     const target = await context.newPage();
     await target.goto(baseUrl);
+    await target.bringToFront();
     const browserCdp = await context.browser().newBrowserCDPSession();
     const targetInfo = await waitForTabTarget(browserCdp, baseUrl);
     await waitForActionListener(worker);
@@ -134,7 +135,6 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       browserCdp.send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id, method, params }) }).catch(reject);
     });
     await evaluateNative("document.readyState === 'complete'");
-    await target.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
     assert.ok(tabId, "synthetic target tab should be discoverable");
     const activeTabProbe = await worker.evaluate(async (id) => {
@@ -147,22 +147,31 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     }, tabId);
     assert.equal(activeTabProbe, true, "action should grant activeTab scripting access to the synthetic tab");
     assert.equal(await waitForNativeValue(START_READY_EXPRESSION, (value) => value === true), true, "sidepanel start control should be ready before native click");
+    const rubricDirectory = join(process.cwd(), ".artifacts", "uiux-20261001", "screens");
+    await mkdir(rubricDirectory, { recursive: true });
+    const guestScreenshot = await sendNativeCommand("Page.captureScreenshot", { format: "png" });
+    const guestScreenshotData = guestScreenshot?.data?.value || guestScreenshot?.data || guestScreenshot?.result?.data || guestScreenshot?.result?.result?.data;
+    assert.equal(typeof guestScreenshotData, "string", "native guest start screen should contain PNG data");
+    await writeFile(join(rubricDirectory, "native-guest-start.png"), Buffer.from(guestScreenshotData, "base64"));
+    const guestViewport = await evaluateNative("({ width: innerWidth, height: innerHeight })");
     await clickNative("#start");
     await waitForNativeValue("document.querySelector('#finish')?.hidden === false", (value) => value === true);
     assert.equal(await target.url(), baseUrl, "synthetic target should remain open while recording");
     assert.match(await target.content(), /id=["']do["']/, "synthetic target should retain its action button");
-    await target.locator("#do").evaluate((element) => element.setAttribute("aria-label", "参照"));
+    assert.equal(await target.locator("#do").textContent(), "参照", "unmodified visible target label must match the recorded instruction");
+    assert.equal(await target.locator("#do").getAttribute("aria-label"), null);
     await target.locator("#do").click();
     const stateAfterFirstClick = await target.locator("#state").textContent();
     await waitForNativeValue(
       "[...document.querySelectorAll('.step-card img')].map((image) => ({ complete: image.complete, width: image.naturalWidth }))",
       (value) => Array.isArray(value) && value.length === 1 && value[0].complete && value[0].width > 0
     );
-    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】クリック"));
-    assert.match(captionProgress, /【参照】クリック/);
+    const captionProgress = await waitForNativeValue("document.querySelector('#liveCurrentStep')?.textContent", (value) => typeof value === "string" && value.includes("【参照】をクリック"));
+    assert.match(captionProgress, /【参照】をクリック/);
     await new Promise((resolve) => setTimeout(resolve, 700));
     await target.locator("#do").click();
     const stateAfterSecondClick = await target.locator("#state").textContent();
+    assert.equal(await target.locator("#do").textContent(), "参照", "the captured pixels retain the visible caption target");
     assert.notEqual(stateAfterFirstClick, stateAfterSecondClick, "synthetic workflow should visibly change between events");
     await expectNativeImages();
     const progressState = await waitForNativeValue(
@@ -171,12 +180,12 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     );
     assert.equal(progressState.active, true, "recording progress should be visible while recording");
     assert.equal(progressState.progressBeforeLive, true, "recording progress should remain before the scrollable step list");
-    await evaluateNative("new Promise((resolve) => { window.scrollTo(0, document.body.scrollHeight); requestAnimationFrame(resolve); })", true);
+    await evaluateNative("new Promise((resolve) => { document.querySelector('#liveSection').scrollTop = document.querySelector('#liveSection').scrollHeight; requestAnimationFrame(resolve); })", true);
     const stickyProgress = await waitForNativeValue(
-      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
-      (value) => Number.isFinite(value?.top) && value.top <= 1 && value.bottom > 0 && value.current?.startsWith("手順 2")
+      "(() => { const progress = document.querySelector('#liveProgress'); const rect = progress?.getBoundingClientRect(); return { top: rect?.top, bottom: rect?.bottom, listTop: document.querySelector('#liveSection')?.getBoundingClientRect().top, height: innerHeight, current: document.querySelector('#liveCurrentStep')?.textContent }; })()",
+      (value) => Number.isFinite(value?.top) && value.top >= 0 && value.bottom <= value.listTop && value.bottom < value.height && value.current?.startsWith("手順 2")
     );
-    assert.ok(stickyProgress.top <= 1, `current recording progress should stay visible while browsing earlier steps: ${JSON.stringify(stickyProgress)}`);
+    assert.ok(stickyProgress.top >= 0 && stickyProgress.bottom <= stickyProgress.listTop, `current recording progress stays visible without covering the scrollable steps: ${JSON.stringify(stickyProgress)}`);
     const recordingScreenshotPath = process.env.MECCHA_SIDEPANEL_RECORDING_SCREENSHOT || join(process.cwd(), ".artifacts", "experience-repair", "sidepanel-recording.png");
     await mkdir(resolve(recordingScreenshotPath, ".."), { recursive: true });
     const recordingLayout = await sendNativeCommand("Page.getLayoutMetrics");
@@ -192,6 +201,7 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const recordingScreenshotData = recordingScreenshot?.data?.value || recordingScreenshot?.data || recordingScreenshot?.result?.data || recordingScreenshot?.result?.result?.data;
     assert.equal(typeof recordingScreenshotData, "string", "native recording screenshot should contain base64 data");
     await writeFile(recordingScreenshotPath, Buffer.from(recordingScreenshotData, "base64"));
+    await writeFile(join(rubricDirectory, "native-recording-two-steps.png"), Buffer.from(recordingScreenshotData, "base64"));
     await target.bringToFront();
     await clickNative("#finish");
     const editorUrlPrefix = `chrome-extension://${extensionId}/editor/editor.html#`;
@@ -220,9 +230,19 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const stepButtons = editorPage.locator("#steps li button");
     const imageSources = [];
     const imagePixels = [];
+    const readStoredDraft = () => editorPage.evaluate(async () => new Promise((resolve) => {
+      const request = indexedDB.open("meccha-manual-guest", 1);
+      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const transaction = request.result.transaction("drafts", "readonly");
+        const getAll = transaction.objectStore("drafts").getAll();
+        getAll.onsuccess = () => resolve(getAll.result.find((draft) => draft.steps?.length >= 2) || null);
+        getAll.onerror = () => resolve(null);
+      };
+    }));
     for (const index of [0, 1]) {
       const stepButton = stepButtons.nth(index);
-      const instruction = (await stepButton.textContent()).replace(/^\s*\d+\.\s*/, "");
+      const instruction = await stepButton.locator(".step-name").textContent();
       const articleId = await stepButton.getAttribute("aria-controls");
       assert.ok(articleId, "TOC button should identify its step article");
       await stepButton.click();
@@ -243,6 +263,32 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
       assert.ok(imageState.width > 0 && imageState.height > 0, "selected step canvas should have rendered dimensions");
       imageSources.push(imageState.dataUrl);
       imagePixels.push(imageState.pixelHash);
+      const stepId = articleId.replace(/^step-/, "");
+      const beforeDraft = await readStoredDraft();
+      const beforeStep = beforeDraft?.steps?.find((step) => step.id === stepId);
+      const beforeImage = beforeDraft?.screenshots?.find((screenshot) => screenshot.id === beforeStep?.screenshotId);
+      assert.equal(beforeStep?.privacyReview?.reviewRequired, true, "raw screenshot must wait for explicit image confirmation");
+      assert.ok(beforeImage?.dataUrl, "raw screenshot bytes must be stored before confirmation");
+      const reviewButton = article.locator('.image-state-actions button').filter({ hasText: "画像を確認しました" });
+      assert.equal(await reviewButton.count(), 1, "each raw screenshot must expose an explicit confirmation action");
+      await reviewButton.click();
+      await editorPage.waitForFunction(({ articleId }) => document.querySelector(`[id="${articleId}"] .image-status`)?.textContent === "画像の準備ができました", { articleId });
+      await editorPage.waitForFunction(async (stepId) => new Promise((resolve) => {
+        const request = indexedDB.open("meccha-manual-guest", 1);
+        request.onerror = () => resolve(false);
+        request.onsuccess = () => {
+          const transaction = request.result.transaction("drafts", "readonly");
+          const getAll = transaction.objectStore("drafts").getAll();
+          getAll.onsuccess = () => resolve(Boolean(getAll.result.find((draft) => draft.steps?.some((step) => step.id === stepId && step.privacyReview?.reviewRequired === false))));
+          getAll.onerror = () => resolve(false);
+        };
+      }), stepId);
+      const afterDraft = await readStoredDraft();
+      const afterStep = afterDraft?.steps?.find((step) => step.id === stepId);
+      const afterImage = afterDraft?.screenshots?.find((screenshot) => screenshot.id === afterStep?.screenshotId);
+      assert.equal(afterStep?.privacyReview?.reviewRequired, false, "only the explicit confirmation may clear image review");
+      assert.equal(afterImage?.privacyReview?.reviewRequired, false, "screenshot review state must follow the confirmed step");
+      assert.equal(afterImage?.dataUrl, beforeImage.dataUrl, "confirmation must retain the same screenshot bytes");
     }
     assert.notEqual(imageSources[0], imageSources[1], "each selected step should retain its own screenshot");
     assert.notEqual(imagePixels[0], imagePixels[1], "each selected step canvas should contain different pixels");
@@ -265,6 +311,19 @@ test("real MV3 action opens sidepanel and records separate step images", { timeo
     const screenshotPath = process.env.MECCHA_SIDEPANEL_SCREENSHOT || join(process.cwd(), "test-results", "issue260-sidepanel.png");
     await mkdir(resolve(screenshotPath, ".."), { recursive: true });
     await editorPage.screenshot({ path: screenshotPath });
+    await editorPage.screenshot({ path: join(rubricDirectory, "native-recording-finished-editor.png") });
+    await writeFile(join(rubricDirectory, "native-recording-operation.json"), JSON.stringify({
+      candidateCommit: process.env.GITHUB_SHA || null,
+      fixture: "synthetic-business-page-native-MV3",
+      screenshots: ["native-guest-start.png", "native-recording-two-steps.png", "native-recording-finished-editor.png"],
+      viewport: guestViewport,
+      operations: ["extension-action-opens-guest-panel", "start", "click-first-state", "click-second-state", "finish-opens-editor"],
+      recordedSteps: await editorPage.locator("#steps li").count(),
+      distinctStoredImages: imageSources[0] !== imageSources[1],
+      distinctRenderedPixels: imagePixels[0] !== imagePixels[1],
+      progressVisible: progressState.active,
+      progressAboveScrollableList: stickyProgress.bottom <= stickyProgress.listTop
+    }, null, 2) + "\n");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
@@ -417,10 +476,10 @@ test("real MV3 navigation does not warn while recording, preserves events, and k
     assert.ok(editorPage, "successful finish should open the saved draft editor");
     await editorPage.waitForSelector("#steps li");
     const instructions = await editorPage.locator("#steps li button").allTextContents();
-    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】クリック")), "click before normal navigation should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【次の一覧へ】をクリック")), "click before normal navigation should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("次のページへ移動する")), "navigation event should be retained");
     assert.ok(instructions.some((instruction) => instruction.includes("入力欄に入力する")), "input event before form navigation should be retained");
-    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】クリック")), "form submit click should be retained");
+    assert.ok(instructions.some((instruction) => instruction.includes("【申請を送信】をクリック")), "form submit click should be retained");
   } finally {
     await context?.close();
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);

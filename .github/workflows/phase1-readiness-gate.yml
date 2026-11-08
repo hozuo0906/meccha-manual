@@ -55,11 +55,14 @@ jobs:
       - name: Test Worker failure mutations
         run: npm run worker:runtime:mutation:test
 
-      - name: Test app authentication lifecycle
-        run: npm run app:auth:test
+      - name: Test app authentication unit lifecycle
+        run: npm run app:auth:unit
 
       - name: Install Chromium for Phase 1 E2E
         run: npx --no-install playwright install --with-deps chromium
+
+      - name: Test app authentication browser flow
+        run: npm run app:auth:browser
 
       - name: Test Phase 1 browser flows
         run: npm run phase1:e2e:test

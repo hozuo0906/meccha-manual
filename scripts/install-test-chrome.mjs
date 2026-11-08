@@ -1,0 +1,18 @@
+import { mkdir, writeFile, chmod } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+const root = resolve(process.env.RUNNER_TEMP || "/tmp", "meccha-chrome-for-testing");
+await mkdir(root, {recursive:true});
+const response=await fetch("https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json");
+if(!response.ok) throw new Error("Official Chrome version metadata unavailable");
+const stable=(await response.json()).channels?.Stable;
+if(!/^\d+\.\d+\.\d+\.\d+$/.test(stable?.version||""))throw new Error("Invalid Chrome version metadata");
+const download=stable.downloads?.chrome?.find(value=>value.platform==="linux64");
+const url=new URL(download?.url||"https://invalid.invalid");
+if(url.protocol!=="https:"||url.hostname!=="storage.googleapis.com"||!url.pathname.startsWith("/chrome-for-testing-public/"+stable.version+"/linux64/"))throw new Error("Unexpected Chrome download source");
+execFileSync("curl",["--fail","--location","--proto","=https","--tlsv1.2",url.href,"--output",join(root,"chrome.zip")],{stdio:"inherit"});
+execFileSync("unzip",["-q","-o",join(root,"chrome.zip"),"-d",root],{stdio:"inherit"});
+const executable=join(root,"chrome-linux64","chrome");await chmod(executable,0o755);
+console.log(execFileSync(executable,["--version"],{encoding:"utf8"}).trim());
+if(process.env.GITHUB_ENV)await writeFile(process.env.GITHUB_ENV,`MECCHA_TEST_CHROME_PATH=${executable}\nMECCHA_TEST_HEADED=1\n`,{flag:"a"});
+await mkdir(".artifacts/uiux-20261001",{recursive:true});await writeFile(".artifacts/uiux-20261001/browser.json",JSON.stringify({browser:"Google Chrome for Testing",version:stable.version,source:url.origin+url.pathname,syntheticOnly:true},null,2));

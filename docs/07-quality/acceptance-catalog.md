@@ -2,6 +2,15 @@
 
 Status: Accepted
 
+### AC-283: 製品認証とworkspace接続
+
+- provider未設定時はGoogle／ChatGPTを表示せず、startはD1 transactionやtoken交換を開始しない。
+- Googleはstart→callback→D1 Personal Workspace→`/api/session`→logoutを一度だけ完了し、replay・期限切れ・署名・issuer/audience・nonce不一致を拒否する。
+- ChatGPTはconfidential `client_secret_basic`でtoken交換し、client IDを含むsubject scopeでidentity衝突を防ぐ。plan usageは別permissionとして初期OFFを維持する。
+- 製品cookieが不正・失効・別originの場合、Access service actorやhealthへ暗黙切替しない。workspaceとmanualの固定tenant queryを維持する。
+- GoogleまたはChatGPT provider設定時にD1 bindingが欠落してもmanual／share業務routeを404にせず、manualは`503 D1_UNAVAILABLE`、share管理は`503 SHARE_MIGRATION_IN_PROGRESS`へ分類する。DB欠落をcookie期限切れ401へ分類せず、legacy password cookie、Access service token、tenant境界を維持する。
+- product／Access sessionでメール属性がないroot shellは架空のメールを表示せず「アカウント」と示し、手順書操作はD1 canonical `/manuals`へ遷移する。`members.status: "ready"`のsessionではmember APIを利用でき、workspace越境一覧は404、editor/viewerの変更は403で拒否する。product logout後はprovider-only loginを再表示し、password formへ戻らない。
+
 | ID | Given | When | Then |
 |---|---|---|---|
 | AC-001 | ログイン済みユーザー | ログアウトする | 保護画面にアクセスできない |
@@ -48,3 +57,5 @@ Status: Accepted
 | AC-062 | 同じworkspaceでPersonalとTeamの購入を並行開始する | 両方のSession作成とWebhookを順不同で処理する | subscription用の支払い可能Sessionは1件だけとなり、対象自身を競合扱いせず、別契約へ二重entitlementを付与しない |
 | AC-063 | DBへ照合できないsubscription modeの決済が成功する | draft/open/paid invoiceのWebhookを重複・順不同で再送する | entitlementを付与せず、subscription cancelと状態別のdelete/void/refundが冪等に完了して継続請求を残さない |
 | AC-060 | AI feature flagがOFF | 手順書を作る | 外部AI APIが呼ばれない |
+| AC-064 | 0.1.9のローカル下書きにタイトル、本文、利用者が内容を確認した画像、注釈、置換、手動maskがある | 「Wordで書き出す」または「PowerPointで書き出す」を押し、未認証ならログインを完了する | output gateから認証済みworkspace claimを一度だけ行い、元の形式へ戻ってsnapshotからOfficeファイルをダウンロードする。認証済みsessionでは再ログインを要求せず、本文と全画像を最新のedited renderとして含める。確認済み画像を編集した場合は再確認まで出力を拒否し、明示確認後のedited renderだけを含める。閉じたeditorの復帰は認証成功画面の明示クリックで発行された同一handoff／launch／fingerprint／形式の短期receiptを一度だけ消費し、completedやcloudRef単独では生成しない。 |
+| AC-065 | Office出力対象に処理中、失敗、raw captureを含む要確認画像がある、または認証・claimが途中失敗する | Office出力を開始する | 画像を黙って省略せず、日本語で画像確認・明示操作・再試行を案内する。raw captureは利用者の確認までOffice/cloudを拒否し、確認後は同じ画像bytesを含める。認証途中のlocal draftと選択形式を保持し、PDFの認証output gate、公開OFF、共有cloud認証を変更しない |

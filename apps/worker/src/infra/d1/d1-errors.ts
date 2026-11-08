@@ -20,7 +20,9 @@ export class D1RepositoryError extends Error {
 
 export function mapD1Error(error: unknown): D1RepositoryError {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
-  if (message.includes("claim asset total limit")) return new D1RepositoryError("limit_exceeded");
+  if (message.includes("claim asset total limit") || message.includes("edited asset total limit")) return new D1RepositoryError("limit_exceeded");
+  if (message.includes("branding requires active administrator") || message.includes("brand version scope mismatch")) return new D1RepositoryError("forbidden");
+  if (message.includes("edited asset scope mismatch") || message.includes("claim intent requires active authorized workspace draft")) return new D1RepositoryError("conflict");
   if (message.includes("member limit")) return new D1RepositoryError("limit_exceeded");
   if (message.includes("owner") || message.includes("audit log")) {
     return new D1RepositoryError("forbidden");

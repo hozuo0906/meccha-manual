@@ -1,3 +1,4 @@
+import { handleCloudManualRoute } from "../apps/worker/src/cloud-manual-router.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
@@ -14,7 +15,8 @@ const migrationNames = [
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
-  "0005_d1_share_links.sql"
+  "0005_d1_share_links.sql",
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
 ];
 const NOW = "2026-09-26T00:00:00.000Z";
 const HTTP_BASE_URL = "https://meccha-manual-staging.meccha-iiyatsu.com";
@@ -38,7 +40,7 @@ const httpPublicJwk = { ...await exportJWK(httpPublicKey), kid: "share-test", al
 class HttpStatement {
   constructor(database, sql, values = [], beforeRun = null) { this.database = database; this.sql = sql; this.values = values; this.beforeRun = beforeRun; }
   bind(...values) { return new HttpStatement(this.database, this.sql, values, this.beforeRun); }
-  async run() { this.beforeRun?.(); const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async run() { this.beforeRun?.(); if (/^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(this.sql)) return { success: true, results: [this.database.prepare(this.sql).get(...this.values)] }; const beforeTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes); const result = this.database.prepare(this.sql).run(...this.values); const afterTotalChanges = Number(this.database.prepare("SELECT total_changes() AS total_changes").get().total_changes); return { success: true, meta: { changes: afterTotalChanges - beforeTotalChanges, last_row_id: Number(result.lastInsertRowid) } }; }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
 }
@@ -49,7 +51,7 @@ class HttpD1 {
   async batch(statements) {
     this.beforeBatch?.();
     this.database.exec("BEGIN IMMEDIATE");
-    try { const results = []; for (const [index, statement] of statements.entries()) { if (index === this.failAt) throw new Error("injected batch failure"); results.push(await statement.run()); } this.database.exec("COMMIT"); return results; }
+    try { const results = []; let operationIndex = 0; for (const statement of statements) { const isDirectChanges = /^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(statement.sql); if (!isDirectChanges && operationIndex++ === this.failAt) throw new Error("injected batch failure"); results.push(await statement.run()); } this.database.exec("COMMIT"); return results; }
     catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
 }
@@ -106,6 +108,62 @@ async function database({ mutateShareScope = false, mutateGrantExpiry = false } 
   `);
   return db;
 }
+
+test("製品session cookieが自然消去されたshare管理routeはAccess設定不足へfallbackせずログインへ戻す", async () => {
+  const fixture = await httpFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { assert.equal(String(url), HTTP_JWKS_URL); return Response.json({ keys: [httpPublicJwk] }); };
+  const productEnv = {
+    APP_ENV: "staging",
+    APP_BASE_URL: HTTP_BASE_URL,
+    ACCESS_ISSUER: HTTP_ISSUER,
+    ACCESS_AUDIENCE: HTTP_AUDIENCE,
+    ACCESS_JWKS_URL: HTTP_JWKS_URL,
+    GOOGLE_OIDC_CLIENT_ID: "synthetic-google-client",
+    GOOGLE_OIDC_CLIENT_SECRET: "synthetic-secret",
+    DB: new HttpD1(fixture.raw),
+    MANUAL_ASSETS: {}
+  };
+  const providerEnvs = [
+    productEnv,
+    { ...productEnv, GOOGLE_OIDC_CLIENT_ID: undefined, GOOGLE_OIDC_CLIENT_SECRET: undefined, OPENAI_SIWC_CLIENT_ID: "synthetic-chatgpt-client", OPENAI_SIWC_CLIENT_SECRET: "synthetic-secret", OPENAI_SIWC_ENABLED: "true" }
+  ];
+  const makeRequest = (headers = {}) => new Request(`${HTTP_BASE_URL}/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`, { method: "GET", headers: { origin: HTTP_BASE_URL, ...headers } });
+  try {
+    for (const providerEnv of providerEnvs) {
+      const noAccessEnv = { ...providerEnv, ACCESS_ISSUER: undefined, ACCESS_AUDIENCE: undefined, ACCESS_JWKS_URL: undefined };
+      const response = await handleShareLinkRoute(makeRequest(), noAccessEnv);
+      assert.equal(response?.status, 401);
+      assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+    }
+
+    let response = await handleShareLinkRoute(makeRequest({ cookie: "__Host-mm_product=invalid-product-token" }), productEnv);
+    assert.equal(response?.status, 401);
+    assert.equal((await response?.json()).code, "SESSION_REQUIRED");
+
+    response = await handleShareLinkRoute(makeRequest(), { ...productEnv, DB: undefined });
+    assert.equal(response?.status, 503);
+    assert.equal((await response?.json()).code, "SHARE_MIGRATION_IN_PROGRESS");
+
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": "invalid.jwt" }), productEnv);
+    assert.equal(response?.status, 401);
+    assert.equal((await response?.json()).code, "ACCESS_JWT_INVALID");
+
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": await accessToken() }), productEnv);
+    assert.equal(response?.status, 200);
+
+    const issued = Math.floor(Date.now() / 1000);
+    const serviceToken = await new SignJWT({ type: "app", sub: "", common_name: "runner.example" })
+      .setProtectedHeader({ alg: "RS256", kid: httpPublicJwk.kid })
+      .setIssuer(HTTP_ISSUER).setAudience(HTTP_AUDIENCE).setIssuedAt(issued).setExpirationTime(issued + 300).sign(httpPrivateKey);
+    response = await handleShareLinkRoute(makeRequest({ "Cf-Access-Jwt-Assertion": serviceToken }), productEnv);
+    assert.equal(response?.status, 403);
+    assert.equal((await response?.json()).code, "ACCESS_ACTOR_FORBIDDEN");
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.raw.close();
+  }
+});
 
 function addViewerShareFixture(db) {
   db.prepare("INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at) VALUES ('published', 'workspace', 'manual', 2, 'published', 'Manual', 'Description', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', ?, ?)").run(NOW, NOW);
@@ -213,6 +271,37 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.match(await viewer.text(), /id="share-viewer"/u);
     const viewerCss = await request("/s/assets/share.css");
     assert.match(await viewerCss.text(), /#share-auth\[hidden\].*display:none/u);
+    const legacyCookieAppEnv = {
+      ...appEnv,
+      SUPABASE_URL: "https://supabase.example.test",
+      SUPABASE_ANON_KEY: "synthetic-anon-key"
+    };
+    const legacyViewer = await worker.fetch(new Request(`${HTTP_BASE_URL}/s/`, {
+      headers: { cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh" }
+    }), legacyCookieAppEnv, {});
+    assert.equal(legacyViewer.status, 200, "public share viewer remains available with a legacy cookie");
+    assert.match(await legacyViewer.text(), /id="share-viewer"/u);
+    const legacyViewerCss = await worker.fetch(new Request(`${HTTP_BASE_URL}/s/assets/share.css`, {
+      headers: { cookie: "__Host-mm_access=legacy-access" }
+    }), legacyCookieAppEnv, {});
+    assert.equal(legacyViewerCss.status, 200, "public share assets remain available with a legacy cookie");
+    const legacyPublicRequest = async (path, { method = "GET", body, token, grant } = {}) => {
+      const headers = new Headers({ origin: HTTP_BASE_URL, cookie: "__Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh" });
+      if (token) headers.set("x-share-token", token);
+      if (grant) headers.set("x-share-grant", grant);
+      if (body !== undefined) {
+        headers.set("content-type", "application/json");
+        body = JSON.stringify(body);
+      }
+      return worker.fetch(new Request(`${HTTP_BASE_URL}${path}`, { method, headers, body }), legacyCookieAppEnv, {});
+    };
+    const legacyResolve = await legacyPublicRequest("/s/api/resolve", { method: "POST", body: { passcode: fixture.passcode }, token: fixture.token });
+    assert.equal(legacyResolve.status, 200, "public share resolve remains available with a legacy cookie");
+    const legacyGrant = (await legacyResolve.json()).grant;
+    const legacyContent = await legacyPublicRequest("/s/api/content", { method: "POST", grant: legacyGrant });
+    assert.equal(legacyContent.status, 200, "public share content remains available with a legacy cookie");
+    const legacyAsset = await legacyPublicRequest(`/s/api/assets/${HTTP_ASSET}`, { grant: legacyGrant });
+    assert.equal(legacyAsset.status, 200, "public share assets API remains available with a legacy cookie");
     for (const path of ["/s/assets/brand/logo.png", "/s/assets/brand/mascot.png"]) {
       const brand = await appRequest(path);
       assert.equal(brand.status, 200);
@@ -312,5 +401,129 @@ test("HTTP共有viewerはresolve→contentを通し、draft編集後もsnapshot�
     assert.equal(failed?.status, 409);
     assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM manual_revisions").get().n), 3);
     assert.equal(Number(fixture.raw.prepare("SELECT count(*) AS n FROM share_links").get().n), 2);
+  } finally { globalThis.fetch = originalFetch; fixture.raw.close(); }
+});
+
+test("published branding copies the saved version, pins its private logo and never follows later team changes", async () => {
+  const fixture = await httpFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ keys: [httpPublicJwk] });
+  const database = new HttpD1(fixture.raw);
+  const logoId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const otherLogoId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const versionId = "12121212-1212-4212-8212-121212121212";
+  const laterVersionId = "13131313-1313-4313-8313-131313131313";
+  const env = { APP_ENV: "staging", APP_BASE_URL: HTTP_BASE_URL, ACCESS_ISSUER: HTTP_ISSUER, ACCESS_AUDIENCE: HTTP_AUDIENCE, ACCESS_JWKS_URL: HTTP_JWKS_URL, DB: database,
+    MANUAL_ASSETS: { get: async (key) => ({ body: new Uint8Array([137, key.endsWith(logoId) ? 1 : 2]) }) }, SHARE_AUTH_RATE_LIMITER: { limit: async () => ({ success: true }) } };
+  async function send(path, { method = "GET", body, authenticated = false, grant, token } = {}) {
+    const headers = new Headers({ origin: HTTP_BASE_URL });
+    if (authenticated) headers.set("Cf-Access-Jwt-Assertion", await accessToken());
+    if (grant) headers.set("x-share-grant", grant);
+    if (token) headers.set("x-share-token", token);
+    if (body !== undefined) { headers.set("content-type", "application/json"); body = JSON.stringify(body); }
+    return handleShareLinkRoute(new Request(`${HTTP_BASE_URL}${path}`, { method, headers, body }), env);
+  }
+  try {
+    for (const logo of [logoId, otherLogoId]) fixture.raw.prepare("INSERT INTO workspace_brand_logos(id,workspace_id,actor_application_id,operation_id,object_key,content_type,byte_length,width,height,sha256,status,created_at) VALUES (?,?,?,? ,?,'image/png',2,1,1,?,'reserved',?)")
+      .run(logo, HTTP_WORKSPACE, HTTP_OWNER, `brand-test-${logo}`, `logo/${logo}`, "a".repeat(64), NOW);
+    fixture.raw.prepare("UPDATE workspace_brand_logos SET status = 'ready' WHERE workspace_id = ?").run(HTTP_WORKSPACE);
+    fixture.raw.prepare("INSERT INTO workspace_branding_versions(id,workspace_id,theme_color,foreground_color,logo_id,created_by,created_at) VALUES (?,?,'#ffff00','#000000',?,?,?)")
+      .run(versionId, HTTP_WORKSPACE, logoId, HTTP_OWNER, NOW);
+    fixture.raw.prepare("INSERT INTO workspace_branding(workspace_id,version_id) VALUES (?,?)").run(HTTP_WORKSPACE, versionId);
+    fixture.raw.prepare("UPDATE manual_revisions SET branding_version_id = ? WHERE id = ?").run(versionId, HTTP_DRAFT);
+    const path = `/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}/share-links`;
+    assert.equal((await send(path, { method: "DELETE", authenticated: true, body: { shareLinkId: HTTP_LINK } })).status, 200);
+    const token = randomSecret(32); const passcode = "brand-share-passcode";
+    const created = await send(path, { method: "POST", authenticated: true, body: { confirmed: true, operationId: "branding-share-operation-0001", token, passcode, expiresAt: new Date(Date.now() + 86400000).toISOString(), expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: "a".repeat(32) } });
+    assert.equal(created.status, 200, await created.clone().text());
+    const resolved = await send("/s/api/resolve", { method: "POST", token, body: { passcode } });
+    const grant = (await resolved.json()).grant;
+    const content = await send("/s/api/content", { method: "POST", grant });
+    const payload = await content.json();
+    assert.equal(payload.branding.versionId, versionId);
+    assert.equal(payload.branding.logoUrl, `/s/api/logos/${logoId}`);
+    assert.equal((await send(payload.branding.logoUrl, { grant })).status, 200);
+    assert.equal((await send(`/s/api/logos/${otherLogoId}`, { grant })).status, 404, "another logo in the same workspace is not shared");
+    assert.equal((await send(payload.branding.logoUrl)).status, 401);
+    fixture.raw.prepare("INSERT INTO workspace_branding_versions(id,workspace_id,theme_color,foreground_color,logo_id,created_by,created_at) VALUES (?,?,'#000000','#ffffff',?,?,?)")
+      .run(laterVersionId, HTTP_WORKSPACE, otherLogoId, HTTP_OWNER, NOW);
+    fixture.raw.prepare("UPDATE workspace_branding SET version_id = ? WHERE workspace_id = ?").run(laterVersionId, HTTP_WORKSPACE);
+    fixture.raw.prepare("UPDATE manual_revisions SET branding_version_id = ? WHERE id = ?").run(laterVersionId, HTTP_DRAFT);
+    const after = await (await send("/s/api/content", { method: "POST", grant })).json();
+    assert.deepEqual(after.branding, payload.branding);
+    const published = fixture.raw.prepare("SELECT current_published_revision_id AS id FROM manuals WHERE id = ?").get(HTTP_MANUAL);
+    assert.throws(() => fixture.raw.prepare("UPDATE manual_revisions SET branding_version_id = ? WHERE id = ?").run(laterVersionId, published.id), /scope/);
+    const currentLink = fixture.raw.prepare("SELECT id FROM share_links WHERE revoked_at IS NULL").get();
+    assert.equal((await send(path, { method: "DELETE", authenticated: true, body: { shareLinkId: currentLink.id } })).status, 200);
+    assert.equal((await send(payload.branding.logoUrl, { grant })).status, 401, "revoking the share also revokes the logo");
+  } finally { globalThis.fetch = originalFetch; fixture.raw.close(); }
+});
+
+test("local manual branding, edited safe base and editable annotations publish together as an immutable snapshot", async () => {
+  const fixture = await httpFixture(); const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ keys: [httpPublicJwk] });
+  const objects = new Map();
+  const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+  const r2 = {
+    async put(key, bytes, options) { if (!objects.has(key)) objects.set(key, { bytes: bytes.slice(), size: bytes.length, httpMetadata: options.httpMetadata, customMetadata: options.customMetadata }); return {}; },
+    async head(key) { return objects.get(key) ?? null; },
+    async get(key) { const object = objects.get(key); return object ? { ...object, body: new Response(object.bytes).body } : null; }
+  };
+  const env = { APP_ENV: "staging", APP_BASE_URL: HTTP_BASE_URL, ACCESS_ISSUER: HTTP_ISSUER, ACCESS_AUDIENCE: HTTP_AUDIENCE, ACCESS_JWKS_URL: HTTP_JWKS_URL, DB: new HttpD1(fixture.raw), MANUAL_ASSETS: r2, SHARE_AUTH_RATE_LIMITER: { limit: async () => ({ success: true }) } };
+  async function send(path, { method = "GET", body, headers = {}, authenticated = true } = {}) {
+    const requestHeaders = new Headers({ origin: HTTP_BASE_URL, ...headers });
+    if (authenticated) requestHeaders.set("Cf-Access-Jwt-Assertion", await accessToken());
+    if (body !== undefined && !(body instanceof Uint8Array)) { requestHeaders.set("content-type", "application/json"); body = JSON.stringify(body); }
+    const request = new Request(`${HTTP_BASE_URL}${path}`, { method, headers: requestHeaders, body });
+    return path.startsWith("/s/") || path.endsWith("/share-links") ? handleShareLinkRoute(request, env) : handleCloudManualRoute(request, env);
+  }
+  try {
+    const path = `/api/workspaces/${HTTP_WORKSPACE}/manuals/${HTTP_MANUAL}`;
+    const operationId = "local-brand-then-publish-0001";
+    const intentResponse = await send("/api/onboarding/claim-intents", { method: "POST", body: { operationId, assetCount: 0, target: { workspaceId: HTTP_WORKSPACE, manualId: HTTP_MANUAL, revisionId: HTTP_DRAFT, expectedUpdatedAt: NOW } } });
+    assert.equal(intentResponse.status, 201, await intentResponse.clone().text());
+    const intent = await intentResponse.json();
+    const logoResponse = await send(`/api/onboarding/claim-intents/${intent.claimIntentId}/branding/logo`, { method: "PUT", body: png, headers: { "content-type": "image/png", "content-length": String(png.length), "x-asset-byte-length": String(png.length), "x-asset-sha256": await sha256Hex(png), "x-claim-operation-id": operationId } });
+    assert.equal(logoResponse.status, 200, await logoResponse.clone().text());
+    const logo = await logoResponse.json();
+    const claimed = await send(`/api/onboarding/claims/${intent.claimIntentId}`, { method: "POST", body: { operationId, assets: [], manual: { title: "ローカル書式を維持", description: "", steps: [], branding: { themeColor: "#a14eba", logoId: logo.logoId } } } });
+    assert.equal(claimed.status, 200, await claimed.clone().text());
+    const branded = await (await send(path)).json();
+    assert.equal(branded.branding.themeColor, "#a14eba");
+    const baseUpdatedAt = branded.draft.updatedAt;
+    const uploadedResponse = await send(`${path}/draft/assets/edited-annotation-operation-0001`, { method: "PUT", body: png, headers: { "content-type": "image/png", "content-length": String(png.length), "x-asset-byte-length": String(png.length), "x-asset-sha256": await sha256Hex(png), "x-draft-revision-id": HTTP_DRAFT, "x-draft-updated-at": baseUpdatedAt } });
+    assert.equal(uploadedResponse.status, 200, await uploadedResponse.clone().text());
+    const uploaded = await uploadedResponse.json();
+    const annotations = [{ id: "editable-arrow", type: "arrow", x1: .1, y1: .1, x2: .8, y2: .8, color: "#a14eba", strokeWidth: 4 }];
+    const steps = [{ id: null, type: "action", title: "安全な画像を確認", instruction: "矢印の位置を確認", actionType: null, targetText: null, url: null, assetId: uploaded.assetId, annotations }];
+    assert.equal((await send(`${path}/draft`, { method: "PATCH", body: { title: "注釈付き手順書", description: "", expectedUpdatedAt: baseUpdatedAt, steps } })).status, 200);
+    const detail = await (await send(path)).json();
+    assert.deepEqual(detail.steps[0].annotations, annotations);
+    assert.equal((await send(`${path}/share-links`, { method: "DELETE", body: { shareLinkId: HTTP_LINK } })).status, 200);
+    const token = randomSecret(32); const passcode = "annotation-share-passcode";
+    const shared = await send(`${path}/share-links`, { method: "POST", body: { confirmed: true, operationId: "annotation-share-operation-0001", token, passcode, expiresAt: new Date(Date.now() + 86400000).toISOString(), expectedDraftRevisionId: HTTP_DRAFT, expectedContentVersion: detail.draft.contentVersion } });
+    assert.equal(shared.status, 200, await shared.clone().text());
+    const resolved = await send("/s/api/resolve", { method: "POST", authenticated: false, headers: { "x-share-token": token }, body: { passcode } });
+    const grant = (await resolved.json()).grant;
+    const sharedContent = async () => (await send("/s/api/content", { method: "POST", authenticated: false, headers: { "x-share-grant": grant } })).json();
+    const content = await sharedContent();
+    assert.equal(content.branding.versionId, branded.branding.versionId);
+    assert.equal(content.branding.themeColor, "#a14eba");
+    assert.equal(content.branding.logoId, logo.logoId);
+    const sharedLogo = await send(content.branding.logoUrl, { authenticated: false, headers: { "x-share-grant": grant } });
+    assert.equal(sharedLogo.status, 200);
+    assert.deepEqual(new Uint8Array(await sharedLogo.arrayBuffer()), png);
+    assert.deepEqual(content.steps[0].annotations, annotations);
+    assert.equal(content.steps[0].assetId, uploaded.assetId);
+    const image = await send(`/s/api/assets/${uploaded.assetId}`, { authenticated: false, headers: { "x-share-grant": grant } });
+    assert.equal(image.status, 200, await image.clone().text());
+    assert.deepEqual(new Uint8Array(await image.arrayBuffer()), png);
+    const changed = { ...steps[0], id: detail.steps[0].id, annotations: [{ ...annotations[0], x2: .6 }] };
+    assert.equal((await send(`${path}/draft`, { method: "PATCH", body: { title: detail.draft.title, description: "", expectedUpdatedAt: detail.draft.updatedAt, steps: [changed] } })).status, 200);
+    assert.deepEqual((await sharedContent()).steps[0].annotations, annotations);
+    assert.deepEqual((await sharedContent()).branding, content.branding);
+    assert.equal((await (await send(path)).json()).branding.versionId, branded.branding.versionId);
+    const snapshot = fixture.raw.prepare("SELECT published_revision_id AS id FROM share_links WHERE revoked_at IS NULL").get();
+    assert.throws(() => fixture.raw.prepare("UPDATE manual_steps SET annotation = '[]' WHERE revision_id = ?").run(snapshot.id), /immutable/);
   } finally { globalThis.fetch = originalFetch; fixture.raw.close(); }
 });

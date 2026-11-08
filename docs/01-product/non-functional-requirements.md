@@ -6,8 +6,8 @@ Status: Accepted
 |---|---|---|
 | NFR-001 | セキュリティ | 全tenant業務データは、検証済みAccess主体とactiveなworkspace membership／roleをWorkerで毎回照合し、workspace固定D1 query、D1制約、private R2 object認可で分離する。Access到達だけを認可根拠にしない |
 | NFR-002 | セキュリティ | Access service token、Cloudflare／Stripeのsecret、Browser権限情報をクライアントへ渡さない。Access JWTをブラウザJavaScriptへ複製せず、D1／R2はWorker bindingからのみ操作する |
-| NFR-003 | セキュリティ | Chrome拡張はManifest V3と最小権限を前提にし、利用者の明示操作で対象タブだけを記録する。入力値、Cookie、Authorizationを保存せず、extension IDやクライアント申告だけを認可根拠にしない。Browser Runを将来再導入する場合はprivate IP、localhost、metadata endpoint、危険スキーム拒否と検査済みegressを別途必須にする |
-| NFR-004 | プライバシー | 入力値、Cookie、Authorization、カード情報、個人番号を保存しない |
+| NFR-003 | セキュリティ | Chrome拡張はManifest V3と最小権限を前提にし、利用者の明示操作で対象タブだけを記録する。入力値、Cookie、Authorizationを操作event、操作文、handoff metadataへ保存せず、extension IDやクライアント申告だけを認可根拠にしない。Browser Runを将来再導入する場合はprivate IP、localhost、metadata endpoint、危険スキーム拒否と検査済みegressを別途必須にする |
+| NFR-004 | プライバシー | 入力値、Cookie、Authorization、カード情報、個人番号を操作event、操作文、handoff metadataへ保存しない。画面に表示された値が画像に含まれる場合の保護は、ADR-0040に従う利用者の明示的な置換・黒塗りと確認を正とする |
 | NFR-005 | 可用性 | 記録中に切断しても保存済み地点を表示し、再開または安全に終了できる |
 | NFR-006 | 性能 | 手順100件の手順書でも閲覧とPDF出力が破綻しない |
 | NFR-007 | アクセシビリティ | WCAG 2.2 AAを目標にする |

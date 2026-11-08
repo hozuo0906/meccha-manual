@@ -29,7 +29,7 @@ const playwrightUtils = require(join(dirname(require.resolve("playwright-core"))
 class LocalStatement {
   constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
   bind(...values) { return new LocalStatement(this.database, this.sql, values); }
-  async run() { const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
+  async run() { if (/^\s*SELECT changes\(\) AS direct_changes\s*$/iu.test(this.sql)) return { success: true, results: [this.database.prepare(this.sql).get(...this.values)] }; const result = this.database.prepare(this.sql).run(...this.values); return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } }; }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
 }
@@ -61,7 +61,7 @@ class MemoryR2 {
   async delete(key) { this.objects.delete(key); }
 }
 
-const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql"];
+const localWorkerMigrations = ["0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql", "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql"];
 
 async function createLocalWorkerFixture() {
   const database = new DatabaseSync(":memory:");
@@ -625,7 +625,7 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     for (let attempt = 0; attempt < 80 && (await readMetadata(worker, handoffStorageKey(handoffId)))?.status !== "completed"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
     const completed = await readMetadata(worker, handoffStorageKey(handoffId));
     assert.equal(completed.status, "completed", `実Workerへの保存が完了する: ${JSON.stringify({ completed, status: await page.locator("#status").textContent().catch(() => ""), databaseClaims: fixture.database.prepare("SELECT status, manual_id FROM claim_intents").all() })}`);
-    assert.equal(await getDraft(worker, draft.id), null, "保存完了後はローカル下書きを消費する");
+    assert.ok((await getDraft(worker, draft.id)).cloudRef, "保存完了後も同じローカル下書きとクラウドの版を保持する");
 
     const workspaceId = fixture.database.prepare("SELECT id FROM workspaces WHERE workspace_kind = 'personal'").get()?.id;
     const manual = fixture.database.prepare("SELECT id, title FROM manuals ORDER BY created_at DESC LIMIT 1").get();
@@ -644,7 +644,7 @@ test("first Access before onboarding JS runs", { timeout: 90_000 }, async () => 
     await page.goto(`${STAGING_ORIGIN}/manuals`, { waitUntil: "domcontentloaded" });
     await page.locator("#cloud-list button").filter({ hasText: draft.title }).click();
     await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
-    assert.equal(await page.locator("#cloud-detail .cloud-field input").inputValue(), draft.title);
+    assert.equal(await page.locator('input[aria-label="タイトル"]').inputValue(), draft.title);
     assert.equal(await page.getByRole("textbox", { name: "手順 1の説明", exact: true }).inputValue(), draft.steps[0].instruction);
     await page.waitForFunction(() => { const image = document.querySelector("img.cloud-step-image"); return image && !image.hidden && image.complete && image.naturalWidth === 1; });
     assert.equal(fixture.database.prepare("SELECT status FROM claim_intents ORDER BY created_at DESC LIMIT 1").get()?.status, "completed");

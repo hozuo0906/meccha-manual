@@ -1,4 +1,145 @@
+## 2026-11-08 PR #288: 一覧の再試行失敗後のフォーカス復帰
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T10:38:23+09:00（Asia/Tokyo）。監督Museの指定によるP2修正。対象branch `codex/ui-recovery-from-280-20261107`、着手HEAD `9eba894f3ac09d5cbc70ee255bc239cf05bc7d03`、review comment `4504498692`／thread `PRRT_kwDOTpNknc608kgP`を実取得した。
+
+- 初回一覧503→Enterで再試行→再503で新ボタンのfocusが失われることを修正前の回帰で確認し、`loadManuals`に開始時focusの記録と条件付き復帰を追加した。既存popupと同じ条件でbody／元要素／未設定時だけ復帰し、待機中に検索欄へ移ったfocusと初回失敗時のfocusは維持する。Enter／Spaceによる連続再試行と別focus保持が成功した。asset内容hashは`sha256-0b149ba73aa80f8a`。
+- 全体`npm run check`は`31860`でexit 0、Worker71/71・認証157/157、最終secret／encodingまで成功。関連browser14ファイル`52686`は64/67・exit 1・skip 0で、既存sidepanel poll待機1件と共有読者の次手順表示待機2件がtimeout。対象2ファイルを同じコード・assertionのまま直列再実行した`18399`は31/31・fail 0／skip 0／exit 0。別実行を一括成功へ合算しない。詳細は[修正報告書](ui-p2-fix-2026-11-08.md)。
+- 契約・traceability・decision-log・本記録・報告書を同じ修正commitに含め、同名originへpushしてlocal／origin／PR head一致を照合する。未追跡`.artifacts/`等の残骸は保存対象外。Issue #70はclosed／not_plannedと他branch履歴を保持して結果を同期する。
+- 次の1マイルストーンはMuseによる新headのCI／正式Codex Review／指摘threadの返信・解決とSHA照合。レビュー依存項目は未チェックのまま、Draft維持、merge・deploy・他PRコメントなし。実SSO／remote D1/R2／実Office描画／人によるscreen reader確認は未実施。担当は保存・報告後に終了し、自律監視・終了後の継続実行は登録しない。以下は履歴として保持する。
+
+## 2026-11-08 PR #288: UI回収ブランチへのmain統合
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T10:11:39+09:00（Asia/Tokyo）。監督Museの指定範囲は開始済みmain mergeの競合解消、回帰、報告書を含むcommit／同名branchへのpushとPR検証記録更新まで。Draft維持、PR merge・deploy・他PRコメントは行わない。以下の各branchのcheckpointは履歴として保持する。
+
+- Draft PR #288、branch `codex/ui-recovery-from-280-20261107`、base `main`。着手HEAD `5918b0f9986812fa5c4c1856de9b768705e8d4fb`とmain `9adc2c18247e29a5078afd028e2b6c77da7b0fd4`を統合する。両親の文書追加を保持し、版定数だけの競合は統合assetから`sha256-4caa5e44061a8e31`へ再計算した。
+- 認証本体・migration 0008・認証回帰はmainと、拡張treeは着手UI headとbyte一致。mainの共有`shareBusy`排他・OAuth他タブ主体同期とUI回収を両立し、無加工画像＋利用者確認＋手動編集、ChatGPT既定OFFとfail-closedを維持する。自動mask経路・肯定する自動置換文言の検索は0件。
+- 再起動後の最終`npm run check`全体exit 0（実行ID `96469`、先行`70276`もexit 0）、認証157/157、Worker71/71、D1 HTTP39/39、D1 binding3/3、最終secret／encodingまで成功。関連browser 15ファイルの`5806`は95/96・exit 1で、1件だけ既定browser欠落による起動前失敗。該当testのimportを既存共通launcherへ揃え、`47873`で1/1・fail 0／skip 0／exit 0を確認した。製品仕様・テスト本体・assertionは変更していない。初回制限内checkの子プロセス失敗、前任の実行ID `54269`と分けて記録する。詳細は[統合報告書](ui-merge-main-2026-11-08.md)を正とする。
+- 本checkpointと報告書を同じmerge commitに含め、push後にlocal／origin／PR head一致とDraftを照合する。Issue #70はclosed／not_plannedと他branch履歴を保持し、今回の結果を同期する。未追跡の`.artifacts/`等は含めない。
+- 次の1マイルストーンはMuseによる新merge headのCI・Codex Review・P0/P1・thread・SHA照合とUI受入判断。レビュー依存のチェックリストは未チェックを維持し、旧headの成功を新headへ流用しない。remote SSO／D1／R2／migration適用／実Office描画等は未実行。担当は保存・報告後に終了し、終了後の継続実行・監視を登録しない。
+
+## 2026-11-08 マイルストーン3: PR #280のUI回収
+
+Status: Accepted
+
+確認日時: 2026-11-08T06:20:33+09:00（Asia/Tokyo）。今回の範囲はcommit／指定branchへの保存／認証baseのDraft PRまで。merge・deploy・remote環境変更・他PRコメントは行わない。
+
+- base `codex/auth-port-from-284-20261107` / `cc83e1a`。新branch `codex/ui-recovery-from-280-20261107`。#280 `a44dde8..f750a3d` のUI hunkを記録UI `8150fa6`、editor/cloud/readerと関連契約・fixture `44d2387`へ回収。
+- 無加工画像・利用者確認・手動編集と製品認証を維持する。APP_JS、生成editor-tools JS/HTMLはbaseとbyte一致。自動mask/aliasの処理・前提・文言を戻さない。生成物はsourceから再生成。
+- localの記録品質17/17、全画面品質1/1、修正後sidepanel unit4/4、認証・Worker224/224が成功。指定UI一括は8成功後にpage crashとChrome起動SIGTRAPで25環境失敗。labはtimeout。check初回の旧fixture4失敗を修正したが、再実行はnpm write EPERMで停止。全体検証成功・release合格ではない。
+- 検証途中でrepoと/tmp、Git indexへのwriteがOSに拒否されたため、31変更blobのlocal SHA一致を検証してGitHub Appで保存した。local HEADはbaseのまま、最終報告書・引き継ぎ・最新PRの正本はremote版。local差分を破棄せず、書込み可能な環境でremote headへ同期して再開する。
+- 初期head7161418のfull checkはDocs CIで成功。Legacy共有読者の復帰見出しgeometry3件の実表示失敗を確認し、成功messageの高さ確定後にscroll位置を決める順序へ修正。認可は不変、最新headのCIで再検証する。旧headの成功を流用しない。
+- 初回Codex ReviewのP2 2件（閲覧専用の出力消失4503789569、busy失敗後focus4503789571）を妥当と確認し、出力panel保持と元/別focus保持を追加回帰付きで修正。local Chromeはwrite拒否のため未実行で、最新CI・再レビュー・thread返信/解決を別確認する。
+- a3c5e27の最新full check/Legacy成功、Privacyの追加品質は52/53でsidepanelの明示focus保持が1失敗。busy中のpollが状態文を空にしてfocus先を隠す原因を修正し、1100ms保留と実poll観測を回帰へ追加。guardのメモリunit13/13成功、最新CI/Reviewの照合を残す。
+- 詳細は[UI回収報告書](ui-recovery-2026-11-08.md)。新Draftの最新head CI・Reviewは別取得し、PR本文で確認日時と結果を照合する。
+- 次の1マイルストーンは最新headでfull check、品質lab、sidepanel/editor/cloudと認証・Office回帰を完走し、Review/threadとUI受入を照合すること。土台P2は次回親PMが2026-11-14までに再triage。自律監視・終了後の継続実行なし。
+
+## 2026-11-08 PR #287: OAuth主体変更P2修正
+
+Status: Accepted
+
+確認日時: 2026-11-08T09:40:26+09:00（Asia/Tokyo）。監督Museの指定により、実装担当がP2の再現・修正・回帰・報告書同梱のcommit／pushを行う。Draft維持、merge・deploy・他PRコメントは行わない。
+
+- 対象Issue #283／Draft PR #287、branch `codex/auth-port-from-284-20261107`、着手HEAD `15ca9cab0891bd9ac8bd94fdaaffa2d9f9c4e872`。review comment `4504320245`（thread `PRRT_kwDOTpNknc608JIJ`）を実取得し、旧主体のshellから新Cookie主体で作成POSTを送る二タブ回帰を修正前に再現した。
+- OAuth成功302をcanonical root完了処理へ接続し、既存Web Lock・認証世代nonce更新・BroadcastChannel通知後に元操作へ復帰する。受信側は既存のshell非表示・応答世代無効化・session再取得を使う。通常読込で通知を反復せず、同期不能時は通知を試みて元操作へ進まない。完了先もno-referrer／no-store／CSPを維持する。asset hashは`sha256-60e73e0767d933e0`。
+- 最終`npm run check`全体exit 0（`80379`）、認証157/157（追加4）、Worker71/71、D1 HTTP39/39。認証browser9/9・共有／画像編集7/7（`31704`）、最終Office認証2/2・fail0／skip0／exit0（`66841`）。先行browser実行のOffice参照元assertion失敗はrootのno-referrer不足を修正して解消した。詳細と実行上の未到達は[修正報告書](auth-p2-fix-2026-11-08.md)を参照する。
+- 本記録・報告書と修正を同じcommitに含め同名originへpushし、local／remote／PR head一致を照合する。Issue #70はclosed／not_plannedと他branch履歴を保持して今回の結果だけ同期する。最新headの正式Codex Review／CI／thread解決完了は別確認とし、PR完成とは扱わない。
+- 次の1マイルストーンはMuseによる新headのCI・Codex Reviewと当該thread返信／解決確認。remote SSO／D1／R2／migration適用／実Office描画は今回未実行。担当は保存・報告後に終了し、終了後の継続・自律監視は登録しない。以下のmain統合等は履歴として保持する。
+
+## 2026-11-08 PR #287: main統合
+
+Status: Accepted
+
+確認日時: 2026-11-08T09:20:12+09:00（Asia/Tokyo）。監督Museの指定は、開始済みmain mergeの競合解消・生成物更新・回帰・報告書同梱のcommit／pushまで。Draftを維持し、PR merge・deploy・他PRコメントは行わない。以下の古いbaseとlocal書込み障害の記録は履歴として保持する。
+
+- 対象Issue #283／Draft PR #287、branch `codex/auth-port-from-284-20261107`。着手HEAD `cc83e1aeb761217f388d8fd64dee4909814ddd99`とmain `3e2fe6f568fbb7c77749d915177d8ce88a86e0b5`を統合。両側のdecision／handoff追加記録を保持し、共有P2 `6f3b550`の`shareBusy`とPOST／DELETE回帰を維持した。
+- 正規の共有editor bundleを再生成し、統合後assetから`APP_ASSET_VERSION=sha256-963d574fb050ea04`を再計算。認証本体・migration 0008・Chrome拡張は着手HEADと一致し、CSP data URL decodeも保持した。今回のGit index登録は成功し、過去の書込み失敗を現状へ流用しない。
+- `npm run check`全体exit 0（実行ID `50105`）、認証153/153、Worker71/71、D1 HTTP39/39、秘密値・encodingまで成功。関連browser 11ファイル22/22、fail 0／skip 0／exit 0（実行ID `61352`）。詳細は[統合報告書](auth-merge-main-2026-11-08.md)。自動mask moduleなし、拡張差分なし、自動経路不在の既存unitとraw pixel保持のnative回帰成功を確認した。
+- 本checkpointと報告書を同じmerge commitへ含め、同名origin branchへpush後にlocal／remote／PR headを照合する。Issue #70はclosed／not_plannedを保持し、#288等の他branch記録を残して今回の結果だけを同期する。
+- 次の1マイルストーン: Museによる新merge headのGitHub CI／Codex Review／thread照合。旧headの成功を流用せず、今回のローカル検証だけでPR／release完了とは扱わない。実SSO・remote D1/R2・実Office描画は未実行。実装担当は保存・報告後に終了し、自律監視は登録しない。
+
+## PR #287 追加レビュー修正とlocal書込み障害
+
+Status: Accepted
+
+確認日時: 2026-11-07T22:50:33+09:00（Asia/Tokyo）。
+
+- Draft #287、base `codex/foundation-no-automask-20261107`。本体・テスト修正はgit push、以後の保存はlocal object書込み拒否を受けGitHub Appで行う。
+- `e1e517f`の新規P2 2件（HTML `/manuals` 再訪のログイン導線、provider再取得時のpasswordフォーカス）を再現し修正。メモリ上のsource差替えで認証153/153成功。最新commitの通常CI／Codex Reviewは別確認する。
+- local HEADは`547a495`。書込み失敗でlocal `tests/app-auth.test.mjs` が0 byte、元blobは `4f7eb0a080b48014026d24c44f7c55df983cfe64` に保全済み。復元も拒否されている。指定repo外報告書も0 byte。local差分を完成扱い・再pushせず、書込み可能な環境で最新PR headから復元する。
+- 完成本文と根拠は[認証移植報告書](auth-port-2026-11-07.md)のremote版とPR本文。今回merge／deploy／環境設定変更・他PRコメントなし。
+- 次の1マイルストーン候補は#280のUI hunk回収だが、この書込み制限と最新SHAゲートを先に確認する。自律監視なし。
+
+## 2026-11-07 マイルストーン2: 製品認証の移植
+
+Status: Accepted
+
+確認日時: 2026-11-07T22:32:08+09:00（Asia/Tokyo）。ユーザーの指定はcommit／push／土台baseのDraft PRまでであり、merge／deploy／環境変更と他PRへのコメントは禁止。
+
+- branch `codex/auth-port-from-284-20261107`、base `codex/foundation-no-automask-20261107` / `6f54686`。#282→#284のnet差分を本体`f3f6b2e`へ回収済み。引き継いだ画像取得・編集競合のテスト同期修正は`547a495`。
+- `npm run check`全体がexit 0。製品認証unit151/151、Access identity17/17、Access fetch5/5、D1 HTTP39/39、bootstrap mutation1/1。認証・Office browserは14/14、既存Access保存runtimeは6/6成功。
+- 初回Access復帰runtimeだけはproxy tunnelでnavigationが失敗し未検証。実SSO／remote D1/R2／実Office描画は未実行。メール確認コードは未実装、ChatGPT既定OFF、email-only link禁止、自動mask廃止を維持する。
+- 詳細と実行境界は[認証移植検証報告書](auth-port-2026-11-07.md)。CI／最新headのCodex Review／Latest Review GateはDraft作成後の別確認であり、merge／release完了とは扱わない。Issue #70はclosed／not_plannedを確認し、今回更新しない。
+- 次の1マイルストーン候補は#280のUI改善のhunk単位回収。今回は未着手、自律監視なし。
+
+## 2026-11-08 PR #285 P2: 共有応答待ちの画像編集開始抑止
+
+Status: Accepted
+
+確認日時: 2026-11-08T08:38:01+09:00（Asia/Tokyo）。branch `codex/foundation-no-automask-20261107`、起点・着手時PR head `6f546862b8515d96317963226ab0b0d0a9244744`。監督Museの指示範囲はP2修正・回帰・標準check・同名branchへのpush。Draft維持、merge・deploy・他PRコメントは行わない。
+
+- review comment `4503895303`の競合を確認し、共通画像編集入口で既存`shareBusy`を確認する1か所のgateを追加した。共有応答待ち中は画像編集を始めず、日本語で案内する。新しい状態・依存・API／認証／保存契約の変更、自動maskの再導入はない。
+- 遅延POST／DELETE回帰は修正前に両方とも狙ったassertionで失敗、修正後は2/2成功。関連browser 6ファイル8/8、fail 0／skip 0／exit 0（実行ID `19194`）。画像適用・保存・手順切替・再編集と、既存共有／画像／Office回帰を確認した。
+- `npm run check`はasset内容ハッシュ更新後に全体成功、exit 0（実行ID `86394`）。詳細・変更ファイルは[修正報告書](foundation-p2-fix-2026-11-08.md)。このcheckpointと報告書を修正と同じcommitへ含め、push後にremote／PR head一致を確認する。
+- 次の1マイルストーン: Museによる新headのCI／Codex Reviewと指摘thread解決確認。最新CI／再レビューは未確認。実装担当は保存・報告後に終了し、監視・終了後の継続実行は登録しない。Issue #70の別branch #288のcheckpointは本修正で上書きしない。
+
+## 2026-11-07 マイルストーン1: 自動置換なしの土台
+
+Status: Accepted
+
+確認日時: 2026-11-07T21:49:03+09:00（Asia/Tokyo）。今回の指示は新規Draft PRまでであり、既存のmerge／環境変更承認を適用しない。以下の過去checkpointは履歴である。
+
+- main `3c62ca5`からbranch `codex/foundation-no-automask-20261107`を作成し、PR #279を含む#282 head `573b921`の最終treeを回収。製品appsの差分は未使用の自動mask専用`capture/screenshot.js`削除だけ。raw画像、明示確認、caption・幾何・privateValueContext、保存、手動編集、Officeを維持する。
+- migrationは0006→0007を含む。0008、#280、#284は回収せず、既存PRコメント・merge・deploy・remote環境変更は行わない。
+- `npm run check`と指定の個別Core検査が成功。editor browser 28/28、native raw記録1/1、sidepanel3/3、caption6/6、semantic2/2、Office／手動個人情報編集、cloud／share／onboarding全32ケースを確認した。実記録2手順・2画像のlocal Worker保存・共有・画像bytes一致・共有失効拒否も成功。
+- runtime本体6/6成功。first-accessだけはproxy tunnelによるnavigation失敗で対象経路未実行。remote Access／D1／R2、実Officeアプリ、3表示モードの全native通し受入は未確認。CI／Reviewは新規Draft headで別に確認する。
+- 根拠、初回失敗の切り分け、P2持越しと再triage期限は[検証報告書](foundation-2026-11-07.md)。保存先は新規Draft PRとこのbranch。次の1マイルストーン候補は#284の認証＋統合修正移植だが、今回は未着手。自律監視やセッション後の開発継続は設定しない。
+
+## Issue #281 / Draft PR #282 最新checkpoint
+
+Status: Accepted
+
+確認日時: 2026-10-03T22:07:44+09:00 (Asia/Tokyo)
+- source baseは `92e37627bc699acd5886b6ff27ed90203baa8080`。最新Review5400080256の新P1（raw画像の利用者確認欠落、thread PRRT_kwDOTpNknc6omG6p）を修正した今回の差分はcommit前。写真のbytesを保持し、既存manual_image_review・確認ボタンを使って保存・出力前に確認を求める。自動PII検出・黒塗り・架空値への置換は再導入しない。確認済みと未確認を区別し、protected画像のbytes欠落はstorage_failedとして復旧を案内する。
+- 親が今回のnpm ci、119/119 unit・skip 0、docs141・秘密値444・diffを確認。担当の公式CFTによる実記録1/1、実editor確認2/2、実sidepanel3/3と既存Worker/D1/R2記録連携（2手順・2画像、保存/共有画像bytes一致、共有失効拒否）の結果・対象差分を回収。外部Google/ChatGPT認証やremote D1/R2の成功証跡ではない。新commitのCI・Codex Reviewは未実行で、P1 threadは検証後に解決する。
+- ユーザーの追加指示はGoogle・ChatGPTログインからworkspace・保存・Office出力までの一貫実装。別checkoutの認証branch `codex/manual-product-auth-283`、base `fb5dca7fcdd8c575f940548229526aead6cbc294` で共通session/OIDC/D1認可の実装差分を実確認した。製品ログインは未稼働。ChatGPT商用websiteは公式の限定trial/client登録が必要で、IAB申請フォームの本人必須表記を質問中、申請は未送信。identityとAI利用枠の許可は別で、AI初期OFF。remote migration/deploy/Access/billing変更なし。
+- 対象source HEADは `dc119d18e6548f9fb05a3bb34ec55fcb686d2b17`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。closed-editor復帰receiptの実装は `af6f107` + `0510bcd`、Office snapshot browser回帰は `dc119d1` に反映済み。release検証は未完了。
+- 親が実MV3のclosed-editor復帰→Word/PPT両形式ダウンロード、別形式/別launch拒否・receipt未発行、二回目consume拒否・重複downloadなしを1/1、skip 0、exit 0で確認（source `dc119d1`、今回のruntimeテスト差分）。Office関連unit37/37 pass、component browserは `dc119d1` で1/1 pass、skip 0。npm ciは親で成功。Windows `npm run check` は docs/brand/worker/editor-tools/typecheck 通過後、既存 `wrangler.cmd` の `spawnSync ... EINVAL` で停止。一方、`dc119d1` のLinux Docs CI run37113055230/job111174537678でnpm ci/fullcheck成功をログ照合済み、Privacy run37113055312のOffice stepも成功。今回の新headのCIとCodex Reviewは別途必要で、旧SHAの成功を流用しない。
+- Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。実SSOとnative Office描画は未確認。
+- P2 triage（今回ソース変更なし）: handoff期限後にclaim結果をGET回収できても、期限切れhandoffはterminalで旧Office出力を再開せず、編集画面から新しい認証・形式選択へ戻す。これは古い認証・操作を黙って再利用しない意図的な安全境界で、原本・新しい編集・既存cloudRefは保持される。最低限この境界を維持し、後続で「もう一度Word/PowerPointを書き出す」と明示する再選択案内を検討する（親PM担当、2026-10-08）。
+- P2 triage（今回ソース変更なし）: 外部editor更新によるstale cloudRefの409は、対象版をlatestへ自動差替えせず、元のlocal draftとcloudRefを保持してfail-closedする契約。409で上書きを拒否する境界は維持するが、同じ古い参照で再試行を繰り返すしかない導線はUX上の欠陥として保留する（影響: 外部更新後の当該下書きではOffice出力とクラウド更新を継続できない。担当: 親PM、期限: 2026-10-08）。安全な最新版確認・差分確認・明示選択の設計が必要なため、今回の自動出力修正へ混在させない。後続修正では409後に利用者が最新版を確認して明示選択した場合だけ新しいoperation/claimを作り、同じ参照を自動再利用しない。期限後結果回収とstale参照のいずれも、このmilestoneでは自動再出力・silent revision substitutionを追加しない。
+- P2修正（review4173032863 / thread `PRRT_kwDOTpNknc6onN7S`）: `persistCandidate` が `draft.steps` をcloneして置換した後も、画像編集・確認ボタンのclosureが古いstepを描画し、確認済み画像が選択中パネルで要確認のまま残る経路を修正した。保存後・確認後は現行`draft.steps`の対象stepを再取得して描画する。二回目の画像編集後に明示確認し、選択パネルが即時に確認済みへ切り替わる実browser回帰を追加し、editor browser suite 28/28、`node --check`、`git diff --check`を確認済み。対象commitは親回収・保存待ち、未release、最新headに対するCI／Codex Review／thread解決は未確認である。
+- 次の1マイルストーンは、最新headでMV3 runtime、CI、Codex Reviewを照合し、上記P2の再選択・明示選択導線を別bounded unitで判断すること。
+
 # セッション引き継ぎ運用
+
+## Issue #281 / Draft PR #282 現在checkpoint
+
+Status: Accepted
+
+確認時点: 2026-10-03T13:28:38+09:00（Asia/Tokyo）／source head d19065cf7fbe4259f4160b25ebc5db6c0aa56dab、branch codex/manual-explicit-privacy-office-019。既存の引き継ぎ履歴は保持する。
+
+- User 0.1.8 ZIP（全33ファイル）は a44dde8d21066f8657fa11b4143ccfdf87f2f0e2。base Draft PR #279を保持する。
+- 実装方針は、自動PIIマスク／値置換を停止し、明示した画像個人情報modeだけを扱う。同一の架空人物について氏名とカナをそろえ、Word／PPTはローカル20画像exportとする。remote API writeは行わない。
+- 親のcapture関連検証は865 native 1/20 operations、ccc188 unit、dd817 Office 2 browser／20 images／XML reader（実Office描画未実施）。f6 latest worker 74／Office 13／UI390はtestpassだが、親source修正直後の再検証中である。
+- CI 865にはasset hash mismatchとOfficeDL 8s timeoutが残り、修正候補を進行中である。全体成功・完成とは扱わない。
+- Cloudflare管理UIの読み取り確認（2026-10-03T13:26+09:00、Asia/Tokyo）では、対象owner stagingappはCloudflare IdPのみ、OTP未登録、owner emailのallowは1件だった。設定変更、production、DB migration、deployは実施していない。OTP設定追加／対象app切替案は停止・不採用とし、CF accountを用意させない普通メール登録／ログイン、Google／ChatGPTログインを新製品authの設計条件とする。
+- OpenAI公式のSIWC資料（https://developers.openai.com/siwc/quickstart、https://developers.openai.com/siwc/token-sharing-open-source）に基づくidentity／利用枠scope、commercial remoteの限定trial／waitlist、OSS localの一般対象は、auth migrationの別bounded単位で設計する。AI利用枠は初期OFFとし、未登録client／未承認commercialを完成扱いにしない。 関連するAPI／DB／auth契約移行はIssue #283の別bounded単位とする。
+- PR #279 migration 0006／0007は未承認・未適用、商用公開は未確認、main mergeの自動実行は禁止する。
+- 次の1マイルストーンは、最新exact full SHAに対するCI／Codex Review／UI検証、限定0.1.9 ZIPの確認である。残る未確認環境を明記し、auth migrationは別Issueのbounded設計として切り出す。
 
 Status: Accepted
 
@@ -476,3 +617,164 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 記録境界: 秘密値・個人情報・実ユーザー文章や画像は記録していない。stage／productionへの反映、配布、merge、PR／Issueへの追記は親PMのrelease gate範囲であり、このcheckpointでは実行しない。
 
 次の1マイルストーンは、PR #269の最終SHAから作成する限定配布版の受入確認である。ReviewGate、PR状態、配布結果を実取得できるまで、今回の日本語UI改善を完了扱いにしない。
+
+## Office容量・privacy handoff checkpoint（2026-10-03T14:11:35+09:00）
+
+- 現行製品sourceの正本は `88e9c2f37f7a47a1ebd5785c2abc05573a8a1494`（branch `codex/manual-explicit-privacy-office-019`）。220dd84で実装したOffice画像64 MiB累積・archive 80 MiB・ZIP32範囲検査、local/cloudの容量拒否・再試行、Heading1のOOXML配置、入力caption同期を88e9c2fで実caller回帰とAPP_ASSET_VERSION同期まで確認した。このcheckpointの変更はhandoff文書だけで、pushは親PMの保存工程で行う。
+- 88e9c2fに対する確認結果は、capture actor unit 12/12、local/cloud browser 2/2、worker runtime 71/71、対象ゲート合計85/85、skip 0。P0/P1は確認されていない。旧d34のCI/fullcheck証跡は現行SHAへ流用しない。220で発生したAPP_ASSET_VERSION不一致は88で解消済みである。
+- P2候補として、`bytes:string` のdecode後に容量検査するための一時メモリ増加と、XML生成前のarchive guardがある。いずれも現行の実callerおよびAPIの `Uint8Array` 契約外であり、今回の修正対象には含めない。utilityを直接呼ぶ場合の一時メモリ増加を影響として親PMが管理し、2026-10-08までにboundedな契約整理を行う。
+- 検証境界は、実OfficeのWord／PowerPoint描画、remote SSO、実Chromeでの追加操作を未確認とする。local/cloudの分離ブラウザ検証を実施し、実Chromeの追加操作は禁止した。Windowsではesbuildの昇格済みdirect Node検査とwranglerのdirect CLI bundleを成功として確認したが、通常の `wrangler.cmd` 経路は `spawnSync ... EINVAL` のため未確認として区別する。
+- Google project／IAB構成は作成済みだがOAuth clientは未作成で、課金accountもない。auth文書は別branchのremote SHA `87457fe` に保存済みである。
+
+次の1マイルストーンは、この最新SHAに対するCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。完了までは配布・native Office描画・remote SSOを完了扱いにしない。
+
+## Office PresentationML slide ID P1 correction checkpoint（2026-10-03T14:24:19+09:00）
+
+- dcc90acの未配布候補に対するCodex Reviewで、`ppt/presentation.xml` の最初の `p:sldId` が255になるP1を確認した。MicrosoftのPresentationML例およびST_SlideIdの `minInclusive=256` に照合し、first255はOffice互換境界を満たさないため妥当な指摘と判定した。dcc90ac由来のZIPは配布せず、履歴として保持する。
+- boundedな修正では、slide IDを `256 + index` とし、200手順で256〜455の単調増加・一意ID、presentation relationshipのrId／slide順、master/layout ID（2147483648／2147483649）、slide内shape IDと画像relationshipを回帰確認した。生成editor bundleと `APP_ASSET_VERSION` も同じ変更で同期する。
+- この単位では追加のOffice native描画・remote SSO・限定ZIP配布は未確認である。次の1マイルストーンは修正後最新SHAへのCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。
+
+## Shared image editor lifecycle P2 correction checkpoint（2026-10-03T14:39:47+09:00）
+
+- 6d59ca8の未配布候補に対するCodex Reviewで、`createImageEditor` が同一dialog再利用時にも置換範囲ボタンとkeyboard helpを追加し続けるP2を確認した。disposeでlistenerは停止しても動的nodeが残り、再open時に重複操作と同一IDの説明が発生し得るため、通常UI到達の不具合として修正した。6d59ca8由来のZIPは配布対象にせず履歴保持する。
+- 修正では既存の置換操作・説明nodeをquery再利用し、`aria-describedby` をそのhelp IDへ再設定する。localの同一dialogを3回開閉してbutton/help各1、ID参照、一回のlistener作用を確認し、cloudはclose後にfresh dialogを生成する現行経路を3回以上実browserで確認した。cloudの通常経路にnode累積があるとは判定していない。
+- shared bundleを再生成し、`APP_ASSET_VERSION` を同期した。次の1マイルストーンは修正後最新SHAへのCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。
+
+
+## Issue #283 製品ログイン・Office出力の現在地（2026-10-03T21:44:09+09:00）
+
+- 対象branchは `codex/manual-product-auth-283`、認証sourceを含む `253e108900d354944f385bc12fffe944ce4d1107` のstaging接続準備docs commitは親がpush済みである。Google／ChatGPTの製品ログインsource、session、start/callback、D1 migration `0008` は実装済みで、親が11件の認証unitと2件のbrowser回帰を確認した。これは合成fixture／local Workerを含む証跡であり、実provider SSO成功、remote migration適用、secret binding、Access外周の実設定を示さない。
+- Office側は、最新commit `b087abf` の編集済み画像回帰を統合済みである。親取得の実行ID `session55529` では、`tests/office-auth-runtime-browser.test.mjs` の生成editor経路をGoogle／ChatGPT × DOCX／PPTXで2/2、skip 0、exit 0として確認した。合成provider、実ブラウザ、local Worker、SQLite D1 adapter、memory R2を通り、編集中の下書きから同じ形式のdownloadまで到達した。これは実provider SSO、remote D1／R2、staging deployの証跡ではない。
+- 未完了の外部境界は、実Google／ChatGPT SSO、staging remote D1 migration、Google secret binding、Access product入口／health分離の実設定である。SIWCは申請の氏名・会社名回答待ちで、商用clientは未発行のため有効化しない。これらの未確認事項をlocal testやfixture passで代替しない。
+- 統合Draft PR [#284](https://github.com/hozuo0906/meccha-manual/pull/284) のremote checkpointは `fdd9e2f3d9c6c4f91fe9633149e008f7903885e5` である。旧実生成試験の復帰待ちtimeoutは、実際のcallback navigationを使うharness修正で解消し、open editorを閉じずclaim前にdownload listenerを設定する経路で再検証した。今回の成功は合成provider／local Worker／SQLite D1／memory R2に限定し、実Google／ChatGPT SSO、remote migration、secret binding、Access外周の成功とは扱わない。
+- Office最新は `b087abf`（remote／PR #282一致）で、通常CI 13件成功、`78f`へのCodex comment `5968825999` はmajorなしを確認済みである。`b087`に対する最新Reviewは未確認で、未解決threadは1件残っている。製品ログイン側は親が `270` で認証unit 124件・browser 2件を再取得した。
+- staging origin rootをIABで1回直接開くとCloudflare Dashboardのサインイン画面へ遷移した。これは確認tabを閉じ、設定変更・ログイン操作をしていない。Access、DNS、未設定domainのいずれが原因かは未確認であり、Accessが原因とは断定しない。challenge URLや連絡先、秘密値は記録しない。
+- 次の1 milestoneは、対象SHAを固定して `wrangler.onboarding.jsonc --env staging` のversion、0006/0007/0008、secret名、Access外周をread-only照合する staging 接続案である。実stagingへのdeploy、migration apply、secret取得、Access変更、実provider SSOは別承認境界として実行しない。
+
+## 製品ログイン・Office再試行の親検証（2026-10-03T23:36:46+09:00）
+
+- PR #284、branch `codex/manual-auth-office-integration-283`、source SHA `7342c6512dd3c6282451be89ca679b7752955eda`。PR head一致と通常CI13件成功を取得。latest-review gate失敗、最新Codex Reviewとthread3件の解決は未完了。
+- 親実行 `session41501`：Office/auth browser 2/2、skip0、exit0。実editor操作からGoogle／ChatGPT × DOCX／PPTX、キャンセルHTML戻りリンク、実bootstrapボタンから再ログイン、同形式download、return marker消費を確認。合成provider、公式CFT、local Worker、SQLite D1、memory R2の証跡。実SSO・remote設定・native Office描画は未確認。
+- e82dの手動gotoによる旧成功報告は実UI証跡として不採用。7342は復元後hashの再ログイン保持と実ボタン経路を修正。credential選択、Google issuer正規化、失敗時の検証済み戻り先は9b6cd1eで修正済み。
+- PR #282 source573b921は通常CI13件成功、最新Codex Review majorなし、未解決thread0を親確認済み。merge・配布・production反映は未実施。
+- 次は最新headのCI／Codex Reviewとthread解決。その後staging接続案を確定する。Cloudflare運営管理ログインとSIWC申請氏名・会社名・公開URLの回答待ち。SIWC client未発行、Google資格情報は暗号化保管済み。remote secret／migration／外周未確認。文書記録を継続稼働とは扱わない。
+## 認証状態遷移とstaging接続の親確認（2026-10-04T00:18:00+09:00）
+
+- PR #284 source/head `6e3ad574c599fbacd82e5120725815d96a343d29` を親が照合。期限切れproduct cookieから明示password成功時に競合sessionを失効・cookie削除、logout JSON成功応答、session.authModeによるproduct／Access分離を修正。初担当の実行は親がinterruptし、差分保持後に回収担当へ引継いだ。
+- 親の最新source認証／Access単体は142/142・skip0。公式CFT実行 `session11521` は実editor Office/auth2件とprovider／logout／期限切れbrowser4件の合計6/6・skip0・exit0。合成provider、local Worker、SQLite D1、memory R2の検証で、実SSOやnative Office描画ではない。担当worker71/71等の証跡も回収。最新文書headのCI／Codex Reviewと新3thread解決は待ち。旧3threadは074c789最新レビュー・CI・回帰根拠返信後に解決確認済み。
+- 運営IABログインを確認し、staging Workerのlive version cc830546 100%、DB/R2とrate limiter1001/1002一致をread-only取得。runtime変数はAccess3項目とAPP_BASE_URL／APP_ENVの5項目で、Google／SIWC未接続。Accessはowner hostname（path空欄）とWorker全URLスコープ、/s/*別viewer bypass。D1の移行名SELECTは0001〜0005のみで0006/7/8未適用。秘密値取得、遠隔設定変更、migration、deployは実施していない。CLI未認証とIAB取得を区別する。
+- 次の1マイルストーンは最新品質ゲート。その後staging専用のDB移行・Google接続・製品入口と運営health保護分離を具体案として提示。SIWCは申請氏名／会社名／公開URL回答待ち、商用client未発行のため無効。AI OFF。production・課金・一般公開未実施、監視未登録。
+## OAuth privacy・ストレージ失敗の親回帰（2026-10-04T00:41:13+09:00）
+
+- source `a259a0d0bfd4471e171cde2104b3f4d0e3b3ca11` はlocal／PR #284 head一致、cleanを親確認。callback成功とJSON／HTMLエラーにno-referrer、D1例外と保存失敗をretryable503、consume CAS競合を409として維持。DEC-096と契約／traceabilityを同期。
+- 親単体145/145・skip0、公式CFT実行session46819はOffice/auth2＋provider／logout／期限切れ4の計6/6・skip0・exit0。callbackの成功復帰・エラーリンク復帰でReferer無しを確認。合成provider／local Worker／SQLite D1／memory R2であり、実SSO・remote変更・native Office描画ではない。
+- 前head211f4f3はDocs111231185336のnpm ci/fullcheck、Privacy111231185305の実browser成功ログ取得。正式botレビュー5401430990の新P2二件をa259a0dで修正。旧transition3threadは解決確認済み、新2threadは最終文書headのCI／Codex Review照合後に解決する。
+- 次の1マイルストーンは最終品質ゲート、次にstaging接続の具体案。SIWC申請氏名／会社名／公開URL回答待ち、商用client未発行。Google資格情報は暗号化保管済み・remote未接続。DB0006〜8未適用、Access全URLの旧保護はread-only確認済み。remote変更・merge・production・課金・一般公開未実施、監視未登録。
+
+## 製品認証D1正本同期（2026-10-04T01:15:52+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`、検証基準source HEAD `d5ad2e54c559786fa9c29ee983b651da17078feb`。今回の変更は`docs/04-data/d1-and-storage.md`、`docs/04-data/d1-workspace-schema.md`、`docs/09-delivery/open-questions.md`、本引き継ぎの正本同期だけで、Worker、types、migration `0008`は変更していない。
+- `auth_sessions`／`oauth_transactions`の列、CHECK、unique／lookup index、identity immutable trigger、hash・期限・失効・consume CAS、Google／SIWCのissuer+subject mapping、`product_user` repository actor入力、`authMode: "product" | "access"`、Access human／service actorとworkspace固定query境界を、Accepted ADR-0041および実sourceへ同期した。remote D1の0006／0007／0008適用済みとは扱わない。
+- OQ-033〜036はADR-0041 Accepted後の状態へ更新した。メールprovider／remote Google binding・稼働、SIWC商用client・資格、本人による明示identity linkと旧Access identity移行・復旧は未決・未確認のまま保持する。SIWCの申請回答待ちと商用client未発行も継続する。
+- 初期確認はsource HEAD、関連migration/source/types、ADR-0041、decision-log、要件、既存D1文書、OQを照合し、ソース不変を確認する。docs差分、D1 schema記載、`git diff --check`、関連文書／migration検査をこの作業単位で実行し、PR最新headのCI／Codex Reviewは親のrelease gateで再取得する。
+- 2026-10-04T01:15:52+09:00（Asia/Tokyo）に`docs:check`（143 files）、`migrations:check`（11 SQL）、`migration:safety:check`（11 SQL）、`app:auth:unit`（133/133、skip 0）、`encoding:check`（377 files）、`git diff --check`を実行し、すべてexit 0を確認した。親が同source基準で行った`wrangler.onboarding.jsonc --env staging` deploy dry-runもexit 0で、remote変更なし。今回source差分は0件である。
+- 追加P2修正（PR #284 Codex Review 5401643521、thread `PRRT_kwDOTpNknc6opXYj`）では、state／provider／verifier binding／期限の確認後にtransaction消費CASを先に確定し、nonce bindingとprovider tokenの署名・audience・issuer・nonce検証を消費後に行う順序を2つのD1正本へ明記した。後続検証に失敗してもtransactionは消費済みのため、ログインを最初からやり直す。OQ-036は`authMode`を「productまたはaccess」と記載してMarkdown表のセル境界を維持した。
+
+次の1マイルストーンは、今回の文書同期を含む最新headへCI／Codex Reviewとreview thread解決を照合し、その後にstaging接続の具体案（remote migration、Google binding、製品入口と運営health保護分離）を確定することである。remote migration、secret取得・変更、Access設定、実provider SSO、production反映は未実施である。
+
+## PR #284 Codex Review 5401676113 P2修正（2026-10-04T01:44:31+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。limiterは明示的な`success: false`だけを`429 AUTH_RATE_LIMITED`へ写像し、binding欠落・呼出し例外・不明／不正結果は`503 AUTH_RATE_LIMIT_UNAVAILABLE`としてOAuth transaction作成前に停止する。nonce不一致を含むconsume後callback errorは、再検証した固定`return_path`だけを引き継ぎ、改変された外部pathは利用しない。
+- `app:auth:unit`は136/136、`docs:check`は143 files、`worker:check`、worker typecheck、`encoding:check`は377 files、`git diff --check`をexit 0で確認した。追加回帰はlimiterの拒否／例外／malformed、nonce mismatch後のconsume済み、外部return pathのHTML不出力を含む。Office export test／workflowは変更していない。
+- この時点の差分はlocal未commitであり、commit・push・PR head／CI／Codex Reviewの再取得は未確認。実provider SSO、remote migration、secret binding、production反映は未実施である。
+
+## Office/authブラウザCI逐次実行ゲート（2026-10-04T01:50:28+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。source基準HEADは`dce841475ee49a9b02d6a99388bf9a7c1cf5d8a6`で、今回の変更は`.github/workflows/extension-privacy.yml`、本引き継ぎ、`docs/09-delivery/decision-log.md`の現行決定DEC-097日本語同期だけである。Worker、source、tests、migrationは変更していない。
+- Extension PrivacyのOffice stepで、`extension-office-export-browser.test.mjs`、`cloud-office-export-browser.test.mjs`、`extension-cloud-save-runtime-browser.test.mjs`、`office-auth-runtime-browser.test.mjs`をNodeの`--test-concurrency=1`で逐次実行する。既存の4ファイル、6分timeout、TERM／kill-after、`continue-on-error`と最終結果集約、期待値・skip条件は維持する。
+- 並列実行による公式Chrome for Testingのbrowser CPU競合を避ける根拠として、独立担当`office_large_export_ci_diagnosis`の診断報告では対象単体が21.418秒、4ファイル合成は初回65.234秒・2回目20.601秒で、いずれも全5件passだった。CI job `111243391617`はdownload待ち30秒timeoutのstatus生成中であり、これだけでは恒常hangとは判定しない。timeout延長や期待値・skip緩和は行わない。
+- 親の公式CFT実行`session18991`は、実Word／PowerPointの20画像case 1/1、skip 0、exit 0、test 21.715秒（全体22.213秒）の取得報告である。実provider SSO、remote migration／secret binding、native Office描画の完了証跡とは分離する。
+- source基準`dce841475ee49a9b02d6a99388bf9a7c1cf5d8a6`に対する親の公式CFT実行`session90974`は、認証単体148/148、browser 6/6、skip 0、exit 0、browser 70.767秒で、Google／ChatGPTから同形式Office出力、cancel後の実bootstrap retry、logout、expired 401を確認した取得報告である。これは合成provider／local Worker等の検証であり、実provider SSO・remote変更・native Officeアプリ描画とは分離する。
+- この作業単位で`check-workflows.mjs`（29 files）、`check-docs.mjs`（143 files）、`check-encoding.mjs`（377 files）、`git diff --check`を実行し、workflow／文書／encoding／差分検査はすべてexit 0を確認した。未追跡の`.artifacts/unified-editor/`は既存の検証生成物として変更・削除・commit対象にしない。
+- PRゲートの`npm ci`は`node_modules/.package-lock.json`のunlinkでWindows `EPERM`となり未完了で、ロック解除のための停止・削除・強制操作は行っていない。既存依存で実行した`npm run check`はdocs／brand／worker検査を通過した後、worktree sandboxのesbuildが`../../../..`を読めず`editor-tools:check`で停止したため、全check成功とは扱わない。認証unitは`app:auth:unit` 136/136、skip 0、exit 0を確認した。
+
+次の1マイルストーンは、この修正を含むcommitをpushし、remote／PR head SHA一致、同SHAのCI、Codex Review、未解決review threadを親がrelease gateで再取得することである。CI成功だけで完成扱いにせず、実provider SSO、remote変更、production反映は未実施のまま維持する。
+
+## Issue #283 / PR #284 auth P2修正チェックポイント（2026-10-04T02:29:10+09:00）
+
+- 対象branchは `codex/manual-auth-office-integration-283`、開始時source HEADは `494af4cbaa42d5d9c81cc1f559734a577f43749b`。product OAuthのlegacy cookie境界とtransaction cookie並行分離を、Worker source、unit/browser回帰、API/D1/ADR/traceability/decision-logと同期し、commit `8f9e15bde02a65b9f197e82a56a6391184b18236` としてpush済みである。
+- Google/ChatGPTの成功callbackは既存の `clearSessionCookies()` で `__Host-mm_access` / `__Host-mm_refresh` を消去し、失敗・cancel・不正stateではlegacy cookieを消去しない。transaction cookieはproviderとstateのSHA-256に結び付け、callback/errorは該当transactionだけを消去する。D1 schema、migration、remote Supabase logout、provider secretは変更しない。
+- unit実測は app-auth/product-auth 138/138、skip 0、exit 0で、未知・不正stateとlegacy cookie付き失敗時の保持を含む。CFT Chromium browser実測はローカルsession `86926`、5/5、skip 0、exit 0（約22.1秒）。browserではGoogle/ChatGPTの同一provider二tab、成功順 `[0,1]`／`[1,0]`、cancel順 `[0,1]`／`[1,0]`、legacy cookie付き成功、product logout後reloadを確認した。実ユーザーのcredentialやsecretは使用していない。
+- 次の1マイルストーンは、実行時に取得した最新PR head・local・origin一致SHAに対するCI、Codex Review、review thread解決を親PMが確認することである。staging/production反映は未実施のまま維持する。
+
+## 製品認証とOffice出力の親検証チェックポイント（2026-10-04T03:28:14+09:00）
+
+- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`。source修正は `1802c6fa2cf207b963c222246b509bac73091956` と `017a026ea110b0402df1a6cccd0df340c4eeaed0` でremote保存済み、親がlocal／PR head一致とcleanを取得した。180は自然期限切れでcookieが消えたmanual／share APIを401 SESSION_REQUIREDへ分類し、017はDB bindingがなくても製品routeをdispatchしてstorage障害へ到達させる。cookieがあるDB欠落は期限切れと断定せず503 AUTH_STORAGE_UNAVAILABLEを返す。DEC-099／DEC-100とAPI・traceability・ACを同期した。
+- 親が017に対して関連unit（cloud-manual-c／share-link-backend／app-auth／product-auth／m3-http-d1）203/203、skip0、exit0を取得。Google／ChatGPT configured、Access設定なし、cookie有無、DB有無を実Worker.fetchで検証し、legacy password選択、Access有効／不正／service拒否、tenant・share negative/mutationを維持した。docs143／encoding377／git diff --checkも成功した。
+- 180の親CFT実行session62025は7件中6件成功、1件は実editorのChatGPTログインボタン表示待ち15秒timeout。単独再実行session85667は1/1、skip0、exit0。同headのLinux Privacy job111260503524ではOffice5/5・provider5/5成功を親がログ確認した。初回失敗を全成功に書き換えず、ローカルタイミングの原因は未特定として残す。017の最新CI／レビューは別取得し、180の結果を最新headへ流用しない。
+- 017の `wrangler.onboarding.jsonc --env staging` dry-runはexit0、830.52KiB。対象staging専用DB／R2／rate bindingsとentrypointを確認したローカルビルドであり、実deploy・remote migration・secret bindingの証跡ではない。実Google／ChatGPT SSO、remote D1／R2、native Word／PowerPoint描画は未確認。
+- 運営IABログインとremote read-only照合は完了。Google資格情報は暗号化保管済み・remote未接続、SIWC interest formは2026-10-04T03:39:00+09:00（Asia/Tokyo）に受付済み表示をread-only確認した。商用client発行、実SIWC SSO、secret binding、remote migration、production反映は未確認・未実施で、有効化しない。D1の0006／0007／0008は未適用、製品hostname／Worker全URLのAccess保護も未変更。production、課金、AI API、mergeは実施していない。DB rollbackや旧version互換を未検証のまま保証しない。
+- 次の1マイルストーンは、実行時に取得した最新local／origin／PR head一致SHAについて通常CI、正式Codex Review、既知指摘への根拠返信とfresh未解決thread0、latest-review品質ゲートを照合すること。その後、候補のstaging接続を具体化し、外部設定の実行承認と商用client発行・利用資格の確認条件を整理する。自動監視・無人継続は登録していない。
+- SIWC申請受付状態の訂正（2026-10-04T03:39:00+09:00、Asia/Tokyo）: 親がログイン済みIABのOpenAI interest formをread-onlyで確認し、画面に `We’ve received your submission. We expect to expand access in early Q4...` と表示されることを確認した。SIWC申請が受付済みであることのUI表示だけを確認し、送信主体・送信内容・入力PIIは取得・記録していない。この確認は商用client発行、実SIWC SSO、secret binding、remote migration、production反映を意味しないため、これらは未確認・未実施のまま。フォーム操作・申請送信・重複申請は行っていない。以前の「氏名／会社名／公開URLの回答待ち」「申請必須情報を確認」はこの時点より前の状態として失効し、現在の申請受付状態へ訂正する。
+
+## Issue #283 root login / D1 member route修正（2026-10-04T09:19:15+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`、source修正commit `4bb65ab12c9229f342a643ef990e239fcbd8ca30`。rootの製品ログイン後に「メールアドレス未設定」と表示され、手順書タブがメンバー権限確認で停止した原因を、sessionの`members.status`とmember API dispatchが移行状態のまま旧Supabase handlerへ進む実装、rootが旧manual入口を描画するUI不整合として確定した。logout後にpassword formへ戻る原因は、provider設定を再読込する前の共通login初期化がlegacy formを描画していたことだった。
+- WorkerはD1 `GET/POST /api/workspaces/{workspaceId}/members`、`PATCH /api/workspaces/{workspaceId}/members/{userId}`へ固定repositoryを接続し、sessionの`members.status`を`ready`へ同期した。UIはproduct／Access sessionのメール欠落時に「アカウント」と表示し、手順書をcanonical `/manuals`へ案内し、product logout後はpassword formへ戻さない。guest導線、manual新規作成API、remote staging設定、秘密値、PII、実ユーザー操作の記録は変更していない。
+- 合成D1／SQLiteで、workspace ownerの一覧、join codeによるviewer追加、viewerのmutation拒否、ownerのrole更新、不明workspaceの404、legacy auth routeのSupabase fallback停止を確認した。`tests/m3-http-d1.test.mjs` 13/13、`tests/app-auth.test.mjs` 115/115、`tests/worker-runtime.test.mjs` 71/71、worker typecheck exit 0。`npm exec`の依存解決はWindows npm cacheのEPERMで実行できず、直接Node実行で既存依存を使った結果を記録する。`npm ci`、`npm run check`、CI、Codex Reviewはこの修正headで親が再取得する。
+- 親から共有されたstaging／IABの実Google login、D1 migration 0006–0008、Google secrets登録、Access health／preview-onlyのread-only確認、`/manuals`空一覧表示はこのsource変更のlocal検証とは分離する。実保存、Office出力、native Office描画、実ユーザーの手順操作は未確認であり、staging／productionの追加操作は行っていない。
+
+## Cloud Office CSP画像decode修正チェックポイント（2026-10-04T10:13:47+09:00）
+
+- 対象はIssue #283 / PR #284、branch `codex/manual-auth-office-integration-283`。Cloud manualの`renderOfficeImage`で、same-origin asset BlobをFileReaderのdata URLへ変換してから`Image.decode`する最小修正を行った。Workerの`img-src 'self' data:`は維持し、CSPを緩和していない。Office download helper、auth、asset保存、D1、staging／production設定は変更していない。
+- `tests/cloud-office-export-browser.test.mjs`は実Worker CSPを全レスポンスへ適用し、合成640x360 PNGを使ってWord／PowerPoint ZIP内の画像寸法、編集済みmask pixel、画像entry数（本文だけの未保存stepに偽画像がないこと）、画像404拒否、画像予算拒否後の再試行、GET限定、secret-like URL非露出を確認する。編集途中のstepは本文を入力してから出力し、既存のsnapshot変更検知・mask焼込み境界を維持する。
+- 対象テストはNode direct executableで1/1、skip 0、exit 0を確認済み。`npm ci`、全体`npm run check`、新headのCI／Codex Reviewはこの時点で未確認。native Officeアプリ描画、実provider SSO、remote D1/R2、staging／production反映は未実施。
+- 親が観測したIABのWord本文「書き出しました」表示とdownload event／Downloads未確認は、CFTのdownload成功証跡と区別する。今回の修正ではdownload helperの即時revokeタイミングを変更しない。
+- 次の1マイルストーンは、この修正を含む最新commitのremote／PR head SHA照合、関連CIとCodex Reviewの再取得、root認証UI担当（`app-assets.ts`／`app-auth.test.mjs`／`product-auth-browser.test.mjs`）の実SHA・検証結果の統合である。staging／productionへの反映、merge、IAB追加操作は親PMが別途判断する。
+
+## D1 direct changes probe（2026-10-04）
+
+- 親がstaging D1へread-only相当の実probeを行い、既存のarchived fixtureでtriggerを発火する`UPDATE manual_revisions ...`と同一batch内の`SELECT changes() AS direct_changes`を実行した。取得結果はDMLが`meta.changes=2`／`results=[]`、直後のSELECTが`meta.changes=0`／`results=[{direct_changes:1}]`で、`manual_revision_sync_draft`のtrigger副作用がD1変更件数へ加算される仕様を確認した。
+- このprobeはD1の変更件数仕様確認だけであり、今回のrepository最終修正APIの保存成功、画像あり保存、Office出力、remote migration／deployの成功証跡とは扱わない。今回の修正はD1 batch内の各DML直後に同じ`SELECT changes()`を置き、直接件数を厳密照合する。
+- 修正前の旧ローカル回帰43/43はSQLite `run().changes`を使っていたためこのremote専用のtrigger加算誤409を検出できなかった。今回のmockはDMLの累積変更件数を`meta.changes`へ反映し、直後SELECT結果を必須照合することで同じ欠陥を回帰対象へ含めた。
+
+## Root ProductログインUI可視性修正（2026-10-04T10:22:45+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。rootのProductログイン画面で、`.form { display: grid; }` がUAの`hidden`表示を上書きしprovider-onlyでもパスワードフォームが見える問題、単一providerでも不要な「または」が残る問題、隠したフォーム内のエラーが見えない問題を確認し、source commit `4cc027ddde4ba34ffacd134c19b317f2f95d379b`へ最小修正した。
+- provider設定取得中はパスワードフォームを表示せず、provider-only時は利用可能なproviderだけを案内する。providerが1つならprovider名を単独表示し、2つの場合だけ「または」を使う。設定が空のときは読み込み中のままにせず利用不可の案内を出し、取得失敗時はProduct session未確認の場合に限り既存入力へ戻す。エラー表示は隠しフォームの外に置いた。UX、requirements traceability、decision logにも同じ状態遷移と境界を追記した。
+- 実測は`tests/app-auth.test.mjs` 115/115、`tests/product-auth-browser.test.mjs` 5/5、`tests/worker-runtime.test.mjs` 71/71、Worker harness、`git diff --check`が成功。親が同一headの関連認証・Office・D1回帰207/207、skip 0、exit 0（session 15526）を取得している。実provider SSO、remote D1/R2、native Officeアプリ、staging／production反映はこの作業では確認・実施していない。
+- `npm ci`はWindowsの`node_modules\\.package-lock.json` unlinkでEPERM、`npm run check`はworktree内でnpm shimを解決できず未完了。これらを成功扱いにせず、source回帰の既存Node直接実行結果と区別する。外部設定、deploy、mergeは行っていない。
+- このhandoff追記を含むdocs-only commitを作成・pushした後、親PMが最終headに対するCI、Codex Review、review thread、staging反映判断を再取得する。
+## Issue #283／PR #284 OAuth start origin・browser recovery P2修正（2026-10-04）
+
+- 対象はIssue #283／Draft PR #284、branch `codex/manual-auth-office-integration-283`、source SHA `6313790a31e6bda41ef270ed9dc47954767a5ecb`（remote一致）。`beginProductAuth`はprovider、request URLと設定済み`APP_BASE_URL`の完全一致、許可return pathをrate limiterとD1 cleanup／INSERTより先に検証し、preview／workers.dev／その他aliasと不正returnを副作用なしで拒否する。runtime設定が未取得でも、既存allowlistの正規request originだけをブラウザ復帰先に使う。
+- `/api/auth/{provider}/start`のHTML失敗は既存login CSS・security headersを使う日本語復帰画面へ分類し、失敗理由と「元の画面へ戻る」を示す。JSON clientのstatusとbody分類は維持し、aliasや未検証URL、secret、下位例外を返さない。追加ブラウザ回帰では一度429を表示した後、同じ保存handoffの`activeHandoffId`／`handoffId`と`outputAction`／`requestedAction`（いずれも`save`）を保持したままprovider再選択を成功させた。`tests/product-auth-browser.test.mjs`の`runProviderBrowser`は`save`固定のsynthetic handoffを使うため、Office開始失敗時の形式（`officeFormat`）や下書き保持は今回の追加テストでは未確認であり、通常のOffice回帰の証跡をこの失敗ケースへ転用しない。
+- 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs` 32/32、`node --experimental-transform-types --test tests/product-auth-browser.test.mjs` 8/8、invalid return／runtime missing／alias、API JSON、rate／D1失敗、cancel／retryを確認。`node --experimental-strip-types --check`による`index.ts`／`product-auth.ts`構文確認と`git diff --check`も成功。Windows `npm ci`の既知EPERM、Linux CI、正式Review、deploy／merge／review thread解決は未確認で親へ引き継ぐ。
+
+## Issue #283／PR #284 provider route・retry最終追補（2026-10-04）
+
+- 作業担当はP1のprovider-only＋legacy cookie経路を、既存server-config窓口のSupabase設定有無で分岐するよう修正した。Supabase未設定時は古い`__Host-mm_access`／`__Host-mm_refresh`だけでlegacy routeへ進まず、Product routeのsession必須応答を維持する。Supabase設定済みのpassword backend、Product cookie優先、mixed cookie fail-closed、Access／missing DB dispatchは変更していない。
+- P2のprovider取得非2xx／空応答／通信失敗では、Product session確認済みの画面にエラーと再試行を表示する。成功時だけprovider導線へ戻り、入力値・return pathを保持する。render世代とprovider request世代を照合し、古い非同期応答による画面上書きを抑止した。Product session未確認時の既存password fallbackは維持した。
+- `APP_ASSET_VERSION`をsourceと`tests/worker-runtime.test.mjs`の契約へ同期した。関連差分は`apps/worker/src/index.ts`、`apps/worker/src/app-assets.ts`、`tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`、`tests/product-auth-browser.test.mjs`、本追補を含む契約・UX・trace・decision文書である。
+- 最終commit／remote SHAと、source回帰、browser retry回帰、既存関連回帰、`npm ci`／`npm run check`のWindows制約は、この追補後に実取得して親PMへ報告する。CI／Codex Review／thread解決、deploy／merge、staging／production設定変更は親PMの回収対象であり未実施。
+
+### 認証資格情報の優先順位とOAuthログイン一時データの整理（2026-10-04）
+
+- 対象は Issue #283 / PR #284、branch `codex/manual-auth-office-integration-283`。P1 は request credential を Access 設定 fallback より先に評価し、product cookie → Access assertion → configured legacy Supabase cookie の順で route を選択する修正。Access assertion の issuer・audience・JWKS、human actor、active identity、workspace・role 認可と、product cookie の fail-closed 境界は維持する。
+- P2 は既存10分の `oauth_transactions.expires_at` を正とし、provider／origin／return path／rate limit の拒否後だけ、解釈可能な期限切れ行を start 1回につき最大100件 cleanup する。DELETE と INSERT は D1 batch で atomic に扱い、storage failure は `503 AUTH_STORAGE_UNAVAILABLE`、未期限切れ consumed 行・auth_sessions・identity・workspaceは保持する。migration、cron、新 retention は追加しない。
+- local source/tests: `apps/worker/src/index.ts`、`apps/worker/src/product-auth.ts`、`tests/product-auth.test.mjs`。product-auth unit 30/30、Worker typecheck exit 0。追加回帰でrate-limit拒否時の期限切れ行保持、101件の継続start、malformed expiry保持、cleanup後INSERT失敗時のrollbackをD1 adapterで確認した。既存のCI担当所有 `tests/product-auth-browser.test.mjs` は変更・stageしていない。
+- UI担当の logout render race 修正は `b6ac28a38822e7247f7113b0200b0c6d5444bac6`（app-assets.ts / app-auth.test.mjs / product-auth-browser.test.mjs、app117/browser6/runtime71）を採用根拠として親が統合する。staging／production設定、deploy、mergeは未実施。
+- 次のゲートはこの修正を含むcommitのremote保存後に、親が最新head SHAでCI／Codex Review／review thread解決を再取得すること。
+
+## Issue #283／PR #284 mixed credential entry dispatch修正（2026-10-04）
+- Access migration guard の login／refresh 503 は維持し、`/api/auth/providers` の `password:false` を Access 設定時に同期した。legacy Supabase session／logout は product cookie → Access assertion → configured legacy cookie の順で選択する。
+- `/s/` viewer、token／grant API、assets は configured legacy cookie の有無に関係なく `handleShareLinkRoute` へ到達し、share 管理 API と manual 業務 route は保護 dispatch を維持する。Supabase 未設定の legacy cookie fail-closed、product invalid cookie、tenant／workspace 境界は既存回帰を維持した。
+- 検証: `node --experimental-transform-types --test tests/product-auth.test.mjs tests/share-link-backend.test.mjs` 42/42、skip 0、exit 0。Windows `npm ci`／full `npm run check`、CI、正式 Review、remote SHA、deploy／merge はcommit／push前のこの担当では未確認。
+- 次のゲート: この担当が差分をcommit／pushしてremote SHAを照合した後、親PMが最新SHAでCI・正式Review・review threadを再取得する。
+
+## Issue #283／PR #284 Codex Review 5404149929 新規指摘修正（2026-10-04T12:58:03+09:00）
+
+- 対象はIssue #283／PR #284、branch `codex/manual-auth-office-integration-283`。この追補では、P1のAccess assertion成功後に競合する`__Host-mm_access`／`__Host-mm_refresh`を削除し、invalid assertion・検証障害・結果不明では削除しない境界を`apps/worker/src/index.ts`、`tests/product-auth.test.mjs`、API／Access契約へ同期した。product cookie優先、Supabase logoutの署名検証、Access設定fallbackの既存境界は維持する。
+- P2では初回表示・再読み込みを含む`productAuthSessionSeen=false`のprovider設定失敗をpassword formへfallbackさせず、日本語エラーと再試行を表示する。`password: true`を確認した再試行成功後だけpassword formを表示し、入力値・return path・focusを保持する。render世代／provider request世代の遅延応答抑止を維持し、`APP_ASSET_VERSION`を全assetの実hashへ同期した。前追補の「Product session未確認時のpassword fallback維持」は本決定で失効する。
+- 検証済み: `tests/app-auth.test.mjs` 118/118、`tests/product-auth.test.mjs` 33/33、`tests/worker-runtime.test.mjs` 71/71、`tests/product-auth-browser.test.mjs` 9/9、すべてskip 0・exit 0。`docs:check` 143 files、`encoding:check` 377 files、`git diff --check`、Worker harness／typecheckを直接Nodeで実行してexit 0を確認した。初回provider失敗→再試行成功、legacy cookie付きAccess logout成功、invalid Access assertionのcookie保持を実Worker相当／CFT browser回帰で確認した。実provider SSO、remote変更、staging／production反映、CI／正式Reviewは未確認。
+- `npm ci`はWindowsの既知`node_modules/.package-lock.json` unlink `EPERM`のため再試行せず、`npm run check`の全成功とは扱わない。今回の差分をcommit／push後、local／origin／PR head SHA、同SHAのCI／Codex Review／review threadを親PMが再取得する。deploy／mergeは行わない。

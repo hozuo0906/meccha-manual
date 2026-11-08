@@ -1,4 +1,11 @@
-export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163536;background:#edf8f8}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 0;background:linear-gradient(145deg,#eaf8fb,#f8fbfc 48%,#e9f8f0)}main{width:min(700px,calc(100% - 32px));padding:clamp(24px,5vw,40px);background:rgba(255,255,255,.96);border:1px solid #fff;border-radius:24px;box-shadow:0 18px 44px #1635361f}.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px;color:#075e5b;font-weight:800}.brand img{width:40px;height:40px;object-fit:contain;border-radius:10px}.eyebrow{margin:0 0 8px;color:#087f7a;font-size:.75rem;font-weight:800;letter-spacing:.08em}h1{margin:0 0 12px;color:#163536;font-size:clamp(1.6rem,4vw,2.15rem);line-height:1.2;letter-spacing:-.02em}p{line-height:1.65}.intro{margin:0 0 24px;color:#476263}.prep{display:flex;align-items:center;gap:16px;margin:0 0 24px;padding:16px;border:1px solid #bdebf1;border-radius:16px;background:#f1fbfc}.prep img{width:72px;height:72px;flex:0 0 72px;object-fit:contain}.prep p{margin:0;color:#075e5b;font-weight:800;line-height:1.5}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 24px;padding:0;list-style:none}.step{display:flex;align-items:center;gap:8px;min-height:48px;padding:10px 12px;border-radius:12px;background:#f5f8f8;color:#476263;font-size:.88rem;font-weight:700}.step-number{display:grid;place-items:center;width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:#dceeed;color:#075e5b;font-size:.8rem}.boundary{margin:0 0 20px;color:#476263;font-size:.9rem}.notice{margin:0 0 20px;padding:14px 16px;border-radius:12px;background:#e9f8f0;border:1px solid #a7e3c2;color:#205b48;line-height:1.55}.success{background:#e9f8f0;border-color:#a7e3c2;color:#146b42}.error{background:#fff1ee;border-color:#f4b4a8;color:#a53c2b}.actions{display:flex;flex-direction:column;align-items:flex-start;gap:10px}.action-note{margin:0;color:#607273;font-size:.82rem}.status-label{display:block;margin-bottom:6px;color:#476263;font-size:.76rem;font-weight:800}button{width:min(100%,280px);min-height:48px;padding:12px 18px;border:0;border-radius:12px;background:#087f7a;color:#fff;font-weight:800;cursor:pointer;transition:transform 120ms ease-out,background-color 120ms ease-out}button:hover{background:#075e5b}button:active{transform:scale(.98)}button:disabled{opacity:.55;cursor:not-allowed}:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px #1d4ed8}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}@media(max-width:560px){body{padding:12px 0}main{width:min(100% - 20px,700px);padding:24px 20px;border-radius:20px}.brand{margin-bottom:24px}.prep{align-items:flex-start}.flow{grid-template-columns:1fr;gap:8px}.step{min-height:44px}.actions button{width:100%}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:1ms!important;animation-iteration-count:1!important}button:active{transform:none}}`;
+export const ONBOARDING_CSS = `:root{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163536;background:#edf8f8}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 0;background:linear-gradient(145deg,#eaf8fb,#f8fbfc 48%,#e9f8f0)}main{width:min(700px,calc(100% - 32px));padding:clamp(24px,5vw,40px);background:rgba(255,255,255,.96);border:1px solid #fff;border-radius:24px;box-shadow:0 18px 44px #1635361f}.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px;color:#075e5b;font-weight:800}.brand img{width:40px;height:40px;object-fit:contain;border-radius:10px}.eyebrow{margin:0 0 8px;color:#087f7a;font-size:.75rem;font-weight:800;letter-spacing:.08em}h1{margin:0 0 12px;color:#163536;font-size:clamp(1.6rem,4vw,2.15rem);line-height:1.2;letter-spacing:-.02em}p{line-height:1.65}.intro{margin:0 0 24px;color:#476263}.prep{display:flex;align-items:center;gap:16px;margin:0 0 24px;padding:16px;border:1px solid #bdebf1;border-radius:16px;background:#f1fbfc}.prep img{width:72px;height:72px;flex:0 0 72px;object-fit:contain}.prep p{margin:0;color:#075e5b;font-weight:800;line-height:1.5}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 24px;padding:0;list-style:none}.step{display:flex;align-items:center;gap:8px;min-height:48px;padding:10px 12px;border-radius:12px;background:#f5f8f8;color:#476263;font-size:.88rem;font-weight:700}.step-number{display:grid;place-items:center;width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:#dceeed;color:#075e5b;font-size:.8rem}.boundary{margin:0 0 20px;color:#476263;font-size:.9rem}.notice{margin:0 0 20px;padding:14px 16px;border-radius:12px;background:#e9f8f0;border:1px solid #a7e3c2;color:#205b48;line-height:1.55}.success{background:#e9f8f0;border-color:#a7e3c2;color:#146b42}.error{background:#fff1ee;border-color:#f4b4a8;color:#a53c2b}.actions{display:flex;flex-direction:column;align-items:flex-start;gap:10px}.action-note{margin:0;color:#607273;font-size:.82rem}.status-label{display:block;margin-bottom:6px;color:#476263;font-size:.76rem;font-weight:800}button{width:min(100%,280px);min-height:48px;padding:12px 18px;border:0;border-radius:12px;background:#087f7a;color:#fff;font-weight:800;cursor:pointer;transition:transform 120ms ease-out,background-color 120ms ease-out}button:hover{background:#075e5b}button:active{transform:scale(.98)}button:disabled{opacity:.55;cursor:not-allowed}button.terminal-state,button.terminal-state:hover{opacity:1;background:#f2f6f7;color:#476263;border:1px solid #789099;font-weight:600;cursor:default}button.terminal-state:active{transform:none}:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px #1d4ed8}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}@media(max-width:560px){body{padding:12px 0}main{width:min(100% - 20px,700px);padding:24px 20px;border-radius:20px}.brand{margin-bottom:24px}.prep{align-items:flex-start}.flow{grid-template-columns:1fr;gap:8px}.step{min-height:44px}.actions button{width:100%}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:1ms!important;animation-iteration-count:1!important}button:active{transform:none}}
+/* Quiet setup state, matching the editor rather than a second landing page. */
+body{background:#f2f6f7;color:#183039}main{border:1px solid #d7e2e5;border-top:4px solid #087f7a;border-radius:12px;box-shadow:0 8px 32px #18303909}.brand{margin-bottom:32px;font-size:14px}.brand img{width:36px;height:36px}.eyebrow{font-size:13px;letter-spacing:.04em}h1{font-size:clamp(26px,4vw,34px);line-height:1.4}.intro{font-size:16px;line-height:1.75}.prep{background:transparent;padding:0;border:0;gap:14px}.prep img{width:48px;height:48px;flex-basis:48px}.prep p{font-size:14px;font-weight:600}.flow{gap:8px}.step{background:#f3f7f7;border-radius:8px;font-size:14px;line-height:1.5;padding:12px}.step-number{border-radius:7px;font-variant-numeric:tabular-nums}.boundary{font-size:14px;line-height:1.75}.notice{border-radius:8px;font-size:15px;line-height:1.75}.status-label{font-size:13px}.action-note{font-size:13px;line-height:1.65}button{font:600 16px/1.5 system-ui;border-radius:8px}.actions{gap:12px}.actions>div{width:100%}.actions .notice{margin-bottom:0}@media(max-width:560px){main{border-radius:10px;padding:24px 20px}.brand{margin-bottom:24px}.flow{grid-template-columns:1fr}.step{min-height:44px}.prep{margin-bottom:20px}}
+
+.recovery-guide{padding:20px 0 4px;border-top:1px solid #d7e2e5;line-height:1.75}.recovery-guide h2{font-size:18px;margin:0 0 12px}.recovery-guide ol{margin:0;padding-left:24px;display:grid;gap:12px;font-size:14px;color:#476263}
+
+.notice.warning{background:#fff8e8;border-color:#ddc48c;color:#6b4f00}.onboarding-retry{background:#fff;color:#183039;border:1px solid #789099}.onboarding-retry:hover{background:#edf4f4}
+`;
 
 export const ONBOARDING_JS = `(() => {
   const root = document.querySelector("#onboarding");
@@ -7,6 +14,24 @@ export const ONBOARDING_JS = `(() => {
   const operationKey = "meccha-manual:onboarding-operation";
   const STORAGE_VERSION = 2;
   const configured = root?.dataset.bootstrapEnabled === "true";
+  const LOGIN_RETURN_KEY = "meccha-manual:product-login-return";
+  let initialHash = location.hash;
+  if (!location.hash) {
+    try {
+      const savedLogin = JSON.parse(sessionStorage.getItem(LOGIN_RETURN_KEY) || "null");
+      if (savedLogin && typeof savedLogin.hash === "string" && savedLogin.hash.startsWith("#") && savedLogin.hash.length <= 4096 && Number.isFinite(savedLogin.createdAt) && Date.now() - savedLogin.createdAt < 15 * 60 * 1000) {
+        history.replaceState(null, "", location.pathname + location.search + savedLogin.hash);
+        initialHash = location.hash;
+        sessionStorage.removeItem(LOGIN_RETURN_KEY);
+      }
+    } catch {}
+  }
+  function redirectToProductLogin() {
+    try { sessionStorage.setItem(LOGIN_RETURN_KEY, JSON.stringify({ hash: initialHash || location.hash, createdAt: Date.now() })); } catch {}
+    const login = new URL("/", location.origin);
+    login.searchParams.set("return", "/onboarding/continue");
+    location.assign(login.toString());
+  }
   const fragmentParams = new URLSearchParams(location.hash.slice(1));
   const fragmentValues = fragmentParams.getAll("handoff");
   const launchValues = fragmentParams.getAll("launchId");
@@ -15,14 +40,25 @@ export const ONBOARDING_JS = `(() => {
   const claimIntentValues = fragmentParams.getAll("claimIntentId");
   const fingerprintValues = fragmentParams.getAll("draftFingerprint");
   const actionValues = fragmentParams.getAll("action");
+  const officeFormatValues = fragmentParams.getAll("officeFormat");
+  const requestedActionValues = fragmentParams.getAll("requestedAction");
+  const requestedOfficeFormatValues = fragmentParams.getAll("requestedOfficeFormat");
   const hasFragment = location.hash.length > 0;
   const fragmentHandoff = !hasFragment ? undefined : fragmentValues.length === 1 ? fragmentValues[0] : null;
   const fragmentLaunchId = !hasFragment ? undefined : launchValues.length === 1 ? launchValues[0] : null;
   const fragmentExtensionId = !hasFragment ? undefined : extensionValues.length === 1 ? extensionValues[0] : null;
   const fragmentAction = !hasFragment ? undefined : actionValues.length === 1 ? actionValues[0] : actionValues.length === 0 ? "save" : null;
+  const fragmentOfficeFormat = !hasFragment ? undefined : officeFormatValues.length === 1 ? officeFormatValues[0] : officeFormatValues.length === 0 ? undefined : null;
+  const fragmentRequestedAction = requestedActionValues.length === 0 ? fragmentAction : requestedActionValues.length === 1 ? requestedActionValues[0] : null;
+  const fragmentRequestedOfficeFormat = requestedOfficeFormatValues.length === 0 ? fragmentOfficeFormat : requestedOfficeFormatValues.length === 1 ? requestedOfficeFormatValues[0] : null;
   history.replaceState(null, "", location.pathname + location.search);
   let hashNavigationPending = false;
   function message(text, kind = "") { status.textContent = text; status.className = ("notice " + kind).trim(); }
+  if (fragmentRequestedAction === "office" && validOfficeFormat(fragmentRequestedOfficeFormat)) {
+    document.querySelector("h1")?.replaceChildren((fragmentRequestedOfficeFormat === "docx" ? "Word" : "PowerPoint") + "Office出力の準備");
+    document.querySelector(".intro")?.replaceChildren("ログインを確認したあと、ワークスペースを準備してから編集画面へ戻ります。");
+    document.querySelector(".eyebrow")?.replaceChildren("Office出力");
+  }
   function randomId() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
   function validHandoff(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   function validLaunchId(value) { return validHandoff(value); }
@@ -32,8 +68,11 @@ export const ONBOARDING_JS = `(() => {
   function validOperationId(value) { return /^[A-Za-z0-9_-]{43}$/.test(value || ""); }
   function validClaimIntentId(value) { return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value || ""); }
   function validDraftFingerprint(value) { return /^[a-f0-9]{64}$/.test(value || ""); }
-  function validOutputAction(value) { return value === "save" || value === "share"; }
+  function validOfficeFormat(value) { return value === "docx" || value === "pptx"; }
+  function validOutputAction(value) { return value === "save" || value === "share" || value === "office"; }
+  function validOutputIntent(action, officeFormat) { return validOutputAction(action) && (action === "office" ? validOfficeFormat(officeFormat) : officeFormat === undefined); }
   function hasRecoveryIdentity(value) { return (value?.claimStatus === "finalize-pending" || value?.claimStatus === "completion-pending" || value?.claimStatus === "completed") && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
+  function hasTerminalExpiry(value) { return value?.claimStatus === "expired" && validOperationId(value.operationId) && validClaimIntentId(value.claimIntentId) && validDraftFingerprint(value.draftFingerprint); }
   function recoveryFresh(value, now = Date.now()) { const expiresAt = Date.parse(value?.recoveryExpiresAt || ""); return Number.isFinite(expiresAt) && expiresAt > now; }
   function operationFresh(value, now = Date.now()) { return value?.recoveryExpiresAt !== undefined ? recoveryFresh(value, now) : isFresh(value, now); }
   function validCreatedAt(value) { return Number.isFinite(Date.parse(value || "")); }
@@ -66,7 +105,9 @@ export const ONBOARDING_JS = `(() => {
     if (value.activeHandoffId !== null && !mirror) return { ok: false, state: null, needsWrite: false };
     let needsWrite = value.entries.some((entry) => entry.outputAction === undefined);
     for (const entry of state.entries) {
-      if (!validOutputAction(entry.outputAction)) return { ok: false, state: null, needsWrite: false };
+      if (entry.requestedAction !== undefined && !validOutputAction(entry.requestedAction)) return { ok: false, state: null, needsWrite: false };
+      if (!validOutputIntent(entry.outputAction, entry.officeFormat)) return { ok: false, state: null, needsWrite: false };
+      if (entry.requestedAction !== undefined && !validOutputIntent(entry.requestedAction, entry.requestedOfficeFormat)) return { ok: false, state: null, needsWrite: false };
       if (entry.state === "active" && !operationFresh(entry, now)) { entry.state = hasRecoveryIdentity(entry) ? "recovery" : "expired"; needsWrite = true; }
     }
     return { ok: true, state, needsWrite };
@@ -92,7 +133,7 @@ export const ONBOARDING_JS = `(() => {
       return capturedContext;
     }
     capturedContextInitialized = true;
-    if (!hasFragment || !validHandoff(fragmentHandoff) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputAction(fragmentAction))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
+    if (!hasFragment || !validHandoff(fragmentHandoff) || !validOutputIntent(fragmentRequestedAction, fragmentRequestedOfficeFormat) || (launchValues.length > 0 && (launchValues.length !== 1 || !validLaunchId(fragmentLaunchId))) || (extensionValues.length > 0 && !validExtensionId(fragmentExtensionId)) || (actionValues.length > 1 || (actionValues.length === 1 && !validOutputIntent(fragmentAction, fragmentOfficeFormat))) || (officeFormatValues.length > 1 || (officeFormatValues.length === 1 && !validOfficeFormat(fragmentOfficeFormat))) || (requestedOfficeFormatValues.length > 1 || (requestedOfficeFormatValues.length === 1 && !validOfficeFormat(fragmentRequestedOfficeFormat))) || (operationValues.length > 0 && (operationValues.length !== 1 || !validOperationId(operationValues[0]))) || (claimIntentValues.length > 0 && (claimIntentValues.length !== 1 || !validClaimIntentId(claimIntentValues[0]))) || (fingerprintValues.length > 0 && (fingerprintValues.length !== 1 || !validDraftFingerprint(fingerprintValues[0])))) return null;
     const saved = readSaved();
     if (!saved.ok) return null;
     let state = saved.state;
@@ -101,7 +142,7 @@ export const ONBOARDING_JS = `(() => {
       try {
         const now = Date.now();
         const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+        const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, ...(fragmentAction === "office" ? { officeFormat: fragmentOfficeFormat } : {}), requestedAction: fragmentRequestedAction, ...(fragmentRequestedAction === "office" ? { requestedOfficeFormat: fragmentRequestedOfficeFormat } : {}), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
         state = { version: STORAGE_VERSION, activeHandoffId: fragmentHandoff, entries: [entry] };
         if (!persistState(state)) return null;
         capturedContext = entry;
@@ -110,7 +151,13 @@ export const ONBOARDING_JS = `(() => {
     }
     const existing = state.entries.find((entry) => entry.handoffId === fragmentHandoff);
     if (existing) {
-      if ((existing.outputAction || "save") !== fragmentAction) return null;
+      if ((existing.outputAction || "save") !== fragmentAction || (existing.outputAction === "office" && (existing.officeFormat !== fragmentOfficeFormat || fragmentRequestedAction !== "office" || fragmentRequestedOfficeFormat !== fragmentOfficeFormat))) return null;
+      if (existing.requestedAction !== fragmentRequestedAction || existing.requestedOfficeFormat !== fragmentRequestedOfficeFormat) {
+        existing.requestedAction = fragmentRequestedAction;
+        if (fragmentRequestedAction === "office") existing.requestedOfficeFormat = fragmentRequestedOfficeFormat;
+        if (!persistState(state)) return null;
+      }
+      if (hasTerminalExpiry(existing)) { capturedContext = existing; return capturedContext; }
       if (existing.state === "recovery" && hasRecoveryIdentity(existing)) {
         state.activeHandoffId = fragmentHandoff;
         if (!persistState(state)) return null;
@@ -141,7 +188,7 @@ export const ONBOARDING_JS = `(() => {
     try {
       const now = Date.now();
       const recovery = operationValues.length === 1 && claimIntentValues.length === 1 && fingerprintValues.length === 1;
-      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
+      const entry = { handoffId: fragmentHandoff, operationId: recovery ? operationValues[0] : randomId(), outputAction: fragmentAction, ...(fragmentAction === "office" ? { officeFormat: fragmentOfficeFormat } : {}), requestedAction: fragmentRequestedAction, ...(fragmentRequestedAction === "office" ? { requestedOfficeFormat: fragmentRequestedOfficeFormat } : {}), createdAt: new Date(now).toISOString(), state: recovery ? "recovery" : "active", ...(validExtensionId(fragmentExtensionId) ? { extensionId: fragmentExtensionId } : {}), ...(validLaunchId(fragmentLaunchId) ? { launchId: fragmentLaunchId } : {}), ...(recovery ? { claimStatus: "finalize-pending", claimIntentId: claimIntentValues[0], draftFingerprint: fingerprintValues[0] } : {}) };
       state.entries.push(entry);
       state.activeHandoffId = fragmentHandoff;
       if (!persistState(state)) return null;
@@ -162,6 +209,7 @@ export const ONBOARDING_JS = `(() => {
     if (!saved.ok || !saved.state) return null;
     if (saved.needsWrite && !persistState(saved.state)) return null;
     const active = metadataFor(saved.state);
+    if (hasTerminalExpiry(active)) { capturedContext = active; return capturedContext; }
     if (active?.state === "expired" && validExtensionId(active.extensionId)) {
       active.state = "recovery-probe";
       if (!persistState(saved.state)) return null;
@@ -173,12 +221,12 @@ export const ONBOARDING_JS = `(() => {
     return capturedContext;
   }
   function expireCapturedContext(context) {
-    context.state = hasRecoveryIdentity(context) ? "recovery" : "expired";
+    context.state = context.claimStatus === "expired" ? "expired" : hasRecoveryIdentity(context) ? "recovery" : "expired";
     const saved = readSaved();
     if (!saved.ok || !saved.state) return false;
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId);
     if (!matching) return false;
-    const nextState = hasRecoveryIdentity(matching) ? "recovery" : "expired";
+    const nextState = matching.claimStatus === "expired" ? "expired" : hasRecoveryIdentity(matching) ? "recovery" : "expired";
     if (matching.state !== nextState || saved.needsWrite) {
       matching.state = nextState;
       if (!persistState(saved.state)) return false;
@@ -223,11 +271,11 @@ export const ONBOARDING_JS = `(() => {
     if (!globalThis.chrome?.runtime?.sendMessage) return false;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId: fragmentHandoff, launchId: fragmentLaunchId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.page-ready", handoffId: fragmentHandoff, launchId: fragmentLaunchId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}) });
     } catch {
       return false;
     }
-    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status)) return false;
+    if (reply?.ok !== true || !["manual", "ready"].includes(reply.status) || (context.outputAction === "office" && reply.officeFormat !== context.officeFormat) || (context.outputAction !== "office" && reply.officeFormat !== undefined)) return false;
     const saved = readSaved();
     const matching = saved.ok ? saved.state?.entries.find((entry) => entry.handoffId === context.handoffId && entry.operationId === context.operationId) : null;
     if (!matching || !validDraftFingerprint(reply.draftFingerprint) || !validCreatedAt(reply.expiresAt) || !validExtensionId(reply.extensionId)) return false;
@@ -239,7 +287,7 @@ export const ONBOARDING_JS = `(() => {
   async function signalAccessReturn(context) {
     if (!configured || hasFragment || !context || !validHandoff(context.handoffId) || !validLaunchId(context.launchId) || !validExtensionId(context.extensionId) || !validOperationId(context.operationId) || !validDraftFingerprint(context.draftFingerprint) || !validCreatedAt(context.expiresAt) || !globalThis.chrome?.runtime?.sendMessage) return false;
     try {
-      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
+      const reply = await chrome.runtime.sendMessage(context.extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.access-return", handoffId: context.handoffId, launchId: context.launchId, extensionId: context.extensionId, operationId: context.operationId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}), draftFingerprint: context.draftFingerprint, expiresAt: context.expiresAt });
       return reply?.ok === true && ["restored", "recovery"].includes(reply.status);
     } catch {
       return false;
@@ -250,10 +298,11 @@ export const ONBOARDING_JS = `(() => {
     if (!context || context.state !== "active") return context;
     const extensionId = extensionIdFor(context);
     if (!extensionId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.begin", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch { throw new Error("HANDOFF_BEGIN_FAILED"); }
     if (!reply?.ok || !["active", "expired"].includes(reply.status) || !validOperationId(reply.operationId) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) throw new Error(reply?.error || "HANDOFF_BEGIN_FAILED");
     const saved = readSaved();
@@ -274,17 +323,27 @@ export const ONBOARDING_JS = `(() => {
   }
   async function extensionMessage(extensionId, type, context, extra = {}) {
     if (!validExtensionId(extensionId) || !context?.handoffId || !context?.operationId) throw new Error("EXTENSION_HANDOFF_REQUIRED");
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) throw new Error("EXTENSION_HANDOFF_REQUIRED");
     if (!globalThis.chrome?.runtime?.sendMessage) throw new Error("EXTENSION_MESSAGE_UNAVAILABLE");
-    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...extra });
-    if (!reply?.ok) throw new Error(reply?.error || "HANDOFF_FAILED");
+    const reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type, handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat } : {}), ...(context.outputAction === "office" && context.launchId ? { launchId: context.launchId } : {}), ...extra });
+    if (!reply?.ok) {
+      const guidance = {
+        DRAFT_CLAIM_PENDING: "前の保存結果を確認する必要があります。編集画面からもう一度進んでください。下書きはこの端末に残っています。",
+        DRAFT_CLOUD_CHANGED: "前の保存が完了しています。新しい編集を保存するには、編集画面からもう一度進んでください。",
+        DRAFT_CHANGED: "転送後の新しい編集はこの端末に残っています。前の保存結果を確認してから、編集画面で保存をやり直してください。",
+        CLOUD_REFERENCE_INCOMPLETE: "保存先の版を確認できません。同じ手順書を重複作成せず、下書きをこの端末に保持しています。"
+      };
+      throw new Error(guidance[reply?.error] || reply?.error || "HANDOFF_FAILED");
+    }
     return reply;
   }
   async function recoverExtensionContext(context) {
     const extensionId = extensionIdFor(context);
     if (!extensionId || !globalThis.chrome?.runtime?.sendMessage || !context?.handoffId) return context;
+    if (context.outputAction === "office" && !validLaunchId(context.launchId)) return context;
     let reply;
     try {
-      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save" });
+      reply = await chrome.runtime.sendMessage(extensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.recovery", handoffId: context.handoffId, action: context.outputAction || "save", ...(context.outputAction === "office" ? { officeFormat: context.officeFormat, launchId: context.launchId } : {}) });
     } catch {
       context.state = "recovery-probe";
       const saved = readSaved();
@@ -309,7 +368,7 @@ export const ONBOARDING_JS = `(() => {
       capturedContext = matching;
       return matching;
     }
-    const validRecoveryStatus = ["finalize-pending", "completion-pending", "completed"].includes(reply?.status);
+    const validRecoveryStatus = ["finalize-pending", "completion-pending", "completed", "expired"].includes(reply?.status);
     if (!reply?.ok || !validRecoveryStatus || !validOperationId(reply.operationId) || !validClaimIntentId(reply.claimIntentId) || !validDraftFingerprint(reply.draftFingerprint) || !Number.isFinite(Date.parse(reply.expiresAt || ""))) {
       if (context.state === "recovery-probe") {
         context.state = "recovery-probe";
@@ -329,7 +388,7 @@ export const ONBOARDING_JS = `(() => {
     const matching = saved.state.entries.find((entry) => entry.handoffId === context.handoffId);
     if (!matching) return markRecoveryProbe(context);
     const canWrite = reply.status === "finalize-pending" && Number.isFinite(Date.parse(reply.expiresAt || "")) && Date.parse(reply.expiresAt) > Date.now();
-    Object.assign(matching, { operationId: reply.operationId, claimIntentId: reply.claimIntentId, draftFingerprint: reply.draftFingerprint, claimStatus: reply.status, state: canWrite ? "active" : "recovery", ...(reply.expiresAt ? { recoveryExpiresAt: reply.expiresAt } : {}), ...(reply.manualId ? { manualId: reply.manualId } : {}) });
+    Object.assign(matching, { operationId: reply.operationId, claimIntentId: reply.claimIntentId, draftFingerprint: reply.draftFingerprint, claimStatus: reply.status, state: reply.status === "expired" ? "expired" : canWrite ? "active" : "recovery", ...(reply.expiresAt ? { recoveryExpiresAt: reply.expiresAt } : {}), ...(reply.manualId ? { manualId: reply.manualId } : {}) });
     if (!persistState(saved.state)) return markRecoveryProbe(context);
     capturedContext = matching;
     return matching;
@@ -359,18 +418,37 @@ export const ONBOARDING_JS = `(() => {
       if (step.screenshotId !== undefined && !Number.isInteger(assetSlot)) throw new Error("DRAFT_INVALID");
       return {
         type: typeof step.type === "string" ? step.type : "action",
-        title: typeof step.title === "string" ? step.title : "手順 " + (index + 1),
+        title: typeof step.title === "string" ? step.title : (Array.from(String(step.instruction || "").trim().split(/\\r?\\n/u)[0].trim()).slice(0, 128).join("") || "操作の説明"),
         instruction: String(step.instruction || ""),
         actionType: step.actionType ?? null,
         targetText: step.targetText ?? null,
         url: step.url ?? null,
-        assetSlot
+        assetSlot,
+        annotations: Array.isArray(step.annotations) ? step.annotations : []
       };
     });
     return { title: String(prepared.draft.title || ""), description: String(prepared.draft.description || ""), steps };
   }
   function showClaimSuccess(context, manualId) {
-    const isShare = context?.outputAction === "share";
+    const isOffice = (context?.requestedAction || context?.outputAction) === "office";
+    const isShare = (context?.requestedAction || context?.outputAction) === "share";
+    if (isOffice) {
+      message((context?.officeFormat === "docx" ? "Word" : "PowerPoint") + "出力の認証と保存先の確認が完了しました。編集画面に戻るとファイルを作成します。", "success");
+      button.removeEventListener("click", bootstrap);
+      setButton("編集画面を開く", false);
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          const reply = await chrome.runtime.sendMessage(fragmentExtensionId, { schema: "meccha-manual/cloud-claim-v1", type: "handoff.office-return", handoffId: context.handoffId, launchId: context.launchId, officeFormat: context.officeFormat });
+          if (!reply?.ok) throw new Error("OFFICE_RETURN_REJECTED");
+          message("編集画面を開きました。Officeファイルの作成結果を確認できます。", "success");
+        } catch {
+          message("編集画面を開けませんでした。元の編集画面へ戻って、Office出力をもう一度選んでください。", "error");
+          button.disabled = false;
+        }
+      };
+      return Boolean(manualId);
+    }
     message("手順書を保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
     if (isShare) message("共有用の保存が完了しました。共有設定を開いて共有リンクを作成してください。", "success");
@@ -378,19 +456,32 @@ export const ONBOARDING_JS = `(() => {
     button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);
   }
-  async function completePending(context, extensionId, manualId) {
+  async function completePending(context, extensionId, manualId, confirmedCloudRef = null) {
     if (typeof manualId !== "string" || !manualId) throw new Error("CLAIM_RESULT_INVALID");
-    const pendingSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completion-pending", manualId });
+    const pendingSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completion-pending", manualId, ...(confirmedCloudRef ? { cloudRef: confirmedCloudRef } : {}) });
     if (!pendingSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
     const metadata = metadataForContext(context);
     const completed = await extensionMessage(extensionId, "handoff.completed", context, {
       manualId,
+      ...(metadata?.cloudRef ? { cloudRef: metadata.cloudRef } : {}),
       ...(metadata?.claimIntentId ? { operationId: context.operationId, claimIntentId: metadata.claimIntentId, draftFingerprint: metadata.draftFingerprint } : {})
     });
     if (!completed?.ok) throw new Error("保存完了を拡張機能へ通知できませんでした。元の下書きは保持されています。");
     const completedSaved = saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "completed", manualId });
     if (!completedSaved) throw new Error("CLOUD_STATE_UNAVAILABLE");
     return showClaimSuccess(context, manualId);
+  }
+  function showExpiredHandoff() {
+    message("保存準備の期限が切れました。元の下書きと新しい編集は、この端末に保持しています。下の手順で編集画面に戻ると、もう一度保存・共有できます。", "error");
+    setButton("この保存操作は期限切れです", true); button.className = "terminal-state";
+    if(!document.querySelector(".recovery-guide")){
+      const guide=document.createElement("section");guide.className="recovery-guide";guide.setAttribute("aria-label","下書きからやり直す方法");
+      const title=document.createElement("h2");title.textContent="下書きから保存し直せます";
+      const list=document.createElement("ol");
+      for(const text of ["手順書を編集していたタブに戻ります。閉じた場合は、Chromeの拡張機能から「最近の下書き」を開きます。","「クラウドに保存」または「共有」を押します。最新の編集内容で、保存の準備をやり直せます。"]){const item=document.createElement("li");item.textContent=text;list.append(item);}
+      guide.append(title,list);button.insertAdjacentElement("afterend",guide);
+    }
+    return true;
   }
   async function reconcileFinalize(context, extensionId, metadata) {
     if (!(metadata?.claimStatus === "finalize-pending" || metadata?.claimStatus === "expired") || typeof metadata.claimIntentId !== "string") return false;
@@ -404,14 +495,17 @@ export const ONBOARDING_JS = `(() => {
     let result = null;
     try { result = await response.json(); } catch {}
     if (response.ok && (result?.status === "claimed" || result?.status === "completed") && typeof result.manualId === "string") {
-      await completePending(context, extensionId, result.manualId);
+      await completePending(context, extensionId, result.manualId, result.cloudRef);
       return true;
     }
     if (response.ok && result?.status === "pending") return { status: "pending", claimIntentId: metadata.claimIntentId };
     if (response.ok && result?.status === "expired") {
-      saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "expired" });
+      if (result.claimIntentId !== metadata.claimIntentId || result.operationId !== context.operationId || !validClaimIntentId(result.workspaceId) || !Number.isFinite(Date.parse(result.expiresAt || ""))) throw new Error("CLAIM_RESULT_INVALID");
+      const expired = await extensionMessage(extensionId, "handoff.expired", context, { operationId: context.operationId, claimIntentId: metadata.claimIntentId, draftFingerprint: metadata.draftFingerprint, claimResult: result });
+      if (!expired?.ok || expired.status !== "expired") throw new Error("保存結果を拡張機能で確認できませんでした。元の下書きを保持したまま、もう一度確認してください。");
+      if (!saveCloudMetadata({ handoffId: context.handoffId, operationId: context.operationId, claimStatus: "expired" })) throw new Error("CLOUD_STATE_UNAVAILABLE");
       expireCapturedContext(context);
-      throw new Error("保存準備の期限が切れました。元の下書きはこの端末に保持しています。新しい保存は開始していません。");
+      return showExpiredHandoff();
     }
     throw new Error("保存結果を確認できませんでした。元の下書きを保持しています。");
   }
@@ -441,12 +535,12 @@ export const ONBOARDING_JS = `(() => {
       credentials: "same-origin",
       cache: "no-store",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
-      body: JSON.stringify({ operationId, assetCount: prepared.assets.length })
+      body: JSON.stringify({ operationId, assetCount: prepared.assets.length, ...(prepared.cloudRef ? { target: { workspaceId: prepared.cloudRef.workspaceId, manualId: prepared.cloudRef.manualId, revisionId: prepared.cloudRef.revisionId, expectedUpdatedAt: prepared.cloudRef.updatedAt } } : {}) })
     });
     let intent = resumeIntentId ? { claimIntentId: resumeIntentId } : null;
     if (intentResponse) { try { intent = await intentResponse.json(); } catch {} }
     if (!intent || (intentResponse && (!intentResponse.ok || typeof intent.claimIntentId !== "string"))) throw new Error(intentResponse?.status === 410 ? "保存準備の期限が切れました。拡張機能からもう一度進めてください。" : "保存準備に失敗しました。元の下書きは拡張機能に残っています。");
-    if (!resumeIntentId && !saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: bootstrapPayload.workspaceId || "", claimStatus: "uploading", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
+    if (!resumeIntentId && !saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, workspaceId: prepared.cloudRef?.workspaceId || bootstrapPayload.workspaceId || "", claimStatus: "uploading", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
     const staged = [];
     for (const asset of prepared.assets) {
       ensureFinalizeWriteAllowed(context);
@@ -478,9 +572,33 @@ export const ONBOARDING_JS = `(() => {
       if (!upload.ok || uploadResult?.status !== "staged") throw new Error(upload.status === 409 ? "同じ保存操作に異なる画像が指定されました。下書きを保持したまま停止しました。" : "画像の保存に失敗しました。下書きは拡張機能に残っています。");
       staged.push({ assetSlot: asset.assetSlot, sha256: start.sha256 });
     }
+    if (prepared.draft.branding) {
+      let logoId = null;
+      if (prepared.draft.branding.hasLogo) {
+        ensureFinalizeWriteAllowed(context);
+        message("この手順書のロゴを安全に加工しています。");
+        const start = await extensionMessage(extensionId, "handoff.logo.start", context);
+        const chunks = [];
+        for (let sequence = 0; sequence < start.totalChunks; sequence += 1) {
+          const chunk = await extensionMessage(extensionId, "handoff.logo.chunk", context, { sequence });
+          if (chunk.sequence !== sequence || typeof chunk.chunk !== "string") throw new Error("CHUNK_SEQUENCE_INVALID");
+          chunks.push(decodeChunk(chunk.chunk));
+        }
+        ensureFinalizeWriteAllowed(context);
+        const upload = await fetch("/api/onboarding/claim-intents/" + encodeURIComponent(intent.claimIntentId) + "/branding/logo", {
+          method: "PUT", credentials: "same-origin", cache: "no-store",
+          headers: { "Content-Type": start.contentType, "X-Requested-With": "XMLHttpRequest", "X-Claim-Operation-Id": operationId, "X-Asset-SHA256": start.sha256, "X-Asset-Byte-Length": String(start.byteLength) },
+          body: new Blob(chunks, { type: start.contentType })
+        });
+        let uploaded = null; try { uploaded = await upload.json(); } catch {}
+        if (!upload.ok || uploaded?.status !== "ready" || typeof uploaded.logoId !== "string") throw new Error("ロゴの保存に失敗しました。色・ロゴ・下書きは拡張機能に残っています。同じ保存操作で再試行してください。");
+        logoId = uploaded.logoId;
+      }
+      manual.branding = { themeColor: prepared.draft.branding.themeColor, logoId };
+    }
     message("手順書を保存しています。");
     ensureFinalizeWriteAllowed(context);
-    const recovery = await extensionMessage(extensionId, "handoff.finalize-pending", context, { operationId, claimIntentId: intent.claimIntentId, draftFingerprint: prepared.draftFingerprint });
+    const recovery = await extensionMessage(extensionId, "handoff.finalize-pending", context, { operationId, claimIntentId: intent.claimIntentId, draftFingerprint: prepared.draftFingerprint, cloudRef: prepared.cloudRef || null });
     if (!recovery?.ok) throw new Error("保存状態を拡張機能へ記録できませんでした。元の下書きは保持されています。");
     if (!saveCloudMetadata({ handoffId: context.handoffId, operationId, claimIntentId: intent.claimIntentId, claimStatus: "finalize-pending", draftFingerprint: prepared.draftFingerprint })) throw new Error("保存状態を端末に記録できませんでした。元の下書きは保持されています。");
     const claimUrl = "/api/onboarding/claims/" + encodeURIComponent(intent.claimIntentId);
@@ -495,12 +613,13 @@ export const ONBOARDING_JS = `(() => {
     if (!claimResponse.ok || (claim?.status !== "claimed" && claim?.status !== "completed") || typeof claim.manualId !== "string") {
       throw new Error(claimResponse.status === 409 ? "同じ保存操作の内容が変わったため保存を止めました。元の下書きは拡張機能に残っています。" : "手順書の保存結果を確認できませんでした。同じ操作で再試行してください。");
     }
-    return completePending(context, extensionId, claim.manualId);
+    return completePending(context, extensionId, claim.manualId, claim.cloudRef);
   }
   async function bootstrap() {
     let context = currentOperation();
     try {
       context = await recoverExtensionContext(context);
+      if (context?.claimStatus === "expired" && context.state === "expired") return showExpiredHandoff();
       context = await beginExtensionContext(context);
     } catch (error) {
       message(error?.message || "保存準備を開始できませんでした。元の手順書は保持されています。", "error");
@@ -530,7 +649,7 @@ export const ONBOARDING_JS = `(() => {
         try { await claimDraft(readyContext, payload); } catch (error) { message(error?.message || "手順書の保存に失敗しました。元の下書きは拡張機能に残っています。", "error"); setButton("同じ操作で再試行"); }
         return;
       }
-      if (response.status === 401) message("認証が確認できません。メールで認証してから、もう一度お試しください。", "error");
+      if (response.status === 401) { message("ログインが必要です。ログイン後に同じ下書きへ戻ります。", "error"); setButton("ログインして続ける"); redirectToProductLogin(); }
       else if (response.status === 403) message("このアカウントでは保存先を準備できません。", "error");
       else if (response.status === 429) message("試行回数の上限に達しました。少し時間をおいて、同じ操作でお試しください。", "error");
       else message("保存先の準備に失敗しました。元の下書きは拡張機能に残っています。同じ操作で再試行できます。", "error");
@@ -548,7 +667,10 @@ export const ONBOARDING_JS = `(() => {
     else message("保存を再開できませんでした。元の下書きを保持したまま、もう一度お試しください。", "error");
     setButton(context.state === "recovery" || context.state === "recovery-probe" ? "保存状況を確認する" : "保存を再開する", false);
   }
-  if (!configured) { message("保存先の準備画面は現在利用できません。元の手順書はこの端末に残っています。"); setButton("保存先は準備中", true); }
+  for (const image of document.querySelectorAll?.(".brand img,.prep img") || []) { image.addEventListener("error", () => { image.hidden = true; }); if(image.complete && image.naturalWidth === 0) image.hidden = true; }
+  const terminalCapturedContext = hasFragment ? initializeCapturedContext() : initializeActiveContext();
+  if (!configured) { message("保存先の準備画面は現在利用できません。保存や共有は開始していません。編集中の下書きがある場合は、そのタブで作業を続けられます。", "warning"); setButton("保存を開始できません", true);const retry=document.createElement("button");retry.type="button";retry.className="onboarding-retry";retry.textContent="もう一度確認する";retry.addEventListener("click",()=>location.reload());button.insertAdjacentElement("afterend",retry); }
+  else if (hasTerminalExpiry(terminalCapturedContext)) showExpiredHandoff();
   else if (!getHandoff()) { message("保存を続けるための情報を確認できません。拡張機能の編集画面から、もう一度進んでください。", "error"); setButton("保存を続ける", true); }
   else {
     const context = currentOperation();
@@ -562,7 +684,7 @@ export const ONBOARDING_JS = `(() => {
       button.addEventListener("click", bootstrap);
     }
   }
-  if (configured && validLaunchId(fragmentLaunchId)) {
+  if (configured && !hasTerminalExpiry(terminalCapturedContext) && validLaunchId(fragmentLaunchId)) {
     signalPageReady(currentOperation()).then((ready) => {
       if (!ready) message("保存先の準備を確認できませんでした。ログイン後、元の画面からもう一度お試しください。", "error");
     });

@@ -77,6 +77,10 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /HANDOFF_TTL_MS/);
   assert.match(ONBOARDING_JS, /handoff\.page-ready/);
   assert.match(ONBOARDING_JS, /handoff\.access-return/);
+  assert.match(ONBOARDING_JS, /type: "handoff\.begin"[\s\S]*?officeFormat: context\.officeFormat, launchId: context\.launchId/u);
+  assert.match(ONBOARDING_JS, /type: "handoff\.recovery"[\s\S]*?officeFormat: context\.officeFormat, launchId: context\.launchId/u);
+  assert.match(ONBOARDING_JS, /handoff\.office-return/);
+  assert.match(ONBOARDING_JS, /編集画面を開く/u);
   assert.match(ONBOARDING_JS, /resumeAccessReturn/);
   assert.match(ONBOARDING_JS, /保存を再開する/);
   assert.match(ONBOARDING_JS, /保存状況を確認する/);
@@ -157,11 +161,11 @@ test("editor gate keeps save failure from opening registration", async () => {
   const html = await readFile(new URL("../apps/extension/editor/editor.html", import.meta.url), "utf8");
   const css = await readFile(new URL("../apps/extension/editor/editor.css", import.meta.url), "utf8");
   assert.match(source, /if \(!await persist\(/);
-  assert.match(source, /保存に失敗したため、保存先へ進めません/);
-  assert.match(source, /setSaveState\("保存中…", "saving"\)/);
-  assert.match(source, /setSaveState\("端末に保存済み", "saved"\)/);
+  assert.match(source, /端末に保存できないため、クラウドへ進めません/);
+  assert.match(source, /setSaveState\("端末に保存中…", "saving"\)/);
+  assert.match(source, /pendingImages.size \? "画像を保存中…" : "端末に保存済み"/);
   assert.match(html, /meccha-manual-logo-mark\.png/);
-  assert.match(html, /meccha-manual-mascot-me-clear-eyes\.png/);
+  assert.match(html, /id="outputIssues"/);
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(source, /__MECCHA_MANUAL_APP_ORIGIN__/);
 });

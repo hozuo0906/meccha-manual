@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-9ab39fa5716c830b";
+export const APP_ASSET_VERSION = "sha256-0b149ba73aa80f8a";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -221,6 +221,10 @@ h1 {
   gap: 16px;
 }
 
+.form[hidden] {
+  display: none;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -274,6 +278,24 @@ h1 {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
+}
+
+.product-auth-buttons {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.product-auth-buttons .secondary-button {
+  width: 100%;
+  text-decoration: none;
+}
+
+.auth-divider {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .danger-button {
@@ -974,11 +996,21 @@ a.nav-item:hover {
     border: 1px solid CanvasText;
   }
 }
+/* Shared product identity: calm surfaces and predictable, readable controls. */
+:root{--bg:#f4f7f8;--surface-strong:#eef4f5;--border:#d7e2e5;--text:#183039;--muted:#526671;--primary:#087f7a;--primary-strong:#075e5b;--shadow:0 8px 28px #1830390c}
+.logo-mark{background:#087f7a;box-shadow:none;border-radius:10px}.logo-mark::after{display:none}.login-intro{background:#eef6f6;color:#183039;border-right:1px solid #d7e2e5}.login-copy .eyebrow{color:#087f7a;font-size:14px;letter-spacing:.035em}.login-copy h1{font-size:clamp(32px,4vw,48px);line-height:1.45;letter-spacing:-.035em}.login-copy p:last-child{color:#526671;font-size:17px}.login-panel{padding:clamp(28px,4vw,52px)}.panel-heading h2{font-size:26px;line-height:1.5;letter-spacing:-.025em}.primary-button,.secondary-button{border-radius:8px}.boot{line-height:1.75;padding:32px 24px;min-width:0}.boot>*{min-width:0}.boot>.primary-button{width:100%;max-width:320px;justify-self:center}.boot h1{font-size:clamp(26px,4vw,34px);line-height:1.45}.boot p{max-width:52ch}.topbar h1{letter-spacing:-.025em}.member-actions button,.member-header-actions button{min-height:44px}
+@media(max-width:760px){.login-intro{padding:32px 24px;border-right:0;border-bottom:1px solid #d7e2e5}.login-copy h1{font-size:30px}.login-copy p:last-child{font-size:16px}.login-panel{padding:28px 24px}.login-copy .logo-mark{width:44px;height:44px;margin-bottom:16px}}
+
+@media(max-width:900px){.sidebar{gap:12px;padding:16px}.sidebar .brand .logo-mark{width:32px;height:32px}.sidebar .brand{font-size:14px;gap:10px}.sidebar .brand .logo-mark span{font-size:19px}.sidebar .nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.sidebar .nav-item{font-size:13px;min-height:44px;padding:0 8px}.sidebar .user-box{display:flex;align-items:center;gap:12px;font-size:12px}.sidebar .user-box>span{flex:1;min-width:0}.sidebar .user-box>button{flex:none;min-height:44px;padding:8px 12px;font-size:12px}}
+
 `;
 
 export const APP_JS = `
 const app = document.getElementById("app");
 let currentSession = null;
+let configuredAuthProviders = null;
+let productAuthSessionSeen = false;
+let loginRenderSequence = 0;
 let sessionGeneration = 0;
 let sessionReloadSequence = 0;
 let currentWorkspaceSelection = null;
@@ -998,8 +1030,15 @@ let manualMutationInFlight = false;
 let manualReadingPreview = null;
 
 function isAccessModeSession(session = currentSession) {
-  // M3のAccess session marker。M4でsession契約を更新するときに再評価する。
-  return Boolean(session?.manuals?.status === "migration" || session?.members?.status === "migration");
+  return session?.authMode === "access";
+}
+
+function usesD1ManualSurface(session = currentSession) {
+  return session?.authMode === "product" || session?.authMode === "access";
+}
+
+function sessionLoginLabel(session) {
+  return session?.authMode === "product" ? "アカウント" : session?.user?.email || "メールアドレス未設定";
 }
 
 function manualMigrationInProgress(session = currentSession) {
@@ -1659,7 +1698,32 @@ function updateLoginFieldErrors(form, validationMessage) {
   invalidField.setAttribute("aria-describedby", "login-message");
 }
 
+function renderProductAuthLinks(providers, showDivider = false) {
+  if (!providers) return "";
+  const requestedReturn = new URLSearchParams(window.location.search).get("return");
+  const returnPath = encodeURIComponent(requestedReturn || window.location.pathname || "/");
+  const links = [];
+  if (providers.google === true) links.push('<a class="secondary-button" href="/api/auth/google/start?return=' + returnPath + '">Googleでログイン</a>');
+  if (providers.chatgpt === true) links.push('<a class="secondary-button" href="/api/auth/chatgpt/start?return=' + returnPath + '">ChatGPTでログイン</a>');
+  return showDivider && links.length ? '<p class="auth-divider">または</p>' + links.join("") : links.join("");
+}
+
+function productAuthInstruction(providers) {
+  const labels = [];
+  if (providers?.google === true) labels.push("Google");
+  if (providers?.chatgpt === true) labels.push("ChatGPT");
+  if (labels.length === 2) return labels[0] + "または" + labels[1] + "でログインしてください。";
+  if (labels.length === 1) return labels[0] + "でログインしてください。";
+  return providers ? "現在利用できるログイン方法がありません。管理者にお問い合わせください。" : "ログイン方法を読み込んでいます。";
+}
+
 function renderLogin(message = "") {
+  const currentLoginRender = ++loginRenderSequence;
+  const providerConfigPending = configuredAuthProviders === null && !productAuthSessionSeen;
+  const productOnlyLogin = productAuthSessionSeen || configuredAuthProviders?.password === false || providerConfigPending;
+  const initialProviderLinks = configuredAuthProviders?.providers
+    ? renderProductAuthLinks(configuredAuthProviders.providers, !productOnlyLogin)
+    : "";
   app.innerHTML =
     '<section id="screen-content" class="login-screen" aria-labelledby="service-title" tabindex="-1">' +
       '<div class="login-intro">' +
@@ -1673,10 +1737,11 @@ function renderLogin(message = "") {
       '<div class="login-panel">' +
         '<div class="panel-heading">' +
           '<h2>ログイン</h2>' +
-          '<p>登録済みのメールアドレスとパスワードを入力してください。</p>' +
+          '<p id="login-heading">' + (productOnlyLogin ? productAuthInstruction(configuredAuthProviders?.providers) : '登録済みのメールアドレスとパスワードを入力してください。') + '</p>' +
         '</div>' +
-        '<form id="login-form" class="form" novalidate>' +
-          '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
+        '<div id="product-auth-buttons" class="product-auth-buttons" aria-live="polite">' + initialProviderLinks + '</div>' +
+        '<div id="login-message" class="error-box' + (message ? ' show' : '') + '" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">' + escapeHtml(message) + '</div>' +
+        '<form id="login-form" class="form" novalidate' + (productOnlyLogin ? ' hidden aria-hidden="true"' : '') + '>' +
           '<div class="field">' +
             '<label for="email">メールアドレス</label>' +
             '<input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>' +
@@ -1721,12 +1786,77 @@ function renderLogin(message = "") {
       event.currentTarget.removeAttribute("aria-busy");
     }
   });
+  let providerRequestSequence = 0;
+  let providerLoadFailed = false;
+  const renderProviderLoadFailure = () => {
+    const buttons = document.getElementById("product-auth-buttons");
+    if (!buttons) return;
+    buttons.innerHTML = '<button id="product-auth-retry" class="secondary-button" type="button">ログイン方法をもう一度読み込む</button>';
+    const heading = document.getElementById("login-heading");
+    if (heading) heading.textContent = "ログイン方法を読み込めませんでした。もう一度お試しください。";
+    providerLoadFailed = true;
+    setBox("login-message", "ログイン方法を読み込めませんでした。時間をおいて、もう一度お試しください。", "error");
+  };
+  const loadProviderConfig = async () => {
+    const requestSequence = ++providerRequestSequence;
+    try {
+      const response = await fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" });
+      const payload = response.ok ? await response.json() : null;
+      if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
+      const providers = payload?.providers;
+      const buttons = document.getElementById("product-auth-buttons");
+      const heading = document.getElementById("login-heading");
+      if (!buttons) return;
+      if (!providers || typeof payload?.password !== "boolean") {
+        renderProviderLoadFailure();
+        const retry = document.getElementById("product-auth-retry");
+        retry?.addEventListener("click", () => {
+          retry.disabled = true;
+          const heading = document.getElementById("login-heading");
+          if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
+          void loadProviderConfig();
+        });
+        return;
+      }
+      configuredAuthProviders = payload;
+      const links = renderProductAuthLinks(providers, payload.password === true);
+      buttons.innerHTML = links;
+      if (providerLoadFailed) {
+        clearBox("login-message");
+        providerLoadFailed = false;
+      }
+      if (payload.password === false) {
+        productAuthSessionSeen = true;
+        const form = document.getElementById("login-form");
+        if (form) { form.hidden = true; form.setAttribute("aria-hidden", "true"); }
+        if (heading) heading.textContent = productAuthInstruction(providers);
+        buttons.querySelector("a")?.focus?.();
+      } else {
+        const form = document.getElementById("login-form");
+        const wasHidden = form?.hidden !== false;
+        if (form) { form.hidden = false; form.removeAttribute("aria-hidden"); }
+        if (heading) heading.textContent = "登録済みのメールアドレスとパスワードを入力してください。";
+        if (wasHidden) document.getElementById("email")?.focus?.();
+      }
+    } catch {
+      if (currentLoginRender !== loginRenderSequence || requestSequence !== providerRequestSequence) return;
+      renderProviderLoadFailure();
+      const retry = document.getElementById("product-auth-retry");
+      retry?.addEventListener("click", () => {
+        retry.disabled = true;
+        const heading = document.getElementById("login-heading");
+        if (heading) heading.textContent = "ログイン方法を読み込んでいます。";
+        void loadProviderConfig();
+      });
+    }
+  };
+  setTimeout(() => { void loadProviderConfig(); }, 0);
   for (const field of [document.getElementById("email"), document.getElementById("password")]) {
     field.addEventListener("input", () => clearLoginFieldError(field));
   }
   if (message) {
     document.getElementById("login-message").focus();
-  } else {
+  } else if (!productOnlyLogin) {
     document.getElementById("email").focus();
   }
 }
@@ -2436,7 +2566,9 @@ function manualSidebarHtml(session, activeScreen) {
     : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>';
   const manualNavigation = manualMigrationInProgress(session)
     ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
-    : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
+    : usesD1ManualSurface(session)
+      ? '<a id="manual-nav-link" class="nav-item' + (activeScreen !== "workspace" ? ' active' : '') + '" href="/manuals"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</a>'
+      : '<button id="manual-nav-button" class="nav-item nav-button' + (activeScreen !== "workspace" ? ' active' : '') + '" type="button"' + (activeScreen !== "workspace" ? ' aria-current="page"' : '') + '>手順書</button>';
   return '<aside class="sidebar" aria-label="アプリメニュー">' +
     '<div class="brand"><div class="logo-mark" aria-hidden="true"><span>め</span></div><span>めっちゃマニュアル</span></div>' +
     '<nav class="nav" aria-label="主要メニュー">' +
@@ -2446,7 +2578,7 @@ function manualSidebarHtml(session, activeScreen) {
       '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
     '</nav>' +
     '<div class="user-box">' +
-      '<span>ログイン中：' + escapeHtml(session.user.email || "メールアドレス未設定") + '</span>' +
+      '<span>ログイン中：' + escapeHtml(sessionLoginLabel(session)) + '</span>' +
       '<button id="logout-button" class="secondary-button" type="button">ログアウト</button>' +
     '</div>' +
   '</aside>';
@@ -3413,11 +3545,13 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
              : '<button id="members-nav-button" class="nav-item nav-button" type="button">メンバー管理</button>') +
           (manualMigration
             ? '<span class="nav-item" aria-disabled="true"><span>手順書</span><span class="nav-status">移行中</span></span>'
-            : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
+            : usesD1ManualSurface(session)
+              ? '<a id="manual-nav-link" class="nav-item" href="/manuals">手順書</a>'
+              : '<button id="manual-nav-button" class="nav-item nav-button" type="button">手順書</button>') +
           '<span class="nav-item" aria-disabled="true"><span>操作を記録</span><span class="nav-status">準備中</span></span>' +
         '</nav>' +
         '<div class="user-box">' +
-          '<span>ログイン中：' + escapeHtml(session.user.email || "メールアドレス未設定") + '</span>' +
+          '<span>ログイン中：' + escapeHtml(sessionLoginLabel(session)) + '</span>' +
           '<button id="logout-button" class="secondary-button" type="button">ログアウト</button>' +
         '</div>' +
       '</aside>' +
@@ -3568,6 +3702,7 @@ async function loadSession(options = {}) {
   try {
     const session = await requestJson("/api/session", {}, true, options.requestAccessMode ?? isAccessModeSession());
     if (requestSessionGeneration !== sessionGeneration || requestReloadSequence !== sessionReloadSequence) return;
+    if (session.authMode === "product") productAuthSessionSeen = true;
     if (currentSession?.user?.id !== session.user?.id) {
       replaceCurrentSession(session);
     } else {
@@ -3880,8 +4015,10 @@ async function logout() {
       return;
     }
     if (logoutStateGeneration !== sessionGeneration) return;
+    // Product logout already rendered the login screen before waiting for the
+    // revoke response. Keep that DOM so a user can finish provider loading or
+    // enter a password while the response is in flight.
     if (requestAccessMode) renderAccessLogoutComplete();
-    else renderLogin();
   } catch (error) {
     if (logoutStateGeneration !== sessionGeneration) return;
     if (isAccessReauthenticationError(error)) {
@@ -3917,5 +4054,25 @@ async function logout() {
   }
 }
 
-loadSession();
+async function startApp() {
+  const params = new URLSearchParams(window.location.search);
+  if (window.location.pathname !== "/" || params.get("auth") !== "complete") return loadSession();
+  // OAuth callback has already changed the shared HttpOnly cookie. Use the
+  // password-login fence before resuming any workspace/claim/output screen.
+  renderAuthenticationReload();
+  try {
+    try {
+      await withAuthenticationLock(async () => advanceAuthenticationVersion());
+    } finally {
+      // Even unavailable coordination must invalidate sibling tabs' old UI.
+      announceAuthenticationChange();
+    }
+    const returnPath = params.get("return");
+    window.location.replace(["/", "/manuals", "/onboarding/continue"].includes(returnPath) ? returnPath : "/");
+  } catch (error) {
+    renderLogin(error.message);
+  }
+}
+
+startApp();
 `;
