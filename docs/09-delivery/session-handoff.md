@@ -1,3 +1,42 @@
+## 2026-11-08 PR #288: 一覧の再試行失敗後のフォーカス復帰
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T10:38:23+09:00（Asia/Tokyo）。監督Museの指定によるP2修正。対象branch `codex/ui-recovery-from-280-20261107`、着手HEAD `9eba894f3ac09d5cbc70ee255bc239cf05bc7d03`、review comment `4504498692`／thread `PRRT_kwDOTpNknc608kgP`を実取得した。
+
+- 初回一覧503→Enterで再試行→再503で新ボタンのfocusが失われることを修正前の回帰で確認し、`loadManuals`に開始時focusの記録と条件付き復帰を追加した。既存popupと同じ条件でbody／元要素／未設定時だけ復帰し、待機中に検索欄へ移ったfocusと初回失敗時のfocusは維持する。Enter／Spaceによる連続再試行と別focus保持が成功した。asset内容hashは`sha256-0b149ba73aa80f8a`。
+- 全体`npm run check`は`31860`でexit 0、Worker71/71・認証157/157、最終secret／encodingまで成功。関連browser14ファイル`52686`は64/67・exit 1・skip 0で、既存sidepanel poll待機1件と共有読者の次手順表示待機2件がtimeout。対象2ファイルを同じコード・assertionのまま直列再実行した`18399`は31/31・fail 0／skip 0／exit 0。別実行を一括成功へ合算しない。詳細は[修正報告書](ui-p2-fix-2026-11-08.md)。
+- 契約・traceability・decision-log・本記録・報告書を同じ修正commitに含め、同名originへpushしてlocal／origin／PR head一致を照合する。未追跡`.artifacts/`等の残骸は保存対象外。Issue #70はclosed／not_plannedと他branch履歴を保持して結果を同期する。
+- 次の1マイルストーンはMuseによる新headのCI／正式Codex Review／指摘threadの返信・解決とSHA照合。レビュー依存項目は未チェックのまま、Draft維持、merge・deploy・他PRコメントなし。実SSO／remote D1/R2／実Office描画／人によるscreen reader確認は未実施。担当は保存・報告後に終了し、自律監視・終了後の継続実行は登録しない。以下は履歴として保持する。
+
+## 2026-11-08 PR #288: UI回収ブランチへのmain統合
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T10:11:39+09:00（Asia/Tokyo）。監督Museの指定範囲は開始済みmain mergeの競合解消、回帰、報告書を含むcommit／同名branchへのpushとPR検証記録更新まで。Draft維持、PR merge・deploy・他PRコメントは行わない。以下の各branchのcheckpointは履歴として保持する。
+
+- Draft PR #288、branch `codex/ui-recovery-from-280-20261107`、base `main`。着手HEAD `5918b0f9986812fa5c4c1856de9b768705e8d4fb`とmain `9adc2c18247e29a5078afd028e2b6c77da7b0fd4`を統合する。両親の文書追加を保持し、版定数だけの競合は統合assetから`sha256-4caa5e44061a8e31`へ再計算した。
+- 認証本体・migration 0008・認証回帰はmainと、拡張treeは着手UI headとbyte一致。mainの共有`shareBusy`排他・OAuth他タブ主体同期とUI回収を両立し、無加工画像＋利用者確認＋手動編集、ChatGPT既定OFFとfail-closedを維持する。自動mask経路・肯定する自動置換文言の検索は0件。
+- 再起動後の最終`npm run check`全体exit 0（実行ID `96469`、先行`70276`もexit 0）、認証157/157、Worker71/71、D1 HTTP39/39、D1 binding3/3、最終secret／encodingまで成功。関連browser 15ファイルの`5806`は95/96・exit 1で、1件だけ既定browser欠落による起動前失敗。該当testのimportを既存共通launcherへ揃え、`47873`で1/1・fail 0／skip 0／exit 0を確認した。製品仕様・テスト本体・assertionは変更していない。初回制限内checkの子プロセス失敗、前任の実行ID `54269`と分けて記録する。詳細は[統合報告書](ui-merge-main-2026-11-08.md)を正とする。
+- 本checkpointと報告書を同じmerge commitに含め、push後にlocal／origin／PR head一致とDraftを照合する。Issue #70はclosed／not_plannedと他branch履歴を保持し、今回の結果を同期する。未追跡の`.artifacts/`等は含めない。
+- 次の1マイルストーンはMuseによる新merge headのCI・Codex Review・P0/P1・thread・SHA照合とUI受入判断。レビュー依存のチェックリストは未チェックを維持し、旧headの成功を新headへ流用しない。remote SSO／D1／R2／migration適用／実Office描画等は未実行。担当は保存・報告後に終了し、終了後の継続実行・監視を登録しない。
+
+## 2026-11-08 マイルストーン3: PR #280のUI回収
+
+Status: Accepted
+
+確認日時: 2026-11-08T06:20:33+09:00（Asia/Tokyo）。今回の範囲はcommit／指定branchへの保存／認証baseのDraft PRまで。merge・deploy・remote環境変更・他PRコメントは行わない。
+
+- base `codex/auth-port-from-284-20261107` / `cc83e1a`。新branch `codex/ui-recovery-from-280-20261107`。#280 `a44dde8..f750a3d` のUI hunkを記録UI `8150fa6`、editor/cloud/readerと関連契約・fixture `44d2387`へ回収。
+- 無加工画像・利用者確認・手動編集と製品認証を維持する。APP_JS、生成editor-tools JS/HTMLはbaseとbyte一致。自動mask/aliasの処理・前提・文言を戻さない。生成物はsourceから再生成。
+- localの記録品質17/17、全画面品質1/1、修正後sidepanel unit4/4、認証・Worker224/224が成功。指定UI一括は8成功後にpage crashとChrome起動SIGTRAPで25環境失敗。labはtimeout。check初回の旧fixture4失敗を修正したが、再実行はnpm write EPERMで停止。全体検証成功・release合格ではない。
+- 検証途中でrepoと/tmp、Git indexへのwriteがOSに拒否されたため、31変更blobのlocal SHA一致を検証してGitHub Appで保存した。local HEADはbaseのまま、最終報告書・引き継ぎ・最新PRの正本はremote版。local差分を破棄せず、書込み可能な環境でremote headへ同期して再開する。
+- 初期head7161418のfull checkはDocs CIで成功。Legacy共有読者の復帰見出しgeometry3件の実表示失敗を確認し、成功messageの高さ確定後にscroll位置を決める順序へ修正。認可は不変、最新headのCIで再検証する。旧headの成功を流用しない。
+- 初回Codex ReviewのP2 2件（閲覧専用の出力消失4503789569、busy失敗後focus4503789571）を妥当と確認し、出力panel保持と元/別focus保持を追加回帰付きで修正。local Chromeはwrite拒否のため未実行で、最新CI・再レビュー・thread返信/解決を別確認する。
+- a3c5e27の最新full check/Legacy成功、Privacyの追加品質は52/53でsidepanelの明示focus保持が1失敗。busy中のpollが状態文を空にしてfocus先を隠す原因を修正し、1100ms保留と実poll観測を回帰へ追加。guardのメモリunit13/13成功、最新CI/Reviewの照合を残す。
+- 詳細は[UI回収報告書](ui-recovery-2026-11-08.md)。新Draftの最新head CI・Reviewは別取得し、PR本文で確認日時と結果を照合する。
+- 次の1マイルストーンは最新headでfull check、品質lab、sidepanel/editor/cloudと認証・Office回帰を完走し、Review/threadとUI受入を照合すること。土台P2は次回親PMが2026-11-14までに再triage。自律監視・終了後の継続実行なし。
+
 ## 2026-11-08 PR #287: OAuth主体変更P2修正
 
 Status: Accepted

@@ -56,6 +56,16 @@ test("20-step cloud editing preserves step 17 through reorder, undo, save and ke
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
       if(width===1024){const pane=await page.locator(".manual-step-center").boundingBox();assert.ok(pane.y+pane.height>=height-1,"Tablet editing uses the full remaining viewport");}
       await page.screenshot({path:`.artifacts/uiux-20261001/screens/cloud-${width}-step17.png`,fullPage:true});
+      await page.getByRole("button",{name:"画像を拡大して確認",exact:true}).click();
+      await page.locator(".cloud-image-inspection img").waitFor();
+      await page.getByRole("button",{name:"原寸表示",exact:true}).click();
+      assert.equal(await page.locator(".cloud-inspection-stage").getAttribute("data-fit"),"false");
+      await page.waitForFunction(()=>document.querySelector(".cloud-image-inspection img")?.naturalWidth===1200);
+      assert.ok(await page.locator(".cloud-image-inspection img").evaluate(image=>Math.abs(image.getBoundingClientRect().width-image.naturalWidth)<1),"narrow views retain actual readable image pixels");
+      await page.screenshot({path:`.artifacts/uiux-20261001/screens/cloud-${width}-image-inspection.png`});
+      await page.keyboard.press("Escape");
+      assert.equal(await page.getByRole("button",{name:"画像を拡大して確認",exact:true}).evaluate(node=>node===document.activeElement),true);
+
       const share=page.getByRole("button",{name:"共有",exact:true});await share.focus();await page.keyboard.press("Enter");await page.getByLabel("パスコード（12〜128文字）").waitFor();
       assert.equal(await page.locator(".manual-share-drawer").getByRole("button",{name:"閉じる",exact:true}).evaluate(node=>document.activeElement===node),true);
       await page.keyboard.press("Tab");

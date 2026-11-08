@@ -773,6 +773,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Reason: ブックマーク再訪時のJSON行止まりと、遅いprovider応答でpassword入力先が可視email欄へ移る不具合を解消する。認証fallbackやcookie境界は緩めない。
 - Evidence: `tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`。local書込み障害のため保存済みGit sourceをメモリ上で検証し、GitHub保存後のCIと最新SHAレビューを別確認する。
 
+### 2026-11-08: PR #280の状態・回復UIを現行契約へ回収
+
+- Status: Accepted
+- Decision: #280 `a44dde8..f750a3d` のUI hunkだけを認証base `cc83e1a` へ適合させる。開始・終了・復旧のbusy制御、実scroll領域への追従、選択目次の復帰、欠落下書き、一覧loading/error/retry、共有読者とLPを対象とする。期限切れhandoffは旧操作を再送せず、原本から新しく始める既存境界を番号付きで案内する。
+- Boundary: ADR-0040の無加工画像＋利用者確認＋手動編集、ADR-0041の製品認証とOffice復帰を正とする。旧自動mask/alias文言・workflowを移植しない。#280独自のDEC-091番号は現行認証・復帰決定と衝突するため採番を流用しない。新しい依存・env・DB・権限・認証方式を追加しない。
+- Verification: [全画面品質台帳](../02-ux/all-screen-quality-matrix.md)の合成表示・native記録・保存認可・lab/PDFを分ける。受賞、全画面の点数合格、field性能、remote SSO成功は今回の自動試験から主張しない。
+
 ### 2026-11-08: 共有応答待ちとクラウド画像編集の排他
 
 - Status: Accepted
@@ -780,3 +787,11 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
 - Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
 - Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。
+
+### 2026-11-08: クラウド一覧の再試行失敗後のフォーカス復帰
+
+- Status: Accepted
+- 対象: PR #288、review comment `4504498692`。
+- Decision: `loadManuals`開始時に一覧内のフォーカスを記録し、再失敗後に新しく描画した再試行ボタンへ復帰する。既存popupの`hadFocus`／`focusUnclaimed`と同じ条件で、応答時にフォーカスがbody・元要素・未設定の場合だけ`preventScroll`付きで戻す。検索欄など別要素へ移った場合と初回取得失敗では自動復帰しない。
+- Reason: 読み込み表示で元のボタンを削除しても、Enter／Spaceで連続して再試行できるようにする。既存のrequest serialによる古い応答破棄を維持し、新しい共通モジュールやグローバル状態は追加しない。
+- Verification: `tests/cloud-manual-ui-browser.test.mjs`の合成APIによる遅延503と実Chromiumで、連続再試行・待機中の検索欄のフォーカス保持を検証する。
