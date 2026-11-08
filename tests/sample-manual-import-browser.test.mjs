@@ -132,3 +132,54 @@ test("explicit sample import opens editable fixture, prevents double submit, ret
     }
   } finally { await browser.close(); }
 });
+
+test("sample import retains edits made during list, detail or share metadata reload at three widths", { timeout: 120_000 }, async () => {
+  const browser = await chromium.launch({ channel: "chromium", headless: true });
+  try {
+    for (const width of [1366, 1024, 390]) for (const phase of ["detail", "share", "list"]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, locale: "ja-JP" });
+      page.setDefaultTimeout(6000);
+      const existingId = "00000000-0000-4000-8000-000000000003";
+      const previous = { id: existingId, title: "合成した既存の手順書", updatedAt: "2026-11-08T00:00:00.000Z" };
+      const sample = { id: manualId, title: MANUAL_SAMPLE_DETAIL.manual.title, isSample: true, updatedAt: previous.updatedAt };
+      const reached = Promise.withResolvers(), release = Promise.withResolvers();
+      let importing = false;
+      await page.route(origin + "/**", async route => {
+        const path = new URL(route.request().url()).pathname;
+        const assets = {
+          "/manuals": ["text/html", renderCloudManualsPage({ workspaceId })],
+          "/assets/cloud-manual.css": ["text/css", CLOUD_MANUAL_CSS],
+          "/assets/cloud-manual.js": ["application/javascript", CLOUD_MANUAL_JS],
+          "/assets/editor-tools.js": ["application/javascript", EDITOR_TOOLS_JS]
+        };
+        if (assets[path]) return route.fulfill({ status: 200, contentType: assets[path][0], body: assets[path][1] });
+        const held = importing && (phase === "list" ? path === `${api}/manuals` : path === `${api}/manuals/${manualId}${phase === "share" ? "/share-links" : ""}`);
+        if (held) { reached.resolve(); await release.promise; }
+        const json = body => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+        if (path === `${api}/sample-manual`) { importing = true; return json({ status: "seeded", manualId }); }
+        if (path === `${api}/manuals`) return json({ manuals: importing ? [sample, previous] : [previous] });
+        if (path.endsWith("/share-links")) return json({ share: null });
+        const manual = path === `${api}/manuals/${existingId}` ? previous : path === `${api}/manuals/${manualId}` ? sample : null;
+        if (manual) return json({ manual, draft: { id: manual.id + "-draft", title: manual.title, description: "", updatedAt: previous.updatedAt, state: "draft" }, steps: [], permissions: { canEdit: true } });
+        return route.fulfill({ status: 404, body: "" });
+      });
+      try {
+        await page.goto(origin + "/manuals");
+        await page.getByRole("button", { name: previous.title, exact: true }).click();
+        const title = page.getByLabel("タイトル", { exact: true });
+        await title.waitFor();
+        await page.getByRole("button", { name: "手順書一覧", exact: true }).click();
+        await page.getByRole("button", { name: label, exact: true }).click();
+        await reached.promise;
+        const edited = `取得待ちの未保存タイトル ${phase} ${width}`;
+        await title.fill(edited);
+        release.resolve();
+        await page.locator("#cloud-message").filter({ hasText: "編集中の内容を保持しています" }).waitFor();
+        assert.equal(await title.inputValue(), edited, `${phase} at ${width} retains the user's input`);
+        assert.equal(await title.evaluate(node => node === document.activeElement), true);
+        assert.equal(await page.getByRole("button", { name: previous.title, exact: true }).getAttribute("aria-current"), "true");
+        assert.equal(await page.getByRole("button", { name: label, exact: true }).isEnabled(), true);
+      } finally { release.resolve(); await page.close(); }
+    }
+  } finally { await browser.close(); }
+});

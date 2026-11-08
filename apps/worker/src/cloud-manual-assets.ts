@@ -121,13 +121,15 @@ export const CLOUD_MANUAL_JS = `(() => {
       setMessage("編集中の変更や処理を完了してから、サンプルを取り込んでください。", "warning"); return;
     }
     const serial = requestSerial;
+    const version = editVersion;
+    const preserveDetailIf = () => dirty || saveInFlight || activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size || shareBusy || version !== editVersion;
     sampleImportState = "importing"; syncSampleImportButtons();
     setMessage("サンプルを取り込んでいます…");
     try {
       const result = await json(workspacePath() + "/sample-manual", { method: "POST" });
-      const preserveDetail = dirty || saveInFlight || activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size || shareBusy || serial !== requestSerial;
-      const loaded = await loadManuals(preserveDetail ? "" : result.manualId, { preserveDetail: Boolean(preserveDetail) });
-      if (loaded) setMessage((result.status === "alreadySeeded" ? "サンプルは既に入っています。" : "サンプルをワークスペースに入れました。") + (preserveDetail ? "編集中の内容を保持しています。一覧からサンプルを選べます。" : ""), "success");
+      const preserveDetail = preserveDetailIf() || serial !== requestSerial;
+      const loaded = await loadManuals(preserveDetail ? "" : result.manualId, { preserveDetail: Boolean(preserveDetail), preserveDetailIf });
+      if (loaded) setMessage((result.status === "alreadySeeded" ? "サンプルは既に入っています。" : "サンプルをワークスペースに入れました。") + (preserveDetail || loaded === "preserved" ? "編集中の内容を保持しています。一覧からサンプルを選べます。" : ""), "success");
     } catch (error) {
       setMessage(error.status === 401 || error.status === 403 ? "認証または保存先の権限を確認できません。自分のワークスペースでお試しください。" : "サンプルの取り込み結果を確認できません。同じボタンから再試行してください。", "error");
     } finally { sampleImportState = "idle"; syncSampleImportButtons(); }
@@ -619,9 +621,10 @@ export const CLOUD_MANUAL_JS = `(() => {
       if (serial !== requestSerial) return;
       list.removeAttribute("aria-busy");
       manuals = Array.isArray(payload.manuals) ? payload.manuals : [];
+      if (options.preserveDetail || options.preserveDetailIf?.()) { renderList(); return "preserved"; }
       selected = openId ? manuals.find((item) => item.id === openId) || selected : selected && manuals.find((item) => item.id === selected.id) || null;
       renderList();
-      if (selected && !options.preserveDetail) { if (await openManual(selected.id, options) !== true) return false; }
+      if (selected) { const opened = await openManual(selected.id, options); if (opened === "preserved") return opened; if (opened !== true) return false; }
       else if (!selected) { renderDetail(null); setMessage(manuals.length ? "続きから編集する手順書を選択してください。" : "最初の手順書を、Chrome拡張から作成できます。"); }
       return true;
     } catch (error) {
@@ -656,7 +659,6 @@ export const CLOUD_MANUAL_JS = `(() => {
     const selectedIndex = editorState?.steps.findIndex((step) => stepKey(step) === selectedStepKey) ?? 0;
     const serial = ++requestSerial;
     selected = manuals.find((item) => item.id === id) || null;
-    shareState = null; shareToken = null; shareMetaError = null;
     renderList();
     if (!selected) { renderDetail(null); return; }
     setMessage("手順書を読み込んでいます…");
@@ -664,13 +666,19 @@ export const CLOUD_MANUAL_JS = `(() => {
       const data = await json(workspacePath() + "/manuals/" + encodeURIComponent(id));
       if (serial !== requestSerial) return;
       if (options.expectedUpdatedAt && (data?.draft?.updatedAt !== options.expectedUpdatedAt || !savedSnapshotMatches(options.expectedSnapshot, data))) return false;
+      const shareResult = await loadShareMetadata(id);
+      if (serial !== requestSerial) return;
+      if (options.preserveDetailIf?.()) {
+        selected = manuals.find((item) => item.id === detailData?.manual?.id) || null;
+        renderList();
+        return "preserved";
+      }
       initializeEditor(data);
       if (!sameManual) { selectedStepKey = stepKey(editorState.steps[0] || {}); undoStack = []; redoStack = []; shareOpen = new URLSearchParams(location.search).has("shareManualId"); }
       else if (!editorState.steps.some((step) => stepKey(step) === selectedStepKey)) selectedStepKey = stepKey(editorState.steps[Math.max(0, selectedIndex)] || editorState.steps[0] || {});
       dirty = false;
       editVersion += 1;
-      const shareResult = await loadShareMetadata(id);
-      if (serial !== requestSerial) return;
+      shareToken = null;
       shareState = shareResult.state;
       shareMetaError = shareResult.error;
       renderDetail(data);

@@ -8,7 +8,7 @@ function importController({ canWrite = true, request = async () => ({ status: "s
   const messages = [], requests = [], loads = [], states = [];
   const controller = runInNewContext(`
     let sampleImportState = "idle", dirty = false, saveInFlight = false, activeCloudImageEditor = null,
-      cloudImageBusy = false, shareBusy = false, requestSerial = 1;
+      cloudImageBusy = false, shareBusy = false, requestSerial = 1, editVersion = 0;
     const pendingImageJobs = new Map();
     ${source}
     ({ importSample, setDirty(value) { dirty = value; }, navigate() { requestSerial++; }, state() { return sampleImportState; } });`, {

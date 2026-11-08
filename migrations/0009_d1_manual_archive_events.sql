@@ -26,6 +26,11 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'manual archive audit scope mismatch'); END;
 
+CREATE TRIGGER manual_archive_events_append_only_insert
+BEFORE INSERT ON manual_archive_events
+WHEN EXISTS (SELECT 1 FROM manual_archive_events e WHERE e.id = NEW.id OR e.manual_id = NEW.manual_id)
+BEGIN SELECT RAISE(ABORT, 'manual archive audit is append only'); END;
+
 CREATE TRIGGER manual_archive_events_append_only_update
 BEFORE UPDATE ON manual_archive_events
 BEGIN SELECT RAISE(ABORT, 'manual archive audit is append only'); END;

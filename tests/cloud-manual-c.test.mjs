@@ -1751,6 +1751,25 @@ test("ordinary D1 archive enforces method, origin, version, viewer and tenant bo
   assert.equal(count("manual_archive_events"), 0);
 });
 
+test("archive audit rejects INSERT OR REPLACE by either primary id or manual uniqueness", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  for (let index = 0; index < 2; index++) {
+    const seeded = await seedSample(workspaceId);
+    const path = `/api/workspaces/${workspaceId}/manuals/${seeded.payload.manualId}`;
+    const detail = (await jsonRequest(path)).payload;
+    assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body: { expectedUpdatedAt: detail.manual.updatedAt } })).response.status, 200);
+  }
+  const audits = all("SELECT * FROM manual_archive_events ORDER BY rowid");
+  assert.equal(audits.length, 2);
+  assert.equal(one("PRAGMA recursive_triggers").recursive_triggers, 0, "replacement cannot rely on recursive delete triggers");
+  const replace = database.prepare("INSERT OR REPLACE INTO manual_archive_events (id, workspace_id, manual_id, actor_application_id, action, expected_updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  for (const [id, source] of [[crypto.randomUUID(), audits[0]], [audits[0].id, audits[1]]]) {
+    assert.throws(() => replace.run(id, source.workspace_id, source.manual_id, source.actor_application_id, source.action, source.expected_updated_at, source.archived_at), /append only/);
+    assert.deepEqual(all("SELECT * FROM manual_archive_events ORDER BY rowid"), audits);
+  }
+});
+
 test("archive audit failure rolls back the manual and a role mutation immediately before the batch is rejected", async () => {
   const { workspaceId, actorId } = await bootstrap();
   await bundledSampleAssets();

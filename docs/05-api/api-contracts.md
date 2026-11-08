@@ -18,7 +18,7 @@ Status: Accepted
 
 - 本文は`{ expectedUpdatedAt: string }`のみ。表示中の`manual.updatedAt`を送る。未知field・不正JSONは400、欠落・不正日時は400 `MANUAL_ARCHIVE_VERSION_INVALID`。既存manual取得のworkspace UUID・manual UUID検証も適用する。
 - owner/admin/editorが対象workspace内の未アーカイブmanualだけを操作できる。viewerは403 `MANUAL_EDIT_FORBIDDEN`、別tenant・存在しない／既にアーカイブ済みmanualは404 `MANUAL_NOT_FOUND`。
-- 200 `{ archivedManualId }`。workspace・active identity/membership/roleと`expectedUpdatedAt`を条件付きUPDATEで再照合し、`status = archived`と`archived_at`だけを更新する。migration 0009の`manual_archive_events` INSERTと同じD1 batchで原子的に確定する。監査失敗では全体rollbackし、revision pointer・下書き・公開版・step・assetは保持する。
+- 200 `{ archivedManualId }`。workspace・active identity/membership/roleと`expectedUpdatedAt`を条件付きUPDATEで再照合し、`status = archived`と`archived_at`だけを更新する。migration 0009の`manual_archive_events` INSERTと同じD1 batchで原子的に確定する。監査行のINSERT OR REPLACEによる置換も既存id／manual_idで拒否する。監査失敗では全体rollbackし、revision pointer・下書き・公開版・step・assetは保持する。
 - CASまたはbatch直前の権限変更で更新件数が一致しない場合は409 `MANUAL_ARCHIVE_CONFLICT`。結果不明は503 `MANUAL_ARCHIVE_RESULT_UNKNOWN`で、一覧を再読込して確認し自動再送しない。成功後の再送は404で、新たな監査・副作用を作らない。復元・物理削除APIは今回追加しない。
 
 一覧`manuals[]`と詳細`manual`にbooleanの`isSample`を追加する。workspace内の予約prefixを持つcompleted新規claimとmanualの対応から導出し、タイトルから推測しない。改名・編集後もtrueを保持し、通常manualはfalse。アーカイブ済みは通常一覧・詳細から除外する。Product Eventの追加・payload変更はない。
