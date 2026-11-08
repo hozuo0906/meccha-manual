@@ -108,3 +108,32 @@ Status: Accepted
 ### 未実行事項と次の1マイルストーン
 
 今回の未実行事項: 最新SHAのGitHub CI確認、正式Codex Review、review threadへの返信・解決、PR／Issue更新、merge、配信、Phase 2 E2E全件、実provider SSO、remote D1/R2、実利用受入。PR／Issueへの書込みは禁止のためIssue #70も更新しない。実環境や利用者による受入の成功とは扱わない。次の1マイルストーンは監督Museによるpush済みSHAでのCI・正式再レビュー・当該thread対応と受入判定。今回の担当はcommit／pushとremote一致確認後に終了し、自律監視や終了後の継続実行は登録しない。
+
+## PR #289 CI回帰: 実MV3ハーネスの保存確認操作
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T15:13:18+09:00（Asia/Tokyo）。対象PR #289、branch `codex/acceptance-fixes-20261108`、着手HEAD `ea576b9927e1fe412060e07cf9749ed62ff79652`。AGENTS.md、session-handoff、Issue #70、PRの実headと、FR-001／002・NFR-001〜004・ADR-0032・送信確認境界・MVP-AC-010・テスト戦略を照合した。今回の範囲はこのCI回帰のハーネス修正、検証、本報告への追記と同branchへのcommit／pushだけとする。
+
+### 原因と修正
+
+- Legacy Phase 1 Baseline Integrityで実行する`test:extension-cloud-claim:runtime`の3フローが、新しい保存確認画面で`#save-confirm`を押さずに`completed`を待っていた。製品の「確認するまで送信しない」挙動は正しい。全体`npm run check`のチェーンにはこのruntime scriptが含まれておらず、前回の773/773成功ではこの回帰を検出できなかった。script／workflowの構成変更は今回の範囲に含めない。
+- `tests/extension-cloud-claim-runtime.test.mjs`の通常Access復帰2フローと、対の`tests/extension-cloud-claim-runtime-first-access.test.mjs`の初回Access復帰1フローで、既存locatorパターンに合わせて`#save-summary:not([hidden])`の表示を待ち、表示タイトルと下書きの一致・確認前のclaim未完了を検査してから`#save-confirm`をクリックする。実Workerを使う2フローでは確認前のclaim intentも0件であることを検査する。
+- 完了状態・保存後の原本保持・D1/R2保存と再閲覧のassertionを維持し、固定sleepやシナリオを追加しない。TTL回復、取消済みready、転送期限切れ、worker再起動、chunk／権限境界の既存シナリオに確認クリックを追加しない。製品コード・API・DB・依存は変更しない。
+- 両ファイルのbrowser importを既存`tests/support/test-browser.mjs`へ揃え、既設の`MECCHA_TEST_CHROME_PATH`でChromiumを選択できるようにした。環境変数・共通moduleの新設はない。
+
+### 検証
+
+環境: Node v24.22.1、既設Playwright Chromium 1248、実MV3、合成fixture、ローカルD1/R2。実行IDはexec session ID。初回Access試験の2hostnameは既存host resolverで127.0.0.1のHTTPS fixtureへ割り当てる。VMのsystem proxyによるトンネル失敗を避けるため、`--no-proxy-server`を加える一時launcherを`/tmp`へ作成し、既存`MECCHA_TEST_CHROME_PATH`で選択した。launcherやログはリポジトリへ含めない。
+
+| 検査 | 結果 | 実行ID |
+|---|---|---|
+| `npm run test:extension-cloud-claim:runtime`（2ファイルの一括実行） | 7/7、fail 0、skip 0、exit 0 | 65642 |
+| 上記成功後の全体`npm run check` | Node test summary集計773/773、fail 0、skip 0、最終secret／encodingまで成功、exit 0 | 38947 |
+| `git diff --check` | 成功 | — |
+
+先行失敗は最終成功と区別する。sandbox内の63771は子プロセスの詳細が得られずファイル単位の2失敗となり、assertion件数には採用しない。sandbox外の74550は6/7成功・1失敗で、初回Accessだけが確認画面到達前の`ERR_TUNNEL_CONNECTION_FAILED`。単独TAP診断30570と、合成hostnameのproxy bypass指定68381も同じ通信失敗だった。system proxyを使わない一時launcherでの初回Access単独62559は1/1成功し、その後のscript全件65642で7/7を確認した。別実行の成功件数を合算していない。
+
+### 未実行事項と引き継ぎ
+
+最新SHAのGitHub CI確認・正式Codex Review・PR／Issue更新・コメント・merge・配信、実provider SSO、remote D1/R2、実利用受入は未実行。依頼の書込み禁止に従いIssue #70も更新しない。次の1マイルストーンは監督Museによるpush済みSHAでのCI／正式Review確認。担当はcommit／pushとremote一致確認後に終了し、自律監視・終了後の継続実行は登録しない。
