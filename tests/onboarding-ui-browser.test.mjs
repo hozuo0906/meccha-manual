@@ -882,6 +882,11 @@ test("onboarding confirms summaries before new or resumed transmissions, support
       // A pending original save may be recovered for a newly requested Share action.
       await begin(fixture, action, format);
       await page.locator("#save-summary:not([hidden])").waitFor();
+      assert.equal(await page.locator(".intro").textContent(), action === "office"
+        ? "ログインを確認したあと、ワークスペース（手順書を保存する場所です）を準備してから編集画面へ戻ります。"
+        : "ログインを確認したあと、手順書をワークスペース（手順書を保存する場所です）に保存します。");
+      assert.equal((await page.locator("body").innerText()).split("手順書を保存する場所です").length - 1, 1);
+      assert.doesNotMatch(await page.locator("#save-summary").innerText(), /ワークスペース|手順書を保存する場所です/u);
       assert.equal(await page.locator("#save-title").textContent(), fixture.title === "" ? "無題の手順書" : "<img src=x onerror=alert(1)> 合成手順書");
       assert.equal(await page.locator("#save-title img").count(), 0, "title is text, never HTML");
       assert.equal(await page.locator("#save-counts").textContent(), "2手順・画像1枚");

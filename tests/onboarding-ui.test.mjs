@@ -6,6 +6,7 @@ import { inflateSync } from "node:zlib";
 import { buildContinueUrl, createHandoffAttemptId, createHandoffId, createHandoffMetadata, pruneExpiredHandoffs } from "../apps/extension/editor/handoff.js";
 import { getOnboardingOrigin } from "../apps/extension/onboarding-config.js";
 import { ONBOARDING_CSS, ONBOARDING_JS, renderOnboardingContinuePage } from "../apps/worker/src/onboarding-assets.ts";
+import * as appAssets from "../apps/worker/src/app-assets.ts";
 import worker from "../apps/worker/src/index.ts";
 import { inspectAppRuntimeConfig, isConfiguredOnboardingOrigin } from "../apps/worker/src/server-config.ts";
 
@@ -97,6 +98,25 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_JS, /X-Requested-With/);
   assert.match(ONBOARDING_JS, /手順書を保存/);
   assert.doesNotMatch(ONBOARDING_CSS, /unsafe-inline/);
+});
+
+test("onboarding HTML explains workspace only once in the intro", () => {
+  for (const bootstrapEnabled of [false, true]) {
+    const html = renderOnboardingContinuePage({ bootstrapEnabled });
+    assert.ok(html.includes('<p class="intro">ログインを確認したあと、手順書をワークスペース（手順書を保存する場所です）に保存します。</p>'));
+    assert.equal(html.split("手順書を保存する場所です").length - 1, 1);
+  }
+});
+
+test("Office intro replacement includes the workspace explanation once", () => {
+  assert.ok(ONBOARDING_JS.includes('document.querySelector(".intro")?.replaceChildren("ログインを確認したあと、ワークスペース（手順書を保存する場所です）を準備してから編集画面へ戻ります。")'));
+  assert.equal(ONBOARDING_JS.split("手順書を保存する場所です").length - 1, 1);
+});
+
+test("regular app assets keep the workspace explanation confined to onboarding", () => {
+  for (const [name, asset] of Object.entries(appAssets)) {
+    assert.equal(asset.includes("手順書を保存する場所です"), false, name);
+  }
 });
 
 test("runtime config requires an exact environment and onboarding origin pair", () => {
