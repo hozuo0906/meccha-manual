@@ -519,6 +519,8 @@ export const CLOUD_MANUAL_JS = `(() => {
   }
   async function loadManuals(openId = "", options = {}) {
     const serial = ++requestSerial;
+    const returnFocus = document.activeElement;
+    const hadListFocus = list.contains(returnFocus);
     setMessage("保存した手順書を読み込んでいます…");
     list.setAttribute("aria-busy","true");
     if(!manuals.length){list.replaceChildren(make("p","手順書を読み込んでいます…","cloud-loading-library"));}
@@ -540,6 +542,8 @@ export const CLOUD_MANUAL_JS = `(() => {
         const recovery=make("section","","cloud-empty-library");
         recovery.append(make("h3","手順書を読み込めませんでした"),make("p","保存済みの手順書は変更していません。接続を確認して、もう一度お試しください。"));
         const retry=make("button","もう一度読み込む","primary");retry.type="button";retry.addEventListener("click",()=>loadManuals(openId,options));recovery.append(retry);list.replaceChildren(recovery);
+        const focusUnclaimed = !document.activeElement || document.activeElement === document.body || document.activeElement === returnFocus;
+        if (hadListFocus && focusUnclaimed) retry.focus({ preventScroll: true });
       }
       setMessage(error.status === 401 || error.status === 403 ? "認証または権限を確認できません。画面を更新してください。" : error.message, "error");
     }

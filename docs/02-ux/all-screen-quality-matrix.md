@@ -11,7 +11,7 @@ PR #280の品質fixtureを、無加工画像・利用者確認（ADR-0040）と�
 | popup / sidepanel | idle/recording/paused/finish_failed/reinjection_failed/cancel_failed/restore、busy・連打・44px・focus、状態/一覧/画像読込失敗、編集を開けない場合の下書き復旧 | extension-recording-quality-browser、extension-sidepanel-browser |
 | 記録一覧 | 実scroll領域の末尾追従、過去手順閲覧中のanchor保持、画像読込失敗表示 | extension-recording-quality-browser、extension-sidepanel-browser |
 | 端末editor | 17/20復帰、目次だけのscroll、短い画面、保存失敗・retry、下書き欠落/読込障害、原本を空データで置換しない | extension-editor-browser |
-| cloud一覧 / editor | 初回loading/error/retry、空/検索0件、閲覧専用、画像編集・拡大・keyboard・選択rail・狭幅 | cloud-manual-ui-browser、cloud-manual-uiux-browser、cloud-manual-tools-browser、all-screen-quality-browser |
+| cloud一覧 / editor | 初回loading/error/retry、再失敗後の再試行ボタンへのfocus復帰（待機中に別要素へ移動したfocusは維持）、空/検索0件、閲覧専用、画像編集・拡大・keyboard・選択rail・狭幅 | cloud-manual-ui-browser、cloud-manual-uiux-browser、cloud-manual-tools-browser、all-screen-quality-browser |
 | 製品認証 / 保存復帰 | provider表示、ChatGPT既定OFF、login・loading/error、handoff期限切れの原本復旧、設定利用不能の再確認 | all-screen-quality-browser、product-auth-browser、onboarding-ui-browser |
 | 共有読者 | パスコード・リンク欠落・読み進める・17番復帰・選択目次・印刷・失効 | share-viewer-browser、all-screen-quality-browser |
 | brand LP | ブランド画像・コピー・レスポンシブ・overflow | all-screen-quality-browser、brand:check |

@@ -787,3 +787,11 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
 - Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
 - Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。
+
+### 2026-11-08: クラウド一覧の再試行失敗後のフォーカス復帰
+
+- Status: Accepted
+- 対象: PR #288、review comment `4504498692`。
+- Decision: `loadManuals`開始時に一覧内のフォーカスを記録し、再失敗後に新しく描画した再試行ボタンへ復帰する。既存popupの`hadFocus`／`focusUnclaimed`と同じ条件で、応答時にフォーカスがbody・元要素・未設定の場合だけ`preventScroll`付きで戻す。検索欄など別要素へ移った場合と初回取得失敗では自動復帰しない。
+- Reason: 読み込み表示で元のボタンを削除しても、Enter／Spaceで連続して再試行できるようにする。既存のrequest serialによる古い応答破棄を維持し、新しい共通モジュールやグローバル状態は追加しない。
+- Verification: `tests/cloud-manual-ui-browser.test.mjs`の合成APIによる遅延503と実Chromiumで、連続再試行・待機中の検索欄のフォーカス保持を検証する。

@@ -208,3 +208,5 @@ Issue #283／DEC-096のcallback参照元抑止とD1失敗分類は`tests/product
 ## 2026-11-08 UI回収の対応
 
 FR-004/005/007、NFR-003/004/005/007、MVP-AC-002/004/007/008/009の表示・操作品質を[全画面品質台帳](../02-ux/all-screen-quality-matrix.md)に対応づける。`extension-recording-quality-browser`はpopup/sidepanelの44px・連打・状態取得失敗・復旧・scroll、`extension-editor-browser`は保存失敗・選択目次復帰・欠落下書き、`all-screen-quality-browser`はLP/製品認証/一覧/読者の表示、`ui-quality-lab-browser`は合成画像・keyboard・contrast・PDFを検査する。認証は#287とADR-0041、画像はADR-0040を維持する。native記録・Worker/API認可の既存回帰は表示fixtureで代用しない。実行結果と未実行は[回収報告書](../09-delivery/ui-recovery-2026-11-08.md)へ記録する。
+
+2026-11-08 PR #288追補: クラウド一覧の再取得も失敗した場合、開始時に一覧内へあったフォーカスを新しい再試行ボタンへ戻す。待機中に別要素へ移動した場合はそのフォーカスを維持し、初回取得失敗ではボタンへ自動移動しない。`tests/cloud-manual-ui-browser.test.mjs`でEnter／Spaceによる連続再試行と待機中の検索欄への移動を検証する。対象指摘は`4504498692`、検証記録は[修正報告書](../09-delivery/ui-p2-fix-2026-11-08.md)を参照する。

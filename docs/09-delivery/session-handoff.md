@@ -1,3 +1,14 @@
+## 2026-11-08 PR #288: 一覧の再試行失敗後のフォーカス復帰
+
+Status: Accepted
+
+最終回帰確認日時: 2026-11-08T10:38:23+09:00（Asia/Tokyo）。監督Museの指定によるP2修正。対象branch `codex/ui-recovery-from-280-20261107`、着手HEAD `9eba894f3ac09d5cbc70ee255bc239cf05bc7d03`、review comment `4504498692`／thread `PRRT_kwDOTpNknc608kgP`を実取得した。
+
+- 初回一覧503→Enterで再試行→再503で新ボタンのfocusが失われることを修正前の回帰で確認し、`loadManuals`に開始時focusの記録と条件付き復帰を追加した。既存popupと同じ条件でbody／元要素／未設定時だけ復帰し、待機中に検索欄へ移ったfocusと初回失敗時のfocusは維持する。Enter／Spaceによる連続再試行と別focus保持が成功した。asset内容hashは`sha256-0b149ba73aa80f8a`。
+- 全体`npm run check`は`31860`でexit 0、Worker71/71・認証157/157、最終secret／encodingまで成功。関連browser14ファイル`52686`は64/67・exit 1・skip 0で、既存sidepanel poll待機1件と共有読者の次手順表示待機2件がtimeout。対象2ファイルを同じコード・assertionのまま直列再実行した`18399`は31/31・fail 0／skip 0／exit 0。別実行を一括成功へ合算しない。詳細は[修正報告書](ui-p2-fix-2026-11-08.md)。
+- 契約・traceability・decision-log・本記録・報告書を同じ修正commitに含め、同名originへpushしてlocal／origin／PR head一致を照合する。未追跡`.artifacts/`等の残骸は保存対象外。Issue #70はclosed／not_plannedと他branch履歴を保持して結果を同期する。
+- 次の1マイルストーンはMuseによる新headのCI／正式Codex Review／指摘threadの返信・解決とSHA照合。レビュー依存項目は未チェックのまま、Draft維持、merge・deploy・他PRコメントなし。実SSO／remote D1/R2／実Office描画／人によるscreen reader確認は未実施。担当は保存・報告後に終了し、自律監視・終了後の継続実行は登録しない。以下は履歴として保持する。
+
 ## 2026-11-08 PR #288: UI回収ブランチへのmain統合
 
 Status: Accepted

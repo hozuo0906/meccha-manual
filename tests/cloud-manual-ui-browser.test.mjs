@@ -6,6 +6,66 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
+test("cloud list keyboard retry restores focus after repeated failures and preserves focus moved during loading", { timeout: 60_000 }, async () => {
+  const server = createServer((request, response) => {
+    const assets = {
+      "/manuals": ["text/html; charset=utf-8", renderCloudManualsPage({ workspaceId: "workspace-retry" })],
+      "/assets/cloud-manual.css": ["text/css", CLOUD_MANUAL_CSS],
+      "/assets/cloud-manual.js": ["application/javascript", CLOUD_MANUAL_JS],
+      "/assets/editor-tools.js": ["application/javascript", EDITOR_TOOLS_JS]
+    };
+    const asset = assets[new URL(request.url, "http://localhost").pathname];
+    if (asset) response.writeHead(200, { "content-type": asset[0] }).end(asset[1]);
+    else response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  let browser;
+  let pendingResponse;
+  try {
+    browser = await chromium.launch({ channel: "chromium", headless: true });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    let requests = 0;
+    await page.route("**/api/workspaces/workspace-retry/manuals", async (route) => {
+      requests += 1;
+      await pendingResponse?.promise;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "一時的に読み込めません。" }) });
+    });
+    await page.goto(`http://127.0.0.1:${server.address().port}/manuals`);
+    const retry = page.getByRole("button", { name: "もう一度読み込む", exact: true });
+    const search = page.locator("#manual-search");
+    await retry.waitFor();
+    assert.equal(await retry.evaluate((button) => document.activeElement === button), false, "初回失敗ではフォーカスを奪わない");
+    assert.equal(requests, 1);
+    for (const moveFocus of [false, true]) {
+      await retry.focus();
+      for (const key of ["Enter", "Space"]) {
+        const previousButton = await retry.elementHandle();
+        pendingResponse = Promise.withResolvers();
+        await page.keyboard.press(key);
+        await page.locator(".cloud-loading-library").waitFor();
+        assert.equal(await previousButton.evaluate((button) => button.isConnected), false);
+        if (moveFocus) await search.focus();
+        pendingResponse.resolve();
+        await retry.waitFor();
+        assert.equal(await (moveFocus ? search : retry).evaluate((element) => document.activeElement === element), true,
+          moveFocus ? `${key}: 待機中に移動した検索欄のフォーカスを維持する` : `${key}: 新しい再試行ボタンへ復帰し続けて再試行できる`);
+        await previousButton.dispose();
+        if (moveFocus) await retry.focus();
+      }
+    }
+    assert.equal(requests, 5, "初回取得とキーボードによる4回の再取得が対象APIへ到達する");
+    assert.deepEqual(errors, []);
+  } finally {
+    pendingResponse?.resolve();
+    await browser?.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 60_000 }, async () => {
   const workspaceId = "workspace-1";
   const manualId = "manual-1";
