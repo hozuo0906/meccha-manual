@@ -1,3 +1,4 @@
+import { MANUAL_SAMPLE_DETAIL, MANUAL_SAMPLE_IMAGE_PATHS } from "./manual-sample-assets.ts";
 import { normalizeManualAnnotations, type ManualAnnotation } from "./manual-annotations.ts";
 import { ManualBrandingRepository, type BrandingRecord } from "./infra/d1/manual-branding-repository.ts";
 import { inspectManualRaster } from "./manual-raster.ts";
@@ -10,6 +11,7 @@ import { inspectAppRuntimeConfig } from "./server-config.ts";
 import { configuredProductProviders, getProductSession, hasProductSessionCookie } from "./product-auth.ts";
 import {
   CloudManualRepository,
+  SAMPLE_OPERATION_PREFIX,
   type ClaimIntentRecord,
   type ClaimUpdateTarget,
   type ClaimStepInput,
@@ -20,6 +22,7 @@ import {
 import type { AccessBindings, AppRuntimeBindings, ProductAuthBindings } from "./server-config.ts";
 
 export interface CloudManualEnv extends AccessBindings, AppRuntimeBindings, ProductAuthBindings {
+  ASSETS?: Fetcher;
   DB?: D1DatabaseLike;
   MANUAL_ASSETS?: R2Bucket;
 }
@@ -161,7 +164,7 @@ function textField(value: unknown, max: number, code: string, required = true): 
 }
 
 function operationField(value: unknown): string {
-  if (typeof value !== "string" || !OPERATION_PATTERN.test(value)) throw new CloudManualError(400, "OPERATION_ID_INVALID", "操作IDを確認してください。");
+  if (typeof value !== "string" || (!OPERATION_PATTERN.test(value) || value.startsWith(SAMPLE_OPERATION_PREFIX))) throw new CloudManualError(400, "OPERATION_ID_INVALID", "操作IDを確認してください。");
   return value;
 }
 
@@ -309,6 +312,12 @@ async function stagedAssetRoute(request: Request, env: CloudManualEnv, claimInte
   if (!hasImageSignature(contentType, bytes)) throw new CloudManualError(415, "ASSET_CONTENT_INVALID", "画像形式を確認してください。");
   const actualSha = await digest(bytes);
   if (actualSha !== expectedSha) throw new CloudManualError(400, "ASSET_DIGEST_MISMATCH", "画像の検証に失敗しました。");
+  return stageClaimAsset(env, actorId, repository, intent, slot, bytes, contentType, actualSha);
+}
+
+async function stageClaimAsset(env: CloudManualEnv, actorId: string, repository: CloudManualRepository, intent: ClaimIntentRecord, slot: number, bytes: Uint8Array, contentType: string, actualSha: string): Promise<Response> {
+  requireManualAssets(env);
+  const operationId = intent.operationId;
   const existing = await repository.getStagedAsset(actorId, intent.id, slot);
   const assetId = await deterministicAssetId(intent.id, slot);
   const objectKey = `${intent.workspaceId}/manuals/${intent.id}/${assetId}.${mediaExtension(contentType)}`;
@@ -328,7 +337,14 @@ async function stagedAssetRoute(request: Request, env: CloudManualEnv, claimInte
     reservation = existing;
   }
   const record = { id: assetId, claimIntentId: intent.id, assetSlot: slot, workspaceId: intent.workspaceId, operationId, objectKey, contentType, byteLength: bytes.byteLength, sha256: actualSha };
-  reservation ??= await repository.reserveStagedAsset(record, new Date().toISOString());
+  if (!reservation) {
+    try { reservation = await repository.reserveStagedAsset(record, new Date().toISOString()); }
+    catch (error) {
+      if (!(error instanceof D1RepositoryError) || error.code !== "conflict") throw error;
+      reservation = await repository.getStagedAsset(actorId, intent.id, slot) ?? undefined;
+      if (!reservation) throw error;
+    }
+  }
   if (reservation.id !== assetId || reservation.claimIntentId !== intent.id || reservation.assetSlot !== slot || reservation.workspaceId !== intent.workspaceId || reservation.operationId !== operationId || reservation.objectKey !== objectKey || reservation.contentType !== contentType || reservation.byteLength !== bytes.byteLength || reservation.sha256 !== actualSha) throw new CloudManualError(409, "ASSET_RETRY_CONFLICT", "同じ画像番号へ別の画像は保存できません。");
   if (reservation.status === "staged" || reservation.status === "completed") {
     let head: R2Object | null;
@@ -455,6 +471,11 @@ async function finalizeRoute(request: Request, env: CloudManualEnv, claimIntentI
   const intent = await repository.getClaimIntent(actorId, id);
   if (!intent) throw new CloudManualError(404, "CLAIM_INTENT_NOT_FOUND", "保存操作が見つかりません。");
   if (intent.operationId !== operationId) throw new CloudManualError(409, "CLAIM_OPERATION_CONFLICT", "保存操作が一致しません。");
+  return finalizeIntent(env, actorId, repository, intent, title, description, steps, assets, branding);
+}
+
+async function finalizeIntent(env: CloudManualEnv, actorId: string, repository: CloudManualRepository, intent: ClaimIntentRecord, title: string, description: string, steps: ClaimStepInput[], assets: ClaimAssetInput[], branding?: { themeColor: string; logoId: string | null }): Promise<Response> {
+  const operationId = intent.operationId;
   const fingerprint = await intentFingerprint({ operationId, title, description, steps, assets, ...(branding ? { branding } : {}) });
   if (intent.status === "completed") {
     if (intent.requestFingerprint === fingerprint && intent.manualId) return json({ status: "claimed", manualId: intent.manualId, cloudRef: claimCloudRef(intent) });
@@ -496,7 +517,7 @@ async function finalizeRoute(request: Request, env: CloudManualEnv, claimIntentI
   const brandingVersionId = branding ? await brandStore.claimSnapshot(actorId, intent.workspaceId, intent.id, branding.themeColor, branding.logoId, new Date().toISOString()) : null;
   if (!branding && await brandStore.hasClaimSnapshot(intent.workspaceId, intent.id)) throw new CloudManualError(409, "CLAIM_RETRY_CONFLICT", "同じ保存操作のロゴと色を変更できません。");
   const result = await repository.finalizeClaim(actorId, intent, fingerprint, title, description, resolvedSteps, staged, new Date().toISOString(), brandingVersionId);
-  const completed = await repository.getClaimIntent(actorId, id);
+  const completed = await repository.getClaimIntent(actorId, intent.id);
   return json({ ...result, cloudRef: completed ? claimCloudRef(completed) : null });
 }
 
@@ -504,6 +525,56 @@ function claimCloudRef(intent: ClaimIntentRecord): Record<string, unknown> | nul
   return intent.manualId && intent.completedRevisionId && intent.completedUpdatedAt && intent.completedContentVersion
     ? { workspaceId: intent.workspaceId, manualId: intent.manualId, revisionId: intent.completedRevisionId, updatedAt: intent.completedUpdatedAt, contentVersion: intent.completedContentVersion }
     : null;
+}
+
+async function sampleManualRoute(request: Request, env: CloudManualEnv, workspaceId: string): Promise<Response> {
+  const { actorId, repository } = await auth(request, env);
+  await repository.requirePersonalWorkspaceOwner(actorId, workspaceId);
+  if (request.body) {
+    const text = await readBoundedText(request);
+    if (text.trim()) {
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { throw new CloudManualError(400, "INVALID_JSON", "JSONの形式が正しくありません。"); }
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) throw new CloudManualError(400, "INPUT_INVALID", "サンプルの取り込みに本文は指定できません。");
+    }
+  }
+  const previous = await repository.latestSampleClaim(actorId, workspaceId);
+  let intent = previous ? await repository.getClaimIntent(actorId, previous.id) : null;
+  if (intent?.status === "pending" && Date.parse(intent.expiresAt) <= Date.now()) {
+    intent = await repository.expireClaimIntent(actorId, intent, new Date().toISOString());
+    if (!intent) throw new D1RepositoryError("forbidden");
+  }
+  if (intent?.status === "completed" && !previous?.archivedAt) {
+    if (!intent.manualId) throw new D1RepositoryError("unavailable");
+    return json({ status: "alreadySeeded", manualId: intent.manualId });
+  }
+  if (!intent || intent.status !== "pending") {
+    // Each archived/expired predecessor gives exactly one next operation, including concurrent retries.
+    const operationId = SAMPLE_OPERATION_PREFIX + await digest(new TextEncoder().encode(`${workspaceId}:${intent?.id ?? "initial"}`));
+    intent = await repository.createClaimIntent(actorId, operationId, 3, new Date().toISOString(), CLAIM_INTENT_TTL_MS);
+  }
+  if (intent.workspaceId !== workspaceId || intent.target) throw new D1RepositoryError("forbidden");
+  if (intent.status === "completed" && intent.manualId) return json({ status: "alreadySeeded", manualId: intent.manualId });
+  if (!env.ASSETS) throw new CloudManualError(503, "SAMPLE_ASSETS_UNAVAILABLE", "サンプル画像を読み込めません。もう一度お試しください。");
+  const assets: ClaimAssetInput[] = [];
+  const imagePaths = Object.keys(MANUAL_SAMPLE_IMAGE_PATHS);
+  for (const [assetSlot, imagePath] of imagePaths.entries()) {
+    // Fixed same-origin bundled resources only. Never forward the caller's credentials to ASSETS.
+    const response = await env.ASSETS.fetch(new Request(new URL(MANUAL_SAMPLE_IMAGE_PATHS[imagePath]!, request.url)));
+    if (!response.ok || response.headers.get("content-type")?.split(";", 1)[0] !== "image/png") throw new CloudManualError(503, "SAMPLE_ASSETS_UNAVAILABLE", "サンプル画像を読み込めません。もう一度お試しください。");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    inspectManualRaster(bytes, "image/png");
+    const sha256 = await digest(bytes);
+    await stageClaimAsset(env, actorId, repository, intent, assetSlot, bytes, "image/png", sha256);
+    assets.push({ assetSlot, sha256 });
+  }
+  const steps: ClaimStepInput[] = MANUAL_SAMPLE_DETAIL.steps.map((step) => ({
+    type: "action", title: step.title, instruction: step.instruction, actionType: null,
+    targetText: null, url: null, assetSlot: imagePaths.indexOf(step.assetUrl), assetId: null, annotations: []
+  }));
+  const result = await finalizeIntent(env, actorId, repository, intent, MANUAL_SAMPLE_DETAIL.manual.title, MANUAL_SAMPLE_DETAIL.draft.description, steps, assets);
+  const saved = await result.json() as { manualId: string };
+  return json({ status: "seeded", manualId: saved.manualId });
 }
 
 async function claimStatusRoute(request: Request, env: CloudManualEnv, claimIntentId: string): Promise<Response> {
@@ -523,7 +594,7 @@ async function claimStatusRoute(request: Request, env: CloudManualEnv, claimInte
 
 function manualPayload(detail: ManualDetailRecord, workspaceId: string): Record<string, unknown> {
   return {
-    manual: { id: detail.id, title: detail.title, status: detail.status, currentDraftRevisionId: detail.currentDraftRevisionId, currentPublishedRevisionId: detail.currentPublishedRevisionId, updatedAt: detail.updatedAt },
+    manual: { id: detail.id, isSample: detail.isSample, title: detail.title, status: detail.status, currentDraftRevisionId: detail.currentDraftRevisionId, currentPublishedRevisionId: detail.currentPublishedRevisionId, updatedAt: detail.updatedAt },
     draft: detail.draft,
     steps: detail.steps.map((step) => ({ ...step, assetUrl: step.assetId ? `/api/workspaces/${workspaceId}/assets/${step.assetId}` : null })),
     permissions: { canEdit: detail.canEdit }
@@ -556,6 +627,23 @@ async function draftRoute(request: Request, env: CloudManualEnv, workspaceId: st
   if (typeof body.expectedUpdatedAt !== "string" || Number.isNaN(Date.parse(body.expectedUpdatedAt))) throw new CloudManualError(400, "MANUAL_DRAFT_VERSION_INVALID", "下書きの版を確認してください。");
   const result = await repository.updateDraftWithSteps(actorId, workspaceId, manualId, title, description, boundedSteps(parseDraftSteps(body.steps)), body.expectedUpdatedAt, new Date().toISOString());
   return json(result);
+}
+
+async function archiveRoute(request: Request, env: CloudManualEnv, workspaceId: string, manualId: string): Promise<Response> {
+  if (request.method !== "POST") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。");
+  const { actorId, repository } = await auth(request, env);
+  const detail = await repository.getManual(actorId, workspaceId, manualId);
+  if (!detail) throw new CloudManualError(404, "MANUAL_NOT_FOUND", "手順書が見つかりません。");
+  if (!detail.canEdit) throw new CloudManualError(403, "MANUAL_EDIT_FORBIDDEN", "手順書を編集する権限がありません。");
+  const body = await readJson(request);
+  exactKeys(body, ["expectedUpdatedAt"]);
+  if (typeof body.expectedUpdatedAt !== "string" || Number.isNaN(Date.parse(body.expectedUpdatedAt))) throw new CloudManualError(400, "MANUAL_ARCHIVE_VERSION_INVALID", "手順書を再読み込みしてからアーカイブしてください。");
+  try { await repository.archiveManual(actorId, workspaceId, manualId, body.expectedUpdatedAt, new Date().toISOString()); }
+  catch (error) {
+    if (error instanceof D1RepositoryError && error.code === "conflict") throw new CloudManualError(409, "MANUAL_ARCHIVE_CONFLICT", "別の更新があります。最新の内容を確認してください。");
+    throw new CloudManualError(503, "MANUAL_ARCHIVE_RESULT_UNKNOWN", "アーカイブ結果を確認できません。一覧を再読み込みしてください。");
+  }
+  return json({ archivedManualId: manualId });
 }
 
 function brandingPayload(branding: BrandingRecord, workspaceId: string): Record<string, unknown> {
@@ -690,6 +778,7 @@ async function assetProxyRoute(request: Request, env: CloudManualEnv, workspaceI
 
 export async function handleCloudManualRoute(request: Request, env: CloudManualEnv): Promise<Response | null> {
   const path = new URL(request.url).pathname;
+  const sampleMatch = path.match(/^\/api\/workspaces\/([^/]+)\/sample-manual$/u);
   const intentMatch = path.match(/^\/api\/onboarding\/claim-intents$/u);
   const stagedMatch = path.match(/^\/api\/onboarding\/claim-intents\/([^/]+)\/assets\/([0-9]+)$/u);
   const claimLogoMatch = path.match(/^\/api\/onboarding\/claim-intents\/([^/]+)\/branding\/logo$/u);
@@ -697,12 +786,14 @@ export async function handleCloudManualRoute(request: Request, env: CloudManualE
   const brandingMatch = path.match(/^\/api\/workspaces\/([^/]+)\/branding(?:\/logos\/([^/]+))?$/u);
   const editedAssetMatch = path.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/draft\/assets\/([^/]+)$/u);
   const draftMatch = path.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/draft$/u);
+  const archiveMatch = path.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/archive$/u);
   const assetMatch = path.match(/^\/api\/workspaces\/([^/]+)(?:\/manuals\/([^/]+))?\/assets\/([^/]+)$/u);
   const manualMatch = path.match(/^\/api\/workspaces\/([^/]+)\/manuals(?:\/([^/]+))?$/u);
-  if (!intentMatch && !stagedMatch && !claimMatch && !assetMatch && !manualMatch && !draftMatch && !editedAssetMatch && !brandingMatch && !claimLogoMatch) return null;
+  if (!sampleMatch && !intentMatch && !stagedMatch && !claimMatch && !assetMatch && !manualMatch && !draftMatch && !archiveMatch && !editedAssetMatch && !brandingMatch && !claimLogoMatch) return null;
   try {
     requireManualAssets(env);
     assertSameOrigin(request, env);
+    if (sampleMatch) { if (request.method !== "POST") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。"); return await sampleManualRoute(request, env, uuid(sampleMatch[1]!, "WORKSPACE_ID_INVALID")); }
     if (intentMatch) { if (request.method !== "POST") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。"); return await claimIntentRoute(request, env); }
     if (claimLogoMatch) return await claimBrandLogoRoute(request, env, claimLogoMatch[1]!);
     if (stagedMatch) { if (request.method !== "PUT") throw new CloudManualError(405, "METHOD_NOT_ALLOWED", "この操作には対応していません。"); return await stagedAssetRoute(request, env, stagedMatch[1]!, Number(stagedMatch[2]!)); }
@@ -711,6 +802,7 @@ export async function handleCloudManualRoute(request: Request, env: CloudManualE
     if (brandingMatch) return await brandingRoute(request, env, brandingMatch[1]!, brandingMatch[2] ?? null);
     if (editedAssetMatch) return await editedAssetRoute(request, env, editedAssetMatch[1]!, uuid(editedAssetMatch[2]!, "MANUAL_ID_INVALID"), editedAssetMatch[3]!);
     if (draftMatch) return await draftRoute(request, env, draftMatch[1]!, uuid(draftMatch[2]!, "MANUAL_ID_INVALID"));
+    if (archiveMatch) return await archiveRoute(request, env, archiveMatch[1]!, uuid(archiveMatch[2]!, "MANUAL_ID_INVALID"));
     if (assetMatch) return await assetProxyRoute(request, env, assetMatch[1]!, assetMatch[3]!);
     const matchedManual = manualMatch!;
     return await manualRoute(request, env, matchedManual[1]!, matchedManual[2] ? uuid(matchedManual[2]!, "MANUAL_ID_INVALID") : null);

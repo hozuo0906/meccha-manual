@@ -2,6 +2,14 @@
 
 Status: Accepted
 
+## 段階Dの手順書アーカイブ監査（DEC-115）
+
+`migrations/0010_d1_manual_archive_events.sql`は`manual_archive_events`を追加する。列は`id`（TEXT主キー）、`workspace_id`（workspaces FK）、`manual_id`（manuals FK、UNIQUE）、`actor_application_id`（identities FK）、`action`（`manual.archived`固定）、`expected_updated_at`（TEXT）、`archived_at`（SQLiteで日時解釈可能なTEXT）。FKはいずれもON DELETE RESTRICT、workspace／時刻／IDのindexを持つ。本文・画像・credentialは監査へ保存しない。
+
+scope insert triggerはmanual/workspace一致、archived状態・時刻・期待updated_at一致、active workspace・identity・membershipとowner/admin/editor roleを要求する。既存idまたはmanual_idに一致するINSERT（OR REPLACEを含む）とupdate/deleteをtriggerで拒否し、recursive_triggers設定に依存せずappend-onlyを強制する。Workerはactor＋workspace固定の条件付きmanual UPDATE（未アーカイブ・期待updated_at一致）と監査INSERTを同一D1 batchで実行し、各変更件数を照合する。監査失敗時はmanual変更もrollbackし、revision・step・asset参照を保持する。通常の一覧・詳細・asset queryは既存の未アーカイブ境界を維持する。
+
+サンプル由来は既存`claim_intents`のサーバー予約prefix `sample_manual_v1_`とcompleted／workspace／manual対応から導出し、新しいmanual列を作らない。公開claimは予約prefixを拒否する。投入はactive Personal Workspaceの作成者ownerだけに限定する。`tests/cloud-manual-c.test.mjs`がtenant／viewer／Team拒否、直接DML scope、append-only、CAS、監査rollback、batch直前role mutationを確認する。Supabase/Postgres baseline・RLSは変更しない。remote D1へのmigration適用は未実施。
+
 ## OAuthログイン一時データの上限付き整理（Issue #283）
 
 `oauth_transactions` の期限は既存の10分契約を正とする。login start ごとに `expires_at <= 現在時刻` かつ解釈可能な行を最大100件だけ削除し、新規 transaction の INSERT と同一 D1 batch で確定する。batch の失敗は `AUTH_STORAGE_UNAVAILABLE` として rollback し、未期限切れ行（`consumed_at` の有無を問わない）、`auth_sessions`、identity、workspace は変更しない。schema、migration、追加 retention は不要である。
