@@ -12,9 +12,9 @@ PR #280の品質fixtureを、無加工画像・利用者確認（ADR-0040）と�
 | 記録一覧 | 実scroll領域の末尾追従、過去手順閲覧中のanchor保持、画像読込失敗表示 | extension-recording-quality-browser、extension-sidepanel-browser |
 | 端末editor | 17/20復帰、目次だけのscroll、短い画面、保存失敗・retry、下書き欠落/読込障害、原本を空データで置換しない | extension-editor-browser |
 | cloud一覧 / editor | 初回loading/error/retry、再失敗後の再試行ボタンへのfocus復帰（待機中に別要素へ移動したfocusは維持）、空/検索0件、閲覧専用、画像編集・拡大・keyboard・選択rail・狭幅 | cloud-manual-ui-browser、cloud-manual-uiux-browser、cloud-manual-tools-browser、all-screen-quality-browser |
-| サンプルeditor（段階A） | 認証不要・6手順／3同梱画像・サンプル明示・編集／出力禁止・API write 0回、1366/1024/390px、手順keyboard選択・画像拡大とEscape復帰 | manual-sample.test、manual-sample-browser |
+| サンプルeditor（段階B） | 認証不要・6手順／3同梱画像・サンプル・保存不可／離脱時消失の明示、文章編集・手順追加（200件）／削除／並べ替え・undo／redo・破棄確認付きfixture読み直し、保存登録案内・共有／出力／画像編集／branding禁止・API read／write 0回、1366/1024/390px、keyboard編集・画像拡大とEscape復帰 | manual-sample.test、manual-sample-browser |
 | 製品認証 / 保存復帰 | provider表示、ChatGPT既定OFF、login・loading/error、handoff期限切れの原本復旧、設定利用不能の再確認 | all-screen-quality-browser、product-auth-browser、onboarding-ui-browser |
-| Teamメンバー管理（DEC-113） | ownerだけの移管ボタン、対象・自身admin降格のconfirm／取消、保存中の排他、成功後の一覧再取得と旧ownerのボタン消去、結果不明時の自動再送禁止 | app-auth、product-auth-browser、m3-http-d1、d1-workspace、d1-binding |
+| Teamメンバー管理（DEC-114） | ownerだけの移管ボタン、対象・自身admin降格のconfirm／取消、保存中の排他、成功後の一覧再取得と旧ownerのボタン消去、結果不明時の自動再送禁止 | app-auth、product-auth-browser、m3-http-d1、d1-workspace、d1-binding |
 | 共有読者 | パスコード・リンク欠落・読み進める・17番復帰・選択目次・印刷・失効 | share-viewer-browser、all-screen-quality-browser |
 | brand LP | ブランド画像・コピー・レスポンシブ・overflow | all-screen-quality-browser、brand:check |
 | lab | 合成12画像、1440/390px、各3 fresh context、日本語/Asia-Tokyo/reduced-motion、計算済みcontrast・keyboard・実A4 PDF生成 | ui-quality-lab-browser |

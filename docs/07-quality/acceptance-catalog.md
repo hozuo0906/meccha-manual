@@ -20,7 +20,7 @@ Status: Accepted
 | AC-005 | Access session/JWTが期限切れ、不正、または再認証を要求している | 保護画面または保護APIへアクセスし、その後再認証する | 接続障害と区別した期限切れ案内を表示し、JWTをブラウザJavaScriptへ露出せず、保護データを残さず、再認証後に利用を再開できる |
 | AC-006 | activeなAccess user identity | D1対応workspace作成operationでワークスペースを作成する | 作成者をactiveなownerとして同じD1 atomic operation/batchで登録し、ワークスペースに属さない業務データを作らない |
 | AC-007 | A社メンバー | B社のworkspace memberを一覧、追加、更新しようとする | Worker認可とworkspace固定D1 query/constraintで拒否され、B社のメンバー情報を返さない |
-| AC-008 | owner、admin、editor、viewerが存在する | 参加コードの発行・期限切れ・再発行、メンバーの一覧・追加・ロール変更・停止、発行中の認証切替を行う | 発行者へBearerコードの影響と1対1共有を警告し、期限到達時は平文とコピー導線を消し、再発行は失効確認を行う。同一ユーザーの認証切替では遅延成功・失敗後に発行中状態を終了し、別ユーザーへ平文を表示しない。owner/adminの許可操作だけが成功し、editor/viewerの変更操作はWorker認可とworkspace固定D1 query/constraintで拒否され、通常APIのowner付与・変更は拒否される。移管はDEC-113の専用APIだけで、active owner本人→同一standard workspaceのactive非ownerに限り成功し、元ownerはadminになる。Personal・自己・越境・disabled/removed対象・移管後の旧ownerの再実行は拒否し、permitなし昇格と途中失敗はDBで拒否・rollbackする |
+| AC-008 | owner、admin、editor、viewerが存在する | 参加コードの発行・期限切れ・再発行、メンバーの一覧・追加・ロール変更・停止、発行中の認証切替を行う | 発行者へBearerコードの影響と1対1共有を警告し、期限到達時は平文とコピー導線を消し、再発行は失効確認を行う。同一ユーザーの認証切替では遅延成功・失敗後に発行中状態を終了し、別ユーザーへ平文を表示しない。owner/adminの許可操作だけが成功し、editor/viewerの変更操作はWorker認可とworkspace固定D1 query/constraintで拒否され、通常APIのowner付与・変更は拒否される。移管はDEC-114の専用APIだけで、active owner本人→同一standard workspaceのactive非ownerに限り成功し、元ownerはadminになる。Personal・自己・越境・disabled/removed対象・移管後の旧ownerの再実行は拒否し、permitなし昇格と途中失敗はDBで拒否・rollbackする |
 | AC-009 | active identityかつactive membershipの有効ownerが1人だけ存在する | そのownerを停止、削除、owner以外へ変更する、またはidentityをdisabledへ変更する | APIとDBで拒否し、ワークスペースに有効ownerを1人以上維持する。disabled identityのowner membershipは代替ownerに数えない |
 | AC-010 | editorユーザー | 手動で手順書を作成して公開する | 公開URLで公開版を閲覧できる |
 | AC-011 | 公開版が存在する | 下書きを編集する | 公開版の内容は変わらない |

@@ -60,14 +60,14 @@ repositoryの公開メソッドは用途別に固定し、resource IDだけの�
 
 通常member更新はowner付与・変更・最後のowner喪失・非active membershipの同意なし再活性化・自己停止を拒否する。再活性化は本人が発行したjoin code消費だけが入口である。0件更新は成功にせず、既存行が要求済みstateと一致する冪等再送だけは監査追記なしで成功として扱い、それ以外は呼び出し側で安全なconflict/forbidden結果へ写像する。
 
-最後の有効ownerの保護はworkspaceのactive/suspended/deleted状態にかかわらず保持する。削除・停止したworkspaceを理由にidentity無効化から保護を迂回する例外は設けず、standard workspaceの所有権移管はDEC-113の専用batchに限って許可する。Personal Workspace移管・アカウント終了の専用フローは提供しない。
+最後の有効ownerの保護はworkspaceのactive/suspended/deleted状態にかかわらず保持する。削除・停止したworkspaceを理由にidentity無効化から保護を迂回する例外は設けず、standard workspaceの所有権移管はDEC-114の専用batchに限って許可する。Personal Workspace移管・アカウント終了の専用フローは提供しない。
 
 ## Verification boundary
 
 `migrations/0001_d1_identity_workspace.sql`と`migrations/0002_d1_personal_workspace.sql`をNode `node:sqlite`へ順に適用するrepository testは、既存rowのstandard backfill、kind immutable、personal uniqueness、並行bootstrap収束、非active personalのfail closedを含む制約を確認する。`test:d1-binding`は同じmigration列とrepositoryをMiniflare D1 bindingで実行するHosted Linux用smokeとしてcheckへ含め、Windowsでは既知のworkerd起動停止のため明示skipする。今回のローカル実行はlocal SQL adapterとWindows skipまでであり、Cloudflare staging live D1、staging資源、operator provisioning、Access real accountの証明ではない。
 
 
-## 管理責任者移管のpermit（DEC-113）
+## 管理責任者移管のpermit（DEC-114）
 
 migration `0009_d1_owner_transfer.sql`は`workspace_owner_transfer_permits`を追加する。`workspace_id`は主キーかつworkspaces外部キー、`actor_application_id`と`target_application_id`はidentities外部キー（いずれもON DELETE RESTRICT）、`created_at`はNOT NULL。actorとtargetが異なることをCHECKする。各workspaceで同時に最大1件、専用batch中だけ存在し、成功時に削除、失敗時に発行を含めrollbackする。HTTP入出力・analyticsにpermitを公開しない。
 

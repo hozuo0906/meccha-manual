@@ -6,7 +6,7 @@ Status: Accepted
 
 2026-11-08、FR-003のstandard workspace管理責任者移管を実装する。branchは`codex/owner-transfer-20261108`、base mainは`ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。開始時にlocal main／origin/main／HEAD一致とcleanを確認した。既に存在した指定branchも同じSHAであり、そのbranchを使用した。AGENTS、session-handoff、GitHub Issue #70をread-only確認し、DEC-045/046、D1/API契約、AC-007/008/009/014を照合した。
 
-新決定はDEC-113（Accepted）。DEC-112は並行する復元PR #296が使用済み。DEC-045の専用移管未提供の部分だけを置換し、招待メールを送らない方針、参加コード同意、通常add/updateのowner拒否、last-owner保護を維持する。
+新決定はDEC-114（Accepted）。DEC-112は保存先名表示（PR #293）、DEC-113はサンプル段階B（PR #294）で使用済み。DEC-045の専用移管未提供の部分だけを置換し、招待メールを送らない方針、参加コード同意、通常add/updateのowner拒否、last-owner保護を維持する。
 
 ## 変更ファイル
 

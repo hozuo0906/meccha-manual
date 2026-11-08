@@ -90,7 +90,7 @@ Access modeの `POST /api/auth/logout` はSupabaseへ接続せず、認証済み
 | `POST /api/member-join-code` | active identity。短命・単回使用 |
 | `POST /api/workspaces/{id}/members` | owner/admin |
 | `PATCH /api/workspaces/{id}/members/{userId}` | owner/admin。owner変更は禁止 |
-| `POST /api/workspaces/{id}/owner-transfer` | active owner本人。standard workspaceのみ（DEC-113） |
+| `POST /api/workspaces/{id}/owner-transfer` | active owner本人。standard workspaceのみ（DEC-114） |
 
 WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないworkspace、別workspace、停止memberは存在を推測できない応答へ統一する。
 
@@ -98,7 +98,7 @@ WorkerはD1 queryへactor IDとworkspace IDを必ず渡す。存在しないwork
 
 `GET /api/session`と`GET /api/workspaces`の所属workspace一覧は最大1000件までを完全な一覧として返し、1001件目を検出した場合は `409 WORKSPACES_LIMIT_EXCEEDED` とする。D1 repositoryでsentinel行を取得して超過を検出し、先頭1000件だけの成功応答へ切り詰めない。
 
-## 管理責任者の移管（DEC-113）
+## 管理責任者の移管（DEC-114）
 
 `POST /api/workspaces/{workspaceId}/owner-transfer`は同一origin・JSON必須で、bodyは`{ "targetUserId": "UUID" }`の1項目だけを受け付ける。成功は`200 { "status": "ok" }`。認証済みのactive owner本人から、同一のactiveなstandard workspaceに所属するactive identity・active membershipのadmin/editor/viewerへだけ移管する。対象はowner、元ownerはadminになる。Personal Workspaceはcreated_byと本人ownerの境界を維持して拒否する。
 
@@ -177,7 +177,7 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 ### Issue #283 D1 member route and product shell update (2026-10-04)
 
 - D1 application routeの`GET/POST /api/workspaces/{workspaceId}/members`と`PATCH /api/workspaces/{workspaceId}/members/{userId}`は、Access／product actorを同じD1 workspace repositoryへ渡す。workspace固定query、active identity、membership、owner/admin mutation境界をWorkerとD1 constraintで再確認し、旧Supabase member handlerへfallbackしない。
-- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。通常メンバーAPIのownerロール付与・変更は拒否し、移管はDEC-113の専用APIに限定する。
+- `GET /api/session`の`members.status`はmember APIが有効なD1 routeでは`"ready"`を返す。外部または別workspaceの一覧は同一の`404 WORKSPACE_MEMBERS_NOT_FOUND`へ分類し、権限外のmutationは`403 ACCESS_FORBIDDEN`とする。通常メンバーAPIのownerロール付与・変更は拒否し、移管はDEC-114の専用APIに限定する。
 - 製品ログインのroot shellは製品／Access sessionでメールが返らない場合に架空のメールや個人情報を補わず「アカウント」と表示する。手順書リンクはD1 canonical `/manuals`へ遷移し、旧rootのSupabase作成入口やmanual POST 405を呼ばない。product logout後もprovider設定に応じた製品ログイン導線を維持し、password formへ戻さない。
 
 製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。
