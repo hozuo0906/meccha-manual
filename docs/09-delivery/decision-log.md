@@ -772,3 +772,11 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: 製品認証のHTML `/manuals` 再訪だけを固定ログイン先へ戻し、APIの401・権限拒否・storage障害は保持する。provider再取得成功時は表示済みpasswordフォームのフォーカスと入力を保持し、初回表示だけ初期フォーカスを置く。
 - Reason: ブックマーク再訪時のJSON行止まりと、遅いprovider応答でpassword入力先が可視email欄へ移る不具合を解消する。認証fallbackやcookie境界は緩めない。
 - Evidence: `tests/product-auth.test.mjs`、`tests/app-auth.test.mjs`。local書込み障害のため保存済みGit sourceをメモリ上で検証し、GitHub保存後のCIと最新SHAレビューを別確認する。
+
+### 2026-11-08: 共有応答待ちとクラウド画像編集の排他
+
+- Status: Accepted
+- 対象: PR #285、review comment `4503895303`。
+- Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
+- Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
+- Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。

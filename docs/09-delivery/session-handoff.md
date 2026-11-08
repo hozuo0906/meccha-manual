@@ -1,3 +1,15 @@
+## 2026-11-08 PR #287: main統合
+
+Status: Accepted
+
+確認日時: 2026-11-08T09:20:12+09:00（Asia/Tokyo）。監督Museの指定は、開始済みmain mergeの競合解消・生成物更新・回帰・報告書同梱のcommit／pushまで。Draftを維持し、PR merge・deploy・他PRコメントは行わない。以下の古いbaseとlocal書込み障害の記録は履歴として保持する。
+
+- 対象Issue #283／Draft PR #287、branch `codex/auth-port-from-284-20261107`。着手HEAD `cc83e1aeb761217f388d8fd64dee4909814ddd99`とmain `3e2fe6f568fbb7c77749d915177d8ce88a86e0b5`を統合。両側のdecision／handoff追加記録を保持し、共有P2 `6f3b550`の`shareBusy`とPOST／DELETE回帰を維持した。
+- 正規の共有editor bundleを再生成し、統合後assetから`APP_ASSET_VERSION=sha256-963d574fb050ea04`を再計算。認証本体・migration 0008・Chrome拡張は着手HEADと一致し、CSP data URL decodeも保持した。今回のGit index登録は成功し、過去の書込み失敗を現状へ流用しない。
+- `npm run check`全体exit 0（実行ID `50105`）、認証153/153、Worker71/71、D1 HTTP39/39、秘密値・encodingまで成功。関連browser 11ファイル22/22、fail 0／skip 0／exit 0（実行ID `61352`）。詳細は[統合報告書](auth-merge-main-2026-11-08.md)。自動mask moduleなし、拡張差分なし、自動経路不在の既存unitとraw pixel保持のnative回帰成功を確認した。
+- 本checkpointと報告書を同じmerge commitへ含め、同名origin branchへpush後にlocal／remote／PR headを照合する。Issue #70はclosed／not_plannedを保持し、#288等の他branch記録を残して今回の結果だけを同期する。
+- 次の1マイルストーン: Museによる新merge headのGitHub CI／Codex Review／thread照合。旧headの成功を流用せず、今回のローカル検証だけでPR／release完了とは扱わない。実SSO・remote D1/R2・実Office描画は未実行。実装担当は保存・報告後に終了し、自律監視は登録しない。
+
 ## PR #287 追加レビュー修正とlocal書込み障害
 
 Status: Accepted
@@ -21,6 +33,17 @@ Status: Accepted
 - 初回Access復帰runtimeだけはproxy tunnelでnavigationが失敗し未検証。実SSO／remote D1/R2／実Office描画は未実行。メール確認コードは未実装、ChatGPT既定OFF、email-only link禁止、自動mask廃止を維持する。
 - 詳細と実行境界は[認証移植検証報告書](auth-port-2026-11-07.md)。CI／最新headのCodex Review／Latest Review GateはDraft作成後の別確認であり、merge／release完了とは扱わない。Issue #70はclosed／not_plannedを確認し、今回更新しない。
 - 次の1マイルストーン候補は#280のUI改善のhunk単位回収。今回は未着手、自律監視なし。
+
+## 2026-11-08 PR #285 P2: 共有応答待ちの画像編集開始抑止
+
+Status: Accepted
+
+確認日時: 2026-11-08T08:38:01+09:00（Asia/Tokyo）。branch `codex/foundation-no-automask-20261107`、起点・着手時PR head `6f546862b8515d96317963226ab0b0d0a9244744`。監督Museの指示範囲はP2修正・回帰・標準check・同名branchへのpush。Draft維持、merge・deploy・他PRコメントは行わない。
+
+- review comment `4503895303`の競合を確認し、共通画像編集入口で既存`shareBusy`を確認する1か所のgateを追加した。共有応答待ち中は画像編集を始めず、日本語で案内する。新しい状態・依存・API／認証／保存契約の変更、自動maskの再導入はない。
+- 遅延POST／DELETE回帰は修正前に両方とも狙ったassertionで失敗、修正後は2/2成功。関連browser 6ファイル8/8、fail 0／skip 0／exit 0（実行ID `19194`）。画像適用・保存・手順切替・再編集と、既存共有／画像／Office回帰を確認した。
+- `npm run check`はasset内容ハッシュ更新後に全体成功、exit 0（実行ID `86394`）。詳細・変更ファイルは[修正報告書](foundation-p2-fix-2026-11-08.md)。このcheckpointと報告書を修正と同じcommitへ含め、push後にremote／PR head一致を確認する。
+- 次の1マイルストーン: Museによる新headのCI／Codex Reviewと指摘thread解決確認。最新CI／再レビューは未確認。実装担当は保存・報告後に終了し、監視・終了後の継続実行は登録しない。Issue #70の別branch #288のcheckpointは本修正で上書きしない。
 
 ## 2026-11-07 マイルストーン1: 自動置換なしの土台
 
