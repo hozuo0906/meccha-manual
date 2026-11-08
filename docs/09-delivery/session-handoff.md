@@ -1,3 +1,14 @@
+## 2026-11-08 登録後サンプル投入（段階D）
+
+Status: Accepted
+
+確認日時: 2026-11-08T21:01:28+09:00（Asia/Tokyo）。branch `codex/sample-mode-stage-d-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`（PR #291 merge）。未commit成果物を確認して継続。実行中、ローカル修正済み・未push。今回の指示は実装・検証・文書同期・commit／push・Draft PR・正式Codex Review対応まで。merge・deploy・Issue #70書込みは行わない。Issue #70はread-onlyで実取得したが今回の段階Dは未同期のまま監督側へ引き継ぐ。
+
+- active Personal Workspace作成者owner本人の明示POSTで固定6手順・3 PNGを通常claim経路へ正規保存する。予約prefixは公開claimから拒否。再送・同時保存・期限切れpendingを処理し、未アーカイブ既存サンプルは同一IDへ収束。通常D1アーカイブはCAS＋migration 0009のappend-only監査を同じbatchで確定し、アーカイブ後だけ次のサンプルを投入する。DEC-112、API・UX・traceability・D1 schemaを同期した。
+- 空状態＋常設panelの2入口、未保存・処理中guard、二重送信防止、遅延中編集・遷移時の詳細保持、isSample badgeを実装。誤った閲覧専用toggle名の先行失敗を再現し、テストだけを既存cloud幅分岐へ修正した。引継ぎasset version不一致を全体check98397（exit 1）で検出し、実測`sha256-3978951cae4940ed`へ版定数だけ同期した。
+- 対象`test:cloud-manual`は実行56869、66/66。`test:manual-sample:browser`は24671、3/3（投入テストは1366/1024/390pxを完走）。cloud UI/tools/UIUX回帰は8262、4/4。全てfail 0／skip 0／exit 0。全体check30145はexit 0、56 npm段階（本体＋55直下script）完走、Node summary集計796/796・fail 0／skip 0、最終encodingまで成功。docs 156／secret 473／encoding 401件。browserはcheck外の別証跡。[段階D報告書](sample-mode-stage-d-2026-11-08.md)に先行失敗と実環境注記を分けて記録した。
+- 次の1マイルストーンはMuseによる最新headの検品・CI／正式Review／thread／SHA照合と利用者受入。remote SSO、D1/R2へのmigration適用、Access policy、人のscreen readerは未実施。artifactとnode_modules symlinkは保持してcommit対象外とする。保存・報告後は終了し、自律監視・終了後の継続実行は登録しない。以下の過去checkpointは保持する。
+
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 
 Status: Accepted

@@ -35,6 +35,7 @@ export const CLOUD_MANUAL_CSS = `:root{color-scheme:light;font-family:system-ui,
 
 .manual-share-drawer .share-feedback:empty{display:none}
 
+.manual-sample-import{max-width:100%;white-space:normal;line-height:1.6;text-align:left}.manual-sample-badge{display:inline-block;border:1px solid var(--manual-line);border-radius:4px;padding:2px 6px;width:fit-content}
 .cloud-empty-library ol{margin:12px 0 24px;padding-left:24px;display:grid;gap:10px;max-width:60ch}.manual-editor[data-read-only=true] [data-manual-save],.manual-editor[data-read-only=true] [data-step-add],.manual-editor[data-read-only=true] .cloud-step-actions{display:none!important}.manual-editor[data-read-only=true] .manual-title{overflow:hidden;text-overflow:ellipsis}.manual-editor[data-read-only=true] .cloud-save-state{font-weight:700;color:#526671;background:#edf2f4;border-radius:6px;padding:6px 10px}.manual-editor[data-read-only=true] .cloud-step input:disabled,.manual-editor[data-read-only=true] .cloud-step textarea:disabled{opacity:1;color:#183039;-webkit-text-fill-color:#183039;background:transparent;border-color:transparent;resize:none;cursor:text}.manual-editor[data-read-only=true] .manual-mobile-actions{grid-template-columns:1fr 1fr}@media(max-width:760px){.manual-workspace[data-read-only=true]{display:block}.manual-editor[data-read-only=true] .manual-title{grid-column:2/4}.manual-editor[data-read-only=true] .cloud-save-state{grid-column:1/4;justify-self:start}}
 
 @media(max-width:760px){.image-editor-dialog[open]{height:100%;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-form{height:100%;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-form>header{position:static;min-height:58px;padding:8px 12px;background:#fff;border-bottom:1px solid #d7e2e5}.image-editor-dialog .image-editor-workspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(140px,30dvh) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}.image-editor-dialog .image-editor-canvas-wrap{display:flex;flex-direction:column;align-items:center;min-height:0;overflow:auto;padding:10px}.image-editor-dialog #imageEditorCanvas{width:auto;height:auto;min-height:0;max-width:100%;max-height:calc(100% - 24px);flex:none;object-fit:contain}.image-editor-dialog .image-editor-canvas-wrap>.editor-help{flex:none;font-size:12px;margin:2px 0}.image-editor-dialog .image-editor-tools{min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column}.image-editor-dialog .image-editor-actions{position:static;padding:8px 12px;min-height:64px;flex:none}}
@@ -70,6 +71,7 @@ export const CLOUD_MANUAL_JS = `(() => {
       steps: Array.isArray(data.steps) ? clone(data.steps).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) : []
     };
   }
+  let sampleImportState = "idle";
   let manuals = [];
   let selected = null;
   let detailData = null;
@@ -104,7 +106,32 @@ export const CLOUD_MANUAL_JS = `(() => {
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function workspacePath() { requireCloudWrite(); if (!workspaceId) throw new Error("ワークスペースを確認できません。"); return "/api/workspaces/" + encodeURIComponent(workspaceId); }
   async function json(url, init = {}) { requireCloudWrite(); const headers = { Accept: "application/json", "X-Requested-With": "XMLHttpRequest", ...(init.body ? { "Content-Type": "application/json" } : {}), ...(init.headers || {}) }; const response = await fetch(url, { ...init, credentials: "same-origin", cache: "no-store", headers }); let body = null; try { body = await response.json(); } catch {} if (!response.ok) { const error = new Error(body?.message || "手順書を確認できませんでした。"); error.status = response.status; error.code = body?.code; throw error; } return body; }
-  function renderList() { list.replaceChildren(); const query=String(document.querySelector("#manual-search")?.value||"").trim().toLocaleLowerCase("ja");const visible=manuals.filter(manual=>String(manual.title||"").toLocaleLowerCase("ja").includes(query));if(!visible.length){if(query){list.append(make("p","一致する手順書がありません。検索する言葉を変えてください。","cloud-empty-library"));return;}const empty=make("section","","cloud-empty-library");empty.append(make("h3","最初の手順書をつくりましょう"));const guide=make("ol");for(const text of ["記録したい業務画面をChromeで開きます。","Chromeの拡張機能から「めっちゃマニュアル」を選び、操作を記録します。","記録を終了して内容を確認し、「クラウドに保存」を選びます。"]){guide.append(make("li",text));}const refresh=make("button","保存後に一覧を更新","secondary");refresh.type="button";refresh.addEventListener("click",()=>loadManuals());const sample=make("a","サンプルを見る");sample.href="/manuals/sample";empty.append(guide,refresh,make("p"));empty.lastChild.append(sample);list.append(empty);return;}for(const manual of visible){const button=make("button","","cloud-list-button");button.type="button";button.disabled=saveInFlight;button.setAttribute("aria-label",manual.title||"名称未設定");button.setAttribute("aria-current",selected?.id===manual.id?"true":"false");button.append(make("span","手順書","manual-list-kicker"),make("strong",manual.title||"名称未設定"));const when=Date.parse(manual.updatedAt);button.append(make("span",sampleDetail?"サンプル・閲覧のみ":Number.isFinite(when)?"更新 "+new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium"}).format(when):"クラウドに保存済み","manual-list-meta"));button.addEventListener("click",()=>{if(!saveInFlight)openManual(manual.id);});list.append(button);} }
+  function renderList() { list.replaceChildren(); const query=String(document.querySelector("#manual-search")?.value||"").trim().toLocaleLowerCase("ja");const visible=manuals.filter(manual=>String(manual.title||"").toLocaleLowerCase("ja").includes(query));if(!visible.length){if(query){list.append(make("p","一致する手順書がありません。検索する言葉を変えてください。","cloud-empty-library"));return;}const empty=make("section","","cloud-empty-library");empty.append(make("h3","最初の手順書をつくりましょう"));const guide=make("ol");for(const text of ["記録したい業務画面をChromeで開きます。","Chromeの拡張機能から「めっちゃマニュアル」を選び、操作を記録します。","記録を終了して内容を確認し、「クラウドに保存」を選びます。"]){guide.append(make("li",text));}const refresh=make("button","保存後に一覧を更新","secondary");refresh.type="button";refresh.addEventListener("click",()=>loadManuals());const sample=make("a","サンプルを見る");sample.href="/manuals/sample";empty.append(guide,refresh,make("p"));empty.lastChild.append(sample);if(mode.canWrite)empty.append(sampleImportButton());list.append(empty);return;}for(const manual of visible){const button=make("button","","cloud-list-button");button.type="button";button.disabled=saveInFlight;button.setAttribute("aria-label",manual.title||"名称未設定");button.setAttribute("aria-current",selected?.id===manual.id?"true":"false");button.append(make("span","手順書","manual-list-kicker"),make("strong",manual.title||"名称未設定"));if(manual.isSample)button.append(make("span","サンプル","manual-list-meta manual-sample-badge"));const when=Date.parse(manual.updatedAt);button.append(make("span",sampleDetail?"サンプル・閲覧のみ":Number.isFinite(when)?"更新 "+new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium"}).format(when):"クラウドに保存済み","manual-list-meta"));button.addEventListener("click",()=>{if(!saveInFlight)openManual(manual.id);});list.append(button);} }
+  function sampleImportButton() {
+    const button = make("button", "サンプルを自分のワークスペースに入れる", "secondary manual-sample-import");
+    button.type = "button"; button.dataset.sampleImport = "";
+    button.disabled = sampleImportState === "importing";
+    button.addEventListener("click", importSample);
+    return button;
+  }
+  function syncSampleImportButtons() { root.querySelectorAll("[data-sample-import]").forEach(button => { button.disabled = sampleImportState === "importing"; }); }
+  async function importSample() {
+    if (!mode.canWrite || sampleImportState === "importing") return;
+    if (dirty || saveInFlight || activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size || shareBusy) {
+      setMessage("編集中の変更や処理を完了してから、サンプルを取り込んでください。", "warning"); return;
+    }
+    const serial = requestSerial;
+    sampleImportState = "importing"; syncSampleImportButtons();
+    setMessage("サンプルを取り込んでいます…");
+    try {
+      const result = await json(workspacePath() + "/sample-manual", { method: "POST" });
+      const preserveDetail = dirty || saveInFlight || activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size || shareBusy || serial !== requestSerial;
+      const loaded = await loadManuals(preserveDetail ? "" : result.manualId, { preserveDetail: Boolean(preserveDetail) });
+      if (loaded) setMessage((result.status === "alreadySeeded" ? "サンプルは既に入っています。" : "サンプルをワークスペースに入れました。") + (preserveDetail ? "編集中の内容を保持しています。一覧からサンプルを選べます。" : ""), "success");
+    } catch (error) {
+      setMessage(error.status === 401 || error.status === 403 ? "認証または保存先の権限を確認できません。自分のワークスペースでお試しください。" : "サンプルの取り込み結果を確認できません。同じボタンから再試行してください。", "error");
+    } finally { sampleImportState = "idle"; syncSampleImportButtons(); }
+  }
   function imageUrlFor(step) {
     const candidate = step?.assetUrl;
     if (typeof candidate !== "string" || !candidate) return null;
@@ -380,6 +407,11 @@ export const CLOUD_MANUAL_JS = `(() => {
     officeActions.append(wordExport, powerpointExport); office.append(officeActions);
     if (canEdit) tools.append(make("h2", "画像を調整"), imageButtons, make("h2", "編集履歴"), undo, redo, reload, make("h2","手順書の設定"),branding,print,office);
     else tools.append(make("h2", "手順書の出力"), print, office, reload);
+    if (canEdit) {
+      const archive = make("button", "手順書をアーカイブ", "secondary danger"); archive.type = "button";
+      archive.disabled = saveInFlight; archive.addEventListener("click", () => archiveManual(data, archive, form));
+      tools.append(archive);
+    }
     if (sampleDetail) {
       print.disabled = wordExport.disabled = powerpointExport.disabled = true;
       tools.prepend(make("p", "サンプルは閲覧のみです。編集・保存・共有・出力はできません。", "cloud-note"));
@@ -548,6 +580,32 @@ export const CLOUD_MANUAL_JS = `(() => {
       if (saveButton) saveButton.disabled = false;
     }
   }
+  async function archiveManual(data, button, form) {
+    if (!mode.canWrite || data.permissions?.canEdit === false || saveInFlight) return;
+    if (dirty || activeCloudImageEditor || cloudImageBusy || pendingImageJobs.size || shareBusy || sampleImportState === "importing") {
+      setMessage("編集中の変更や処理を完了してから、アーカイブしてください。", "warning"); return;
+    }
+    if (!window.confirm("この手順書をアーカイブしますか？一覧から非表示になります。")) return;
+    saveInFlight = true; form.inert = true; button.disabled = true; renderList();
+    setMessage("手順書をアーカイブしています…");
+    try {
+      const result = await json(workspacePath() + "/manuals/" + encodeURIComponent(data.manual.id) + "/archive", { method: "POST", body: JSON.stringify({ expectedUpdatedAt: data.manual.updatedAt }) });
+      if (result?.archivedManualId !== data.manual.id) throw new Error("archive result unknown");
+      clearProtectedEditor(); saveInFlight = false;
+      if (await loadManuals()) setMessage("手順書をアーカイブしました。", "success");
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) { clearProtectedEditor(); setMessage("認証または権限を確認できません。画面を更新してください。", "error"); }
+      else if (error.status === 409 || error.status === 400) setMessage(error.message, "error");
+      else {
+        saveInFlight = false;
+        await loadManuals();
+        setMessage("アーカイブ結果を一覧で確認してください。自動で再送はしません。", "warning");
+      }
+    } finally {
+      saveInFlight = false; form.inert = false; button.disabled = false; renderList();
+      if (button.isConnected && (!document.activeElement || document.activeElement === document.body)) button.focus({ preventScroll: true });
+    }
+  }
   async function loadManuals(openId = "", options = {}) {
     if (sampleDetail) { manuals = [sampleDetail.manual]; selected = manuals[0]; renderList(); return openManual(selected.id); }
     const serial = ++requestSerial;
@@ -563,10 +621,11 @@ export const CLOUD_MANUAL_JS = `(() => {
       manuals = Array.isArray(payload.manuals) ? payload.manuals : [];
       selected = openId ? manuals.find((item) => item.id === openId) || selected : selected && manuals.find((item) => item.id === selected.id) || null;
       renderList();
-      if (selected && !options.preserveDetail) await openManual(selected.id, options);
+      if (selected && !options.preserveDetail) { if (await openManual(selected.id, options) !== true) return false; }
       else if (!selected) { renderDetail(null); setMessage(manuals.length ? "続きから編集する手順書を選択してください。" : "最初の手順書を、Chrome拡張から作成できます。"); }
+      return true;
     } catch (error) {
-      if (serial !== requestSerial) return;
+      if (serial !== requestSerial) return false;
       if (error.status === 401 || error.status === 403) clearProtectedEditor();
       list.removeAttribute("aria-busy");
       renderList();
@@ -578,6 +637,7 @@ export const CLOUD_MANUAL_JS = `(() => {
         if (hadListFocus && focusUnclaimed) retry.focus({ preventScroll: true });
       }
       setMessage(error.status === 401 || error.status === 403 ? "認証または権限を確認できません。画面を更新してください。" : error.message, "error");
+      return false;
     }
   }
   async function openManual(id, options = {}) {
@@ -630,6 +690,7 @@ export const CLOUD_MANUAL_JS = `(() => {
   addEventListener("beforeunload",event=>{if(dirty||saveInFlight||activeCloudImageEditor||cloudImageBusy){event.preventDefault();event.returnValue="";}});
   document.querySelector("#manual-search")?.addEventListener("input",renderList);
   const librarySettings=make("button","チームの見た目","secondary");librarySettings.type="button";librarySettings.addEventListener("click",()=>openBrandingSettings(librarySettings));if (mode.canWrite) header?.append(librarySettings);
+  if (mode.canWrite) root.querySelector("[data-sample-import-entry]")?.append(sampleImportButton());
   if (sampleDetail) loadManuals(); else if (!workspaceId) setMessage("ワークスペースを確認できません。", "error"); else loadManuals(new URLSearchParams(location.search).get("shareManualId") || "");
 })();`;
 
@@ -638,5 +699,5 @@ export function renderCloudManualsPage({ workspaceId = "", assetVersion = "", mo
   const assetName = sample ? "manual-sample" : "cloud-manual";
   const version = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : "";
   const safeWorkspaceId = String(workspaceId).replace(/[&<>"']/g, "");
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${sample ? "サンプル | " : ""}手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/${assetName}.css${version}"></head><body><main id="cloud-manuals" class="cloud-shell" data-workspace-id="${sample ? "" : safeWorkspaceId}" data-editor-mode="${sample ? "sample" : "cloud"}"><header class="cloud-header"><div><p aria-hidden="true" class="cloud-brand-name">めっちゃマニュアル</p><h1>${sample ? "サンプルの手順書（閲覧のみ）" : "保存した手順書"}</h1><p class="cloud-note">いつもの仕事を、誰でも迷わず進められる手順書に。</p></div></header><p id="cloud-message" class="cloud-message" role="status" aria-live="polite"></p><div class="cloud-grid"><section class="cloud-panel manual-library" aria-labelledby="cloud-list-heading"><h2 id="cloud-list-heading">手順書一覧</h2><label for="manual-search" class="sr-only">手順書を検索</label><input id="manual-search" class="manual-search" type="search" placeholder="手順書を検索"><div id="cloud-list" class="cloud-list"></div></section><section class="cloud-panel" aria-labelledby="cloud-detail-heading"><h2 id="cloud-detail-heading" class="sr-only">手順書の内容</h2><div id="cloud-detail"><p class="cloud-note">一覧から手順書を選んでください。</p></div></section></div></main>${sample ? "" : `<script src="/assets/editor-tools.js${version}" defer></script>`}<script src="/assets/${assetName}.js${version}" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${sample ? "サンプル | " : ""}手順書 | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/${assetName}.css${version}"></head><body><main id="cloud-manuals" class="cloud-shell" data-workspace-id="${sample ? "" : safeWorkspaceId}" data-editor-mode="${sample ? "sample" : "cloud"}"><header class="cloud-header"><div><p aria-hidden="true" class="cloud-brand-name">めっちゃマニュアル</p><h1>${sample ? "サンプルの手順書（閲覧のみ）" : "保存した手順書"}</h1><p class="cloud-note">いつもの仕事を、誰でも迷わず進められる手順書に。</p></div></header><p id="cloud-message" class="cloud-message" role="status" aria-live="polite"></p><div class="cloud-grid"><section class="cloud-panel manual-library" aria-labelledby="cloud-list-heading"><h2 id="cloud-list-heading">手順書一覧</h2>${sample ? "" : '<p data-sample-import-entry></p>'}<label for="manual-search" class="sr-only">手順書を検索</label><input id="manual-search" class="manual-search" type="search" placeholder="手順書を検索"><div id="cloud-list" class="cloud-list"></div></section><section class="cloud-panel" aria-labelledby="cloud-detail-heading"><h2 id="cloud-detail-heading" class="sr-only">手順書の内容</h2><div id="cloud-detail"><p class="cloud-note">一覧から手順書を選んでください。</p></div></section></div></main>${sample ? "" : `<script src="/assets/editor-tools.js${version}" defer></script>`}<script src="/assets/${assetName}.js${version}" defer></script></body></html>`;
 }

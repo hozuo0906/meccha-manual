@@ -2,6 +2,27 @@
 
 Status: Accepted
 
+## 登録後サンプル投入とD1アーカイブ（段階D、DEC-112）
+
+既存の製品sessionまたは検証済みhuman Access主体を認証し、active identity・workspace・membershipをWorker/D1で照合する。writeは既存のsame-origin条件を要求する。認証不足は401、権限不足・origin違反は403、非対応メソッドは405、storage利用不能は503とし、JSON応答はno-storeとする。
+
+### `POST /api/workspaces/{workspaceId}/sample-manual`
+
+- 本文なし。互換上、空白または空object `{}` も受理する。任意のmanual・画像・workspace・operation指定、未知field、配列、nullは400 `INPUT_INVALID`、不正JSONは400 `INVALID_JSON`、上限超過は413。workspace ID不正は400 `WORKSPACE_ID_INVALID`。
+- active Personal Workspaceの`created_by`本人かつactive ownerだけが実行できる。他人のPersonal、Personalの非owner、Team/standardはownerでも403 `ACCESS_FORBIDDEN`。guestでの保存や登録時の自動投入はしない。
+- 200 `{ status: "seeded", manualId }` または200 `{ status: "alreadySeeded", manualId }`。固定6手順・同梱PNG 3枚を通常のclaim asset予約・R2保存・finalizeで確定する。ASSETS bindingへのRequestは資格情報を複製せず固定同梱画像だけを読む。画像binding欠落・取得失敗は503 `SAMPLE_ASSETS_UNAVAILABLE`。その他のD1/R2結果不明は既存503分類を使う。
+- `sample_manual_v1_`はサーバー専用operation prefix。公開claim-intent、asset upload、finalize、statusのoperation検証では400 `OPERATION_ID_INVALID`として拒否する。クライアントは内部intentを操作しない。
+- 未アーカイブcompletedは同じmanual IDを返す。改名・編集でも同一性は変わらない。途中失敗は同じpendingを再利用し、15分の期限を過ぎたpendingはexpiredへ遷移して次operationへ進む。workspace＋直前intent IDからoperationを決定し、同時実行も単一manual・3 assetへ収束する。同時finalizeがともに`seeded`を返す場合も同じmanual IDとなる。競合は409（`VERSION_CONFLICT`または既存claim/asset競合コード）で、権限を失った後の再試行は拒否する。保存応答消失は同じendpointの再試行で回収する。アーカイブ後だけ次のmanualを作る。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/archive`
+
+- 本文は`{ expectedUpdatedAt: string }`のみ。表示中の`manual.updatedAt`を送る。未知field・不正JSONは400、欠落・不正日時は400 `MANUAL_ARCHIVE_VERSION_INVALID`。既存manual取得のworkspace UUID・manual UUID検証も適用する。
+- owner/admin/editorが対象workspace内の未アーカイブmanualだけを操作できる。viewerは403 `MANUAL_EDIT_FORBIDDEN`、別tenant・存在しない／既にアーカイブ済みmanualは404 `MANUAL_NOT_FOUND`。
+- 200 `{ archivedManualId }`。workspace・active identity/membership/roleと`expectedUpdatedAt`を条件付きUPDATEで再照合し、`status = archived`と`archived_at`だけを更新する。migration 0009の`manual_archive_events` INSERTと同じD1 batchで原子的に確定する。監査失敗では全体rollbackし、revision pointer・下書き・公開版・step・assetは保持する。
+- CASまたはbatch直前の権限変更で更新件数が一致しない場合は409 `MANUAL_ARCHIVE_CONFLICT`。結果不明は503 `MANUAL_ARCHIVE_RESULT_UNKNOWN`で、一覧を再読込して確認し自動再送しない。成功後の再送は404で、新たな監査・副作用を作らない。復元・物理削除APIは今回追加しない。
+
+一覧`manuals[]`と詳細`manual`にbooleanの`isSample`を追加する。workspace内の予約prefixを持つcompleted新規claimとmanualの対応から導出し、タイトルから推測しない。改名・編集後もtrueを保持し、通常manualはfalse。アーカイブ済みは通常一覧・詳細から除外する。Product Eventの追加・payload変更はない。
+
 ## 公開の静的サンプル（段階A、DEC-111）
 
 `GET /manuals/sample`と専用JS／CSS（`/assets/manual-sample.js`、`/assets/manual-sample.css`）は認証不要の静的資産とする。画像配信は`GET /manuals/sample/images/{name}.png`の1経路で、`list`／`form`／`complete`だけを同梱PNGへ対応づけ、未知名・非GET・資産binding欠落は404とする。fixtureの画像にdata URLや外部画像を使わない。

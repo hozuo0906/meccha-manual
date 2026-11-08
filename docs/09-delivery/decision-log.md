@@ -821,3 +821,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Entry: ログイン画面と手順書0件の空状態にだけ「サンプルを見る」を添える。空状態の現行cloud版と既存app shell版を揃え、検索0件・取得失敗・既存手順書のある一覧やLPには置かない。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
+
+## DEC-112: 登録後のサンプルはPersonal Workspaceへ明示操作で正規保存する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: 段階Dは認証済みのactive Personal Workspace作成者かつactive owner本人に限定し、本文なしの`POST /api/workspaces/{workspaceId}/sample-manual`で固定6手順・同梱PNG 3枚を通常のstaged asset + finalize claim経路へ投入する。予約operation prefix `sample_manual_v1_`はサーバー専用とし、公開claimのoperation検証から拒否する。既存completed claimの未アーカイブmanualは`alreadySeeded`で同じIDを返し、改名・編集後も再作成しない。期限切れpendingをexpiredへ確定し、workspaceと直前intent IDから次operationを決定する。同時実行・途中失敗・応答消失も単一manualと3 assetへ収束させる。
+- Boundary: 呼出し元の資格情報を転送しない新規RequestでASSETS bindingから固定対応の同梱PNGだけを読み、private R2へ保存する。認証・same-origin・Worker認可・workspace固定queryとD1制約を維持する。ADR-0032に対する認証済みworkspaceへの正規保存であり、guest contentのサーバー保存ではない。DEC-111の公開閲覧専用routeは維持する。通常手順書のアーカイブはowner/admin/editorだけが`expectedUpdatedAt`のCASで`status`と`archived_at`を変え、migration 0009の`manual_archive_events`へ同じD1 batch内でappend-only監査を記録する。監査scope triggerと更新・削除拒否を設け、revision・step・assetを保持する。保存済みサンプルのアーカイブ後に限り次のサンプルを投入できる。復元・物理削除は今回有効化しない。
+- Entry: cloud一覧の0件空状態と常設panelの2入口に「サンプルを自分のワークスペースに入れる」を設ける。自動投入しない。二重送信、未保存編集、保存・画像・共有処理中をguardし、取り込み中の編集・遷移では`preserveDetail`で詳細を保持する。失敗・結果不明は同じボタンから再試行し、一覧と詳細の`isSample`で「サンプル」を明示する。
+- Next: Museが最新SHAのCI・正式Codex Review・threadと実操作を照合する。merge、deploy、remote migration適用、公開設定の変更は別ゲートとする。
+- Evidence: `cloud-manual-router.ts`、`infra/d1/cloud-manual-repository.ts`、`cloud-manual-assets.ts`、`migrations/0009_d1_manual_archive_events.sql`、`tests/cloud-manual-c.test.mjs`、`tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`、[段階D報告書](sample-mode-stage-d-2026-11-08.md)。

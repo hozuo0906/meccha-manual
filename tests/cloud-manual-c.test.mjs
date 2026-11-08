@@ -23,7 +23,7 @@ const migrationNames = [
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
-  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql", "0009_d1_manual_archive_events.sql"
 ];
 
 class LocalStatement {
@@ -1484,4 +1484,319 @@ test("expired update claims fence in-flight old-time CAS and revoked expiry writ
   const revoked = await editorRequest(`/api/onboarding/claims/${second.payload.claimIntentId}?operationId=${revokeOperation}`);
   assert.equal(revoked.response.status, 404);
   assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", second.payload.claimIntentId).status, "pending", "authorization is rechecked inside the terminal state mutation");
+});
+
+async function bundledSampleAssets() {
+  const { MANUAL_SAMPLE_DETAIL, MANUAL_SAMPLE_IMAGE_PATHS } = await import("../apps/worker/src/manual-sample-assets.ts");
+  const images = new Map(await Promise.all(Object.values(MANUAL_SAMPLE_IMAGE_PATHS).map(async (path) => [path, new Uint8Array(await readFile(new URL(`../apps/worker/brand-assets${path}`, import.meta.url)))])));
+  env.ASSETS = { async fetch(request) {
+    assert.equal(request.method, "GET");
+    assert.equal(request.headers.has("Cf-Access-Jwt-Assertion"), false, "caller credentials never reach the static assets binding");
+    const bytes = images.get(new URL(request.url).pathname);
+    return bytes ? new Response(bytes, { headers: { "content-type": "image/png" } }) : new Response(null, { status: 404 });
+  } };
+  return { fixture: MANUAL_SAMPLE_DETAIL, images };
+}
+
+async function seedSample(workspaceId, options = {}) {
+  return jsonRequest(`/api/workspaces/${workspaceId}/sample-manual`, { method: "POST", ...options });
+}
+
+test("sample seed persists six fixture steps and three workspace assets, proxies bytes and remains editable after rename", async () => {
+  const { workspaceId } = await bootstrap();
+  const { fixture, images } = await bundledSampleAssets();
+  assert.equal(count("manuals"), 0, "registration does not seed automatically");
+  const result = await seedSample(workspaceId);
+  assert.equal(result.response.status, 200, JSON.stringify(result.payload));
+  assert.equal(result.payload.status, "seeded");
+  assert.equal(count("manuals"), 1);
+  assert.equal(count("assets"), 3);
+  assert.equal(count("manual_steps"), 6);
+  const path = `/api/workspaces/${workspaceId}/manuals/${result.payload.manualId}`;
+  let detail = (await jsonRequest(path)).payload;
+  assert.equal(detail.manual.isSample, true);
+  assert.equal(detail.draft.title, fixture.manual.title);
+  assert.equal(detail.draft.description, fixture.draft.description);
+  assert.deepEqual(detail.steps.map(({ title, instruction }) => ({ title, instruction })), fixture.steps.map(({ title, instruction }) => ({ title, instruction })));
+  assert.equal(detail.permissions.canEdit, true);
+  assert.equal(new Set(detail.steps.map(step => step.assetId)).size, 3);
+  for (const [index, step] of detail.steps.entries()) {
+    const imageName = fixture.steps[index].assetUrl.split("/").at(-1);
+    const bytes = images.get(`/assets/manual-sample/${imageName}`);
+    assert.equal(step.assetUrl, `/api/workspaces/${workspaceId}/assets/${step.assetId}`);
+    const asset = one("SELECT * FROM assets WHERE id = ?", step.assetId);
+    assert.ok(asset.object_key.startsWith(`${workspaceId}/manuals/`));
+    assert.equal(asset.object_key.includes("/manuals/sample/"), false);
+    assert.equal(asset.checksum_sha256, await digest(bytes));
+    assert.equal(asset.bucket, "MANUAL_ASSETS");
+    assert.deepEqual(r2.objects.get(asset.object_key).body, bytes);
+    assert.equal(r2.objects.get(asset.object_key).customMetadata.checksum_sha256, asset.checksum_sha256);
+    const proxied = await jsonRequest(step.assetUrl, { parse: false });
+    assert.equal(proxied.response.status, 200);
+    assert.deepEqual(new Uint8Array(await proxied.response.arrayBuffer()), bytes);
+  }
+  const body = patchPayload(detail);
+  body.title = "名前を変えた手順書";
+  body.steps[0].instruction = "説明を編集しました。";
+  const saved = await jsonRequest(`${path}/draft`, { method: "PATCH", body });
+  assert.equal(saved.response.status, 200, JSON.stringify(saved.payload));
+  detail = (await jsonRequest(path)).payload;
+  assert.equal(detail.manual.isSample, true);
+  assert.equal(detail.draft.title, body.title);
+  assert.equal(detail.steps[0].instruction, body.steps[0].instruction);
+  const list = await jsonRequest(`/api/workspaces/${workspaceId}/manuals`);
+  assert.equal(list.payload.manuals[0].isSample, true);
+  assert.equal(list.payload.manuals[0].title, body.title);
+  const second = await seedSample(workspaceId, { body: {} });
+  assert.deepEqual(second.payload, { status: "alreadySeeded", manualId: result.payload.manualId });
+  assert.equal(count("manuals"), 1);
+  assert.equal(r2.putCount, 3);
+});
+
+test("sample seed rejects anonymous, cross-tenant, other personal owner, team membership and team ownership with zero writes", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  await bundledSampleAssets();
+  const other = await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "sample-other-owner", body: { operationId: "sample-other-bootstrap-operation" } });
+  const otherWorkspace = other.payload.workspaceId;
+  addEditorMember(workspaceId, "sample-personal-member", "editor");
+  const team = await jsonRequest("/api/workspaces", { method: "POST", body: { name: "合成チーム", slug: "sample-synthetic-team" } });
+  assert.equal(team.response.status, 201, JSON.stringify(team.payload));
+  addEditorMember(team.payload.workspaceId, "sample-team-member", "editor");
+  const beforeClaims = count("claim_intents");
+  const anonymous = await worker.fetch(new Request(`${BASE_URL}/api/workspaces/${workspaceId}/sample-manual`, { method: "POST", headers: { origin: BASE_URL } }), env, {});
+  assert.equal(anonymous.status, 401);
+  for (const [target, subject] of [[otherWorkspace, OWNER_SUBJECT], [workspaceId, "sample-personal-member"], [team.payload.workspaceId, "sample-team-member"], [team.payload.workspaceId, OWNER_SUBJECT]]) {
+    const result = await seedSample(target, { subject });
+    assert.equal(result.response.status, 403, JSON.stringify(result.payload));
+    assert.equal(result.payload.code, "ACCESS_FORBIDDEN");
+  }
+  assert.equal((await seedSample(workspaceId, { origin: "https://other.example.invalid" })).response.status, 403);
+  assert.equal((await seedSample(workspaceId, { origin: null })).response.status, 403);
+  assert.equal(count("claim_intents"), beforeClaims);
+  assert.equal(count("manuals"), 0);
+  assert.equal(r2.putCount, 0);
+  assert.ok(actorId);
+});
+
+test("sample seed rejects payload changes, methods and public use of the reserved operation namespace", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  for (const body of [{ title: "任意入力" }, { workspaceId }, [], "null", '{"manual":{}}']) {
+    assert.equal((await seedSample(workspaceId, { body })).response.status, 400);
+  }
+  assert.equal((await jsonRequest(`/api/workspaces/${workspaceId}/sample-manual`)).response.status, 405);
+  const reserved = "sample_manual_v1_" + "a".repeat(64);
+  const claim = await jsonRequest("/api/onboarding/claim-intents", { method: "POST", body: { operationId: reserved, assetCount: 0 } });
+  assert.equal(claim.response.status, 400);
+  assert.equal(claim.payload.code, "OPERATION_ID_INVALID");
+  assert.equal(count("claim_intents"), 0);
+  assert.equal(count("manuals"), 0);
+});
+
+test("sample seed retries R2 failure and unknown put result without a broken manual or duplicate images", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  const put = r2.put.bind(r2);
+  let attempt = 0;
+  r2.put = async (...args) => { if (++attempt === 2) throw new Error("synthetic second-image failure"); return put(...args); };
+  const failed = await seedSample(workspaceId);
+  assert.equal(failed.response.status, 503, JSON.stringify(failed.payload));
+  assert.equal(count("manuals"), 0);
+  assert.equal(count("assets"), 0);
+  assert.equal(count("manual_steps"), 0);
+  assert.equal(r2.objects.size, 1);
+  r2.put = put;
+  r2.failAfterPut = true;
+  const retried = await seedSample(workspaceId);
+  assert.equal(retried.response.status, 200, JSON.stringify(retried.payload));
+  assert.equal(count("manuals"), 1);
+  assert.equal(count("claim_intents"), 1);
+  assert.equal(r2.objects.size, 3);
+  assert.equal((await seedSample(workspaceId)).payload.manualId, retried.payload.manualId);
+});
+
+test("sample finalize batch rollback and committed response loss reconcile to one manual", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  d1.failAt = 4;
+  assert.equal((await seedSample(workspaceId)).response.status, 503);
+  assert.equal(count("manuals"), 0);
+  assert.equal(count("assets"), 0);
+  assert.equal(count("claim_intents", " WHERE status = 'pending'"), 1);
+  d1.failAt = -1;
+  const batch = d1.batch.bind(d1);
+  d1.batch = async (statements) => { await batch(statements); throw new Error("synthetic committed response loss"); };
+  assert.equal((await seedSample(workspaceId)).response.status, 503);
+  assert.equal(count("manuals"), 1);
+  d1.batch = batch;
+  const retried = await seedSample(workspaceId);
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.payload.status, "alreadySeeded");
+  assert.equal(count("manuals"), 1);
+  assert.equal(count("assets"), 3);
+  assert.equal(r2.putCount, 3);
+});
+
+test("concurrent sample seed operations share a single claim, manual and immutable asset set", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  const results = await Promise.all([seedSample(workspaceId), seedSample(workspaceId), seedSample(workspaceId)]);
+  for (const result of results) assert.equal(result.response.status, 200, JSON.stringify(result.payload));
+  assert.equal(new Set(results.map(result => result.payload.manualId)).size, 1);
+  assert.equal(count("manuals"), 1);
+  assert.equal(count("claim_intents"), 1);
+  assert.equal(count("assets"), 3);
+  assert.equal(r2.objects.size, 3);
+});
+
+test("sample seed recovers expired pending intent and permits a fresh sample after archive", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  r2.failPut = true;
+  assert.equal((await seedSample(workspaceId)).response.status, 503);
+  const expiredId = one("SELECT id FROM claim_intents").id;
+  database.prepare("UPDATE claim_intents SET expires_at = ? WHERE id = ?").run(NOW, expiredId);
+  r2.failPut = false;
+  const first = await seedSample(workspaceId);
+  assert.equal(first.response.status, 200, JSON.stringify(first.payload));
+  assert.equal(one("SELECT status FROM claim_intents WHERE id = ?", expiredId).status, "expired");
+  assert.equal(count("manuals"), 1);
+  const detail = (await jsonRequest(`/api/workspaces/${workspaceId}/manuals/${first.payload.manualId}`)).payload;
+  const archive = await jsonRequest(`/api/workspaces/${workspaceId}/manuals/${first.payload.manualId}/archive`, { method: "POST", body: { expectedUpdatedAt: detail.manual.updatedAt } });
+  assert.equal(archive.response.status, 200, JSON.stringify(archive.payload));
+  assert.equal(count("manual_archive_events"), 1);
+  const next = await seedSample(workspaceId);
+  assert.equal(next.response.status, 200, JSON.stringify(next.payload));
+  assert.equal(next.payload.status, "seeded");
+  assert.notEqual(next.payload.manualId, first.payload.manualId);
+  assert.equal(count("manuals", " WHERE archived_at IS NULL"), 1);
+  assert.equal(count("manuals"), 2);
+  const list = (await jsonRequest(`/api/workspaces/${workspaceId}/manuals`)).payload.manuals;
+  assert.deepEqual(list.map(manual => manual.id), [next.payload.manualId]);
+  assert.equal(list[0].isSample, true);
+  assert.equal((await seedSample(workspaceId)).payload.manualId, next.payload.manualId);
+});
+
+test("sample provenance and step assets retain the existing D1 immutability and manual-scope constraints", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  const seeded = await seedSample(workspaceId);
+  const claim = one("SELECT * FROM claim_intents WHERE manual_id = ?", seeded.payload.manualId);
+  assert.throws(() => database.prepare("UPDATE claim_intents SET operation_id = ? WHERE id = ?").run("changed-operation-0001", claim.id), /immutable/);
+  assert.throws(() => database.prepare("UPDATE claim_intents SET manual_id = ? WHERE id = ?").run(crypto.randomUUID(), claim.id), /immutable/);
+  const staged = await stageClaim();
+  const ordinaryBody = claimBody(staged);
+  ordinaryBody.manual.title = "備品の貸出を申請する（架空の画面）";
+  const ordinary = await jsonRequest(`/api/onboarding/claims/${staged.claimIntentId}`, { method: "POST", body: ordinaryBody });
+  assert.equal(ordinary.response.status, 200);
+  const step = one("SELECT id FROM manual_steps WHERE revision_id = (SELECT current_draft_revision_id FROM manuals WHERE id = ?)", ordinary.payload.manualId);
+  const asset = one("SELECT id FROM assets WHERE id IN (SELECT asset_id FROM claim_assets WHERE claim_intent_id = ?)", claim.id);
+  assert.throws(() => database.prepare("UPDATE manual_steps SET asset_id = ? WHERE id = ?").run(asset.id, step.id), /manual mismatch/);
+  const list = (await jsonRequest(`/api/workspaces/${workspaceId}/manuals`)).payload.manuals;
+  assert.equal(list.find(row => row.id === ordinary.payload.manualId).isSample, false, "same titles never imply provenance");
+});
+
+test("ordinary D1 archive preserves revisions/assets, records an immutable audit and hides both list and detail", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  const seeded = await seedSample(workspaceId);
+  const id = seeded.payload.manualId;
+  const path = `/api/workspaces/${workspaceId}/manuals/${id}`;
+  const detail = (await jsonRequest(path)).payload;
+  const before = one("SELECT * FROM manuals WHERE id = ?", id);
+  const revisions = all("SELECT * FROM manual_revisions WHERE manual_id = ?", id);
+  const steps = all("SELECT * FROM manual_steps WHERE revision_id = ?", before.current_draft_revision_id);
+  const assets = all("SELECT * FROM assets WHERE workspace_id = ?", workspaceId);
+  const archived = await jsonRequest(`${path}/archive`, { method: "POST", body: { expectedUpdatedAt: detail.manual.updatedAt } });
+  assert.equal(archived.response.status, 200, JSON.stringify(archived.payload));
+  assert.deepEqual(archived.payload, { archivedManualId: id });
+  const after = one("SELECT * FROM manuals WHERE id = ?", id);
+  assert.ok(after.archived_at);
+  assert.deepEqual({ ...after }, { ...before, status: "archived", archived_at: after.archived_at });
+  assert.deepEqual(all("SELECT * FROM manual_revisions WHERE manual_id = ?", id), revisions);
+  assert.deepEqual(all("SELECT * FROM manual_steps WHERE revision_id = ?", before.current_draft_revision_id), steps);
+  assert.deepEqual(all("SELECT * FROM assets WHERE workspace_id = ?", workspaceId), assets);
+  assert.equal((await jsonRequest(path)).response.status, 404);
+  assert.deepEqual((await jsonRequest(`/api/workspaces/${workspaceId}/manuals`)).payload.manuals, []);
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body: { expectedUpdatedAt: detail.manual.updatedAt } })).response.status, 404);
+  const audit = one("SELECT * FROM manual_archive_events WHERE manual_id = ?", id);
+  assert.equal(audit.workspace_id, workspaceId);
+  assert.equal(audit.action, "manual.archived");
+  assert.equal(audit.archived_at, after.archived_at);
+  assert.throws(() => database.prepare("UPDATE manual_archive_events SET action = action WHERE id = ?").run(audit.id), /append only/);
+  assert.throws(() => database.prepare("DELETE FROM manual_archive_events WHERE id = ?").run(audit.id), /append only/);
+});
+
+test("ordinary D1 archive enforces method, origin, version, viewer and tenant boundaries without side effects", async () => {
+  const { workspaceId } = await bootstrap();
+  await bundledSampleAssets();
+  const seeded = await seedSample(workspaceId);
+  const path = `/api/workspaces/${workspaceId}/manuals/${seeded.payload.manualId}`;
+  const detail = (await jsonRequest(path)).payload;
+  const before = one("SELECT * FROM manuals WHERE id = ?", seeded.payload.manualId);
+  addEditorMember(workspaceId, "sample-archive-viewer", "viewer");
+  const other = await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "sample-archive-other", body: { operationId: "sample-archive-other-bootstrap" } });
+  const body = { expectedUpdatedAt: detail.manual.updatedAt };
+  assert.equal((await jsonRequest(`${path}/archive`)).response.status, 405);
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", origin: null, body })).response.status, 403);
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body: {} })).response.status, 400);
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body: { ...body, extra: true } })).response.status, 400);
+  const stale = await jsonRequest(`${path}/archive`, { method: "POST", body: { expectedUpdatedAt: NOW } });
+  assert.equal(stale.response.status, 409);
+  assert.equal(stale.payload.code, "MANUAL_ARCHIVE_CONFLICT");
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", subject: "sample-archive-viewer", body })).response.status, 403);
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", subject: "sample-archive-other", body })).response.status, 404);
+  assert.equal((await jsonRequest(`/api/workspaces/${other.payload.workspaceId}/manuals/${seeded.payload.manualId}/archive`, { method: "POST", subject: "sample-archive-other", body })).response.status, 404);
+  assert.deepEqual(one("SELECT * FROM manuals WHERE id = ?", seeded.payload.manualId), before);
+  assert.equal(count("manual_archive_events"), 0);
+});
+
+test("archive audit failure rolls back the manual and a role mutation immediately before the batch is rejected", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  await bundledSampleAssets();
+  const seeded = await seedSample(workspaceId);
+  const path = `/api/workspaces/${workspaceId}/manuals/${seeded.payload.manualId}`;
+  const detail = (await jsonRequest(path)).payload;
+  const body = { expectedUpdatedAt: detail.manual.updatedAt };
+  const before = one("SELECT * FROM manuals WHERE id = ?", seeded.payload.manualId);
+  d1.failAt = 1;
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body })).response.status, 503);
+  assert.deepEqual(one("SELECT * FROM manuals WHERE id = ?", seeded.payload.manualId), before);
+  assert.equal(count("manual_archive_events"), 0);
+  d1.failAt = -1;
+  addEditorMember(workspaceId, "sample-archive-backup-owner", "owner");
+  d1.beforeBatch = () => { database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId); d1.beforeBatch = null; };
+  assert.equal((await jsonRequest(`${path}/archive`, { method: "POST", body })).response.status, 409);
+  assert.deepEqual(one("SELECT * FROM manuals WHERE id = ?", seeded.payload.manualId), before);
+  assert.equal(count("manual_archive_events"), 0);
+});
+
+test("archive audit D1 direct mutations reject valid foreign workspace and viewer identities for the actual scope reason", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  await bundledSampleAssets();
+  const seeded = await seedSample(workspaceId);
+  const id = seeded.payload.manualId;
+  const detail = (await jsonRequest(`/api/workspaces/${workspaceId}/manuals/${id}`)).payload;
+  const viewer = addEditorMember(workspaceId, "archive-audit-viewer", "viewer");
+  const other = await jsonRequest("/api/onboarding/bootstrap", { method: "POST", subject: "archive-audit-other", body: { operationId: "archive-audit-other-bootstrap" } });
+  const insert = database.prepare("INSERT INTO manual_archive_events(id, workspace_id, manual_id, actor_application_id, action, expected_updated_at, archived_at) VALUES (?, ?, ?, ?, 'manual.archived', ?, ?)");
+  assert.throws(() => insert.run(crypto.randomUUID(), workspaceId, id, actorId, detail.manual.updatedAt, NOW), /archive audit scope mismatch/, "an unarchived manual cannot get an archive event");
+  database.prepare("UPDATE manuals SET archived_at = ?, status = 'archived' WHERE id = ?").run(NOW, id);
+  assert.throws(() => insert.run(crypto.randomUUID(), other.payload.workspaceId, id, actorId, detail.manual.updatedAt, NOW), /archive audit scope mismatch/);
+  assert.throws(() => insert.run(crypto.randomUUID(), workspaceId, id, viewer, detail.manual.updatedAt, NOW), /archive audit scope mismatch/);
+  assert.equal(count("manual_archive_events"), 0);
+});
+
+test("sample finalize rechecks owner authorization after staged images, leaving no manual when membership changes", async () => {
+  const { workspaceId, actorId } = await bootstrap();
+  await bundledSampleAssets();
+  addEditorMember(workspaceId, "sample-finalize-backup-owner", "owner");
+  d1.beforeBatch = () => { database.prepare("UPDATE workspace_members SET role = 'viewer' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, actorId); d1.beforeBatch = null; };
+  const result = await seedSample(workspaceId);
+  assert.equal(result.response.status, 409, "finalize loses its atomic authorization fence");
+  assert.equal(result.payload.code, "VERSION_CONFLICT");
+  assert.equal((await seedSample(workspaceId)).response.status, 403, "subsequent requests fail the Personal owner check");
+  assert.equal(count("manuals"), 0);
+  assert.equal(count("assets"), 0);
+  assert.equal(count("manual_steps"), 0);
 });
