@@ -2,6 +2,12 @@ import type { AccessUserActor } from "../../access-identity.ts";
 import { D1RepositoryError } from "./d1-errors.ts";
 import type { D1DatabaseLike } from "./d1-types.ts";
 
+export interface ProductUserActor {
+  kind: "product_user";
+  issuer: string;
+  subject: string;
+}
+
 export interface BootstrapResult {
   status: "ready";
   workspaceId: string;
@@ -13,8 +19,8 @@ export class D1OnboardingRepository {
 
   constructor(db: D1DatabaseLike) { this.db = db; }
 
-  async bootstrap(actor: AccessUserActor, operationId: string): Promise<BootstrapResult> {
-    if (actor.kind !== "access_user" || !actor.issuer || !actor.subject.trim()) {
+  async bootstrap(actor: AccessUserActor | ProductUserActor, operationId: string): Promise<BootstrapResult> {
+    if ((actor.kind !== "access_user" && actor.kind !== "product_user") || !actor.issuer || !actor.subject.trim()) {
       throw new D1RepositoryError("actor_forbidden");
     }
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(operationId)) throw new D1RepositoryError("invalid_input");
@@ -51,7 +57,9 @@ export class D1OnboardingRepository {
             WHERE m.workspace_id = w.id AND m.application_id = w.created_by)`, now),
         bind(`INSERT INTO audit_logs(id, actor_application_id, workspace_id, target_application_id, action, metadata_json, created_at)
           SELECT ?3, w.created_by, w.id, NULL, 'workspace.created', '{}', ?4 FROM workspaces w
-          WHERE w.id = ?5 AND w.id = (${authorized})`, `bootstrap-${workspaceId}`, now, workspaceId),
+          WHERE w.id = ?5 AND w.created_at = ?4 AND w.id = (${authorized})
+            AND NOT EXISTS (SELECT 1 FROM audit_logs existing
+              WHERE existing.workspace_id = w.id AND existing.action = 'workspace.created')`, `bootstrap-${workspaceId}`, now, workspaceId),
         bind(`INSERT INTO onboarding_bootstrap_operations(application_id, operation_id, workspace_id, created_identity, created_at)
           SELECT (${identity}), ?3, (${authorized}), CASE WHEN (${identity}) = ?4 THEN 1 ELSE 0 END, ?5
           WHERE NOT EXISTS (SELECT 1 FROM onboarding_bootstrap_operations
@@ -77,7 +85,7 @@ export class D1OnboardingRepository {
     }
   }
 
-  private async assertAvailable(actor: AccessUserActor): Promise<void> {
+  private async assertAvailable(actor: AccessUserActor | ProductUserActor): Promise<void> {
     let state: { status: string; workspace_status: string | null; member_role: string | null; member_status: string | null } | null;
     try {
       state = await this.db.prepare(`SELECT i.status, w.status AS workspace_status, m.role AS member_role, m.status AS member_status

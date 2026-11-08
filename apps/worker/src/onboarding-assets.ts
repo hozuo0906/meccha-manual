@@ -7,6 +7,24 @@ export const ONBOARDING_JS = `(() => {
   const operationKey = "meccha-manual:onboarding-operation";
   const STORAGE_VERSION = 2;
   const configured = root?.dataset.bootstrapEnabled === "true";
+  const LOGIN_RETURN_KEY = "meccha-manual:product-login-return";
+  let initialHash = location.hash;
+  if (!location.hash) {
+    try {
+      const savedLogin = JSON.parse(sessionStorage.getItem(LOGIN_RETURN_KEY) || "null");
+      if (savedLogin && typeof savedLogin.hash === "string" && savedLogin.hash.startsWith("#") && savedLogin.hash.length <= 4096 && Number.isFinite(savedLogin.createdAt) && Date.now() - savedLogin.createdAt < 15 * 60 * 1000) {
+        history.replaceState(null, "", location.pathname + location.search + savedLogin.hash);
+        initialHash = location.hash;
+        sessionStorage.removeItem(LOGIN_RETURN_KEY);
+      }
+    } catch {}
+  }
+  function redirectToProductLogin() {
+    try { sessionStorage.setItem(LOGIN_RETURN_KEY, JSON.stringify({ hash: initialHash || location.hash, createdAt: Date.now() })); } catch {}
+    const login = new URL("/", location.origin);
+    login.searchParams.set("return", "/onboarding/continue");
+    location.assign(login.toString());
+  }
   const fragmentParams = new URLSearchParams(location.hash.slice(1));
   const fragmentValues = fragmentParams.getAll("handoff");
   const launchValues = fragmentParams.getAll("launchId");
@@ -617,7 +635,7 @@ export const ONBOARDING_JS = `(() => {
         try { await claimDraft(readyContext, payload); } catch (error) { message(error?.message || "手順書の保存に失敗しました。元の下書きは拡張機能に残っています。", "error"); setButton("同じ操作で再試行"); }
         return;
       }
-      if (response.status === 401) message("認証が確認できません。メールで認証してから、もう一度お試しください。", "error");
+      if (response.status === 401) { message("ログインが必要です。ログイン後に同じ下書きへ戻ります。", "error"); setButton("ログインして続ける"); redirectToProductLogin(); }
       else if (response.status === 403) message("このアカウントでは保存先を準備できません。", "error");
       else if (response.status === 429) message("試行回数の上限に達しました。少し時間をおいて、同じ操作でお試しください。", "error");
       else message("保存先の準備に失敗しました。元の下書きは拡張機能に残っています。同じ操作で再試行できます。", "error");

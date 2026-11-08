@@ -3,6 +3,50 @@ export interface SupabaseBindings {
   SUPABASE_ANON_KEY?: string;
 }
 
+/** Product login provider settings. Secrets are only inspected for presence. */
+export interface ProductAuthBindings {
+  GOOGLE_OIDC_CLIENT_ID?: string;
+  GOOGLE_OIDC_CLIENT_SECRET?: string;
+  OPENAI_SIWC_CLIENT_ID?: string;
+  OPENAI_SIWC_CLIENT_SECRET?: string;
+  OPENAI_SIWC_ENABLED?: string;
+}
+
+export interface ProductAuthProviderInspection {
+  configured: boolean;
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+  enabled: boolean;
+}
+
+export interface ProductAuthConfigInspection {
+  google: ProductAuthProviderInspection;
+  chatgpt: ProductAuthProviderInspection;
+}
+
+function inspectProvider(clientId: unknown, clientSecret: unknown, enabled: unknown = "true"): ProductAuthProviderInspection {
+  const hasClientId = String(clientId ?? "").trim().length > 0;
+  const hasClientSecret = String(clientSecret ?? "").trim().length > 0;
+  const enabledValue = String(enabled ?? "true").trim().toLowerCase();
+  const enabledFlag = enabledValue === "true";
+  return { configured: hasClientId && hasClientSecret && enabledFlag, hasClientId, hasClientSecret, enabled: enabledFlag };
+}
+
+export function inspectProductAuthConfig(env: ProductAuthBindings): ProductAuthConfigInspection {
+  return {
+    google: inspectProvider(env.GOOGLE_OIDC_CLIENT_ID, env.GOOGLE_OIDC_CLIENT_SECRET),
+    chatgpt: inspectProvider(env.OPENAI_SIWC_CLIENT_ID, env.OPENAI_SIWC_CLIENT_SECRET, env.OPENAI_SIWC_ENABLED ?? "false")
+  };
+}
+
+export function resolveProductAuthProviderConfig(env: ProductAuthBindings, provider: "google" | "chatgpt"): { clientId: string; clientSecret: string } | null {
+  const inspection = inspectProductAuthConfig(env)[provider];
+  if (!inspection.configured) return null;
+  const clientId = provider === "google" ? String(env.GOOGLE_OIDC_CLIENT_ID ?? "").trim() : String(env.OPENAI_SIWC_CLIENT_ID ?? "").trim();
+  const clientSecret = provider === "google" ? String(env.GOOGLE_OIDC_CLIENT_SECRET ?? "").trim() : String(env.OPENAI_SIWC_CLIENT_SECRET ?? "").trim();
+  return { clientId, clientSecret };
+}
+
 export interface AppRuntimeBindings {
   APP_ENV?: string;
   APP_BASE_URL?: string;
