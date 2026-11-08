@@ -1,3 +1,13 @@
+## 2026-11-08 受入次弾: 保存先名・状態表示の統一
+
+Status: Accepted
+
+全体回帰確認日時: 2026-11-08T19:29:40+09:00（Asia/Tokyo）。branch `codex/acceptance-display-fixes-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。今回の範囲は指定2件の実装・検証・文書同期・自己レビュー・commit／同名branchへのpushまで。PR作成・Issue #70更新・mergeはユーザー指定により監督側担当とする。Issue #70はread-onlyで確認済み。
+
+- bootstrapへ`workspaceName`を追加し、operationのworkspaceと既存authorized述語が固定する本人のactive Personal Workspaceからだけ現在名を取得する。改名・冪等再送、A/B分離、改竄operationの最終SELECT拒否とその認可削除mutationを検証した。HTTPの既存503／D1_UNAVAILABLEを維持し、他actorの名前を返さない。
+- 保存・共有・Officeの確認サマリーへ保存先をtextContentで表示する。空・欠落・別workspace更新では隠し、結果回収にbootstrapを追加しない。manualの一覧／基本情報は「状態不明」、手順カード／プレビューは「種類不明」へ統一する。5状態・4種別の既存日本語は維持し、固定action optionと検証済みworkspace権限は変更しない。内容hashは`sha256-ba29245963f4bb59`。API・UX・DEC-112を同期し、response shape記載のないtraceabilityは指示どおり変更しない。
+- 全体`npm run check`（99956）はexit 0、55個のchain script完走、Node test summary 783/783・fail 0／skip 0。対象5ファイル66/66（64725）、追加後mutation2/2（13800）、onboarding／share browser16/16（41998）、既存Phase 2 E2E28/28（32979）は成功。check外MV3 runtime（74860）は6/7・exit 1で、初回Accessの合成HTTPS遷移だけproxy tunnel接続失敗。テスト専用のproxy無効起動による同一testの再実行（19900）は1/1成功。別実行を単一の7/7成功に合算しない。実MV3 Office／製品認証Office3/3（86133）もexit 0。修正commit `7a7fa8acbeb517b1cb4fd6f67970a1934e6b21f1`を2026-11-08T19:31:56+09:00に同名originへpushし、local／remote SHA一致を取得確認した。保存確認の追記だけを後続の文書commitへ含める。追跡済み未commit差分0を確認し、合成browserの未追跡artifactは保存対象外で保持する。先行失敗の詳細は[報告書](acceptance-display-fixes-2026-11-08.md)を正とする。
+- `npm ci`は監督側の実施済み依存を使うため再実行せず、PRのnpm ciチェックは未チェックのままとする。実SSO／remote D1/R2／実Office描画／人のscreen reader・利用者受入、GitHub CI・正式Codex Reviewは未実施。次の1マイルストーンは監督Museによるpush済みSHAのPR・CI・正式Review・thread／SHA照合と利用者受入。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
 ## 2026-11-08 Issue #248: 横スクロール記録の実MV3回帰
 
 Status: Accepted

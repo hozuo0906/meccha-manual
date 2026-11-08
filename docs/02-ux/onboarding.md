@@ -273,7 +273,7 @@ Product session確認済みの状態で認証方法の取得に失敗した場�
 
 ## 保存準備画面の内容確認（2026-11-08、#272／#232）
 
-認証・保存先の準備後、`handoff.prepare`とfingerprint照合を通った内容のタイトル（空なら「無題の手順書」）、手順数、画像数、目的（保存／共有のための保存／WordまたはPowerPointのOffice出力）、新規保存か前回保存の更新か、ロゴの有無を表示する。APIが返さないワークスペース名は表示しない。タイトルは`textContent`で表示し、本文・画像をDOMやWeb storageへ複製しない。
+認証・保存先の準備後、`handoff.prepare`とfingerprint照合を通った内容のタイトル（空なら「無題の手順書」）、手順数、画像数、目的（保存／共有のための保存／WordまたはPowerPointのOffice出力）、新規保存か前回保存の更新か、ロゴの有無を表示する。bootstrapが返すactor本人の認可済みPersonal Workspaceの保存名を「保存先：{workspaceName}」として確認前に表示する。空・欠落時、または既存手順書の更新先とbootstrapのworkspaceIdが異なる場合は行を隠す。bootstrapを行わない結果回収・pending再送では名前を補完しない。保存・共有・Office出力で同じ条件を使う。タイトルと保存名は`textContent`で表示し、本文・画像をDOMやWeb storageへ複製しない。
 
 利用者が主ボタン「この内容で保存する」を押すまでclaim intent作成・画像とロゴのupload・finalize送信を行わない。`pending`の再送にも確認を挟む。「やめる」では今回の本文・画像を送信せず、拡張機能に下書きが残り、編集画面のタブから保存・共有を選び直せることを案内する。確認待ちでも元の15分TTLを延長せず、確認直後に既存のwrite許可を再確認する。確定済み結果の照合と完了通知にはこの確認を挟まない。
 

@@ -536,7 +536,7 @@ export const ONBOARDING_JS = `(() => {
     }
     throw new Error("保存結果を確認できませんでした。元の下書きを保持しています。");
   }
-  async function confirmSave(prepared, context) {
+  async function confirmSave(prepared, context, bootstrapPayload) {
     const summary = document.querySelector("#save-summary");
     const confirm = document.querySelector("#save-confirm");
     const cancel = document.querySelector("#save-cancel");
@@ -547,6 +547,11 @@ export const ONBOARDING_JS = `(() => {
     document.querySelector("#save-purpose").textContent = "目的：" + (action === "office" ? "Office出力（" + (format === "docx" ? "Word" : "PowerPoint") + "）" : action === "share" ? "共有のための保存" : "保存");
     document.querySelector("#save-mode").textContent = prepared.cloudRef ? "前回保存した手順書を更新" : "新しい手順書として保存";
     document.querySelector("#save-logo").hidden = !prepared.draft.branding?.hasLogo;
+    const workspace = document.querySelector("#save-workspace");
+    const workspaceName = typeof bootstrapPayload.workspaceName === "string" ? bootstrapPayload.workspaceName : "";
+    const matchesDestination = !prepared.cloudRef || prepared.cloudRef.workspaceId === bootstrapPayload.workspaceId;
+    workspace.hidden = !workspaceName.trim() || !matchesDestination;
+    workspace.textContent = workspace.hidden ? "" : "保存先：" + workspaceName;
     summary.hidden = false;
     setButton("保存内容を確認してください", true);
     message("保存する内容を確認してください。まだ手順書本文と画像は送信していません。");
@@ -584,7 +589,7 @@ export const ONBOARDING_JS = `(() => {
     const confirmationPrepared = await extensionMessage(extensionId, "handoff.prepare", context);
     claimManualForWeb(confirmationPrepared);
     if (existing?.draftFingerprint && confirmationPrepared.draftFingerprint !== existing.draftFingerprint) throw new Error("下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
-    if (!await confirmSave(confirmationPrepared, context)) return false;
+    if (!await confirmSave(confirmationPrepared, context, bootstrapPayload)) return false;
     const operationId = context.operationId;
     try { ensureFinalizeWriteAllowed(context); } catch (error) {
       if (context.state === "expired") return showExpiredHandoff();
@@ -765,5 +770,5 @@ export const ONBOARDING_JS = `(() => {
 
 export function renderOnboardingContinuePage({ bootstrapEnabled = false, assetVersion = "" } = {}) {
   const version = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : "";
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>保存先を準備する | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><div class="brand"><img src="/assets/meccha-manual-logo-mark.png" width="40" height="40" alt="めっちゃマニュアル"><span>めっちゃマニュアル</span></div><p class="eyebrow">保存・共有</p><h1>手順書を保存する準備</h1><p class="intro">ログインを確認したあと、手順書をワークスペース（手順書を保存する場所です）に保存します。</p><div class="prep"><img src="/assets/meccha-manual-mascot-me-clear-eyes.png" width="72" height="72" alt="めっちゃマニュアルのキャラクター"><p>ログインを確認してから、保存へ進みます。</p></div><ol class="flow" aria-label="保存までの流れ"><li class="step"><span class="step-number" aria-hidden="true">1</span><span>ログインを確認</span></li><li class="step"><span class="step-number" aria-hidden="true">2</span><span>保存先を準備</span></li><li class="step"><span class="step-number" aria-hidden="true">3</span><span>手順書を保存</span></li></ol><p class="boundary">保存する内容を確認して「この内容で保存する」を押すまで、手順書本文と画像は送信しません。保存するだけでは共有されません。</p><div class="actions"><div><span class="status-label">現在の状態</span><p class="notice" id="status" tabindex="-1" role="status" aria-live="polite">ログイン済みの場合は、保存先の準備を開始できます。</p></div><section id="save-summary" class="save-summary" aria-labelledby="save-summary-heading" hidden><h2 id="save-summary-heading">保存する内容</h2><p id="save-title"></p><p id="save-counts"></p><p id="save-purpose"></p><p id="save-mode"></p><p id="save-logo" hidden>ロゴも保存します。</p><div class="save-summary-actions"><button id="save-confirm" type="button">この内容で保存する</button><button id="save-cancel" class="onboarding-retry" type="button">やめる</button></div></section><button id="bootstrap" type="button">保存先を準備する</button><p class="action-note">保存後の共有設定は、手順書の画面で行えます。</p></div><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>保存先を準備する | めっちゃマニュアル</title><link rel="stylesheet" href="/assets/onboarding.css${version}"></head><body><main id="onboarding" data-bootstrap-enabled="${bootstrapEnabled ? "true" : "false"}"><div class="brand"><img src="/assets/meccha-manual-logo-mark.png" width="40" height="40" alt="めっちゃマニュアル"><span>めっちゃマニュアル</span></div><p class="eyebrow">保存・共有</p><h1>手順書を保存する準備</h1><p class="intro">ログインを確認したあと、手順書をワークスペース（手順書を保存する場所です）に保存します。</p><div class="prep"><img src="/assets/meccha-manual-mascot-me-clear-eyes.png" width="72" height="72" alt="めっちゃマニュアルのキャラクター"><p>ログインを確認してから、保存へ進みます。</p></div><ol class="flow" aria-label="保存までの流れ"><li class="step"><span class="step-number" aria-hidden="true">1</span><span>ログインを確認</span></li><li class="step"><span class="step-number" aria-hidden="true">2</span><span>保存先を準備</span></li><li class="step"><span class="step-number" aria-hidden="true">3</span><span>手順書を保存</span></li></ol><p class="boundary">保存する内容を確認して「この内容で保存する」を押すまで、手順書本文と画像は送信しません。保存するだけでは共有されません。</p><div class="actions"><div><span class="status-label">現在の状態</span><p class="notice" id="status" tabindex="-1" role="status" aria-live="polite">ログイン済みの場合は、保存先の準備を開始できます。</p></div><section id="save-summary" class="save-summary" aria-labelledby="save-summary-heading" hidden><h2 id="save-summary-heading">保存する内容</h2><p id="save-title"></p><p id="save-workspace" hidden></p><p id="save-counts"></p><p id="save-purpose"></p><p id="save-mode"></p><p id="save-logo" hidden>ロゴも保存します。</p><div class="save-summary-actions"><button id="save-confirm" type="button">この内容で保存する</button><button id="save-cancel" class="onboarding-retry" type="button">やめる</button></div></section><button id="bootstrap" type="button">保存先を準備する</button><p class="action-note">保存後の共有設定は、手順書の画面で行えます。</p></div><p class="sr-only" aria-live="polite"></p></main><script src="/assets/onboarding.js${version}" defer></script></body></html>`;
 }

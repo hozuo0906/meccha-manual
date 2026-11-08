@@ -121,9 +121,12 @@ S2 bootstrap実装では`operationId`を16〜128文字のASCII英数字・`_`・
 {
   "status": "ready",
   "workspaceId": "server-authoritative-id",
+  "workspaceName": "Personal Workspace",
   "createdIdentity": true
 }
 ```
+
+`workspaceName`はactor本人の認可済みactive Personal Workspace（本人が作成し、active owner membershipを持つ行）の現在の保存名だけを返す。operationのworkspaceと既存の`authorized`述語が固定する行を照合し、その同じ行の名前を取得する。client申告名や任意のworkspace IDから名前を取得しない。再送でも同じ保存先の現在名を返し、改名後のbootstrap（別operationIdを含む）ではDBの現在値を正とする。保存確認サマリーはbootstrap完了後・送信確認前に`保存先：{workspaceName}`をtextContentで表示し、空・欠落時、または既存手順書の更新先がbootstrapのworkspaceIdと異なる場合は行を表示しない。保存・共有・Office出力で同じ表示条件を使い、bootstrapを行わない確定結果回収・pending再送では名前を補完しない。
 
 `createdIdentity`はserver-sideのatomic bootstrap結果から決定し、そのbootstrap operationがapplication identityを新規作成した場合だけ`true`とする。同じoperationの冪等再送では元の結果を返し、別operationによる既存identityのlogin、既存Personal Workspace取得、claimだけの再試行では`false`とする。client申告で上書きできない。既存利用者の場合も同じshapeを返す。
 
