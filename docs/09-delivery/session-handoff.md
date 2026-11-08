@@ -809,3 +809,11 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - P2では初回表示・再読み込みを含む`productAuthSessionSeen=false`のprovider設定失敗をpassword formへfallbackさせず、日本語エラーと再試行を表示する。`password: true`を確認した再試行成功後だけpassword formを表示し、入力値・return path・focusを保持する。render世代／provider request世代の遅延応答抑止を維持し、`APP_ASSET_VERSION`を全assetの実hashへ同期した。前追補の「Product session未確認時のpassword fallback維持」は本決定で失効する。
 - 検証済み: `tests/app-auth.test.mjs` 118/118、`tests/product-auth.test.mjs` 33/33、`tests/worker-runtime.test.mjs` 71/71、`tests/product-auth-browser.test.mjs` 9/9、すべてskip 0・exit 0。`docs:check` 143 files、`encoding:check` 377 files、`git diff --check`、Worker harness／typecheckを直接Nodeで実行してexit 0を確認した。初回provider失敗→再試行成功、legacy cookie付きAccess logout成功、invalid Access assertionのcookie保持を実Worker相当／CFT browser回帰で確認した。実provider SSO、remote変更、staging／production反映、CI／正式Reviewは未確認。
 - `npm ci`はWindowsの既知`node_modules/.package-lock.json` unlink `EPERM`のため再試行せず、`npm run check`の全成功とは扱わない。今回の差分をcommit／push後、local／origin／PR head SHA、同SHAのCI／Codex Review／review threadを親PMが再取得する。deploy／mergeは行わない。
+
+## 手順書のアーカイブからの復元（ADR-0042／DEC-112、2026-11-08）
+
+- 対象は文書棚卸しA-9（OQ-028の復元部分）。branch `codex/manual-restore-20261108`、baseはmain `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。ADR-0042をAcceptedとし、status=archivedかつarchived_atありの手順書をowner／admin／editorがCAS付きRPC `restore_manual` で復元する。復元先は最新 `manual.archived` 監査の `metadata.previousStatus`（draft／reviewing／published／stale）へ正確に戻し、監査なし・不正値・同時刻の矛盾は推測せず拒否する。物理削除・自動削除は今回も有効化せず、猶予期間・参照削除順序・監査保持は別ADRとOQ-028へ残した。
+- 実装はSupabase migration `202608180003_phase2_manual_restore.sql`（SECURITY DEFINER、FOR UPDATE、role確認、CAS、`manual.restored` 監査）、Worker `POST /api/workspaces/{workspaceId}/manuals/{manualId}/restore`、archived詳細の復元UI（確認ダイアログで共有リンク再有効化を明示）、Manual Edit API workflowへのSQL回帰登録。revision・手順・asset・共有リンク自体は変更せず、失効済みリンクは失効のまま、未失効・期限内リンクはarchived_at解消で再び有効になる。
+- 検証: `npm run check` 全体成功（exit 0）。個別には `tests/manual-edit-api.test.mjs` 64/64、`tests/manual-editor-ui.test.mjs` 11/11。SQL回帰 `tests/sql/phase2-manual-restore-test.sql` はローカルにPostgresがなく未実行で、Manual Edit API CIのdisposable Postgresで実行する登録のみ（archive SQLと同じ扱い）。報告書は `docs/09-delivery/manual-restore-2026-11-08.md`。
+- 制約: 通常の一覧・詳細取得は `archived_at is null` でarchivedを返さないため、通常UIからアーカイブ済み手順書を開く専用取得入口は未決のままOQ-028へ残した。RPC／API／UI部品は実装済みだが、到達導線の決定は別途必要。
+- 次の1マイルストーン: 本PRのCI／Codex Review確認と監督側のマージ判断。その後、文書棚卸しA-10のTeam owner移管フロー（別PR）。

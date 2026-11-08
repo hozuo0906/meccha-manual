@@ -821,3 +821,12 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Entry: ログイン画面と手順書0件の空状態にだけ「サンプルを見る」を添える。空状態の現行cloud版と既存app shell版を揃え、検索0件・取得失敗・既存手順書のある一覧やLPには置かない。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
+
+
+## DEC-112: 手順書のアーカイブからの復元を先に有効化する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: [ADR-0042](../03-architecture/adrs/ADR-0042-manual-restore-from-archive.md)に従い、archivedかつarchived_atありの手順書をowner/admin/editorがCAS付きRPCで復元する。最新manual.archived監査のpreviousStatusへ正確に戻し、記録なし・不正値・同時刻の矛盾は拒否する。manual.restoredにrestoredStatusとrevision pointerを監査する。
+- Boundary: revision・手順・asset・共有リンクは変更しない。失効していない期限内リンクは再び有効になるためUI確認に明示する。物理削除・自動削除は破壊的操作であり、復元可能性が削除設計の前提条件だったため、復元を先に提供する。削除の猶予・参照順序・監査保持・再試行はOQ-028の未解決として残す。削除無効の間は無期限保持・復元期限なし。通常一覧・詳細の取得境界、RLS、D1実装は変更しない。
+- Verification: SQLの状態復帰・監査・CAS・role・tenant越境・二重復元・監査不明、WorkerのRPC／入力／認証／method境界、UIの編集禁止・確認／取消・再読込を回帰対象にする。通常UIのarchived取得入口は未決としてOQ-028へ残す。
