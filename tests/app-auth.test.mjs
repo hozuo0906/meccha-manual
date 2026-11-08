@@ -3708,3 +3708,92 @@ test("provider再取得成功時は表示済みpassword入力のフォーカス�
   assert.equal(harness.element("email").value, "synthetic@example.test");
   assert.equal(harness.element("password").value, "synthetic-password");
 });
+
+function ownerTransferUiFixture({ confirmResult = true, transferResponse, currentUserRole = "owner" } = {}) {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const actorId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const targetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const session = { user: { id: actorId }, workspaces: [{ id: workspaceId, name: "営業部", slug: "sales", status: "active" }] };
+  let transferred = false;
+  const mutations = [];
+  let reloads = 0;
+  const harness = createHarness({ confirmResult, fetch: async (path, options) => {
+    if (options.method === "POST") {
+      assert.equal(path, `/api/workspaces/${workspaceId}/owner-transfer`);
+      mutations.push(JSON.parse(options.body));
+      const response = transferResponse ? await transferResponse() : Response.json({ status: "ok" });
+      if (response.ok) transferred = true;
+      return response;
+    }
+    assert.equal(path, `/api/workspaces/${workspaceId}/members`);
+    reloads += 1;
+    return Response.json({ workspaceId, currentUserRole: transferred ? "admin" : currentUserRole, members: [
+      { userId: actorId, displayName: "実行者", role: transferred ? "admin" : currentUserRole, status: "active", joinedAt: "2026-11-08T00:00:00Z" },
+      { userId: targetId, displayName: "移管先<担当>", role: transferred ? "owner" : "editor", status: "active", joinedAt: "2026-11-08T01:00:00Z" }
+    ] });
+  } });
+  harness.api.replaceCurrentSession(session);
+  harness.api.renderShell(session);
+  return { harness, targetId, actorId, mutations, reloads: () => reloads };
+}
+
+test("owner transfer confirms target and demotion, POSTs once and reloads the changed role", async () => {
+  const { harness, targetId, actorId, mutations, reloads } = ownerTransferUiFixture();
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "移管用一覧未読込");
+  assert.match(harness.app.innerHTML, new RegExp('id="member-transfer-' + targetId + '"'));
+  assert.doesNotMatch(harness.app.innerHTML, new RegExp('id="member-transfer-' + actorId + '"'));
+  assert.match(harness.app.innerHTML, /移管先&lt;担当&gt;さんへ/);
+  await harness.element("member-transfer-" + targetId).listeners.get("click")();
+  assert.equal(harness.confirmationMessages.length, 1);
+  assert.match(harness.confirmationMessages[0], /移管先<担当>/);
+  assert.match(harness.confirmationMessages[0], /対象が管理責任者になり、自分は管理者になります/);
+  assert.deepEqual(mutations, [{ targetUserId: targetId }]);
+  assert.equal(reloads(), 2);
+  assert.equal(harness.api.getWorkspaceMembersState().currentUserRole, "admin");
+  assert.doesNotMatch(harness.app.innerHTML, /id="member-transfer-/);
+});
+
+test("cancelled owner transfer sends no POST", async () => {
+  const { harness, targetId, mutations } = ownerTransferUiFixture({ confirmResult: false });
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "移管用一覧未読込");
+  await harness.element("member-transfer-" + targetId).listeners.get("click")();
+  assert.equal(mutations.length, 0);
+  assert.equal(harness.api.getWorkspaceMembersState().currentUserRole, "owner");
+});
+
+for (const role of ["admin", "editor", "viewer"]) {
+  test(`${role} has no owner transfer controls`, async () => {
+    const { harness } = ownerTransferUiFixture({ currentUserRole: role });
+    await harness.element("members-reload-button").listeners.get("click")();
+    await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "移管用一覧未読込");
+    assert.doesNotMatch(harness.app.innerHTML, /id="member-transfer-/);
+  });
+}
+
+test("pending owner transfer disables controls and rejects duplicate clicks", async () => {
+  const pending = deferred();
+  const { harness, targetId, mutations } = ownerTransferUiFixture({ transferResponse: () => pending.promise });
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "移管用一覧未読込");
+  const first = harness.element("member-transfer-" + targetId).listeners.get("click")();
+  await waitForCondition(() => mutations.length === 1, "POST未実行");
+  assert.match(harness.app.innerHTML, new RegExp('id="member-transfer-' + targetId + '"[^>]* disabled'));
+  await harness.element("member-transfer-" + targetId).listeners.get("click")();
+  assert.equal(mutations.length, 1);
+  pending.resolve(Response.json({ status: "ok" }));
+  await first;
+});
+
+test("unknown owner transfer result reloads the list without automatic retry", async () => {
+  const { harness, targetId, mutations, reloads } = ownerTransferUiFixture({
+    transferResponse: () => Response.json({ code: "OWNER_TRANSFER_UNAVAILABLE", message: "一覧を確認してください。" }, { status: 503 })
+  });
+  await harness.element("members-reload-button").listeners.get("click")();
+  await waitForCondition(() => harness.api.getWorkspaceMembersState()?.status === "loaded", "移管用一覧未読込");
+  await harness.element("member-transfer-" + targetId).listeners.get("click")();
+  assert.equal(mutations.length, 1);
+  assert.equal(reloads(), 2);
+  assert.match(harness.app.innerHTML, /変更結果を一覧で確認してください/);
+});

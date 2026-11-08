@@ -60,6 +60,7 @@ callback処理はstate、provider、cookieのPKCE verifier binding、期限を�
 | `profiles` | 表示名、locale、timezone | application user IDと1対1。必要最小限だけ返す |
 | `workspaces` | workspaceの名称、slug、状態 | 作成主体・作成日時・IDを不変にする |
 | `workspace_members` | user、workspace、role、status | workspace + userをunique。owner喪失をtransactionで拒否 |
+| `workspace_owner_transfer_permits` | standard workspaceの管理責任者移管（DEC-114） | workspace主キー・actor/target identity外部キー・自己移管CHECK。専用batch内だけ存在し、有効permitなし昇格をtriggerで拒否 |
 | `workspace_join_codes` | 本人同意型の短命参加 | digestだけを保存し、単回使用・期限・失効を強制 |
 | `manuals` | 手順書とdraft/published pointer | workspace境界と期待versionを必須にする |
 | `manual_revisions` | draft/published/superseded revision | 公開版を不変にする |

@@ -823,6 +823,18 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
 
 
+## DEC-114: Teamの管理責任者移管を専用フローで許可する
+
+- Status: Accepted
+- Date: 2026-11-08
+- 対象: FR-003、AC-007/008/009/014、D1メンバーAPI。DEC-112は保存先名表示（PR #293）、DEC-114はサンプル段階B（PR #294）で使用済みのため、本決定はDEC-114とする。
+- Decision: active identityかつactive owner本人だけが、同じactiveなstandard workspaceのactive identity・active membershipを持つadmin/editor/viewerへ移管できる。自己移管、既存owner、非メンバー、removed/invited、disabled identity、Personal Workspaceを拒否する。対象をownerへ昇格し、元ownerをadminへ降格する。
+- Atomicity: migration `0009_d1_owner_transfer.sql`のworkspace単位permitを、発行→対象昇格→元owner降格→監査→削除の順で1回のD1 batch内だけに置く。事前照会はエラー分類用とし、permit発行SQLのEXISTS fenceと昇格triggerで認可を再照合する。各DML直後に`changes() = 1`をSQL assertionで検証し、0件はJSON関数の例外でbatch全体をrollbackする。SELECTは`changes()`を変えないため、監査の`changes() = 1`条件も維持する。返却結果のsuccess・runCount・直接件数も検証する。結果不明時は自動再送せず一覧を再取得する。
+- DB境界: 有効permitなしのUPDATE昇格は引き続きDBが拒否する。last-owner保護のowner_loss_update/deleteとidentity_disable_last_ownerは変更しない。DB writerは信頼境界内であり、permitをHTTPや汎用SQL入口へ公開しない。
+- Audit: actionは既存CHECK閉集合の`member.updated`、actorは元owner、target_application_idは新owner、metadataは既存AUDIT_METADATAとする。テーブル再構築やaction追加を避け、原子的な権限変更1回の監査として記録する。専用actionやmetadataから移管だけを識別する機能は追加しない。
+- UX: DEC-046に従い対象と「対象が管理責任者になり、自分は管理者になる」影響をwindow.confirmで確認してPOSTする。保存中の排他、認証世代照合、同一ユーザーの結果再照合と別ユーザーへの遅着破棄は既存の共通メンバー変更処理を使う。成功後は一覧を再取得し、旧ownerに再移管ボタンを表示しない。
+- 失効関係: DEC-045の「専用移管フローがAcceptedになるまで移管を拒否する」部分を本決定で置換する。通常add/updateのowner付与・変更拒否、招待メールを送信しない方針、本人発行参加コード（DEC-047）は維持する。Supabase/Postgres baselineへ移管機能は追加しない。
+- Verification: `tests/d1-workspace.test.mjs`、`tests/m3-http-d1.test.mjs`、`tests/d1-binding.test.mjs`、`tests/app-auth.test.mjs`。結果・未実行・rollbackは[実施報告書](owner-transfer-2026-11-08.md)を参照する。
 ## DEC-113: サンプルの文章・手順編集をタブ内メモリだけで許可する
 
 - Status: Accepted

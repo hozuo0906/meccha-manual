@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-5fd9e465201e9783";
+export const APP_ASSET_VERSION = "sha256-99f4aca0a04cacbd";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2023,8 +2023,10 @@ function workspaceMemberRows(state) {
           '</select>' +
           '<button id="member-save-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'さんの</span>権限を保存</button>' +
           stopControl +
+          (state.currentUserRole === "owner" && member.userId !== currentSession?.user?.id
+            ? '<button id="member-transfer-' + escapeHtml(member.userId) + '" class="secondary-button compact-button" type="button"' + (saving ? ' disabled' : '') + '><span class="visually-hidden">' + escapeHtml(member.displayName) + 'さんへ</span>管理責任者に移管</button>' : '') +
         '</div>'
-      : '<span class="muted">' + (member.role === "owner" ? '専用の移管手続きが必要です' : '変更できません') + '</span>';
+      : '<span class="muted">' + (member.role === "owner" ? (state.currentUserRole === "owner" ? '移管先のメンバー行から「管理責任者に移管」を選択してください' : '管理責任者本人が移管できます') : '変更できません') + '</span>';
     return '<tr>' +
       '<td><div class="workspace-name">' + escapeHtml(member.displayName) + '</div>' +
         (member.userId === currentSession?.user?.id ? '<span class="muted">あなた</span>' : '') + '</td>' +
@@ -2347,6 +2349,21 @@ async function updateWorkspaceMemberFromUi(userId, stop) {
   );
 }
 
+async function transferWorkspaceOwnershipFromUi(userId) {
+  const state = workspaceMembersState;
+  const member = state?.members.find((item) => item.userId === userId);
+  if (!state?.workspaceId || state.status === "saving" || state.currentUserRole !== "owner"
+    || !member || member.status !== "active" || member.role === "owner"
+    || member.userId === currentSession?.user?.id) return;
+  if (!confirm("「" + member.displayName + "」さんに管理責任者を移管します。対象が管理責任者になり、自分は管理者になります。移管後は自分で再移管できません。Personal Workspaceは移管できません。よろしいですか？")) return;
+  await changeWorkspaceMember(
+    state.workspaceId,
+    "/api/workspaces/" + encodeURIComponent(state.workspaceId) + "/owner-transfer",
+    { method: "POST", body: JSON.stringify({ targetUserId: userId }) },
+    "管理責任者を移管しました。あなたの権限は管理者になりました。"
+  );
+}
+
 async function reconcilePendingWorkspaceMemberMutation(mutation) {
   if (
     pendingWorkspaceMemberMutation !== mutation ||
@@ -2404,6 +2421,8 @@ async function changeWorkspaceMember(workspaceId, path, requestOptions, successM
       return;
     }
     if (
+      error.code === "OWNER_TRANSFER_UNAVAILABLE" ||
+      error.code === "OWNER_TRANSFER_CONFLICT" ||
       error.code === "MEMBER_CHANGE_RESULT_UNKNOWN" ||
       error.code === "NETWORK_ERROR" ||
       error.code === "INVALID_RESPONSE"
@@ -3683,6 +3702,7 @@ function renderShell(session, notice = "", noticeKind = "notice", focusId = null
   document.getElementById("copy-join-code-button")?.addEventListener("click", copyWorkspaceJoinCode);
   for (const member of workspaceMembersState?.members || []) {
     document.getElementById("member-save-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, false));
+    document.getElementById("member-transfer-" + member.userId)?.addEventListener("click", () => transferWorkspaceOwnershipFromUi(member.userId));
     document.getElementById("member-stop-" + member.userId)?.addEventListener("click", () => updateWorkspaceMemberFromUi(member.userId, true));
   }
   if (effectiveNotice) document.getElementById("shell-message").focus();
