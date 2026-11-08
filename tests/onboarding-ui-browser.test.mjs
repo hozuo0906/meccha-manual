@@ -856,9 +856,10 @@ test("onboarding confirms summaries before new or resumed transmissions, support
         if (message.type === "handoff.prepare") {
           if (fixture.error) return { ok: false, error: fixture.error };
           if (fixture.invalid) return { ok: true, draft: {}, assets: [] };
-          return { ok: true, draftFingerprint: "a".repeat(64), draft: { title: fixture.title ?? "<img src=x onerror=alert(1)> 合成手順書", steps: [{ screenshotId: "shot", instruction: "開く" }, { instruction: "確認する" }], ...(fixture.logo ? { branding: { hasLogo: true } } : {}) }, assets: [{ assetSlot: 0, screenshotId: "shot" }], ...(fixture.update ? { cloudRef: { workspaceId: "workspace", manualId: "manual" } } : {}) };
+          globalThis.__snapshotExpiresAt = Date.now() + 10 * 60 * 1000;
+          return { ok: true, draftFingerprint: (fixture.changedFingerprint ? "b" : "a").repeat(64), draft: { title: fixture.title ?? "<img src=x onerror=alert(1)> 合成手順書", steps: [{ screenshotId: "shot", instruction: "開く" }, { instruction: "確認する" }], ...(fixture.logo ? { branding: { hasLogo: true } } : {}) }, assets: [{ assetSlot: 0, screenshotId: "shot" }], ...(fixture.update ? { cloudRef: { workspaceId: "workspace", manualId: "manual" } } : {}) };
         }
-        if (message.type === "handoff.asset.start") return { ok: true, totalChunks: 1, contentType: "image/png", sha256: "b".repeat(64), byteLength: 1 };
+        if (message.type === "handoff.asset.start") return Date.now() >= globalThis.__snapshotExpiresAt ? { ok: false, error: "DRAFT_CHANGED" } : { ok: true, totalChunks: 1, contentType: "image/png", sha256: "b".repeat(64), byteLength: 1 };
         if (message.type === "handoff.asset.chunk") return { ok: true, sequence: fixture.badChunk ? 2 : 0, chunk: "AA==" };
         return { ok: true, status: "completed" };
       } } };
@@ -907,10 +908,30 @@ test("onboarding confirms summaries before new or resumed transmissions, support
     await begin();
     await page.locator("#save-summary:not([hidden])").waitFor();
     await page.clock.install();
+    await page.clock.fastForward(11 * 60 * 1000);
+    assert.equal(await page.evaluate(() => Date.now() > globalThis.__snapshotExpiresAt), true);
+    await page.locator("#save-confirm").click();
+    await page.getByRole("button", { name: "保存した手順書を開く", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 2);
+    assert.equal(requests.filter(r => r.path.endsWith("/claim-intents")).length, 1);
+    assert.equal(requests.filter(r => r.method === "PUT").length, 1);
+    await page.clock.resume();
+    await begin();
+    await page.locator("#save-summary:not([hidden])").waitFor();
+    await page.evaluate(() => { globalThis.__fixture.changedFingerprint = true; });
+    await page.locator("#save-confirm").click();
+    await page.locator("#status.error").waitFor();
+    assert.equal(await page.locator("#status").textContent(), "下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 2);
+    assert.equal(await page.evaluate(() => globalThis.__messages.some(type => /handoff\.(asset|logo)\./.test(type))), false);
+    assert.equal(requests.filter(r => r.path.includes("claim-intents") || r.path.includes("/claims/") || r.method === "PUT").length, 0);
+    await begin();
+    await page.locator("#save-summary:not([hidden])").waitFor();
     await page.clock.fastForward(16 * 60 * 1000);
     await page.locator("#save-confirm").click();
     await page.getByRole("button", { name: "この保存操作は期限切れです", exact: true }).waitFor();
     assert.equal(requests.filter(r => r.path.includes("claim-intents") || r.method === "PUT").length, 0);
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 1, "expired confirmation never refreshes the snapshot");
     assert.match(await page.locator(".recovery-guide").textContent(), /編集/);
     await page.clock.resume();
     for (const [fixture, code, confirm] of [

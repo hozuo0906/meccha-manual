@@ -367,3 +367,5 @@ DEC-090のimageStateを持つdraftでは、queued/capturing/failed/unavailable/p
 Web coordinatorは`handoff.prepare`成功・draft fingerprint照合後、claim intent作成とasset／logo uploadの前に利用者の「この内容で保存する」を待つ。表示を許す情報はタイトル、手順数、画像数、既存output intentから判定した目的、cloudRefの有無による新規／更新、brandingのロゴ有無だけとする。タイトルは`textContent`で表示し、本文・画像・識別情報をDOMやWeb storageへ追加しない。ワークスペース名を推測しない。bootstrapは従来どおりoperation metadataだけを送る。
 
 確認待ちはTTLを延長せず、続行直前に`ensureFinalizeWriteAllowed`を通す。取消時は以降のcontent writeを行わずlocal原本を保持する。`pending`で同一intentへの再送が必要な場合も確認対象とし、`completed`／`completion-pending`およびGET照会で確定した結果の回収は確認待ちにしない。Webのin-flight guardで準備中・確認待ちの二重起動を抑止する。既存message schema、endpoint、認証・workspace境界、D1制約は変更しない。
+
+PR #289のP2修正: 確認後のwrite許可検査を通過した場合だけ、intent作成・転送の前に同じhandoffで`handoff.prepare`を再実行し、10分TTLの転送snapshotを再準備する。確認表示に使ったfingerprintと再準備結果が一致しない場合は、日本語で下書きの変更を案内してintent作成・画像／ロゴuploadを開始しない。一致時は再準備結果のdraft／assets／cloudRef／brandingを使用する。15分TTL切れでは再準備せず既存の期限切れ案内へ進み、確定結果回収にも再準備を挟まない。

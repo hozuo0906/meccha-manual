@@ -6,7 +6,7 @@ Status: Accepted
 
 | 対象要件／受入条件 | 画面契約・実装 | 回帰 |
 |---|---|---|
-| FR-001／FR-002／FR-011／FR-022、MVP-AC-010／011／013 | `onboarding-assets.ts`: prepare・fingerprint照合後の保存サマリーと送信確認、取消、確認後TTL検査、確定結果回収の継続 | `onboarding-ui-browser.test.mjs`、`onboarding-recovery-actions.test.mjs`、`onboarding-share-browser.test.mjs` |
+| FR-001／FR-002／FR-011／FR-022、MVP-AC-010／011／013 | `onboarding-assets.ts`: prepare・fingerprint照合後の保存サマリーと送信確認、取消、確認後TTL検査とsnapshot再準備・fingerprint再照合、確定結果回収の継続 | `onboarding-ui-browser.test.mjs`（11分待機後の保存・不一致時送信0・15分TTL切れの再準備0）、`onboarding-recovery-actions.test.mjs`（実拡張snapshot期限切れ後のロゴ保存・確定結果回収のprepare 0）、`onboarding-share-browser.test.mjs` |
 | #272／#232、NFR-004の情報露出・日本語案内 | `onboarding-assets.ts`: 既知コードの日本語化、未知コード非表示、タイトルtextContent | `onboarding-ui.test.mjs`、`onboarding-ui-browser.test.mjs` |
 | FR-004／FR-011、#232の初回空状態 | `app-assets.ts`: 編集権限のある0件一覧の「手順書を作る」からタイトル入力へ移動 | `manual-editor-ui.test.mjs`、`e2e/phase2-manual-editor.spec.mjs` |
 

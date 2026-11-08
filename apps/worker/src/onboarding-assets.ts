@@ -581,15 +581,19 @@ export const ONBOARDING_JS = `(() => {
     const resumeIntentId = reconciliation?.status === "pending" ? reconciliation.claimIntentId : null;
     message("拡張機能から手順書を受け取り、保存の準備をしています。");
     ensureFinalizeWriteAllowed(context);
-    const prepared = await extensionMessage(extensionId, "handoff.prepare", context);
-    const manual = claimManualForWeb(prepared);
-    if (existing?.draftFingerprint && prepared.draftFingerprint !== existing.draftFingerprint) throw new Error("下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
-    if (!await confirmSave(prepared, context)) return false;
+    const confirmationPrepared = await extensionMessage(extensionId, "handoff.prepare", context);
+    claimManualForWeb(confirmationPrepared);
+    if (existing?.draftFingerprint && confirmationPrepared.draftFingerprint !== existing.draftFingerprint) throw new Error("下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
+    if (!await confirmSave(confirmationPrepared, context)) return false;
     const operationId = context.operationId;
     try { ensureFinalizeWriteAllowed(context); } catch (error) {
       if (context.state === "expired") return showExpiredHandoff();
       throw error;
     }
+    const prepared = await extensionMessage(extensionId, "handoff.prepare", context);
+    if (prepared.draftFingerprint !== confirmationPrepared.draftFingerprint) throw new Error("下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
+    // fingerprint一致で確認済み内容を担保し、転送には再準備したsnapshotを使う。
+    const manual = claimManualForWeb(prepared);
     const intentResponse = resumeIntentId ? null : await fetch("/api/onboarding/claim-intents", {
       method: "POST",
       credentials: "same-origin",
