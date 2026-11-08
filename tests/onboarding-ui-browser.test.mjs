@@ -528,7 +528,7 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.locator("#bootstrap").click();
-    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    await page.getByText("手順書をワークスペースに保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1);
     assert.deepEqual(bootstrapOperations, ["B".repeat(43)]);
     assert.deepEqual(intentOperations, ["B".repeat(43)]);
@@ -586,7 +586,7 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.locator("#bootstrap").click();
     await page.getByRole("button", { name: "この内容で保存する" }).click();
-    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    await page.getByText("手順書をワークスペースに保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
     assert.ok(finalizeCalls >= 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
     assert.equal(statusCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
@@ -628,7 +628,7 @@ test("onboarding recovers a completed handoff from extension durable identity wi
     }, { extensionId, operation: operationId, intent: claimIntentId });
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
-    await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
+    await page.getByText("手順書をワークスペースに保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(bootstrapCalls, 0);
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "completed");
   } finally {

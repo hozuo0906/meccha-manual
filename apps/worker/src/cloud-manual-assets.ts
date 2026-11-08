@@ -149,7 +149,7 @@ export const CLOUD_MANUAL_JS = `(() => {
     const image = document.createElement("img"); image.className = "cloud-step-image"; image.alt = "手順 " + (index + 1) + "の画像";
     const card = make("div", "", "cloud-step-image-card");
     const status = make("p", "画像を読み込んでいます。", "cloud-image-status");
-    const error = make("p", "画像を読み込めませんでした。", "cloud-image-error"); error.hidden = true;
+    const error = make("p", "画像を表示できませんでした。", "cloud-image-error"); error.hidden = true;
     const retry = make("button", "画像をもう一度読み込む", "cloud-image-retry"); retry.type = "button"; retry.hidden = true;
     const expand = make("button", "画像を拡大して確認", "secondary cloud-image-expand"); expand.type="button";expand.hidden=true;
     const inspection=make("dialog","","cloud-image-inspection");inspection.setAttribute("aria-label","手順画像を拡大して確認");

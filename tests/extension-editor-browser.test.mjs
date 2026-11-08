@@ -359,7 +359,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     await page.locator("[data-editor-text]").fill("保存再試行");
     await page.locator("[data-editor-font-size]").fill("10");
     await page.locator("[data-editor-save]").click();
-    await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
+    await page.getByText("画像を保存できませんでした。編集内容を保持しています。もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
     for (const width of [1440, 1024, 390]) {
@@ -847,7 +847,7 @@ test("replacement closes only the target image editor and preserves another edit
       draftStore.put = async () => { throw new Error("synthetic editor save failure"); };
     });
     await page.locator("[data-editor-save]").click();
-    await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
+    await page.getByText("画像を保存できませんでした。編集内容を保持しています。もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "別画像editorの保存失敗後も編集内容を保持する");
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");

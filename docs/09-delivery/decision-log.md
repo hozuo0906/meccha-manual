@@ -832,6 +832,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Next: Museが最新SHAのCI・正式Codex Review・threadと実操作を照合する。merge、deploy、remote migration適用、公開設定の変更は別ゲートとする。
 - Evidence: `cloud-manual-router.ts`、`infra/d1/cloud-manual-repository.ts`、`cloud-manual-assets.ts`、`migrations/0010_d1_manual_archive_events.sql`、`tests/cloud-manual-c.test.mjs`、`tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`、[段階D報告書](sample-mode-stage-d-2026-11-08.md)。
 
+### 2026-11-08: PR #270 仕分け(b)の文言改善
+
+- Status: Accepted
+- Decision: [PR #270の仕分けコメント](https://github.com/hozuo0906/meccha-manual/pull/270#issuecomment-6720273201)の(b)だけを現行main `ec6b8db`へ適合する。一覧・詳細の空状態と読込再試行、記録開始ボタン、記録・復元・終了・取消の指定された失敗案内、画像表示・保存失敗、共有閲覧ボタン、保存成功とAPI文書の用語を揃える。
+- Reason: 結果不明時に記録保持を断定せず、確認対象と次の操作を日本語で案内する。backgroundからpopup／sidepanelへ表示される終了失敗の2文言も同じ範囲に含める。
+- Boundary: 仕様・挙動・認可・保存処理を変更しない。撮影時の自動画像加工を示す表現は採用せず、ADR-0040の無加工画像・利用者確認・手動編集を維持する。(a)の到達済み項目、privacy-note、cloud一覧の空状態ガイド、進行中の記録状態表示、過去の履歴は変更しない。
+- Evidence: [実施報告書](pr270-wording-b-2026-11-08.md)。表示文言を参照する既存テストと資産hash・共有画像編集の生成物を同期する。
 ## DEC-114: Teamの管理責任者移管を専用フローで許可する
 
 - Status: Accepted
