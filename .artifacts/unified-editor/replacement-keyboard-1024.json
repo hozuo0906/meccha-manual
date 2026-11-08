@@ -1,0 +1,58 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-local-editor",
+  "screenshot": "replacement-keyboard-1024.png",
+  "viewport": {
+    "width": 1024,
+    "height": 768
+  },
+  "fontEvidence": [
+    {
+      "selector": "#title",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "18px",
+        "weight": "700"
+      },
+      "fonts": [
+        {
+          "familyName": "Noto Sans CJK JP",
+          "postScriptName": "NotoSansCJKjp-Bold",
+          "isCustomFont": false,
+          "glyphCount": 7
+        }
+      ]
+    },
+    {
+      "selector": ".instruction-label textarea",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "16px",
+        "weight": "400"
+      },
+      "fonts": []
+    },
+    {
+      "selector": ".step-name",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "14px",
+        "weight": "600"
+      },
+      "fonts": [
+        {
+          "familyName": "Noto Sans CJK JP",
+          "postScriptName": "NotoSansCJKjp-Bold",
+          "isCustomFont": false,
+          "glyphCount": 9
+        }
+      ]
+    }
+  ],
+  "selectedStep": "manual-step",
+  "observations": {
+    "operation": "replacement-add-enter-and-arrow",
+    "addButtonFocused": true,
+    "sourceTextHidden": true
+  }
+}

@@ -12,9 +12,9 @@ branch `codex/sample-mode-stage-d-20261108`、base／着手HEAD `ec6b8db1b8d66e6
 
 - 認証済みactive Personal Workspace作成者かつowner本人が本文なしPOSTを明示的に選んだ時だけ、合成fixtureの6手順・同梱PNG 3枚を通常のstaged asset＋finalize claim経路で保存する。資格情報を転送しないRequestでASSETS bindingから固定画像だけを読む。guest contentのサーバー保存ではなくADR-0032の認証後の正規保存である。
 - サーバー専用`sample_manual_v1_`operation prefixを公開claimから拒否する。再送は既存manual IDを`alreadySeeded`で返し、改名・編集後も増殖させない。期限切れpendingをexpiredへ確定し、直前intent IDから次operationを決定する。R2途中失敗・commit応答消失・同時実行でも単一manual／3 assetへ収束する。
-- 通常アーカイブAPIは`expectedUpdatedAt`のCASとmigration 0009の`manual_archive_events` INSERTを同じD1 batchに含める。scope／append-only trigger、権限再照合、監査失敗時rollbackを備え、revision／step／asset参照を保持する。アーカイブ後だけ次のサンプルを作れる。
+- 通常アーカイブAPIは`expectedUpdatedAt`のCASとmigration 0010の`manual_archive_events` INSERTを同じD1 batchに含める。scope／append-only trigger、権限再照合、監査失敗時rollbackを備え、revision／step／asset参照を保持する。アーカイブ後だけ次のサンプルを作れる。
 - 空状態と常設panelの明示2入口、二重送信防止、未保存・保存／画像／共有処理中guard、遅延応答時の`preserveDetail`、一覧と詳細の`isSample`／「サンプル」badgeを含む。既存の公開閲覧専用サンプルは維持する。
-- 再開時の失敗した`showTools()`を既存cloud helperと同じ`width <= 760 ? "編集" : "画像・編集"`へ修正した。visible filterとpanel-open guardを保持する。DEC-112と関連文書を同期した。後述の正式Review P1と自己レビューで再現した監査の置換欠陥も修正した。
+- 再開時の失敗した`showTools()`を既存cloud helperと同じ`width <= 760 ? "編集" : "画像・編集"`へ修正した。visible filterとpanel-open guardを保持する。DEC-115と関連文書を同期した。後述の正式Review P1と自己レビューで再現した監査の置換欠陥も修正した。
 
 ## 検証
 
@@ -39,7 +39,7 @@ branch `codex/sample-mode-stage-d-20261108`、base／着手HEAD `ec6b8db1b8d66e6
 初回commit `18f4f0888a27236c381e162ff09efc197354f544`をlocal gitでpushし、origin／Draft [PR #298](https://github.com/hozuo0906/meccha-manual/pull/298) head一致を確認した。正式Review依頼`6721231912`、receipt review `5817801807`（Reviewed commit `18f4f0888a`）でP1 comment `4506141316`／thread `PRRT_kwDOTpNknc61AfR2`が出た。POST後の詳細GET中の入力消失を妥当と確認した。
 
 - P1修正: 既存`editVersion`と未保存・保存／画像／共有状態を一覧取得後と詳細反映直前に再確認し、保持時は一覧更新だけにする。詳細と共有情報の両GETが終わるまで新しいeditor stateへ切り替えず、古い入力・focus・元選択を保持する。回帰は一覧／詳細／共有情報GETの3待機位置×1366/1024/390px。追加テスト初回64305は一覧panelを開き忘れたテスト操作で失敗し、修正した53918で詳細待機中の期待する保持assertionを再現（0/1・exit 1）、製品修正後43955で1/1・fail 0／skip 0／exit 0。
-- 自己レビューの監査修正: SQLiteの通常設定`recursive_triggers = 0`ではDELETE triggerだけでINSERT OR REPLACEを防げない。追加単独テストの修正前実行（`/tmp/mm-stage-d-audit-repro.log`、0/1・exit 1）で再現し、既存idまたはmanual_idへのINSERT拒否triggerをmigration 0009へ追加した。修正後60197は1/1・fail 0／skip 0／exit 0。異なるid＋既存manualと、別manualの監査に対する既存id置換の両方を拒否し、元の2行がbyte相当で不変なことを確認する。
+- 自己レビューの監査修正: SQLiteの通常設定`recursive_triggers = 0`ではDELETE triggerだけでINSERT OR REPLACEを防げない。追加単独テストの修正前実行（`/tmp/mm-stage-d-audit-repro.log`、0/1・exit 1）で再現し、既存idまたはmanual_idへのINSERT拒否triggerをmigration 0010へ追加した。修正後60197は1/1・fail 0／skip 0／exit 0。異なるid＋既存manualと、別manualの監査に対する既存id置換の両方を拒否し、元の2行がbyte相当で不変なことを確認する。
 - 最新main `85b9c4be99858ba1cf36693596de1b85fca2972f`にはPR #292が入り、handoffの先頭checkpoint追加が競合している。read-onlyのmerge-treeで競合は`docs/09-delivery/session-handoff.md`だけと確認。通常PR CIは未実行、初回headのAuto PR jobのみskip。mergeやmain統合は行わず、監督側のゲートへ引き継ぐ。
 - 追加修正後の`test:cloud-manual`18662は67/67、`test:manual-sample:browser`36246は4/4、いずれもfail 0／skip 0／exit 0。投入とGET遅延3位置の双方が1366/1024/390pxを完走。
 - 追加修正後の先行check61225は実行途中で共有node_modules参照先の依存が欠落し、onboarding testのjose importで停止（exit 1）。同時期のbrowser回帰91451は4成功・3ファイルimport失敗（@playwright/test欠落）、7 test summary／fail 3／skip 0／exit 1。製品assertion失敗とは分けて記録する。
@@ -62,7 +62,7 @@ branch `codex/sample-mode-stage-d-20261108`、base／着手HEAD `ec6b8db1b8d66e6
 - `docs/09-delivery/decision-log.md`
 - `docs/09-delivery/sample-mode-stage-d-2026-11-08.md`
 - `docs/09-delivery/session-handoff.md`
-- `migrations/0009_d1_manual_archive_events.sql`
+- `migrations/0010_d1_manual_archive_events.sql`
 - `package.json`
 - `tests/cloud-manual-c.test.mjs`
 - `tests/sample-manual-import-browser.test.mjs`

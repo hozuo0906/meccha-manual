@@ -13,7 +13,7 @@ const CHATGPT_AUTH_ORIGIN = "https://auth.openai.com";
 const migrations = [
   "0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql",
-  "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
+  "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql", "0009_d1_owner_transfer.sql"
 ];
 
 class D1Adapter {
@@ -23,6 +23,7 @@ class D1Adapter {
     return { bind(...values) {
       return {
         async run() {
+          if (/^\s*SELECT\b/iu.test(sql)) return { success: true, meta: { changes: 0 }, results: database.prepare(sql).all(...values) };
           const result = database.prepare(sql).run(...values);
           return { success: true, meta: { changes: Number(result.changes ?? 0), last_row_id: Number(result.lastInsertRowid ?? 0) } };
         },
@@ -31,7 +32,18 @@ class D1Adapter {
       };
     } };
   }
-  async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
+  async batch(statements) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      this.database.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 async function createFixture(provider = "google") {
@@ -99,18 +111,18 @@ function browserRequest(route) {
   });
 }
 
-async function seedProductBrowserSession(fixture, { expired }) {
+async function seedProductBrowserSession(fixture, { expired, applicationId = "browser-product-user" }) {
   const token = expired ? "expired-product-browser-token" : "active-product-browser-token";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const now = new Date();
   const issuedAt = new Date(now.getTime() - (expired ? 120_000 : 0));
   const expiresAt = expired ? new Date(now.getTime() - 60_000) : new Date(now.getTime() + 60 * 60_000);
-  fixture.database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES ('browser-product-user', 'https://accounts.google.com', 'browser-product-subject', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
-  fixture.database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES ('browser-product-user', 'ブラウザ試験利用者', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
-  fixture.database.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind) VALUES ('00000000-0000-4000-8000-000000000201', 'ブラウザ試験ワークスペース', 'browser-product', 'active', 'browser-product-user', ?, ?, 'standard')").run(issuedAt.toISOString(), issuedAt.toISOString());
-  fixture.database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('00000000-0000-4000-8000-000000000201', 'browser-product-user', 'owner', 'active', ?, ?)").run(issuedAt.toISOString(), issuedAt.toISOString());
-  fixture.database.prepare("INSERT INTO auth_sessions(id, application_id, token_hash, auth_method, issued_at, expires_at) VALUES ('browser-product-session', 'browser-product-user', ?, 'google', ?, ?)").run(tokenHash, issuedAt.toISOString(), expiresAt.toISOString());
+  fixture.database.prepare("INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at) VALUES (?, 'https://accounts.google.com', 'browser-product-subject', 'active', ?, ?)").run(applicationId, issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO profiles(application_id, display_name, locale, timezone, created_at, updated_at) VALUES (?, 'ブラウザ試験利用者', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(applicationId, issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind) VALUES ('00000000-0000-4000-8000-000000000201', 'ブラウザ試験ワークスペース', 'browser-product', 'active', ?, ?, ?, 'standard')").run(applicationId, issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at) VALUES ('00000000-0000-4000-8000-000000000201', ?, 'owner', 'active', ?, ?)").run(applicationId, issuedAt.toISOString(), issuedAt.toISOString());
+  fixture.database.prepare("INSERT INTO auth_sessions(id, application_id, token_hash, auth_method, issued_at, expires_at) VALUES ('browser-product-session', ?, ?, 'google', ?, ?)").run(applicationId, tokenHash, issuedAt.toISOString(), expiresAt.toISOString());
   return token;
 }
 
@@ -615,4 +627,61 @@ test("browser provider configuration failure renders retry and preserves return 
 
 test("初回ログインのprovider設定失敗はpasswordへfallbackせずretry成功後にpasswordを表示する", { timeout: 60_000 }, async () => {
   await runProductSessionBrowser({ initialVisit: true, passwordSupported: true, providerFailureRetry: true });
+});
+
+
+test("product session owner transfer confirms, cancels, then atomically demotes actor and reloads UI", { timeout: 45_000 }, async () => {
+  const fixture = await createFixture("google");
+  let context;
+  try {
+    const actorId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const token = await seedProductBrowserSession(fixture, { expired: false, applicationId: actorId });
+    const workspaceId = "00000000-0000-4000-8000-000000000201";
+    const targetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const now = new Date().toISOString();
+    fixture.database.prepare("INSERT INTO identities VALUES (?, 'https://accounts.google.com', 'transfer-browser-target', 'active', ?, ?)").run(targetId, now, now);
+    fixture.database.prepare("INSERT INTO profiles VALUES (?, '移管先担当', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(targetId, now, now);
+    fixture.database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'editor', 'active', ?, ?)").run(workspaceId, targetId, now, now);
+    context = await chromium.launchPersistentContext("", { channel: process.platform === "win32" ? "chrome" : "chromium", headless: true, ignoreHTTPSErrors: true });
+    await context.addCookies([{ name: "__Host-mm_product", value: token, domain: new URL(STAGING_ORIGIN).hostname, path: "/", secure: true, httpOnly: true, sameSite: "Lax" }]);
+    const page = await context.newPage();
+    page.setDefaultTimeout(8_000);
+    let posts = 0;
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/*", async (route) => {
+      if (new URL(route.request().url()).origin !== STAGING_ORIGIN) return route.abort();
+      if (route.request().url().endsWith("/owner-transfer")) posts += 1;
+      const response = await worker.fetch(browserRequest(route), fixture.env, {});
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+    });
+    await page.goto(STAGING_ORIGIN + "/");
+    await page.locator("#members-reload-button").click();
+    const button = page.locator("#member-transfer-" + targetId);
+    await button.waitFor();
+    const cancelled = page.waitForEvent("dialog");
+    const cancelClick = button.click();
+    const cancelDialog = await cancelled;
+    assert.match(cancelDialog.message(), /移管先担当/);
+    assert.match(cancelDialog.message(), /対象が管理責任者になり、自分は管理者になります/);
+    await cancelDialog.dismiss();
+    await cancelClick;
+    assert.equal(posts, 0);
+    const confirmed = page.waitForEvent("dialog");
+    const transferClick = button.click();
+    await (await confirmed).accept();
+    await transferClick;
+    await page.waitForFunction(() => document.querySelector("#members-message")?.textContent.includes("あなたの権限は管理者"));
+    assert.equal(posts, 1);
+    assert.equal(await page.locator('[id^="member-transfer-"]').count(), 0);
+    assert.match(await page.locator(".context-summary").textContent(), /現在の権限：管理者/);
+    assert.equal(fixture.database.prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND application_id = ?").get(workspaceId, actorId).role, "admin");
+    assert.equal(fixture.database.prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND application_id = ?").get(workspaceId, targetId).role, "owner");
+    assert.equal(fixture.database.prepare("SELECT count(*) AS n FROM workspace_owner_transfer_permits").get().n, 0);
+    assert.equal(fixture.database.prepare("SELECT count(*) AS n FROM audit_logs WHERE workspace_id = ? AND action = 'member.updated' AND target_application_id = ?").get(workspaceId, targetId).n, 1);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context?.close();
+    fixture.restoreFetch();
+  }
 });

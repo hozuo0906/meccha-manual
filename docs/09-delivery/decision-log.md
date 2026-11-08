@@ -814,7 +814,7 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 
 ## DEC-111: 拡張なしの受入用サンプルはブラウザ内の閲覧に限定する
 
-- Status: Accepted
+- Status: Partially Superseded
 - Date: 2026-11-08
 - Decision: 主目的をMuseのChrome拡張なしでのWebエディタ受入テストに限定し、`/manuals/sample`から認証不要で合成fixtureを通常エディタの`detailData`／`editorState`へ投入する。段階Aのmode権限は編集・write・出力を許可しない。タイトル・手順文・順序・削除・画像差し替え・保存・共有・PDF／Office出力を制限し、サンプル明示をtoolbarと画像拡大内に出す。
 - Boundary: 固定fixtureと同梱PNGの表示だけでブラウザ内完結とし、D1/R2にguest content、workspace、revision、assetを作らないためADR-0032の境界内である。ADR-0032本文は変更しない。新規API、migration、analytics、外部AI、自動置換を追加しない。API共通呼出しとworkspace URL構築をmodeで拒否し、個別の編集・保存・共有・出力入口にもgateを置く。通常モードの認証・認可は維持する。
@@ -822,12 +822,44 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
 
-## DEC-112: 登録後のサンプルはPersonal Workspaceへ明示操作で正規保存する
+## DEC-115: 登録後のサンプルはPersonal Workspaceへ明示操作で正規保存する
 
 - Status: Accepted
 - Date: 2026-11-08
 - Decision: 段階Dは認証済みのactive Personal Workspace作成者かつactive owner本人に限定し、本文なしの`POST /api/workspaces/{workspaceId}/sample-manual`で固定6手順・同梱PNG 3枚を通常のstaged asset + finalize claim経路へ投入する。予約operation prefix `sample_manual_v1_`はサーバー専用とし、公開claimのoperation検証から拒否する。既存completed claimの未アーカイブmanualは`alreadySeeded`で同じIDを返し、改名・編集後も再作成しない。期限切れpendingをexpiredへ確定し、workspaceと直前intent IDから次operationを決定する。同時実行・途中失敗・応答消失も単一manualと3 assetへ収束させる。
-- Boundary: 呼出し元の資格情報を転送しない新規RequestでASSETS bindingから固定対応の同梱PNGだけを読み、private R2へ保存する。認証・same-origin・Worker認可・workspace固定queryとD1制約を維持する。ADR-0032に対する認証済みworkspaceへの正規保存であり、guest contentのサーバー保存ではない。DEC-111の公開閲覧専用routeは維持する。通常手順書のアーカイブはowner/admin/editorだけが`expectedUpdatedAt`のCASで`status`と`archived_at`を変え、migration 0009の`manual_archive_events`へ同じD1 batch内でappend-only監査を記録する。監査scope triggerと既存id／manual_idへのINSERT置換・更新・削除拒否を設け、revision・step・assetを保持する。保存済みサンプルのアーカイブ後に限り次のサンプルを投入できる。復元・物理削除は今回有効化しない。
+- Boundary: 呼出し元の資格情報を転送しない新規RequestでASSETS bindingから固定対応の同梱PNGだけを読み、private R2へ保存する。認証・same-origin・Worker認可・workspace固定queryとD1制約を維持する。ADR-0032に対する認証済みworkspaceへの正規保存であり、guest contentのサーバー保存ではない。DEC-111の公開閲覧専用routeは維持する。通常手順書のアーカイブはowner/admin/editorだけが`expectedUpdatedAt`のCASで`status`と`archived_at`を変え、migration 0010の`manual_archive_events`へ同じD1 batch内でappend-only監査を記録する。監査scope triggerと既存id／manual_idへのINSERT置換・更新・削除拒否を設け、revision・step・assetを保持する。保存済みサンプルのアーカイブ後に限り次のサンプルを投入できる。復元・物理削除は今回有効化しない。
 - Entry: cloud一覧の0件空状態と常設panelの2入口に「サンプルを自分のワークスペースに入れる」を設ける。自動投入しない。二重送信、未保存編集、保存・画像・共有処理中をguardし、取り込み中の編集・遷移では`preserveDetail`で詳細を保持する。失敗・結果不明は同じボタンから再試行し、一覧と詳細の`isSample`で「サンプル」を明示する。
 - Next: Museが最新SHAのCI・正式Codex Review・threadと実操作を照合する。merge、deploy、remote migration適用、公開設定の変更は別ゲートとする。
-- Evidence: `cloud-manual-router.ts`、`infra/d1/cloud-manual-repository.ts`、`cloud-manual-assets.ts`、`migrations/0009_d1_manual_archive_events.sql`、`tests/cloud-manual-c.test.mjs`、`tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`、[段階D報告書](sample-mode-stage-d-2026-11-08.md)。
+- Evidence: `cloud-manual-router.ts`、`infra/d1/cloud-manual-repository.ts`、`cloud-manual-assets.ts`、`migrations/0010_d1_manual_archive_events.sql`、`tests/cloud-manual-c.test.mjs`、`tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`、[段階D報告書](sample-mode-stage-d-2026-11-08.md)。
+
+## DEC-114: Teamの管理責任者移管を専用フローで許可する
+
+- Status: Accepted
+- Date: 2026-11-08
+- 対象: FR-003、AC-007/008/009/014、D1メンバーAPI。DEC-112は保存先名表示（PR #293）、DEC-114はサンプル段階B（PR #294）で使用済みのため、本決定はDEC-114とする。
+- Decision: active identityかつactive owner本人だけが、同じactiveなstandard workspaceのactive identity・active membershipを持つadmin/editor/viewerへ移管できる。自己移管、既存owner、非メンバー、removed/invited、disabled identity、Personal Workspaceを拒否する。対象をownerへ昇格し、元ownerをadminへ降格する。
+- Atomicity: migration `0009_d1_owner_transfer.sql`のworkspace単位permitを、発行→対象昇格→元owner降格→監査→削除の順で1回のD1 batch内だけに置く。事前照会はエラー分類用とし、permit発行SQLのEXISTS fenceと昇格triggerで認可を再照合する。各DML直後に`changes() = 1`をSQL assertionで検証し、0件はJSON関数の例外でbatch全体をrollbackする。SELECTは`changes()`を変えないため、監査の`changes() = 1`条件も維持する。返却結果のsuccess・runCount・直接件数も検証する。結果不明時は自動再送せず一覧を再取得する。
+- DB境界: 有効permitなしのUPDATE昇格は引き続きDBが拒否する。last-owner保護のowner_loss_update/deleteとidentity_disable_last_ownerは変更しない。DB writerは信頼境界内であり、permitをHTTPや汎用SQL入口へ公開しない。
+- Audit: actionは既存CHECK閉集合の`member.updated`、actorは元owner、target_application_idは新owner、metadataは既存AUDIT_METADATAとする。テーブル再構築やaction追加を避け、原子的な権限変更1回の監査として記録する。専用actionやmetadataから移管だけを識別する機能は追加しない。
+- UX: DEC-046に従い対象と「対象が管理責任者になり、自分は管理者になる」影響をwindow.confirmで確認してPOSTする。保存中の排他、認証世代照合、同一ユーザーの結果再照合と別ユーザーへの遅着破棄は既存の共通メンバー変更処理を使う。成功後は一覧を再取得し、旧ownerに再移管ボタンを表示しない。
+- 失効関係: DEC-045の「専用移管フローがAcceptedになるまで移管を拒否する」部分を本決定で置換する。通常add/updateのowner付与・変更拒否、招待メールを送信しない方針、本人発行参加コード（DEC-047）は維持する。Supabase/Postgres baselineへ移管機能は追加しない。
+- Verification: `tests/d1-workspace.test.mjs`、`tests/m3-http-d1.test.mjs`、`tests/d1-binding.test.mjs`、`tests/app-auth.test.mjs`。結果・未実行・rollbackは[実施報告書](owner-transfer-2026-11-08.md)を参照する。
+## DEC-113: サンプルの文章・手順編集をタブ内メモリだけで許可する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: DEC-111の段階Aのmode権限のうちcanEditだけをtrueへ緩め、canWrite／canOutputはfalseを維持する。通常エディタのタイトル・説明・手順タイトル／手順文、画像なし手順の追加（上限200件）・削除・ボタン／Alt+矢印の並べ替え、メモリ内undo／redoを許可する。主目的は監督によるChrome拡張なしの編集操作の受入テスト。
+- Lifetime: 編集内容はタブ内メモリだけに保持し、ページを離れると消える旨を画面に明示する。読み直しは未保存変更の破棄確認後にfixtureを再投入し、履歴も初期化する。サーバーのopenManual経路へ進まず、localStorage／IndexedDB等への保持も追加しない。
+- Boundary: 保存・共有作成／停止・PDF／Office出力は引き続き禁止し、保存入口はsaveManualを呼ばずアカウント登録／ログインが必要な旨を案内する。共有・出力は無効化と案内を維持する。画像差し替え・注釈・切り抜き等のローカル画像編集全般とチームの見た目は起動させない。共通json／workspacePathのrequireCloudWriteと各入口のgateを併用し、全API read／writeを0回に保つ。guest content・workspace・revision・assetをD1/R2へ作らず、ADR-0032本文と境界、通常cloudの挙動は維持する。
+- Scope: 新規API、migration、依存、環境変数、analytics、拡張製品コード、LPの変更はない。登録案内からの認証や編集内容の引き継ぎも追加しない。ローカル画像編集は追加1〜2実装日規模の別段、形態D（認証後引き継ぎ）は所有権・期限・復旧契約の決定後に別見積もりとする。計画用概算であり完了時刻を約束しない。
+- Supersedes: DEC-111の編集禁止と段階B未実施の部分だけを置き換え、入口・fixture・認証／永続化境界は維持する。
+- Evidence: `cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[段階B実施報告書](sample-mode-stage-b-2026-11-08.md)。
+## DEC-112: 保存確認に認可済み保存名を表示し、未知の状態・種類を日本語へ統一する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: bootstrapの応答を`{ status, workspaceId, workspaceName, createdIdentity }`へ拡張する。operationのworkspace IDと既存`authorized`述語（actor本人のactive Personal Workspaceとactive owner membership）で固定された行だけへJOINし、現在のDB保存名を返す。再送でも同じ認可を通し、改名後は同じ／別operationIdとも現在名を返す。名前をoperationへ複製しない。
+- UX: bootstrap完了後・送信確認前のサマリーに「保存先：{workspaceName}」をtextContentで表示する。空・欠落時や既存手順書の更新先がbootstrap先と異なる場合は隠し、別保存先名を補完しない。保存・共有・Officeで条件を共通化し、結果回収でbootstrapを追加しない。先行の「APIが名前を返さないため表示しない」判断は本決定で置き換える。
+- Display: manual状態5値の表示は維持し、一覧と基本情報で単一の解決関数を使い、辞書外は「状態不明」とする。手順種別4値もカード／プレビューで解決を統一し、辞書外は画面の「種類」に合わせ「種類不明」とする。継承プロパティを除き辞書のown keyだけを許す。操作種別は固定辞書のoption生成だけ、workspace権限の直接参照は固定配列またはvalidWorkspaceMembersPayloadのallowlist通過後だけであり、欠陥のない箇所は変更しない。
+- Boundary: D1 schema／migration／制約、認証、許可workspace、claim契約、拡張製品コード、依存、環境変数を変更しない。自動マスキング／自動置換や外部AIを追加しない。#231のapp-assets分割は表示解決の局所変更に不要なため対象外とする。
+- Evidence: `tests/onboarding-bootstrap.test.mjs`、`tests/onboarding-bootstrap-mutation.test.mjs`、`tests/onboarding-ui-browser.test.mjs`、`tests/manual-editor-ui.test.mjs`、[実施報告書](acceptance-display-fixes-2026-11-08.md)。

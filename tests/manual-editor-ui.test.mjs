@@ -185,3 +185,74 @@ test("editable empty manual list prioritizes creation and its CTA focuses the ti
   assert.equal(focused, true);
   assert.equal(scrolled, true);
 });
+
+async function manualDisplayContext() {
+  const { APP_JS } = await import("../apps/worker/src/app-assets.ts");
+  const labels = APP_JS.slice(APP_JS.indexOf("const manualStatusLabels ="), APP_JS.indexOf("function resetManualUiState("));
+  const renderers = APP_JS.slice(APP_JS.indexOf("function manualListHtml("), APP_JS.indexOf("function renderManualShell("));
+  const overlay = { setAttribute() {}, querySelector() { return null; }, addEventListener() {}, showModal() {} };
+  const context = {
+    manualsState: { status: "loaded", items: [] },
+    manualDetailState: { status: "loaded", value: null },
+    workspaceMembersState: { workspaceId: "workspace", currentUserRole: "viewer" },
+    manualCanEdit: () => false, manualMutationInFlight: false, manualReadingPreview: null,
+    escapeHtml: (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
+    document: { getElementById() { return {}; }, createElement() { return overlay; } },
+    app: { appendChild() {} }
+  };
+  return { source: labels + renderers, context, overlay };
+}
+
+test("manual list and metadata use the same safe status labels for all known and unknown values", async () => {
+  const { source, context } = await manualDisplayContext();
+  const cases = [
+    ["draft", "下書き"], ["reviewing", "確認中"], ["published", "公開済み"], ["stale", "要更新"], ["archived", "アーカイブ"],
+    ...["legacy_status", "", undefined, null, "toString", "constructor", "__proto__"].map(value => [value, "状態不明"])
+  ];
+  for (const [status, label] of cases) {
+    const manual = { id: "manual", title: "合成手順書", updatedAt: "2026-11-08T00:00:00Z", status };
+    context.manualsState.items = [manual];
+    context.manualDetailState.value = { manual, steps: [], permissions: { canEdit: false } };
+    const list = runInNewContext(source + '; manualListHtml({ id: "workspace" })', { ...context });
+    const detail = runInNewContext(source + '; manualDetailHtml({ id: "workspace" })', { ...context });
+    assert.ok(list.includes('<span class="badge">' + label + '</span>'), String(status));
+    assert.ok(detail.includes('状態：' + label + '</p>'), String(status));
+    if (label === "状態不明" && status) {
+      assert.equal(list.includes(status), false);
+      assert.equal(detail.includes(status), false);
+    }
+  }
+});
+
+test("manual step cards and reading preview keep Japanese labels for known and unknown types", async () => {
+  const { source, context, overlay } = await manualDisplayContext();
+  const cases = [
+    ["action", "操作"], ["note", "補足"], ["decision", "判断"], ["warning", "注意"],
+    ...["legacy_type", "", undefined, null, "toString", "constructor", "__proto__"].map(value => [value, "種類不明"])
+  ];
+  for (const [type, label] of cases) {
+    const step = { id: "step", title: "合成手順", type, instruction: "開く" };
+    context.manualDetailState.value = { manual: { title: "合成手順書" }, steps: [step] };
+    for (const canEdit of [true, false]) {
+      context.step = step;
+      context.canEdit = canEdit;
+      const html = runInNewContext(source + '; manualStepHtml(step, 0, 1, canEdit)', { ...context });
+      assert.ok(html.includes('<span class="badge">' + label + '</span>'), String(type));
+      if (label === "種類不明" && type) assert.equal(html.includes(type), false);
+    }
+    runInNewContext(source + '; openManualReadingPreview()', { ...context });
+    assert.ok(overlay.innerHTML.includes('<dt>種類</dt><dd>' + label + '</dd>'), String(type));
+    if (label === "種類不明" && type) assert.equal(overlay.innerHTML.includes(type), false);
+    context.manualReadingPreview = null;
+  }
+});
+
+test("action type options only contain the fixed Japanese dictionary and never echo an unknown value", async () => {
+  const { source, context } = await manualDisplayContext();
+  for (const value of ["click", "input", "select", "navigate", "wait", "other", "unknown_action", "", undefined, null]) {
+    context.value = value;
+    const html = runInNewContext(source + '; actionTypeOptions(value)', { ...context });
+    for (const label of ["操作なし", "クリック", "入力", "選択", "移動", "待機", "その他"]) assert.ok(html.includes('>' + label + '</option>'));
+    assert.equal(html.includes("unknown_action"), false);
+  }
+});
