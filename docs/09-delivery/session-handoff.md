@@ -1,3 +1,14 @@
+## 2026-11-08 Issue #248: 横スクロール記録の実MV3回帰
+
+Status: Accepted
+
+対象branch `codex/horizontal-scroll-248-20261108`、base `main` / `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。ユーザー指定範囲は実MV3回帰・CI接続・報告書・commit／push・base mainのDraft PR・full head SHAを明記した`@codex review`依頼まで。mergeしない。
+
+- 現行recorderはdeltaX／deltaYから80px閾値とdominant axisで4方向を決定し、下流の正規化・日本語操作文・local draftも左右対応済み。製品コード・挙動は変更せず、未整備だった横方向の実MV3 browser testを追加した。動的要素の初回はADR-0031／DEC-071のbaseline-only契約を維持し、既存table／panelの初回記録と別々に実測した。
+- 新規試験は要素／ページの左右・上下、79px非記録／80px記録、斜め移動、動的要素、event／stepの許可形状と合成URL／入力値／本文の非混入、13手順のIndexedDB保存を検査。単独`22481`は1/1、CI相当headed Chrome／Xvfb直列`6833`は既存sidepanel含め4/4、双方fail 0／skip 0／exit 0。隔離コピーをdeltaY限定へ戻した`79209`は最初の横移動で期待どおり失敗した。
+- 2026-11-08T19:28:15+09:00（Asia/Tokyo）確認: 全体`npm run check`は実行`43559`、exit 0、56段階とNode test summary集計779/779、fail 0／skip 0、最終secret／encodingまで成功。CIは既存`extension-privacy` jobの`sidepanel` stepへ接続し、3分timeout・必須outcome・Latest Review Gateを維持する。先行環境失敗の詳細は[実施報告書](horizontal-scroll-capture-2026-11-08.md)を正とする。npm ciは未実行、レビュー依存項目は未チェックを維持する。生成した合成artifactはcommit対象外。
+- 次の1マイルストーンはMuseによる保存済み最新headのCI／npm ci／正式Codex Review／threadと対象SHA照合。#248の実装判断に未決事項はない。production／外部設定／自動mask・置換は変更しない。push後にlocal／origin／PR head一致とDraftを実取得し、Issue #70へ保存結果を同期する。担当は保存・報告後に終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 
 Status: Accepted
