@@ -9,6 +9,7 @@ Status: Accepted
 | FR-001／FR-002／FR-004／FR-005、NFR-001／NFR-004、ADR-0032、DEC-115 | Personal Workspace owner本人の本文なしPOSTで6手順・3画像をclaim保存。予約prefix分離、同梱画像取得時の資格情報非転送、冪等再送・期限切れpending・同時実行 | `tests/cloud-manual-c.test.mjs`（認証・tenant・Team・payload拒否、R2失敗／応答消失、batch rollback、同時保存、改名後の由来保持、finalize直前role変更） |
 | FR-004、NFR-001、DEC-060／DEC-115 | D1通常アーカイブのCAS＋append-only監査、migration 0010、revisionとasset保持。アーカイブ後だけ再投入 | `tests/cloud-manual-c.test.mjs`（stale版・viewer・越境・監査rollback・role mutation・監査scope直接DML・INSERT OR REPLACE／更新削除拒否） |
 | FR-004／FR-005、DEC-115 | 空状態＋常設panelの明示2入口、二重送信・未保存／処理中guard、遅延応答時preserveDetail、isSample badge | `tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`（1366/1024/390px、POST・一覧／詳細／共有情報GET遅延中の編集保持・focus・元選択、再試行・archive取消／再投入） |
+| FR-004／FR-005、PR #298 P1 `4506316594` | `openManual`全経路で取得開始時の編集世代・処理番号を本文反映直前に再照合し、待機中の入力・dirty・focusを保持。保存成功時の更新版・追加手順IDは照合後に引継ぐ | `tests/cloud-manual-ui-browser.test.mjs`の`cloud manual reload/save preserves unsaved edits made while share metadata GET is pending`（通常再読込／保存後再取得の共有GET遅延、本文・dirty・離脱保護・選択保持と次の保存） |
 
 ## 2026-11-08 拡張なし受入用サンプル（段階A）
 ## 2026-11-08 拡張なし受入用サンプル（段階B）

@@ -662,6 +662,8 @@ export const CLOUD_MANUAL_JS = `(() => {
     const sameManual = detailData?.manual?.id === id;
     const selectedIndex = editorState?.steps.findIndex((step) => stepKey(step) === selectedStepKey) ?? 0;
     const serial = ++requestSerial;
+    const version = editVersion;
+    const preserveDetailIf = () => version !== editVersion || options.preserveDetailIf?.();
     selected = manuals.find((item) => item.id === id) || null;
     renderList();
     if (!selected) { renderDetail(null); return; }
@@ -672,9 +674,17 @@ export const CLOUD_MANUAL_JS = `(() => {
       if (options.expectedUpdatedAt && (data?.draft?.updatedAt !== options.expectedUpdatedAt || !savedSnapshotMatches(options.expectedSnapshot, data))) return false;
       const shareResult = await loadShareMetadata(id);
       if (serial !== requestSerial) return;
-      if (options.preserveDetailIf?.()) {
+      if (preserveDetailIf()) {
+        if (sameManual && options.expectedSnapshot) {
+          detailData = data;
+          const selectedStep = editorState.steps.find(step => stepKey(step) === selectedStepKey);
+          mergeServerStepIds(options.expectedSnapshot, data);
+          if (selectedStep) selectedStepKey = stepKey(selectedStep);
+          syncManualListTitle(id, data.draft.title);
+        }
         selected = manuals.find((item) => item.id === detailData?.manual?.id) || null;
         renderList();
+        setMessage("編集中の内容を保持しています。", "warning");
         return "preserved";
       }
       initializeEditor(data);

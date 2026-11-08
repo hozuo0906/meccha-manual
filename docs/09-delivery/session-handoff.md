@@ -1,3 +1,15 @@
+## 2026-11-08 PR #298 通常再読込・保存後再取得の入力保持P1修正
+
+Status: Accepted
+
+確認日時: 2026-11-08T22:18:51+09:00（Asia/Tokyo）。branch `codex/sample-mode-stage-d-20261108`、着手HEAD／PR head `5f7e20482487fb88f19cd10a97e17f2b5559d4b6`をGitHub Appとlocal gitで照合。main統合済み。P1 `4506316594`（thread `PRRT_kwDOTpNknc61A5wP`）の実装・検証・同名branchへのcommit／pushが今回の範囲。PR本文編集・レビュー依頼・ゲート操作・mergeは監督側が行う。
+
+- `openManual`共通で取得開始時の編集世代を記録し、既存の処理番号照合と併せて共有情報GET後・本文反映直前に再確認する。入力が進んだ場合は既存の`preserved`経路と「編集中の内容を保持しています。」で詳細・dirty・focus・選択を維持する。保存成功後は取得済み本文との照合を経た更新版・追加手順IDを引き継ぎ、手順選択を保って次の編集・保存を続ける。UX契約・traceabilityとasset hash `sha256-922bb8f3ea59f8ad`を同期した。
+- 追加テストは`tests/cloud-manual-ui-browser.test.mjs`の`cloud manual reload preserves unsaved edits made while share metadata GET is pending`と`cloud manual save preserves unsaved edits made while share metadata GET is pending`。共有GET到達後にタイトル・説明を入力し、未保存状態・離脱保護・focus／文字選択と次の追加・保存を確認する。合成APIと実Chromiumの検証であり、remote環境の証跡ではない。
+- 修正前の実行36554は2/2失敗・exit 1（待機中入力がサーバーのタイトルへ戻るassertion）。修正後69171は2/2成功・exit 0。最終テストを残して対象実装だけを着手HEADとbyte一致で一時復元したmutation実行44445も同じ2件が入力消失で失敗・テストexit 1、finallyで修正版への復元を確認した。最終browser56108は保存・共有・画像編集・サンプル投入を含む7ファイル14/14、fail 0／skip 0／exit 0。
+- 最終全体`npm run check`62694は56 npm段階・Node summary集計839/839、fail 0／skip 0／exit 0、最終encodingまで完走。自己レビューで通常再読込の破棄確認、遅着処理番号、保存結果照合、追加手順IDと選択、サンプル側の保持条件、情報露出を確認した。新しい認可・API・DB・依存・環境変数は追加していない。sandbox内の先行browser起動は制限で停止したため製品の再現失敗として数えず、承認済みsandbox外実行で上記を確認した。
+- 本記録と同時の修正commitをoriginの同名branchへ保存し、local／remote SHA一致を実取得して報告する。Issue #70は本文と最新コメントを実取得済み。次の1マイルストーンは監督側で保存済みheadの正式Review・thread返信／解決・CI・ゲートを照合すること。既存threadは未解決を維持し、今回のローカル成功を正式再レビュー完了に読み替えない。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 登録後サンプル投入（段階D）
 
 Status: Accepted

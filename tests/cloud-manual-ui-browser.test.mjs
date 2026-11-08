@@ -6,6 +6,105 @@ import test from "node:test";
 import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
+for (const action of ["reload", "save"]) {
+  test(`cloud manual ${action} preserves unsaved edits made while share metadata GET is pending`, { timeout: 60_000 }, async () => {
+    const origin = "https://meccha-manual-staging.meccha-iiyatsu.com";
+    const workspaceId = "workspace-edit-race";
+    const manualId = "manual-edit-race";
+    const api = `/api/workspaces/${workspaceId}/manuals`;
+    const reached = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    let delayShare = false;
+    let shareGets = 0;
+    let draft = { title: "通常の手順書", description: "合成した説明", updatedAt: "v1" };
+    let steps = [{ id: "step-1", type: "action", position: 1, title: "最初の手順", instruction: "画面を開く" }];
+    const patches = [];
+    const browser = await chromium.launch({ channel: "chromium", headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+      page.setDefaultTimeout(5000);
+      const errors = [];
+      const dialogs = [];
+      page.on("pageerror", error => errors.push(error.message));
+      page.on("dialog", async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+      await page.route(origin + "/**", async route => {
+        const request = route.request();
+        const path = new URL(request.url()).pathname;
+        const assets = {
+          "/manuals": ["text/html", renderCloudManualsPage({ workspaceId })],
+          "/assets/cloud-manual.css": ["text/css", CLOUD_MANUAL_CSS],
+          "/assets/cloud-manual.js": ["application/javascript", CLOUD_MANUAL_JS],
+          "/assets/editor-tools.js": ["application/javascript", EDITOR_TOOLS_JS]
+        };
+        if (assets[path]) return route.fulfill({ status: 200, contentType: assets[path][0], body: assets[path][1] });
+        const json = body => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+        if (path === api) return json({ manuals: [{ id: manualId, title: draft.title }] });
+        if (path === `${api}/${manualId}`) return json({ manual: { id: manualId, title: draft.title }, draft, steps, permissions: { canEdit: true } });
+        if (path === `${api}/${manualId}/share-links`) {
+          assert.equal(request.method(), "GET");
+          shareGets++;
+          if (delayShare) { reached.resolve(); await release.promise; }
+          return json({ share: null });
+        }
+        if (path === `${api}/${manualId}/draft`) {
+          assert.equal(request.method(), "PATCH");
+          const payload = request.postDataJSON();
+          patches.push(payload);
+          draft = { title: payload.title, description: payload.description, updatedAt: `v${patches.length + 1}` };
+          steps = payload.steps.map((step, index) => ({ ...step, id: step.id || `server-step-${index + 1}`, position: index + 1 }));
+          return json({ status: "saved", updatedAt: draft.updatedAt });
+        }
+        return route.fulfill({ status: 404, body: "" });
+      });
+      await page.goto(origin + "/manuals");
+      await page.getByRole("button", { name: draft.title, exact: true }).click();
+      await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
+      const title = page.getByLabel("タイトル", { exact: true });
+      const stepNumber = action === "save" ? 2 : 1;
+      const instruction = page.getByLabel(`手順 ${stepNumber}の説明`);
+      if (action === "save") {
+        await title.fill("保存するタイトル");
+        await page.getByRole("button", { name: "手順を追加", exact: true }).click();
+        await page.getByLabel("手順 2のタイトル").fill("保存する追加手順");
+      }
+      delayShare = true;
+      await page.getByRole("button", { name: action === "save" ? "変更を保存" : "最新の内容を読み込む", exact: true }).click();
+      await reached.promise;
+      assert.equal(shareGets, 2, "初回表示と再取得の共有情報GETへ到達する");
+      assert.equal(patches.length, action === "save" ? 1 : 0);
+      await title.fill("共有情報の取得待ちに入力したタイトル");
+      await instruction.fill("共有情報の取得待ちに入力した説明");
+      await instruction.selectText();
+      release.resolve();
+      await page.waitForFunction(() => /手順書を表示しています。|編集中の内容を保持しています。/.test(document.querySelector("#cloud-message")?.textContent || ""));
+      if (action === "save") await page.waitForFunction(() => !document.querySelector("[data-manual-save]")?.disabled);
+      assert.equal(await title.inputValue(), "共有情報の取得待ちに入力したタイトル", "遅着した本文で未保存入力を上書きしない");
+      assert.equal(await instruction.inputValue(), "共有情報の取得待ちに入力した説明");
+      assert.equal(await page.locator(".cloud-save-state").getAttribute("data-state"), "dirty");
+      assert.equal(await page.evaluate(() => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      }), true, "dirtyが保持され離脱時の保護も残る");
+      assert.deepEqual(await instruction.evaluate(input => ({ active: document.activeElement === input, start: input.selectionStart, end: input.selectionEnd })),
+        { active: true, start: 0, end: "共有情報の取得待ちに入力した説明".length });
+      assert.match(await page.locator("#cloud-message").textContent(), /編集中の内容を保持しています/);
+      assert.deepEqual(dialogs, [], "取得待機中の入力に破棄確認は出さない");
+      await page.getByRole("button", { name: "手順を追加", exact: true }).click();
+      assert.equal(await page.getByLabel(`手順 ${stepNumber + 1}のタイトル`).inputValue(), "新しい手順", "再取得後も選択中の手順の直後へ追加できる");
+      delayShare = false;
+      await page.getByRole("button", { name: "変更を保存", exact: true }).click();
+      await page.getByText("手順書を表示しています。", { exact: true }).waitFor();
+      assert.equal(patches.at(-1).title, "共有情報の取得待ちに入力したタイトル");
+      assert.equal(patches.at(-1).steps[stepNumber - 1].instruction, "共有情報の取得待ちに入力した説明");
+      assert.equal(patches.at(-1).expectedUpdatedAt, action === "save" ? "v2" : "v1");
+      if (action === "save") assert.equal(patches.at(-1).steps[1].id, "server-step-2", "保存済みの追加手順IDを次の保存へ引き継ぐ");
+      assert.equal(await page.locator(".cloud-save-state").getAttribute("data-state"), "saved");
+      assert.deepEqual(errors, []);
+    } finally { release.resolve(); await browser.close(); }
+  });
+}
+
 test("cloud list keyboard retry restores focus after repeated failures and preserves focus moved during loading", { timeout: 60_000 }, async () => {
   const server = createServer((request, response) => {
     const assets = {
