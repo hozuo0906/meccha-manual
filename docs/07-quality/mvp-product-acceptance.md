@@ -19,7 +19,7 @@ Chrome拡張オンリー、PC/スマホ/タブレット表示、guest-first onbo
 | MVP-AC-007 | guest local draftがある | 保存、共有、PDF出力のいずれかを選ぶ | 初めてoutput gateを表示し、アカウント作成／ログインを要求する。キャンセルすればlocal draftを失わず編集へ戻れる |
 | MVP-AC-008 | 未登録だが検証済みhuman Access actor | self-service bootstrapを実行する | issuer+subjectを正本にidentity/profile/Personal Workspace/active owner membershipをatomicかつ冪等に一度だけ作成する |
 | MVP-AC-009 | 同じemailのdisabled/retired identityが存在する | 別subjectまたはemail一致だけでbootstrapしようとする | email一致だけで既存identityを移動・復活・統合せず、安全に拒否または新identity境界として処理する |
-| MVP-AC-010 | bootstrap済みactorとguest draft | guest claimを実行する | 同じoperation/fingerprintからmanualを一度だけ作成し、claim確定までlocal原本を消さない |
+| MVP-AC-010 | bootstrap済みactorとguest draft | 保存サマリーを確認して「この内容で保存する」を押す | 確認前はintent作成・画像uploadを開始せず、同じoperation/fingerprintからmanualを一度だけ作成する。確認待ちでもTTLを延長せず、取消時とclaim確定前はlocal原本を保持する。確定済み結果の回収は確認待ちにしない |
 | MVP-AC-011 | guest claimの応答が失われた | 同operationIdで再試行する | 二重manualを作らず同じ結果を照合・返却する |
 | MVP-AC-012 | guestがshareを選んで認証・claim完了 | 共有リンクを作成する | デフォルトOFF、期限、パスコード、権限範囲を設定したlinkだけ作成され、無効化できる |
 | MVP-AC-013 | guestがoutput gateでsave/share/exportを選択済み | signup/bootstrap/claimが成功する | 利用者に同じ操作を押し直させず、元のoutputを自動再開する |

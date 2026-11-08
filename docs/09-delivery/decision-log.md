@@ -795,3 +795,11 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: `loadManuals`開始時に一覧内のフォーカスを記録し、再失敗後に新しく描画した再試行ボタンへ復帰する。既存popupの`hadFocus`／`focusUnclaimed`と同じ条件で、応答時にフォーカスがbody・元要素・未設定の場合だけ`preventScroll`付きで戻す。検索欄など別要素へ移った場合と初回取得失敗では自動復帰しない。
 - Reason: 読み込み表示で元のボタンを削除しても、Enter／Spaceで連続して再試行できるようにする。既存のrequest serialによる古い応答破棄を維持し、新しい共通モジュールやグローバル状態は追加しない。
 - Verification: `tests/cloud-manual-ui-browser.test.mjs`の合成APIによる遅延503と実Chromiumで、連続再試行・待機中の検索欄のフォーカス保持を検証する。
+
+
+### 2026-11-08: 保存準備画面の明示確認と初回一覧CTA（#272／#232）
+
+- Status: Accepted
+- Decision: prepareとfingerprint照合後、新規送信・pending再送の直前に保存サマリーと「この内容で保存する」／「やめる」を挟む。確定済みclaim回収は従来どおり継続する。待機でTTLを延長せず既存write検査を再実行し、準備・確認中は同一ページの二重起動を防ぐ。未知コードを画面へ出さず、日本語の復旧案内へ変換する。
+- Reason: 保存する対象と目的を利用者が確認してから送信し、取消時もlocal下書きから再操作できるようにする。タイトルだけをtextContentで表示し、本文・画像・内部識別情報の表示は追加しない。
+- Scope: Web一覧の編集可能な空状態は既存フォームへ移動する主CTAを追加する。#231の分割は、この変更が一覧renderとイベント結線に閉じるため見送る。拡張実装、handoff schema、API、D1、依存、環境変数は変更しない。自動マスキング・自動置換を再導入しない。

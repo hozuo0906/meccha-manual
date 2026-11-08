@@ -354,6 +354,7 @@ test("actual MV3 Office claims use product-auth Google and ChatGPT sessions", { 
           } catch { return false; }
         }, null, { timeout: 10_000 });
         await page.locator("#bootstrap").click();
+        await page.getByRole("button", { name: "この内容で保存する" }).click();
         await waitForCompleted(worker, handoffStorageKey(handoffId));
         const completed = await getStorage(worker, handoffStorageKey(handoffId));
         assert.equal(completed.outputAction, "office");
@@ -575,6 +576,7 @@ test("editor startRegistration creates the real Office handoff for both syntheti
             }, initialBootstrapText, { timeout: 15_000 });
             await bootstrapButton.click();
           }
+          await stagingPage.getByRole("button", { name: "この内容で保存する" }).click();
           await registrationClick;
           await waitForCompleted(worker, handoffStorageKey(handoffId));
           const completed = await getStorage(worker, handoffStorageKey(handoffId));

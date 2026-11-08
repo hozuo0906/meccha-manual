@@ -16,7 +16,8 @@ function memoryIndexedDb(drafts) {
     } }; request.onsuccess?.();
   }); return request; } };
 }
-async function runRecovery({ requestedAction, changed = false, serverStatus = "completed", withBranding = false }) {
+async function runRecovery({ requestedAction, changed = false, serverStatus = "completed", withBranding = false, confirmationWaitMs = 0 }) {
+  const originalNow = Date.now;
   const previous = { chrome: globalThis.chrome, indexedDB: globalThis.indexedDB, OffscreenCanvas: globalThis.OffscreenCanvas, createImageBitmap: globalThis.createImageBitmap };
   const storage = new Map();
   const original = { id: "pending-local", title: "保存応答が失われた手順書", description: "", updatedAt: "2026-10-01T00:00:00.000Z", selectedStepId: "step-17", steps: [], screenshots: [] };
@@ -49,10 +50,11 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     const cloudRef = { workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", manualId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", revisionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", updatedAt: "2026-10-01T00:01:00.000Z", contentVersion: "a".repeat(32) };
     const session = new Map(); const messages = []; const requests = [];
     const button = { textContent: "", listeners: new Map(), addEventListener(type, callback) { this.listeners.set(type, callback); }, removeEventListener(type) { this.listeners.delete(type); } };
-    const status = { textContent: "", className: "" };
+    const status = { textContent: "", className: "", focus() {} };
+    const summaryNodes = new Map();
     const location = { hash: url.hash, pathname: url.pathname, search: url.search, href: url.href };
     const context = {
-      document: { querySelector(selector) { return selector === "#onboarding" ? { dataset: { bootstrapEnabled: "true" } } : selector === "#status" ? status : button; } },
+      document: { querySelector(selector) { return selector === "#onboarding" ? { dataset: { bootstrapEnabled: "true" } } : selector === "#status" ? status : selector.startsWith("#save-") ? (summaryNodes.get(selector) || (summaryNodes.set(selector, { focus() {} }), summaryNodes.get(selector))) : button; } },
       window: { addEventListener() {} }, location,
       history: { replaceState() { location.hash = ""; } },
       sessionStorage: { getItem(key) { return session.get(key) ?? null; }, setItem(key, value) { session.set(key, value); } },
@@ -76,7 +78,23 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     };
     runInNewContext(ONBOARDING_JS, context);
     assert.equal(typeof button.listeners.get("click"), "function", status.textContent);
-    await button.listeners.get("click")();
+    const running = button.listeners.get("click")();
+    if (serverStatus === "pending" && !changed) {
+      const confirmationDeadline = originalNow() + 5000;
+      while (!summaryNodes.get("#save-confirm")?.onclick && originalNow() < confirmationDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+      assert.equal(typeof summaryNodes.get("#save-confirm")?.onclick, "function", status.textContent);
+      assert.equal(requests.some(request => request.method !== "GET"), false, "pending retries wait for confirmation before uploads and finalize");
+      if (confirmationWaitMs) {
+        const afterWait = Date.now() + confirmationWaitMs;
+        Date.now = () => afterWait;
+        const prepareMessage = messages.find(message => message.type === "handoff.prepare");
+        const expiredSnapshot = await handleExternalCloudClaimMessage({ ...prepareMessage, type: "handoff.logo.start" }, { url: ORIGIN + "/onboarding/continue" });
+        assert.equal(expiredSnapshot.error, "DRAFT_CHANGED", "the original real extension snapshot has expired before confirmation");
+      }
+      summaryNodes.get("#save-confirm").onclick();
+    }
+    await running;
+    assert.equal(messages.filter(message => message.type === "handoff.prepare").length, serverStatus === "pending" && !changed ? 2 : serverStatus === "pending" ? 1 : 0, "confirmed retries refresh snapshots; result recovery never prepares");
     assert.ok(messages.every((message) => message.action === "save"), "every recovery/claim message preserves the original save action");
     assert.equal(requests.filter((request) => request.path === "/api/onboarding/claim-intents").length, 0);
     assert.equal(requests.filter((request) => request.path === "/api/onboarding/bootstrap").length, 0);
@@ -116,6 +134,7 @@ async function runRecovery({ requestedAction, changed = false, serverStatus = "c
     }
     return requests;
   } finally {
+    Date.now = originalNow;
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; }
   }
 }
@@ -146,6 +165,12 @@ test("onboarding transfers rasterized per-manual branding and uses natural bound
   assert.equal(manual.steps[1].title, "操作の説明");
   assert.equal(Array.from(manual.steps[2].title).length, 128);
   assert.equal(JSON.stringify(manual).includes("logoDataUrl"), false);
+});
+
+test("confirmation after the real 10-minute snapshot TTL refreshes the logo snapshot and saves within the 15-minute handoff TTL", async () => {
+  const requests = await runRecovery({ requestedAction: "save", serverStatus: "pending", withBranding: true, confirmationWaitMs: 11 * 60 * 1000 });
+  assert.deepEqual(requests.map(row => row.method), ["GET", "PUT", "POST"]);
+  assert.equal(requests.at(-1).body.manual.branding.logoId, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
 });
 
 for (const requestedAction of ["save", "share"]) for (const changed of [false, true]) {

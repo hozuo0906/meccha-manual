@@ -85,7 +85,7 @@ Access JWT、Access cookie、OTPその他のcredentialをChrome拡張へ渡さ�
 4. アプリページはManifest V3の `externally_connectable.matches` に列挙した自社アプリoriginから、対象拡張IDへ `chrome.runtime.sendMessage` または `chrome.runtime.connect` を使って `handoffId` を提示する。
 5. 拡張は `runtime.onMessageExternal` / `runtime.onConnectExternal` で受け、`sender.url` のoriginがmanifestで許可した自社originと一致すること、`handoffId` がローカルに存在し未期限切れ・未完了であることを検証する。
 6. 検証後、Webアプリが要求したguest draftデータを bounded / chunked messageで返す。拡張からWebページへ勝手にpushせず、Webページ起点のrequest/connectionへのresponseとして渡す。
-7. Webアプリは受け取ったpayloadを同一originの `/api/onboarding/*` へPOSTする。Access cookie/JWTはCloudflare Access管理の通常ブラウザrequestで処理され、拡張はcredentialを受け取らない。
+7. Webアプリは受け取った内容を照合し、保存サマリーに対する「この内容で保存する」を待ってから、payloadを同一originの `/api/onboarding/*` へPOSTする。確認待ちのTTLは延長せず、確定済みclaimの結果回収は確認待ちにしない（2026-11-08、#272／#232）。Access cookie/JWTはCloudflare Access管理の通常ブラウザrequestで処理され、拡張はcredentialを受け取らない。
 8. claim成功responseをWebアプリが受け取った後、同じ外部message channelで `handoff.completed` を通知する。拡張はorigin + handoffIdを再検証してからlocal guest原本を削除する。
 
 ### externally_connectableの制約
@@ -95,7 +95,7 @@ Access JWT、Access cookie、OTPその他のcredentialをChrome拡張へ渡さ�
 - extension IDは配布環境ごとに正本化する。
 - 外部messageのtype、payload schema、最大byte数をallowlistする。
 - 未知message type、未知origin、期限切れhandoff、handoffId不一致を副作用0で拒否する。
-- app pageから取得したguest payloadをDOM、localStorage、URL、analyticsへ複製しない。
+- app pageから取得したguest payloadをDOM、localStorage、URL、analyticsへ複製しない。ただし保存確認に必要なタイトルを`textContent`で表示し、手順数・画像数・目的・新規／更新・ロゴ有無だけをサマリーに添える（2026-11-08）。本文・画像・handoff識別情報は表示しない。
 
 この方式により、通常write APIのsame-origin契約と「Access credentialを拡張へ渡さない」契約を同時に維持する。
 

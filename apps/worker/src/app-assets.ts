@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-0b149ba73aa80f8a";
+export const APP_ASSET_VERSION = "sha256-0eb68303cff76742";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2682,7 +2682,7 @@ function manualListHtml(currentWorkspace) {
   } else if (state.status === "error") {
     body = '<div class="empty"><p>手順書一覧を表示できませんでした。もう一度読み込んでください。</p><button id="manuals-retry-button" class="secondary-button" type="button">再読み込み</button></div>';
   } else if (state.items.length === 0) {
-    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。' : '編集者以上の権限を持つメンバーが作成できます。') + '</div>';
+    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '</div>';
   } else {
     body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
       '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +
@@ -2900,6 +2900,11 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
     else loadManuals(currentWorkspace.id, { focusId: "manuals-message" });
   });
   document.getElementById("manuals-retry-button")?.addEventListener("click", () => loadManuals(currentWorkspace.id));
+  document.getElementById("manuals-create-button")?.addEventListener("click", () => {
+    const title = document.getElementById("manual-create-title");
+    title?.focus();
+    title?.scrollIntoView({ block: "center" });
+  });
   document.getElementById("manual-detail-retry-button")?.addEventListener("click", () => loadManualDetail(currentWorkspace.id, manualDetailState.manualId));
   document.getElementById("manual-reading-preview-button")?.addEventListener("click", () => {
     if (!manualMutationInFlight) openManualReadingPreview();

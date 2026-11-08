@@ -523,6 +523,7 @@ test("onboarding reconciles a completed finalize after the response is lost", { 
     }, extensionId);
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "この内容で保存する" }).click();
     await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
@@ -579,10 +580,12 @@ test("onboarding retries a pending finalize without re-uploading or creating a n
     }, extensionId);
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.getByRole("button", { name: "保存先を準備する" }).click();
+    await page.getByRole("button", { name: "この内容で保存する" }).click();
     await page.getByRole("button", { name: "同じ操作で再試行" }).waitFor();
     assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("meccha-manual:onboarding-operation")).entries[0].claimStatus), "finalize-pending");
     await page.goto(`${baseUrl}/onboarding/continue#handoff=${handoff}&extensionId=${extensionId}`);
     await page.locator("#bootstrap").click();
+    await page.getByRole("button", { name: "この内容で保存する" }).click();
     await page.getByText("手順書を保存しました。保存した手順書を開きます。").waitFor();
     assert.equal(intentCalls, 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
     assert.ok(finalizeCalls >= 1, `intent=${intentCalls} finalize=${finalizeCalls} status=${statusCalls}`);
@@ -810,5 +813,145 @@ for (const requestedAction of ["save", "share"]) test(`onboarding terminal expir
     if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("onboarding confirms summaries before new or resumed transmissions, supports cancel and expiry, and hides error codes", { timeout: 60_000 }, async () => {
+  const requests = [];
+  const intentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const server = createServer(async (request, response) => {
+    const path = new URL(request.url, "http://localhost").pathname;
+    if (serveOnboardingBrand(path, response)) return;
+    const assets = {
+      "/onboarding/continue": ["text/html", renderOnboardingContinuePage({ bootstrapEnabled: true })],
+      "/assets/onboarding.js": ["application/javascript", ONBOARDING_JS],
+      "/assets/onboarding.css": ["text/css", ONBOARDING_CSS]
+    };
+    if (assets[path]) { response.writeHead(200, { "content-type": assets[path][0] }).end(assets[path][1]); return; }
+    if (path.startsWith("/api/")) {
+      for await (const _chunk of request) { /* Drain synthetic request only. */ }
+      requests.push({ path, method: request.method });
+      const payload = path.endsWith("/bootstrap") ? { status: "ready" } : path.endsWith("/claim-intents") ? { claimIntentId: intentId }
+        : request.method === "GET" ? { status: "pending" } : request.method === "PUT" ? { status: "staged" } : { status: "claimed", manualId: "manual-confirmed" };
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(payload)); return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  let browser;
+  try {
+    browser = await chromium.launch({ channel: "chromium", headless: true });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(4000);
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.addInitScript(({ intentId }) => {
+      globalThis.__fixture = {};
+      globalThis.__messages = [];
+      globalThis.chrome = { runtime: { sendMessage: async (_id, message) => {
+        const fixture = globalThis.__fixture;
+        globalThis.__messages.push(message.type);
+        if (message.type === "handoff.recovery") return fixture.resume ? { ok: true, status: "finalize-pending", operationId: "O".repeat(43), claimIntentId: intentId, draftFingerprint: "a".repeat(64), expiresAt: new Date(Date.now() + 900_000).toISOString() } : { ok: false, error: "RECOVERY_NOT_FOUND" };
+        if (message.type === "handoff.begin") return fixture.beginError ? { ok: false, error: fixture.beginError } : { ok: true, status: "active", operationId: "O".repeat(43), expiresAt: new Date(Date.now() + 900_000).toISOString() };
+        if (message.type === "handoff.prepare") {
+          if (fixture.error) return { ok: false, error: fixture.error };
+          if (fixture.invalid) return { ok: true, draft: {}, assets: [] };
+          globalThis.__snapshotExpiresAt = Date.now() + 10 * 60 * 1000;
+          return { ok: true, draftFingerprint: (fixture.changedFingerprint ? "b" : "a").repeat(64), draft: { title: fixture.title ?? "<img src=x onerror=alert(1)> 合成手順書", steps: [{ screenshotId: "shot", instruction: "開く" }, { instruction: "確認する" }], ...(fixture.logo ? { branding: { hasLogo: true } } : {}) }, assets: [{ assetSlot: 0, screenshotId: "shot" }], ...(fixture.update ? { cloudRef: { workspaceId: "workspace", manualId: "manual" } } : {}) };
+        }
+        if (message.type === "handoff.asset.start") return Date.now() >= globalThis.__snapshotExpiresAt ? { ok: false, error: "DRAFT_CHANGED" } : { ok: true, totalChunks: 1, contentType: "image/png", sha256: "b".repeat(64), byteLength: 1 };
+        if (message.type === "handoff.asset.chunk") return { ok: true, sequence: fixture.badChunk ? 2 : 0, chunk: "AA==" };
+        return { ok: true, status: "completed" };
+      } } };
+    }, { intentId });
+    let scenario = 0;
+    const begin = async (fixture = {}, action = "save", format = "") => {
+      await page.goto(`http://127.0.0.1:${server.address().port}/onboarding/continue`);
+      await page.evaluate(() => sessionStorage.clear());
+      requests.length = 0;
+      await page.goto(`http://127.0.0.1:${server.address().port}/onboarding/continue?scenario=${++scenario}#handoff=${"A".repeat(43)}&extensionId=${"a".repeat(32)}&action=${action}${fixture.resume ? "&requestedAction=share" : ""}${format ? `&officeFormat=${format}&launchId=${"L".repeat(43)}` : ""}`);
+      await page.evaluate(fixture => { globalThis.__fixture = fixture; }, fixture);
+      await page.locator("#bootstrap").click();
+    };
+    for (const [fixture, action, format, purpose] of [
+      [{}, "save", "", "目的：保存"],
+      [{ title: "", logo: true, update: true, resume: true }, "save", "", "目的：共有のための保存"],
+      [{}, "office", "docx", "目的：Office出力（Word）"],
+      [{}, "office", "pptx", "目的：Office出力（PowerPoint）"]
+    ]) {
+      // A pending original save may be recovered for a newly requested Share action.
+      await begin(fixture, action, format);
+      await page.locator("#save-summary:not([hidden])").waitFor();
+      assert.equal(await page.locator("#save-title").textContent(), fixture.title === "" ? "無題の手順書" : "<img src=x onerror=alert(1)> 合成手順書");
+      assert.equal(await page.locator("#save-title img").count(), 0, "title is text, never HTML");
+      assert.equal(await page.locator("#save-counts").textContent(), "2手順・画像1枚");
+      assert.equal(await page.locator("#save-purpose").textContent(), purpose);
+      assert.equal(await page.locator("#save-mode").textContent(), fixture.update ? "前回保存した手順書を更新" : "新しい手順書として保存");
+      assert.equal(await page.locator("#save-logo").isVisible(), !!fixture.logo);
+      assert.equal(requests.filter(r => r.path.includes("claim-intents") || r.method === "PUT").length, 0);
+      assert.equal(await page.evaluate(() => globalThis.__messages.includes("handoff.asset.start")), false);
+      await page.locator("#bootstrap").evaluate(button => { button.disabled = false; button.click(); button.click(); button.disabled = true; });
+      assert.equal(requests.filter(r => r.path.endsWith("/bootstrap")).length, fixture.resume ? 0 : 1, "in-flight guard ignores repeated primary clicks");
+      await page.locator("#save-cancel").click();
+      await page.waitForFunction(() => document.querySelector("#status").textContent.includes("保存をやめました"));
+      assert.match(await page.locator("#status").textContent(), /何も送信していません.*下書きは拡張機能に残っています.*編集画面のタブ/);
+      assert.equal(requests.filter(r => r.method !== "GET" && !r.path.endsWith("/bootstrap")).length, 0);
+    }
+    await begin({}, "share");
+    await page.locator("#save-summary:not([hidden])").waitFor();
+    assert.equal(await page.locator("#save-purpose").textContent(), "目的：共有のための保存");
+    assert.equal(requests.length, 1);
+    await page.locator("#save-confirm").evaluate(button => { button.click(); button.click(); });
+    await page.getByRole("button", { name: "共有設定を開く", exact: true }).waitFor();
+    assert.equal(requests.filter(r => r.path.endsWith("/claim-intents")).length, 1);
+    assert.equal(requests.filter(r => r.method === "PUT").length, 1);
+    await begin();
+    await page.locator("#save-summary:not([hidden])").waitFor();
+    await page.clock.install();
+    await page.clock.fastForward(11 * 60 * 1000);
+    assert.equal(await page.evaluate(() => Date.now() > globalThis.__snapshotExpiresAt), true);
+    await page.locator("#save-confirm").click();
+    await page.getByRole("button", { name: "保存した手順書を開く", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 2);
+    assert.equal(requests.filter(r => r.path.endsWith("/claim-intents")).length, 1);
+    assert.equal(requests.filter(r => r.method === "PUT").length, 1);
+    await page.clock.resume();
+    await begin();
+    await page.locator("#save-summary:not([hidden])").waitFor();
+    await page.evaluate(() => { globalThis.__fixture.changedFingerprint = true; });
+    await page.locator("#save-confirm").click();
+    await page.locator("#status.error").waitFor();
+    assert.equal(await page.locator("#status").textContent(), "下書きが変更されたため保存を停止しました。拡張機能からもう一度進めてください。");
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 2);
+    assert.equal(await page.evaluate(() => globalThis.__messages.some(type => /handoff\.(asset|logo)\./.test(type))), false);
+    assert.equal(requests.filter(r => r.path.includes("claim-intents") || r.path.includes("/claims/") || r.method === "PUT").length, 0);
+    await begin();
+    await page.locator("#save-summary:not([hidden])").waitFor();
+    await page.clock.fastForward(16 * 60 * 1000);
+    await page.locator("#save-confirm").click();
+    await page.getByRole("button", { name: "この保存操作は期限切れです", exact: true }).waitFor();
+    assert.equal(requests.filter(r => r.path.includes("claim-intents") || r.method === "PUT").length, 0);
+    assert.equal(await page.evaluate(() => globalThis.__messages.filter(type => type === "handoff.prepare").length), 1, "expired confirmation never refreshes the snapshot");
+    assert.match(await page.locator(".recovery-guide").textContent(), /編集/);
+    await page.clock.resume();
+    for (const [fixture, code, confirm] of [
+      [{ error: "UNKNOWN_EXTENSION_CODE" }, "UNKNOWN_EXTENSION_CODE", false],
+      [{ beginError: "UNKNOWN_INTERNAL_CODE" }, "UNKNOWN_INTERNAL_CODE", false],
+      [{ invalid: true }, "DRAFT_INVALID", false],
+      [{ badChunk: true }, "CHUNK_SEQUENCE_INVALID", true]
+    ]) {
+      await begin(fixture);
+      if (confirm) await page.locator("#save-confirm").click();
+      await page.locator("#status.error").waitFor();
+      const text = await page.locator("#status").textContent();
+      assert.equal(text.includes(code), false);
+      assert.match(text, /下書き.*(残|保持)/);
+      assert.match(text, /編集画面/);
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
   }
 });

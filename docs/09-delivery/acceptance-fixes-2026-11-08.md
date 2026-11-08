@@ -1,0 +1,139 @@
+# 受入フェーズ第一弾の修正（#272／#232）
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T14:45:20+09:00（Asia/Tokyo）。
+
+着手確認日時: 2026-11-08T14:34:39+09:00（Asia/Tokyo）。base `2cfdee4136e885482fa8c14955fe93dc8a1bf927`、branch `codex/acceptance-fixes-20261108`。AGENTS.md、session-handoff、GitHub Issue #70／#272／#232を実取得して確認した。今回の1マイルストーンは保存準備の内容確認・エラー案内・初回空状態CTAの実装、検証、commit／指定branchへのpushまで。PR作成・merge・Issueへの書込みは依頼範囲外とする。
+
+## 変更内容
+
+1. 保存準備画面はprepareとfingerprint照合後、タイトル（空の場合の既定値含む）・手順数・画像数・目的・新規／更新・ロゴ有無を表示する。「この内容で保存する」までintent作成・画像／ロゴuploadを始めず、「やめる」で今回の送信を止めて拡張の下書きと編集タブへの復帰を案内する。表示文字列はtextContentを使う。確認待ちの二重起動を抑え、続行直前に元TTLで既存write検査を行う。completed／completion-pending／GET照合で確定する結果回収は確認待ちにしない。
+2. 既存の拡張エラーガイダンスに指定8コードと内部コードを加えた共通表示辞書を設け、bootstrap側の3つの表示catchにも変換を適用した。未知の大文字スネークケースや拡張エラーを日本語案内へ変換し、既存の日本語エラー文は保持する。
+3. Web手順書一覧の編集可能な0件表示に主CTA「手順書を作る」を追加し、既存フォームのタイトル入力へfocus・scrollする。閲覧者の説明を保持する。
+
+拡張の製品コード、ハンドオフのschema、API endpoint、D1、依存、環境変数は変更していない。外部AI API呼出し、自動マスキング、自動置換は追加していない。asset versionは既存の内容hash規約に従って更新した。
+
+## 検証
+
+環境: Node v24.22.1、既設Playwright Chromium（合成fixture・ローカルHTTP・ローカルD1/R2）。実行IDは当セッションのexec session ID。
+
+| 検査 | 結果 | 実行ID |
+|---|---|---|
+| `npm ci` | 成功、49 packages | 55692 |
+| onboarding UI unit／recovery＋manual editor unit＋onboarding UI／share browser（5ファイル） | 45/45、fail 0、skip 0、exit 0 | 81567 |
+| Phase 2既存「編集者は手順書作成から手順追加・手修正文保持まで完了できる」（実CTA Enter→focusを追加） | 1/1、exit 0 | 5758 |
+| 実MV3・認証Office連携回帰（2ファイル、docx／pptx・合成Google／ChatGPT） | 3/3、fail 0、skip 0、exit 0 | 38879 |
+| 全体 `npm run check` | 全56段階成功、Node test summary集計772/772、fail 0、skip 0、exit 0 | 57849 |
+| 保存サマリーの実browser表示（1280px／390px） | 2/2表示、横overflowなし、ボタン高48〜50px、初期focusは確認ボタン | 73827 |
+| 最終 `docs:check`／`secrets:check`／`encoding:check` | 文書153件・追跡461ファイルの秘密値検査・文字コード394ファイル、exit 0 | 86770 |
+| `git diff --check`／`git diff --cached --check` | 成功 | — |
+
+追加回帰はタイトルのHTML非解釈、空タイトル、新規／更新、ロゴ、保存・共有・Word・PowerPointの目的、requestedAction優先、pending再送、確認前intent／upload 0、取消後content write 0、確認待ちの重複クリック、確認後15分TTL切れ、未知拡張／内部コードとDRAFT_INVALID／CHUNK_SEQUENCE_INVALIDの画面非表示を確認する。辞書の全指定コードと内部コードは表示境界unitでも確認する。CTAはeditor／viewerの条件分岐、既存説明、focus・scrollをunitと実browserで確認する。
+
+### 実行上の失敗と修正
+
+- 制限内の初回`npm ci`（36668）はesbuildのspawnSync EPERMで失敗。制限外で再実行して成功した。
+- 制限内Node testはファイル単位の終了しか返さなかったため、assertionを実行する制限外実行で数値を取得した。ファイル3件の表示をテスト3件の証跡にはしない。
+- 最初のbrowser実行（89922）はHatch専用Chromiumの起動policy不足で失敗。既設Playwright Chromiumへ切替えた。
+- 追加回帰の最初の実browser実行（38243）はfixtureの同一URL hash遷移と既存のreloadが競合し、15成功／1失敗。scenarioごとのnavigationへ修正した。追加回帰単独（97411）は未知内部コードの案内が「手順書」保持だけで、下書きと次操作の案内を欠くことを検出して失敗。未知コードの共通案内へ修正し、最終81567の45/45で解消を確認した。先行失敗を最終成功と混同しない。
+
+## 既存テストを変更した箇所と理由
+
+- `tests/onboarding-ui-browser.test.mjs`: 「completed finalize after response loss」の初回送信と「pending finalize retry」の初回／pending再送に確認クリックを追加。確定済み回収には追加しない。
+- `tests/onboarding-share-browser.test.mjs`: guest共有のclaim前に確認クリックを追加。共有リンク自動作成なしのassertionを保持。
+- `tests/onboarding-recovery-actions.test.mjs`: 一致するpending snapshot再送とbranding転送で確認を待ち、クリック前のwrite 0を確認するDOM fixtureへ更新。
+- `tests/extension-cloud-save-runtime-browser.test.mjs`: 実MV3 coordinatorのdocx／pptx claim開始前に確認クリックを追加。
+- `tests/office-auth-runtime-browser.test.mjs`: 合成Google／ChatGPT sessionでのOffice claimと、editor startRegistrationによる実handoffで確認クリックを追加。認証・出力のassertionを保持。
+- `tests/e2e/phase2-manual-editor.spec.mjs`: 既存の編集者作成フローに空状態CTAとEnter後のタイトルfocus assertionを追加。
+
+## 文書同期と設計判断
+
+- `docs/02-ux/experience-principles.md`: 認証後の無条件自動継続を「保存内容確認→claim→元outputの自動継続」へ修正。
+- `docs/02-ux/onboarding.md`: 初回導線と現行の保存確認・取消・TTL・回収・日本語エラー・一覧CTA契約を追記。
+- ADR-0032: Web payload送信の前に確認を入れ、DOM複製禁止の例外をtextContentのタイトルと限定したサマリー情報だけに明記。本文・画像・識別情報の非表示は維持する。
+- `docs/05-api/guest-onboarding-and-claim-api.md`: coordinatorの送信確認境界を追記。endpoint・message・認可契約の変更はない。
+- `docs/07-quality/mvp-product-acceptance.md`: MVP-AC-010のtriggerを内容確認後とし、確認前送信抑止・取消・TTL・確定結果回収を明記。
+- `docs/01-product/requirements-traceability.md`: FR-001／002／004／011／022、MVP-AC-010／011／013と対象実装・回帰を対応づけた。
+- `docs/01-product/product-requirements.md`、`non-functional-requirements.md`、`scope.md`、`docs/07-quality/test-strategy.md`、ADR-0040を確認した。認証・workspace境界、guest原本保持、元output再開、手動画像確認、自動mask廃止の制約と今回の追加確認は両立するため、無関係な本文は変更しない。過去スライスの履歴を全面更新しない。
+- `decision-log.md`に採否・根拠・範囲を記録した。#231のapp-assets分割は、今回の差分が一覧renderとイベント結線の局所に閉じるため見送り、分割を受入修正の前提にしない。
+
+## 未実行事項と次の1マイルストーン
+
+Phase 2 E2E全件は未実行（変更対象の既存1件を選択実行）。実providerのSSO、remote D1/R2、production／staging配信、実Officeアプリでの描画、人によるscreen reader・利用者受入は未実行。今回の許可範囲はローカル検証とbranch保存であり、remote設定・production反映の承認は含まれない。PR作成・CI確認・最新SHAの正式Codex Review・mergeは監督側が実施する。Issue #70は依頼の書込み禁止に従って更新しない。次は監督Museによるpush済みSHAのPR・CI・正式Reviewと実利用受入の照合。保存後の継続実行・自律監視は登録しない。
+
+判断に迷った点: なし。APIが返さないワークスペース名は補完せず、pendingは再送だけを確認対象とし、確定結果の回収は従来の順序を維持した。
+
+
+## 変更ファイル一覧
+
+- 実装: `apps/worker/src/onboarding-assets.ts`、`apps/worker/src/app-assets.ts`。
+- 回帰: `tests/onboarding-ui.test.mjs`、`tests/onboarding-ui-browser.test.mjs`、`tests/onboarding-recovery-actions.test.mjs`、`tests/onboarding-share-browser.test.mjs`、`tests/manual-editor-ui.test.mjs`、`tests/e2e/phase2-manual-editor.spec.mjs`、`tests/extension-cloud-save-runtime-browser.test.mjs`、`tests/office-auth-runtime-browser.test.mjs`。
+- 文書: `docs/01-product/requirements-traceability.md`、`docs/02-ux/experience-principles.md`、`docs/02-ux/onboarding.md`、`docs/03-architecture/adrs/ADR-0032-value-first-guest-onboarding.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/07-quality/mvp-product-acceptance.md`、`docs/09-delivery/decision-log.md`、`docs/09-delivery/session-handoff.md`、本報告書。
+
+
+自己レビュー: 変更差分を再読し、通常送信・pending再送・確定結果回収・取消・TTL切れ・エラー表示・viewer境界を照合した。タイトル以外の下書き本文や画像をDOMへ追加せず、URL／storage／ログ／analyticsへの新規複製はない。API・DB・拡張の権限境界を変更していない。local検証の完了を、PRのCI・正式Review・商用受入の完了とは扱わない。
+
+最終文書確認日時: 2026-11-08T14:46:45+09:00（Asia/Tokyo）。
+
+表示確認: 合成タイトル・共有目的・更新・ロゴを表示したPC／狭幅のスクリーンショットを目視確認した。ブランド画像はこの一時サーバーでは404とし、既存の画像非表示fallbackを利用した。表示証跡は合成データのみの一時成果物で、配信の成功証跡にはしない。
+
+## PR #289 Codex Review P2: 確認後の転送snapshot再準備
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T15:00:50+09:00（Asia/Tokyo）。対象PR #289（関連Issue #272／#232）、branch `codex/acceptance-fixes-20261108`、着手HEAD／レビュー対象 `ee62714ceaa65b1ad0764dd54677d4be569ac651`。修正commit: `909baaa0d085006b50261203db649e47822b7969`（`fix: refresh claim snapshot after save confirmation`）。本節の報告追記は別commitとし、修正と一緒に同branchへ保存する。
+
+### 修正内容と自己レビュー
+
+- P2は妥当。確認画面で10分を超えて待つと、15分のhandoff TTL内でも画像／ロゴ用snapshotが失効する経路を確認した。
+- `confirmSave`がtrueを返し、既存の`ensureFinalizeWriteAllowed`検査を通過した後、intent作成・転送前に同じhandoffで`handoff.prepare`を再実行する。確認表示時のfingerprintとの不一致では、既存の日本語文で停止し、intent作成・asset／logo転送・finalizeを始めない。一致時は再準備結果のdraft／assets／cloudRef／brandingを正としてmanual構築から完了通知まで進める。
+- 取消、15分TTL切れ時の既存catchと期限切れ案内、completed／completion-pending／`reconcileFinalize`で確定する結果回収の順序を保持した。新しい内容の送信経路だけを再準備対象とする。認可、元のTTL、原本保持、metadata以外のWeb storage非保存を維持し、ログやanalyticsへの情報追加はない。
+- `APP_ASSET_VERSION`のみ既存の内容hash規約に従って`sha256-0eb68303cff76742`へ更新した。拡張製品コード、ハンドオフschema、API endpoint、D1、依存、環境変数の追加・変更はない。既存契約を満たす不具合修正として、関係するUX／coordinator契約／トレーサビリティを局所更新した。
+
+### 検証
+
+環境: Node v24.22.1、既設Playwright Chromium 1248、合成fixture・ローカルHTTP。browserは既存の`MECCHA_TEST_CHROME_PATH`で実行バイナリを指定した。実行IDはexec session ID。
+
+| 検査 | 結果 | 実行ID |
+|---|---|---|
+| 対象回帰: `node --experimental-strip-types --test tests/worker-runtime.test.mjs tests/onboarding-ui.test.mjs tests/onboarding-recovery-actions.test.mjs tests/onboarding-ui-browser.test.mjs tests/onboarding-share-browser.test.mjs` | 108/108、fail 0、skip 0、exit 0 | 48793 |
+| 上記成功後の全体`npm run check` | Node test summary集計773/773、fail 0、skip 0、最終secret／encodingまで成功、exit 0 | 97526 |
+| `git diff --check`／`git diff --cached --check` | 成功 | — |
+
+回帰では、(a) 実拡張handlerの旧ロゴsnapshotが11分後に`DRAFT_CHANGED`で拒否されることを先に確認し、利用者の確認後の再準備でロゴupload・保存が成功すること、(b) browser時計を11分進めても画像upload・保存が成功すること、(c) 確認待ち中に再準備のfingerprintが変わった場合はintent／upload／finalize 0件、asset／logo転送開始0件で下書きの変更を日本語表示することを確認した。15分TTL切れ時のprepareは初回1回だけ、GETによる確定結果回収はprepare 0回という境界も検証した。
+
+先行失敗は最終成功と区別する。初回対象実行91866は既定Chromium 1234の欠落で21/37成功・16失敗となり、既設1248を指定した78401では37/37成功した。初回全体check 41781はasset版定数の不一致でWorker 70/71となり、版定数を更新した。次の対象実行39892は107/108で、既存fixtureの100回setImmediate待機が確認画面の非同期準備より先に尽きる競合を検出した。assertionを保持し、実時間5秒上限の条件待機へ直して48793で108/108を確認した。制限内実行が返したファイル単位の1件表示はassertion件数の証拠に採用していない。
+
+### 未実行事項と次の1マイルストーン
+
+今回の未実行事項: 最新SHAのGitHub CI確認、正式Codex Review、review threadへの返信・解決、PR／Issue更新、merge、配信、Phase 2 E2E全件、実provider SSO、remote D1/R2、実利用受入。PR／Issueへの書込みは禁止のためIssue #70も更新しない。実環境や利用者による受入の成功とは扱わない。次の1マイルストーンは監督Museによるpush済みSHAでのCI・正式再レビュー・当該thread対応と受入判定。今回の担当はcommit／pushとremote一致確認後に終了し、自律監視や終了後の継続実行は登録しない。
+
+## PR #289 CI回帰: 実MV3ハーネスの保存確認操作
+
+Status: Accepted
+
+最終全体回帰確認日時: 2026-11-08T15:13:18+09:00（Asia/Tokyo）。対象PR #289、branch `codex/acceptance-fixes-20261108`、着手HEAD `ea576b9927e1fe412060e07cf9749ed62ff79652`。AGENTS.md、session-handoff、Issue #70、PRの実headと、FR-001／002・NFR-001〜004・ADR-0032・送信確認境界・MVP-AC-010・テスト戦略を照合した。今回の範囲はこのCI回帰のハーネス修正、検証、本報告への追記と同branchへのcommit／pushだけとする。
+
+### 原因と修正
+
+- Legacy Phase 1 Baseline Integrityで実行する`test:extension-cloud-claim:runtime`の3フローが、新しい保存確認画面で`#save-confirm`を押さずに`completed`を待っていた。製品の「確認するまで送信しない」挙動は正しい。全体`npm run check`のチェーンにはこのruntime scriptが含まれておらず、前回の773/773成功ではこの回帰を検出できなかった。script／workflowの構成変更は今回の範囲に含めない。
+- `tests/extension-cloud-claim-runtime.test.mjs`の通常Access復帰2フローと、対の`tests/extension-cloud-claim-runtime-first-access.test.mjs`の初回Access復帰1フローで、既存locatorパターンに合わせて`#save-summary:not([hidden])`の表示を待ち、表示タイトルと下書きの一致・確認前のclaim未完了を検査してから`#save-confirm`をクリックする。実Workerを使う2フローでは確認前のclaim intentも0件であることを検査する。
+- 完了状態・保存後の原本保持・D1/R2保存と再閲覧のassertionを維持し、固定sleepやシナリオを追加しない。TTL回復、取消済みready、転送期限切れ、worker再起動、chunk／権限境界の既存シナリオに確認クリックを追加しない。製品コード・API・DB・依存は変更しない。
+- 両ファイルのbrowser importを既存`tests/support/test-browser.mjs`へ揃え、既設の`MECCHA_TEST_CHROME_PATH`でChromiumを選択できるようにした。環境変数・共通moduleの新設はない。
+
+### 検証
+
+環境: Node v24.22.1、既設Playwright Chromium 1248、実MV3、合成fixture、ローカルD1/R2。実行IDはexec session ID。初回Access試験の2hostnameは既存host resolverで127.0.0.1のHTTPS fixtureへ割り当てる。VMのsystem proxyによるトンネル失敗を避けるため、`--no-proxy-server`を加える一時launcherを`/tmp`へ作成し、既存`MECCHA_TEST_CHROME_PATH`で選択した。launcherやログはリポジトリへ含めない。
+
+| 検査 | 結果 | 実行ID |
+|---|---|---|
+| `npm run test:extension-cloud-claim:runtime`（2ファイルの一括実行） | 7/7、fail 0、skip 0、exit 0 | 65642 |
+| 上記成功後の全体`npm run check` | Node test summary集計773/773、fail 0、skip 0、最終secret／encodingまで成功、exit 0 | 38947 |
+| `git diff --check` | 成功 | — |
+
+先行失敗は最終成功と区別する。sandbox内の63771は子プロセスの詳細が得られずファイル単位の2失敗となり、assertion件数には採用しない。sandbox外の74550は6/7成功・1失敗で、初回Accessだけが確認画面到達前の`ERR_TUNNEL_CONNECTION_FAILED`。単独TAP診断30570と、合成hostnameのproxy bypass指定68381も同じ通信失敗だった。system proxyを使わない一時launcherでの初回Access単独62559は1/1成功し、その後のscript全件65642で7/7を確認した。別実行の成功件数を合算していない。
+
+### 未実行事項と引き継ぎ
+
+最新SHAのGitHub CI確認・正式Codex Review・PR／Issue更新・コメント・merge・配信、実provider SSO、remote D1/R2、実利用受入は未実行。依頼の書込み禁止に従いIssue #70も更新しない。次の1マイルストーンは監督Museによるpush済みSHAでのCI／正式Review確認。担当はcommit／pushとremote一致確認後に終了し、自律監視・終了後の継続実行は登録しない。
