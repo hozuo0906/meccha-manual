@@ -1,3 +1,14 @@
+## 2026-11-08 初回導線のワークスペース説明（#232／232-4）
+
+Status: Accepted
+
+検証確認日時: 2026-11-08T16:10:56+09:00（Asia/Tokyo）。branch `codex/workspace-gloss-20261108`、着手HEAD `f7b756eda7d072112d4598ed0ac09a9b46bc06d3`。今回の範囲はintro文言2箇所・回帰・文書同期・commit／push・base `main`のDraft PR作成まで。
+
+- 保存準備画面の静的introとOffice差し替えintroだけに「ワークスペース（手順書を保存する場所です）」と説明を添える。保存確認サマリー・手順ステップ・通常画面の文言は変更していない。通常assetは版定数以外byte一致し、共通hashだけ `sha256-daea9b8e6d875f8a` へ同期した。
+- onboarding unitは追加3件を含む24/24（実行 `13598`）、browserは保存・共有復旧・Word・PowerPointの説明1回とサマリー非露出を含む16/16（`27977`）。全体 `npm run check` は `86991`、exit 0、Node test summary集計776/776・fail 0／skip 0で最終secret／encodingまで完走。先行制限内checkの失敗と既定browser欠落は[報告書](workspace-gloss-2026-11-08.md)に区別した。
+- UX・decision-log・要件トレーサビリティを同期し、報告書と本記録を同じcommitへ含める。既存未追跡artifactは保持し、保存対象外。push後にlocal／origin／PR headとDraft状態を照合し、Issue #70を既存状態・履歴を保って更新する。
+- 次の1マイルストーンはMuseによる新headのGitHub CI・正式Codex Review・レビューthread／SHA照合と利用者受入。レビュー依頼・merge・deployは行わず、レビュー依存チェックは未チェックを維持する。npm ci・実SSO／remote D1/R2／実Office描画／人のscreen reader確認は未実施。保存・報告後は終了し、自律監視・終了後の継続実行は登録しない。以下の過去checkpointは履歴として保持する。
+
 ## 2026-11-08 受入第一弾: 保存内容確認・エラー案内・空状態CTA
 
 Status: Accepted

@@ -8,6 +8,7 @@ Status: Accepted
 |---|---|---|
 | FR-001／FR-002／FR-011／FR-022、MVP-AC-010／011／013 | `onboarding-assets.ts`: prepare・fingerprint照合後の保存サマリーと送信確認、取消、確認後TTL検査とsnapshot再準備・fingerprint再照合、確定結果回収の継続 | `onboarding-ui-browser.test.mjs`（11分待機後の保存・不一致時送信0・15分TTL切れの再準備0）、`onboarding-recovery-actions.test.mjs`（実拡張snapshot期限切れ後のロゴ保存・確定結果回収のprepare 0）、`onboarding-share-browser.test.mjs` |
 | #272／#232、NFR-004の情報露出・日本語案内 | `onboarding-assets.ts`: 既知コードの日本語化、未知コード非表示、タイトルtextContent | `onboarding-ui.test.mjs`、`onboarding-ui-browser.test.mjs` |
+| #232／232-4、FR-002の初回導線 | `onboarding-assets.ts`: 保存準備画面introの初出だけにワークスペースの説明を追加。通常画面の文言・保存確認サマリーは維持 | `onboarding-ui.test.mjs`（既定HTML1回・Office差し替え・通常asset非露出）、`onboarding-ui-browser.test.mjs`（保存・共有復旧・Word・PowerPoint表示1回） |
 | FR-004／FR-011、#232の初回空状態 | `app-assets.ts`: 編集権限のある0件一覧の「手順書を作る」からタイトル入力へ移動 | `manual-editor-ui.test.mjs`、`e2e/phase2-manual-editor.spec.mjs` |
 
 契約は`docs/02-ux/onboarding.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、ADR-0032の送信確認境界に同期する。外部認証・実環境への配信と受入の合否はローカル回帰と区別する。
