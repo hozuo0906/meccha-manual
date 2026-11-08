@@ -8,6 +8,16 @@ Status: Accepted
 - 保存・共有・Officeの確認サマリーへ保存先をtextContentで表示する。空・欠落・別workspace更新では隠し、結果回収にbootstrapを追加しない。manualの一覧／基本情報は「状態不明」、手順カード／プレビューは「種類不明」へ統一する。5状態・4種別の既存日本語は維持し、固定action optionと検証済みworkspace権限は変更しない。内容hashは`sha256-ba29245963f4bb59`。API・UX・DEC-112を同期し、response shape記載のないtraceabilityは指示どおり変更しない。
 - 全体`npm run check`（99956）はexit 0、55個のchain script完走、Node test summary 783/783・fail 0／skip 0。対象5ファイル66/66（64725）、追加後mutation2/2（13800）、onboarding／share browser16/16（41998）、既存Phase 2 E2E28/28（32979）は成功。check外MV3 runtime（74860）は6/7・exit 1で、初回Accessの合成HTTPS遷移だけproxy tunnel接続失敗。テスト専用のproxy無効起動による同一testの再実行（19900）は1/1成功。別実行を単一の7/7成功に合算しない。実MV3 Office／製品認証Office3/3（86133）もexit 0。修正commit `7a7fa8acbeb517b1cb4fd6f67970a1934e6b21f1`を2026-11-08T19:31:56+09:00に同名originへpushし、local／remote SHA一致を取得確認した。保存確認の追記だけを後続の文書commitへ含める。追跡済み未commit差分0を確認し、合成browserの未追跡artifactは保存対象外で保持する。先行失敗の詳細は[報告書](acceptance-display-fixes-2026-11-08.md)を正とする。
 - `npm ci`は監督側の実施済み依存を使うため再実行せず、PRのnpm ciチェックは未チェックのままとする。実SSO／remote D1/R2／実Office描画／人のscreen reader・利用者受入、GitHub CI・正式Codex Reviewは未実施。次の1マイルストーンは監督Museによるpush済みSHAのPR・CI・正式Review・thread／SHA照合と利用者受入。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+## 2026-11-08 Issue #248: 横スクロール記録の実MV3回帰
+
+Status: Accepted
+
+対象branch `codex/horizontal-scroll-248-20261108`、base `main` / `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。ユーザー指定範囲は実MV3回帰・CI接続・報告書・commit／push・base mainのDraft PR・full head SHAを明記した`@codex review`依頼まで。mergeしない。
+
+- 現行recorderはdeltaX／deltaYから80px閾値とdominant axisで4方向を決定し、下流の正規化・日本語操作文・local draftも左右対応済み。製品コード・挙動は変更せず、未整備だった横方向の実MV3 browser testを追加した。動的要素の初回はADR-0031／DEC-071のbaseline-only契約を維持し、既存table／panelの初回記録と別々に実測した。
+- 新規試験は要素／ページの左右・上下、79px非記録／80px記録、斜め移動、動的要素、event／stepの許可形状と合成URL／入力値／本文の非混入、13手順のIndexedDB保存を検査。単独`22481`は1/1、CI相当headed Chrome／Xvfb直列`6833`は既存sidepanel含め4/4、双方fail 0／skip 0／exit 0。隔離コピーをdeltaY限定へ戻した`79209`は最初の横移動で期待どおり失敗した。
+- 2026-11-08T19:28:15+09:00（Asia/Tokyo）確認: 全体`npm run check`は実行`43559`、exit 0、56段階とNode test summary集計779/779、fail 0／skip 0、最終secret／encodingまで成功。CIは既存`extension-privacy` jobの`sidepanel` stepへ接続し、3分timeout・必須outcome・Latest Review Gateを維持する。先行環境失敗の詳細は[実施報告書](horizontal-scroll-capture-2026-11-08.md)を正とする。npm ciは未実行、レビュー依存項目は未チェックを維持する。生成した合成artifactはcommit対象外。
+- 次の1マイルストーンはMuseによる保存済み最新headのCI／npm ci／正式Codex Review／threadと対象SHA照合。#248の実装判断に未決事項はない。production／外部設定／自動mask・置換は変更しない。push後にlocal／origin／PR head一致とDraftを実取得し、Issue #70へ保存結果を同期する。担当は保存・報告後に終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
 
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 

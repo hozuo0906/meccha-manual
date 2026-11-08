@@ -34,7 +34,7 @@ jobs:
       - id: product-auth
         run: timeout --signal=TERM --kill-after=10s 4m xvfb-run -a node --experimental-transform-types --test --test-reporter=tap tests/product-auth-browser.test.mjs
       - id: sidepanel
-        run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-reporter=tap tests/extension-sidepanel-browser.test.mjs
+        run: timeout --signal=TERM --kill-after=10s 3m xvfb-run -a node --test --test-concurrency=1 --test-reporter=tap tests/extension-sidepanel-browser.test.mjs tests/extension-horizontal-scroll-browser.test.mjs
         env:
           MECCHA_SIDEPANEL_DRAFT: .artifacts/experience-repair/captured-synthetic-draft.json
       - id: captions
