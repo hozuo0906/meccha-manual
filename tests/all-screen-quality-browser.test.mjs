@@ -87,7 +87,7 @@ test('all-screen source render inventory covers public, library, authentication,
 
       for(const state of ['setup-unavailable','setup-invalid']){mode=state;await page.goto(origin+'/onboarding/continue');await page.locator('#bootstrap:disabled').waitFor();await checkpoint(page,state+'-'+width);}
       await page.goto(origin+'/s/');await page.getByText(/共有リンク/).first().waitFor();await checkpoint(page,'reader-link-missing-'+width);
-      await page.goto(origin+'/s/#token='+'T'.repeat(43));await page.locator('#share-auth:not([hidden])').waitFor();await checkpoint(page,'reader-passcode-'+width);await page.getByRole('button',{name:'手順書を表示'}).click();await checkpoint(page,'reader-passcode-validation-'+width);
+      await page.goto(origin+'/s/#token='+'T'.repeat(43));await page.locator('#share-auth:not([hidden])').waitFor();await checkpoint(page,'reader-passcode-'+width);await page.getByRole('button',{name:'手順書を表示する'}).click();await checkpoint(page,'reader-passcode-validation-'+width);
       assert.deepEqual(errors,[]);await page.close();
     }
     for(const width of [320,768,1024,1440,1920]){

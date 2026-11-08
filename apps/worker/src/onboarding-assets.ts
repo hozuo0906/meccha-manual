@@ -476,9 +476,9 @@ export const ONBOARDING_JS = `(() => {
       };
       return Boolean(manualId);
     }
-    message("手順書を保存しました。保存した手順書を開きます。", "success");
+    message("手順書をワークスペースに保存しました。保存した手順書を開きます。", "success");
     button.removeEventListener("click", bootstrap);
-    if (isShare) message("共有用の保存が完了しました。共有設定を開いて共有リンクを作成してください。", "success");
+    if (isShare) message("共有用の手順書をワークスペースに保存しました。共有設定を開いて共有リンクを作成してください。", "success");
     setButton(isShare ? "共有設定を開く" : "保存した手順書を開く");
     button.onclick = () => { location.href = isShare ? "/manuals?shareManualId=" + encodeURIComponent(manualId) : "/manuals"; };
     return Boolean(manualId);

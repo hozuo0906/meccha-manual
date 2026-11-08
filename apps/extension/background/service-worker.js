@@ -514,8 +514,8 @@ async function finishCapture() {
     if ((journalSaved || sessionSaved) && readyImageCountKnown && drainedPendingEvents !== undefined) await stopRecorder(session.tabId, "release");
     if (!journalSaved && !sessionSaved) throw new Error("端末の保存領域へ記録を保存できませんでした。記録の復旧を保証できません。対象タブを閉じずに空き容量を確認してください。");
     throw new Error(restored
-      ? "記録内容はこの端末に保持しています。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
-      : "記録内容はこの端末に保持しています。画面サイズを元に戻せませんでした。先に復元してから、もう一度お試しください。");
+      ? "記録の終了結果を確認できません。対象タブを開いて、もう一度「記録を終了して編集」をお試しください。"
+      : "画面サイズの復元結果を確認できません。先に復元してから、もう一度お試しください。");
   }
   const restored = await attemptRestore(session);
   if (restored) await setSession(null);

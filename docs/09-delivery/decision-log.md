@@ -821,3 +821,12 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Entry: ログイン画面と手順書0件の空状態にだけ「サンプルを見る」を添える。空状態の現行cloud版と既存app shell版を揃え、検索0件・取得失敗・既存手順書のある一覧やLPには置かない。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
+
+
+### 2026-11-08: PR #270 仕分け(b)の文言改善
+
+- Status: Accepted
+- Decision: [PR #270の仕分けコメント](https://github.com/hozuo0906/meccha-manual/pull/270#issuecomment-6720273201)の(b)だけを現行main `ec6b8db`へ適合する。一覧・詳細の空状態と読込再試行、記録開始ボタン、記録・復元・終了・取消の指定された失敗案内、画像表示・保存失敗、共有閲覧ボタン、保存成功とAPI文書の用語を揃える。
+- Reason: 結果不明時に記録保持を断定せず、確認対象と次の操作を日本語で案内する。backgroundからpopup／sidepanelへ表示される終了失敗の2文言も同じ範囲に含める。
+- Boundary: 仕様・挙動・認可・保存処理を変更しない。撮影時の自動画像加工を示す表現は採用せず、ADR-0040の無加工画像・利用者確認・手動編集を維持する。(a)の到達済み項目、privacy-note、cloud一覧の空状態ガイド、進行中の記録状態表示、過去の履歴は変更しない。
+- Evidence: [実施報告書](pr270-wording-b-2026-11-08.md)。表示文言を参照する既存テストと資産hash・共有画像編集の生成物を同期する。

@@ -96,7 +96,7 @@ test("onboarding page uses CSP-compatible external assets and metadata-only boot
   assert.match(ONBOARDING_CSS, /#eaf8fb/);
   assert.match(ONBOARDING_JS, /method: "GET"/);
   assert.match(ONBOARDING_JS, /X-Requested-With/);
-  assert.match(ONBOARDING_JS, /手順書を保存/);
+  assert.match(ONBOARDING_JS, /手順書をワークスペースに保存/);
   assert.doesNotMatch(ONBOARDING_CSS, /unsafe-inline/);
 });
 

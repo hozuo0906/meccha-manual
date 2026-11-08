@@ -375,7 +375,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
       }
       const focusTarget = await onSave(output); if (focusTarget === false) throw new Error("save failed");
       state = "closed"; onStateChange?.("closed"); closeEditor("save"); (focusTarget || restoreFocus)?.focus?.();
-    } catch { state = "editing"; onStateChange?.("editing"); setControlsDisabled(false); refreshSelection(); setStatus("保存できませんでした。編集内容を保持したまま、もう一度保存してください。"); }
+    } catch { state = "editing"; onStateChange?.("editing"); setControlsDisabled(false); refreshSelection(); setStatus("画像を保存できませんでした。編集内容を保持しています。もう一度保存してください。"); }
   }
   function cancel() { if (disposed || state === "saving") return; generation += 1; drag = null; state = "closed"; onStateChange?.("closed"); onCancel?.(); closeEditor("cancel"); restoreFocus?.focus?.(); }
 
@@ -418,7 +418,7 @@ export function createImageEditor({ dialog, canvas, screenshot, onSave, onCancel
         if (!focusMovedDuringLoad && document.activeElement === loadingFocusTarget) dialog.querySelector('[data-editor-tool="select"]')?.focus?.({ preventScroll: true });
         loadingFocusTarget = null; setStatus("画像を編集できます。"); return true;
       } catch {
-        if (disposed || currentGeneration !== generation) return false; image = null; showImageError(); canvas.width = 1; canvas.height = 1; if (!dialog.contains(document.activeElement) || document.activeElement === document.body) loadingFocusTarget?.focus?.({ preventScroll: true }); loadingFocusTarget = null; setStatus("画像を読み込めませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
+        if (disposed || currentGeneration !== generation) return false; image = null; showImageError(); canvas.width = 1; canvas.height = 1; if (!dialog.contains(document.activeElement) || document.activeElement === document.body) loadingFocusTarget?.focus?.({ preventScroll: true }); loadingFocusTarget = null; setStatus("画像を表示できませんでした。元の画像は変更されていません。キャンセルできます。"); return false;
       }
     },
     dispose() { disposed = true; state = "closed"; onStateChange?.("closed"); generation += 1; controller.abort(); errorPanel.remove(); if (dialog.open) closeEditor("dispose"); }
