@@ -1,4 +1,58 @@
+## 2026-11-08 PR #285 P2: 共有応答待ちの画像編集開始抑止
+
+Status: Accepted
+
+確認日時: 2026-11-08T08:38:01+09:00（Asia/Tokyo）。branch `codex/foundation-no-automask-20261107`、起点・着手時PR head `6f546862b8515d96317963226ab0b0d0a9244744`。監督Museの指示範囲はP2修正・回帰・標準check・同名branchへのpush。Draft維持、merge・deploy・他PRコメントは行わない。
+
+- review comment `4503895303`の競合を確認し、共通画像編集入口で既存`shareBusy`を確認する1か所のgateを追加した。共有応答待ち中は画像編集を始めず、日本語で案内する。新しい状態・依存・API／認証／保存契約の変更、自動maskの再導入はない。
+- 遅延POST／DELETE回帰は修正前に両方とも狙ったassertionで失敗、修正後は2/2成功。関連browser 6ファイル8/8、fail 0／skip 0／exit 0（実行ID `19194`）。画像適用・保存・手順切替・再編集と、既存共有／画像／Office回帰を確認した。
+- `npm run check`はasset内容ハッシュ更新後に全体成功、exit 0（実行ID `86394`）。詳細・変更ファイルは[修正報告書](foundation-p2-fix-2026-11-08.md)。このcheckpointと報告書を修正と同じcommitへ含め、push後にremote／PR head一致を確認する。
+- 次の1マイルストーン: Museによる新headのCI／Codex Reviewと指摘thread解決確認。最新CI／再レビューは未確認。実装担当は保存・報告後に終了し、監視・終了後の継続実行は登録しない。Issue #70の別branch #288のcheckpointは本修正で上書きしない。
+
+## 2026-11-07 マイルストーン1: 自動置換なしの土台
+
+Status: Accepted
+
+確認日時: 2026-11-07T21:49:03+09:00（Asia/Tokyo）。今回の指示は新規Draft PRまでであり、既存のmerge／環境変更承認を適用しない。以下の過去checkpointは履歴である。
+
+- main `3c62ca5`からbranch `codex/foundation-no-automask-20261107`を作成し、PR #279を含む#282 head `573b921`の最終treeを回収。製品appsの差分は未使用の自動mask専用`capture/screenshot.js`削除だけ。raw画像、明示確認、caption・幾何・privateValueContext、保存、手動編集、Officeを維持する。
+- migrationは0006→0007を含む。0008、#280、#284は回収せず、既存PRコメント・merge・deploy・remote環境変更は行わない。
+- `npm run check`と指定の個別Core検査が成功。editor browser 28/28、native raw記録1/1、sidepanel3/3、caption6/6、semantic2/2、Office／手動個人情報編集、cloud／share／onboarding全32ケースを確認した。実記録2手順・2画像のlocal Worker保存・共有・画像bytes一致・共有失効拒否も成功。
+- runtime本体6/6成功。first-accessだけはproxy tunnelによるnavigation失敗で対象経路未実行。remote Access／D1／R2、実Officeアプリ、3表示モードの全native通し受入は未確認。CI／Reviewは新規Draft headで別に確認する。
+- 根拠、初回失敗の切り分け、P2持越しと再triage期限は[検証報告書](foundation-2026-11-07.md)。保存先は新規Draft PRとこのbranch。次の1マイルストーン候補は#284の認証＋統合修正移植だが、今回は未着手。自律監視やセッション後の開発継続は設定しない。
+
+## Issue #281 / Draft PR #282 最新checkpoint
+
+Status: Accepted
+
+確認日時: 2026-10-03T22:07:44+09:00 (Asia/Tokyo)
+- source baseは `92e37627bc699acd5886b6ff27ed90203baa8080`。最新Review5400080256の新P1（raw画像の利用者確認欠落、thread PRRT_kwDOTpNknc6omG6p）を修正した今回の差分はcommit前。写真のbytesを保持し、既存manual_image_review・確認ボタンを使って保存・出力前に確認を求める。自動PII検出・黒塗り・架空値への置換は再導入しない。確認済みと未確認を区別し、protected画像のbytes欠落はstorage_failedとして復旧を案内する。
+- 親が今回のnpm ci、119/119 unit・skip 0、docs141・秘密値444・diffを確認。担当の公式CFTによる実記録1/1、実editor確認2/2、実sidepanel3/3と既存Worker/D1/R2記録連携（2手順・2画像、保存/共有画像bytes一致、共有失効拒否）の結果・対象差分を回収。外部Google/ChatGPT認証やremote D1/R2の成功証跡ではない。新commitのCI・Codex Reviewは未実行で、P1 threadは検証後に解決する。
+- ユーザーの追加指示はGoogle・ChatGPTログインからworkspace・保存・Office出力までの一貫実装。別checkoutの認証branch `codex/manual-product-auth-283`、base `fb5dca7fcdd8c575f940548229526aead6cbc294` で共通session/OIDC/D1認可の実装差分を実確認した。製品ログインは未稼働。ChatGPT商用websiteは公式の限定trial/client登録が必要で、IAB申請フォームの本人必須表記を質問中、申請は未送信。identityとAI利用枠の許可は別で、AI初期OFF。remote migration/deploy/Access/billing変更なし。
+- 対象source HEADは `dc119d18e6548f9fb05a3bb34ec55fcb686d2b17`、branchは `codex/manual-explicit-privacy-office-019`。Office要件（Word/PPTも出力前にログイン、guestは作成・編集可、認証済みworkspace claim後に端末生成、共有は別操作）へのユーザー回答済み。closed-editor復帰receiptの実装は `af6f107` + `0510bcd`、Office snapshot browser回帰は `dc119d1` に反映済み。release検証は未完了。
+- 親が実MV3のclosed-editor復帰→Word/PPT両形式ダウンロード、別形式/別launch拒否・receipt未発行、二回目consume拒否・重複downloadなしを1/1、skip 0、exit 0で確認（source `dc119d1`、今回のruntimeテスト差分）。Office関連unit37/37 pass、component browserは `dc119d1` で1/1 pass、skip 0。npm ciは親で成功。Windows `npm run check` は docs/brand/worker/editor-tools/typecheck 通過後、既存 `wrangler.cmd` の `spawnSync ... EINVAL` で停止。一方、`dc119d1` のLinux Docs CI run37113055230/job111174537678でnpm ci/fullcheck成功をログ照合済み、Privacy run37113055312のOffice stepも成功。今回の新headのCIとCodex Reviewは別途必要で、旧SHAの成功を流用しない。
+- Google clientは作成済み、資格情報はrepo外でDPAPI保護保存済み。製品Google authは未実装。auth docsのremoteは `fb5dca7`。実SSOとnative Office描画は未確認。
+- P2 triage（今回ソース変更なし）: handoff期限後にclaim結果をGET回収できても、期限切れhandoffはterminalで旧Office出力を再開せず、編集画面から新しい認証・形式選択へ戻す。これは古い認証・操作を黙って再利用しない意図的な安全境界で、原本・新しい編集・既存cloudRefは保持される。最低限この境界を維持し、後続で「もう一度Word/PowerPointを書き出す」と明示する再選択案内を検討する（親PM担当、2026-10-08）。
+- P2 triage（今回ソース変更なし）: 外部editor更新によるstale cloudRefの409は、対象版をlatestへ自動差替えせず、元のlocal draftとcloudRefを保持してfail-closedする契約。409で上書きを拒否する境界は維持するが、同じ古い参照で再試行を繰り返すしかない導線はUX上の欠陥として保留する（影響: 外部更新後の当該下書きではOffice出力とクラウド更新を継続できない。担当: 親PM、期限: 2026-10-08）。安全な最新版確認・差分確認・明示選択の設計が必要なため、今回の自動出力修正へ混在させない。後続修正では409後に利用者が最新版を確認して明示選択した場合だけ新しいoperation/claimを作り、同じ参照を自動再利用しない。期限後結果回収とstale参照のいずれも、このmilestoneでは自動再出力・silent revision substitutionを追加しない。
+- P2修正（review4173032863 / thread `PRRT_kwDOTpNknc6onN7S`）: `persistCandidate` が `draft.steps` をcloneして置換した後も、画像編集・確認ボタンのclosureが古いstepを描画し、確認済み画像が選択中パネルで要確認のまま残る経路を修正した。保存後・確認後は現行`draft.steps`の対象stepを再取得して描画する。二回目の画像編集後に明示確認し、選択パネルが即時に確認済みへ切り替わる実browser回帰を追加し、editor browser suite 28/28、`node --check`、`git diff --check`を確認済み。対象commitは親回収・保存待ち、未release、最新headに対するCI／Codex Review／thread解決は未確認である。
+- 次の1マイルストーンは、最新headでMV3 runtime、CI、Codex Reviewを照合し、上記P2の再選択・明示選択導線を別bounded unitで判断すること。
+
 # セッション引き継ぎ運用
+
+## Issue #281 / Draft PR #282 現在checkpoint
+
+Status: Accepted
+
+確認時点: 2026-10-03T13:28:38+09:00（Asia/Tokyo）／source head d19065cf7fbe4259f4160b25ebc5db6c0aa56dab、branch codex/manual-explicit-privacy-office-019。既存の引き継ぎ履歴は保持する。
+
+- User 0.1.8 ZIP（全33ファイル）は a44dde8d21066f8657fa11b4143ccfdf87f2f0e2。base Draft PR #279を保持する。
+- 実装方針は、自動PIIマスク／値置換を停止し、明示した画像個人情報modeだけを扱う。同一の架空人物について氏名とカナをそろえ、Word／PPTはローカル20画像exportとする。remote API writeは行わない。
+- 親のcapture関連検証は865 native 1/20 operations、ccc188 unit、dd817 Office 2 browser／20 images／XML reader（実Office描画未実施）。f6 latest worker 74／Office 13／UI390はtestpassだが、親source修正直後の再検証中である。
+- CI 865にはasset hash mismatchとOfficeDL 8s timeoutが残り、修正候補を進行中である。全体成功・完成とは扱わない。
+- Cloudflare管理UIの読み取り確認（2026-10-03T13:26+09:00、Asia/Tokyo）では、対象owner stagingappはCloudflare IdPのみ、OTP未登録、owner emailのallowは1件だった。設定変更、production、DB migration、deployは実施していない。OTP設定追加／対象app切替案は停止・不採用とし、CF accountを用意させない普通メール登録／ログイン、Google／ChatGPTログインを新製品authの設計条件とする。
+- OpenAI公式のSIWC資料（https://developers.openai.com/siwc/quickstart、https://developers.openai.com/siwc/token-sharing-open-source）に基づくidentity／利用枠scope、commercial remoteの限定trial／waitlist、OSS localの一般対象は、auth migrationの別bounded単位で設計する。AI利用枠は初期OFFとし、未登録client／未承認commercialを完成扱いにしない。 関連するAPI／DB／auth契約移行はIssue #283の別bounded単位とする。
+- PR #279 migration 0006／0007は未承認・未適用、商用公開は未確認、main mergeの自動実行は禁止する。
+- 次の1マイルストーンは、最新exact full SHAに対するCI／Codex Review／UI検証、限定0.1.9 ZIPの確認である。残る未確認環境を明記し、auth migrationは別Issueのbounded設計として切り出す。
 
 Status: Accepted
 
@@ -476,3 +530,25 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 記録境界: 秘密値・個人情報・実ユーザー文章や画像は記録していない。stage／productionへの反映、配布、merge、PR／Issueへの追記は親PMのrelease gate範囲であり、このcheckpointでは実行しない。
 
 次の1マイルストーンは、PR #269の最終SHAから作成する限定配布版の受入確認である。ReviewGate、PR状態、配布結果を実取得できるまで、今回の日本語UI改善を完了扱いにしない。
+
+## Office容量・privacy handoff checkpoint（2026-10-03T14:11:35+09:00）
+
+- 現行製品sourceの正本は `88e9c2f37f7a47a1ebd5785c2abc05573a8a1494`（branch `codex/manual-explicit-privacy-office-019`）。220dd84で実装したOffice画像64 MiB累積・archive 80 MiB・ZIP32範囲検査、local/cloudの容量拒否・再試行、Heading1のOOXML配置、入力caption同期を88e9c2fで実caller回帰とAPP_ASSET_VERSION同期まで確認した。このcheckpointの変更はhandoff文書だけで、pushは親PMの保存工程で行う。
+- 88e9c2fに対する確認結果は、capture actor unit 12/12、local/cloud browser 2/2、worker runtime 71/71、対象ゲート合計85/85、skip 0。P0/P1は確認されていない。旧d34のCI/fullcheck証跡は現行SHAへ流用しない。220で発生したAPP_ASSET_VERSION不一致は88で解消済みである。
+- P2候補として、`bytes:string` のdecode後に容量検査するための一時メモリ増加と、XML生成前のarchive guardがある。いずれも現行の実callerおよびAPIの `Uint8Array` 契約外であり、今回の修正対象には含めない。utilityを直接呼ぶ場合の一時メモリ増加を影響として親PMが管理し、2026-10-08までにboundedな契約整理を行う。
+- 検証境界は、実OfficeのWord／PowerPoint描画、remote SSO、実Chromeでの追加操作を未確認とする。local/cloudの分離ブラウザ検証を実施し、実Chromeの追加操作は禁止した。Windowsではesbuildの昇格済みdirect Node検査とwranglerのdirect CLI bundleを成功として確認したが、通常の `wrangler.cmd` 経路は `spawnSync ... EINVAL` のため未確認として区別する。
+- Google project／IAB構成は作成済みだがOAuth clientは未作成で、課金accountもない。auth文書は別branchのremote SHA `87457fe` に保存済みである。
+
+次の1マイルストーンは、この最新SHAに対するCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。完了までは配布・native Office描画・remote SSOを完了扱いにしない。
+
+## Office PresentationML slide ID P1 correction checkpoint（2026-10-03T14:24:19+09:00）
+
+- dcc90acの未配布候補に対するCodex Reviewで、`ppt/presentation.xml` の最初の `p:sldId` が255になるP1を確認した。MicrosoftのPresentationML例およびST_SlideIdの `minInclusive=256` に照合し、first255はOffice互換境界を満たさないため妥当な指摘と判定した。dcc90ac由来のZIPは配布せず、履歴として保持する。
+- boundedな修正では、slide IDを `256 + index` とし、200手順で256〜455の単調増加・一意ID、presentation relationshipのrId／slide順、master/layout ID（2147483648／2147483649）、slide内shape IDと画像relationshipを回帰確認した。生成editor bundleと `APP_ASSET_VERSION` も同じ変更で同期する。
+- この単位では追加のOffice native描画・remote SSO・限定ZIP配布は未確認である。次の1マイルストーンは修正後最新SHAへのCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。
+
+## Shared image editor lifecycle P2 correction checkpoint（2026-10-03T14:39:47+09:00）
+
+- 6d59ca8の未配布候補に対するCodex Reviewで、`createImageEditor` が同一dialog再利用時にも置換範囲ボタンとkeyboard helpを追加し続けるP2を確認した。disposeでlistenerは停止しても動的nodeが残り、再open時に重複操作と同一IDの説明が発生し得るため、通常UI到達の不具合として修正した。6d59ca8由来のZIPは配布対象にせず履歴保持する。
+- 修正では既存の置換操作・説明nodeをquery再利用し、`aria-describedby` をそのhelp IDへ再設定する。localの同一dialogを3回開閉してbutton/help各1、ID参照、一回のlistener作用を確認し、cloudはclose後にfresh dialogを生成する現行経路を3回以上実browserで確認した。cloudの通常経路にnode累積があるとは判定していない。
+- shared bundleを再生成し、`APP_ASSET_VERSION` を同期した。次の1マイルストーンは修正後最新SHAへのCI・Codex Review・remote／PR headの実取得と、限定0.1.9 ZIPのchecksum／内容確認である。

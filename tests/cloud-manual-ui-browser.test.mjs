@@ -1,11 +1,12 @@
+import { EDITOR_TOOLS_JS } from "../apps/worker/src/editor-tools-assets.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 import { CLOUD_MANUAL_CSS, CLOUD_MANUAL_JS, renderCloudManualsPage } from "../apps/worker/src/cloud-manual-assets.ts";
 
-test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 20_000 }, async () => {
+test("cloud manual editor keeps local edits until one batch save and reloads returned step ids", { timeout: 60_000 }, async () => {
   const workspaceId = "workspace-1";
   const manualId = "manual-1";
   const patches = [];
@@ -31,6 +32,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
       response.end(CLOUD_MANUAL_CSS);
       return;
     }
+    if (url.pathname === "/assets/editor-tools.js") { response.writeHead(200,{"content-type":"application/javascript"});response.end(EDITOR_TOOLS_JS);return; }
     if (url.pathname === "/assets/cloud-manual.js") {
       response.setHeader("content-type", "application/javascript; charset=utf-8");
       response.end(CLOUD_MANUAL_JS);
@@ -78,7 +80,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
   let context;
   try {
     context = await chromium.launchPersistentContext("", { channel, headless: true });
-    const page = await context.newPage();
+    const page = await context.newPage();page.setDefaultTimeout(5000);
     const consoleErrors = [];
     page.on("console", (message) => { if (message.type() === "error" && !message.text().startsWith("Failed to load resource:")) consoleErrors.push(message.text()); });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
@@ -104,6 +106,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => document.querySelector("img.cloud-step-image")?.getBoundingClientRect().width <= 358);
     await page.screenshot({ path: ".artifacts/experience-repair/cloud-editor-mobile.png", fullPage: true });
+    await page.setViewportSize({width:1366,height:900});
     const titleField = page.getByLabel("タイトル", { exact: true });
     assert.equal(await titleField.getAttribute("maxlength"), null);
     assert.equal(await titleField.getAttribute("data-code-point-max"), "64");
@@ -116,9 +119,9 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByLabel("手順 1のタイトル").fill("更新した手順");
     await page.getByRole("button", { name: "手順を追加" }).click();
     await page.getByLabel("手順 2のタイトル").fill("追加手順");
-    await page.locator(".cloud-step").nth(1).getByRole("button", { name: "上へ" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "上へ" }).click();
     await page.locator(".cloud-step").nth(0).getByRole("button", { name: "下へ" }).click();
-    await page.locator(".cloud-step").nth(1).getByRole("button", { name: "この手順を削除" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "この手順を削除" }).click();
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
 
     delayPatch = true;
@@ -126,7 +129,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     await page.getByRole("button", { name: "変更を保存" }).click();
     const patchRequest = await saveResponse;
     assert.equal(await page.getByRole("button", { name: "最新の内容を読み込む" }).isDisabled(), true);
-    assert.equal(await page.getByRole("button", { name: "業務手順" }).isDisabled(), true);
+    assert.equal(await page.locator("#cloud-list button").first().isDisabled(), true);
     await page.getByLabel("タイトル", { exact: true }).fill("保存中に変更したタイトル");
     await page.getByLabel("タイトル", { exact: true }).focus();
     await page.getByLabel("タイトル", { exact: true }).selectText();
@@ -142,7 +145,7 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
     assert.equal(patches.length, 2);
     assert.equal(await page.getByLabel("手順 1のタイトル").inputValue(), "更新した手順");
     assert.equal(await page.getByRole("img", { name: "手順 1の画像" }).count(), 1);
-    assert.equal(await page.getByRole("button", { name: "保存中に変更したタイトル" }).count(), 1);
+    assert.equal(await page.locator('#cloud-list button[aria-label="保存中に変更したタイトル"]').count(), 1);
     await page.getByLabel("タイトル", { exact: true }).fill("503でも保持");
     detailFailure = true;
     await page.getByRole("button", { name: "変更を保存" }).click();
@@ -154,15 +157,17 @@ test("cloud manual editor keeps local edits until one batch save and reloads ret
       for (let index = 0; index < 199; index += 1) add.click();
     });
     const addStep = page.locator("[data-step-add]");
-    assert.equal(await page.locator(".cloud-step").count(), 200);
+    assert.equal(await page.locator(".manual-step-nav li").count(), 200);
+    assert.equal(await page.locator(".cloud-step").count(), 1);
     assert.equal(await addStep.isDisabled(), true);
     assert.equal(await addStep.textContent(), "手順は200件まで");
-    await page.locator(".cloud-step").nth(199).getByRole("button", { name: "この手順を削除" }).click();
+    await page.locator(".cloud-step").first().getByRole("button", { name: "この手順を削除" }).click();
     assert.equal(await addStep.isDisabled(), false);
     assert.equal(await addStep.textContent(), "手順を追加");
     await addStep.click();
     assert.equal(await addStep.isDisabled(), true);
-    assert.equal(await page.locator(".cloud-step").count(), 200);
+    assert.equal(await page.locator(".manual-step-nav li").count(), 200);
+    assert.equal(await page.locator(".cloud-step").count(), 1);
 
     returnUnauthorized = true;
     page.once("dialog", (dialog) => dialog.accept());

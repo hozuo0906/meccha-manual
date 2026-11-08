@@ -5,7 +5,6 @@ import { mergeCaptureEvents } from "../apps/extension/background/event-merge.js"
 import { nextRecoveryJournal } from "../apps/extension/background/recovery-journal.js";
 import { recoverWindowSession } from "../apps/extension/background/session-recovery.js";
 import { isSensitiveInput, normalizeCaptureEvent, safeControlName, safeTargetLabel } from "../apps/extension/capture/privacy.js";
-import { captureWithMaskBoundary } from "../apps/extension/capture/screenshot.js";
 import { addMask, addStep, deleteStep, moveStep, removeMask, updateStepInstruction } from "../apps/extension/editor/draft-model.js";
 import { VIEWPORTS, targetOuterBounds } from "../apps/extension/responsive/viewports.js";
 import { applyResponsiveViewport, originalWindowSnapshot, restoreOriginalWindow } from "../apps/extension/responsive/window-lifecycle.js";
@@ -311,50 +310,6 @@ test("persisted instructions distinguish caption provenance from semantic fallba
   assert.match(source, /event\.labelSource === "caption"/);
 });
 
-test("masked screenshot is captured only after masking and always unmasked afterward", async () => {
-  const order = [];
-  const image = await captureWithMaskBoundary({
-    applyMasks: async () => { order.push("mask"); return { applied: true }; },
-    waitForPaint: async () => { order.push("paint"); },
-    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
-    removeMasks: async () => { order.push("remove"); }
-  });
-  assert.equal(image.startsWith("data:image/"), true);
-  assert.deepEqual(order, ["mask", "paint", "capture", "remove"]);
-});
-
-test("mask verification failure discards image and still removes masks", async () => {
-  const order = [];
-  await assert.rejects(captureWithMaskBoundary({
-    applyMasks: async () => { order.push("mask"); return { applied: true, token: "doc" }; },
-    capture: async () => { order.push("capture"); return "data:image/jpeg;base64,AA"; },
-    verifyMasks: async () => { order.push("verify"); return false; },
-    removeMasks: async () => { order.push("remove"); }
-  }), /SCREENSHOT_MASK_INVALIDATED/);
-  assert.deepEqual(order, ["mask", "verify", "remove"]);
-});
-
-test("masking failure cannot fall back to an unmasked screenshot", async () => {
-  let captured = false;
-  let removed = false;
-  await assert.rejects(captureWithMaskBoundary({ applyMasks: async () => ({ applied: false }), capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; }, removeMasks: async () => { removed = true; } }), /SCREENSHOT_MASK_FAILED/);
-  assert.equal(captured, false);
-  assert.equal(removed, true);
-});
-
-test("paint boundary failure refuses capture and still restores masks", async () => {
-  let captured = false;
-  let removed = false;
-  await assert.rejects(captureWithMaskBoundary({
-    applyMasks: async () => ({ applied: true }),
-    waitForPaint: async () => { throw new Error("SCREENSHOT_PAINT_TIMEOUT"); },
-    capture: async () => { captured = true; return "data:image/jpeg;base64,AA"; },
-    removeMasks: async () => { removed = true; }
-  }), /SCREENSHOT_PAINT_TIMEOUT/);
-  assert.equal(captured, false);
-  assert.equal(removed, true);
-});
-
 test("draft model can add, edit, delete, reorder steps and manage normalized masks", () => {
   const draft = { steps: [{ id: "a", order: 1, instruction: "A" }, { id: "b", order: 2, instruction: "B" }], screenshots: [{ id: "s", masks: [] }] };
   const added = addStep(draft);
@@ -365,6 +320,15 @@ test("draft model can add, edit, delete, reorder steps and manage normalized mas
   removeMask(draft, "s", draft.screenshots[0].masks[0].id);
   deleteStep(draft, "b");
   assert.equal(draft.steps.some((step) => step.id === "b"), false);
+});
+
+test("adding a step assigns an unassigned image's manual review gate", () => {
+  const privacyReview = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+  const draft = { steps: [], screenshots: [{ id: "cover", dataUrl: "data:image/png;base64,AA", masks: [], privacyReview }] };
+  const added = addStep(draft, "表紙の手順");
+  assert.equal(added.screenshotId, "cover");
+  assert.equal(added.imageState.status, "protected");
+  assert.deepEqual(added.privacyReview, privacyReview);
 });
 
 test("event merging is deduplicated and chronological", () => {
@@ -436,12 +400,13 @@ test("recorder drains deferred actions, container scroll and generic SPA navigat
   assert.doesNotMatch(source, /Array\.from\(element\.innerText/);
 });
 
-test("service worker keeps durable recovery, verified masking and independent reinjection", async () => {
+test("service worker keeps durable recovery, native capture and independent reinjection", async () => {
   const source = await readFile(new URL("../apps/extension/background/service-worker.js", import.meta.url), "utf8");
   assert.match(source, /serializeSessionOperation/);
   assert.match(source, /chrome\.storage\.local\.set\(\{ \[RECOVERY_KEY\]: next \}\)/);
   assert.match(source, /persistRecoveryJournal\(session\.id, acceptedPendingEvents\)/);
-  assert.match(source, /verifySensitiveMasks/);
+  assert.match(source, /captureVisibleTab/);
+  assert.doesNotMatch(source, /verifySensitiveMasks|takeMaskedScreenshot|captureWithMaskBoundary/);
   assert.match(source, /if \(session\?\.mode === "pc"\) return true/);
   assert.match(source, /navigationFallback = \{ sessionId: session\.id, events \}/);
   assert.match(source, /await injectRecorder\(tabId\)/);

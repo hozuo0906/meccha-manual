@@ -491,7 +491,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-088: スクリーンショット内の高信頼DOM個人情報を一時ダミー表示へ置換する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272
 - Decision:
@@ -503,7 +504,8 @@ DEC-014とDEC-030の単一Pro価格部分はDEC-037で更新する。課金機�
 
 ### DEC-089: PII overlayの候補集合と描画境界をcapture直前まで検証する
 
-- Status: Accepted
+- Status: Superseded
+- 現行契約: ADR-0040。以下は自動overlayの履歴であり、新規記録には適用しない。
 - Date: 2026-10-01
 - Issue: #272 / PR #277
 - Decision:
@@ -545,3 +547,52 @@ numeric fragmentの履歴はcapture期間だけprivacy mutation state内に保�
 - Reason: 手順を追加した直後に利用者が任意の画像を迷わず添付でき、既存画像の機密情報をファイルメタデータごと持ち込まず、画像編集時も現在地と確定操作を見失わないようにするため。
 - Boundary: 画像内の個人情報の自動検出・置換、記録中のスクロール、保存handoff、Worker、DB、Access、production反映はこの決定の対象外とする。
 - 2026-10-01 UX補足: 画像編集dialogの読み込み中はキャンセル操作へフォーカスを置き、読み込み完了後の選択ツールへのフォーカス復帰は利用者が別操作へ移っていない場合だけ行う。クラウド編集では保存状態を保存操作の近くに表示し、未保存時は変更を反映するための保存を案内する。共有リンクの作成は引き続き明示操作と保存済み内容を前提にする。
+
+### DEC-090: 画像中心の編集と記録画像の状態を一貫させる
+
+- Status: Partially Superseded
+- 自動mask・架空値表示部分はADR-0040でSuperseded。画像状態・予約・編集・保存の境界は継続する。
+- Date: 2026-10-01
+- Decision: 編集は選択した一手順を中央に表示し、左を移動、右を文脈に合う道具、上部を保存先・保存状態・共有に固定する。追加は選択直後、移動・削除・取り消し後も手順IDで位置を保持する。画像追加はdecode開始から端末への確定保存まで処理中とし、その途中の保存・共有から新しい画像を黙って省かない。
+- Decision: 通常のinput/textarea/selectの値は実業務DOMへ代入せず、検証済みの一時描画層で架空値に置換する。枠・ラベル・checkbox/radioの状態は残す。秘密値は読まず固定の保護表示にする。不明な欄やcanvas/iframe/closed shadowは安全な保護と要確認を区別する。カスタム編集領域・変形した入力欄等の安全な置換を証明できなければfail closedとする。DEC-088/089の候補走査、mutation、capture前後検証は緩和しない。
+- Decision: 同じ記録・同じDOM対象の架空値は有限の端末内対応で保ち、原文対応表を永続保存・送信しない。現段階はnavigationをまたぐentity対応や任意の氏名検出を保証しない。一般の画像内文字を自動変換済みとは表示しない。
+- Decision: 500ms以内の次の撮影は即座に捨てず、上限内で予約する。対象document・event世代・DOM・入力・scrollが変わった場合は過去の手順へ現在の画像を付けず、理由を残す。終端状態を含む各step.imageStateを端末に保存し、未処理・失敗・安全な未対応保護・意図的画像なしを区別する。
+- Decision: クリック対象の矩形はtop frameの可視geometryを検証できる場合だけ注釈として追加し、色を編集できる。説明は「【参照】をクリック」のように自然な日本語にする。
+- Boundary: 外部AI、追加の拡張権限、実顧客データ、remote DB migration、公開・deployを追加しない。現段階のロゴ・テーマ設定は端末プレビューに限定し、workspace設定・保存済み画像編集・共有/PDFの整合は別の実装段階で契約と試験を揃えるまで完成扱いにしない。
+- Verification: [100点の独立UIレビュー基準](../02-ux/manual-editor-review-rubric.md)。各評価者80点以上と必須安全条件を別々に満たす。未実行の実Chrome検証や実SSOをNode/static検査で代用しない。
+
+### 2026-10-01: DEC-090の架空値対応をADR-0039で更新
+
+Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
+
+同一DOMに限った対応から、同一記録・種類・正確な表示値の対応へ更新する。元値はisolated worldを出ず、HMACと割当はtrusted session内だけに保持する。navigationを跨ぐ表示値の一致であり、同姓同名の人物同一性は推定しない。原文・HMAC・秘密鍵は手順書、ログ、networkへ含めない。
+
+### 2026-10-03: 0.1.9の明示画像保護と端末Office出力
+
+- Status: Accepted
+- Decision: ADR-0039と`recording-value-alias-contract`をSupersededとし、新規記録は撮影時に画像を加工せず端末へ保持する。入力値そのものは操作文・eventへ保存せず、置換と黒塗りは利用者が画像編集で明示適用する。手動maskは継続し、Office出力は最新のannotation・replacement・maskをflattenしたedited画像だけを使う。
+- Boundary: Word／PowerPointはログインなしのlocal-only downloadとする。snapshot変更、画像decode、flatten、生成失敗は古い生成物や画像欠落を成功扱いにせず日本語で再試行を案内する。PDFはFR-014の認証・claim後output gate、公開OFF、共有cloud認証を維持する。
+- Evidence: `apps/extension/editor/editor.js`、`apps/extension/editor/editor.html`、`apps/extension/sidepanel/sidepanel.html`、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、`tests/cloud-office-export-browser.test.mjs`、`tests/office-export.test.mjs`、`docs/05-api/manual-local-office-export-api.md`。SSOなしChromeでのlocal downloadとfixtureへのcloud POSTなしを確認し、実Word／PowerPointアプリの読込・描画は未実行と記録する。
+
+### 2026-10-03: Office出力を認証済みhandoff後に限定
+
+- Status: Accepted
+- Decision: ユーザーの明示回答により、Word／PowerPointも既存のoutput gateを通す。guestには作成・編集を許可し、形式選択時は `outputAction=office` と `officeFormat=docx|pptx` をhandoffへ固定して、ログイン・Personal Workspace claim後に同じ形式へ戻る。認証済みsessionでは再ログインを要求しない。Office completionは既存の `finalize-pending` の operation／claim intent／draft fingerprint／cloudRef、固定staging origin・continue path・top-level tab・launch recordを照合した通知だけを受理し、一度だけlocal snapshotから生成する。料金は既存plan契約の確認に限り、Stripe／paywallは追加しない。
+- Supersedes: 2026-10-03のOffice local-only no-login境界（履歴として保持）。
+- Boundary: 認証前のlocal draftとキャンセル復帰、共有リンク自動OFF、画像の明示置換・黒塗り、既存PDF認証境界を維持する。暗号proofや新DB／envは追加しない。
+- Evidence: `apps/extension/editor/handoff.js`、`apps/extension/editor/editor.js`、`apps/extension/background/cloud-claim.js`、`apps/extension/background/service-worker.js`、`apps/worker/src/onboarding-assets.ts`、`tests/extension-cloud-claim.test.mjs`、`tests/extension-office-wiring.test.mjs`、`docs/05-api/manual-local-office-export-api.md`、`docs/05-api/guest-onboarding-and-claim-api.md`、`docs/09-delivery/open-questions.md`。
+### 2026-11-07: 自動置換なしの土台回収と旧実装の除去
+
+- Status: Accepted
+- 回収元: main `3c62ca5`を起点に、PR #279を含むPR #282 head `573b921`の最終treeを回収する。PR #280／#284とmigration 0008は含めない。
+- ADR-0040を現行契約とし、製品appsから呼出しのない`capture/screenshot.js`の自動分類・overlay・HMAC割当と専用mask試験を除去する。caption・幾何allowlist、recorderのprivateValueContext、既存加工済み画像の互換表示、手動の黒塗りは保持する。
+- 旧alias名のstate/browser試験は自動alias boundaryを呼ばず、入力値非収集・自動経路不在を確認する現行回帰なので保持する。semantic browser試験はraw pixel保持とcaption保護へ同期する。
+- migrationは0006→0007を含む。remote適用・deploy・mergeは行わず、検証結果と未確認項目を新規Draft PRへ記録する。
+
+### 2026-11-08: 共有応答待ちとクラウド画像編集の排他
+
+- Status: Accepted
+- 対象: PR #285、review comment `4503895303`。
+- Decision: 共有作成・停止の既存`shareBusy`が有効な間は、共通入口`openCloudImageEditor`で画像編集を開始せず日本語で案内する。共有パネルを閉じても排他を維持し、共有応答後は既存finallyによる解除に従う。
+- Reason: 共有成功時の`renderDetail`が画像編集dialogを破棄すると、未適用の編集と`activeCloudImageEditor`の寿命が不整合になる。既存の画像編集中の共有開始抑止と組み合わせ、再描画の延期や新しい状態管理を追加せず競合を防ぐ。
+- Boundary: 共有API、認証・保存契約、自動マスキングには変更を加えない。遅延POST／DELETEの実ブラウザ回帰で編集開始拒否と応答後の継続操作を確認する。

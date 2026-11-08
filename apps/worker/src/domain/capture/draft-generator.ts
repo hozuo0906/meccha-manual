@@ -85,7 +85,7 @@ export function generateCaptureDraftSteps(events: readonly CaptureEvent[]): Capt
       previousScrollDirection = undefined;
     } else if (event.type === "input_complete") {
       const target = event.targetText ?? "入力欄";
-      steps.push({ type: "action", title: `${target}へ入力`, instruction: `${target}への入力を完了します。入力値は手順書に保存されません。`, actionType: "input", targetText: target, url: null });
+      steps.push({ type: "action", title: `${target}へ入力`, instruction: `${target}に入力します。`, actionType: "input", targetText: target, url: null });
       previousScrollDirection = undefined;
     } else if (event.type === "navigation") {
       steps.push({ type: "action", title: "ページを移動", instruction: "次のページへ移動します。", actionType: "navigate", targetText: null, url: null });

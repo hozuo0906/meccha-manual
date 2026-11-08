@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
-import { stat, readFile } from "node:fs/promises";
+import { stat, readFile, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
 import test from "node:test";
-import { chromium } from "@playwright/test";
+import { chromium } from "./support/test-browser.mjs";
 
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
+
+// Synthetic fixtures only. These checkpoints supplement assertions; they do not
+// establish real authentication or remote persistence.
+async function captureEditorEvidence(page, name, observations = {}) {
+  const directory = ".artifacts/unified-editor";
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+  await writeFile(`${directory}/${name}.json`, JSON.stringify({
+    candidateCommit: process.env.GITHUB_SHA || null,
+    fixture: "synthetic-local-editor", screenshot: `${name}.png`,
+    viewport: page.viewportSize(),
+    selectedStep: await page.evaluate(() => document.querySelector(".step-article")?.dataset.stepId || null),
+    observations
+  }, null, 2) + "\n");
+}
 
 function serveExtension({ onboardingConfig = null } = {}) {
   const server = createServer(async (request, response) => {
@@ -47,12 +62,12 @@ function serveExtension({ onboardingConfig = null } = {}) {
   return server;
 }
 
-async function seedImageEditorDraft(page, baseUrl, id) {
+async function seedImageEditorDraft(page, baseUrl, id, count = 22) {
   await page.goto(baseUrl + "/seed.html");
-  await page.evaluate(async (draftId) => {
+  await page.evaluate(async ({ draftId, count }) => {
     const screenshots = [];
     const steps = [];
-    for (let index = 1; index <= 22; index += 1) {
+    for (let index = 1; index <= count; index += 1) {
       const imageCanvas = document.createElement("canvas");
       imageCanvas.width = 960;
       imageCanvas.height = 540;
@@ -76,8 +91,9 @@ async function seedImageEditorDraft(page, baseUrl, id) {
       steps,
       screenshots
     });
-  }, id);
+  }, { draftId: id, count });
   await page.goto(baseUrl + "/editor/editor.html#" + id);
+  await page.locator(".step-article").waitFor({ state: "visible" });
 }
 
 function canvasPoint(box, x, y) {
@@ -85,6 +101,7 @@ function canvasPoint(box, x, y) {
 }
 
 async function dragCanvas(page, canvas, fromX, fromY, toX, toY) {
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   assert.ok(box);
   const start = canvasPoint(box, fromX, fromY);
@@ -95,9 +112,25 @@ async function dragCanvas(page, canvas, fromX, fromY, toX, toY) {
   await page.mouse.up();
 }
 
+async function selectStep(page, stepId) {
+  if (await page.locator(`#step-${stepId}`).count()) return;
+  if (!(await page.locator("#stepNavigation").isVisible())) await page.locator("#openNavigation").click();
+  await page.locator(`#steps button[data-step-id="${stepId}"]`).click();
+  await page.locator(`#step-${stepId}`).waitFor();
+}
+async function openStepMenu(page, stepId) {
+  await selectStep(page, stepId);
+  await page.locator(`#step-${stepId} .step-menu summary`).click();
+}
+async function openUploadPanel(page, stepId) {
+  await selectStep(page, stepId);
+  await page.locator(`#step-${stepId} .image-file-actions`).evaluate((node) => { node.open = true; });
+}
 async function openImageEditor(page, stepId = "step-1") {
+  await selectStep(page, stepId);
   await page.locator("#step-" + stepId + " .image-edit-button").click();
   await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
+  await page.locator(".advanced-tools").evaluate((node) => { node.open = true; });
 }
 
 async function readScreenshot(page, draftId, screenshotId = "image-1") {
@@ -107,7 +140,7 @@ async function readScreenshot(page, draftId, screenshotId = "image-1") {
   }, { draftId, screenshotId });
 }
 
-test("nearby previews render portrait images without moving the reserved frame and release distant buffers", { timeout: 35_000 }, async () => {
+test("selected-only preview contains portrait images and releases the previous pixel buffer", { timeout: 35_000 }, async () => {
   const server = serveExtension();
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const baseUrl = "http://127.0.0.1:" + server.address().port;
@@ -143,15 +176,12 @@ test("nearby previews render portrait images without moving the reserved frame a
     assert.ok(firstFrame && Math.abs(firstFrame.width / firstFrame.height - 16 / 9) < .03, "画像の縦横比にかかわらずプレビュー枠を固定する");
     assert.equal(await canvas.evaluate((element) => element.style.aspectRatio), "", "canvasへ画像ごとの比率を設定しない");
 
-    await page.locator("#step-step-22").scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => {
-      const target = document.querySelector("#step-step-1 .screenshot-canvas");
-      return target?.width === 1 && target?.height === 1 && target?.dataset.previewRendered === "false";
-    });
-    const reservedFrame = await preview.boundingBox();
-    assert.ok(reservedFrame && Math.abs(reservedFrame.width / reservedFrame.height - 16 / 9) < .03, "遠い画像のpixel bufferを解放しても枠を維持する");
-
-    await page.locator("#step-step-1").scrollIntoViewIfNeeded();
+    await canvas.evaluate((element) => { globalThis.__previousPreview = element; });
+    await selectStep(page, "step-22");
+    assert.equal(await page.locator(".step-article").count(), 1, "画像は選択手順の1枚だけを描画する");
+    assert.equal(await page.evaluate(() => globalThis.__previousPreview.isConnected), false);
+    assert.equal(await page.evaluate(() => globalThis.__previousPreview.width), 1, "非選択画像のpixel bufferを解放する");
+    await selectStep(page, "step-1");
     await page.waitForFunction(() => {
       const target = document.querySelector("#step-step-1 .screenshot-canvas");
       return target?.width === 240 && target?.height === 1200 && target?.dataset.previewRendered === "true";
@@ -186,13 +216,13 @@ test("editor navigation and image edits persist exact annotation and mask coordi
       return article && article.getBoundingClientRect().top >= 0 && article.getBoundingClientRect().top < innerHeight;
     });
     const step17Box = await page.locator("#step-step-17").boundingBox();
-    const step18Box = await page.locator("#step-step-18").boundingBox();
-    assert.ok(step17Box && step18Box && step18Box.y > step17Box.y, "目次17番は説明と画像を画面内へ移動する");
+    assert.ok(step17Box && step17Box.y < 160, "手順17の画像を同じ作業領域で編集する");
+    assert.equal(await page.locator("#step-step-18").count(), 0, "長い本文へ全手順を並べない");
     await page.locator("#step-step-17 textarea").fill("手順17の説明を保持");
     assert.equal(await page.locator("#step-step-17 textarea").inputValue(), "手順17の説明を保持");
     await page.locator('#steps button[aria-controls="step-step-1"]').click();
     await page.locator("#step-step-1").scrollIntoViewIfNeeded();
-    assert.equal(await page.locator(".step-article").count(), 22);
+    assert.equal(await page.locator(".step-article").count(), 1);
 
     await openImageEditor(page);
     const canvas = page.locator("#imageEditorCanvas");
@@ -327,6 +357,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     await page.getByText("保存できませんでした。編集内容を保持したまま、もう一度保存してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-editor-text]").inputValue(), "保存再試行");
     assert.equal(await page.locator("[data-editor-font-size]").inputValue(), "10");
+    await captureEditorEvidence(page, "image-save-failed", { operation: "apply-image-text", failure: "synthetic-IDB-write", editorStillOpen: await page.locator("#imageEditorDialog").isVisible() });
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       draftStore.put = globalThis.__originalPut;
@@ -336,6 +367,7 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     const retried = await readScreenshot(page, draftId);
     assert.equal(retried.annotations.find((item) => item.type === "text")?.text, "保存再試行");
     assert.equal(retried.annotations.find((item) => item.type === "text")?.fontSize, 10);
+    await captureEditorEvidence(page, "image-save-retried", { operation: "retry-same-image-edit", persistedTextMatches: retried.annotations.some((item) => item.type === "text" && item.text === "保存再試行" && item.fontSize === 10) });
 
     await openImageEditor(page);
     const savingRow = page.locator("[data-editor-selection] > div").first();
@@ -360,6 +392,8 @@ test("image editor cancel, empty text, and save retry preserve draft values", { 
     assert.ok(await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)), "保存中は編集入力・一覧・保存をdisabledにする");
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "保存中のEscapeでdialogを閉じない");
+    assert.match(await page.locator("#status").textContent(), /保存しています/);
+    await captureEditorEvidence(page, "image-save-pending", { operation: "delayed-IDB-write-and-Escape", writeCalls: await page.evaluate(() => globalThis.__putCalls), controlsDisabled: await editorControls.evaluateAll((elements) => elements.every((element) => element.disabled)) });
     await page.evaluate(async () => {
       const pending = globalThis.__pendingPut;
       await globalThis.__originalPut(pending.candidate);
@@ -441,7 +475,9 @@ test("a pending image write preserves concurrent title, step text, order, add, a
     await page.locator("#title").fill("同時編集後のタイトル");
     await page.locator("#step-step-1 textarea").fill("同時編集後の説明");
     await page.locator("#addStep").click();
-    await page.locator("#step-step-2 button").filter({ hasText: "上へ" }).click();
+    await openStepMenu(page, "step-2");
+    await page.locator("#step-step-2 button").filter({ hasText: "前へ移動" }).click();
+    await openStepMenu(page, "step-3");
     await page.locator("#step-step-3 button").filter({ hasText: "削除" }).click();
     await page.evaluate(() => globalThis.__pendingDraftPut.resolve());
     await page.waitForFunction(async () => {
@@ -454,7 +490,7 @@ test("a pending image write preserves concurrent title, step text, order, add, a
     assert.equal(stored.steps.find((step) => step.id === "step-1")?.instruction, "同時編集後の説明");
     assert.equal(stored.steps.some((step) => step.id === "step-3"), false, "削除した手順を復活させない");
     assert.equal(stored.steps.some((step) => step.instruction === "新しい手順"), true, "追加した手順を保持する");
-    assert.deepEqual(stored.steps.map((step) => step.id), ["step-2", "step-1", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
+    assert.deepEqual(stored.steps.map((step) => step.id), ["step-1", "step-2", stored.steps.find((step) => step.instruction === "新しい手順")?.id]);
     assert.notEqual(stored.screenshots[0].dataUrl, originalDataUrl, "画像の変更を保持する");
   } finally {
     await context?.close();
@@ -516,7 +552,7 @@ test("image replacement invalidates an open editor before its stale save can reu
     await input.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__uploadBitmapStarted && typeof globalThis.__releaseUploadBitmap === "function");
     await page.evaluate(() => globalThis.__releaseUploadBitmap());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false, "差し替え対象Aの旧editorだけを閉じる");
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), "shared-id", "対象Aの新画像編集ボタンへフォーカスを戻す");
 
@@ -576,6 +612,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = async () => { throw new Error("synthetic upload failure"); };
     });
     const replaceInput = page.locator("#step-replace-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "replace-step");
     await page.locator("#step-replace-step .image-upload-panel button").focus();
     await replaceInput.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.getByText("画像を差し替えられませんでした。元の内容は変更されていません。もう一度お試しください。", { exact: true }).waitFor();
@@ -588,7 +625,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = globalThis.__focusContractOriginalPut;
     });
     await replaceInput.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-editor-trigger")), "replace-image", "差し替え成功後は新画像の編集ボタンへフォーカスを戻す");
 
     await page.evaluate(async () => {
@@ -596,6 +633,7 @@ test("image upload keeps old content on failure and restores focus for add and r
       draftStore.put = async () => { throw new Error("synthetic add failure"); };
     });
     const addInput = page.locator("#step-add-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "add-step");
     await page.locator("#step-add-step .image-upload-panel button").focus();
     await addInput.setInputFiles({ name: "addition.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.getByText("画像を追加できませんでした。元の内容は変更されていません。もう一度お試しください。", { exact: true }).waitFor();
@@ -662,7 +700,7 @@ test("shared replacement closes the target step editor while retaining the share
     await input.setInputFiles({ name: "shared-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__sharedTargetUploadStarted && typeof globalThis.__releaseSharedTargetUpload === "function");
     await page.evaluate(() => globalThis.__releaseSharedTargetUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const after = await page.evaluate(async (currentDraftId) => (await (await import("/storage/draft-store.js")).draftStore.get(currentDraftId)), draftId);
     const newAId = after.steps.find((step) => step.id === "shared-a-step")?.screenshotId;
     const oldB = after.screenshots.find((item) => item.id === "shared-image");
@@ -719,7 +757,7 @@ test("replacement does not steal focus from another control after an editor was 
     await input.setInputFiles({ name: "closed-editor-replacement.png", mimeType: "image/png", buffer: Buffer.from(replacementDataUrl.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__closedEditorUploadStarted && typeof globalThis.__releaseClosedEditorUpload === "function");
     await page.evaluate(() => globalThis.__releaseClosedEditorUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.id), "title", "閉じたeditorの参照だけでは別controlのfocusを奪わない");
   } finally {
     await context?.close();
@@ -775,6 +813,7 @@ test("replacement closes only the target image editor and preserves another edit
       };
     });
     const inputA = page.locator("#step-editor-a-step .image-upload-panel input[type=file]");
+    await openUploadPanel(page, "editor-a-step");
     await page.locator("#step-editor-a-step .image-upload-panel button").focus();
     await inputA.setInputFiles({ name: "replacement-a.png", mimeType: "image/png", buffer: Buffer.from(replacementA.split(",")[1], "base64") });
     await page.waitForFunction(() => globalThis.__targetUploadStarted && typeof globalThis.__releaseTargetUpload === "function");
@@ -787,7 +826,7 @@ test("replacement closes only the target image editor and preserves another edit
     await page.locator("[data-editor-font-size]").fill("24");
 
     await page.evaluate(() => globalThis.__releaseTargetUpload());
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), true, "別画像のeditorは対象画像の差し替え後も開いたままにする");
 
     await page.evaluate(async () => {
@@ -829,6 +868,7 @@ test("image editor cancels stale decode generation", { timeout: 20_000 }, async 
     const page = await context.newPage();
     page.setDefaultTimeout(4_000);
     await seedImageEditorDraft(page, baseUrl, draftId);
+    await page.waitForFunction(() => document.querySelector(".screenshot-canvas")?.dataset.previewRendered === "true");
     await page.evaluate(() => {
       globalThis.__decodeQueue = [];
       globalThis.__originalDecode = Image.prototype.decode;
@@ -894,8 +934,10 @@ test("output gate cancel preserves edits, save failure blocks handoff, and pendi
       draftStore.put = async () => { throw new Error("storage unavailable"); };
     });
     await page.locator("#save").click();
-    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false);
-    assert.match(await page.locator("#status").textContent(), /保存できませんでした/);
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
+    await page.waitForFunction(() => document.querySelector("#gateStatus")?.textContent.includes("端末に保存できない"));
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true);
+    await page.locator("#cancelOutput").click();
 
     await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
@@ -1258,6 +1300,7 @@ test("ready config opens the registration tab once and keeps local edits", { tim
     await page.goto(`${baseUrl}/editor/editor.html#ready-output-gate-fixture`);
     await page.locator("#title").fill("編集を保持するタイトル");
     await page.locator("#save").click();
+    await page.locator("#startRegistration:not([disabled])").waitFor();
     assert.equal(await page.locator("#startRegistration").isDisabled(), false);
     await page.evaluate(() => {
       chrome.storage.local.set = async () => { throw new Error("HANDOFF_STORAGE_UNAVAILABLE"); };
@@ -1340,18 +1383,17 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
         }
       };
     });
-    await page.goto(`${baseUrl}/seed.html`);
-    await page.evaluate(async () => {
-      const { draftStore } = await import("/storage/draft-store.js");
-      await draftStore.put({ id: "timeout-output-gate-fixture", title: "元のタイトル", description: "説明", steps: [], screenshots: [] });
-    });
-    await page.goto(`${baseUrl}/editor/editor.html#timeout-output-gate-fixture`);
+    await seedImageEditorDraft(page, baseUrl, "timeout-output-gate-fixture", 20);
+    await page.locator("#steps button").nth(16).click();
+    await page.locator(".instruction-label textarea").fill("17番の編集を認証中断後も保持します");
+    const retainedImages = await page.evaluate(async () => { const { draftStore } = await import("/storage/draft-store.js"); return (await draftStore.get("timeout-output-gate-fixture")).screenshots; });
     await page.locator("#save").click();
     await page.locator("#startRegistration").click();
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), true);
     assert.equal(await page.locator("#handoffProgress").evaluate((element) => element.hidden), true);
     assert.match(await page.locator("#gateStatus").textContent(), /ログインや接続が必要な場合があります/);
+    await captureEditorEvidence(page, "auth-handoff-interrupted", { operation: "synthetic-registration-timeout", status: await page.locator("#gateStatus").textContent(), explicitResumeVisible: await page.locator("#activateHandoff").isVisible() });
     await page.evaluate(() => { globalThis.__delayActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
     await page.waitForFunction(() => typeof globalThis.__releaseActivationUpdate === "function");
@@ -1373,9 +1415,18 @@ test("handoff timeout keeps the editor visible and activation is explicit and id
     await page.waitForFunction(() => document.querySelector("#activateHandoff")?.hidden === false, null, { timeout: 12_000 });
     await page.evaluate(() => { globalThis.__failActivationUpdate = true; });
     await page.locator("#activateHandoff").click();
-    await page.waitForFunction(() => /保存の準備に進む/.test(document.querySelector("#gateStatus")?.textContent || ""));
+    await page.waitForFunction(() => /ログインしてクラウドに保存/.test(document.querySelector("#gateStatus")?.textContent || ""));
     assert.equal(await page.locator("#activateHandoff").evaluate((element) => element.hidden), true, "closed activation tab should require a fresh handoff");
     assert.equal(await page.locator("#startRegistration").isDisabled(), false, "fresh handoff should remain available after activation failure");
+    await captureEditorEvidence(page, "auth-closed-tab-recovery", { operation: "synthetic-closed-registration-tab", freshHandoffAvailable: !(await page.locator("#startRegistration").isDisabled()), status: await page.locator("#gateStatus").textContent() });
+    await page.locator("#cancelOutput").click();
+    await page.locator("#outputGate").waitFor({ state: "hidden" });
+    await page.reload();
+    assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+    assert.equal(await page.locator(".instruction-label textarea").inputValue(), "17番の編集を認証中断後も保持します");
+    const restored = await page.evaluate(async () => { const { draftStore } = await import("/storage/draft-store.js"); return draftStore.get("timeout-output-gate-fixture"); });
+    assert.equal(restored.steps.length, 20); assert.deepEqual(restored.screenshots, retainedImages);
+    await captureEditorEvidence(page, "auth-step17-restored", { operation: "cancel-after-closed-registration-tab-and-editor-reload", steps: restored.steps.length, selectedStep: restored.selectedStepId, imagesUnchanged: true });
   } finally {
     await context?.close();
     server.closeAllConnections?.();
@@ -1589,7 +1640,23 @@ test("a manually added step accepts a sanitized image and opens the editor", { t
     assert.equal(stored.screenshots[0].dataUrl.startsWith("data:image/"), true, "画像は再エンコードしたdata URLとして保存する");
     await page.locator("#step-manual-step .image-edit-button").click();
     await page.locator("#imageEditorDialog").waitFor({ state: "visible" });
-    assert.equal(await page.locator("[data-editor-tool]").count(), 6);
+    assert.equal(await page.locator("[data-editor-tool]").count(), 8);
+    assert.equal(await page.locator('[data-editor-tool="replacement"]').textContent(), "個人情報");
+    await page.locator('[data-editor-tool="replacement"]').click();
+    assert.equal(await page.locator("[data-editor-replacement-type]").isVisible(), true);
+    const replacementAdd = page.locator('[data-replacement-action="add"]');
+    assert.equal(await replacementAdd.isVisible(), true);
+    assert.equal(await replacementAdd.evaluate((element) => document.activeElement === element), true, "置換モード開始時は範囲追加へフォーカスを移す");
+    await page.keyboard.press("Enter");
+    await page.locator('[data-editor-selection] button').first().waitFor({ state: "visible" });
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator('[data-editor-save]').isVisible(), true);
+    assert.equal(await page.locator('[data-editor-cancel]').first().isVisible(), true);
+    await captureEditorEvidence(page, "replacement-keyboard-1024", { operation: "replacement-add-enter-and-arrow", addButtonFocused: true, sourceTextHidden: true });
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await captureEditorEvidence(page, "replacement-keyboard-1366", { operation: "replacement-mode-responsive", sourceTextHidden: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await captureEditorEvidence(page, "replacement-keyboard-390", { operation: "replacement-mode-responsive", sourceTextHidden: true });
     await page.locator("[data-editor-cancel]").first().click();
     assert.equal(await page.locator("#imageEditorDialog").isVisible(), false);
   } finally {
@@ -1627,7 +1694,7 @@ test("JPEG header scanning accepts fill bytes and TEM before SOF, while malforme
     const decoratedJpeg = Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xff, 0x01, 0xff]), jpegBytes.subarray(2)]);
     const input = page.locator("#step-jpeg-step .image-upload-panel input[type=file]");
     await input.setInputFiles({ name: "fill-tem.jpeg", mimeType: "image/jpeg", buffer: decoratedJpeg });
-    await page.getByText("画像を追加して、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const stored = await page.evaluate(async () => (await (await import("/storage/draft-store.js")).draftStore.get("jpeg-marker-fixture")));
     assert.equal(stored?.screenshots?.length, 1, "保存完了表示後にIDBへ画像が保存される");
     assert.equal(typeof stored.screenshots[0]?.dataUrl, "string");
@@ -1717,7 +1784,7 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
     });
     const transparentPng = Buffer.from(transparentDataUrl.split(",")[1], "base64");
     await input.setInputFiles({ name: "transparent.png", mimeType: "image/png", buffer: transparentPng });
-    await page.getByText("画像を差し替えて、この端末に保存しました。", { exact: true }).waitFor();
+    await page.getByText("画像を端末に保存しました。公開できない情報が残っていないか確認してください。", { exact: true }).waitFor();
     const replaced = await page.evaluate(async () => {
       const { draftStore } = await import("/storage/draft-store.js");
       const current = await draftStore.get("shared-image-upload-fixture");
@@ -1739,6 +1806,7 @@ test("image upload keeps transparency, isolates shared replacements, and rejects
         return { width: 12_001, height: 1, close() {} };
       };
     });
+    await selectStep(page, "shared-step-2");
     const secondInput = page.locator("#step-shared-step-2 .image-upload-panel input[type=file]");
     const oversizedPng = Buffer.from(transparentPng);
     oversizedPng.writeUInt32BE(12_001, 16);
@@ -1813,4 +1881,354 @@ test("image upload enforces draft image count and total capacity", { timeout: 20
     server.closeAllConnections?.();
     await new Promise((resolveServer) => server.close(resolveServer));
   }
+});
+
+test("20-step image-first editor keeps selection, undo, image color and responsive controls", { timeout: 60_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, reducedMotion: "reduce" });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    for (const width of [1366, 1024, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const draftId = `twenty-step-unified-${width}`;
+      await seedImageEditorDraft(page, baseUrl, draftId, 20);
+      assert.equal(await page.locator(".step-article").count(), 1);
+      const header = await page.locator(".editor-header").boundingBox();
+      const preview = await page.locator(".screenshot-preview").boundingBox();
+      const caption = await page.locator(".instruction-label textarea").boundingBox();
+      assert.ok(header.height >= 64 && header.height <= 72, "コンパクトな固定ヘッダー");
+      assert.ok(preview.y < 180 && preview.y + preview.height < 700, "画像が初期画面に収まる");
+      assert.ok(caption.y < 760, "画像の下に操作文が見える");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "横方向にはみ出さない");
+      if (width === 1024) assert.equal(await page.locator("#contextTools").isVisible(), false);
+      if (width === 390) assert.equal(await page.locator("#stepNavigation").isVisible(), false);
+      await selectStep(page, "step-17");
+      await page.locator("#step-step-17 textarea").fill("17番の説明を修正");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      await openStepMenu(page, "step-17");
+      await page.getByRole("button", { name: "前へ移動", exact: true }).click();
+      assert.match(await page.locator("#step-step-17 h3").textContent(), /16 \/ 20/);
+      await page.keyboard.press("Control+z");
+      assert.match(await page.locator("#step-step-17 h3").textContent(), /17 \/ 20/);
+      await openStepMenu(page, "step-17");
+      await page.locator(".step-controls .danger").click();
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-18");
+      await page.keyboard.press("Control+z");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      assert.equal(await page.locator("#step-step-17 textarea").inputValue(), "17番の説明を修正");
+      if (width === 390) await page.locator("#openNavigation").click();
+      await page.locator("#addStep").click();
+      const addedId = await page.locator(".step-article").getAttribute("data-step-id");
+      assert.notEqual(addedId, "step-17");
+      assert.match(await page.locator(".step-article h3").textContent(), /18 \/ 21/);
+      assert.equal(await page.locator(".instruction-label textarea").evaluate((node) => node === document.activeElement), true);
+      await page.keyboard.press("Control+z");
+      await selectStep(page, "step-17");
+      await openImageEditor(page, "step-17");
+      assert.equal(await page.locator("#imageEditorDialog").evaluate((node) => node.matches(":modal")), false, "別画面ではなく中央で画像を編集する");
+      await page.locator('[data-editor-tool="rectangle"]').click();
+      await dragCanvas(page, page.locator("#imageEditorCanvas"), .2, .2, .45, .4);
+      await page.locator("[data-editor-color]").evaluate((node) => { node.value = "#df4a36"; node.dispatchEvent(new Event("input", { bubbles: true })); });
+      await mkdir(".artifacts/unified-editor", { recursive: true });
+      if(width>768){const footer=await page.locator(".image-editor-actions").boundingBox(),statusBar=await page.locator("#status").boundingBox();assert.ok(footer.y+footer.height<=statusBar.y+1,"Apply/Cancel remains above the status bar");}
+      await page.screenshot({ path: `.artifacts/unified-editor/inline-tools-${width}.png` });
+      await page.locator("[data-editor-save]").click();
+      await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+      assert.equal((await readScreenshot(page, draftId, "image-17")).annotations[0].color, "#df4a36");
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+      await page.screenshot({ path: `.artifacts/unified-editor/selected-step-${width}.png` });
+      await page.reload();
+      assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17", "再読込でも選択IDを引き継ぐ");
+    }
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("output waits from file decode through IDB and blocks unreviewed or failed images", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await seedImageEditorDraft(page, baseUrl, "pending-file-output", 20);
+    await selectStep(page, "step-17");
+    await page.evaluate(() => {
+      const original = globalThis.createImageBitmap;
+      globalThis.__decodeStarted = false;
+      globalThis.createImageBitmap = async (...args) => { globalThis.__decodeStarted = true; await new Promise((resolve) => { globalThis.__releaseDecode = resolve; }); return original(...args); };
+    });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    await page.locator("#detail input[type=file]").setInputFiles({ name: "safe-synthetic.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => globalThis.__decodeStarted);
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "decode開始直後に共有が先行しない");
+    assert.match(await page.locator("#outputIssues").textContent(), /手順17/);
+    await captureEditorEvidence(page, "image-decode-pending-share-blocked", { operation: "share-during-delayed-image-decode", shareDisabled: await page.locator("#startShare").isDisabled(), issues: await page.locator("#outputIssues").textContent() });
+    await page.locator("#cancelOutput").click();
+    assert.equal(await page.locator(".step-article").getAttribute("data-step-id"), "step-17");
+    await page.evaluate(() => globalThis.__releaseDecode());
+    await page.waitForFunction(() => document.querySelector("#step-step-17 .image-status")?.dataset.state === "review");
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "手動画像は明示確認まで共有しない");
+    await captureEditorEvidence(page, "image-needs-review-share-blocked", { operation: "share-before-image-review", shareDisabled: await page.locator("#startShare").isDisabled() });
+    await page.locator("#outputIssues button").first().click();
+    await page.locator("#step-step-17 .image-state-actions button").first().click();
+    await page.locator("#share").click();
+    await page.locator("#startShare:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startShare").isDisabled(), false);
+    await page.locator("#cancelOutput").click();
+    await page.locator("#detail input[type=file]").setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken") });
+    await page.locator(".image-upload-message[data-state=error]").waitFor();
+    await page.locator("#share").click();
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "失敗した差し替えを黙って除外しない");
+    await captureEditorEvidence(page, "image-replacement-failed-share-blocked", { operation: "share-after-invalid-image-replacement", shareDisabled: await page.locator("#startShare").isDisabled(), issues: await page.locator("#outputIssues").textContent() });
+    await page.locator("#outputIssues button").click();
+    await page.locator("#step-step-17 .image-state-actions button").first().click();
+    await page.locator("#share").click();
+    await page.locator("#startShare:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startShare").isDisabled(), false);
+    await captureEditorEvidence(page, "image-original-restored-share-ready", { operation: "explicitly-keep-original-image-after-replacement-failure", shareDisabled: await page.locator("#startShare").isDisabled() });
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("raw native image confirmation keeps bytes and reopens Office and cloud output", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    const draftId = "raw-native-confirmation-fixture";
+    await seedImageEditorDraft(page, baseUrl, draftId, 1);
+    await page.goto(`${baseUrl}/seed.html`);
+    const rawDataUrl = await page.evaluate(async (id) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get(id);
+      const review = { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] };
+      draft.steps[0].imageState = { status: "protected", reason: null, attempts: 1, version: 1 };
+      draft.steps[0].privacyReview = structuredClone(review);
+      draft.screenshots[0].privacyReview = review;
+      await draftStore.put(draft);
+      return draft.screenshots[0].dataUrl;
+    }, draftId);
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.locator("#step-step-1").waitFor();
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "Office output must stay blocked before raw image confirmation");
+    await page.locator("#outputIssues button").first().click();
+    await page.locator("#step-step-1 .image-state-actions button").first().click();
+    await page.waitForFunction(async (id) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get(id);
+      return draft?.steps?.[0]?.imageState?.status === "ready" && draft.steps[0].privacyReview?.reviewRequired === false && draft.screenshots[0].privacyReview?.reviewRequired === false;
+    }, draftId);
+    const confirmed = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(confirmed.screenshots[0].dataUrl, rawDataUrl, "confirmation must retain the original native image bytes");
+    assert.equal(confirmed.steps[0].imageState.status, "ready");
+    assert.equal(confirmed.steps[0].privacyReview.reviewRequired, false);
+    assert.equal(confirmed.screenshots[0].privacyReview.reviewRequired, false);
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startRegistration").isDisabled(), false, "Office output must resume after explicit image confirmation");
+    await page.locator("#cancelOutput").click();
+    await page.locator("#share").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startShare:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startShare").isDisabled(), false, "cloud output must resume after explicit image confirmation");
+    await page.locator("#cancelOutput").click();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("an unassigned zero-event cover stays gated after add-step until the same image is confirmed", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "zero-event-cover-add-step-gate";
+  const rawDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await page.goto(baseUrl + "/seed.html");
+    await page.evaluate(async ({ draftId: id, dataUrl }) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({
+        id,
+        title: "撮影画像の確認",
+        description: "",
+        steps: [],
+        screenshots: [{ id: "cover", dataUrl, masks: [], privacyReview: { replacementCount: 0, protectedRegionCount: 0, reviewRequired: true, reasonCodes: ["manual_image_review"], replacements: [] } }]
+      });
+    }, { draftId, dataUrl: rawDataUrl });
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.locator("#addStep").click();
+    await page.locator(".step-article").first().waitFor();
+    const assigned = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(assigned.steps.length, 1);
+    assert.equal(assigned.steps[0].screenshotId, "cover");
+    assert.equal(assigned.steps[0].imageState.status, "protected");
+    assert.equal(assigned.steps[0].privacyReview.reviewRequired, true);
+    const stepId = assigned.steps[0].id;
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "an unreviewed orphan cover must block Office output");
+    await page.locator("#outputIssues button").click();
+    await page.locator(`#step-${stepId} .image-state-actions button`).first().click();
+    await page.waitForFunction(async (id) => {
+      const draft = await (await import("/storage/draft-store.js")).draftStore.get(id);
+      return draft?.steps?.[0]?.imageState?.status === "ready" && draft.steps[0].privacyReview?.reviewRequired === false;
+    }, draftId);
+    const confirmed = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(confirmed.screenshots[0].dataUrl, rawDataUrl, "confirmation must keep the cover bytes");
+    assert.equal(confirmed.screenshots[0].privacyReview.reviewRequired, false);
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
+    await page.locator("#cancelOutput").click();
+    await page.locator("#share").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startShare:not([disabled])").waitFor();
+    await page.locator("#cancelOutput").click();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("Office selection rejects empty and blank steps before opening the auth gate", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "office-step-validation-before-gate";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await page.goto(baseUrl + "/seed.html");
+    await page.evaluate(async (id) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      await draftStore.put({ id, title: "手順の検証", description: "", steps: [], screenshots: [] });
+    }, draftId);
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "zero steps must be rejected before the auth gate");
+    assert.match(await page.locator("#officeExportStatus").textContent(), /手順を1件以上、200件以内/u);
+
+    await page.locator("#addStep").click();
+    const instruction = page.locator("#detail textarea");
+    await instruction.fill("");
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    assert.equal(await page.locator("#outputGate").evaluate((element) => element.open), false, "blank instruction must be rejected before the auth gate");
+    assert.match(await page.locator("#officeExportStatus").textContent(), /手順1の説明を入力/u);
+    assert.equal(await instruction.evaluate((element) => document.activeElement === element), true, "invalid instruction should receive focus");
+
+    await instruction.fill("確認して保存します。");
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
+    assert.equal(await page.locator("#startRegistration").isDisabled(), false, "valid steps should resume the normal Office gate");
+    await page.locator("#cancelOutput").click();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
+});
+
+test("editing a confirmed image requires a fresh review before output", { timeout: 30_000 }, async () => {
+  const server = serveExtension();
+  await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const channel = process.platform === "win32" ? "chrome" : "chromium";
+  let context;
+  const draftId = "confirmed-image-edit-review-gate";
+  try {
+    context = await chromium.launchPersistentContext("", { channel, headless: true, viewport: { width: 1366, height: 900 } });
+    const page = await context.newPage(); page.setDefaultTimeout(5_000);
+    await seedImageEditorDraft(page, baseUrl, draftId, 1);
+    await page.goto(baseUrl + "/seed.html");
+    const original = await page.evaluate(async (id) => {
+      const { draftStore } = await import("/storage/draft-store.js");
+      const draft = await draftStore.get(id);
+      const review = { replacementCount: 1, protectedRegionCount: 0, reviewRequired: false, reasonCodes: ["synthetic_review"], replacements: [{ id: "kept-region", kind: "name", text: "山田 花子", x: .1, y: .1, width: .2, height: .1 }] };
+      draft.steps[0].imageState = { status: "ready", reason: null, attempts: 1, version: 1 };
+      draft.steps[0].privacyReview = structuredClone(review);
+      draft.screenshots[0].privacyReview = review;
+      draft.steps.push({ id: "step-2", order: 2, instruction: "同じ画像を参照", screenshotId: draft.screenshots[0].id, imageState: { status: "ready", reason: null, attempts: 1, version: 1 }, privacyReview: structuredClone(review) });
+      await draftStore.put(draft);
+      return draft.screenshots[0].dataUrl;
+    }, draftId);
+    await page.goto(`${baseUrl}/editor/editor.html#${draftId}`);
+    await openImageEditor(page, "step-1");
+    await page.locator("[data-editor-save]:not([disabled])").waitFor();
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    let unchanged = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(unchanged.screenshots[0].privacyReview.reviewRequired, false, "no-op save keeps the review state");
+    await openImageEditor(page, "step-1");
+    await page.locator("[data-editor-cancel]").first().click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    unchanged = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(unchanged.screenshots[0].privacyReview.reviewRequired, false, "cancel keeps the review state");
+    await openImageEditor(page, "step-1");
+    await page.locator('[data-editor-tool="rectangle"]').click();
+    await dragCanvas(page, page.locator("#imageEditorCanvas"), .2, .2, .45, .4);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+    const edited = await page.evaluate(async (id) => (await (await import("/storage/draft-store.js")).draftStore.get(id)), draftId);
+    assert.equal(edited.screenshots[0].dataUrl, original, "annotation edits keep the source bytes");
+    assert.equal(edited.screenshots[0].privacyReview.reviewRequired, true);
+    assert.equal(edited.screenshots[0].privacyReview.replacementCount, 1, "existing replacement metadata is retained");
+    assert.deepEqual(edited.screenshots[0].privacyReview.replacements.map((item) => item.id), ["kept-region"]);
+    assert.equal(edited.steps[0].privacyReview.reviewRequired, true);
+    assert.equal(edited.steps[1].privacyReview.reviewRequired, true, "all referencing steps require review");
+    assert.equal(edited.steps[0].imageState.status, "protected");
+    assert.equal(edited.steps[1].imageState.status, "protected");
+
+    // A second edit starts from the protected step object. The save replaces
+    // draft.steps with a clone, so confirmation must render the current step
+    // rather than the stale object captured by the editor button closure.
+    await openImageEditor(page, "step-1");
+    await page.locator('[data-editor-tool="rectangle"]').click();
+    await dragCanvas(page, page.locator("#imageEditorCanvas"), .5, .2, .7, .35);
+    await page.locator("[data-editor-save]").click();
+    await page.locator("#imageEditorDialog").waitFor({ state: "hidden" });
+
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startRegistration").isDisabled(), true, "changed pixels must block Office until review");
+    await page.locator("#cancelOutput").click();
+    await page.locator("#share").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#startShare").isDisabled(), true, "changed pixels must block cloud output until review");
+    await page.locator("#outputIssues button").first().click();
+    await page.locator("#step-step-1 .image-state-actions button").first().click();
+    await page.waitForFunction(() => document.querySelector("#step-step-1 .image-status")?.dataset.state === "ready");
+    assert.match(await page.locator("#privacySummary").textContent(), /確認済みの画像/u, "確認後は選択中の画像パネルへ確認済みを即時表示する");
+    await page.waitForFunction(async (id) => {
+      const draft = await (await import("/storage/draft-store.js")).draftStore.get(id);
+      return draft?.steps?.every((step) => step.imageState?.status === "ready" && step.privacyReview?.reviewRequired === false);
+    }, draftId);
+    await page.locator("details.header-office-actions").evaluate((node) => { node.open = true; });
+    await page.locator("#exportWord").click();
+    await page.locator("#outputGate").waitFor({ state: "visible" });
+    await page.locator("#startRegistration:not([disabled])").waitFor();
+  } finally { await context?.close(); server.closeAllConnections?.(); await new Promise((resolveServer) => server.close(resolveServer)); }
 });

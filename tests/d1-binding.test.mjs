@@ -14,7 +14,9 @@ const migrationPaths = [
   new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
   new URL("../migrations/0003_d1_onboarding_bootstrap.sql", import.meta.url),
   new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url),
-  new URL("../migrations/0005_d1_share_links.sql", import.meta.url)
+  new URL("../migrations/0005_d1_share_links.sql", import.meta.url),
+  new URL("../migrations/0006_d1_manual_editor_branding.sql", import.meta.url),
+  new URL("../migrations/0007_d1_retained_save_recovery.sql", import.meta.url)
 ];
 const d1BindingMigrationPaths = migrationPaths.slice(0, 3);
 const NOW = "2026-09-05T00:00:00.000Z";
@@ -234,3 +236,40 @@ async function count(db, sql, ...values) {
   const row = await db.prepare(sql).bind(...values).first();
   return Number(row?.count ?? 0);
 }
+
+test("retained-save migration backfills only existing same-manual attachment evidence", async () => {
+  const database = new DatabaseSync(":memory:");
+  try {
+    for (const migrationPath of migrationPaths.slice(0, -1)) {
+      for (const statement of unstable_splitSqlQuery(await readFile(migrationPath, "utf8"))) database.exec(statement);
+    }
+    database.exec(`
+      INSERT INTO identities(application_id, issuer, subject, status, created_at, updated_at)
+        VALUES ('undo-owner', 'issuer', 'undo-owner', 'active', '${NOW}', '${NOW}');
+      INSERT INTO workspaces(id, name, slug, status, created_by, created_at, updated_at, workspace_kind)
+        VALUES ('undo-workspace', 'Undo workspace', 'undo-workspace', 'active', 'undo-owner', '${NOW}', '${NOW}', 'personal');
+      INSERT INTO workspace_members(workspace_id, application_id, role, status, joined_at, updated_at)
+        VALUES ('undo-workspace', 'undo-owner', 'owner', 'active', '${NOW}', '${NOW}');
+      INSERT INTO manuals(id, workspace_id, title, status, current_draft_revision_id, created_by, created_at, updated_at)
+        VALUES ('undo-manual', 'undo-workspace', 'Undo', 'draft', 'undo-revision', 'undo-owner', '${NOW}', '${NOW}');
+      INSERT INTO manual_revisions(id, workspace_id, manual_id, revision_no, state, title, description, content_version, created_at, updated_at)
+        VALUES ('undo-revision', 'undo-workspace', 'undo-manual', 1, 'draft', 'Undo', '', '${"a".repeat(32)}', '${NOW}', '${NOW}');
+    `);
+    for (const id of ["saved-active", "saved-deleted", "never-attached"]) {
+      database.prepare(`INSERT INTO manual_edit_assets(id,workspace_id,manual_id,revision_id,actor_application_id,operation_id,expected_updated_at,object_key,content_type,byte_length,width,height,sha256,status,created_at)
+        VALUES (?,'undo-workspace','undo-manual','undo-revision','undo-owner',?,? ,?,'image/png',68,1,1,?,'reserved',?)`).run(id, "migration-" + id, NOW, "private/" + id, "a".repeat(64), NOW);
+      database.prepare(`INSERT INTO assets(id,workspace_id,bucket,object_key,kind,content_type,byte_length,checksum_sha256,created_at,updated_at)
+        VALUES (?,'undo-workspace','MANUAL_ASSETS',?,'manual_image','image/png',68,?,?,?)`).run(id, "private/" + id, "a".repeat(64), NOW, NOW);
+      database.prepare("UPDATE manual_edit_assets SET status = 'ready' WHERE id = ?").run(id);
+    }
+    database.prepare(`INSERT INTO manual_steps(id,workspace_id,revision_id,position,type,title,instruction,asset_id,created_at,updated_at)
+      VALUES ('active-step','undo-workspace','undo-revision',0,'action','active','active','saved-active',?,?)`).run(NOW, NOW);
+    database.prepare(`INSERT INTO manual_steps(id,workspace_id,revision_id,position,type,title,instruction,asset_id,deleted_at,created_at,updated_at)
+      VALUES ('deleted-step','undo-workspace','undo-revision',1,'action','deleted','deleted','saved-deleted',?,?,?)`).run(LATER, NOW, LATER);
+    for (const statement of unstable_splitSqlQuery(await readFile(migrationPaths.at(-1), "utf8"))) database.exec(statement);
+    const results = database.prepare("SELECT id,first_attached_at FROM manual_edit_assets ORDER BY id").all();
+    assert.deepEqual(results.map((row) => [row.id, row.first_attached_at]), [["never-attached", null], ["saved-active", NOW], ["saved-deleted", NOW]]);
+    assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = 'never-attached'").run(NOW), /attachment provenance/);
+    assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = NULL WHERE id = 'saved-active'").run(), /attachment provenance/);
+  } finally { database.close(); }
+});

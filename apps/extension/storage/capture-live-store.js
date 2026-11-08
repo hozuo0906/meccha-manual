@@ -35,12 +35,12 @@ async function countReady(sessionId) {
     return await new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE, "readonly");
       const range = IDBKeyRange.bound(`${sessionId}:`, `${sessionId}:\uffff`);
-      const request = transaction.objectStore(STORE).openKeyCursor(range);
+      const request = transaction.objectStore(STORE).openCursor(range);
       let count = 0;
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return;
-        count += 1;
+        if (["ready", "protected"].includes(cursor.value?.status) && cursor.value.dataUrl) count += 1;
         cursor.continue();
       };
       request.onerror = () => reject(request.error);
@@ -56,7 +56,12 @@ async function countReady(sessionId) {
 export const captureLiveStore = {
   available: true,
   put: (entry) => {
-    if (entry?.status !== "ready" || !entry.dataUrl) return Promise.reject(new Error("capture live entry must be ready"));
+    const statuses = new Set(["ready", "unavailable", "failed", "protected", "none"]);
+    if (!statuses.has(entry?.status) || !entry.sessionId || !entry.eventId ||
+      (entry.status === "ready" && !entry.dataUrl) ||
+      (entry.dataUrl && !["ready", "protected"].includes(entry.status))) {
+      return Promise.reject(new Error("invalid capture image state"));
+    }
     return transact("readwrite", (store) => store.put(structuredClone({
       ...entry,
       key: `${entry.sessionId}:${entry.eventId}`

@@ -11,16 +11,16 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-001 | OUTPUT-GATE, Access認証 | Access JWT検証、`POST /api/onboarding/bootstrap` | identities, profiles | ADR-0028, ADR-0032 | MVP-AC-007, 008, 009 | Extension MVP / EPIC-02 |
 | FR-002 | 認証後はPersonal Workspace自動準備 | `POST /api/onboarding/bootstrap` | workspaces, workspace_members, identities, profiles | ADR-0028, ADR-0032 | MVP-AC-008, 009 | Extension MVP / EPIC-02 |
 | FR-003 | Team設定 | workspace member APIs | workspace_members | ADR-0028, ADR-0025 | AC-007, AC-008, AC-009, AC-014 | NEXT / EPIC-02 |
-| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036 | AC-010, AC-011, AC-017、Phase2 manual tests、画像中心editor／保存状態UI、画像編集dialog回帰 | EPIC-06 |
-| FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036 | manual edit/reorder tests、画像欠落時の再記録案内、注釈・mask編集回帰 | EPIC-06 |
+| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038 | AC-010, AC-011, AC-017、Phase2 manual tests、画像中心editor／保存状態UI、画像編集dialog回帰 | EPIC-06 |
+| FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038 | manual edit/reorder tests、画像欠落時の再記録案内、注釈・mask編集回帰 | EPIC-06 |
 | FR-006 | Manual editor | local deterministic suggestion | - | ADR-0009 | manual instruction template tests | EPIC-06 |
 | FR-007 | Chrome Extension | extension local capture + 認証後claim API | guest local capture state, 認証後manual | ADR-0031 | MVP-AC-002, 016 | Extension MVP / EPIC-05 |
 | FR-008 | Chrome Extension | local event normalization | guest local event state | ADR-0031 | MVP-AC-002, 004, 005 | Extension MVP / EPIC-05 |
 | FR-009 | Chrome Extension + Manual | 認証後asset upload / Worker proxy read | local guest assets, private R2 after claim | ADR-0006, ADR-0011, ADR-0031, ADR-0032 | MVP-AC-005, 010, 011 | Extension MVP / EPIC-05 |
 | FR-010 | Chrome Extension | local normalization / claim validation | - | ADR-0031 | MVP-AC-004 | Extension MVP / EPIC-05 |
-| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032, ADR-0035, ADR-0036 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs`、`tests/extension-image-annotations.test.mjs`、`tests/extension-release-blockers.test.mjs`の終了結果不明・復元優先案内、保存成功後の編集画面／下書き一覧二重障害からの再表示案内、ブランド／保存状態／reduced-motion確認 | Extension MVP / EPIC-05/06 |
+| FR-011 | Chrome Extension editor | local draft generator / claim | guest local draft, manual_revisions after claim | ADR-0009, ADR-0031, ADR-0032, ADR-0035, ADR-0036, ADR-0038 | MVP-AC-005, 006, 010、`tests/extension-editor-browser.test.mjs`、`tests/extension-image-annotations.test.mjs`、`tests/extension-release-blockers.test.mjs`の終了結果不明・復元優先案内、保存成功後の編集画面／下書き一覧二重障害からの再表示案内、ブランド／保存状態／reduced-motion確認 | Extension MVP / EPIC-05/06 |
 | FR-012 | Output gate / Share | `POST/GET/DELETE /api/workspaces/{workspaceId}/manuals/{manualId}/share-links` after auth+claim; explicit expiry/passcode and immutable snapshot CAS | `share_links`, `share_grants`, published `manual_revisions` | ADR-0005, ADR-0008, ADR-0028, ADR-0034 | MVP-AC-012, AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
-| FR-013 | Public share viewer | `POST /s/api/resolve`, `POST /s/api/content`, `GET /s/api/assets/{assetId}` under narrow `/s/` prefix | `share_links`, `share_grants`, private R2 proxy | ADR-0005, ADR-0006, ADR-0008, ADR-0034 | AC-030, AC-031, `tests/share-link-backend.test.mjs` | MVP / EPIC-08 |
+| FR-013 | Public share viewer / 20手順の位置復帰・前後移動・画像拡大 | `POST /s/api/resolve`, `POST /s/api/content`, `GET /s/api/assets/{assetId}` under narrow `/s/` prefix; visibility/pageshowで再検証、再読込は元リンクから再認証 | `share_links`, `share_grants`, private R2 proxy; opaque published step UUIDと手順indexのみ端末へ保持 | ADR-0005, ADR-0006, ADR-0008, ADR-0034 | AC-030, AC-031, `tests/share-link-backend.test.mjs`, `tests/share-viewer-browser.test.mjs`（mock API、実認可とは別） | MVP / EPIC-08 |
 | FR-014 | Output gate / PDF | PDF export API after auth+claim | exports / entitlements when enabled | ADR-0032, ADR-0033 | MVP-AC-007, 013, 019、PDF export tests | MVP / EPIC-08 |
 | FR-015 | Guide Me | replay APIs | - | - | AC-040 | DEFERRED / EPIC-08 |
 | FR-016 | Chrome Extension mode selector | local responsive window control | local capture mode only | ADR-0031 | MVP-AC-003, 015 | MVP / Extension MVP |
@@ -29,8 +29,9 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-019 | Billing | billing APIs, Stripe webhook | billing_customers, checkout_intents, subscriptions, payment_events | ADR-0007, ADR-0022, ADR-0023, ADR-0033 | AC-050, AC-052, AC-054, AC-055, AC-056, AC-057, AC-059, AC-062, AC-063 | NEXT / EPIC-10 |
 | FR-020 | AI settings | ai settings APIs | feature flags/settings | ADR-0009 | AC-060 | DEFERRED / EPIC-14 |
 | FR-021 | Billing / Usage | billing summary / entitlement APIs | entitlements, usage_counters | ADR-0023, ADR-0033 | AC-051, AC-053, AC-055, AC-058 | NEXT / EPIC-10 |
-| FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035, ADR-0036 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示、注釈焼き込み・raw注釈非送信回帰 | MVP / Extension MVP |
+| FR-022 | Chrome Extension guest editor / Output gate | `POST /api/onboarding/bootstrap`, claim intent、authenticated staged asset PUT、guest claim | guest local IndexedDB等、`workspaces.workspace_kind`、認証後manual/private R2 | ADR-0031, ADR-0032, ADR-0035, ADR-0036, ADR-0038 | MVP-AC-005〜013、Personal Workspace uniqueness／asset retry negative tests、認証後handoff準備表示、注釈焼き込み・raw注釈非送信回帰 | MVP / Extension MVP |
 | FR-023 | Markdown / HTML export | export APIs after auth+claim | exports / entitlements when enabled | ADR-0033 | 形式別export tests when enabled | NEXT / EPIC-08 |
+| FR-024 | Chrome Extension editor / Office出力 | output gate → authenticated workspace claim → local `buildDocx` / `buildPptx` (`Uint8Array`) | local draft snapshot、認証済みhandoff metadata、端末download | ADR-0040、`manual-local-office-export-api` | AC-064、AC-065、`tests/extension-office-wiring.test.mjs`、`tests/extension-office-export-browser.test.mjs`、Office生成器のOOXML／複数画像／長文、認証後のWord/PPT復帰 | MVP / Extension 0.1.9 |
 | NFR-007 | Login, extension, editor, share | - | - | - | a11y / keyboard / focus tests | EPIC-13 |
 | NFR-013 | - | Business OS cloud runner contracts | Business OS側正本 | ADR-0026 | business-os-runner checks | Business OS #10 |
 
@@ -38,11 +39,13 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 
 共有停止の4xxはAPIが返した案内を表示し、5xx・通信失敗は結果不明として画面に同じ共有リンクを保持する。利用者は画面を閉じず、同じ`shareLinkId`で停止を再試行できる。
 
+FR-004／FR-005／FR-012のクラウド編集では、共有作成・停止の応答待ち中は画像編集開始を抑止し、成功応答の全体再描画による編集中dialogの破棄と保存・手順切替の停止を防ぐ。`tests/cloud-manual-sharing-failure-browser.test.mjs`の遅延POST／DELETE回帰で、パネルを閉じた後の編集開始拒否と、応答後の画像適用・保存・手順切替・再編集を確認する。画像編集中の共有開始抑止も同じ回帰で確認する（PR #285、2026-11-08追補）。
+
 ## Cクラウド保存の追跡
 
 FR-022のC範囲は、`apps/extension/background/cloud-claim.js`のsender／handoff／schema／chunk検証、`apps/extension/editor/handoff.js`のdraft単位Web Locksとcanonical handoff選択、`apps/worker/src/onboarding-assets.ts`の認証後準備表示とsame-origin claim transport、`apps/worker/src/cloud-manual-assets.ts`の一覧・再表示・編集UIで実装する。APIのserver認可、D1/R2 staged asset、finalizeの正本は`docs/05-api/guest-onboarding-and-claim-api.md`とbackend担当のroute／migration実装を参照する。拡張editorに画像がない手順は最後の画面で補完せず、再記録を案内する。各操作と画像IDを収集するcapture側の実装は別担当の契約で同期する。
 
-受入証跡は、external-origin／unknown schema／期限切れ／oversize／chunk order／credential拒否、mask焼き込み、local failure／cancel／retry／changed-draft cleanup、同じdraftを2つのMV3 editorタブで保存して1つのhandoff／operationへ収束すること、同じ内容のtimestampだけが変わるprepare／asset start、completed後の新handoff、別draft分離、Web Locks／storage取得失敗時の新URL 0件、一覧→再表示→編集→version競合を対象とする。クラウド手順書画面はタイトル・説明・手順本文の編集、追加・削除・並替え、画像再表示をローカル編集状態へ保持し、明示した一回のdraft PATCHへまとめる。保存中の入力変更は応答で上書きせず、保存結果不明時はclaim状態照会を先に行う。handoff metadataには本文・画像を保存せず、`updatedAt`を除くdraft fingerprintだけを保持する。完了通知は`completion-pending`の耐久保存後に削除を行い、同一msでもfingerprintが異なるdraftや削除直前のCAS不一致は新しいdraftを削除せず、確定済みclaimを`completed`として保存して次handoffを許可する。metadata／IndexedDBの技術障害はCAS不一致と混同せず再試行可能にする。主要画面の案内語は「手順書」「操作を記録」「この端末に保存」「ワークスペースに保存」「共有リンクを作成」「キャンセル」「黒塗り」とし、入力欄の値非保存と画像への映り込みを区別して表示する。対応する実ブラウザ証跡は`tests/cloud-manual-ui-browser.test.mjs`と`tests/onboarding-ui-browser.test.mjs`、extension契約証跡は`tests/extension-cloud-claim.test.mjs`に置く。owner限定stagingの実Chrome通し確認とAPI route接続は、統合後の環境証跡として別に判定する。
+受入証跡は、external-origin／unknown schema／期限切れ／oversize／chunk order／credential拒否、mask焼き込み、local failure／cancel／retry／changed-draft retention、同じdraftを2つのMV3 editorタブで保存して1つのhandoff／operationへ収束すること、同じ内容のtimestampだけが変わるprepare／asset start、completed後の新handoff、別draft分離、Web Locks／storage取得失敗時の新URL 0件、一覧→再表示→編集→version競合を対象とする。クラウド手順書画面はタイトル・説明・手順本文の編集、追加・削除・並替え、画像再表示をローカル編集状態へ保持し、明示した一回のdraft PATCHへまとめる。保存中の入力変更は応答で上書きせず、保存結果不明時はclaim状態照会を先に行う。handoff metadataには本文・画像を保存せず、`updatedAt`を除くdraft fingerprintだけを保持する。完了通知はADR-0038に従って`completion-pending`の耐久保存後に原本を保持し、確定cloudRefだけを付与する。転送中の新しい編集と選択を残し、次handoffは同じmanualの期待版をtargetに指定する。metadata／IndexedDBの技術障害は再試行可能にし、新規manualを重複作成しない。主要画面の案内語は「手順書」「操作を記録」「この端末に保存」「ワークスペースに保存」「共有リンクを作成」「キャンセル」「黒塗り」とし、入力欄の値非保存と画像への映り込みを区別して表示する。対応する実ブラウザ証跡は`tests/cloud-manual-ui-browser.test.mjs`と`tests/onboarding-ui-browser.test.mjs`、extension契約証跡は`tests/extension-cloud-claim.test.mjs`に置く。owner限定stagingの実Chrome通し確認とAPI route接続は、統合後の環境証跡として別に判定する。
 
 ## セルフサーブbootstrap境界
 
@@ -64,7 +67,7 @@ FR-017およびProduct KPIのイベント名称、発行条件、payload、重�
 
 ## Chrome拡張responsive capture
 
-スクリーンショットは入力欄・canvas・iframe・shadow配下を既存maskで保護し、表示DOMの高信頼なメールアドレス・電話番号・郵便番号と意味ラベル付きの氏名・住所等だけをcapture直前の一時overlayで固定ダミー値へ置換する。open shadow rootの通常テキストも同じ候補境界で対象にし、closed shadow rootはhost全体maskで保護する。inline要素（空またはdisplay:contentsの可視inline要素を含む）で分割された表示上連続するtext nodeは同じrender boundary内に限り最大128 node・1024文字・256 text rangeの有限候補として連結する。block／br／非表示の境界は連結せず、CSSのwhite-spaceがnormal／nowrapでcollapseする空白・改行は照合用に1つの空白へ正規化して元のDOM offsetへRangeを戻す。pre-lineでは空白・タブをcollapseするが改行は保持し、pre／pre-wrapの改行は保持して連結しない。MutationObserverの一時候補も各text nodeのwhite-space規則を使って同じrender boundaryへ写像し、PIIの不確かな境界や継続が予算を超えた場合はfail closedにする。hidden nodeの本文は候補へ取り込まず、同じ表示位置に続く有限範囲の可視nodeがPIIの継続を示す場合だけfail closedにする。budget境界では次の可視nodeの`@`等の有限markerを併せて確認し、長い単一nodeの末尾からPIIが継続する場合も保存しない。PIIを含まないhidden/help/menu境界は内容を連結せず記録可能とする。単一text nodeの既存検出はこの連結予算とは別に維持する。候補overlayは1回につき64件まで、候補確認のcomposed-tree走査は4096 DOM nodeまでとし、65件目の候補または走査上限超過はfail closedにする。overlay件数と走査node数の予算を分離し、PII候補を含まない64件超の子nodeに対する無関係なclass変更は許容する。`aria-hidden`は視覚的な非表示を表さないため表示中の値を対象にし、同一テキスト範囲の電話番号・郵便番号候補は重ねて処理しない。paint後のcapture前とcapture後の両境界で初期shadow root snapshot、MutationObserver、候補再走査を維持し、初期snapshotにないroot、対象hostの除去、PII候補に関係する変更、同一mutation batchで追加・除去された可視text nodeのboundedなsplit PIIをrecord targetが空になった後もnode自身から確認し、祖先`opacity: 0`の値、overlayの不透明性・幾何・接続・document identityまたは候補集合の検証に失敗した画像は保存しない。legacy `clip`を含むCSS paintは不透明な矩形へ固定する。時計や無関係なclass変更は保護候補に関係しない限り許容する。元DOMを変更せず、OCR、画像内文字、複雑なレイアウト、cross-origin iframeは対象外であり、手動黒塗り確認を案内する。
+0.1.9以降の画像保護はADR-0040を正とする。撮影時の自動alias・自動mask・自動overlayは保証せず、取得画像を端末下書きへ保持する。入力値、Cookie、Authorization、DOM本文、対応表は操作event・操作文・handoff metadataへ保存しない。画面に表示された値が画像へ含まれる場合は、利用者が画像編集で置換または黒塗りを明示適用して確認した画像だけを出力・cloud保存する。OCR、画像内文字、cross-origin iframeは対象外で、手動編集による確認を案内する。旧自動overlay詳細は0.1.8以前の履歴（Superseded by ADR-0040）として保持する。
 
 
 
@@ -81,7 +84,7 @@ FR-007 / FR-008 / FR-010 / FR-011 / FR-016 / FR-022はADR-0031を正とする。
 - MVPでは`debugger` permissionを要求しない。
 - guest contentは認証前にD1/R2へ送らない。
 - clickのevent labelは固定semantic値へ正規化し、`aria-label`、関連label、placeholder、本文をevent／local draftへ保存しない。安全な短いcaptionを採用した拡張機能内eventだけ`labelSource: "caption"`を付加し、未指定値は後方互換のsemantic fallbackとして扱う。この補助fieldはguest capture APIへ送信しない。navigationはstorage二重障害時も同一session単位のfallbackから後続のevent／draftへ一度だけmergeする。
-- screenshot maskはopacity境界で入力欄のfocus、selection、IME入力を維持し、closed shadow／top-layer／mask中追加子孫の検証失敗時は画像を保存しない（`tests/extension-mask-browser.test.mjs`、`tests/extension-release-blockers.test.mjs`）。PII overlay境界は`tests/extension-pii-mask-browser.test.mjs`で、64件超のPII候補拒否、64件超のPII候補なしclass変更の許可、4096 node走査上限の成功／超過拒否、一時PII変更の拒否を実ブラウザで検証する。
+- 新規画像はrawのまま端末に保持し、手動確認前の出力・cloud claimを拒否する。`tests/extension-native-recording-browser.test.mjs`、`tests/extension-record-alias-state.test.mjs`、`tests/extension-semantic-context-browser.test.mjs`で自動置換の非実行、caption非収集、手動確認境界を検証する。旧自動overlay試験はADR-0040により廃止した。
 - scroll baselineは記録開始時に既存要素の位置をseedし、動的に追加された未知要素は初回位置を推測せずseedだけ行い、次の差分から方向を記録する。
 - 通常の`capture:event`送信中は離脱警告を出さず、送信失敗が判明して保存成功を確認できないeventとretain中の未保存batchだけをbeforeunload保護対象とする。再送成功まで失敗保護を保持し、送信世代を照合して遅着ACKによる新しいeventの消去を防ぐ。
  - 記録中のサイドパネルは現在の手順番号・操作内容・画像状態を表示し、新しい手順へ追従する。過去位置の閲覧中はスクロール位置を保持し、明示的な最新移動で追従を再開する。現在地表示は保存済み下書き一覧まで含むサイドパネル全体で固定し、終了時はeditorが下書き取得と初回renderを完了した`editor:ready`を確認できた場合だけサイドパネルを閉じる。結果不明・復元待ち・editorの下書き取得／render失敗・readyタイムアウトでは復旧案内を残す（DEC-086、`tests/extension-sidepanel-browser.test.mjs`）。
@@ -138,3 +141,30 @@ DEC-090の通常Web経路はhashlessページ表示や通常navigationを復帰�
 ### Issue #264 editor image workspace
 
 全手順を安定したarticleとして表示し、sticky目次の17番選択・scrollspy・入力保持を確認する。専用native dialogの文字・四角・丸・矢印・黒マスク、既存mask継承、取消・保存失敗・再open/reloadを合成fixtureで回帰し、画像差し替え成功時の対象dialogだけの破棄、別画像dialogの保持、bitmap identity不一致時の注釈・mask保存拒否、失敗時の旧内容保持と操作フォーカス復帰、local注釈をclaim assetへ焼き込んだ表示一致とraw注釈非送信を確認する。
+
+## 2026-10-01 画像中心編集の追跡
+
+- DEC-090の自動架空値表示はADR-0040により失効。現行はraw撮影と明示確認、caption保護、画像の理由付き状態、bounded予約、クリック矩形、選択手順中心の編集と取り消し、保存直前の画像pending gateを維持する。
+- 実装: apps/extension/capture/privacy.js、content/recorder.js、background/service-worker.js、editor/editor.js、apps/worker/src/cloud-manual-assets.ts
+- 検査: tests/extension-native-recording-browser.test.mjs、extension-caption-browser.test.mjs、extension-finish-recovery.test.mjs、extension-editor-browser.test.mjs、extension-cloud-claim.test.mjs、cloud-manual-uiux-browser.test.mjs
+- raw captureは同じ画像bytesを端末draftへ保持し、`manual_image_review`の明示確認まで`protected`としてOffice/cloudを拒否する。確認後の同一bytes出力と未確認拒否は、`extension-finish-recovery.test.mjs`、`extension-cloud-claim.test.mjs`、`extension-capture-completion-browser.test.mjs`で追跡する。
+- 実画面受入: docs/02-ux/manual-editor-review-rubric.md。各独立評価者80点以上と安全条件の両方が必要。未実行は合格扱いにしない
+
+## 統一編集器の継続保存・チーム書式（2026-10-01）
+
+承認済み統一編集器仕様の「保存前後の一貫性」「保存・認証の中断」「共有の正確さ」と、ユーザー指定のチームテーマ色・ロゴをADR-0038に具体化する。既存FR/ACの安全境界は緩和しない。
+
+| 受入対象 | 契約／実装 | 回帰テスト |
+|---|---|---|
+| クラウド保存後も同じローカル下書き・選択を保持 | ADR-0038、unified-editor-storage-api、cloud-claim.js | extension-retained-cloud-draft、extension-cloud-claim-runtime |
+| 再保存で重複manualを作らず版衝突では保持 | claim target、revision CAS、completed receipt | cloud-manual-cのrepeat local saves／failure rollback |
+| 認証済みterminal expiry後の再保存／共有と変更済み原本の保持 | status GETのD1 terminal CAS、bounded handoff.expired、draft gate | cloud-manual-cのexpired create/update race・権限取消、extension-retained-cloud-draftのidentity negative、onboarding-recovery-actionsのsave/share/変更/reload |
+| 編集画像の失敗で旧画像を失わない | immutable edit asset予約、条件付きR2、PATCH CAS | cloud-manual-cのedited image upload／tampering／concurrency |
+| 保存済み画像A→B→undo Aの再保存 | migration 0007 first_attached_at、same-manual provenance | cloud-manual-cのsaved edited image・rollback・古い未添付／tenant／manual／role negative |
+| チーム書式の権限・tenant境界と共有版固定 | branding versions、private logos、published snapshot | cloud-manual-c branding、share-link-backend published branding、manual-raster |
+
+ブラウザーの視覚・操作確認、remote migration適用、公開配備は上表のローカル単体テストと別に検証する。
+
+| ローカル固有の色・ロゴを保存・共有・印刷へ維持 | claim branding snapshot、safe logo chunk、source_claim_id、draft CAS | cloud-manual-c manual branding、onboarding-recovery-actions rasterized branding、share-link-backend local manual branding |
+
+2026-10-01追補: 記録単位の表示値alias旧契約は[ADR-0039](../03-architecture/adrs/ADR-0039-recording-value-aliases.md)と[API契約](../05-api/recording-value-alias-contract.md)へ履歴として残す。0.1.9以降の正本は[ADR-0040](../03-architecture/adrs/ADR-0040-explicit-image-privacy-and-local-office-export.md)と[端末Office出力契約](../05-api/manual-local-office-export-api.md)とし、撮影時の無加工画像保持、入力値非収集、利用者明示の置換・手動mask、認証・workspace claim後の端末Office生成を追跡する。Node lifecycleとnative two-document/export fixturesを必須回帰とする。黒塗り画像の注釈再露出を防ぐため、annotation-redaction-exportのraw payload検査とnative cloud mask pixel検査を実施する。PDFはFR-014の既存output gate、公開OFF、共有cloud認証を維持する。
