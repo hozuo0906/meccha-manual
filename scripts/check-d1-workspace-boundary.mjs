@@ -5,7 +5,8 @@ import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-rep
 
 const baseMigration = await readFile(new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url), "utf8");
 const personalMigration = await readFile(new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url), "utf8");
-const migration = `${baseMigration}\n${personalMigration}`;
+const ownerTransferMigration = await readFile(new URL("../migrations/0009_d1_owner_transfer.sql", import.meta.url), "utf8");
+const migration = `${baseMigration}\n${personalMigration}\n${ownerTransferMigration}`;
 const repositorySource = await readFile(new URL("../apps/worker/src/infra/d1/workspace-repository.ts", import.meta.url), "utf8");
 const now = "2026-09-05T00:00:00.000Z";
 
@@ -57,7 +58,16 @@ const methodContracts = [
   ["getOrCreatePersonalWorkspace", "getPersonalWorkspace", [["workspace_kind, created_by"], ["w.workspace_kind = 'personal'", "w.created_by = ?3", "w.status = 'active'"], ["w.id = ?3", "m.application_id = ?2", "m.role = 'owner'", "m.status = 'active'"]]],
   ["getPersonalWorkspace", "findPersonalWorkspace", [["w.created_by = ?1", "w.workspace_kind = 'personal'", "w.status = 'active'", "i.status = 'active'", "m.application_id = ?1", "m.role = 'owner'", "m.status = 'active'", "LIMIT 1"]]],
   ["issueJoinCode", "consumeJoinCode", [["application_id = ?1 AND status = 'active'"], ["i.application_id = ?5 AND i.status = 'active'"], ["issuer_application_id = ?2 AND digest = ?5"]]],
-  ["consumeJoinCode", "updateMember", [["c.digest = ?3", "admin_member.workspace_id = ?5"], ["w.status = 'active'", "c.consumption_nonce = ?6"], ["workspace_id = ?3", "c.consumption_nonce = ?7"]]],
+  ["consumeJoinCode", "transferOwnership", [["c.digest = ?3", "admin_member.workspace_id = ?5"], ["w.status = 'active'", "c.consumption_nonce = ?6"], ["workspace_id = ?3", "c.consumption_nonce = ?7"]]],
+  ["transferOwnership", "updateMember", [
+    ["actor.application_id = ?1 AND actor.workspace_id = ?2", "actor.role = 'owner' AND actor.status = 'active'", "actor_identity.status = 'active' AND w.status = 'active'", "target.workspace_id = actor.workspace_id AND target.application_id = ?3"],
+    ["actor.workspace_id = ?2 AND actor.application_id = ?1", "actor.role = 'owner' AND actor.status = 'active' AND i.status = 'active'", "w.workspace_kind = 'standard'", "target.application_id = ?3 AND target.application_id <> ?1", "target.status = 'active' AND ti.status = 'active'"],
+    ["workspace_id = ?2 AND application_id = ?3", "actor_application_id = ?1", "target_application_id = ?3 AND created_at = ?4"],
+    ["workspace_id = ?2 AND application_id = ?1", "p.workspace_id = ?2 AND p.actor_application_id = ?1", "p.target_application_id = ?3 AND p.created_at = ?4", "target.role = 'owner' AND target.status = 'active' AND i.status = 'active'"],
+    ["'member.updated'", "changes() = 1"],
+    ["workspace_id = ?2 AND actor_application_id = ?1 AND target_application_id = ?3 AND created_at = ?4"],
+    ["CASE WHEN changes() = 1 THEN 1 ELSE json('owner transfer conflict') END AS direct_changes"]
+  ]],
   ["updateMember", null, [["target.workspace_id = ?4 AND target.application_id = ?5", "target_identity.status = 'active'", "actor_member.workspace_id = ?4", "actor_member.application_id = ?6", "actor_member.role IN ('owner', 'admin')", "w.status = 'active'"], ["changes() = 1"], ["target.workspace_id = ?1", "target_identity.status = 'active'", "actor_member.workspace_id = ?1", "actor_member.application_id = ?3", "actor_member.role IN ('owner', 'admin')", "w.status = 'active'"]]]
 ];
 
@@ -90,6 +100,13 @@ const updateMethodStart = repositorySource.indexOf("async updateMember");
 const updateMethodEnd = repositorySource.lastIndexOf("\n}");
 const withoutWorkspacePredicate = `${repositorySource.slice(0, updateMethodStart)}${repositorySource.slice(updateMethodStart, updateMethodEnd).replace("target.workspace_id = ?4 AND target.application_id = ?5", "/* target.workspace_id = ?4 */ target.application_id = ?5")}${repositorySource.slice(updateMethodEnd)}`;
 assert.throws(() => verifySourceContracts(withoutWorkspacePredicate), /target\.workspace_id/);
+
+const transferMethodStart = repositorySource.indexOf("async transferOwnership");
+const transferMethodEnd = repositorySource.indexOf("async updateMember", transferMethodStart);
+const withoutTransferWorkspace = repositorySource.slice(0, transferMethodStart)
+  + repositorySource.slice(transferMethodStart, transferMethodEnd).replace("actor.workspace_id = ?2 AND actor.application_id = ?1", "actor.application_id = ?1")
+  + repositorySource.slice(transferMethodEnd);
+assert.throws(() => verifySourceContracts(withoutTransferWorkspace), /actor\.workspace_id/);
 
 class LocalStatement {
   constructor(database, sql, values = []) {
@@ -161,7 +178,7 @@ function ownerTransferIsRejected(sql) {
   }
 }
 
-const ownerTriggerStart = migration.indexOf("CREATE TRIGGER workspace_member_owner_transfer");
+const ownerTriggerStart = migration.lastIndexOf("CREATE TRIGGER workspace_member_owner_transfer");
 const ownerTriggerEnd = migration.indexOf("END;", ownerTriggerStart) + "END;".length;
 assert.ok(ownerTriggerStart >= 0 && ownerTriggerEnd > ownerTriggerStart, "owner trigger mutation target missing");
 const withoutOwnerTrigger = `${migration.slice(0, ownerTriggerStart)}${migration.slice(ownerTriggerEnd)}`;

@@ -8,7 +8,8 @@ import { D1WorkspaceRepository } from "../apps/worker/src/infra/d1/workspace-rep
 
 const migrationPaths = [
   new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
-  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
+  new URL("../migrations/0009_d1_owner_transfer.sql", import.meta.url)
 ];
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
@@ -25,6 +26,7 @@ class LocalStatement {
   }
 
   async run() {
+    if (/^\s*SELECT\b/iu.test(this.sql)) return { success: true, meta: { changes: 0 }, results: this.database.prepare(this.sql).all(...this.values) };
     const result = this.database.prepare(this.sql).run(...this.values);
     return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
   }
@@ -462,4 +464,142 @@ test("database status constraints reject malformed identity and membership rows"
   assert.throws(() => database.prepare(
     "UPDATE workspace_members SET role = 'unknown' WHERE workspace_id = ? AND application_id = 'alice'"
   ).run(workspace.id));
+});
+
+async function transferFixture(role = "editor") {
+  const workspace = await createOwnedWorkspace();
+  await workspaces.consumeJoinCode("alice", workspace.id, (await codeFor("bob")).code, role, NOW);
+  return workspace;
+}
+
+function transferSnapshot(workspaceId) {
+  return {
+    members: database.prepare("SELECT application_id, role, status, updated_at FROM workspace_members WHERE workspace_id = ? ORDER BY application_id").all(workspaceId),
+    audits: database.prepare("SELECT * FROM audit_logs WHERE workspace_id = ? ORDER BY id").all(workspaceId),
+    permits: database.prepare("SELECT * FROM workspace_owner_transfer_permits").all()
+  };
+}
+
+for (const role of ["admin", "editor", "viewer"]) {
+  test(`owner transfer promotes active ${role}, demotes actor and records one audit`, async () => {
+    const workspace = await transferFixture(role);
+    const before = transferSnapshot(workspace.id);
+    await workspaces.transferOwnership("alice", workspace.id, "bob", LATER);
+    assert.equal(await workspaces.getMemberRole("alice", workspace.id), "admin");
+    assert.equal(await workspaces.getMemberRole("bob", workspace.id), "owner");
+    assert.equal(database.prepare(`SELECT count(*) AS n FROM workspace_members AS m JOIN identities AS i ON i.application_id = m.application_id
+      WHERE m.workspace_id = ? AND m.role = 'owner' AND m.status = 'active' AND i.status = 'active'`).get(workspace.id).n, 1);
+    const snapshot = transferSnapshot(workspace.id);
+    assert.equal(snapshot.permits.length, 0);
+    assert.equal(snapshot.audits.length, before.audits.length + 1);
+    const audit = snapshot.audits.find((row) => !before.audits.some((old) => row.id === old.id));
+    assert.equal(audit.action, "member.updated");
+    assert.equal(audit.actor_application_id, "alice");
+    assert.equal(audit.target_application_id, "bob");
+    assert.equal(audit.created_at, LATER);
+    assert.deepEqual(JSON.parse(audit.metadata_json), { source: "worker", version: 1 });
+    await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "forbidden" });
+    assert.deepEqual(transferSnapshot(workspace.id), snapshot);
+  });
+  test(`${role} cannot transfer ownership`, async () => {
+    const workspace = await transferFixture(role);
+    const snapshot = transferSnapshot(workspace.id);
+    await assert.rejects(() => workspaces.transferOwnership("bob", workspace.id, "carol", LATER), { code: "forbidden" });
+    assert.deepEqual(transferSnapshot(workspace.id), snapshot);
+  });
+}
+
+test("owner transfer rejects self, existing owner, nonmember, removed, invited, disabled and cross-workspace targets", async () => {
+  const workspace = await transferFixture();
+  const other = await createOwnedWorkspace("carol", "other");
+  for (const [id, code] of [["alice", "owner_transfer_self"], ["carol", "owner_transfer_target_invalid"], ["missing", "owner_transfer_target_invalid"]]) {
+    await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, id, LATER), { code });
+  }
+  for (const status of ["removed", "invited"]) {
+    database.prepare("UPDATE workspace_members SET status = ? WHERE workspace_id = ? AND application_id = 'bob'").run(status, workspace.id);
+    await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "owner_transfer_target_invalid" });
+  }
+  database.prepare("UPDATE workspace_members SET status = 'active' WHERE workspace_id = ? AND application_id = 'bob'").run(workspace.id);
+  database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = 'bob'").run();
+  await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "owner_transfer_target_invalid" });
+  database.prepare("INSERT INTO workspace_members VALUES (?, 'carol', 'owner', 'active', ?, ?)").run(workspace.id, NOW, NOW);
+  await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "carol", LATER), { code: "owner_transfer_target_invalid" });
+  database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = 'alice'").run();
+  await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "carol", LATER), { code: "forbidden" });
+  assert.equal(await workspaces.getMemberRole("carol", other.id), "owner");
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workspace_owner_transfer_permits").get().n, 0);
+});
+
+test("Personal Workspace rejects transfer in repository and promotion trigger", async () => {
+  const workspace = await workspaces.getOrCreatePersonalWorkspace("alice", "personal-transfer", NOW);
+  database.prepare("INSERT INTO workspace_members VALUES (?, 'bob', 'editor', 'active', ?, ?)").run(workspace.id, NOW, NOW);
+  const snapshot = transferSnapshot(workspace.id);
+  await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "owner_transfer_personal" });
+  assert.deepEqual(transferSnapshot(workspace.id), snapshot);
+  database.prepare("INSERT INTO workspace_owner_transfer_permits VALUES (?, 'alice', 'bob', ?)").run(workspace.id, LATER);
+  assert.throws(() => database.prepare("UPDATE workspace_members SET role = 'owner' WHERE workspace_id = ? AND application_id = 'bob'").run(workspace.id), /valid permit/);
+});
+
+test("promotion trigger rejects absent or mismatched permit and inactive actors/targets", async () => {
+  const workspace = await transferFixture();
+  await workspaces.consumeJoinCode("alice", workspace.id, (await codeFor("carol")).code, "admin", NOW);
+  const promote = () => database.prepare("UPDATE workspace_members SET role = 'owner' WHERE workspace_id = ? AND application_id = 'bob'").run(workspace.id);
+  assert.throws(promote, /valid permit/);
+  for (const [actor, target] of [["carol", "bob"], ["alice", "carol"], ["disabled", "bob"]]) {
+    database.prepare("INSERT INTO workspace_owner_transfer_permits VALUES (?, ?, ?, ?)").run(workspace.id, actor, target, LATER);
+    assert.throws(promote, /valid permit/);
+    database.prepare("DELETE FROM workspace_owner_transfer_permits WHERE workspace_id = ?").run(workspace.id);
+  }
+  database.prepare("INSERT INTO workspace_owner_transfer_permits VALUES (?, 'alice', 'bob', ?)").run(workspace.id, LATER);
+  database.prepare("UPDATE identities SET status = 'disabled' WHERE application_id = 'bob'").run();
+  assert.throws(promote, /valid permit/);
+});
+
+for (const failAt of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+  test(`owner transfer rolls back every earlier statement when batch fails at ${failAt}`, async () => {
+    const workspace = await transferFixture();
+    const snapshot = transferSnapshot(workspace.id);
+    d1.failAt = failAt;
+    await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "unavailable" });
+    assert.deepEqual(transferSnapshot(workspace.id), snapshot);
+  });
+}
+
+for (const stage of ["permit", "promotion", "demotion", "audit", "cleanup"]) {
+  test(`zero-change ${stage} aborts the batch rather than leaving a partial transfer`, async () => {
+    const workspace = await transferFixture();
+    const snapshot = transferSnapshot(workspace.id);
+    const sql = {
+      permit: "BEFORE INSERT ON workspace_owner_transfer_permits",
+      promotion: "BEFORE UPDATE OF role ON workspace_members WHEN NEW.role = 'owner'",
+      demotion: "BEFORE UPDATE OF role ON workspace_members WHEN NEW.role = 'admin'",
+      audit: "BEFORE INSERT ON audit_logs WHEN NEW.action = 'member.updated'",
+      cleanup: "BEFORE DELETE ON workspace_owner_transfer_permits"
+    }[stage];
+    database.exec(`CREATE TRIGGER ignore_transfer_stage ${sql} BEGIN SELECT RAISE(IGNORE); END`);
+    await assert.rejects(() => workspaces.transferOwnership("alice", workspace.id, "bob", LATER), { code: "conflict" });
+    assert.deepEqual(transferSnapshot(workspace.id), snapshot);
+  });
+}
+
+test("concurrent transfers have one winner and no leftover permits", async () => {
+  const workspace = await transferFixture();
+  await workspaces.consumeJoinCode("alice", workspace.id, (await codeFor("carol")).code, "viewer", NOW);
+  // Serialize writers as D1 does, while allowing both preflight reads to see the old owner.
+  const batch = d1.batch.bind(d1);
+  let tail = Promise.resolve();
+  d1.batch = (statements) => {
+    const operation = tail.then(() => batch(statements));
+    tail = operation.catch(() => undefined);
+    return operation;
+  };
+  const outcomes = await Promise.allSettled([
+    workspaces.transferOwnership("alice", workspace.id, "bob", LATER),
+    workspaces.transferOwnership("alice", workspace.id, "carol", LATER)
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((item) => item.status === "rejected").length, 1);
+  assert.equal(outcomes.find((item) => item.status === "rejected").reason.code, "conflict");
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workspace_members WHERE workspace_id = ? AND role = 'owner'").get(workspace.id).n, 1);
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workspace_owner_transfer_permits").get().n, 0);
 });

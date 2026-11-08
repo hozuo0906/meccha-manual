@@ -1,0 +1,32 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-cloud-editor-mock-API",
+  "viewport": {
+    "width": 1366,
+    "height": 900
+  },
+  "reflow": null,
+  "operations": [
+    "ArrowUp-to-step16",
+    "ArrowDown-to-step17",
+    "edit-step17",
+    "move-up",
+    "delete",
+    "undo",
+    "save",
+    "Enter-opens-share",
+    "Tab-enters-share-form",
+    "Escape-closes-share"
+  ],
+  "selectedStep": "step-17",
+  "stepCount": 20,
+  "saveState": "クラウドに保存済み",
+  "focusReturnedToShare": true,
+  "horizontalOverflow": false,
+  "reducedMotion": true,
+  "screenshots": [
+    "cloud-1366-step17.png",
+    "cloud-1366-share.png",
+    "cloud-1366-keyboard-focus-restored.png"
+  ]
+}

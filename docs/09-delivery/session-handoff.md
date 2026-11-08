@@ -1,3 +1,48 @@
+## 2026-11-08 Teamの管理責任者移管（DEC-114）
+
+Status: Accepted
+
+確認日時: 2026-11-08T20:47:29+09:00（Asia/Tokyo）。対象FR-003、branch `codex/owner-transfer-20261108`、base main／origin/main `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。開始時clean・base一致を確認し、既存の指定branchを使用した。対象専用Issue／PRは今回作成しない。Issue #70はread-onlyで実取得し、ユーザー指定の「作業ツリーとcommitまで」に従い書込み・push・mergeを行わない。
+
+- active owner本人から同じstandard workspaceのactive非ownerへの移管を実装。対象をowner、元ownerをadminにする。Personal・自己・既存owner・removed/invited・disabled・越境・旧owner再移管を拒否する。メール送信なし。
+- migration 0009のpermit発行→昇格→降格→既存`member.updated`監査→permit削除を1回のD1 batchにまとめ、5段階すべての直接変更件数1件をSQL内assertionで検査する。0件・途中失敗は全体rollback。有効permitなしraw UPDATE昇格と既存last-owner保護を維持する。DEC-114（DEC-112はPR #293、DEC-113はPR #294で使用済み）、D1/API・AC・FR-003・品質台帳を同期した。
+- UIは対象と自身admin降格のconfirm、取消、保存中排他、成功／競合／結果不明時の一覧照合を既存の認証世代管理へ接続した。asset hashは`sha256-0b329807fecbc143`。
+- 全体`npm run check`実行69446はexit 0、56段階を最終secret／encodingまで完走。repository 48/48、HTTP 19/19、UI unit 130/130、実Miniflare D1 binding 3/3（90232）、合成product認証browser 10/10（16144）、いずれもfail 0／skip 0。資産hash契約を含むWorker runtimeとtypecheck、D1境界checker、diff確認も成功。先行sandbox失敗、checkerの旧前提、browser fixture修正は[実施報告書](owner-transfer-2026-11-08.md)へ分けて記録した。
+- API・D1・契約commitは`ecfe6f6bd10fc31aa356d73e187cc62d2206e8a8`、UI／回帰／本checkpointは後続の同一commitに保存する。最終SHA・cleanはcommit後に取得して完了報告へ添える。local保存のみで、remote SHA一致・GitHub CI・正式Codex Reviewは未確認。remote D1の0009適用、実SSO、staging／production反映、商用release受入は未実施。
+- 次の1マイルストーンはMuseによる最終local SHAの検品と、別途指示によるGitHub保存・最新SHAのCI／正式Review／thread照合、remote migrationの受入。実装担当は検証・commit後に終了し、自律監視・終了後の継続実行は登録しない。
+
+---
+## 2026-11-08 拡張なしの受入用サンプル（段階B）
+
+Status: Accepted
+
+確認日時: 2026-11-08T19:28:57+09:00（Asia/Tokyo）。監督Claudeの指示、branch `codex/sample-mode-stage-b-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`（段階A PR #291マージ済みをlocal gitで照合）。今回は実装・検証・文書同期・ローカルcommitまで。push／PR作成／mergeは監督側。Issue #70はread-only取得し、段階A／Bの未同期を確認した。外部書込みは行わない。
+
+- sampleのcanEditだけをtrueへ変更し、文章編集・手順追加（上限200件）／削除／ボタン・Alt矢印の並べ替え・undo／redoをタブ内メモリで許可する。読み直しは変更破棄確認後にfixture・履歴を初期化する。保存は登録案内、共有・PDF／Office・画像編集全般・brandingは遮断を維持する。共通API gateと個別入口を併用し、偽workspace／guest永続化・D1/R2なし、初期・編集後の保存不可と離脱時消失を明示した。DEC-113、UX・API・traceability・品質台帳を同期、ADR-0032本文・拡張製品コード・LP・API／migration／依存／環境変数は無変更。
+- 全体`npm run check`は実行`68196`、exit 0、Node summary 24組の集計780/780・fail 0／skip 0／cancelled 0。sample単体4件とmutation 3件、内容hash回帰を含み、asset hashは`sha256-0c09a389feb49956`。sample最終browser `47522`は2/2・fail 0／skip 0／exit 0で、1366/1024/390pxの画面・内部状態・keyboard・200件上限・fixture復元とAPI read／write／storage呼出し0を確認。
+- 通常モード等の7ファイル直列回帰`16037`は37/38・fail 0／cancelled 1／skip 0／exit 1。cloud保存・画像編集・branding・PDF・共有・Office側の9件は成功。既存拡張editorの認証引き継ぎ1件が25秒timeoutで、同じ元テストの単独実行`59165`もcancelled 1。拡張製品コード・該当テスト・launcherはbaseと差分0。/tmpコピーの総時間上限だけを60秒にした診断`32942`は1/1・exit 0、本体49.9秒で元assertionが成功したが、元の25秒gateや全体回帰の成功へ読み替えない。sandbox起動制約と詳細は[段階B実施報告書](sample-mode-stage-b-2026-11-08.md)を正とする。
+- 成果物状態はローカル修正済み・未push（本記録と同時にcommit保存する）。次の1マイルストーンは監督側でローカルcommitを確認してpush／PRを行い、最新SHAのCI・正式Codex Review・thread、既存25秒timeoutのtriageと編集受入を照合すること。npm ci、正式Review、実SSO／remote D1/R2／Access policy、実Office描画、人のscreen reader、deployは未実施。既存`.artifacts/`を保持してcommit対象外とし、保存・報告後は終了する。自律監視・終了後の継続実行は登録しない。ローカル画像編集は追加1〜2日規模の別段、形態Dは契約決定後の別見積もり。以下は過去checkpointとして保持する。
+## 2026-11-08 受入次弾: 保存先名・状態表示の統一
+
+Status: Accepted
+
+全体回帰確認日時: 2026-11-08T19:29:40+09:00（Asia/Tokyo）。branch `codex/acceptance-display-fixes-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。今回の範囲は指定2件の実装・検証・文書同期・自己レビュー・commit／同名branchへのpushまで。PR作成・Issue #70更新・mergeはユーザー指定により監督側担当とする。Issue #70はread-onlyで確認済み。
+
+- bootstrapへ`workspaceName`を追加し、operationのworkspaceと既存authorized述語が固定する本人のactive Personal Workspaceからだけ現在名を取得する。改名・冪等再送、A/B分離、改竄operationの最終SELECT拒否とその認可削除mutationを検証した。HTTPの既存503／D1_UNAVAILABLEを維持し、他actorの名前を返さない。
+- 保存・共有・Officeの確認サマリーへ保存先をtextContentで表示する。空・欠落・別workspace更新では隠し、結果回収にbootstrapを追加しない。manualの一覧／基本情報は「状態不明」、手順カード／プレビューは「種類不明」へ統一する。5状態・4種別の既存日本語は維持し、固定action optionと検証済みworkspace権限は変更しない。内容hashは`sha256-ba29245963f4bb59`。API・UX・DEC-112を同期し、response shape記載のないtraceabilityは指示どおり変更しない。
+- 全体`npm run check`（99956）はexit 0、55個のchain script完走、Node test summary 783/783・fail 0／skip 0。対象5ファイル66/66（64725）、追加後mutation2/2（13800）、onboarding／share browser16/16（41998）、既存Phase 2 E2E28/28（32979）は成功。check外MV3 runtime（74860）は6/7・exit 1で、初回Accessの合成HTTPS遷移だけproxy tunnel接続失敗。テスト専用のproxy無効起動による同一testの再実行（19900）は1/1成功。別実行を単一の7/7成功に合算しない。実MV3 Office／製品認証Office3/3（86133）もexit 0。修正commit `7a7fa8acbeb517b1cb4fd6f67970a1934e6b21f1`を2026-11-08T19:31:56+09:00に同名originへpushし、local／remote SHA一致を取得確認した。保存確認の追記だけを後続の文書commitへ含める。追跡済み未commit差分0を確認し、合成browserの未追跡artifactは保存対象外で保持する。先行失敗の詳細は[報告書](acceptance-display-fixes-2026-11-08.md)を正とする。
+- `npm ci`は監督側の実施済み依存を使うため再実行せず、PRのnpm ciチェックは未チェックのままとする。実SSO／remote D1/R2／実Office描画／人のscreen reader・利用者受入、GitHub CI・正式Codex Reviewは未実施。次の1マイルストーンは監督Museによるpush済みSHAのPR・CI・正式Review・thread／SHA照合と利用者受入。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+## 2026-11-08 Issue #248: 横スクロール記録の実MV3回帰
+
+Status: Accepted
+
+対象branch `codex/horizontal-scroll-248-20261108`、base `main` / `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。ユーザー指定範囲は実MV3回帰・CI接続・報告書・commit／push・base mainのDraft PR・full head SHAを明記した`@codex review`依頼まで。mergeしない。
+
+- 現行recorderはdeltaX／deltaYから80px閾値とdominant axisで4方向を決定し、下流の正規化・日本語操作文・local draftも左右対応済み。製品コード・挙動は変更せず、未整備だった横方向の実MV3 browser testを追加した。動的要素の初回はADR-0031／DEC-071のbaseline-only契約を維持し、既存table／panelの初回記録と別々に実測した。
+- 新規試験は要素／ページの左右・上下、79px非記録／80px記録、斜め移動、動的要素、event／stepの許可形状と合成URL／入力値／本文の非混入、13手順のIndexedDB保存を検査。単独`22481`は1/1、CI相当headed Chrome／Xvfb直列`6833`は既存sidepanel含め4/4、双方fail 0／skip 0／exit 0。隔離コピーをdeltaY限定へ戻した`79209`は最初の横移動で期待どおり失敗した。
+- 2026-11-08T19:28:15+09:00（Asia/Tokyo）確認: 全体`npm run check`は実行`43559`、exit 0、56段階とNode test summary集計779/779、fail 0／skip 0、最終secret／encodingまで成功。CIは既存`extension-privacy` jobの`sidepanel` stepへ接続し、3分timeout・必須outcome・Latest Review Gateを維持する。先行環境失敗の詳細は[実施報告書](horizontal-scroll-capture-2026-11-08.md)を正とする。npm ciは未実行、レビュー依存項目は未チェックを維持する。生成した合成artifactはcommit対象外。
+- 次の1マイルストーンはMuseによる保存済み最新headのCI／npm ci／正式Codex Review／threadと対象SHA照合。#248の実装判断に未決事項はない。production／外部設定／自動mask・置換は変更しない。push後にlocal／origin／PR head一致とDraftを実取得し、Issue #70へ保存結果を同期する。担当は保存・報告後に終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 拡張なしの受入用サンプル（段階A）
 
 Status: Accepted
@@ -810,7 +855,7 @@ ChatGPTでは、Standalone scheduled taskと、既存チャットへ戻るschedu
 - 検証済み: `tests/app-auth.test.mjs` 118/118、`tests/product-auth.test.mjs` 33/33、`tests/worker-runtime.test.mjs` 71/71、`tests/product-auth-browser.test.mjs` 9/9、すべてskip 0・exit 0。`docs:check` 143 files、`encoding:check` 377 files、`git diff --check`、Worker harness／typecheckを直接Nodeで実行してexit 0を確認した。初回provider失敗→再試行成功、legacy cookie付きAccess logout成功、invalid Access assertionのcookie保持を実Worker相当／CFT browser回帰で確認した。実provider SSO、remote変更、staging／production反映、CI／正式Reviewは未確認。
 - `npm ci`はWindowsの既知`node_modules/.package-lock.json` unlink `EPERM`のため再試行せず、`npm run check`の全成功とは扱わない。今回の差分をcommit／push後、local／origin／PR head SHA、同SHAのCI／Codex Review／review threadを親PMが再取得する。deploy／mergeは行わない。
 
-## 手順書のアーカイブからの復元（ADR-0042／DEC-112、2026-11-08）
+## 手順書のアーカイブからの復元（ADR-0042／DEC-116、2026-11-08）
 
 - 対象は文書棚卸しA-9（OQ-028の復元部分）。branch `codex/manual-restore-20261108`、baseはmain `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`。ADR-0042をAcceptedとし、status=archivedかつarchived_atありの手順書をowner／admin／editorがCAS付きRPC `restore_manual` で復元する。復元先は最新 `manual.archived` 監査の `metadata.previousStatus`（draft／reviewing／published／stale）へ正確に戻し、監査なし・不正値・同時刻の矛盾は推測せず拒否する。物理削除・自動削除は今回も有効化せず、猶予期間・参照削除順序・監査保持は別ADRとOQ-028へ残した。
 - 実装はSupabase migration `202608180003_phase2_manual_restore.sql`（SECURITY DEFINER、FOR UPDATE、role確認、CAS、`manual.restored` 監査）、Worker `POST /api/workspaces/{workspaceId}/manuals/{manualId}/restore`、archived詳細の復元UI（確認ダイアログで共有リンク再有効化を明示）、Manual Edit API workflowへのSQL回帰登録commit（workflowファイルのpushはOAuthのworkflowスコープ不足で保留し、branch `codex/manual-restore-ci-20261108` に用意）。revision・手順・asset・共有リンク自体は変更せず、失効済みリンクは失効のまま、未失効・期限内リンクはarchived_at解消で再び有効になる。

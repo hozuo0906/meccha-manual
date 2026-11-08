@@ -17,7 +17,7 @@ const CHATGPT_AUTH_ORIGIN = "https://auth.openai.com";
 const extensionRoot = resolve(fileURLToPath(new URL("../apps/extension/", import.meta.url)));
 const migrations = [
   "0001_d1_identity_workspace.sql", "0002_d1_personal_workspace.sql", "0003_d1_onboarding_bootstrap.sql",
-  "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
+  "0004_d1_cloud_manual_claim.sql", "0005_d1_share_links.sql", "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql", "0009_d1_owner_transfer.sql"
 ];
 
 class LocalStatement {

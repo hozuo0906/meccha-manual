@@ -1,0 +1,16 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-cloud-sharing-mock-API",
+  "screenshot": "share-revoke-retry-completed.png",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "status": "共有リンクを停止しました。必要なら新しいリンクを作成してください。",
+  "observations": {
+    "operation": "retry-revoke-same-link",
+    "retryTargetsSameLink": true,
+    "exposedLinkCount": 0,
+    "serverSharePresent": false
+  }
+}

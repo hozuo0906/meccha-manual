@@ -32,7 +32,7 @@ test("sample page, assets and all fixture images are public static resources wit
   assert.equal(page.headers.get("cache-control"), "no-store");
   assert.match(page.headers.get("content-security-policy"), /script-src 'self'/);
   const html = await page.text();
-  assert.match(html, /サンプルの手順書（閲覧のみ）/);
+  assert.match(html, /サンプルの手順書（保存されません）/);
   assert.match(html, /data-workspace-id="" data-editor-mode="sample"/);
   assert.doesNotMatch(html, /editor-tools\.js/);
   for (const name of ["js", "css"]) {
@@ -98,4 +98,26 @@ test("business request boundary rejects every method before fetch even when call
   assert.equal(cloud.workspacePath(), "/api/workspaces/synthetic-workspace");
   await cloud.json(cloud.workspacePath());
   assert.equal(requests, 1);
+});
+
+
+test("sample enables only in-memory editing and retains entry gates beyond disabled controls", async () => {
+  const declaration = CLOUD_MANUAL_JS.slice(CLOUD_MANUAL_JS.indexOf("const mode ="), CLOUD_MANUAL_JS.indexOf("const sampleDetail ="));
+  const mode = runInNewContext(declaration + "; mode", { editorMode: "sample" });
+  assert.deepEqual(JSON.parse(JSON.stringify(mode)), { canEdit: true, canWrite: false, canOutput: false });
+  assert.equal(Object.isFrozen(mode), true);
+  // Execute each real entry with only mode available: any work after its guard fails.
+  for (const name of ["openCloudImageEditor", "openBrandingSettings", "openPrintPreview", "exportOffice", "saveManual", "issueShare", "revokeShare"]) {
+    const start = CLOUD_MANUAL_JS.indexOf("async function " + name + "(");
+    assert.ok(start > 0, name);
+    const definition = CLOUD_MANUAL_JS.slice(start, CLOUD_MANUAL_JS.indexOf("\n  }", start) + 4);
+    // Single-line share functions end before the next function declaration.
+    const source = name === "issueShare" || name === "revokeShare" ? CLOUD_MANUAL_JS.slice(start).split("\n")[0] : definition;
+    const call = runInNewContext(source + "; " + name, { mode });
+    await call();
+  }
+  const upload = CLOUD_MANUAL_JS.slice(CLOUD_MANUAL_JS.indexOf("async function uploadEditedBase("), CLOUD_MANUAL_JS.indexOf("async function openCloudImageEditor("));
+  const guard = CLOUD_MANUAL_JS.split("\n").find(line => line.trimStart().startsWith("function requireCloudWrite"));
+  const call = runInNewContext(guard + upload + "; uploadEditedBase", { mode });
+  await assert.rejects(call(), /サンプル/);
 });

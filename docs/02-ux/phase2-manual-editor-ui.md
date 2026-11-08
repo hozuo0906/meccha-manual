@@ -76,6 +76,9 @@ Status: Accepted
 
 ## 上限と状態
 
+- manual状態は`draft`＝下書き、`reviewing`＝確認中、`published`＝公開済み、`stale`＝要更新、`archived`＝アーカイブとし、一覧badgeと基本情報は同じ解決関数を使う。辞書外・空・欠落値は「状態不明」とし、生の内部値を表示しない。
+- 手順種別は`action`＝操作、`note`＝補足、`decision`＝判断、`warning`＝注意とし、カードと読み取りプレビューは同じ解決関数を使う。辞書外・空・欠落値は「種類不明」とする。操作種別の選択肢は既存の固定辞書だけから生成する。
+
 - title 64、description 10,000、step title 128、instruction 4,000、targetText 256、URL 2,048文字をUIとAPI/DBで一致させる。
 - 手順書入力の文字数上限は、UTF-16 code unit基準のnative `maxlength`に依存せず、Unicode code point単位のJavaScript入力制御とsubmit/API/DB検証で強制する。
 - 上限到達後に途中へ文字を入力またはIME確定しても、末尾の既存文字を切り捨てず、入力直前の受理済み値と選択位置へ戻す。

@@ -29,7 +29,7 @@ branch: `codex/manual-restore-20261108`。base／着手HEAD: `ec6b8db1b8d66e6df0
 | `docs/05-api/phase2-manual-edit-api.md` | restore endpoint・入力・応答・拒否・結果不明と取得経路の制約 |
 | `docs/02-ux/phase2-manual-editor-ui.md` | archived表示・確認文・成功／結果不明と専用入口の制約 |
 | `docs/09-delivery/open-questions.md` | OQ-028の復元を解決し、削除と専用取得入口を未解決として保持 |
-| `docs/09-delivery/decision-log.md` | 既存最大DEC-111の次のDEC-112で受入を記録 |
+| `docs/09-delivery/decision-log.md` | main統合時にDEC-116へ繰り上げて受入を記録（当初DEC-112を予定したが、DEC-112〜115は先行PRで使用済み） |
 | `docs/01-product/requirements-traceability.md` | FR-004へADR-0042と復元回帰を対応づけ |
 | `docs/09-delivery/session-handoff.md` | ローカル保存範囲、証跡、制約と次の1マイルストーン |
 | `docs/09-delivery/manual-restore-2026-11-08.md` | 本報告書 |

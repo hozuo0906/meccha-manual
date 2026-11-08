@@ -5,6 +5,9 @@ export type D1RepositoryErrorCode =
   | "not_found"
   | "conflict"
   | "limit_exceeded"
+  | "owner_transfer_self"
+  | "owner_transfer_target_invalid"
+  | "owner_transfer_personal"
   | "personal_workspace_unavailable"
   | "unavailable";
 
