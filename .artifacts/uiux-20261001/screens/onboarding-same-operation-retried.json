@@ -1,0 +1,17 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-onboarding-mocked-service-and-extension",
+  "screenshot": "onboarding-same-operation-retried.png",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "status": "保存先の準備が完了しました。手順書本文はまだ保存されていません。元の下書きは拡張機能に残っています。",
+  "actionLabel": "同じ操作を確認する",
+  "actionDisabled": false,
+  "observations": {
+    "operation": "retry-after-reopen",
+    "requestCount": 2,
+    "sameOperation": true
+  }
+}

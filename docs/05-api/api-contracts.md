@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-## 公開の静的サンプル（段階B、DEC-111／DEC-112）
+## 公開の静的サンプル（段階B、DEC-111／DEC-113）
 
 `GET /manuals/sample`と専用JS／CSS（`/assets/manual-sample.js`、`/assets/manual-sample.css`）は認証不要の静的資産とする。画像配信は`GET /manuals/sample/images/{name}.png`の1経路で、`list`／`form`／`complete`だけを同梱PNGへ対応づけ、未知名・非GET・資産binding欠落は404とする。fixtureの画像にdata URLや外部画像を使わない。
 

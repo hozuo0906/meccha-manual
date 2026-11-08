@@ -107,3 +107,30 @@ test("弱めたissuer/subject identity predicateはbootstrap認可のmutation検
     await mutation.cleanup();
   }
 });
+
+async function assertCorruptedOperationReadIsDenied(Repository) {
+  const { database, binding } = await seededRepository();
+  try {
+    const repository = new Repository(binding);
+    const result = await repository.bootstrap(actor, operation);
+    database.prepare("UPDATE workspaces SET name=? WHERE id=?").run("合成B保存先", result.workspaceId);
+    database.exec("DROP TRIGGER onboarding_bootstrap_operation_identity_immutable");
+    database.prepare("UPDATE onboarding_bootstrap_operations SET workspace_id='old-personal' WHERE workspace_id=?").run(result.workspaceId);
+    await assert.rejects(() => repository.bootstrap(actor, operation), { code: "unavailable" });
+    assert.equal(binding.lastError, null, "the final authorized read must reject after a successful batch");
+  } finally {
+    database.close();
+  }
+}
+
+test("最終SELECTのauthorized照合削除は他actorの保存名露出mutationとして検出される", async () => {
+  await assertCorruptedOperationReadIsDenied(D1OnboardingRepository);
+  const mutation = await loadMutatedRepository("workspace-name-read", [[
+    'AND o.workspace_id = (${authorized})', ''
+  ]]);
+  try {
+    await assert.rejects(() => assertCorruptedOperationReadIsDenied(mutation.Repository), /Missing expected rejection/);
+  } finally {
+    await mutation.cleanup();
+  }
+});

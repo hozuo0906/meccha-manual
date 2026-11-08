@@ -42,7 +42,7 @@ worker-runtime-mutationの複製対象は、今回の`app-assets.ts`／`cloud-ma
 
 ## 文書同期
 
-DEC-112を追加し、DEC-111の編集禁止部分のみPartially Supersededとした。onboarding、全画面品質台帳、API契約、要件トレーサビリティ、session-handoffを段階Bへ同期する。段階A報告書は履歴として保持する。
+DEC-113を追加し、DEC-111の編集禁止部分のみPartially Supersededとした。onboarding、全画面品質台帳、API契約、要件トレーサビリティ、session-handoffを段階Bへ同期する。段階A報告書は履歴として保持する。
 
 ## 変更ファイル
 

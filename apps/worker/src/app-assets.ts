@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-0c09a389feb49956";
+export const APP_ASSET_VERSION = "sha256-5fd9e465201e9783";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -1068,6 +1068,14 @@ const manualActionTypeLabels = {
   wait: "待機",
   other: "その他"
 };
+
+function manualStatusLabel(status) {
+  return Object.hasOwn(manualStatusLabels, status) ? manualStatusLabels[status] : "状態不明";
+}
+
+function manualStepTypeLabel(type) {
+  return Object.hasOwn(manualStepTypeLabels, type) ? manualStepTypeLabels[type] : "種類不明";
+}
 
 function resetManualUiState() {
   closeManualReadingPreview(false);
@@ -2688,7 +2696,7 @@ function manualListHtml(currentWorkspace) {
     body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
       '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +
         '<span><span class="manual-list-item-title">' + escapeHtml(manual.title) + '</span><span class="muted">最終更新：' + escapeHtml(new Date(manual.updatedAt).toLocaleString("ja-JP")) + '</span></span>' +
-        '<span class="badge">' + escapeHtml(manualStatusLabels[manual.status] || manual.status) + '</span>' +
+        '<span class="badge">' + escapeHtml(manualStatusLabel(manual.status)) + '</span>' +
       '</button></div>'
     ).join("") + '</div>';
   }
@@ -2718,7 +2726,7 @@ function actionTypeOptions(value) {
 
 function manualStepHtml(step, index, count, canEdit) {
   const heading = '手順 ' + (index + 1) + '：' + step.title;
-  const header = '<div class="manual-step-card-header"><h3 id="step-heading-' + escapeHtml(step.id) + '">' + escapeHtml(heading) + '</h3><span class="badge">' + escapeHtml(manualStepTypeLabels[step.type] || step.type) + '</span></div>';
+  const header = '<div class="manual-step-card-header"><h3 id="step-heading-' + escapeHtml(step.id) + '">' + escapeHtml(heading) + '</h3><span class="badge">' + escapeHtml(manualStepTypeLabel(step.type)) + '</span></div>';
   if (!canEdit) {
     return '<article class="manual-step-card" aria-labelledby="step-heading-' + escapeHtml(step.id) + '">' + header +
       '<div class="manual-step-view"><dl>' +
@@ -2778,7 +2786,7 @@ function openManualReadingPreview() {
   const description = value.draft?.description || "";
   const steps = Array.isArray(value.steps) ? value.steps : [];
   const stepsHtml = steps.length
-    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabels[step.type] || step.type || "-") + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
+    ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabel(step.type)) + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
     : '<p role="status">手順はまだありません。</p>';
   const overlay = document.createElement("dialog");
   overlay.className = "manual-reading-preview";
@@ -2860,7 +2868,7 @@ function manualDetailHtml(currentWorkspace) {
       '</form>'
     : '<section class="workspace-form"><h2>編集権限</h2><p>' + (canEdit ? '編集できる下書きがありません。' : '現在の権限では閲覧のみ利用できます。') + '</p></section>';
   return '<div class="manual-detail-grid">' +
-    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabels[value.manual.status] || value.manual.status) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>保存済み内容を確認</button></div>' + metadata + '</section>' +
+    '<section class="section" aria-labelledby="manual-metadata-heading"><div class="section-header"><div><h2 id="manual-metadata-heading">基本情報</h2><p class="muted">状態：' + escapeHtml(manualStatusLabel(value.manual.status)) + '</p></div><button id="manual-reading-preview-button" class="secondary-button" type="button"' + (manualMutationInFlight ? ' disabled data-manual-busy-rendered="true"' : '') + '>保存済み内容を確認</button></div>' + metadata + '</section>' +
     '<div class="manual-layout"><section class="section" aria-labelledby="manual-steps-heading"><div class="section-header"><h2 id="manual-steps-heading">手順</h2><span class="badge">' + steps.length + '件</span></div>' + stepsHtml + '</section>' + addForm + publicationActions + archiveActions + '</div>' +
   '</div>';
 }

@@ -1,0 +1,16 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-onboarding-mocked-service-and-extension",
+  "screenshot": "onboarding-temporary-failure.png",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "status": "保存先の準備に失敗しました。元の下書きは拡張機能に残っています。同じ操作で再試行できます。",
+  "actionLabel": "同じ操作で再試行",
+  "actionDisabled": false,
+  "observations": {
+    "operation": "bootstrap-503",
+    "requestCount": 1
+  }
+}

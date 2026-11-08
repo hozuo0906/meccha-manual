@@ -1,0 +1,63 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-local-editor",
+  "screenshot": "image-save-failed-1440.png",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "fontEvidence": [
+    {
+      "selector": "#title",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "18px",
+        "weight": "700"
+      },
+      "fonts": [
+        {
+          "familyName": "Noto Sans CJK JP",
+          "postScriptName": "NotoSansCJKjp-Bold",
+          "isCustomFont": false,
+          "glyphCount": 9
+        }
+      ]
+    },
+    {
+      "selector": ".instruction-label textarea",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "16px",
+        "weight": "400"
+      },
+      "fonts": []
+    },
+    {
+      "selector": ".step-name",
+      "computed": {
+        "family": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "size": "14px",
+        "weight": "600"
+      },
+      "fonts": [
+        {
+          "familyName": "Noto Sans SemiBold",
+          "postScriptName": "NotoSans-SemiBold",
+          "isCustomFont": false,
+          "glyphCount": 2
+        },
+        {
+          "familyName": "Noto Sans CJK JP",
+          "postScriptName": "NotoSansCJKjp-Bold",
+          "isCustomFont": false,
+          "glyphCount": 2
+        }
+      ]
+    }
+  ],
+  "selectedStep": "step-1",
+  "observations": {
+    "failure": "synthetic-IDB-write",
+    "stateFullyVisible": true
+  }
+}
