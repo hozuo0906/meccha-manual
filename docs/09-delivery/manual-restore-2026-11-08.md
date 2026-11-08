@@ -18,7 +18,7 @@ branch: `codex/manual-restore-20261108`。base／着手HEAD: `ec6b8db1b8d66e6df0
 | `docs/03-architecture/adrs/README.md` | ADR-0042を一覧へ登録 |
 | `supabase/migrations/202608180003_phase2_manual_restore.sql` | SECURITY DEFINERのrestore_manual、認証・workspace・role・FOR UPDATE・CAS・監査検証、authenticatedだけにexecute |
 | `tests/sql/phase2-manual-restore-test.sql` | 既存disposable fixtureに合わせた状態／監査／CAS／権限／tenant境界のSQL回帰 |
-| `.github/workflows/manual-edit-api.yml` | migration適用とarchive回帰後のrestore SQL実行、paths登録 |
+| `.github/workflows/manual-edit-api.yml` | migration適用とarchive回帰後のrestore SQL実行、paths登録（OAuthトークンにworkflowスコープがなくpushが拒否されたため、別branch `codex/manual-restore-ci-20261108` のcommitとして用意し、スコープ付き認証情報でのpush待ち） |
 | `apps/worker/src/manual-edit-router.ts` | POST restore、入力制限、認証／same-origin、409競合／状態不明、日本語案内と結果不明／利用不可分類 |
 | `apps/worker/src/app-assets.ts` | archived詳細の復元節・確認・再読込、編集禁止、busy対象。共通hash方式でAPP_ASSET_VERSIONをsha256-5a26091b9408e765へ同期 |
 | `tests/manual-edit-api.test.mjs` | 14件追加。成功、RPC引数、viewer・非member・認証・Origin・method・入力・RPC拒否・結果不明／利用不可 |
@@ -49,6 +49,7 @@ branch: `codex/manual-restore-20261108`。base／着手HEAD: `ec6b8db1b8d66e6df0
 - 対象は指定された移行前Supabase/Postgres baselineと既存app shell。D1の現行クラウド手順書UIへの移植は範囲外。
 - 新しい画面の実browser操作、実共有URLの再有効化、remote DB migration、実SSO、staging／production反映は未実施。UI検証は合成データを使ったVM実行と既存asset runtime回帰。
 - GitHub CI、正式Codex Review、PR head／thread照合はPR作成後に監督側のゲートで確認する。マージは行わない（監督側が検品後に行う）。
+- workflowファイル（`.github/workflows/manual-edit-api.yml`）の変更は、OAuthトークンのworkflowスコープ不足でpushが拒否された（`refusing to allow an OAuth App to create or update workflow ... without workflow scope`）。変更自体はbranch `codex/manual-restore-ci-20261108` の単独commitとして用意済みで、workflowスコープ付き認証情報が使える時点でPR branchへ取り込む。それまでPR上のCIではrestore SQL回帰は実行されない。
 
 ## 判断した点
 
