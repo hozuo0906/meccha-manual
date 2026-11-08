@@ -189,15 +189,15 @@ test("editable empty manual list prioritizes creation and its CTA focuses the ti
 
 test("archived detail offers restoration only to editors and keeps editing closed", async () => {
   const source = await readFile(appPath, "utf8");
+  const labels = source.slice(source.indexOf("const manualStatusLabels ="), source.indexOf("function resetManualUiState("));
   const render = source.slice(source.indexOf("function manualDetailHtml("), source.indexOf("function renderManualShell("));
   function html(status, canEdit) {
-    return runInNewContext(render + "manualDetailHtml({})", {
+    return runInNewContext(labels + render + "manualDetailHtml({})", {
       manualDetailState: { status: "ready", value: {
         manual: { status, title: "合成手順書", updatedAt: "2026-11-08T00:00:00Z" },
         permissions: { canEdit }, draft: { state: "draft", title: "合成手順書", description: "" }, steps: []
       } },
       manualMutationInFlight: false,
-      manualStatusLabels: { archived: "アーカイブ" },
       escapeHtml: (value) => String(value ?? ""),
       manualRevisionReadOnlyLabel: () => "下書き（閲覧専用）",
       stepTypeOptions: () => "", actionTypeOptions: () => ""
