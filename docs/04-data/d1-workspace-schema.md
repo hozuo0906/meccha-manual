@@ -46,7 +46,7 @@ erDiagram
 - `profiles`はidentityと1対1で、表示名・locale・timezoneだけを保持する。email、JWT、Access tokenは保存しない。
 - `workspaces`はnameをtrim後Unicode code pointで1–64、slugをtrim・小文字化後ASCIIの3–63文字へ正規化する。`workspace_kind`は`standard | personal`の明示値で、既存rowは安全側の`standard`へbackfillし、created_byからpersonalを推測しない。id、created_by、created_at、workspace_kindは更新しないtriggerを持つ。active slugだけをpartial unique indexで一意にする。
 - `workspace_kind = 'personal'`はstatusに関係なく`created_by`ごとに最大1rowとするpartial unique indexを持つ。activeならbootstrap再送は同じworkspaceIdへ収束し、suspended／deletedなら2件目を作らず`PERSONAL_WORKSPACE_UNAVAILABLE`でfail closedにする。通常workspace APIは常に`standard`を作成し、kindの変更APIを提供しない。
-- `workspace_members`はworkspaceとidentityの組を一意にし、owner/admin/editor/viewerとactive/invited/removedをCHECKで限定する。workspaceとidentityの変更、activeメンバーの最大1000件、owner transfer、最後のactive ownerの降格・停止・削除をtriggerで拒否する。本人同意コードによる再参加時だけjoined_atを更新する。
+- `workspace_members`はworkspaceとidentityの組を一意にし、owner/admin/editor/viewerとactive/invited/removedをCHECKで限定する。workspaceとidentityの変更、activeメンバーの最大1000件、permitなしowner昇格、最後のactive ownerの降格・停止・削除をtriggerで拒否する。本人同意コードによる再参加時だけjoined_atを更新する。
 - `workspace_join_codes`は32 byte乱数のBearer codeを返すが、DBにはSHA-256の小文字hex digestだけを保存する。10分・単回・再発行時旧code失効はrepositoryのbatchで確定する。
 - `audit_logs`は固定されたactionと最小metadataだけをappendする。update/delete triggerでappend-onlyを強制し、平文コード、email、JWT、入力本文を保存しない。
 
@@ -58,10 +58,21 @@ repositoryの公開メソッドは用途別に固定し、resource IDだけの�
 
 `createWorkspace`はactive identityを作成者へ固定し、`standard` workspace、owner membership、auditをD1 batchで作成する。`getOrCreatePersonalWorkspace`は明示的な`personal` rowだけを再利用し、別operationIdの並行bootstrapでunique conflictになった場合も既存active rowを再読込して同じworkspaceIdへ収束する。join code消費はコードのissuerを対象identityとして固定し、owner/adminが指定したadmin/editor/viewer role、active owner/adminのworkspace membership、active workspace、期限・単回条件を同一batchで再確認してmembershipとauditを確定する。消費nonceをbatch内だけで照合し、同じ時刻の再送や別workspace再送が後段だけ実行されないようにする。D1にinteractive transaction APIがある前提は置かない。`D1Database.batch()`が途中失敗をatomic rollbackする契約を本番境界とし、ローカルテストadapterも同じrollbackを検証する。
 
-member更新はowner付与・移管・最後のowner喪失・非active membershipの同意なし再活性化・自己停止を拒否する。再活性化は本人が発行したjoin code消費だけが入口である。0件更新は成功にせず、既存行が要求済みstateと一致する冪等再送だけは監査追記なしで成功として扱い、それ以外は呼び出し側で安全なconflict/forbidden結果へ写像する。
+通常member更新はowner付与・変更・最後のowner喪失・非active membershipの同意なし再活性化・自己停止を拒否する。再活性化は本人が発行したjoin code消費だけが入口である。0件更新は成功にせず、既存行が要求済みstateと一致する冪等再送だけは監査追記なしで成功として扱い、それ以外は呼び出し側で安全なconflict/forbidden結果へ写像する。
 
-最後の有効ownerの保護はworkspaceのactive/suspended/deleted状態にかかわらず保持する。削除・停止したworkspaceを理由にidentity無効化から保護を迂回する例外は設けず、所有権移管・アカウント終了の専用フローは未提供とする。
+最後の有効ownerの保護はworkspaceのactive/suspended/deleted状態にかかわらず保持する。削除・停止したworkspaceを理由にidentity無効化から保護を迂回する例外は設けず、standard workspaceの所有権移管はDEC-113の専用batchに限って許可する。Personal Workspace移管・アカウント終了の専用フローは提供しない。
 
 ## Verification boundary
 
 `migrations/0001_d1_identity_workspace.sql`と`migrations/0002_d1_personal_workspace.sql`をNode `node:sqlite`へ順に適用するrepository testは、既存rowのstandard backfill、kind immutable、personal uniqueness、並行bootstrap収束、非active personalのfail closedを含む制約を確認する。`test:d1-binding`は同じmigration列とrepositoryをMiniflare D1 bindingで実行するHosted Linux用smokeとしてcheckへ含め、Windowsでは既知のworkerd起動停止のため明示skipする。今回のローカル実行はlocal SQL adapterとWindows skipまでであり、Cloudflare staging live D1、staging資源、operator provisioning、Access real accountの証明ではない。
+
+
+## 管理責任者移管のpermit（DEC-113）
+
+migration `0009_d1_owner_transfer.sql`は`workspace_owner_transfer_permits`を追加する。`workspace_id`は主キーかつworkspaces外部キー、`actor_application_id`と`target_application_id`はidentities外部キー（いずれもON DELETE RESTRICT）、`created_at`はNOT NULL。actorとtargetが異なることをCHECKする。各workspaceで同時に最大1件、専用batch中だけ存在し、成功時に削除、失敗時に発行を含めrollbackする。HTTP入出力・analyticsにpermitを公開しない。
+
+置換するtriggerは`workspace_member_owner_transfer`だけである。有効permitのworkspace・対象一致、別人であるactive owner・active actor identity、active standard workspace、activeな旧admin/editor/viewer・active target identityを再確認して昇格を許可する。permitなしraw SQLのUPDATE昇格は拒否する。last-owner保護3triggerは変更しない。既存の初期owner INSERTを使うworkspace作成の契約も維持する。
+
+repository `transferOwnership(actorId, workspaceId, targetId, now)`はエラー分類用照会後、actor/workspace固定のEXISTS fenceを持つpermit INSERT、対象owner昇格、元owner admin降格、監査、permit DELETEを単一batchで行う。各DML直後に`CASE WHEN changes() = 1 THEN 1 ELSE json('owner transfer conflict') END`をSELECTし、0件はSQL例外として全体rollbackする。SELECTはchanges()を変えず、監査は既存の`WHERE changes() = 1`を維持する。返却success・runCount・直接件数も検証する。trigger副作用がある場合の直接件数はSELECTを正とする。
+
+監査actionはCHECK閉集合の`member.updated`を使用し、元ownerをactor、新ownerをtarget_application_id、既存AUDIT_METADATAをmetadataにする。audit tableの再構築・新action追加・メール送信・PII追加は行わない。DB writerは信頼境界内に置く。remote migration適用は別の環境検証・承認が必要であり、この実装は適用済みを示さない。

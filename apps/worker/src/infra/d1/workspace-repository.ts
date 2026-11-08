@@ -1,5 +1,5 @@
 import { D1RepositoryError, ensureRepositoryError } from "./d1-errors.ts";
-import { changed, type D1DatabaseLike } from "./d1-types.ts";
+import { changed, directChanged, type D1DatabaseLike } from "./d1-types.ts";
 
 export type WorkspaceStatus = "active" | "suspended" | "deleted";
 export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
@@ -524,6 +524,101 @@ export class D1WorkspaceRepository {
         throw new D1RepositoryError("unavailable");
       }
     } catch (error) {
+      throw ensureRepositoryError(error);
+    }
+  }
+
+  async transferOwnership(actorId: string, workspaceId: string, targetId: string, now: string): Promise<void> {
+    nowOrThrow(now);
+    try {
+      const scope = await this.db.prepare(
+        `SELECT w.workspace_kind, target.role AS target_role, target.status AS target_status,
+                target_identity.status AS target_identity_status
+           FROM workspace_members AS actor
+           JOIN identities AS actor_identity ON actor_identity.application_id = actor.application_id
+           JOIN workspaces AS w ON w.id = actor.workspace_id
+           LEFT JOIN workspace_members AS target
+             ON target.workspace_id = actor.workspace_id AND target.application_id = ?3
+           LEFT JOIN identities AS target_identity ON target_identity.application_id = target.application_id
+          WHERE actor.application_id = ?1 AND actor.workspace_id = ?2
+            AND actor.role = 'owner' AND actor.status = 'active'
+            AND actor_identity.status = 'active' AND w.status = 'active'`
+      ).bind(actorId, workspaceId, targetId).first<{
+        workspace_kind: string; target_role: string | null;
+        target_status: string | null; target_identity_status: string | null;
+      }>();
+      if (!scope) throw new D1RepositoryError("forbidden");
+      if (scope.workspace_kind !== "standard") throw new D1RepositoryError("owner_transfer_personal");
+      if (actorId === targetId) throw new D1RepositoryError("owner_transfer_self");
+      if (!scope.target_role || !["admin", "editor", "viewer"].includes(scope.target_role)
+        || scope.target_status !== "active" || scope.target_identity_status !== "active") {
+        throw new D1RepositoryError("owner_transfer_target_invalid");
+      }
+      const statements = [
+        this.db.prepare(
+          `INSERT INTO workspace_owner_transfer_permits
+             (workspace_id, actor_application_id, target_application_id, created_at)
+           SELECT ?2, ?1, ?3, ?4
+            WHERE EXISTS (
+              SELECT 1 FROM workspace_members AS actor
+              JOIN identities AS i ON i.application_id = actor.application_id
+              JOIN workspaces AS w ON w.id = actor.workspace_id
+              JOIN workspace_members AS target ON target.workspace_id = actor.workspace_id
+              JOIN identities AS ti ON ti.application_id = target.application_id
+              WHERE actor.workspace_id = ?2 AND actor.application_id = ?1
+                AND actor.role = 'owner' AND actor.status = 'active' AND i.status = 'active'
+                AND w.status = 'active' AND w.workspace_kind = 'standard'
+                AND target.application_id = ?3 AND target.application_id <> ?1
+                AND target.role IN ('admin', 'editor', 'viewer')
+                AND target.status = 'active' AND ti.status = 'active'
+            )`
+        ).bind(actorId, workspaceId, targetId, now),
+        this.db.prepare(
+          `UPDATE workspace_members SET role = 'owner', updated_at = ?4
+            WHERE workspace_id = ?2 AND application_id = ?3
+              AND role IN ('admin', 'editor', 'viewer') AND status = 'active'
+              AND EXISTS (
+                SELECT 1 FROM workspace_owner_transfer_permits
+                WHERE workspace_id = ?2 AND actor_application_id = ?1
+                  AND target_application_id = ?3 AND created_at = ?4
+              )`
+        ).bind(actorId, workspaceId, targetId, now),
+        this.db.prepare(
+          `UPDATE workspace_members SET role = 'admin', updated_at = ?4
+            WHERE workspace_id = ?2 AND application_id = ?1 AND role = 'owner' AND status = 'active'
+              AND EXISTS (
+                SELECT 1 FROM workspace_owner_transfer_permits AS p
+                JOIN workspace_members AS target
+                  ON target.workspace_id = p.workspace_id AND target.application_id = p.target_application_id
+                JOIN identities AS i ON i.application_id = target.application_id
+                WHERE p.workspace_id = ?2 AND p.actor_application_id = ?1
+                  AND p.target_application_id = ?3 AND p.created_at = ?4
+                  AND target.role = 'owner' AND target.status = 'active' AND i.status = 'active'
+              )`
+        ).bind(actorId, workspaceId, targetId, now),
+        this.db.prepare(
+          `INSERT INTO audit_logs
+             (id, actor_application_id, workspace_id, target_application_id, action, metadata_json, created_at)
+           SELECT ?1, ?2, ?3, ?4, 'member.updated', ?5, ?6 WHERE changes() = 1`
+        ).bind(randomId(), actorId, workspaceId, targetId, AUDIT_METADATA, now),
+        this.db.prepare(
+          `DELETE FROM workspace_owner_transfer_permits
+            WHERE workspace_id = ?2 AND actor_application_id = ?1 AND target_application_id = ?3 AND created_at = ?4`
+        ).bind(actorId, workspaceId, targetId, now)
+      ];
+      // SQL assertions run inside the batch: a zero-row fence must roll back earlier writes.
+      // SELECT does not change changes(), so the audit still observes the preceding UPDATE.
+      const results = await this.db.batch(statements.flatMap((statement) => [statement,
+        this.db.prepare(`SELECT CASE WHEN changes() = 1 THEN 1 ELSE json('owner transfer conflict') END AS direct_changes`).bind()
+      ]));
+      if (results.length !== statements.length * 2 || results.some((result, index) =>
+        !result.success || (index % 2 === 0 ? runCount(result) !== 1 : directChanged(result) !== 1)
+      )) throw new D1RepositoryError("unavailable");
+    } catch (error) {
+      if (!(error instanceof D1RepositoryError) && error instanceof Error
+        && /malformed json|owner transfer|unique|constraint/i.test(error.message)) {
+        throw new D1RepositoryError("conflict");
+      }
       throw ensureRepositoryError(error);
     }
   }

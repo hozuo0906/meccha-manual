@@ -8,7 +8,8 @@ import worker from "../apps/worker/src/index.ts";
 
 const migrationPaths = [
   new URL("../migrations/0001_d1_identity_workspace.sql", import.meta.url),
-  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url)
+  new URL("../migrations/0002_d1_personal_workspace.sql", import.meta.url),
+  new URL("../migrations/0009_d1_owner_transfer.sql", import.meta.url)
 ];
 const issuer = "https://team.example.invalid";
 const audience = "meccha-manual-staging";
@@ -25,6 +26,7 @@ class LocalStatement {
   constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
   bind(...values) { return new LocalStatement(this.database, this.sql, values); }
   async run() {
+    if (/^\s*SELECT\b/iu.test(this.sql)) return { success: true, meta: { changes: 0 }, results: this.database.prepare(this.sql).all(...this.values) };
     const result = this.database.prepare(this.sql).run(...this.values);
     return { success: true, meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
   }
@@ -313,4 +315,98 @@ test("Access user logout does not require D1 identity resolution", async () => {
   }), { ...env, DB: undefined }, {});
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "ok", redirectUrl: "/cdn-cgi/access/logout" });
+});
+
+const TRANSFER_TARGET = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+async function ownerTransferFixture() {
+  const created = await worker.fetch(await accessRequest("/api/workspaces", {
+    method: "POST", headers: { "content-type": "application/json", origin: "https://app.example.invalid" },
+    body: JSON.stringify({ name: "移管検証", slug: "transfer" })
+  }), env, {});
+  assert.equal(created.status, 201);
+  const { workspaceId } = await created.json();
+  database.prepare("INSERT INTO identities VALUES (?, ?, 'transfer-target', 'active', ?, ?)").run(TRANSFER_TARGET, issuer, now, now);
+  database.prepare("INSERT INTO profiles VALUES (?, '移管先', 'ja-JP', 'Asia/Tokyo', ?, ?)").run(TRANSFER_TARGET, now, now);
+  database.prepare("INSERT INTO workspace_members VALUES (?, ?, 'editor', 'active', ?, ?)").run(workspaceId, TRANSFER_TARGET, now, now);
+  return workspaceId;
+}
+async function sendTransfer(workspaceId, body = { targetUserId: TRANSFER_TARGET }, claims = {}, extraHeaders = {}) {
+  return worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/owner-transfer`, {
+    method: "POST", headers: { "content-type": "application/json", origin: "https://app.example.invalid", ...extraHeaders },
+    body: JSON.stringify(body)
+  }, claims), env, {});
+}
+
+test("owner-transfer API succeeds, reload shows demotion and replay is denied", async () => {
+  const workspaceId = await ownerTransferFixture();
+  const response = await sendTransfer(workspaceId);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok" });
+  const list = await worker.fetch(await accessRequest(`/api/workspaces/${workspaceId}/members`), env, {});
+  const payload = await list.json();
+  assert.equal(payload.currentUserRole, "admin");
+  assert.equal(payload.members.find((member) => member.userId === TRANSFER_TARGET).role, "owner");
+  const replay = await sendTransfer(workspaceId);
+  assert.equal(replay.status, 403);
+  assert.equal((await replay.json()).code, "OWNER_TRANSFER_FORBIDDEN");
+});
+
+test("owner-transfer API distinguishes invalid input, target, self, Personal Workspace and conflict", async () => {
+  const workspaceId = await ownerTransferFixture();
+  for (const body of [{}, { targetUserId: "bad" }, { targetUserId: TRANSFER_TARGET, extra: true }]) {
+    const response = await sendTransfer(workspaceId, body);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "OWNER_TRANSFER_INPUT_INVALID");
+  }
+  const missing = await sendTransfer(workspaceId, { targetUserId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+  assert.equal(missing.status, 409);
+  assert.equal((await missing.json()).code, "OWNER_TRANSFER_TARGET_INVALID");
+  const personalId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  database.prepare("INSERT INTO workspaces VALUES (?, '個人', 'personal-transfer', 'active', 'app-user-1', ?, ?, 'personal')").run(personalId, now, now);
+  database.prepare("INSERT INTO workspace_members VALUES (?, 'app-user-1', 'owner', 'active', ?, ?)").run(personalId, now, now);
+  const personal = await sendTransfer(personalId);
+  assert.equal(personal.status, 409);
+  assert.equal((await personal.json()).code, "OWNER_TRANSFER_PERSONAL_WORKSPACE");
+  env.DB.beforeBatch = () => database.prepare("UPDATE workspace_members SET status = 'removed' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, TRANSFER_TARGET);
+  const conflict = await sendTransfer(workspaceId);
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).code, "OWNER_TRANSFER_CONFLICT");
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workspace_owner_transfer_permits").get().n, 0);
+  env.DB.beforeBatch = null;
+  database.prepare("UPDATE workspace_members SET status = 'active' WHERE workspace_id = ? AND application_id = ?").run(workspaceId, TRANSFER_TARGET);
+  assert.equal((await sendTransfer(workspaceId)).status, 200);
+  const self = await sendTransfer(workspaceId, { targetUserId: TRANSFER_TARGET }, { sub: "transfer-target" });
+  assert.equal(self.status, 409);
+  assert.equal((await self.json()).code, "OWNER_TRANSFER_SELF");
+});
+
+for (const role of ["admin", "editor", "viewer"]) {
+  test(`owner-transfer API denies ${role}, cross-tenant requests and invalid authentication`, async () => {
+    const workspaceId = await ownerTransferFixture();
+    database.prepare("UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND application_id = ?").run(role, workspaceId, TRANSFER_TARGET);
+    for (const id of [workspaceId, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"]) {
+      const response = await sendTransfer(id, undefined, { sub: "transfer-target" });
+      assert.equal(response.status, 403);
+      assert.equal((await response.json()).code, "OWNER_TRANSFER_FORBIDDEN");
+    }
+    const csrf = await sendTransfer(workspaceId, undefined, {}, { origin: "https://other.example.invalid" });
+    assert.equal(csrf.status, 403);
+    const service = await sendTransfer(workspaceId, undefined, { sub: "", common_name: "runner.example" });
+    assert.equal(service.status, 403);
+    const unauthenticated = await worker.fetch(request(`/api/workspaces/${workspaceId}/owner-transfer`, {
+      method: "POST", headers: { "content-type": "application/json", origin: "https://app.example.invalid" }, body: JSON.stringify({ targetUserId: TRANSFER_TARGET })
+    }), env, {});
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(database.prepare("SELECT count(*) AS n FROM workspace_owner_transfer_permits").get().n, 0);
+  });
+}
+
+test("owner-transfer storage errors return a bounded Japanese error without lower-level details", async () => {
+  const workspaceId = await ownerTransferFixture();
+  env.DB.beforeBatch = () => { throw new Error("synthetic database detail"); };
+  const response = await sendTransfer(workspaceId);
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.code, "OWNER_TRANSFER_UNAVAILABLE");
+  assert.doesNotMatch(payload.message, /synthetic/);
 });

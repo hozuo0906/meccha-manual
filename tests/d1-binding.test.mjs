@@ -16,9 +16,10 @@ const migrationPaths = [
   new URL("../migrations/0004_d1_cloud_manual_claim.sql", import.meta.url),
   new URL("../migrations/0005_d1_share_links.sql", import.meta.url),
   new URL("../migrations/0006_d1_manual_editor_branding.sql", import.meta.url),
-  new URL("../migrations/0007_d1_retained_save_recovery.sql", import.meta.url)
+  new URL("../migrations/0007_d1_retained_save_recovery.sql", import.meta.url),
+  new URL("../migrations/0009_d1_owner_transfer.sql", import.meta.url)
 ];
-const d1BindingMigrationPaths = migrationPaths.slice(0, 3);
+const d1BindingMigrationPaths = [...migrationPaths.slice(0, 3), migrationPaths.at(-1)];
 const NOW = "2026-09-05T00:00:00.000Z";
 const LATER = "2026-09-05T00:05:00.000Z";
 const TEST_TIMEOUT_MS = 45_000;
@@ -187,6 +188,19 @@ test("Miniflare D1 binding applies migration and exercises the real workspace re
       LATER
     );
     assert.equal(await count(db, "SELECT count(*) AS count FROM audit_logs WHERE action = 'member.updated' AND workspace_id = ?1", firstWorkspace.id), memberAuditCount);
+    await assert.rejects(() => db.prepare("UPDATE workspace_members SET role = 'owner' WHERE workspace_id = ?1 AND application_id = 'bob'").bind(firstWorkspace.id).run());
+    await workspaces.transferOwnership("alice", firstWorkspace.id, "bob", LATER);
+    assert.equal(await workspaces.getMemberRole("alice", firstWorkspace.id), "admin");
+    assert.equal(await workspaces.getMemberRole("bob", firstWorkspace.id), "owner");
+    assert.equal(await count(db, "SELECT count(*) AS count FROM workspace_owner_transfer_permits"), 0);
+    await assert.rejects(() => workspaces.transferOwnership("alice", firstWorkspace.id, "bob", LATER), { code: "forbidden" });
+    await db.exec("CREATE TRIGGER test_transfer_zero BEFORE UPDATE OF role ON workspace_members WHEN NEW.role = 'admin' BEGIN SELECT RAISE(IGNORE); END;");
+    await assert.rejects(() => workspaces.transferOwnership("bob", firstWorkspace.id, "alice", LATER), { code: "conflict" });
+    assert.equal(await workspaces.getMemberRole("alice", firstWorkspace.id), "admin");
+    assert.equal(await workspaces.getMemberRole("bob", firstWorkspace.id), "owner");
+    assert.equal(await count(db, "SELECT count(*) AS count FROM workspace_owner_transfer_permits"), 0);
+    assert.equal(await count(db, "SELECT count(*) AS count FROM audit_logs WHERE action = 'member.updated' AND workspace_id = ?1", firstWorkspace.id), memberAuditCount + 1);
+    await db.exec("DROP TRIGGER test_transfer_zero;");
     const onboarding = new D1OnboardingRepository(db);
     const actor = { kind: "access_user", issuer: "issuer-a", subject: "new-human" };
     const bootstrap = await onboarding.bootstrap(actor, "binding-operation-0001");
@@ -240,7 +254,7 @@ async function count(db, sql, ...values) {
 test("retained-save migration backfills only existing same-manual attachment evidence", async () => {
   const database = new DatabaseSync(":memory:");
   try {
-    for (const migrationPath of migrationPaths.slice(0, -1)) {
+    for (const migrationPath of migrationPaths.slice(0, 6)) {
       for (const statement of unstable_splitSqlQuery(await readFile(migrationPath, "utf8"))) database.exec(statement);
     }
     database.exec(`
@@ -266,7 +280,7 @@ test("retained-save migration backfills only existing same-manual attachment evi
       VALUES ('active-step','undo-workspace','undo-revision',0,'action','active','active','saved-active',?,?)`).run(NOW, NOW);
     database.prepare(`INSERT INTO manual_steps(id,workspace_id,revision_id,position,type,title,instruction,asset_id,deleted_at,created_at,updated_at)
       VALUES ('deleted-step','undo-workspace','undo-revision',1,'action','deleted','deleted','saved-deleted',?,?,?)`).run(LATER, NOW, LATER);
-    for (const statement of unstable_splitSqlQuery(await readFile(migrationPaths.at(-1), "utf8"))) database.exec(statement);
+    for (const statement of unstable_splitSqlQuery(await readFile(migrationPaths[6], "utf8"))) database.exec(statement);
     const results = database.prepare("SELECT id,first_attached_at FROM manual_edit_assets ORDER BY id").all();
     assert.deepEqual(results.map((row) => [row.id, row.first_attached_at]), [["never-attached", null], ["saved-active", NOW], ["saved-deleted", NOW]]);
     assert.throws(() => database.prepare("UPDATE manual_edit_assets SET first_attached_at = ? WHERE id = 'never-attached'").run(NOW), /attachment provenance/);

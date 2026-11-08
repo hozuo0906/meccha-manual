@@ -23,7 +23,7 @@ const migrationNames = [
   "0002_d1_personal_workspace.sql",
   "0003_d1_onboarding_bootstrap.sql",
   "0004_d1_cloud_manual_claim.sql",
-  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql"
+  "0006_d1_manual_editor_branding.sql", "0007_d1_retained_save_recovery.sql", "0008_product_auth_sessions.sql", "0009_d1_owner_transfer.sql"
 ];
 
 class LocalStatement {
