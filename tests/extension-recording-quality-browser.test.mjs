@@ -139,7 +139,7 @@ for (const surface of ["popup", "sidepanel"]) {
     }
     await page.evaluate(()=>{fixture.delay=0;fixture.failure='capture:finish';});
     await page.locator('#finish').click();
-    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('保持'));
+    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('確認できません'));
     assert.equal(await page.locator('#finish').isVisible(),true);
     assert.equal(await page.evaluate(()=>fixture.drafts.length),0);
     await page.screenshot({path:resolve(evidence,`${surface}-finish-failed.png`)});
