@@ -1,0 +1,14 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-local-editor",
+  "screenshot": "local-draft-missing-1440.png",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "fontEvidence": [],
+  "selectedStep": null,
+  "observations": {
+    "emptyDraftWritten": false
+  }
+}

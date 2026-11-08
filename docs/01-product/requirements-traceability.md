@@ -2,11 +2,11 @@
 
 Status: Accepted
 
-## 2026-11-08 拡張なし受入用サンプル（段階A）
+## 2026-11-08 拡張なし受入用サンプル（段階B）
 
 | 関連要件／受入条件 | 実装・契約 | 回帰 |
 |---|---|---|
-| FR-004／FR-005の閲覧・編集境界、NFR-001／NFR-004、ADR-0032、DEC-111 | `/manuals/sample`から合成6手順／3画像を通常Webエディタの編集状態へ投入。modeで編集・write・出力禁止。偽workspaceとguest永続化なし | `manual-sample.test.mjs`（静的配信・共通API gate・既存routeの認証拒否）、`manual-sample-browser.test.mjs`（全手順・画像・1366/1024/390px・keyboard・無効操作のdispatchを含むwrite 0回） |
+| FR-004／FR-005の閲覧・編集境界、NFR-001／NFR-004、ADR-0032、DEC-111／DEC-113 | `/manuals/sample`から合成6手順／3画像を通常Webエディタの編集状態へ投入。文章・手順構成・undo／redoをメモリ内編集、確認後fixture再投入。保存不可・離脱時消失を明示。保存は登録案内、共有／出力／画像編集／brandingは禁止。偽workspaceとguest永続化なし | `manual-sample.test.mjs`（静的配信・共通API gate・既存routeの認証拒否）、`manual-sample-browser.test.mjs`（文章編集・追加上限200／削除／ボタンとAlt矢印並べ替え・undo／redo・読み直し確認／取消・1366/1024/390px・keyboard・無効操作dispatchを含むread／write 0回） |
 | 初回導線の限定入口 | ログインと0件一覧だけに「サンプルを見る」。LP・検索0件・既存一覧は非表示 | `manual-sample-browser.test.mjs`、`manual-editor-ui.test.mjs` |
 
 ## 2026-11-08 受入第一弾（#272／#232）

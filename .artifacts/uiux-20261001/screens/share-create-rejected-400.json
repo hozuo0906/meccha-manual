@@ -1,0 +1,15 @@
+{
+  "candidateCommit": null,
+  "fixture": "synthetic-cloud-sharing-mock-API",
+  "screenshot": "share-create-rejected-400.png",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "status": "拒否 400",
+  "observations": {
+    "operation": "create-rejected",
+    "responseStatus": 400,
+    "exposedLinkCount": 0
+  }
+}
