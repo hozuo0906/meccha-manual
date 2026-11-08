@@ -1,3 +1,15 @@
+## 2026-11-08 PR #287: OAuth主体変更P2修正
+
+Status: Accepted
+
+確認日時: 2026-11-08T09:40:26+09:00（Asia/Tokyo）。監督Museの指定により、実装担当がP2の再現・修正・回帰・報告書同梱のcommit／pushを行う。Draft維持、merge・deploy・他PRコメントは行わない。
+
+- 対象Issue #283／Draft PR #287、branch `codex/auth-port-from-284-20261107`、着手HEAD `15ca9cab0891bd9ac8bd94fdaaffa2d9f9c4e872`。review comment `4504320245`（thread `PRRT_kwDOTpNknc608JIJ`）を実取得し、旧主体のshellから新Cookie主体で作成POSTを送る二タブ回帰を修正前に再現した。
+- OAuth成功302をcanonical root完了処理へ接続し、既存Web Lock・認証世代nonce更新・BroadcastChannel通知後に元操作へ復帰する。受信側は既存のshell非表示・応答世代無効化・session再取得を使う。通常読込で通知を反復せず、同期不能時は通知を試みて元操作へ進まない。完了先もno-referrer／no-store／CSPを維持する。asset hashは`sha256-60e73e0767d933e0`。
+- 最終`npm run check`全体exit 0（`80379`）、認証157/157（追加4）、Worker71/71、D1 HTTP39/39。認証browser9/9・共有／画像編集7/7（`31704`）、最終Office認証2/2・fail0／skip0／exit0（`66841`）。先行browser実行のOffice参照元assertion失敗はrootのno-referrer不足を修正して解消した。詳細と実行上の未到達は[修正報告書](auth-p2-fix-2026-11-08.md)を参照する。
+- 本記録・報告書と修正を同じcommitに含め同名originへpushし、local／remote／PR head一致を照合する。Issue #70はclosed／not_plannedと他branch履歴を保持して今回の結果だけ同期する。最新headの正式Codex Review／CI／thread解決完了は別確認とし、PR完成とは扱わない。
+- 次の1マイルストーンはMuseによる新headのCI・Codex Reviewと当該thread返信／解決確認。remote SSO／D1／R2／migration適用／実Office描画は今回未実行。担当は保存・報告後に終了し、終了後の継続・自律監視は登録しない。以下のmain統合等は履歴として保持する。
+
 ## 2026-11-08 PR #287: main統合
 
 Status: Accepted

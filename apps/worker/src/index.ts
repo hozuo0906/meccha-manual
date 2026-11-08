@@ -2587,7 +2587,11 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
     if (!env.MANUAL_ASSETS) return cloudManualMigrationResponse();
     return cloudManualPage(request, env);
   }
-  if (request.method === "GET" && url.pathname === "/") return htmlResponse(APP_HTML);
+  if (request.method === "GET" && url.pathname === "/") {
+    const response = htmlResponse(APP_HTML);
+    if (url.searchParams.get("auth") === "complete") response.headers.set("referrer-policy", "no-referrer");
+    return response;
+  }
   if (request.method === "GET" && url.pathname === "/assets/app.css") {
     return assetResponse(APP_CSS, "text/css; charset=utf-8", hasCurrentAssetVersion);
   }

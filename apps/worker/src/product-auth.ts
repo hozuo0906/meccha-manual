@@ -348,7 +348,10 @@ export async function finishProductAuth(request: Request, env: Env, provider: Pr
     SELECT ?, application_id, ?, ?, ?, ? FROM identities WHERE issuer = ? AND subject = ? AND status = 'active'`)
       .bind(crypto.randomUUID(), await hash(token), identity.method, now.toISOString(), new Date(now.getTime() + SESSION_SECONDS * 1000).toISOString(), identity.issuer, identity.subject).run();
     if (!result.success || (result.meta?.changes ?? 0) !== 1) throw new ProductAuthError(503, "AUTH_SESSION_UNAVAILABLE", "ログイン状態を保存できません。時間をおいて、もう一度お試しください。");
-    const response = new Response(null, { status: 302, headers: { location: new URL(returnPath, runtimeBaseUrl(env)).toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+    const completionUrl = new URL("/", runtimeBaseUrl(env));
+    completionUrl.searchParams.set("auth", "complete");
+    completionUrl.searchParams.set("return", returnPath);
+    const response = new Response(null, { status: 302, headers: { location: completionUrl.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
     response.headers.append("set-cookie", cookie(PRODUCT_SESSION_COOKIE, token, SESSION_SECONDS));
     response.headers.append("set-cookie", clearCookie(transactionCookieName ?? oauthTransactionCookieName(provider, await hash(state))));
     return response;

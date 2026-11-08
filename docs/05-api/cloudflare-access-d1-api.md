@@ -160,3 +160,5 @@ Capture/mobile-preview routeはmanual migrationとは別契約で、Access mode�
 - 製品ログインのroot shellは製品／Access sessionでメールが返らない場合に架空のメールや個人情報を補わず「アカウント」と表示する。手順書リンクはD1 canonical `/manuals`へ遷移し、旧rootのSupabase作成入口やmanual POST 405を呼ばない。product logout後もprovider設定に応じた製品ログイン導線を維持し、password formへ戻さない。
 
 製品OAuth callback応答（成功302、JSON／HTML失敗）は参照元送信を抑止するReferrer-Policy: no-referrerを付ける。製品認証のD1 transaction開始・読取・消費、session失効のストレージ例外は503／AUTH_STORAGE_UNAVAILABLEに分類し、秘密値を返さない。消費CASの更新0件は409／AUTH_TRANSACTION_REPLAYEDとして区別する。
+
+PR #287（2026-11-08）: 成功302のLocationはcanonical originの `/?auth=complete&return=...` とし、`return`には検証済みtransactionの固定許可pathだけを渡す。完了先rootのHTMLもno-store／no-referrerと既存CSPを維持し、元操作への参照元送信を抑止する。rootのAPP_JSは既存認証Web Lock内で認証世代nonceを更新し、BroadcastChannel通知後に元pathへ置換遷移する。通常の `/api/session` 応答契約は変えず、再取得で通知を反復しない。完了マーカーや戻り先にtoken・主体を含めず、これらを認可に使用しない。lock／nonce保存不能時は通知を試みてログイン案内に留まり、claim／outputを開始しない。失敗callbackは従来のJSON／HTML・cookie保持・安全な再試行先を維持し、この成功経路へ移さない。

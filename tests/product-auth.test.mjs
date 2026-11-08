@@ -181,6 +181,15 @@ test("Google OIDC start→callback→D1 session→logout uses the product sessio
     assert.match(setCookie, /HttpOnly/u);
     const callback = await worker.fetch(new Request(`${env.APP_BASE_URL}/api/auth/google/callback?code=valid-code&state=${encodeURIComponent(redirect.searchParams.get("state"))}`, { headers: { cookie: `${setCookie.split(";")[0]}; __Host-mm_access=legacy-access; __Host-mm_refresh=legacy-refresh` } }), env, {});
     assert.equal(callback.status, 302);
+    const completion = new URL(callback.headers.get("location"));
+    assert.equal(completion.origin, env.APP_BASE_URL);
+    assert.equal(completion.pathname, "/");
+    assert.deepEqual([...completion.searchParams], [["auth", "complete"], ["return", "/"]]);
+    const completionPage = await worker.fetch(new Request(completion), env, {});
+    assert.equal(completionPage.status, 200);
+    assert.equal(completionPage.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(completionPage.headers.get("cache-control"), "no-store");
+    assert.ok(completionPage.headers.get("content-security-policy"));
     assert.equal(callback.headers.get("referrer-policy"), "no-referrer");
     assert.match(callback.headers.get("set-cookie") ?? "", /__Host-mm_access=;[^\r\n]*Max-Age=0/u);
     assert.match(callback.headers.get("set-cookie") ?? "", /__Host-mm_refresh=;[^\r\n]*Max-Age=0/u);

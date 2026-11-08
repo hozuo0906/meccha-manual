@@ -5,8 +5,8 @@ import vm from "node:vm";
 
 import { APP_JS } from "../apps/worker/src/app-assets.ts";
 
-function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sessionStorageSetThrows = false, localStorageSetThrows = false, confirmResult = true, nowMs = Date.now() } = {}) {
-  const storage = new Map();
+function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcast = false, sharedStorage, onBroadcast, locationSearch = "", sessionStorageSetThrows = false, localStorageSetThrows = false, confirmResult = true, nowMs = Date.now() } = {}) {
+  const storage = sharedStorage ?? new Map();
   const sessionStorageValues = new Map();
   const lockCalls = [];
   const broadcastMessages = [];
@@ -97,6 +97,7 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
 
     postMessage(message) {
       broadcastMessages.push({ channel: this.name, message });
+      onBroadcast?.(message);
     }
   }
 
@@ -124,7 +125,12 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
     },
     window: {
       location: {
+        pathname: "/",
+        search: locationSearch,
         assign(url) {
+          locationAssignments.push(url);
+        },
+        replace(url) {
           locationAssignments.push(url);
         }
       }
@@ -179,8 +185,9 @@ function createHarness({ fetch, beforeLock, disableLocks = false, enableBroadcas
   };
   context.globalThis = context;
 
-  const source = APP_JS.replace(/\nloadSession\(\);\s*$/, "") + `
+  const source = APP_JS.replace(/\n(?:loadSession|startApp)\(\);\s*$/, "") + `
 globalThis.__appAuthTest = {
+  startApp: typeof startApp === "function" ? startApp : loadSession,
   requestJson,
   validateLoginForm,
   validateWorkspaceForm,
@@ -257,6 +264,90 @@ async function waitForCondition(predicate, message) {
   }
   assert.fail(message);
 }
+
+test("OAuth成功は共有Cookieの主体変更を旧shellのタブへ通知して旧アカウント画面からの作成を防ぐ", async () => {
+  const sharedStorage = new Map();
+  const creations = [];
+  let cookieUser = "user-A";
+  const fetch = async (path, options = {}) => {
+    if (path === "/api/workspaces" && options.method === "POST") {
+      creations.push({ displayedUser: tabA.api.getCurrentSession()?.user?.id, cookieUser });
+      return Response.json({ workspaceId: "11111111-1111-4111-8111-111111111111" });
+    }
+    return Response.json({ authMode: "product", user: { id: cookieUser }, workspaces: [] });
+  };
+  const tabA = createHarness({ fetch, sharedStorage, enableBroadcast: true });
+  await tabA.api.loadSession();
+  assert.equal(tabA.api.getCurrentSession().user.id, "user-A");
+  const oldForm = tabA.element("workspace-form");
+  oldForm.elements.name = { value: "合成ワークスペース" };
+  oldForm.elements.slug = { value: "oauth-switch" };
+  const previousVersion = tabA.api.readAuthenticationVersion();
+  // callbackの成功でブラウザ共有Cookieがuser-Bへ切り替わり、成功先を開く。
+  cookieUser = "user-B";
+  const tabB = createHarness({
+    fetch, sharedStorage, enableBroadcast: true,
+    locationSearch: "?auth=complete&return=%2Fmanuals",
+    onBroadcast: (message) => tabA.emitBroadcast(message)
+  });
+  await tabB.api.startApp();
+  // 旧画面が残る場合、利用者はそのまま作成を押せてしまう（修正前の再現）。
+  if (tabA.api.getCurrentSession()?.user?.id === "user-A" && /class="shell"/.test(tabA.app.innerHTML)) {
+    await tabA.api.createWorkspace({ preventDefault() {}, currentTarget: oldForm });
+  }
+  assert.deepEqual(creations, [], "user-Aの画面からuser-BのCookieで作成を送信してはいけない");
+  await waitForCondition(() => tabA.api.getCurrentSession()?.user?.id === "user-B", "タブAは最新主体へ追従する");
+  assert.notEqual(tabA.api.readAuthenticationVersion(), previousVersion);
+  assert.equal(tabB.broadcastMessages.length, 1);
+  assert.deepEqual(Object.keys(tabB.broadcastMessages[0].message).sort(), ["type", "version"]);
+  assert.deepEqual(tabB.locationAssignments, ["/manuals"]);
+  assert.equal(tabA.broadcastMessages.length, 0, "session再取得は通知を反復しない");
+});
+
+test("OAuth復帰は既存Web Lockの取得後に認証世代を進め通知してから許可済み戻り先へ移動する", async () => {
+  const release = deferred();
+  const harness = createHarness({ enableBroadcast: true, locationSearch: "?auth=complete&return=%2Fonboarding%2Fcontinue" });
+  const previousVersion = harness.api.readAuthenticationVersion();
+  const holding = harness.holdAuthenticationLock(() => release.promise);
+  const completion = harness.api.startApp();
+  await waitForCondition(() => harness.lockCalls.length === 2, "OAuthは既存の認証lockで待機する");
+  assert.equal(harness.api.readAuthenticationVersion(), previousVersion);
+  assert.equal(harness.broadcastMessages.length, 0);
+  assert.deepEqual(harness.locationAssignments, []);
+  release.resolve();
+  await holding;
+  await completion;
+  assert.notEqual(harness.api.readAuthenticationVersion(), previousVersion);
+  assert.equal(harness.broadcastMessages[0].message.version, harness.api.readAuthenticationVersion());
+  assert.deepEqual(harness.locationAssignments, ["/onboarding/continue"]);
+  assert.ok(harness.lockCalls.every(({ name, options }) => name === "meccha-manual-authentication" && options.mode === "exclusive"));
+});
+
+test("OAuth復帰の同期不能時も他タブへ通知し元操作へは進まない", async () => {
+  for (const options of [{ disableLocks: true }, { localStorageSetThrows: true }]) {
+    const harness = createHarness({
+      ...options, enableBroadcast: true, locationSearch: "?auth=complete&return=%2Fonboarding%2Fcontinue",
+      fetch: async () => Response.json({ google: true, chatgpt: false, password: false })
+    });
+    await harness.api.startApp();
+    assert.deepEqual(harness.locationAssignments, []);
+    assert.equal(harness.broadcastMessages.length, 1);
+    assert.match(harness.app.innerHTML, /安全にログイン状態を変更できません/);
+    assert.doesNotMatch(harness.app.innerHTML, /class="shell"/);
+  }
+});
+
+test("OAuth復帰マーカーは固定戻り先以外へ移動せず通常session読込は認証通知を送らない", async () => {
+  for (const returnPath of ["/", "https://outside.invalid/", "//outside.invalid/", "/manuals?auth=complete", "/onboarding/continue#token"]) {
+    const harness = createHarness({ enableBroadcast: true, locationSearch: "?auth=complete&return=" + encodeURIComponent(returnPath) });
+    await harness.api.startApp();
+    assert.deepEqual(harness.locationAssignments, ["/"]);
+  }
+  const harness = createHarness({ enableBroadcast: true, fetch: async () => Response.json({ authMode: "product", user: { id: "user-B" }, workspaces: [] }) });
+  await harness.api.startApp();
+  assert.equal(harness.api.getCurrentSession().user.id, "user-B");
+  assert.equal(harness.broadcastMessages.length, 0);
+});
 
 test("refresh要求は認証Web Lock内で現Cookieを再確認してから専用POSTと再送を行う", async () => {
   const calls = [];

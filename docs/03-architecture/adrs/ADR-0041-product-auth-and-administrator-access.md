@@ -30,6 +30,7 @@ Date: 2026-10-03
 - 既存のAccess identityは移行完了まで保持し、旧issuer+subjectの履歴をemailだけで置換しない。既存workspace、membership、role、manual、R2 assetのtenant境界を認証provider変更で緩めない。
 - セッションはサーバー側にtoken hashだけを保存し、expiry、明示logout、revocation、必要なrotation、CSRF防御を持つ。セッションの平文token、メール確認コード、OIDC token、ChatGPT credentialをD1、R2、ログへ保存しない。
 - `/api/session`は認証方式を`authMode: "product" | "access"`として返し、ブラウザはこの値だけで製品ログインとCloudflare Access再認証を分岐する。`manuals.status`や`members.status`は機能移行状態であり、認証方式の代替マーカーにしない。明示password login成功時は競合する製品sessionをserver-side revokeし、製品cookieを削除してlegacy sessionへ遷移する。製品OAuth成功時は競合するlegacy access／refresh cookieを端末から消去してproduct sessionへ遷移し、Supabase remote logoutは追加しない。
+- OAuth成功後は、検証済み戻り先へ直行せず `/?auth=complete&return=...` のroot起動処理を経由する（2026-11-08、PR #287）。password loginと同じ認証Web Lockで既存localStorage nonceを更新し、既存BroadcastChannelで他タブへ通知してから、固定許可先 `/`・`/manuals`・`/onboarding/continue`へ置換遷移する。通知にはtypeとversionだけを含め、token・主体・入力値は含めない。受信側は既存の旧shell非表示・応答世代無効化・session再取得へ接続する。同期不能時も通知を試み、成功タブは元操作へ進まず日本語のログイン案内を表示する。通常のsession読込は通知を送らない。完了マーカーは認証や認可の根拠ではない。
 - メール確認challengeは短命・一回使用・試行回数上限・再送制限・並行消費防止を必須にする。期限切れ、使用済み、回数超過、送信失敗を区別しつつ、アカウント存在の列挙を許さない。
 - guestのlocal draftとoutput選択はログイン途中でも保持し、認証後に同じhandoffとdraft fingerprintを再検証して元のoutputへ戻す。認証失敗やキャンセルでlocal原本を削除しない。
 

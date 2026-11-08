@@ -328,7 +328,7 @@ async function runProviderBrowser(provider, { startFailureOnce = false } = {}) {
         await route.fulfill({
           status: 200,
           headers: { ...headers, "content-type": "text/html; charset=utf-8" },
-          body: `<script>history.replaceState(null, "", ${JSON.stringify(new URL(returnLocation).pathname)})</script>${onboardingBody}`
+          body: `<script>history.replaceState(null, "", ${JSON.stringify(new URL(returnLocation).pathname + new URL(returnLocation).search)})</script>${onboardingBody}`
         });
         routeTrace.push("callback-as-return-page");
         return;
