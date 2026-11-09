@@ -2,6 +2,13 @@
 
 Status: Accepted
 
+## 2026-11-09 レガシーのアーカイブ済み一覧・専用詳細（DEC-117）
+
+| 要求／判断 | 実装・契約 | 検証 |
+|---|---|---|
+| FR-004、NFR-001／NFR-004、AC-010／AC-011／AC-017、DEC-117 | 通常一覧の「アーカイブ済み」切替から`GET /api/workspaces/{workspaceId}/manuals/archived`へ接続。`list_archived_manuals`内部でcallerのactive所属・owner/admin/editor/viewer、workspace、archivedの両条件を固定。通常一覧非表示と件数・本文上限を維持 | `tests/manual-api.test.mjs`、`tests/manual-editor-ui.test.mjs`、`tests/sql/phase2-archived-manual-read-test.sql`（SQL実DB実行は監督へ引き継ぐ） |
+| FR-004／FR-005、NFR-001／NFR-004、ADR-0042、DEC-117 | `GET /api/workspaces/{workspaceId}/manuals/archived/{manualId}`と`get_archived_manual_detail`から既存詳細・復元確認へ接続。同一snapshot、current draft優先／published fallback、active stepsだけ。viewerは閲覧のみ、復元は既存owner/admin/editor・CAS境界。通常SELECT／詳細・D1は変更しない | `tests/manual-edit-api.test.mjs`、`tests/manual-editor-ui.test.mjs`、専用読み取りSQLと既存restore SQL。実DB・実ブラウザ通し検証・CI・正式Reviewは未実施 |
+
 ## 2026-11-08 登録後サンプル投入（段階D）
 
 | 要求／判断 | 実装・境界 | 検証 |
@@ -57,7 +64,7 @@ Chrome拡張first、guest-first onboarding、PC/スマホ/タブレットrespons
 | FR-001 | OUTPUT-GATE, Access認証 | Access JWT検証、`POST /api/onboarding/bootstrap` | identities, profiles | ADR-0028, ADR-0032 | MVP-AC-007, 008, 009 | Extension MVP / EPIC-02 |
 | FR-002 | 認証後はPersonal Workspace自動準備 | `POST /api/onboarding/bootstrap` | workspaces, workspace_members, identities, profiles | ADR-0028, ADR-0032 | MVP-AC-008, 009 | Extension MVP / EPIC-02 |
 | FR-003 | Team設定・管理責任者移管 | workspace member APIs、POST owner-transfer | workspace_members、workspace_owner_transfer_permits、audit_logs | ADR-0028, ADR-0025, DEC-114 | AC-007, AC-008, AC-009, AC-014、d1-workspace / m3-http-d1 / d1-binding / app-auth | メンバー管理・standard workspaceのowner移管をローカル実装・検証済み（[報告書](../09-delivery/owner-transfer-2026-11-08.md)）。remote D1適用・CI・正式Review未実施 / EPIC-02 |
-| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038, ADR-0042 | AC-010, AC-011, AC-017、Phase2 manual tests、archive/restore SQL・API・archived UI回帰（通常UI専用入口は未決）、画像中心editor／保存状態UI、画像編集dialog回帰 | EPIC-06 |
+| FR-004 | Manual editor | manual APIs | manuals, manual_revisions, manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038, ADR-0042, DEC-117 | AC-010, AC-011, AC-017、Phase2 manual tests、archive/restore・専用読み取りSQL／API／UI回帰（レガシー専用入口はDEC-117、D1側は未決）、画像中心editor／保存状態UI、画像編集dialog回帰 | EPIC-06 |
 | FR-005 | Manual editor | manual step APIs | manual_steps | ADR-0028, ADR-0005, ADR-0035, ADR-0036, ADR-0038 | manual edit/reorder tests、画像欠落時の再記録案内、注釈・mask編集回帰 | EPIC-06 |
 | FR-006 | Manual editor | local deterministic suggestion | - | ADR-0009 | manual instruction template tests | EPIC-06 |
 | FR-007 | Chrome Extension | extension local capture + 認証後claim API | guest local capture state, 認証後manual | ADR-0031 | MVP-AC-002, 016 | Extension MVP / EPIC-05 |

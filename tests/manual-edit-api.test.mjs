@@ -1237,3 +1237,66 @@ for (const [upstreamStatus, expectedStatus, code] of [
     } finally { mock.restore(); }
   });
 }
+
+function archivedDetailPath() {
+  return `/api/workspaces/${WORKSPACE_ID}/manuals/archived/${MANUAL_ID}`;
+}
+function archivedSnapshot(canEdit = true) {
+  const snapshot = detailSnapshot(DRAFT_ID, [stepRow()], canEdit);
+  snapshot.manual.status = "archived";
+  snapshot.manual.archived_at = "2026-11-09T00:00:00Z";
+  return snapshot;
+}
+for (const canEdit of [true, false]) {
+  test(`archived detail returns existing detail shape with canEdit=${canEdit}`, async () => {
+    const mock = installFetch([authOk(), memberOk(), json(archivedSnapshot(canEdit))]);
+    try {
+      const response = await handleManualEditRoute(request(archivedDetailPath()), ENV);
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.manual.status, "archived");
+      assert.equal(body.draft.id, DRAFT_ID);
+      assert.equal(body.steps[0].instruction, "手修正済みです。");
+      assert.equal(body.permissions.canEdit, canEdit);
+      assert.equal("archived_at" in body.manual, false);
+      const rpc = mock.calls[2];
+      assert.match(rpc.url, /\/rpc\/get_archived_manual_detail$/);
+      assert.deepEqual(JSON.parse(rpc.init.body), { target_workspace_id: WORKSPACE_ID, target_manual_id: MANUAL_ID });
+      assert.equal(rpc.init.headers.get("authorization"), "Bearer access-token");
+      assert.equal(rpc.init.headers.get("apikey"), ENV.SUPABASE_ANON_KEY);
+    } finally { mock.restore(); }
+  });
+}
+
+test("archived detail hides nonmembers before reading a snapshot", async () => {
+  const mock = installFetch([authOk(), memberOk(false)]);
+  try { assert.equal((await handleManualEditRoute(request(archivedDetailPath()), ENV)).status, 404); }
+  finally { mock.restore(); }
+});
+for (const [label, mutate] of [
+  ["other workspace", (v) => { v.manual.workspace_id = USER_ID; }],
+  ["other manual", (v) => { v.manual.id = USER_ID; }],
+  ["active status", (v) => { v.manual.status = "draft"; }],
+  ["missing archive time", (v) => { v.manual.archived_at = null; }],
+  ["other workspace revision", (v) => { v.draft.workspace_id = USER_ID; }],
+  ["other workspace step", (v) => { v.steps[0].workspace_id = USER_ID; }]
+]) {
+  test(`archived detail rejects ${label}`, async () => {
+    const snapshot = archivedSnapshot(); mutate(snapshot);
+    const mock = installFetch([authOk(), memberOk(), json(snapshot)]);
+    try { assert.equal((await handleManualEditRoute(request(archivedDetailPath()), ENV)).status, 502); }
+    finally { mock.restore(); }
+  });
+}
+
+test("archived detail maps an absent or inaccessible snapshot to 404", async () => {
+  const mock = installFetch([authOk(), memberOk(), json(null)]);
+  try { assert.equal((await handleManualEditRoute(request(archivedDetailPath()), ENV)).status, 404); }
+  finally { mock.restore(); }
+});
+
+test("archived detail is GET only; malformed IDs and missing session are rejected", async () => {
+  assert.equal((await handleManualEditRoute(request(archivedDetailPath(), "PATCH"), ENV)).status, 405);
+  assert.equal((await handleManualEditRoute(request(archivedDetailPath().replace(MANUAL_ID, "invalid")), ENV)).status, 404);
+  assert.equal((await handleManualEditRoute(new Request(APP_ORIGIN + archivedDetailPath()), ENV)).status, 401);
+});

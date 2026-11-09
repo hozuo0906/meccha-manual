@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-633f1b324e58afa1";
+export const APP_ASSET_VERSION = "sha256-e023b3435ca27760";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2625,7 +2625,7 @@ function wireManualNavigation(currentWorkspace) {
   document.getElementById("manual-nav-button")?.addEventListener("click", () => openManualList(currentWorkspace));
 }
 
-function openManualList(currentWorkspace, message = "", messageKind = "notice") {
+function openManualList(currentWorkspace, message = "", messageKind = "notice", scope = "active") {
   if (manualMigrationInProgress()) {
     currentScreen = "workspace";
     renderShell(currentSession, "手順書機能は移行中のため、現在利用できません。", "warning", "shell-message");
@@ -2635,6 +2635,10 @@ function openManualList(currentWorkspace, message = "", messageKind = "notice") 
     currentScreen = "workspace";
     renderShell(currentSession, "利用中のワークスペースを選択してください。", "error", "shell-message");
     return;
+  }
+  if ((manualsState.scope || "active") !== scope) {
+    ++manualRequestSequence;
+    manualsState = { workspaceId: currentWorkspace.id, scope, status: "idle", items: [], message: "", messageKind: "notice" };
   }
   currentScreen = "manuals";
   manualDetailState = { workspaceId: currentWorkspace.id, manualId: "", status: "idle", value: null, message: "", messageKind: "notice" };
@@ -2702,13 +2706,16 @@ function manualMessageHtml(state, id) {
 
 function manualListHtml(currentWorkspace) {
   const state = manualsState;
-  const canEdit = manualCanEdit(currentWorkspace);
+  const isArchivedList = state.scope === "archived";
+  const canEdit = !isArchivedList && manualCanEdit(currentWorkspace);
   const roleKnown = workspaceMembersState?.workspaceId === currentWorkspace.id && Boolean(workspaceMembersState.currentUserRole);
   let body = "";
   if (state.status === "idle" || state.status === "loading") {
     body = '<div class="empty" role="status" aria-live="polite" aria-busy="true">手順書を読み込んでいます…</div>';
   } else if (state.status === "error") {
     body = '<div class="empty"><p>手順書一覧を読み込めませんでした。</p><button id="manuals-retry-button" class="secondary-button" type="button">手順書一覧をもう一度読み込む</button></div>';
+  } else if (state.items.length === 0 && isArchivedList) {
+    body = '<div class="empty" role="status">アーカイブ済みの手順書はありません。</div>';
   } else if (state.items.length === 0) {
     body = '<div class="empty" role="status"><strong>ワークスペースに保存された手順書はありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '<p><a href="/manuals/sample">サンプルを見る</a></p></div>';
   } else {
@@ -2719,7 +2726,7 @@ function manualListHtml(currentWorkspace) {
       '</button></div>'
     ).join("") + '</div>';
   }
-  const createPanel = canEdit
+  const createPanel = isArchivedList ? "" : canEdit
     ? '<form id="manual-create-form" class="workspace-form manual-form" novalidate>' +
         '<h2>新しい手順書</h2><p>タイトルだけで作成できます。説明は後から変更できます。</p>' +
         '<div class="field"><label for="manual-create-title">タイトル</label><input id="manual-create-title" name="title" data-code-point-max="64" required></div>' +
@@ -2729,7 +2736,8 @@ function manualListHtml(currentWorkspace) {
     : '<section class="workspace-form" aria-labelledby="manual-permission-heading"><h2 id="manual-permission-heading">作成権限</h2><p>' + (roleKnown ? '現在の権限では手順書を作成・編集できません。閲覧はできます。' : 'メンバー権限を確認しています。') + '</p></section>';
   return '<div class="manual-layout">' +
     '<section class="section" aria-labelledby="manual-list-heading">' +
-      '<div class="section-header"><h2 id="manual-list-heading">手順書一覧</h2><span class="badge">' + (state.status === "loaded" ? state.items.length : "-") + '件</span></div>' +
+      '<div class="section-header"><h2 id="manual-list-heading">' + (isArchivedList ? 'アーカイブ済み' : '手順書一覧') + '</h2><span class="badge">' + (state.status === "loaded" ? state.items.length : "-") + '件</span></div>' +
+      '<button id="manual-scope-button" class="secondary-button" type="button">' + (isArchivedList ? '通常の手順書一覧へ' : 'アーカイブ済み') + '</button>' +
       body +
     '</section>' + createPanel +
   '</div>';
@@ -2909,7 +2917,9 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
   }
   const isDetail = currentScreen === "manual-detail";
   const heading = isDetail && manualDetailState.value?.manual?.title ? manualDetailState.value.manual.title : "手順書";
-  const subheading = isDetail ? "下書きと手順を編集します。" : "ワークスペース内の手順書を確認・作成します。";
+  const subheading = isDetail
+    ? manualDetailState.scope === "archived" ? "アーカイブ済みの内容を確認し、復元できます。" : "下書きと手順を編集します。"
+    : manualsState.scope === "archived" ? "アーカイブ済みの手順書を確認します。" : "ワークスペース内の手順書を確認・作成します。";
   const state = isDetail ? manualDetailState : manualsState;
   if (notice) {
     state.message = notice;
@@ -2928,7 +2938,8 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
     '</div></section>';
   document.getElementById("logout-button")?.addEventListener("click", logout);
   wireManualNavigation(currentWorkspace);
-  document.getElementById("manual-back-button")?.addEventListener("click", () => openManualList(currentWorkspace));
+  document.getElementById("manual-back-button")?.addEventListener("click", () => openManualList(currentWorkspace, "", "notice", manualDetailState.scope || "active"));
+  document.getElementById("manual-scope-button")?.addEventListener("click", () => openManualList(currentWorkspace, "", "notice", manualsState.scope === "archived" ? "active" : "archived"));
   document.getElementById("manual-reload-button")?.addEventListener("click", () => {
     if (isDetail) loadManualDetail(currentWorkspace.id, manualDetailState.manualId, { focusId: "manual-detail-message" });
     else loadManuals(currentWorkspace.id, { focusId: "manuals-message" });
@@ -2944,7 +2955,7 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
     if (!manualMutationInFlight) openManualReadingPreview();
   });
   for (const button of document.querySelectorAll("[data-manual-id]")) {
-    button.addEventListener("click", () => openManualDetail(currentWorkspace.id, button.dataset.manualId));
+    button.addEventListener("click", () => openManualDetail(currentWorkspace.id, button.dataset.manualId, manualsState.scope || "active"));
   }
   document.getElementById("manual-create-form")?.addEventListener("submit", createManualFromUi);
   document.getElementById("manual-draft-form")?.addEventListener("submit", updateManualDraftFromUi);
@@ -2962,10 +2973,11 @@ function renderManualShell(session, notice = "", noticeKind = "notice", focusId 
 }
 
 async function loadManuals(workspaceId, options = {}) {
+  const scope = manualsState.scope || "active";
   const requestGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
-  const pendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+  const pendingManualCreate = (scope === "active" ? manualCreateReconciliationByWorkspace.get(workspaceId) : undefined);
   const carriedMessage = options.message ?? pendingManualCreate?.message ?? (
     manualsState.workspaceId === workspaceId && manualsState.status === "idle"
       ? manualsState.message
@@ -2977,7 +2989,7 @@ async function loadManuals(workspaceId, options = {}) {
       : "notice"
   );
   manualsState = {
-    workspaceId,
+    workspaceId, scope,
     status: "loading",
     items: manualsState.workspaceId === workspaceId ? manualsState.items : [],
     message: carriedMessage,
@@ -2985,16 +2997,16 @@ async function loadManuals(workspaceId, options = {}) {
   };
   renderShell(currentSession, "", "notice", options.focusId || null);
   try {
-    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals");
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals" + (scope === "archived" ? "/archived" : ""));
     if (
       requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
       sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
     ) return;
     if (!Array.isArray(payload.manuals)) throw new AppRequestError("手順書一覧を確認できませんでした。", 502, "MANUALS_RESPONSE_INVALID");
-    const currentPendingManualCreate = manualCreateReconciliationByWorkspace.get(workspaceId);
+    const currentPendingManualCreate = (scope === "active" ? manualCreateReconciliationByWorkspace.get(workspaceId) : undefined);
     if (currentPendingManualCreate && currentPendingManualCreate !== pendingManualCreate) {
       manualsState = {
-        workspaceId,
+        workspaceId, scope,
         status: "idle",
         items: payload.manuals,
         message: currentPendingManualCreate.message,
@@ -3010,8 +3022,8 @@ async function loadManuals(workspaceId, options = {}) {
       }
       return;
     }
-    manualsState = { workspaceId, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
-    if (manualCreateReconciliationByWorkspace.get(workspaceId) === pendingManualCreate) {
+    manualsState = { workspaceId, scope, status: "loaded", items: payload.manuals, message: carriedMessage, messageKind: carriedMessageKind };
+    if (scope === "active" && manualCreateReconciliationByWorkspace.get(workspaceId) === pendingManualCreate) {
       manualCreateReconciliationByWorkspace.delete(workspaceId);
     }
     renderShell(currentSession, "", "notice", options.focusId || null);
@@ -3021,26 +3033,27 @@ async function loadManuals(workspaceId, options = {}) {
       sequence !== manualRequestSequence
     ) return;
     if (isTerminalSessionError(error) || isTerminalAccessAuthorizationError(error)) return loadSession();
-    manualsState = { workspaceId, status: "error", items: [], message: error.message, messageKind: "error" };
+    manualsState = { workspaceId, scope, status: "error", items: [], message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manuals-message");
   }
 }
 
-function openManualDetail(workspaceId, manualId) {
+function openManualDetail(workspaceId, manualId, scope = "active") {
   currentScreen = "manual-detail";
-  manualDetailState = { workspaceId, manualId, status: "loading", value: null, message: "", messageKind: "notice" };
+  manualDetailState = { workspaceId, manualId, scope, status: "loading", value: null, message: "", messageKind: "notice" };
   renderShell(currentSession, "", "notice", "manual-detail-heading");
   loadManualDetail(workspaceId, manualId);
 }
 
 async function loadManualDetail(workspaceId, manualId, options = {}) {
+  const scope = manualDetailState.scope || "active";
   const requestGeneration = sessionGeneration;
   const requestUserId = currentSession?.user?.id;
   const sequence = ++manualRequestSequence;
   manualDetailState = { ...manualDetailState, workspaceId, manualId, status: "loading", message: "", messageKind: "notice" };
   if (!options.preserveDomUntilLoaded) renderShell(currentSession, "", "notice", options.focusId || null);
   try {
-    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId));
+    const payload = await requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + (scope === "archived" ? "archived/" : "") + encodeURIComponent(manualId));
     if (
       requestGeneration !== sessionGeneration || requestUserId !== currentSession?.user?.id ||
       sequence !== manualRequestSequence || currentWorkspaceSelection?.workspaceId !== workspaceId
@@ -3052,7 +3065,7 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
       return;
     }
     if (options.finishMutation) manualMutationInFlight = false;
-    manualDetailState = { workspaceId, manualId, status: "loaded", value: payload, message: options.message || "", messageKind: options.messageKind || "notice" };
+    manualDetailState = { workspaceId, manualId, scope, status: "loaded", value: payload, message: options.message || "", messageKind: options.messageKind || "notice" };
     renderShell(currentSession, "", "notice", options.focusId || null);
     restoreManualDetailDrafts(options.restoreDrafts);
   } catch (error) {
@@ -3142,7 +3155,7 @@ async function loadManualDetail(workspaceId, manualId, options = {}) {
       return;
     }
     if (options.finishMutation) manualMutationInFlight = false;
-    manualDetailState = { workspaceId, manualId, status: "error", value: null, message: error.message, messageKind: "error" };
+    manualDetailState = { workspaceId, manualId, scope, status: "error", value: null, message: error.message, messageKind: "error" };
     renderShell(currentSession, "", "notice", "manual-detail-message");
   }
 }
@@ -3387,7 +3400,7 @@ async function runDetailMutation(operation, successMessage, options = {}) {
     if (resultUnknown) {
       if (options.resultUnknownToList) {
         setManualMutationBusyState(false);
-        openManualList(selectedActiveWorkspace(), "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
+        openManualList(selectedActiveWorkspace(), options.resultUnknownMessage || "アーカイブ結果を一覧で確認してください。重ねて操作しないでください。", "warning");
         return;
       }
       await loadManualDetail(workspaceId, manualId, {
@@ -3484,7 +3497,7 @@ function restoreManualFromUi() {
   return runDetailMutation(
     (workspaceId, manualId) => requestJson("/api/workspaces/" + encodeURIComponent(workspaceId) + "/manuals/" + encodeURIComponent(manualId) + "/restore", { method: "POST", body: JSON.stringify({ expectedUpdatedAt }) }),
     "手順書をアーカイブから復元しました。",
-    { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true }
+    { invalidateManuals: true, returnToListOnSuccess: true, resultUnknownToList: true, resultUnknownMessage: "復元結果を通常の一覧で確認してください。重ねて操作しないでください。" }
   );
 }
 

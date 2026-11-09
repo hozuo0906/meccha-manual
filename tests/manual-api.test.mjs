@@ -439,3 +439,71 @@ test("uppercase workspace UUID is canonicalized before querying and comparing ro
     mock.restore();
   }
 });
+
+function archivedListRequest(method = "GET") {
+  return new Request(`${APP_ORIGIN}/api/workspaces/${WORKSPACE_ID}/manuals/archived`, {
+    method, headers: { cookie: "__Host-mm_access=access-token" }
+  });
+}
+
+test("archived list uses a dedicated RPC with caller credentials and exact count", async () => {
+  const row = { ...manualRow(1), status: "archived", archived_at: "2026-11-09T00:00:00Z" };
+  const mock = installFetch([authOk(), memberOk(), json([row], 200, { "content-range": "0-0/1" })]);
+  try {
+    const response = await handleManualRoute(archivedListRequest(), ENV);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).manuals[0].status, "archived");
+    const rpc = mock.calls[2];
+    assert.match(rpc.url, /\/rpc\/list_archived_manuals\?limit=1001$/);
+    assert.equal(rpc.init.method, "POST");
+    assert.deepEqual(JSON.parse(rpc.init.body), { target_workspace_id: WORKSPACE_ID });
+    assert.equal(rpc.init.headers.get("authorization"), "Bearer access-token");
+    assert.equal(rpc.init.headers.get("apikey"), ENV.SUPABASE_ANON_KEY);
+    assert.equal(rpc.init.headers.get("prefer"), "count=exact");
+  } finally { mock.restore(); }
+});
+
+test("archived list hides nonmembers before querying the dedicated RPC", async () => {
+  const mock = installFetch([authOk(), json(false)]);
+  try {
+    assert.equal((await handleManualRoute(archivedListRequest(), ENV)).status, 404);
+    assert.equal(mock.calls.length, 2);
+  } finally { mock.restore(); }
+});
+
+for (const [label, patch] of [
+  ["other workspace", { workspace_id: USER_ID }],
+  ["active status", { status: "draft" }],
+  ["missing archive time", { archived_at: null }],
+  ["invalid archive time", { archived_at: "invalid" }]
+]) {
+  test(`archived list rejects ${label} in upstream rows`, async () => {
+    const row = { ...manualRow(1), status: "archived", archived_at: "2026-11-09T00:00:00Z", ...patch };
+    const mock = installFetch([authOk(), memberOk(), json([row], 200, { "content-range": "0-0/1" })]);
+    try {
+      const response = await handleManualRoute(archivedListRequest(), ENV);
+      assert.equal(response.status, 502);
+      assert.equal((await response.json()).code, "MANUALS_RESPONSE_INVALID");
+    } finally { mock.restore(); }
+  });
+}
+
+for (const [label, upstream, expected] of [
+  ["empty", () => json([], 200, { "content-range": "*/0" }), 200],
+  ["truncated", () => json([manualRow(1)], 200, { "content-range": "0-0/2" }), 502],
+  ["over limit", () => json([], 200, { "content-range": "*/1001" }), 409],
+  ["unauthenticated", () => json(null, 401), 401],
+  ["RPC unavailable", () => json({ message: "internal detail" }, 403), 502]
+]) {
+  test(`archived list handles ${label}`, async () => {
+    const mock = installFetch([authOk(), memberOk(), upstream()]);
+    try { assert.equal((await handleManualRoute(archivedListRequest(), ENV)).status, expected); }
+    finally { mock.restore(); }
+  });
+}
+
+test("archived list is GET only and requires a session", async () => {
+  assert.equal((await handleManualRoute(archivedListRequest("POST"), ENV)).status, 405);
+  const request = new Request(`${APP_ORIGIN}/api/workspaces/${WORKSPACE_ID}/manuals/archived`);
+  assert.equal((await handleManualRoute(request, ENV)).status, 401);
+});
