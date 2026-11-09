@@ -326,6 +326,85 @@ test("a mismatched archive result is treated as unknown", async () => {
   }
 });
 
+test("editor restores the displayed manual through the workspace-bound RPC", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json(MANUAL_ID)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 200);
+    assert.deepEqual(await response.json(), { restoredManualId: MANUAL_ID });
+    const rpc = mock.calls[3];
+    assert.match(rpc.url, /\/rest\/v1\/rpc\/restore_manual$/);
+    assert.deepEqual(JSON.parse(String(rpc.init.body)), {
+      target_workspace_id: WORKSPACE_ID,
+      target_manual_id: MANUAL_ID,
+      expected_manual_updated_at: manualRow().updated_at
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("viewer cannot restore a manual", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(false)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 403);
+    assert.equal((await response.json()).code, "MANUAL_EDIT_FORBIDDEN");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("restore rejects a stale displayed manual version", async () => {
+  const mock = installFetch([
+    authOk(), memberOk(), editorOk(), json({ message: "manual restore changed concurrently" }, 400)
+  ]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 409);
+    assert.equal((await response.json()).code, "MANUAL_RESTORE_CONFLICT");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("restore requires the displayed manual version", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk()]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/restore"), "POST", JSON.stringify({})),
+      ENV
+    );
+    assert.equal(response?.status, 400);
+    assert.equal((await response.json()).code, "MANUAL_RESTORE_VERSION_INVALID");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a mismatched restore result is treated as unknown", async () => {
+  const mock = installFetch([authOk(), memberOk(), editorOk(), json(PUBLISHED_ID)]);
+  try {
+    const response = await handleManualEditRoute(
+      request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })),
+      ENV
+    );
+    assert.equal(response?.status, 502);
+    assert.equal((await response.json()).code, "MANUAL_RESTORE_RESULT_UNKNOWN");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("a mismatched publish result is treated as unknown and must be reconciled", async () => {
   const mock = installFetch([authOk(), memberOk(), editorOk(), json([manualRow()]), json(PUBLISHED_ID)]);
   try {
@@ -1092,3 +1171,69 @@ test("manual detail does not request hidden step mutation fields", async () => {
     mock.restore();
   }
 });
+
+for (const [message, status, code] of [
+  ["manual restore state unknown", 409, "MANUAL_RESTORE_STATE_UNKNOWN"],
+  ["manual not found", 404, "MANUAL_NOT_FOUND"]
+]) {
+  test("restore propagates RPC rejection: " + message, async () => {
+    const mock = installFetch([authOk(), memberOk(), editorOk(), json({ message }, 400)]);
+    try {
+      const response = await handleManualEditRoute(request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })), ENV);
+      assert.equal(response.status, status);
+      assert.equal((await response.json()).code, code);
+    } finally { mock.restore(); }
+  });
+}
+
+test("restore rejects unsupported methods without calling upstream", async () => {
+  const mock = installFetch([]);
+  try {
+    for (const method of ["GET", "PATCH", "DELETE", "PUT"]) {
+      const response = await handleManualEditRoute(request(detailPath("/restore"), method), ENV);
+      assert.equal(response.status, 405);
+    }
+  } finally { mock.restore(); }
+});
+
+test("restore requires authentication and same-origin writes", async () => {
+  const mock = installFetch([]);
+  try {
+    const unauthenticated = await handleManualEditRoute(request(detailPath("/restore"), "POST", "{}", { cookie: "" }), ENV);
+    assert.equal(unauthenticated.status, 401);
+    const crossOrigin = await handleManualEditRoute(request(detailPath("/restore"), "POST", "{}", { origin: "https://other.example.test" }), ENV);
+    assert.equal(crossOrigin.status, 403);
+  } finally { mock.restore(); }
+});
+
+test("nonmember cannot restore a manual", async () => {
+  const mock = installFetch([authOk(), memberOk(false)]);
+  try {
+    const response = await handleManualEditRoute(request(detailPath("/restore"), "POST", "{}"), ENV);
+    assert.equal(response.status, 404);
+  } finally { mock.restore(); }
+});
+
+for (const body of [{ expectedUpdatedAt: "invalid" }, { expectedUpdatedAt: manualRow().updated_at, status: "draft" }]) {
+  test("restore rejects invalid or extra input: " + JSON.stringify(body), async () => {
+    const mock = installFetch([authOk(), memberOk(), editorOk()]);
+    try {
+      const response = await handleManualEditRoute(request(detailPath("/restore"), "POST", JSON.stringify(body)), ENV);
+      assert.equal(response.status, 400);
+    } finally { mock.restore(); }
+  });
+}
+
+for (const [upstreamStatus, expectedStatus, code] of [
+  [500, 502, "MANUAL_RESTORE_RESULT_UNKNOWN"],
+  [404, 502, "MANUAL_RESTORE_UNAVAILABLE"]
+]) {
+  test("restore classifies upstream failure " + upstreamStatus, async () => {
+    const mock = installFetch([authOk(), memberOk(), editorOk(), json({}, upstreamStatus)]);
+    try {
+      const response = await handleManualEditRoute(request(detailPath("/restore"), "POST", JSON.stringify({ expectedUpdatedAt: manualRow().updated_at })), ENV);
+      assert.equal(response.status, expectedStatus);
+      assert.equal((await response.json()).code, code);
+    } finally { mock.restore(); }
+  });
+}

@@ -20,7 +20,9 @@ Status: Accepted
 
 - 手順書削除は原則アーカイブから始める。
 - 手順書アーカイブは`status = archived`と`archived_at`だけを更新し、revision pointer、下書き、公開版、step、asset参照を保持する。通常の一覧・詳細からは除外する。
-- 復元と物理削除はOQ-028を解決するまで有効化しない。
+- 復元は[ADR-0042](../03-architecture/adrs/ADR-0042-manual-restore-from-archive.md)に従い有効化する。owner/admin/editorがCAS付きRPCで、最新の`manual.archived`監査のpreviousStatus（draft/reviewing/published/stale）へ戻す。監査なし・不正値は拒否する。`manual.restored`に復元状態とrevision pointerを記録する。
+- 物理削除・自動削除が無効な間、アーカイブ済み手順書は無期限保持し、復元期限は設けない。revision・手順・asset・共有リンクは復元で変更しない。失効済み共有リンクは失効のまま、未失効かつ期限内のリンクは再び有効になる。
+- 物理削除・自動削除は引き続き無効。猶予期間、参照削除順序、監査保持、再試行はOQ-028と別ADRで確定する。
 - 完全削除は画像、派生ファイル、共有リンク、分析、コメントへの影響を明示する。
 - 退会後削除猶予は未決事項として管理する。
 - 未契約作成枠の下書き、操作記録画像、都度払い購入後データの保持期間はOQ-023で決める。

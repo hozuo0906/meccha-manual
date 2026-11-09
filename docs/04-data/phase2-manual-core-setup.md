@@ -26,6 +26,7 @@ supabase/migrations/202608140010_phase2_manual_step_mutations.sql
 supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
 supabase/migrations/202608180001_phase2_manual_publication.sql
 supabase/migrations/202608180002_phase2_manual_archive.sql
+supabase/migrations/202608180003_phase2_manual_restore.sql
 ```
 
 前提migration:
@@ -180,3 +181,10 @@ Phase 2 migration適用後に実行するテスト:
 ## Next step
 
 ユーザー承認を得て全migrationとRLS回帰テストを対象環境へ適用したあと、Phase 2のAPI/画面を小さく分けて実装する。
+
+
+## 復元migrationの追加（ADR-0042、2026-11-08）
+
+`202608180002_phase2_manual_archive.sql`の後に`202608180003_phase2_manual_restore.sql`を適用する。restore_manualはworkspace・role・CAS・最新アーカイブ監査を照合し、manual.restoredを記録する。RLS・テーブル定義は変更しない。物理削除・自動削除は有効化しない。remote環境への適用は別release判断とする。
+
+Manual Edit API CIは既存fixture／migrationを順に適用し、archive回帰の後に`tests/sql/phase2-manual-restore-test.sql`を実行する。ローカル`npm run check`にSQL実行は含まれず、実行結果・未実行は個別に記録する。既存preflight evidenceのarchive状態やflowを復元結果で置き換えない。

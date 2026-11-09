@@ -76,7 +76,7 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const carriedMessage = options\.message \?\?[\s\S]*manualsState\.status === "idle"/);
   assert.match(source, /data-manual-busy-rendered=\"true\"/);
   assert.match(source, /querySelectorAll\('\[data-manual-busy-rendered=\"true\"\]'\)[\s\S]*control\.disabled = false/);
-  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-reading-preview-button"\)[\s\S]*control\.disabled = true/);
+  assert.match(source, /querySelectorAll\("#manual-publish-button, #manual-create-draft-button, #manual-archive-button, #manual-restore-button, #manual-reading-preview-button"\)[\s\S]*control\.disabled = true/);
   assert.match(source, /const isAction = type === "action"[\s\S]*actionType: isAction[\s\S]*targetText: isAction/);
   assert.match(source, /function isCurrentManualDetailContext\(workspaceId, manualId\)[\s\S]*currentScreen === "manual-detail"[\s\S]*manualDetailState\.manualId === manualId/);
   assert.match(source, /options\.invalidateManuals && manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"/);
@@ -186,6 +186,61 @@ test("editable empty manual list prioritizes creation and its CTA focuses the ti
   assert.equal(scrolled, true);
 });
 
+
+test("archived detail offers restoration only to editors and keeps editing closed", async () => {
+  const source = await readFile(appPath, "utf8");
+  const labels = source.slice(source.indexOf("const manualStatusLabels ="), source.indexOf("function resetManualUiState("));
+  const render = source.slice(source.indexOf("function manualDetailHtml("), source.indexOf("function renderManualShell("));
+  function html(status, canEdit) {
+    return runInNewContext(labels + render + "manualDetailHtml({})", {
+      manualDetailState: { status: "ready", value: {
+        manual: { status, title: "合成手順書", updatedAt: "2026-11-08T00:00:00Z" },
+        permissions: { canEdit }, draft: { state: "draft", title: "合成手順書", description: "" }, steps: []
+      } },
+      manualMutationInFlight: false,
+      escapeHtml: (value) => String(value ?? ""),
+      manualRevisionReadOnlyLabel: () => "下書き（閲覧専用）",
+      stepTypeOptions: () => "", actionTypeOptions: () => ""
+    });
+  }
+  const archived = html("archived", true);
+  assert.match(archived, /id="manual-restore-button"/);
+  assert.match(archived, /失効していない期限内の共有リンクは再び有効/);
+  assert.doesNotMatch(archived, /id="manual-(?:archive-button|draft-form|step-add-form|publish-button|create-draft-button)"/);
+  assert.doesNotMatch(html("archived", false), /id="manual-restore-button"/);
+  assert.doesNotMatch(html("draft", true), /id="manual-restore-button"/);
+});
+
+test("restore confirmation sends the displayed CAS and returns to the refreshed list", async () => {
+  const source = await readFile(appPath, "utf8");
+  const handler = source.slice(source.indexOf("function restoreManualFromUi()"), source.indexOf("function createManualDraftFromUi()"));
+  for (const confirmed of [false, true]) {
+    const calls = [];
+    const context = {
+      manualDetailState: { value: { manual: { updatedAt: "2026-11-08T00:00:00Z" } } },
+      window: { confirm(message) {
+        assert.match(message, /アーカイブ前の状態/);
+        assert.match(message, /共有リンクは再び有効/);
+        return confirmed;
+      } },
+      runDetailMutation: (mutation, message, options) => {
+        assert.match(message, /復元しました/);
+        assert.equal(options.invalidateManuals, true);
+        assert.equal(options.returnToListOnSuccess, true);
+        assert.equal(options.resultUnknownToList, true);
+        return mutation("workspace", "manual");
+      },
+      requestJson: (url, options) => calls.push({ url, options })
+    };
+    runInNewContext(handler + "restoreManualFromUi()", context);
+    assert.equal(calls.length, confirmed ? 1 : 0);
+    if (confirmed) {
+      assert.equal(calls[0].url, "/api/workspaces/workspace/manuals/manual/restore");
+      assert.equal(calls[0].options.method, "POST");
+      assert.deepEqual(JSON.parse(calls[0].options.body), { expectedUpdatedAt: "2026-11-08T00:00:00Z" });
+    }
+  }
+});
 async function manualDisplayContext() {
   const { APP_JS } = await import("../apps/worker/src/app-assets.ts");
   const labels = APP_JS.slice(APP_JS.indexOf("const manualStatusLabels ="), APP_JS.indexOf("function resetManualUiState("));

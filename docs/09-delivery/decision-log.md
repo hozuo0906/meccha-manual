@@ -839,6 +839,14 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Reason: 結果不明時に記録保持を断定せず、確認対象と次の操作を日本語で案内する。backgroundからpopup／sidepanelへ表示される終了失敗の2文言も同じ範囲に含める。
 - Boundary: 仕様・挙動・認可・保存処理を変更しない。撮影時の自動画像加工を示す表現は採用せず、ADR-0040の無加工画像・利用者確認・手動編集を維持する。(a)の到達済み項目、privacy-note、cloud一覧の空状態ガイド、進行中の記録状態表示、過去の履歴は変更しない。
 - Evidence: [実施報告書](pr270-wording-b-2026-11-08.md)。表示文言を参照する既存テストと資産hash・共有画像編集の生成物を同期する。
+
+## DEC-116: 手順書のアーカイブからの復元を先に有効化する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: [ADR-0042](../03-architecture/adrs/ADR-0042-manual-restore-from-archive.md)に従い、archivedかつarchived_atありの手順書をowner/admin/editorがCAS付きRPCで復元する。最新manual.archived監査のpreviousStatusへ正確に戻し、記録なし・不正値・同時刻の矛盾は拒否する。manual.restoredにrestoredStatusとrevision pointerを監査する。
+- Boundary: revision・手順・asset・共有リンクは変更しない。失効していない期限内リンクは再び有効になるためUI確認に明示する。物理削除・自動削除は破壊的操作であり、復元可能性が削除設計の前提条件だったため、復元を先に提供する。削除の猶予・参照順序・監査保持・再試行はOQ-028の未解決として残す。削除無効の間は無期限保持・復元期限なし。通常一覧・詳細の取得境界、RLS、D1実装は変更しない。
+- Verification: SQLの状態復帰・監査・CAS・role・tenant越境・二重復元・監査不明、WorkerのRPC／入力／認証／method境界、UIの編集禁止・確認／取消・再読込を回帰対象にする。通常UIのarchived取得入口は未決としてOQ-028へ残す。
 ## DEC-114: Teamの管理責任者移管を専用フローで許可する
 
 - Status: Accepted

@@ -123,7 +123,23 @@ current draftのtitle/descriptionを更新する。
 - 同じtransactionで`manual.archived`を`audit_logs`へ記録する。
 - 古い表示からの操作は`409 MANUAL_ARCHIVE_CONFLICT`とし、先行更新をアーカイブで隠さない。
 - 通信切断、上流5xx、不正な成功本文、返却ID不一致は`MANUAL_ARCHIVE_RESULT_UNKNOWN`とし、自動再送せず一覧再取得で確認する。
-- 復元、物理削除、関連asset・共有・分析・コメントの削除はOQ-028が未解決のため行わない。
+- 復元はADR-0042と下記endpointで提供する。物理削除・自動削除・関連参照の削除はOQ-028の未解決部分として引き続き行わない。
+
+### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/restore`
+
+[ADR-0042](../03-architecture/adrs/ADR-0042-manual-restore-from-archive.md)に基づき、アーカイブ前の状態へ戻す。
+
+- same-origin `Origin`と`Content-Type: application/json`、認証を必須にする。POST以外は405。
+- bodyは`{ "expectedUpdatedAt": "<timestamptz>" }`のみ。アーカイブ後のmanual更新時刻を必須にし、未知キー・欠落・不正値を400で拒否する。
+- owner/admin/editorのみ。viewerは403、非member・workspace所属不一致・未アーカイブ・二重復元は404。RPC自体も認証・所属・roleを検証する。
+- `restore_manual(target_workspace_id, target_manual_id, expected_manual_updated_at)`はSECURITY DEFINERでmanualをFOR UPDATE lockし、`status = archived`かつ`archived_at IS NOT NULL`とCASを検証する。RLSポリシーは変更しない。
+- 最新`manual.archived`監査（同じworkspace・manual・resource_type）の`metadata.previousStatus`へ戻す。draft/reviewing/published/stale以外、監査なし、同時刻の矛盾は`409 MANUAL_RESTORE_STATE_UNKNOWN`。古い有効監査へfallbackしない。
+- CAS不一致は`409 MANUAL_RESTORE_CONFLICT`。成功は`{ "restoredManualId": "<uuid>" }`（200）。statusとarchived_atだけを復帰し、revision・手順・assetは保持する。
+- 同じtransactionで`manual.restored`を監査し、metadataは`restoredStatus` / `draftRevisionId` / `publishedRevisionId`。
+- 共有リンクは変更しない。失効済みリンクは失効のまま、未失効かつ期限内のリンクは再び有効になる。パスコード等の既存条件は維持する。
+- 通信切断・上流5xx・不正成功本文・ID不一致は`502 MANUAL_RESTORE_RESULT_UNKNOWN`。未分類の上流拒否は`502 MANUAL_RESTORE_UNAVAILABLE`。結果不明では自動再送せず一覧で照合する。
+- アーカイブ済み手順書の通常一覧・詳細非表示は維持する。このendpointは取得経路を新設しない。archived詳細を表示できた場合だけUIが復元確認を提示する。通常UIからの専用入口は別途決定する。
+- 物理削除・自動削除が無効な間、保持と復元に期限はない。物理削除・自動削除は引き続き無効。
 
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps`
 
@@ -229,7 +245,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 境界ルール:
 
 - `authenticated`から`manual_steps`への直接`INSERT / UPDATE / DELETE`権限をrevokeする。
-- manual作成、draft更新、公開、draft再作成、アーカイブはSECURITY DEFINER RPCだけを利用する。
+- manual作成、draft更新、公開、draft再作成、アーカイブ、復元はSECURITY DEFINER RPCだけを利用する。
 - 4つのstep mutation RPCは、権限・draft状態・workspace境界を確認してから、同一のdraft revision rowを`FOR UPDATE`でlockする。
 - 失敗時は部分更新を残さずtransaction全体をrollbackする。
 - RPCは`authenticated`だけが実行でき、`public`と`anon`には公開しない。
@@ -251,6 +267,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 公開成功、viewer/越境拒否、返却revision不一致の結果不明化
 - 公開後draft生成と既存draftへの冪等収束
 - アーカイブ成功、viewer/越境/古いversion拒否、revision pointer保持、監査、返却ID不一致の結果不明化
+- 復元成功、元状態不明・CAS・未アーカイブ・二重復元・権限／workspace境界の拒否、manual.restored監査、結果不明化
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - authenticated direct RPCでの不正URL拒否
@@ -268,3 +285,5 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - FR-006ローカル生成と手修正保持
 - `npm run check`
 - `git diff --check`
+
+`202608180003_phase2_manual_restore.sql`は、RLSを変更せず、認証済みowner/admin/editor限定の`restore_manual`と`manual.restored`監査を追加する。SQL回帰は既存archiveと同じdisposable PostgresのManual Edit API CIで実行する。ローカル`npm run check`はSQL実行を含まない。

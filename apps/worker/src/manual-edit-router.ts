@@ -592,6 +592,12 @@ function knownRpcError(message: string): ManualError | null {
   if (message.includes("manual publication content changed concurrently")) {
     return new ManualError(409, "MANUAL_PUBLISH_CONTENT_CONFLICT", "確認後に内容が更新されました。詳細を再読み込みして確認してください。");
   }
+  if (message.includes("manual restore changed concurrently")) {
+    return new ManualError(409, "MANUAL_RESTORE_CONFLICT", "表示後に手順書が更新されました。最新の状態を確認してから復元してください。");
+  }
+  if (message.includes("manual restore state unknown")) {
+    return new ManualError(409, "MANUAL_RESTORE_STATE_UNKNOWN", "アーカイブ前の状態を確認できないため復元できません。管理者にお問い合わせください。");
+  }
   if (message.includes("manual archive changed concurrently")) {
     return new ManualError(409, "MANUAL_ARCHIVE_CONFLICT", "表示後に手順書が更新されました。詳細を再読み込みしてください。");
   }
@@ -829,6 +835,40 @@ async function archiveManual(
     throw new ManualError(502, "MANUAL_ARCHIVE_RESULT_UNKNOWN", "アーカイブ結果を確認できませんでした。重ねて操作せず、一覧を再読み込みしてください。");
   }
   return jsonResponse({ archivedManualId });
+}
+
+async function restoreManual(
+  request: Request,
+  env: ManualEnv,
+  workspaceId: string,
+  manualId: string
+): Promise<Response> {
+  verifySameOriginWrite(request);
+  const { session } = await authorizedSession(request, env, workspaceId, true);
+  const body = await readRequestJson(request);
+  assertAllowedKeys(body, ["expectedUpdatedAt"]);
+  if (!hasOwn(body, "expectedUpdatedAt")) {
+    throw new ManualError(400, "MANUAL_RESTORE_VERSION_INVALID", "手順書を再読み込みしてから復元してください。");
+  }
+  const expectedUpdatedAt = requiredExpectedManualUpdatedAt(body);
+  const restoredManualId = await callMutationRpc(
+    env,
+    session.accessToken,
+    "restore_manual",
+    {
+      target_workspace_id: workspaceId,
+      target_manual_id: manualId,
+      expected_manual_updated_at: expectedUpdatedAt
+    },
+    "uuid",
+    "MANUAL_RESTORE_RESULT_UNKNOWN",
+    "復元結果を確認できませんでした。重ねて操作せず、一覧を再読み込みしてください。",
+    "MANUAL_RESTORE_UNAVAILABLE"
+  );
+  if (restoredManualId !== manualId) {
+    throw new ManualError(502, "MANUAL_RESTORE_RESULT_UNKNOWN", "復元結果を確認できませんでした。重ねて操作せず、一覧を再読み込みしてください。");
+  }
+  return jsonResponse({ restoredManualId });
 }
 
 async function createDraftFromPublished(
@@ -1081,11 +1121,12 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
   const reorderMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/reorder$/);
   const publishMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/publish$/);
   const archiveMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/archive$/);
+  const restoreMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/restore$/);
   const draftMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/draft$/);
   const stepsMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps$/);
   const stepMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/([^/]+)$/);
   const detailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)$/);
-  if (!reorderMatch && !publishMatch && !archiveMatch && !draftMatch && !stepsMatch && !stepMatch && !detailMatch) return null;
+  if (!reorderMatch && !publishMatch && !archiveMatch && !restoreMatch && !draftMatch && !stepsMatch && !stepMatch && !detailMatch) return null;
 
   try {
     if (reorderMatch) {
@@ -1097,6 +1138,9 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
     } else if (archiveMatch) {
       const ids = routeIds(archiveMatch[1] ?? "", archiveMatch[2] ?? "");
       if (request.method === "POST") return await archiveManual(request, env, ids.workspaceId, ids.manualId);
+    } else if (restoreMatch) {
+      const ids = routeIds(restoreMatch[1] ?? "", restoreMatch[2] ?? "");
+      if (request.method === "POST") return await restoreManual(request, env, ids.workspaceId, ids.manualId);
     } else if (draftMatch) {
       const ids = routeIds(draftMatch[1] ?? "", draftMatch[2] ?? "");
       if (request.method === "PATCH") return await updateDraft(request, env, ids.workspaceId, ids.manualId);
