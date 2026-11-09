@@ -418,11 +418,12 @@ async function fetchManualDetailSnapshot(
   env: ManualEnv,
   accessToken: string,
   workspaceId: string,
-  manualId: string
+  manualId: string,
+  scope: "active" | "archived" = "active"
 ): Promise<{ manual: ManualContext; draft: DraftSummary | null; steps: ManualStep[]; canEdit: boolean }> {
   let response: Response;
   try {
-    response = await supabaseFetch(env, "/rest/v1/rpc/get_manual_edit_detail", accessToken, {
+    response = await supabaseFetch(env, (scope === "archived" ? "/rest/v1/rpc/get_archived_manual_detail" : "/rest/v1/rpc/get_manual_edit_detail"), accessToken, {
       method: "POST",
       body: JSON.stringify({ target_workspace_id: workspaceId, target_manual_id: manualId })
     });
@@ -450,7 +451,7 @@ async function fetchManualDetailSnapshot(
     throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
   const manual = parseManualContext(payload.manual, workspaceId, manualId);
-  if (!manual) {
+  if (!manual || (scope === "archived" && (manual.status !== "archived" || typeof payload.manual.archived_at !== "string" || Number.isNaN(Date.parse(payload.manual.archived_at))))) {
     throw new ManualError(502, "MANUAL_DETAIL_RESPONSE_INVALID", "手順書を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
   const displayedRevisionId = manual.currentDraftRevisionId ?? manual.currentPublishedRevisionId;
@@ -706,10 +707,11 @@ async function getManualDetail(
   request: Request,
   env: ManualEnv,
   workspaceId: string,
-  manualId: string
+  manualId: string,
+  scope: "active" | "archived" = "active"
 ): Promise<Response> {
   const session = await authorizedMemberSession(request, env, workspaceId);
-  const { manual, draft, steps, canEdit } = await fetchManualDetailSnapshot(env, session.accessToken, workspaceId, manualId);
+  const { manual, draft, steps, canEdit } = await fetchManualDetailSnapshot(env, session.accessToken, workspaceId, manualId, scope);
   return jsonResponse({
     manual: {
       id: manual.id,
@@ -1125,8 +1127,9 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
   const draftMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/draft$/);
   const stepsMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps$/);
   const stepMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/([^/]+)$/);
+  const archivedDetailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/archived\/([^/]+)$/);
   const detailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)$/);
-  if (!reorderMatch && !publishMatch && !archiveMatch && !restoreMatch && !draftMatch && !stepsMatch && !stepMatch && !detailMatch) return null;
+  if (!reorderMatch && !publishMatch && !archiveMatch && !restoreMatch && !draftMatch && !stepsMatch && !stepMatch && !archivedDetailMatch && !detailMatch) return null;
 
   try {
     if (reorderMatch) {
@@ -1152,6 +1155,9 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
       const ids = routeIds(stepMatch[1] ?? "", stepMatch[2] ?? "", stepMatch[3] ?? "");
       if (request.method === "PATCH") return await updateStep(request, env, ids.workspaceId, ids.manualId, ids.stepId as string);
       if (request.method === "DELETE") return await deleteStep(request, env, ids.workspaceId, ids.manualId, ids.stepId as string);
+    } else if (archivedDetailMatch) {
+      const ids = routeIds(archivedDetailMatch[1] ?? "", archivedDetailMatch[2] ?? "");
+      if (request.method === "GET") return await getManualDetail(request, env, ids.workspaceId, ids.manualId, "archived");
     } else if (detailMatch) {
       const ids = routeIds(detailMatch[1] ?? "", detailMatch[2] ?? "");
       if (request.method === "GET") return await getManualDetail(request, env, ids.workspaceId, ids.manualId);

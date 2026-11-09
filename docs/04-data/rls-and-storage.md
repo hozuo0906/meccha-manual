@@ -23,6 +23,7 @@ SupabaseはAuth、Postgres、RLS、ファイルメタデータの正本にする
 - `workspace_id` によるテナント分離を基本にする。
 - UIで隠すだけの権限制御は禁止。
 - API認可とRLSを両方テストする。
+- DEC-117のレガシー専用取得は`list_archived_manuals`と`get_archived_manual_detail`だけを使う。既存SELECT RLSと通常詳細RPCのarchived非表示は維持し、`SECURITY DEFINER`／`STABLE`、空の`search_path`・完全修飾名の関数内で`auth.uid()`、active所属・owner/admin/editor/viewer、workspaceとarchivedの両条件を検証する。PUBLIC・anonのEXECUTEを閉じauthenticatedだけに許可する。非member・removed／invited・未認証は一覧空／詳細null。viewerの閲覧とowner/admin/editorの既存復元認可を区別する。専用SQL negative testは`tests/sql/phase2-archived-manual-read-test.sql`。D1境界は変更しない。
 - `workspaces` のID・作成者・作成日時と、`workspace_members` の所属先・対象ユーザー・作成者・作成日時はowner/adminでも更新できない。
 - `workspace_members` のclient直接INSERT/UPDATE/DELETEを禁止し、SECURITY DEFINER RPCだけを書込み窓口にする。insertでは`created_by`を`auth.uid()`へ強制し、作成監査主体を偽装させない。
 - ownerの昇格・降格は専用フローを実装するまで許可しない。

@@ -1,3 +1,26 @@
+## 2026-11-10 DEC-117: 第3ラウンド再開・契約同期と指定自己検証
+
+Status: Accepted
+
+確認日時: 2026-11-10T00:01:08+09:00（Asia/Tokyo）。branch `codex/archived-list-entry-20261109`、ローカルHEAD `9621b5bf55e01588ca65c2ee83810c1dbff5c796`を`.git`内の参照ファイル読取りで確認。Issue #70はGitHub Appでread-only取得し、書込みは行っていない。PR headは未確認。今回の実行状態は終了、成果物はローカル修正済み・未push、指定自己検証済み。ユーザーの「git操作は行わない」を適用し、指定の`git diff --check`以外のGitコマンド・commit／push／PR操作は実施していない。
+
+- 第2ラウンドで専用RPCのmigration `202608180004_phase2_archived_manual_read.sql`とWorker／UIがローカル実装済み。第3ラウンドの途中成果でSQL negative testとManual Edit API workflow配線、checkerの両endpoint登録が存在した。今回、API両endpoint・RPC、setup・テーブル定義、UX・RLS方針、トレーサビリティ、OQ-028・DEC-117・[実施報告書](archived-list-entry-2026-11-09.md)を現状へ同期した。旧停止記録は以下の履歴として保持する。
+- fixture差分は`manuals.folder_id uuid`だけ。専用一覧RPCの参照列が縮小fixtureに不足していたため必須として保持した。型・列とSQLテスト入力を静的照合した。第1ラウンドだけの旧bundle `.artifacts/dec117-handoff-20261109.bundle`は今回の指示で削除済み。再開後、既存RLS・通常一覧／詳細・Worker実装・テスト・D1・migration自体は変更していない。
+- 指定`--test`は3ファイルを個別実行しすべてexit 0。環境の集計は各1ファイルのため直接実行でも30＋75＋14＝119件、fail 0／skip 0を確認した。checker、worker:typecheck、docs 162文書、encoding 440ファイル、migrations／migration:safety各13 SQL、diff checkは成功。実行IDと内訳は報告書へ記載した。全体`npm run check`、SQL実DB実行、実ブラウザ通し検証、remote適用、CI／正式Reviewは未実施。
+- 次の1マイルストーンは監督によるSQL実DB実行・UI通し検証と、成果物のGitHub保存・Issue #70同期・対象SHAのCI／正式Review／ゲート確認。機能全体の受入完了ではない。D1復元・専用取得入口、物理削除・自動削除はOQ-028で未決のまま。自律監視・終了後の継続実行は登録しない。
+
+## 2026-11-09 DEC-117: アーカイブ済み一覧の実装前停止（履歴）
+
+Status: Accepted
+
+確認日時: 2026-11-09T09:59:34+09:00（Asia/Tokyo）。branch `codex/archived-list-entry-20261109`、base／着手HEAD `9621b5bf55e01588ca65c2ee83810c1dbff5c796`。開始時cleanとPR #299のmerge commit一致を実取得した。Issue #70本文・最新コメントも確認済み。
+
+- レガシー通常一覧の「アーカイブ済み」導線、専用取得、既存復元UIへの接続方針をDEC-117として記録した。OQ-028は設計決定と未実装を区別し、D1の復元・専用取得入口と物理削除・自動削除は未決として保持する。
+- `manuals_select_members` RLS、revision／stepのRLS、`get_manual_edit_detail`がarchivedを除外する。Worker／app UIだけでは取得できずDB変更が必要なため、ユーザーの明示停止条件に従い製品実装を停止した。変更は4文書のみで、DB・D1・API・UI・assetは無変更。[調査報告](archived-list-entry-2026-11-09.md)に根拠と停止理由を記録した。
+- 既存manual系3ファイルは実行90761で成功、個別の直接実行でも18＋64＋14＝96件成功・fail 0／skip 0。全体check49171は`test:d1-binding`でexit 1、直接切分け38816はMiniflareのlocalhost listen EPERMで2/3成功・1失敗。環境制約を成功に読み替えない。
+- 元クローンの`.git`がread-onlyのため、同じ4文書を`/tmp/mm-dec117-save-20261109`でcommitした。git pushとgh PR作成はproxy接続／socket拒否、GitHub AppのPR作成・Issue #70コメントはapproval policy neverで拒否され、remote保存・PR作成・Issue #70同期は未完了。元クローンはbase HEADと文書差分を保持し、差分commitを`.artifacts/dec117-handoff-20261109.bundle`へも保全する。最終SHAは最終報告に記載する。merge・deployは行わない。
+- 次の1マイルストーンはMuseによるレガシー専用取得のDB契約・migration変更範囲の判断と再指示。実装・tenant negative／UI導線回帰は未着手。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
 ## 2026-11-08 PR #298 通常再読込・保存後再取得の入力保持P1修正
 
 Status: Accepted

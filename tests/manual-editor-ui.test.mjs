@@ -68,8 +68,10 @@ test("manual mutations preserve drafts and fail closed when edit permission expi
   assert.match(source, /const manualCreateReconciliationByWorkspace = new Map\(\)/);
   assert.match(source, /const resultUnknown = manualMutationUnknown\(error\)[\s\S]*manualCreateReconciliationByWorkspace\.set\(workspaceId, warning\)[\s\S]*currentScreen !== "manuals"/);
   assert.match(source, /const pendingManualCreate = manualCreateReconciliationByWorkspace\.get\(selected\.id\)[\s\S]*message: pendingManualCreate\?\.message/);
-  assert.match(source, /const pendingManualCreate = manualCreateReconciliationByWorkspace\.get\(workspaceId\)[\s\S]*carriedMessage[\s\S]*manualCreateReconciliationByWorkspace\.get\(workspaceId\) === pendingManualCreate[\s\S]*manualCreateReconciliationByWorkspace\.delete\(workspaceId\)/);
-  assert.match(source, /const currentPendingManualCreate = manualCreateReconciliationByWorkspace\.get\(workspaceId\)[\s\S]*currentPendingManualCreate !== pendingManualCreate[\s\S]*status: "idle"[\s\S]*await loadManuals\(workspaceId/);
+  const listLoader = source.slice(source.indexOf("async function loadManuals("), source.indexOf("function openManualDetail("));
+  assert.match(listLoader, /const scope = manualsState\.scope \|\| "active"/);
+  assert.match(listLoader, /const pendingManualCreate = \(scope === "active" \? manualCreateReconciliationByWorkspace\.get\(workspaceId\) : undefined\)[\s\S]*carriedMessage[\s\S]*if \(scope === "active" && manualCreateReconciliationByWorkspace\.get\(workspaceId\) === pendingManualCreate\) \{\s*manualCreateReconciliationByWorkspace\.delete\(workspaceId\)/);
+  assert.match(listLoader, /const currentPendingManualCreate = \(scope === "active" \? manualCreateReconciliationByWorkspace\.get\(workspaceId\) : undefined\)[\s\S]*currentPendingManualCreate !== pendingManualCreate[\s\S]*status: "idle"[\s\S]*await loadManuals\(workspaceId/);
   assert.match(source, /manualCreateReconciliationByWorkspace\.clear\(\)/);
   assert.match(source, /const currentDetail =[\s\S]*manualDetailState\.value[\s\S]*status: "error"[\s\S]*else if \(currentWorkspaceSelection\?\.workspaceId === workspaceId\)[\s\S]*loadWorkspaceMembers\(workspaceId/);
   assert.match(source, /manualsState\.workspaceId === workspaceId[\s\S]*status: "idle"[\s\S]*currentScreen !== "manuals"/);

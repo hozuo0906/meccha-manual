@@ -89,6 +89,8 @@ const requiredMigration = [
 ];
 
 const requiredContract = [
+  "GET /api/workspaces/{workspaceId}/manuals/archived",
+  "GET /api/workspaces/{workspaceId}/manuals/archived/{manualId}",
   "GET /api/workspaces/{workspaceId}/manuals/{manualId}",
   "PATCH /api/workspaces/{workspaceId}/manuals/{manualId}/draft",
   "POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps",

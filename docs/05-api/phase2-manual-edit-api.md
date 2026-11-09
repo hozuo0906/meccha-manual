@@ -27,6 +27,28 @@ Status: Superseded
 
 ## API
 
+### `GET /api/workspaces/{workspaceId}/manuals/archived`
+
+[DEC-117](../09-delivery/decision-log.md#dec-117-レガシーのアーカイブ済み一覧から既存の復元uiへ接続する)に基づくレガシー専用一覧。通常一覧の`archived_at=is.null`は維持する。
+
+- Phase 1 HttpOnly Cookie sessionとactiveなworkspace所属を必須とし、owner/admin/editor/viewerが閲覧できる。GET以外は405、未認証は401、非member・不正workspace IDは404。
+- Workerは既存の利用者access tokenとanon keyで`list_archived_manuals(target_workspace_id)`を呼ぶ。workspaceを固定し、`status = 'archived' AND archived_at IS NOT NULL`だけを`updated_at desc, id`順に取得する。
+- 成功は200の`{ "manuals": [...] }`。項目は通常一覧と同じ`id`、`folderId`、`title`、`status`、`currentDraftRevisionId`、`currentPublishedRevisionId`、`updatedAt`。`archived_at`は上流検証に使い、公開応答には追加しない。
+- RPCとPostgRESTの取得上限は1001件。`Prefer: count=exact`と`Content-Range`の件数整合を検証し、総数または取得件数が1000件超なら`409 MANUALS_LIMIT_EXCEEDED`。切り詰めた一覧は返さない。
+- 一覧本文は1 MiBまで。件数header欠落・不整合、別workspace、不正なstatus／archive日時、形式不正・過大応答は`502 MANUALS_RESPONSE_INVALID`。通信・上流拒否は`502 MANUALS_FETCH_FAILED`、上流401は`401 SESSION_REFRESH_REQUIRED`とする。失敗を空一覧へ変換しない。
+
+### `GET /api/workspaces/{workspaceId}/manuals/archived/{manualId}`
+
+アーカイブ済み手順書を既存詳細画面で閲覧し、下記restore endpointへ接続するための専用詳細。
+
+- 認証とactiveなworkspace所属、owner/admin/editor/viewerを必須にする。GET以外は405、未認証は401、非member・不正ID・対象なし・workspace不一致・archivedの両条件を満たさない対象は404。
+- Workerは既存の利用者access tokenとanon keyで`get_archived_manual_detail(target_workspace_id, target_manual_id)`だけを呼ぶ。manual・表示revision・steps・権限を単一SQL文の同一MVCC snapshotから取得する。
+- 成功は200で通常詳細と同じ`manual`、`draft`、`steps`、`permissions.canEdit`を返す。manualのstatusは`archived`。`archived_at`は上流検証にだけ使い、公開応答には追加しない。manual.updatedAtを復元時の`expectedUpdatedAt`に使う。
+- 表示revisionはcurrent draft優先、なければcurrent published。互換性のためどちらも`draft`キーへ格納し、`draft.state`で判別する。両pointerなしは`draft: null`、`steps: []`。supersededは返さない。
+- stepsは表示revisionとworkspaceを固定し、`deleted_at IS NULL`だけを`position asc`で返す。通常詳細と同じ公開項目に限定し、asset・annotation・masking等は取得・公開しない。
+- RPC内でowner/admin/editorなら`can_edit: true`、viewerはfalse。HTTPでは`permissions.canEdit`へ変換する。archived表示は全ロールで編集禁止とし、trueの場合だけ既存の復元確認を提示する。復元自体の認可・CASは`restore_manual`が再検証する。
+- 詳細本文上限8 MiB、最大200 active steps、201件目による異常検出を維持する。上限超は`409 MANUAL_STEPS_LIMIT_EXCEEDED`、不正scope・状態・形式は502。RPCのnullは404、上流401は`401 SESSION_REFRESH_REQUIRED`。通常詳細の取得境界は変えない。
+
 ### `GET /api/workspaces/{workspaceId}/manuals/{manualId}`
 
 現在manual、表示対象revision（current draftを優先し、無ければcurrent published）、active steps、編集可否を返す。互換性維持のため表示対象revisionはレスポンスの`draft`キーに格納し、`draft.state`で`draft`または`published`を判別する。
@@ -138,7 +160,7 @@ current draftのtitle/descriptionを更新する。
 - 同じtransactionで`manual.restored`を監査し、metadataは`restoredStatus` / `draftRevisionId` / `publishedRevisionId`。
 - 共有リンクは変更しない。失効済みリンクは失効のまま、未失効かつ期限内のリンクは再び有効になる。パスコード等の既存条件は維持する。
 - 通信切断・上流5xx・不正成功本文・ID不一致は`502 MANUAL_RESTORE_RESULT_UNKNOWN`。未分類の上流拒否は`502 MANUAL_RESTORE_UNAVAILABLE`。結果不明では自動再送せず一覧で照合する。
-- アーカイブ済み手順書の通常一覧・詳細非表示は維持する。このendpointは取得経路を新設しない。archived詳細を表示できた場合だけUIが復元確認を提示する。通常UIからの専用入口は別途決定する。
+- アーカイブ済み手順書の通常一覧・詳細非表示は維持する。DEC-117の専用一覧・専用詳細から既存復元UIへ接続する。restore自体は取得を行わず、専用詳細で表示したmanual.updatedAtを使う。
 - 物理削除・自動削除が無効な間、保持と復元に期限はない。物理削除・自動削除は引き続き無効。
 
 ### `POST /api/workspaces/{workspaceId}/manuals/{manualId}/steps`
@@ -242,6 +264,10 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - revision pointerと内容を保持した非破壊アーカイブ
 - `manual.archived`監査ログとauthenticated限定のRPC実行権限
 
+`202608180004_phase2_archived_manual_read.sql`は、`list_archived_manuals(target_workspace_id uuid)`と`get_archived_manual_detail(target_workspace_id uuid, target_manual_id uuid)`を追加する。両RPCは`STABLE`、`SECURITY DEFINER`、空の`search_path`と完全修飾名を使い、`auth.uid()`と`has_workspace_role`でcaller本人のactive所属・owner/admin/editor/viewerを検証する。callerのactor IDは受け取らない。workspaceとarchivedの両条件を関数内に固定し、非member・removed／invited・未認証は一覧0件／詳細null。PUBLIC・anonのEXECUTEをrevokeし、authenticatedだけに許可する。既存SELECT RLSと通常詳細RPCは変更しない。
+
+一覧RPCは`id`、`workspace_id`、`folder_id`、`title`、`status`（text）、両revision pointer、`updated_at`、`archived_at`を返す。専用詳細RPCは通常詳細と同じ`can_edit`、`manual`、`draft`、`steps`のJSONを返し、manualに検証用`archived_at`を含む。どちらも読取り専用で、復元・監査追記・共有変更は行わない。既存RLSがarchivedを除外するため、専用取得に限って関数内認可で読み取る方式とする。
+
 境界ルール:
 
 - `authenticated`から`manual_steps`への直接`INSERT / UPDATE / DELETE`権限をrevokeする。
@@ -268,6 +294,7 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - 公開後draft生成と既存draftへの冪等収束
 - アーカイブ成功、viewer/越境/古いversion拒否、revision pointer保持、監査、返却ID不一致の結果不明化
 - 復元成功、元状態不明・CAS・未アーカイブ・二重復元・権限／workspace境界の拒否、manual.restored監査、結果不明化
+- 専用一覧・詳細のeditor／viewer閲覧、非member・未認証・workspace越境・不整合archive状態の拒否、current draft優先／published fallback、deleted step除外、通常SELECTのarchived非表示維持、RPC実行権限（`tests/sql/phase2-archived-manual-read-test.sql`）
 - append/update/soft-delete/reorder RPC正常系
 - `authenticated`のdirect write拒否
 - authenticated direct RPCでの不正URL拒否
@@ -287,3 +314,5 @@ FR-006の文章生成は常にローカル決定的処理とする。
 - `git diff --check`
 
 `202608180003_phase2_manual_restore.sql`は、RLSを変更せず、認証済みowner/admin/editor限定の`restore_manual`と`manual.restored`監査を追加する。SQL回帰は既存archiveと同じdisposable PostgresのManual Edit API CIで実行する。ローカル`npm run check`はSQL実行を含まない。
+
+Manual Edit API CIではrestoreの後に`202608180004_phase2_archived_manual_read.sql`を適用し、restore回帰の後に専用読み取りSQL回帰を実行する。実DBでの実行結果はローカルWorker／UIテストとは別に記録する。

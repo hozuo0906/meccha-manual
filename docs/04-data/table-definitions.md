@@ -102,3 +102,9 @@ Superseded by [D1データ・認可境界](d1-and-storage.md)。以下はSupabas
 ## 手順書の復元境界（ADR-0042、2026-11-08）
 
 `202608180003_phase2_manual_restore.sql`はテーブル・RLSポリシーを変更せず`restore_manual`を追加する。manualsのstatus=archivedかつarchived_atありだけを対象に、workspace所属・owner/admin/editor・updated_at CASを検証し、最新manual.archived監査のpreviousStatusへ復帰する。監査不明は拒否し、revision pointerと内容・asset・共有リンクを保持する。audit_logs.actionは既存のtextのままmanual.restoredを許容し、metadataにrestoredStatus / draftRevisionId / publishedRevisionIdを記録する。データ／認可境界と保持は[data-lifecycle](data-lifecycle.md)とADR-0042に従う。物理削除・自動削除は無効のまま。
+
+## アーカイブ済み専用読み取り境界（DEC-117、2026-11-09）
+
+`202608180004_phase2_archived_manual_read.sql`はテーブル・既存SELECT RLS・通常詳細RPCを変更せず、`list_archived_manuals`と`get_archived_manual_detail`を追加する。既存RLSがarchivedを隠すため、両RPCは`SECURITY DEFINER`／`STABLE`、空の`search_path`と完全修飾名を使い、関数内で`auth.uid()`と`has_workspace_role`によるactive所属・owner/admin/editor/viewerを照合する。workspaceと`status = 'archived' AND archived_at IS NOT NULL`を固定し、非member・removed／invited・未認証は一覧空／詳細null。PUBLIC・anonのEXECUTEを閉じauthenticatedだけに許可する。
+
+一覧は既存`manuals.folder_id uuid`を含むsummaryと検証用`archived_at`を返す。詳細はcurrent draft優先／なければcurrent publishedとactive stepsを同じsnapshotから返し、過去版・削除済みstep・内部画像情報を返さない。viewerの`can_edit`はfalse、owner/admin/editorはtrueだが、archived表示は全ロール編集不可とし、既存`restore_manual`だけが復元を行う。通常一覧・詳細の非表示と、復元のrole・CAS・監査境界は維持する。D1側の復元・専用取得入口は未決のまま。
