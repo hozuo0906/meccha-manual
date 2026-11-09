@@ -63,4 +63,6 @@ branch: `codex/manual-restore-20261108`。base／着手HEAD: `ec6b8db1b8d66e6df0
 
 ## 保存と引き継ぎ
 
-保存commitと次のマイルストーンは確定後に記録する。
+PR #299（対象head `289ef4ef137d8a68ab0543f1545b069cc1ba92d7`）として保存し、2026-11-09T09:53:17+09:00（Asia/Tokyo）にmergeした。merge commitは `9621b5bf55e01588ca65c2ee83810c1dbff5c796`。着地条件は、pull_request起点CIの全success、対象headに対するCodex Review clean、Latest Review Gate success、未解決review thread 0件を確認した。差し替え元のPR #296は「#299に差し替え済み」のコメント付きで閉じられ、マージと同時にMERGEDとなった。
+
+次のマイルストーンは、通常UIからアーカイブ済み手順書へ到達する専用取得入口（DEC-117）である。通常一覧・詳細の非表示境界とRLSは維持し、専用の読み取りRPCで取得する方式を監督が確定した。D1側の復元と物理削除・自動削除は未決のまま残す。
