@@ -26,6 +26,7 @@ on:
       - "tests/manual-api.test.mjs"
       - "tests/manual-title-docs.test.mjs"
       - "tests/manual-edit-api.test.mjs"
+      - "tests/manual-phase2-entry.test.mjs"
       - "tests/sql/phase2-manual-edit-http-fixture.sql"
       - "tests/sql/phase2-manual-edit-http-test.sql"
       - "tests/sql/phase2-manual-publication-test.sql"
@@ -74,7 +75,7 @@ jobs:
       - name: Validate manual edit API contracts
         run: node scripts/check-phase2-manual-edit-api.mjs
       - name: Test manual list, title, detail, and edit boundaries
-        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs
+        run: node --experimental-transform-types --test tests/manual-api.test.mjs tests/manual-title-docs.test.mjs tests/manual-edit-api.test.mjs tests/manual-phase2-entry.test.mjs
       - name: Install manual edit migrations in disposable Postgres
         run: |
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/phase2-manual-edit-http-fixture.sql

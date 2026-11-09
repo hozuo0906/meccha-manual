@@ -77,4 +77,3 @@ $$;
 
 revoke all on function public.get_archived_manual_detail(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.get_archived_manual_detail(uuid, uuid) to authenticated;
-

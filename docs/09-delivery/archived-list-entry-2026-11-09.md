@@ -115,3 +115,12 @@ remote保存・remote SHA一致・PR番号の取得・Issue #70更新は未完�
 `tests/sql/phase2-archived-manual-read-test.sql`のeditor／viewerの完全一致断定を、自作archived手順書`d1170001`の包含、禁止対象`d1170002`〜`d1170005`の除外、返却全行がworkspace Aかつ`status = 'archived'`かつ`archived_at IS NOT NULL`であることの合算へ置き換えた。editorの既存不変条件検査は統合し、workspace／statusのNULLも拒否する。workspace Bの`count = 1`、他のケース・詳細・特権検査、rollback構造は維持し、migrationや他の実装は変更していない。
 
 確認日時: 2026-11-10T05:48:00+09:00（Asia/Tokyo）。ローカルHEADは`9621b5bf55e01588ca65c2ee83810c1dbff5c796`。自己検証は`git diff --check`（chunk `b7b97d`）と`npm run docs:check`（chunk `a0c386`、162文書）がともにexit 0。着手時の内容との比較（chunk `813a33`）でも変更は指定の2ファイルだけで、SQLの2箇所の一覧断定以外は不変と確認した。成果物はローカル修正済み・未push。SQL再実行は指示どおり行わず、修正後の実DB成功・CI・正式Reviewは未確認である。次の1マイルストーンは監督によるCI順序でのSQL再実行とし、既存の作業ツリー差分は保持する。
+
+
+## レビューP1対応（2026-11-10）
+
+PR #301 の Codex レビューで P1 が1件出た。内容: 入口（index-phase2）は編集系ルーターを先に呼ぶため、その詳細パターンが `/manuals/archived` の "archived" を手順書IDとして拾い、アーカイブ済み一覧が 404 になっていた。個別ルーターのテストでは入口の振り分け順を通しておらず、検出できなかった。
+
+対応: 編集系ルーターの詳細マッチで、ID が "archived" の場合は詳細として扱わず一覧側へ渡すようガードを追加した。あわせて、入口越しに一覧と通常詳細の両方が正しく届くことを示す回帰テスト `tests/manual-phase2-entry.test.mjs` を新設し、Manual Edit API workflow へ配線した。CI で併せて検出された migration 末尾の余分な空行も除去した。
+
+なお本修正は、Codex の実行環境が容量不足で停止したため、監督（Muse）が直接実施し、検証も監督が行った。

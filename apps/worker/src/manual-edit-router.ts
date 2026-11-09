@@ -1128,7 +1128,9 @@ export async function handleManualEditRoute(request: Request, env: ManualEnv): P
   const stepsMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps$/);
   const stepMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)\/steps\/([^/]+)$/);
   const archivedDetailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/archived\/([^/]+)$/);
-  const detailMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)$/);
+  const detailMatchCandidate = pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals\/([^/]+)$/);
+  // "archived" は手順書IDではなくアーカイブ済み一覧の区間名なので、詳細としては扱わない（一覧は manual-router へ渡す）。
+  const detailMatch = detailMatchCandidate?.[2] === "archived" ? null : detailMatchCandidate;
   if (!reorderMatch && !publishMatch && !archiveMatch && !restoreMatch && !draftMatch && !stepsMatch && !stepMatch && !archivedDetailMatch && !detailMatch) return null;
 
   try {
