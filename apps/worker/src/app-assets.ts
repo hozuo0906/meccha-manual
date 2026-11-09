@@ -1,4 +1,4 @@
-export const APP_ASSET_VERSION = "sha256-53b2e407bf5dbf8c";
+export const APP_ASSET_VERSION = "sha256-633f1b324e58afa1";
 
 export const APP_HTML = `<!doctype html>
 <html lang="ja">
@@ -2708,9 +2708,9 @@ function manualListHtml(currentWorkspace) {
   if (state.status === "idle" || state.status === "loading") {
     body = '<div class="empty" role="status" aria-live="polite" aria-busy="true">手順書を読み込んでいます…</div>';
   } else if (state.status === "error") {
-    body = '<div class="empty"><p>手順書一覧を表示できませんでした。もう一度読み込んでください。</p><button id="manuals-retry-button" class="secondary-button" type="button">再読み込み</button></div>';
+    body = '<div class="empty"><p>手順書一覧を読み込めませんでした。</p><button id="manuals-retry-button" class="secondary-button" type="button">手順書一覧をもう一度読み込む</button></div>';
   } else if (state.items.length === 0) {
-    body = '<div class="empty" role="status"><strong>手順書はまだありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '<p><a href="/manuals/sample">サンプルを見る</a></p></div>';
+    body = '<div class="empty" role="status"><strong>ワークスペースに保存された手順書はありません。</strong><br>' + (canEdit ? 'フォームから最初の手順書を作成できます。<p><button id="manuals-create-button" class="primary-button" type="button">手順書を作る</button></p>' : '編集者以上の権限を持つメンバーが作成できます。') + '<p><a href="/manuals/sample">サンプルを見る</a></p></div>';
   } else {
     body = '<div class="manual-list" role="list">' + state.items.map((manual) =>
       '<div role="listitem"><button class="manual-list-item" type="button" data-manual-id="' + escapeHtml(manual.id) + '">' +
@@ -2806,7 +2806,7 @@ function openManualReadingPreview() {
   const steps = Array.isArray(value.steps) ? value.steps : [];
   const stepsHtml = steps.length
     ? steps.map((step, index) => '<article class="manual-reading-preview-step"><h3>' + escapeHtml((index + 1) + ". " + (step.title || "手順")) + '</h3><dl><dt>種類</dt><dd>' + escapeHtml(manualStepTypeLabel(step.type)) + '</dd><dt>手順</dt><dd>' + escapeHtml(step.instruction || "手順文なし") + '</dd><dt>操作対象</dt><dd>' + escapeHtml(step.targetText || "-") + '</dd>' + (step.url ? '<dt>URL</dt><dd>' + escapeHtml(step.url) + '</dd>' : '') + '</dl></article>').join("")
-    : '<p role="status">手順はまだありません。</p>';
+    : '<p role="status">この手順書には手順がありません。</p>';
   const overlay = document.createElement("dialog");
   overlay.className = "manual-reading-preview";
   overlay.setAttribute("aria-modal", "true");
@@ -2837,7 +2837,7 @@ function manualDetailHtml(currentWorkspace) {
     return '<section class="section"><div class="empty" role="status" aria-live="polite" aria-busy="true">手順書を読み込んでいます。</div></section>';
   }
   if (state.status === "error" || !state.value) {
-    return '<section class="section"><div class="empty"><p>手順書を表示できませんでした。</p><button id="manual-detail-retry-button" class="secondary-button" type="button">もう一度読み込む</button></div></section>';
+    return '<section class="section"><div class="empty"><p>手順書を読み込めませんでした。</p><button id="manual-detail-retry-button" class="secondary-button" type="button">手順書をもう一度読み込む</button></div></section>';
   }
   const value = state.value;
   const isArchived = value.manual.status === "archived";
@@ -2880,7 +2880,7 @@ function manualDetailHtml(currentWorkspace) {
     : '';
   const stepsHtml = steps.length
     ? '<div class="manual-step-list">' + steps.map((step, index) => manualStepHtml(step, index, steps.length, canEdit && hasEditableDraft)).join("") + '</div>'
-    : '<div class="empty" role="status">手順はまだありません。</div>';
+    : '<div class="empty" role="status">この手順書には手順がありません。</div>';
   const addForm = canEdit && hasEditableDraft
     ? '<form id="manual-step-add-form" class="workspace-form manual-form" novalidate>' +
         '<h2>手順を追加</h2><p>操作対象の名前だけを入力してください。氏名やパスワードなどは入力しないでください。</p>' +

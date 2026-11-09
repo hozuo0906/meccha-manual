@@ -822,6 +822,23 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Next: 段階Bの編集可能化・ローカル保持・認証後の引き継ぎは別の範囲決定と検証を要する。段階Aのfixture投入経路を再利用できるが、write権限の開放や匿名保存は含まない。
 - Evidence: `manual-sample-assets.ts`、`cloud-manual-assets.ts`、`tests/manual-sample.test.mjs`、`tests/manual-sample-browser.test.mjs`、[実施報告書](sample-mode-stage-a-2026-11-08.md)。
 
+## DEC-115: 登録後のサンプルはPersonal Workspaceへ明示操作で正規保存する
+
+- Status: Accepted
+- Date: 2026-11-08
+- Decision: 段階Dは認証済みのactive Personal Workspace作成者かつactive owner本人に限定し、本文なしの`POST /api/workspaces/{workspaceId}/sample-manual`で固定6手順・同梱PNG 3枚を通常のstaged asset + finalize claim経路へ投入する。予約operation prefix `sample_manual_v1_`はサーバー専用とし、公開claimのoperation検証から拒否する。既存completed claimの未アーカイブmanualは`alreadySeeded`で同じIDを返し、改名・編集後も再作成しない。期限切れpendingをexpiredへ確定し、workspaceと直前intent IDから次operationを決定する。同時実行・途中失敗・応答消失も単一manualと3 assetへ収束させる。
+- Boundary: 呼出し元の資格情報を転送しない新規RequestでASSETS bindingから固定対応の同梱PNGだけを読み、private R2へ保存する。認証・same-origin・Worker認可・workspace固定queryとD1制約を維持する。ADR-0032に対する認証済みworkspaceへの正規保存であり、guest contentのサーバー保存ではない。DEC-111の公開閲覧専用routeは維持する。通常手順書のアーカイブはowner/admin/editorだけが`expectedUpdatedAt`のCASで`status`と`archived_at`を変え、migration 0010の`manual_archive_events`へ同じD1 batch内でappend-only監査を記録する。監査scope triggerと既存id／manual_idへのINSERT置換・更新・削除拒否を設け、revision・step・assetを保持する。保存済みサンプルのアーカイブ後に限り次のサンプルを投入できる。復元・物理削除は今回有効化しない。
+- Entry: cloud一覧の0件空状態と常設panelの2入口に「サンプルを自分のワークスペースに入れる」を設ける。自動投入しない。二重送信、未保存編集、保存・画像・共有処理中をguardし、取り込み中の編集・遷移では`preserveDetail`で詳細を保持する。失敗・結果不明は同じボタンから再試行し、一覧と詳細の`isSample`で「サンプル」を明示する。
+- Next: Museが最新SHAのCI・正式Codex Review・threadと実操作を照合する。merge、deploy、remote migration適用、公開設定の変更は別ゲートとする。
+- Evidence: `cloud-manual-router.ts`、`infra/d1/cloud-manual-repository.ts`、`cloud-manual-assets.ts`、`migrations/0010_d1_manual_archive_events.sql`、`tests/cloud-manual-c.test.mjs`、`tests/sample-manual-import-ui.test.mjs`、`tests/sample-manual-import-browser.test.mjs`、[段階D報告書](sample-mode-stage-d-2026-11-08.md)。
+
+### 2026-11-08: PR #270 仕分け(b)の文言改善
+
+- Status: Accepted
+- Decision: [PR #270の仕分けコメント](https://github.com/hozuo0906/meccha-manual/pull/270#issuecomment-6720273201)の(b)だけを現行main `ec6b8db`へ適合する。一覧・詳細の空状態と読込再試行、記録開始ボタン、記録・復元・終了・取消の指定された失敗案内、画像表示・保存失敗、共有閲覧ボタン、保存成功とAPI文書の用語を揃える。
+- Reason: 結果不明時に記録保持を断定せず、確認対象と次の操作を日本語で案内する。backgroundからpopup／sidepanelへ表示される終了失敗の2文言も同じ範囲に含める。
+- Boundary: 仕様・挙動・認可・保存処理を変更しない。撮影時の自動画像加工を示す表現は採用せず、ADR-0040の無加工画像・利用者確認・手動編集を維持する。(a)の到達済み項目、privacy-note、cloud一覧の空状態ガイド、進行中の記録状態表示、過去の履歴は変更しない。
+- Evidence: [実施報告書](pr270-wording-b-2026-11-08.md)。表示文言を参照する既存テストと資産hash・共有画像編集の生成物を同期する。
 
 ## DEC-116: 手順書のアーカイブからの復元を先に有効化する
 
@@ -830,7 +847,6 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Decision: [ADR-0042](../03-architecture/adrs/ADR-0042-manual-restore-from-archive.md)に従い、archivedかつarchived_atありの手順書をowner/admin/editorがCAS付きRPCで復元する。最新manual.archived監査のpreviousStatusへ正確に戻し、記録なし・不正値・同時刻の矛盾は拒否する。manual.restoredにrestoredStatusとrevision pointerを監査する。
 - Boundary: revision・手順・asset・共有リンクは変更しない。失効していない期限内リンクは再び有効になるためUI確認に明示する。物理削除・自動削除は破壊的操作であり、復元可能性が削除設計の前提条件だったため、復元を先に提供する。削除の猶予・参照順序・監査保持・再試行はOQ-028の未解決として残す。削除無効の間は無期限保持・復元期限なし。通常一覧・詳細の取得境界、RLS、D1実装は変更しない。
 - Verification: SQLの状態復帰・監査・CAS・role・tenant越境・二重復元・監査不明、WorkerのRPC／入力／認証／method境界、UIの編集禁止・確認／取消・再読込を回帰対象にする。通常UIのarchived取得入口は未決としてOQ-028へ残す。
-
 ## DEC-114: Teamの管理責任者移管を専用フローで許可する
 
 - Status: Accepted

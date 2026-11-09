@@ -1,3 +1,26 @@
+## 2026-11-08 PR #298 通常再読込・保存後再取得の入力保持P1修正
+
+Status: Accepted
+
+確認日時: 2026-11-08T22:18:51+09:00（Asia/Tokyo）。branch `codex/sample-mode-stage-d-20261108`、着手HEAD／PR head `5f7e20482487fb88f19cd10a97e17f2b5559d4b6`をGitHub Appとlocal gitで照合。main統合済み。P1 `4506316594`（thread `PRRT_kwDOTpNknc61A5wP`）の実装・検証・同名branchへのcommit／pushが今回の範囲。PR本文編集・レビュー依頼・ゲート操作・mergeは監督側が行う。
+
+- `openManual`共通で取得開始時の編集世代を記録し、既存の処理番号照合と併せて共有情報GET後・本文反映直前に再確認する。入力が進んだ場合は既存の`preserved`経路と「編集中の内容を保持しています。」で詳細・dirty・focus・選択を維持する。保存成功後は取得済み本文との照合を経た更新版・追加手順IDを引き継ぎ、手順選択を保って次の編集・保存を続ける。UX契約・traceabilityとasset hash `sha256-922bb8f3ea59f8ad`を同期した。
+- 追加テストは`tests/cloud-manual-ui-browser.test.mjs`の`cloud manual reload preserves unsaved edits made while share metadata GET is pending`と`cloud manual save preserves unsaved edits made while share metadata GET is pending`。共有GET到達後にタイトル・説明を入力し、未保存状態・離脱保護・focus／文字選択と次の追加・保存を確認する。合成APIと実Chromiumの検証であり、remote環境の証跡ではない。
+- 修正前の実行36554は2/2失敗・exit 1（待機中入力がサーバーのタイトルへ戻るassertion）。修正後69171は2/2成功・exit 0。最終テストを残して対象実装だけを着手HEADとbyte一致で一時復元したmutation実行44445も同じ2件が入力消失で失敗・テストexit 1、finallyで修正版への復元を確認した。最終browser56108は保存・共有・画像編集・サンプル投入を含む7ファイル14/14、fail 0／skip 0／exit 0。
+- 最終全体`npm run check`62694は56 npm段階・Node summary集計839/839、fail 0／skip 0／exit 0、最終encodingまで完走。自己レビューで通常再読込の破棄確認、遅着処理番号、保存結果照合、追加手順IDと選択、サンプル側の保持条件、情報露出を確認した。新しい認可・API・DB・依存・環境変数は追加していない。sandbox内の先行browser起動は制限で停止したため製品の再現失敗として数えず、承認済みsandbox外実行で上記を確認した。
+- 本記録と同時の修正commitをoriginの同名branchへ保存し、local／remote SHA一致を実取得して報告する。Issue #70は本文と最新コメントを実取得済み。次の1マイルストーンは監督側で保存済みheadの正式Review・thread返信／解決・CI・ゲートを照合すること。既存threadは未解決を維持し、今回のローカル成功を正式再レビュー完了に読み替えない。保存・報告後は終了し、自律監視・継続実行は登録しない。以下は過去checkpointとして保持する。
+
+## 2026-11-08 登録後サンプル投入（段階D）
+
+Status: Accepted
+
+確認日時: 2026-11-08T21:13:14+09:00（Asia/Tokyo）。branch `codex/sample-mode-stage-d-20261108`、base／着手HEAD `ec6b8db1b8d66e6df03af88ba7a745442ac8fe6b`（PR #291 merge）。未commit成果物を確認して継続。初回commit `18f4f0888a27236c381e162ff09efc197354f544`をpushしDraft PR #298へ反映済み。正式Review P1と監査の自己レビュー修正はローカル検証済み。本checkpointを含め同じbranchへcommit／pushし、最新headの正式再レビューを別取得する。今回の指示は実装・検証・文書同期・commit／push・Draft PR・正式Codex Review対応まで。merge・deploy・Issue #70書込みは行わない。Issue #70はread-onlyで実取得したが今回の段階Dは未同期のまま監督側へ引き継ぐ。
+
+- active Personal Workspace作成者owner本人の明示POSTで固定6手順・3 PNGを通常claim経路へ正規保存する。予約prefixは公開claimから拒否。再送・同時保存・期限切れpendingを処理し、未アーカイブ既存サンプルは同一IDへ収束。通常D1アーカイブはCAS＋migration 0010のappend-only監査を同じbatchで確定し、アーカイブ後だけ次のサンプルを投入する。DEC-115、API・UX・traceability・D1 schemaを同期した。
+- 空状態＋常設panelの2入口、未保存・処理中guard、二重送信防止、遅延中編集・遷移時の詳細保持、isSample badgeを実装。誤った閲覧専用toggle名の先行失敗を再現し、テストだけを既存cloud幅分岐へ修正した。引継ぎasset version不一致を全体check98397（exit 1）で検出し、実測`sha256-3978951cae4940ed`へ版定数だけ同期した。
+- 対象`test:cloud-manual`は実行56869、66/66。`test:manual-sample:browser`は24671、3/3（投入テストは1366/1024/390pxを完走）。cloud UI/tools/UIUX回帰は8262、4/4。全てfail 0／skip 0／exit 0。全体check30145はexit 0、56 npm段階（本体＋55直下script）完走、Node summary集計796/796・fail 0／skip 0、最終encodingまで成功。docs 156／secret 473／encoding 401件。browserはcheck外の別証跡。[段階D報告書](sample-mode-stage-d-2026-11-08.md)に先行失敗と実環境注記を分けて記録した。
+- 初回Reviewed commit `18f4f0888a`のP1 `4506141316`はGET遅延中入力の保持不足。反映直前の編集世代・処理状態再照合と3待機位置×3幅の回帰を追加した。監査のINSERT OR REPLACE欠陥も再現修正しmigration 0010へINSERT拒否triggerを追加。最終asset hashは`sha256-42104b39a3e4f956`。最終対象unit/API18662は67/67、sample browser36246は4/4、cloud／共有browser47743は8/8。最終全体check70549は56 npm段階・797/797・fail 0／skip 0／exit 0、docs156／secret473／encoding407。依存欠落による先行停止と復旧、所有者情報保持の拒否、fsync＋SQLite write probe 2連続成功は報告書に記録した。正式再レビューとthread返信／解決を別取得する。main `85b9c4b`とのhandoff先頭追加競合により通常PR CIは未実行で、main統合は行っていない。
+- 次の1マイルストーンはMuseによるmainとのhandoff競合解消・最新headのCI実行・正式Review／thread／SHA再照合と利用者受入。remote SSO、D1/R2へのmigration適用、Access policy、人のscreen readerは未実施。artifactとnode_modules symlinkは保持してcommit対象外とする。保存・報告後は終了し、自律監視・終了後の継続実行は登録しない。以下の過去checkpointは保持する。
 ## 2026-11-08 Teamの管理責任者移管（DEC-114）
 
 Status: Accepted

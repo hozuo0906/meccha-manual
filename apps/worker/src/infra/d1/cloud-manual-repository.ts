@@ -38,6 +38,7 @@ export interface StagedAssetRecord {
 
 export interface ManualListRecord {
   id: string;
+  isSample: boolean;
   workspaceId: string;
   title: string;
   status: ManualStatus;
@@ -134,6 +135,7 @@ interface StagedAssetRow {
 
 interface ManualDetailRow {
   id: string;
+  is_sample: number;
   workspace_id: string;
   title: string;
   status: ManualStatus;
@@ -153,6 +155,12 @@ interface ManualDetailRow {
 }
 
 const ACTIVE_ROLES = "('owner','admin','editor','viewer')";
+// Reserved for server-created sample claims; public claim operations reject this prefix.
+export const SAMPLE_OPERATION_PREFIX = "sample_manual_v1_";
+const SAMPLE_PROVENANCE_SQL = `EXISTS (SELECT 1 FROM claim_intents sample
+  WHERE sample.workspace_id = m.workspace_id AND sample.manual_id = m.id
+    AND sample.status = 'completed' AND sample.target_manual_id IS NULL
+    AND substr(sample.operation_id, 1, ${SAMPLE_OPERATION_PREFIX.length}) = '${SAMPLE_OPERATION_PREFIX}')`;
 
 function repositoryError(error: unknown): D1RepositoryError {
   return ensureRepositoryError(error);
@@ -179,6 +187,33 @@ function mapClaimIntent(row: ClaimIntentRow): ClaimIntentRecord {
 export class CloudManualRepository {
   private readonly db: D1DatabaseLike;
   constructor(db: D1DatabaseLike) { this.db = db; }
+
+  async requirePersonalWorkspaceOwner(actorId: string, workspaceId: string): Promise<void> {
+    try {
+      const row = await this.db.prepare(`SELECT w.id FROM workspaces w
+        JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.application_id = ?1
+        JOIN identities i ON i.application_id = wm.application_id
+        WHERE w.id = ?2 AND w.created_by = ?1 AND w.workspace_kind = 'personal'
+          AND w.status = 'active' AND wm.status = 'active' AND wm.role = 'owner' AND i.status = 'active' LIMIT 1`)
+        .bind(actorId, workspaceId).first();
+      if (!row) throw new D1RepositoryError("forbidden");
+    } catch (error) { throw repositoryError(error); }
+  }
+
+  async latestSampleClaim(actorId: string, workspaceId: string): Promise<{ id: string; archivedAt: string | null } | null> {
+    try {
+      return await this.db.prepare(`SELECT c.id, m.archived_at AS archivedAt FROM claim_intents c
+        JOIN workspaces w ON w.id = c.workspace_id
+        JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.application_id = ?1
+        JOIN identities i ON i.application_id = wm.application_id
+        LEFT JOIN manuals m ON m.id = c.manual_id AND m.workspace_id = c.workspace_id
+        WHERE c.actor_application_id = ?1 AND c.workspace_id = ?2
+          AND substr(c.operation_id, 1, length(?3)) = ?3 AND c.target_manual_id IS NULL
+          AND w.created_by = ?1 AND w.workspace_kind = 'personal' AND w.status = 'active'
+          AND wm.role = 'owner' AND wm.status = 'active' AND i.status = 'active'
+        ORDER BY c.rowid DESC LIMIT 1`).bind(actorId, workspaceId, SAMPLE_OPERATION_PREFIX).first();
+    } catch (error) { throw repositoryError(error); }
+  }
 
   async getWorkspaceRole(actorId: string, workspaceId: string): Promise<CloudManualRole | null> {
     try {
@@ -352,14 +387,14 @@ export class CloudManualRepository {
 
   async listManuals(actorId: string, workspaceId: string): Promise<ManualListRecord[]> {
     try {
-      const result = await this.db.prepare(`SELECT m.id, m.workspace_id, m.title, m.status, m.current_draft_revision_id, m.current_published_revision_id, m.updated_at
+      const result = await this.db.prepare(`SELECT m.id, m.workspace_id, m.title, m.status, m.current_draft_revision_id, m.current_published_revision_id, m.updated_at, ${SAMPLE_PROVENANCE_SQL} AS is_sample
         FROM manuals m JOIN workspace_members wm ON wm.workspace_id = m.workspace_id
        JOIN identities i ON i.application_id = wm.application_id JOIN workspaces w ON w.id = wm.workspace_id
        WHERE wm.application_id = ?1 AND wm.workspace_id = ?2 AND wm.status = 'active' AND i.status = 'active' AND w.status = 'active'
          AND wm.role IN ${ACTIVE_ROLES} AND m.archived_at IS NULL
-       ORDER BY m.updated_at DESC, m.id ASC LIMIT 201`).bind(actorId, workspaceId).all<ManualListRecord & { updated_at?: string; current_draft_revision_id?: string | null; current_published_revision_id?: string | null; workspace_id?: string }>();
+       ORDER BY m.updated_at DESC, m.id ASC LIMIT 201`).bind(actorId, workspaceId).all<ManualListRecord & { is_sample?: number; updated_at?: string; current_draft_revision_id?: string | null; current_published_revision_id?: string | null; workspace_id?: string }>();
       if (result.results.length > 200) throw new D1RepositoryError("limit_exceeded");
-      return result.results.map((row) => ({ id: row.id, workspaceId: row.workspace_id ?? workspaceId, title: row.title, status: row.status, currentDraftRevisionId: row.current_draft_revision_id ?? null, currentPublishedRevisionId: row.current_published_revision_id ?? null, updatedAt: row.updated_at ?? row.updatedAt }));
+      return result.results.map((row) => ({ id: row.id, isSample: Boolean(row.is_sample), workspaceId: row.workspace_id ?? workspaceId, title: row.title, status: row.status, currentDraftRevisionId: row.current_draft_revision_id ?? null, currentPublishedRevisionId: row.current_published_revision_id ?? null, updatedAt: row.updated_at ?? row.updatedAt }));
     } catch (error) {
       throw repositoryError(error);
     }
@@ -368,7 +403,7 @@ export class CloudManualRepository {
   async getManual(actorId: string, workspaceId: string, manualId: string): Promise<ManualDetailRecord | null> {
     try {
       const row = await this.db.prepare(`
-        SELECT m.id, m.workspace_id, m.title, m.status,
+        SELECT m.id, m.workspace_id, m.title, m.status, ${SAMPLE_PROVENANCE_SQL} AS is_sample,
                m.current_draft_revision_id, m.current_published_revision_id, m.updated_at,
                r.id AS revision_id, r.revision_no, r.title AS revision_title,
                r.description AS revision_description, r.updated_at AS revision_updated_at,
@@ -434,6 +469,7 @@ export class CloudManualRepository {
       } : null;
       return {
         id: row.id,
+        isSample: Boolean(row.is_sample),
         workspaceId: row.workspace_id,
         title: row.title,
         status: row.status,
@@ -637,5 +673,25 @@ export class CloudManualRepository {
     } catch (error) {
       throw repositoryError(error);
     }
+  }
+
+  async archiveManual(actorId: string, workspaceId: string, manualId: string, expectedUpdatedAt: string, now: string): Promise<void> {
+    try {
+      const statements = [
+        this.db.prepare(`UPDATE manuals SET status = 'archived', archived_at = ?1
+          WHERE id = ?2 AND workspace_id = ?3 AND archived_at IS NULL AND updated_at = ?4
+            AND EXISTS (SELECT 1 FROM workspace_members wm JOIN identities i ON i.application_id = wm.application_id
+              JOIN workspaces w ON w.id = wm.workspace_id
+              WHERE wm.workspace_id = ?3 AND wm.application_id = ?5 AND wm.status = 'active'
+                AND wm.role IN ('owner','admin','editor') AND i.status = 'active' AND w.status = 'active')`)
+          .bind(now, manualId, workspaceId, expectedUpdatedAt, actorId),
+        this.db.prepare(`INSERT INTO manual_archive_events (id, workspace_id, manual_id, actor_application_id, action, expected_updated_at, archived_at)
+          SELECT ?1, ?2, m.id, ?3, 'manual.archived', ?4, ?5 FROM manuals m
+          WHERE m.id = ?6 AND m.workspace_id = ?2 AND m.status = 'archived' AND m.archived_at = ?5 AND changes() = 1`)
+          .bind(crypto.randomUUID(), workspaceId, actorId, expectedUpdatedAt, now, manualId)
+      ];
+      const results = await this.db.batch(statements.flatMap(statement => [statement, directChangesStatement(this.db)]));
+      if (directChanged(results[1]) !== 1 || directChanged(results[3]) !== 1) throw new D1RepositoryError("conflict");
+    } catch (error) { throw repositoryError(error); }
   }
 }

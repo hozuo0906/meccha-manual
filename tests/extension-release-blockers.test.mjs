@@ -131,7 +131,7 @@ test("finish keeps a saved draft when opening the editor tab fails", async () =>
     statusResponse: { phase: "recording", restorePending: false }
   });
   await activeAfterLostResponse.elements.get("#finish").listeners.click();
-  assert.match(activeAfterLostResponse.elements.get("#status").textContent, /記録内容はこの端末に保持しています/);
+  assert.match(activeAfterLostResponse.elements.get("#status").textContent, /結果を確認できません/);
   assert.match(activeAfterLostResponse.elements.get("#status").textContent, /もう一度終了してください/);
 
   for (const [label, failedStatus] of [

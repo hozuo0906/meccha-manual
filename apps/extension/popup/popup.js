@@ -79,12 +79,12 @@ function renderCaptureState(state = {}) {
 
   if (waitingForRestore) {
     status.textContent = state.finishFailed
-      ? "記録内容はこの端末に保持しています。画面サイズを元に戻してから、もう一度終了してください。"
-      : "画面サイズを元に戻せませんでした。復元情報は残っています。もう一度復元してください。";
+      ? "記録の終了結果を確認できません。画面サイズを元に戻して、もう一度終了してください。"
+      : "画面サイズの復元結果を確認できません。対象タブを確認して、もう一度復元してください。";
   } else if (state.phase === "reinjection_failed") {
-    status.textContent = "ページ移動後に記録を再開できませんでした。ここまでの記録は保持しています。対象タブで再開するか、ここまでの操作で記録を終了して、手順書を編集してください。";
+    status.textContent = "ページ移動後に記録を再開できませんでした。対象タブで再開するか、ここまでの操作で記録を終了して、手順書を編集してください。";
   } else if (state.phase === "finish_failed") {
-    status.textContent = "終了処理に失敗しましたが、記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    status.textContent = "終了処理の結果を確認できません。対象タブを開いて、もう一度終了してください。";
   } else if (state.phase === "cancel_failed") {
     status.textContent = "キャンセルが完了していません。記録データと復元情報は残っています。もう一度キャンセルしてください。";
   } else if (state.phase === "paused") {
@@ -107,10 +107,10 @@ function finishFailureMessage(state, statusAvailable, draftsState) {
     return "画面を元に戻せませんでした。復元情報は残っています。先に復元してください。";
   }
   if (state?.phase === "finish_failed") {
-    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    return "記録を終了できませんでした。結果を確認できません。対象タブを開いて、もう一度終了してください。";
   }
   if (["recording", "paused", "reinjection_failed"].includes(state?.phase)) {
-    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブの状態を確認して、もう一度終了してください。";
+    return "記録を終了できませんでした。結果を確認できません。対象タブの状態を確認して、もう一度終了してください。";
   }
   return unknownMessage;
 }
@@ -217,7 +217,7 @@ resume.addEventListener("click", () => withBusy(resume, "記録を再開して�
     await send({ type: "capture:resume", tabId: tab?.id });
     renderCaptureState({ recording: true, phase: "recording" });
   } catch (error) {
-    status.textContent = "記録を再開できませんでした。記録内容は保持しています。対象タブを開いて、もう一度お試しください。";
+    status.textContent = "記録を再開できませんでした。結果を確認できません。対象タブを開いて、もう一度お試しください。";
   }
 }));
 
@@ -226,7 +226,7 @@ cancel.addEventListener("click", () => withBusy(cancel, "キャンセルして�
     const result = await send({ type: "capture:cancel" });
     renderCaptureState({ restorePending: result.restorePending });
   } catch {
-    status.textContent = "キャンセルを完了できませんでした。記録データと復元情報は残っています。もう一度お試しください。";
+    status.textContent = "キャンセルの結果を確認できません。対象タブを確認して、もう一度キャンセルしてください。";
   }
 }));
 

@@ -490,10 +490,10 @@ function renderStatus(state = {}, imageEntries = []) {
   // Polling must not collapse the pending status or blur a user reading it.
   if (operationInFlight && !statusOverride && !draftListUnavailable && !liveImagesUnavailable) return;
   if (statusOverride) status.textContent = statusOverride;
-  else if (waitingForRestore) status.textContent = state.finishFailed ? "記録内容は保持しています。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せませんでした。復元情報は残っています。";
+  else if (waitingForRestore) status.textContent = state.finishFailed ? "記録の終了結果を確認できません。画面を元に戻してから、もう一度終了してください。" : "画面を元に戻せません。対象タブを確認して、もう一度復元してください。";
   else if (state.phase === "reinjection_failed") status.textContent = "ページ移動後に記録を再開できません。対象タブで再開するか、記録を終了して編集してください。";
   else if (state.phase === "cancel_failed") status.textContent = "キャンセルが完了していません。もう一度キャンセルしてください。";
-  else if (state.phase === "finish_failed") status.textContent = "記録を終了できませんでした。記録内容はこの端末に保持しています。もう一度終了してください。";
+  else if (state.phase === "finish_failed") status.textContent = "記録を終了できませんでした。結果を確認できません。もう一度終了してください。";
   else if (state.captureLimitReached === "images") status.textContent = "画像の保存上限100件に達しました。記録を終了して手順書として保存してください。";
   else if (state.captureLimitReached === "steps") status.textContent = "手順の上限200件に達しました。記録を終了して手順書として保存してください。";
   else if (state.phase === "paused") status.textContent = "記録を一時停止しています。再開すると続きから記録します。";
@@ -518,10 +518,10 @@ function finishFailureMessage(state, statusAvailable, draftsState) {
     return "画面を元に戻せませんでした。復元情報は残っています。先に復元してください。";
   }
   if (state?.phase === "finish_failed") {
-    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブを開いて、もう一度終了してください。";
+    return "記録を終了できませんでした。結果を確認できません。対象タブを開いて、もう一度終了してください。";
   }
   if (["recording", "paused", "reinjection_failed"].includes(state?.phase)) {
-    return "記録を終了できませんでした。記録内容はこの端末に保持しています。対象タブの状態を確認して、もう一度終了してください。";
+    return "記録を終了できませんでした。結果を確認できません。対象タブの状態を確認して、もう一度終了してください。";
   }
   return unknownMessage;
 }
@@ -781,21 +781,21 @@ pause.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:pause" });
   statusOverride = "";
   await refresh();
-}, "一時停止できませんでした。記録内容は保持しています。", pause, "一時停止しています…"));
+}, "一時停止できませんでした。結果を確認できません。対象タブを確認して、もう一度操作してください。", pause, "一時停止しています…"));
 
 resume.addEventListener("click", () => withError(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await send({ type: "capture:resume", tabId: tab?.id });
   statusOverride = "";
   await refresh();
-}, "記録を再開できませんでした。記録内容は保持しています。", resume, "記録を再開しています…"));
+}, "記録を再開できませんでした。結果を確認できません。対象タブを確認して、もう一度操作してください。", resume, "記録を再開しています…"));
 
 cancel.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:cancel" });
   await refresh();
   statusOverride = "";
   status.textContent = "記録をキャンセルしました。保存済みの下書きは残っています。";
-}, "キャンセルを完了できませんでした。記録データと復元情報は残っています。", cancel, "キャンセルしています…"));
+}, "キャンセルの結果を確認できません。対象タブを確認して、もう一度キャンセルしてください。", cancel, "キャンセルしています…"));
 
 restore.addEventListener("click", () => withError(async () => {
   await send({ type: "capture:restore" });
