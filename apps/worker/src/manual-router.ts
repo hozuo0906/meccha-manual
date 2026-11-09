@@ -461,7 +461,7 @@ function validateExactCount(response: Response, itemCount: number): void {
   }
 }
 
-async function listManuals(request: Request, env: ManualEnv, workspaceId: string): Promise<Response> {
+async function listManuals(request: Request, env: ManualEnv, workspaceId: string, scope: "active" | "archived" = "active"): Promise<Response> {
   const session = await requireSession(request, env);
   await assertWorkspaceMember(env, session.accessToken, session.userId, workspaceId);
 
@@ -475,9 +475,10 @@ async function listManuals(request: Request, env: ManualEnv, workspaceId: string
 
   let response: Response;
   try {
-    response = await supabaseFetch(env, query, session.accessToken, {
-      method: "GET",
-      headers: { prefer: "count=exact" }
+    response = await supabaseFetch(env, scope === "archived" ? "/rest/v1/rpc/list_archived_manuals?limit=1001" : query, session.accessToken, {
+      method: scope === "archived" ? "POST" : "GET",
+      headers: { prefer: "count=exact" },
+      ...(scope === "archived" ? { body: JSON.stringify({ target_workspace_id: workspaceId }) } : {})
     });
   } catch {
     throw new ManualError(502, "MANUALS_FETCH_FAILED", "手順書を取得できませんでした。時間をおいて、もう一度お試しください。");
@@ -502,7 +503,10 @@ async function listManuals(request: Request, env: ManualEnv, workspaceId: string
   }
   validateExactCount(response, payload.length);
 
-  const manuals = payload.map((row) => parseManualRow(row, workspaceId));
+  const manuals = payload.map((row) => {
+    if (scope === "archived" && (row?.status !== "archived" || typeof row?.archived_at !== "string" || Number.isNaN(Date.parse(row.archived_at)))) return null;
+    return parseManualRow(row, workspaceId);
+  });
   if (manuals.some((manual) => manual === null)) {
     throw new ManualError(502, "MANUALS_RESPONSE_INVALID", "手順書一覧を確認できませんでした。時間をおいて、もう一度お試しください。");
   }
@@ -589,7 +593,7 @@ async function createManual(request: Request, env: ManualEnv, workspaceId: strin
 
 export async function handleManualRoute(request: Request, env: ManualEnv): Promise<Response | null> {
   const url = new URL(request.url);
-  const match = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals$/);
+  const match = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/manuals(\/archived)?$/);
   if (!match?.[1]) return null;
 
   try {
@@ -597,8 +601,8 @@ export async function handleManualRoute(request: Request, env: ManualEnv): Promi
     if (!workspaceId) {
       throw new ManualError(404, "MANUALS_NOT_FOUND", "指定された手順書領域が見つかりません。");
     }
-    if (request.method === "GET") return await listManuals(request, env, workspaceId);
-    if (request.method === "POST") return await createManual(request, env, workspaceId);
+    if (request.method === "GET") return await listManuals(request, env, workspaceId, match[2] ? "archived" : "active");
+    if (!match[2] && request.method === "POST") return await createManual(request, env, workspaceId);
     return jsonResponse({ code: "METHOD_NOT_ALLOWED", message: "この操作は利用できません。" }, 405);
   } catch (error) {
     return errorResponse(error);

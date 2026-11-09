@@ -30,6 +30,7 @@ create table public.workspace_members (
 create table public.manuals (
   id uuid primary key,
   workspace_id uuid not null,
+  folder_id uuid,
   title text not null,
   status text not null default 'draft',
   current_draft_revision_id uuid,

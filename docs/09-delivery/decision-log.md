@@ -840,6 +840,18 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Boundary: 仕様・挙動・認可・保存処理を変更しない。撮影時の自動画像加工を示す表現は採用せず、ADR-0040の無加工画像・利用者確認・手動編集を維持する。(a)の到達済み項目、privacy-note、cloud一覧の空状態ガイド、進行中の記録状態表示、過去の履歴は変更しない。
 - Evidence: [実施報告書](pr270-wording-b-2026-11-08.md)。表示文言を参照する既存テストと資産hash・共有画像編集の生成物を同期する。
 
+## DEC-117: レガシーのアーカイブ済み一覧から既存の復元UIへ接続する
+
+- Status: Accepted
+- Date: 2026-11-09
+- Decision: 監督判断により、レガシーのmanual-router / manual-edit-routerとapp UIだけを対象に、通常の手順書一覧へ「アーカイブ済み」のリンクまたは切替を追加する。アーカイブ済みだけの専用取得経路で一覧を表示し、対象を開くと既存詳細画面とDEC-116の復元UIへ接続する。認証・workspace所属・ロールの境界は通常一覧と同じとし、他workspaceの手順書を返さない。
+- Boundary: 通常一覧の`archived_at=is.null`、既存の復元RPC／UIを維持する。新しい復元経路、新規依存・環境変数は追加しない。D1実装は変更せず、D1の復元・専用取得入口、物理削除・自動削除はOQ-028に残す。
+- 失効関係: ADR-0042とDEC-116の「通常UIのアーカイブ一覧・専用取得入口は未決」という設計上の保留だけを本決定で解消する。実装済み・到達可能という意味ではない。
+- 第1ラウンドの停止記録: base `9621b5bf55e01588ca65c2ee83810c1dbff5c796`の`manuals_select_members` RLSは`archived_at IS NULL`を必須とし、`get_manual_edit_detail`も同じ条件で除外する。revision／stepのRLSもarchivedを除外する。既存の利用者sessionを使うWorker変更だけでは一覧・詳細を取得できないため、当時のDB変更禁止指示に従って停止した。
+- 第2ラウンドの方式決定（2026-11-09）: 監督の明示指示により、専用読み取りRPC `list_archived_manuals(target_workspace_id)` と `get_archived_manual_detail(target_workspace_id, target_manual_id)` をmigration `202608180004_phase2_archived_manual_read.sql`で新設する。テーブル定義・既存SELECT RLS・通常詳細RPCは変更しない。第1ラウンドのmigration追加禁止と実装停止は、この範囲について解除する。
+- 認可と根拠: 両RPCは`SECURITY DEFINER`、`STABLE`、空の`search_path`を使い、完全修飾名で参照する。`SECURITY INVOKER`では既存RLSがarchivedと本文を隠すため取得できない。関数所有者権限で読み取る分、関数内で`auth.uid()`と`has_workspace_role`によるactiveなworkspace所属・owner/admin/editor/viewerを必須にし、workspaceと`status = 'archived' AND archived_at IS NOT NULL`を固定する。非member・所属解除・招待中は一覧空／詳細null。PUBLIC・anonのEXECUTEをrevokeしauthenticatedだけに許可する。閲覧にviewerを含め、復元は既存owner/admin/editorだけとする。Workerは既存の利用者access token＋anon keyを使い、迂回用資格情報を追加しない。
+- Evidence: [調査・第2／第3ラウンド実施報告](archived-list-entry-2026-11-09.md)。Workerの専用一覧・詳細とUI接続に加え、専用読み取りSQL negative test、Manual Edit API workflow配線、API／UX・認可境界・トレーサビリティの同期がローカル差分として存在する。実DB実行、実ブラウザ通し検証、CI／正式Review、GitHub保存は未実施で、機能全体の受入完了とはしない。
+
 ## DEC-116: 手順書のアーカイブからの復元を先に有効化する
 
 - Status: Accepted

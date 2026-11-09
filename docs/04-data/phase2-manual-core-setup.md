@@ -27,6 +27,7 @@ supabase/migrations/202608140012_phase2_manual_edit_http_contract.sql
 supabase/migrations/202608180001_phase2_manual_publication.sql
 supabase/migrations/202608180002_phase2_manual_archive.sql
 supabase/migrations/202608180003_phase2_manual_restore.sql
+supabase/migrations/202608180004_phase2_archived_manual_read.sql
 ```
 
 前提migration:
@@ -188,3 +189,11 @@ Phase 2 migration適用後に実行するテスト:
 `202608180002_phase2_manual_archive.sql`の後に`202608180003_phase2_manual_restore.sql`を適用する。restore_manualはworkspace・role・CAS・最新アーカイブ監査を照合し、manual.restoredを記録する。RLS・テーブル定義は変更しない。物理削除・自動削除は有効化しない。remote環境への適用は別release判断とする。
 
 Manual Edit API CIは既存fixture／migrationを順に適用し、archive回帰の後に`tests/sql/phase2-manual-restore-test.sql`を実行する。ローカル`npm run check`にSQL実行は含まれず、実行結果・未実行は個別に記録する。既存preflight evidenceのarchive状態やflowを復元結果で置き換えない。
+
+## アーカイブ済み専用読み取りmigrationの追加（DEC-117、2026-11-09）
+
+restoreの後に`202608180004_phase2_archived_manual_read.sql`を適用する。`list_archived_manuals(target_workspace_id)`と`get_archived_manual_detail(target_workspace_id, target_manual_id)`は`SECURITY DEFINER`／`STABLE`、空の`search_path`と完全修飾名を使う。既存RLSがarchivedを除外するため、専用RPC内部で`auth.uid()`と`has_workspace_role`によるactive所属・owner/admin/editor/viewerを必須にする。workspaceと`status = 'archived' AND archived_at IS NOT NULL`を固定し、非member・removed／invited・未認証は一覧空／詳細null。PUBLIC・anonのEXECUTEをrevokeしauthenticatedだけに許可する。Workerは既存利用者access tokenとanon keyを使う。
+
+viewerも閲覧できるが復元は既存`restore_manual`のowner/admin/editor・CAS境界を維持する。テーブル・既存SELECT RLS・通常詳細RPCは変更しない。詳細はcurrent draft優先／なければcurrent publishedとactive stepsを同じsnapshotから返す。API契約は[phase2-manual-edit-api](../05-api/phase2-manual-edit-api.md)を正とする。
+
+Manual Edit API CIはrestore回帰の後に`tests/sql/phase2-archived-manual-read-test.sql`を実行する。使い捨てfixtureにはRPCが参照する既存製品列`manuals.folder_id uuid`を追加する。これはテスト用schemaの不足補完で、製品テーブル・RLSの変更ではない。ローカルcheckをSQL実行成功とは扱わず、remote適用は別release判断とする。
