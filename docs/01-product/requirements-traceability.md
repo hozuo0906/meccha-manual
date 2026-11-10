@@ -2,6 +2,12 @@
 
 Status: Accepted
 
+## 2026-11-10 Discord interactions到達不能実装の撤去（DEC-118）
+
+| 要求／判断 | 実装・契約 | 検証 |
+|---|---|---|
+| ADR-0012／ADR-0014、OQ-031、DEC-118 | interactions実処理を撤去し、2 exact POST callbackの `503 CALLBACK_MIGRATION_IN_PROGRESS` を維持。C1の再実装契約・Bypass OFF、設定診断、通知・登録・binding・env宣言は維持 | B4は両入口×2 pathのスタブ確認へ縮小。詳細な副作用0・405／404・body・mutation境界は既存Worker runtime試験を維持。結果は[実施報告書](../09-delivery/refactor-slice1-discord-removal-2026-11-10.md)を参照 |
+
 ## 2026-11-09 レガシーのアーカイブ済み一覧・専用詳細（DEC-117）
 
 | 要求／判断 | 実装・契約 | 検証 |

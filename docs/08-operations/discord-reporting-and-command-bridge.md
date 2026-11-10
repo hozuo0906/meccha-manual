@@ -9,6 +9,8 @@ Status: Accepted
 
 ## Current scope
 
+2026-11-10（DEC-118）時点、Discord interactionsは無効化スタブのみで、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。到達不能だった署名検証・コマンド・GitHub Issue作成・PR操作・followup実処理は撤去した。下記の指示受付・対話buttonの処理記述はC1再実装時の契約として保持する。通知スクリプトが対話buttonを表示してもWorkerは処理しない。Webhook通知経路と手動専用の休眠コマンド登録資産、KV binding・env宣言は変更していない。
+
 GitHub ActionsからDiscord WebhookへCI結果を通知する。
 
 対応済み:

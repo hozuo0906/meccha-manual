@@ -15,7 +15,7 @@ Status: Accepted
 | ADR-0009 | Accepted | AI APIは初期OFFにする |
 | ADR-0010 | Superseded | Supabase token前提のWorker cookie auth harness（安全原則はADR-0028へ継承） |
 | ADR-0011 | Accepted | ファイル本体はCloudflare R2。認証・metadataはADR-0028でAccess/D1へ更新 |
-| ADR-0012 | Accepted | Discordからの指示はGitHub Issueへ変換する |
+| ADR-0012 | Partially Superseded | Discordからの指示はGitHub Issueへ変換する |
 | ADR-0013 | Accepted | Cloudflare設定監査を導入する |
 | ADR-0014 | Accepted | Discord runtime bindingの正本を固定する |
 | ADR-0015 | Accepted | Issue label状態機械を採用する |

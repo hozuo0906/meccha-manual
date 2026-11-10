@@ -111,14 +111,6 @@ if (intakeReport.includes("ユーザー承認なしに実装、merge、本番dep
   errors.push("Issue intake report must not use the superseded blanket approval wording.");
 }
 
-const workerSource = await read("apps/worker/src/index.ts");
-for (const token of ["Discordボタンから直接実行せず", "Astra high親PM", "商用リリース後はmergeごとにユーザーの事前承認", "別承認境界に従います"]) {
-  if (!workerSource.includes(token)) errors.push(`Worker merge guidance must include ${token}.`);
-}
-if (workerSource.includes("owner承認を確認してから行います") || workerSource.includes("レビュー、owner承認を確認してからmergeします")) {
-  errors.push("Worker merge guidance must not use the superseded blanket owner-approval wording.");
-}
-
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);

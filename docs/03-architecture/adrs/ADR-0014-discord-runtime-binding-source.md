@@ -32,6 +32,10 @@ Cloudflare Worker varsとして管理するもの:
 - secret値は引き続きGit、Actionsログ、Discord通知、Markdownへ出さない。
 - guild/channel allowlistは環境ごとに違う可能性があるため、現時点では値をGitへ固定しない。
 
-## Follow-up
+## 現状（2026-11-10、DEC-118）
+
+Discord interactionsの実処理は撤去済みで、exact POSTは無効化スタブの `503 CALLBACK_MIGRATION_IN_PROGRESS` のみを返す。binding・env宣言と `/health/config` の設定有無の診断は維持する。診断値はcallbackが利用可能であることを示さない。実KVデータは未確認で、設定撤去はスライス3のstaging実証時に判断する。
+
+## Follow-up（C1再実装時）
 
 Cloudflare Dashboardまたは安全なsync workflowで、`DISCORD_PUBLIC_KEY`、`GITHUB_ISSUE_TOKEN`、`DISCORD_ALLOWED_GUILD_IDS`、`DISCORD_ALLOWED_CHANNEL_IDS` をWorker runtimeへ入れる。
