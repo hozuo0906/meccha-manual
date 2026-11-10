@@ -7,6 +7,10 @@ Status: Accepted
 Discordから開発依頼を送る入口として `/meccha task` を登録する。
 通常のDiscord返信ではなく、Discord InteractionをCloudflare Workerで受けてGitHub Issueへ変換する。
 
+## 現状（2026-11-10、DEC-118）
+
+登録workflow・スクリプトは手動専用の休眠資産として残す。Workerのinteractions実処理は撤去済みで、exact POSTは無効化スタブの `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。コマンド登録だけでは指示受付は利用可能にならない。以下はC1再実装後の運用に備えた手順であり、本スライスでは登録・外部設定変更を行わない。
+
 ## 登録方式
 
 GitHub Actionsの `Discord Register Command` workflowを使う。

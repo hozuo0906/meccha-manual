@@ -231,6 +231,8 @@ runnerはproduction deploy、rollback、DB migration、secret変更をこの契�
 
 ## Discord Interaction contract
 
+現行実装（2026-11-10、DEC-118）は無効化スタブのみ。到達不能だった署名・コマンド・Issue作成・PR操作・followupの実処理は撤去した。以下は独立callbackマイルストーンC1で再実装する際の契約であり、現行の利用可能機能ではない。設定宣言と `/health/config` の診断形状は維持する。
+
 `POST /v1/integrations/discord/interactions` は通常の同一オリジンCSRF検証を通さず、Discord公式のEd25519署名検証を正とする。
 
 - 必須header: `x-signature-ed25519`, `x-signature-timestamp`

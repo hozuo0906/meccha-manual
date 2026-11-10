@@ -1,3 +1,13 @@
+## 2026-11-10 DEC-118: Discord interactions到達不能実装の撤去
+
+Status: Accepted
+
+確認日時: 2026-11-10T08:18:15+09:00（Asia/Tokyo）。branch `codex/refactor-slice1-discord`、着手／ローカルHEAD `2f863864be17b928f4e7f24650a0516d33f79704`（PR #300後）、開始時clean。Issue #70はGitHub Appでread-only取得。ユーザー指定によりcommit・push・PR作成・Issue書込みは行わず、作業ツリーへ残す。成果物状態はローカル修正済み・未pushで、全体checkは不合格。今回はスライス1だけを対象とする。
+
+- 到達不能なinteractions実処理と専用定数・型・ヘルパーを撤去。`index.ts` は750行減、撤去62シンボルの全体参照0件。503スタブ、health診断で使う2ヘルパー、通知・休眠登録・binding・env宣言、DB・認証・共有・Phase 2振り分け・assetは保持した。DEC-118、関連契約・運用・トレーサビリティを同期。
+- B4はスタブ4組＋既存Access認証の5/5、Worker runtime71/71、既存mutation3/3、Worker型検査・diff確認が成功。全体check `65503` はD1 bindingでexit 1、直接 `51903` は2/3成功・Miniflare listen EPERMで1失敗。後続32 scriptの補足実行と残る6失敗、修正済みmarker検査の先行失敗を[報告書](refactor-slice1-discord-removal-2026-11-10.md)に分けて記録。全体・secret検査・実環境・CI／正式Reviewの成功扱いはしない。
+- 次の1マイルストーンは監督の差分検品とGitHub保存、最新SHAのCI／正式Codex Review／thread・品質ゲート照合。Issue #70は今回の成果へ未同期。監督へ引き継いで実装実行は終了し、自律監視・終了後の継続実行は登録しない。以下のcheckpointは履歴として維持する。
+
 ## 2026-11-10 DEC-117: 第3ラウンド再開・契約同期と指定自己検証
 
 Status: Accepted

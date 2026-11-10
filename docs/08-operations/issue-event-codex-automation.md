@@ -9,7 +9,7 @@ Discordから作成されたIssueを15分ポーリングだけに頼らず、Git
 
 ## 全体像
 
-1. Discord Slash CommandまたはGitHub UIからIssueを作成する。
+1. GitHub UIからIssueを作成する。Discord Slash Command経由はDEC-118で無効化スタブのみとなっており、C1再実装・有効化後の経路として残す。
 2. `.github/workflows/issue-event-triage.yml` が `issues.opened`、`issues.reopened`、`issues.edited` で起動する。
 3. `scripts/issue-event-triage.mjs` が初期ラベル、優先度、危険操作候補を判定する。
 4. 危険操作候補がなければ、IssueコメントとDiscord通知で受付結果を知らせる。

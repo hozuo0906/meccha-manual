@@ -35,6 +35,8 @@ Supabase Auth/Postgres/RLSはIssue #176移行前のfrozen baselineである。�
 
 ## Discord
 
+2026-11-10（DEC-118）時点、interactionsは無効化スタブのみで、exact POSTは `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。移行前の実処理は撤去済み。通知Webhook経路、手動コマンド登録、KV binding・env宣言は変更していない。
+
 役割:
 
 - GitHub Actionsから開発報告を通知する。

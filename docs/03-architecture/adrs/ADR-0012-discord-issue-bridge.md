@@ -1,6 +1,8 @@
 # ADR-0012: Discordからの指示はGitHub Issueへ変換する
 
-Status: Accepted
+Status: Partially Superseded
+
+DEC-118（2026-11-10）により、到達不能だった移行前のDiscord interactions実装は撤去した。現行Workerは無効化スタブのみで、exact POSTに `503 CALLBACK_MIGRATION_IN_PROGRESS` を返す。以下の「実装」はC1再実装時の契約であり、現行稼働機能を表さない。KV binding・env宣言、通知・コマンド登録資産は本スライスでは変更しない。
 
 ## 決定
 

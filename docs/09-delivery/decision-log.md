@@ -890,3 +890,13 @@ Status: Superseded（ADR-0040）。以下は旧自動aliasの履歴。
 - Display: manual状態5値の表示は維持し、一覧と基本情報で単一の解決関数を使い、辞書外は「状態不明」とする。手順種別4値もカード／プレビューで解決を統一し、辞書外は画面の「種類」に合わせ「種類不明」とする。継承プロパティを除き辞書のown keyだけを許す。操作種別は固定辞書のoption生成だけ、workspace権限の直接参照は固定配列またはvalidWorkspaceMembersPayloadのallowlist通過後だけであり、欠陥のない箇所は変更しない。
 - Boundary: D1 schema／migration／制約、認証、許可workspace、claim契約、拡張製品コード、依存、環境変数を変更しない。自動マスキング／自動置換や外部AIを追加しない。#231のapp-assets分割は表示解決の局所変更に不要なため対象外とする。
 - Evidence: `tests/onboarding-bootstrap.test.mjs`、`tests/onboarding-bootstrap-mutation.test.mjs`、`tests/onboarding-ui-browser.test.mjs`、`tests/manual-editor-ui.test.mjs`、[実施報告書](acceptance-display-fixes-2026-11-08.md)。
+
+## DEC-118: 到達不能なDiscord interactions実装を撤去する
+
+- Status: Accepted
+- Date: 2026-11-10
+- Decision: `apps/worker/src/index.ts` の到達不能なinteractions実ハンドラと専用の署名・timestamp・allowlist・replay・危険語検知・コマンド・Issue作成・PR操作・followup処理、専用定数・型を撤去する。撤去前の全体参照検索で、実処理は他用途から呼ばれていないことを確認した。
+- Boundary: `DISABLED_CALLBACK_PATHS` による2 exact POSTの `503 CALLBACK_MIGRATION_IN_PROGRESS` と別methodの405を維持する。`splitCsv` と `allowUnscopedDiscordCommands` は `/health/config` で使用中のため残し、診断の応答形状・意味を変えない。通知Webhook、休眠登録workflow・スクリプト、Wrangler binding、env宣言、DB・認証・共有・Phase 2振り分け順は変更しない。KV実データは未確認で、設定撤去はスライス3へ残す。
+- Tests: B4を両入口×2 callback pathの503スタブ確認へ縮小し、同ファイルの既存Access認証ケースと別ファイルの詳細runtime／mutation試験は保持する。既存checkerのうち撤去実装の文字列必須検査だけを除去し、他の品質ゲートは維持する。
+- 失効関係: DEC-016／DEC-019／DEC-021とADR-0012のうち、移行前interactions実処理が現存する前提だけを置き換える。通知・直接merge禁止・一般承認境界とC1再実装時の署名／atomic receipt/work／recovery契約、OQ-031・Bypass OFFは維持する。復活・有効化は本決定で承認しない。
+- Evidence: [実施報告書](refactor-slice1-discord-removal-2026-11-10.md)。ユーザー指定によりcommit・push・PR作成は監督が行い、今回は作業ツリーに成果物を残す。
